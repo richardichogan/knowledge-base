@@ -1,0 +1,38 @@
+include:
+  - template: Security/SAST.gitlab-ci.yml
+
+stages:
+  - lint
+  - test
+  - sast
+  - build
+
+variables:
+  NODE_VERSION: "20"
+
+.node_base:
+  image: node:20-alpine
+  before_script:
+    - npm ci --prefer-offline
+
+lint:
+  extends: .node_base
+  stage: lint
+  script:
+    - npm run typecheck
+    - npm run lint
+  only:
+    - merge_requests
+    - main
+
+build:
+  extends: .node_base
+  stage: build
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 hour
+  only:
+    - main

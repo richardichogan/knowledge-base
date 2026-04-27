@@ -1,0 +1,491 @@
+/**
+ * Typed API client for the Knowledge Hub backend.
+ * Base URL and token come from Vite env vars (VITE_* prefix).
+ */
+
+import axios, { type AxiosInstance } from 'axios';
+import type {
+  ApiResponse,
+  PaginatedList,
+  ContentItemSummary,
+  ChatRequest,
+  ChatResponse,
+  CreateTaskInput,
+  CreateNoteInput,
+  Note,
+  WriteActionProposal,
+} from '../types';
+
+// Use relative base URL so all requests go through the Vite dev proxy.
+const BASE_URL = import.meta.env['VITE_API_URL'] as string | undefined ?? '';
+const TOKEN = import.meta.env['VITE_API_TOKEN'] as string | undefined ?? '';
+
+const TIMEOUT_MS = 8_000;
+
+function makeClient(baseURL: string, token: string): AxiosInstance {
+  return axios.create({
+    baseURL,
+    timeout: TIMEOUT_MS,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token !== '' && { Authorization: `Bearer ${token}` }),
+    },
+  });
+}
+
+export interface TimelineQuery {
+  page?: number;
+  pageSize?: number;
+  source?: string;
+  projectContext?: string;
+  before?: string; // ISO date cursor for day-boundary pagination
+}
+
+export interface SearchQuery {
+  q: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface SourceStatus {
+  source: string;
+  lastSyncAt: string | null;
+  itemCount: number;
+  lastError: string | null;
+  syncCadenceMinutes: number | null;
+  status: 'ok' | 'error' | 'never-synced';
+}
+
+export type DocType = 'blog-draft' | 'spec' | 'newsletter' | 'readme' | 'doc';
+
+export interface DocEntry {
+  id: string;
+  title: string;
+  type: DocType;
+  repo: string;
+  path: string;
+  sourceLabel: string;
+  htmlUrl: string;
+  size: number;
+  tags: string[];
+  taxonomyTagIds?: string[];
+}
+
+export interface DocumentContent {
+  path: string;
+  content: string;
+  sha: string;
+}
+
+export type DiscoverWorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published';
+
+/** Workflow states for CFP items (separate from article workflow) */
+export type CfpWorkflowState = 'to_review' | 'saved' | 'submitted' | 'archived';
+
+export interface CfpItem {
+  id: string;
+  source: 'callingallpapers' | 'adatosystems';
+  conferenceName: string;
+  description: string | null;
+  tags: string[];
+  eventUri: string | null;
+  cfpUri: string;
+  cfpDeadline: string;
+  eventStart: string | null;
+  eventEnd: string | null;
+  location: string | null;
+  isVirtual: boolean;
+  relevanceScore: number | null;
+  relevanceReason: string | null;
+  workflowState: CfpWorkflowState;
+  discoveredAt: string;
+}
+
+export type ProjectColour = 'blue' | 'cyan' | 'teal' | 'purple' | 'green' | 'magenta' | 'warm-gray' | 'gray' | 'red';
+export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
+export type ProjectPriority = 'low' | 'medium' | 'high';
+
+export interface ProjectLink { label: string; url: string; }
+
+export interface Project {
+  id: string;
+  name: string;
+  colour: ProjectColour;
+  category: ProjectCategory;
+  priority: ProjectPriority;
+  description: string;
+  gitlabPaths: string[];
+  githubRepos: string[];
+  links: ProjectLink[];
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RepoTagMapping {
+  id: string;
+  tagId: string;
+  tagName: string;
+  tagColour: string | null;
+  githubRepos: string[];
+  gitlabPaths: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaxonomyTag {
+  id: string;
+  name: string;
+  slug: string;
+  parentId: string | null;
+  colour: string | null;
+  usageCount: number;
+  children?: TaxonomyTag[];
+}
+
+export interface DiscoverItem {
+  id: string;
+  sourceId: string;
+  title: string;
+  url: string | null;
+  description: string | null;
+  publishedAt: string;
+  indexedAt: string;
+  sourceTitle: string;
+  workflowState: DiscoverWorkflowState;
+  relevanceScore: number | null;
+  relevanceExplanation: string | null;
+  /** URL of the user's own blog post written about this article */
+  publishedUrl: string | null;
+}
+
+export class KnowledgeHubApi {
+  private readonly client: AxiosInstance;
+
+  constructor(baseURL = BASE_URL) {
+    this.client = makeClient(baseURL, TOKEN);
+  }
+
+  // ─── Timeline ────────────────────────────────────────────────────────────
+
+  async getTimeline(
+    query: TimelineQuery = {},
+  ): Promise<ApiResponse<PaginatedList<ContentItemSummary>>> {
+    const r = await this.client.get<
+      ApiResponse<PaginatedList<ContentItemSummary>>
+    >('/api/timeline', { params: query });
+    return r.data;
+  }
+
+  // ─── Search ───────────────────────────────────────────────────────────────
+
+  async search(
+    query: SearchQuery,
+  ): Promise<ApiResponse<PaginatedList<ContentItemSummary>>> {
+    const r = await this.client.get<
+      ApiResponse<PaginatedList<ContentItemSummary>>
+    >('/api/search', { params: query });
+    return r.data;
+  }
+
+  // ─── Sources ──────────────────────────────────────────────────────────────
+
+  async getSources(): Promise<ApiResponse<SourceStatus[]>> {
+    const r = await this.client.get<ApiResponse<SourceStatus[]>>('/api/sources');
+    return r.data;
+  }
+
+  async triggerSync(): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>('/api/sources/sync');
+    return r.data;
+  }
+
+  // ─── Notes (Change 002) ───────────────────────────────────────────────────
+
+  async getNotes(
+    page = 1,
+    pageSize = 20,
+  ): Promise<ApiResponse<PaginatedList<Note>>> {
+    const r = await this.client.get<ApiResponse<PaginatedList<Note>>>(
+      '/api/notes',
+      { params: { page, pageSize } },
+    );
+    return r.data;
+  }
+
+  async createNote(input: CreateNoteInput): Promise<ApiResponse<Note>> {
+    const r = await this.client.post<ApiResponse<Note>>('/api/notes', input);
+    return r.data;
+  }
+
+  async deleteNote(id: string): Promise<ApiResponse<void>> {
+    const r = await this.client.delete<ApiResponse<void>>(`/api/notes/${id}`);
+    return r.data;
+  }
+
+  async patchNote(id: string, content: string, tags: string[], projectId?: string): Promise<ApiResponse<Note>> {
+    const body: Record<string, unknown> = { content, tags };
+    if (projectId !== undefined) body['projectId'] = projectId;
+    const r = await this.client.patch<ApiResponse<Note>>(`/api/notes/${id}`, body);
+    return r.data;
+  }
+
+  // ─── Images (Change 003) ──────────────────────────────────────────────────
+
+  async uploadImage(
+    file: File,
+    caption?: string,
+  ): Promise<ApiResponse<{ id: string; blobUrl: string; ocrText?: string }>> {
+    const form = new FormData();
+    form.append('image', file);
+    if (caption !== undefined) form.append('caption', caption);
+    const r = await this.client.post<
+      ApiResponse<{ id: string; blobUrl: string; ocrText?: string }>
+    >('/api/images', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return r.data;
+  }
+
+  // ─── AI Chat ──────────────────────────────────────────────────────────────
+
+  async chat(request: ChatRequest): Promise<ApiResponse<ChatResponse>> {
+    const r = await this.client.post<ApiResponse<ChatResponse>>(
+      '/api/ai/chat',
+      request,
+    );
+    return r.data;
+  }
+
+  async endSession(
+    sessionId: string,
+  ): Promise<ApiResponse<{ summary: string }>> {
+    const r = await this.client.post<ApiResponse<{ summary: string }>>(
+      `/api/ai/session/${sessionId}/end`,
+    );
+    return r.data;
+  }
+
+  async confirmAction(
+    proposalId: string,
+  ): Promise<ApiResponse<WriteActionProposal>> {
+    const r = await this.client.post<ApiResponse<WriteActionProposal>>(
+      '/api/ai/actions/confirm',
+      { proposalId },
+    );
+    return r.data;
+  }
+
+  async cancelAction(
+    proposalId: string,
+  ): Promise<ApiResponse<WriteActionProposal>> {
+    const r = await this.client.post<ApiResponse<WriteActionProposal>>(
+      '/api/ai/actions/cancel',
+      { proposalId },
+    );
+    return r.data;
+  }
+
+  // ─── Taxonomy ─────────────────────────────────────────────────────────────
+
+  async getTaxonomy(): Promise<ApiResponse<TaxonomyTag[]>> {
+    const r = await this.client.get<ApiResponse<TaxonomyTag[]>>('/api/taxonomy');
+    return r.data;
+  }
+
+  async createTag(input: { name: string; parentId?: string | null; colour?: string | null }): Promise<ApiResponse<TaxonomyTag>> {
+    const r = await this.client.post<ApiResponse<TaxonomyTag>>('/api/taxonomy', input);
+    return r.data;
+  }
+
+  async updateTag(id: string, input: { name?: string; colour?: string | null }): Promise<ApiResponse<{ id: string }>> {
+    const r = await this.client.patch<ApiResponse<{ id: string }>>(`/api/taxonomy/${id}`, input);
+    return r.data;
+  }
+
+  async deleteTag(id: string): Promise<ApiResponse<void>> {
+    const r = await this.client.delete<ApiResponse<void>>(`/api/taxonomy/${id}`);
+    return r.data;
+  }
+
+  async getPendingTags(): Promise<ApiResponse<Array<{ suggestion: string; item_id: string; item_title: string }>>> {
+    const r = await this.client.get<ApiResponse<Array<{ suggestion: string; item_id: string; item_title: string }>>>('/api/taxonomy/pending');
+    return r.data;
+  }
+
+  async dismissPendingTag(suggestion: string): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>('/api/taxonomy/pending/dismiss', { suggestion });
+    return r.data;
+  }
+
+  async getNoteTags(noteId: string): Promise<ApiResponse<TaxonomyTag[]>> {
+    const r = await this.client.get<ApiResponse<TaxonomyTag[]>>(`/api/notes/${noteId}/tags`);
+    return r.data;
+  }
+
+  async setNoteTags(noteId: string, tagIds: string[]): Promise<ApiResponse<unknown>> {
+    const r = await this.client.put<ApiResponse<unknown>>(`/api/notes/${noteId}/tags`, { tagIds });
+    return r.data;
+  }
+
+  // ─── Tasks ────────────────────────────────────────────────────────────────
+
+  async getTasks(params?: { status?: string; projectId?: string }): Promise<ApiResponse<unknown>> {
+    const r = await this.client.get<ApiResponse<unknown>>('/api/tasks', { params });
+    return r.data;
+  }
+
+  async createTask(input: CreateTaskInput): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>('/api/tasks', input);
+    return r.data;
+  }
+
+  async updateTask(id: string, input: Record<string, unknown>): Promise<ApiResponse<unknown>> {
+    const r = await this.client.patch<ApiResponse<unknown>>(`/api/tasks/${id}`, input);
+    return r.data;
+  }
+
+  async deleteTask(id: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.delete<ApiResponse<unknown>>(`/api/tasks/${id}`);
+    return r.data;
+  }
+
+  // ─── Projects ─────────────────────────────────────────────────────────────
+
+  async getProjects(): Promise<ApiResponse<Project[]>> {
+    const r = await this.client.get<ApiResponse<Project[]>>('/api/projects');
+    return r.data;
+  }
+
+  async createProject(input: Omit<Project, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<ApiResponse<Project>> {
+    const r = await this.client.post<ApiResponse<Project>>('/api/projects', input);
+    return r.data;
+  }
+
+  async updateProject(id: string, input: Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>): Promise<ApiResponse<Project>> {
+    const r = await this.client.patch<ApiResponse<Project>>(`/api/projects/${id}`, input);
+    return r.data;
+  }
+
+  async deleteProject(id: string): Promise<ApiResponse<void>> {
+    const r = await this.client.delete<ApiResponse<void>>(`/api/projects/${id}`);
+    return r.data;
+  }
+
+  // ─── Repo-Tag Mappings ────────────────────────────────────────────────────
+
+  async getRepoMappings(): Promise<ApiResponse<RepoTagMapping[]>> {
+    const r = await this.client.get<ApiResponse<RepoTagMapping[]>>('/api/repo-mappings');
+    return r.data;
+  }
+
+  async createRepoMapping(input: { tagId: string; githubRepos: string[]; gitlabPaths: string[] }): Promise<ApiResponse<RepoTagMapping>> {
+    const r = await this.client.post<ApiResponse<RepoTagMapping>>('/api/repo-mappings', input);
+    return r.data;
+  }
+
+  async updateRepoMapping(id: string, input: { tagId?: string; githubRepos?: string[]; gitlabPaths?: string[] }): Promise<ApiResponse<RepoTagMapping>> {
+    const r = await this.client.patch<ApiResponse<RepoTagMapping>>(`/api/repo-mappings/${id}`, input);
+    return r.data;
+  }
+
+  async deleteRepoMapping(id: string): Promise<ApiResponse<void>> {
+    const r = await this.client.delete<ApiResponse<void>>(`/api/repo-mappings/${id}`);
+    return r.data;
+  }
+
+  // ─── Tags (Change 007) ────────────────────────────────────────────────────
+
+  async getTags(q?: string): Promise<ApiResponse<string[]>> {
+    const r = await this.client.get<ApiResponse<string[]>>('/api/tags', { params: q ? { q } : {} });
+    return r.data;
+  }
+
+  // ─── IBM Calendar manual import (Change 004) ──────────────────────────────
+
+  async importIbmCalendar(events: unknown[]): Promise<ApiResponse<{ imported: number }>> {
+    const r = await this.client.post<ApiResponse<{ imported: number }>>(
+      '/api/capture/ibm-calendar',
+      { events },
+    );
+    return r.data;
+  }
+
+  // ─── Documents library ───────────────────────────────────────────────────
+
+  async getDocumentLibrary(
+    extraRepos: string[] = [],
+    repoLabels: Record<string, string> = {},
+  ): Promise<ApiResponse<DocEntry[]>> {    const params: Record<string, unknown> = {};
+    if (extraRepos.length > 0) params['repos'] = extraRepos;
+    if (Object.keys(repoLabels).length > 0) params['repoLabels'] = JSON.stringify(repoLabels);
+    const r = await this.client.get<ApiResponse<DocEntry[]>>('/api/documents/library', { params });
+    return r.data;
+  }
+
+  async getDocumentContent(repo: string, path: string): Promise<ApiResponse<DocumentContent>> {
+    const r = await this.client.get<ApiResponse<DocumentContent>>('/api/documents/content', { params: { repo, path } });
+    return r.data;
+  }
+
+  async setDocumentTags(docId: string, tagIds: string[]): Promise<ApiResponse<string[]>> {
+    const r = await this.client.put<ApiResponse<string[]>>('/api/documents/tags', { docId, tagIds });
+    return r.data;
+  }
+
+  // ─── Discover ─────────────────────────────────────────────────────────────
+
+  async getDiscoverFeed(
+    state: DiscoverWorkflowState = 'to-review',
+    source?: string,
+    page = 1,
+    pageSize = 50,
+  ): Promise<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>> {
+    const r = await this.client.get<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>>(
+      '/api/discover',
+      { params: { state, source, page, pageSize } },
+    );
+    return r.data;
+  }
+
+  async getDiscoverSources(): Promise<ApiResponse<Array<{ title: string; count: number }>>> {
+    const r = await this.client.get<ApiResponse<Array<{ title: string; count: number }>>>('/api/discover/sources');
+    return r.data;
+  }
+
+  async updateDiscoverWorkflow(id: string, state: DiscoverWorkflowState): Promise<ApiResponse<unknown>> {
+    const r = await this.client.patch<ApiResponse<unknown>>(`/api/discover/${id}/workflow`, { state });
+    return r.data;
+  }
+
+  async updateDiscoverPublishedUrl(id: string, publishedUrl: string | null): Promise<ApiResponse<unknown>> {
+    const r = await this.client.patch<ApiResponse<unknown>>(`/api/discover/${id}/published-url`, { publishedUrl });
+    return r.data;
+  }
+
+  // ─── CFPs ─────────────────────────────────────────────────────────────────
+
+  async getCfpItems(
+    workflowState: CfpWorkflowState = 'to_review',
+    limit = 50,
+    offset = 0,
+  ): Promise<ApiResponse<CfpItem[]>> {
+    const r = await this.client.get<ApiResponse<CfpItem[]>>('/api/cfps', {
+      params: { workflow_state: workflowState, limit, offset },
+    });
+    return r.data;
+  }
+
+  async updateCfpState(id: string, state: CfpWorkflowState): Promise<ApiResponse<unknown>> {
+    const r = await this.client.put<ApiResponse<unknown>>(`/api/cfps/${id}/state`, { state });
+    return r.data;
+  }
+
+  async triggerCfpSync(): Promise<ApiResponse<{ indexed: number; errors: number }>> {
+    const r = await this.client.post<ApiResponse<{ indexed: number; errors: number }>>('/api/cfps/sync');
+    return r.data;
+  }
+}
+
+/** Singleton instance — used by all React Query hooks. */
+export const api = new KnowledgeHubApi();
