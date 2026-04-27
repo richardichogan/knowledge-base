@@ -235,6 +235,9 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
   const [isSyncing, setIsSyncing] = useState(false);
   const queryClient = useQueryClient();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastSyncTsRef = useRef<number>(0);
+  const loadPageRef = useRef<((p: number) => Promise<void>) | null>(null);
+  const pageRef = useRef<number>(1);
 
   // Live sources query — refetches every 10s passively, every 5s while a sync is running
   const { data: sourcesData } = useQuery({
@@ -243,6 +246,22 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
     refetchInterval: isSyncing ? 5_000 : 10_000,
     staleTime: 0,
   });
+
+  // Auto-refresh timeline when background scheduler completes a sync
+  React.useEffect(() => {
+    if (!sourcesData?.success) return;
+    const latest = Math.max(0, ...sourcesData.data.map((s: SourceStatus) => new Date(s.lastSyncAt ?? 0).getTime()));
+    if (lastSyncTsRef.current === 0) {
+      lastSyncTsRef.current = latest;
+      return;
+    }
+    if (latest > lastSyncTsRef.current) {
+      lastSyncTsRef.current = latest;
+      if (!isSyncing && loadPageRef.current) {
+        void loadPageRef.current(pageRef.current);
+      }
+    }
+  }, [sourcesData, isSyncing]);
 
   function stopPolling(): void {
     if (pollRef.current !== null) {
@@ -315,6 +334,10 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
       setLoading(false);
     }
   }, []);
+
+  // Keep refs in sync so the background-sync effect can call loadPage
+  loadPageRef.current = loadPage;
+  pageRef.current = page;
 
   React.useEffect(() => { void loadPage(1); }, [loadPage]);
 
