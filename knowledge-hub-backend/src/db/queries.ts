@@ -1,0 +1,241 @@
+import type { Pool, QueryResult } from 'pg';
+import type { ContentItem, ContentItemSummary } from '../types/index.js';
+
+// ── Content items ─────────────────────────────────────────────────────────────
+
+/**
+ * Upserts a content item into the index.
+ * Uses (source, source_id) as the conflict key.
+ */
+export async function upsertContentItem(
+  db: Pool,
+  item: Omit<ContentItem, 'id' | 'indexedAt'>,
+): Promise<void> {
+  const sql = `
+    INSERT INTO content_items
+      (source, source_id, title, summary, body, published_at, url, project_context, metadata, tags)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (source, source_id) DO UPDATE SET
+      title          = EXCLUDED.title,
+      summary        = EXCLUDED.summary,
+      body           = EXCLUDED.body,
+      published_at   = EXCLUDED.published_at,
+      url            = EXCLUDED.url,
+      project_context = EXCLUDED.project_context,
+      metadata       = EXCLUDED.metadata,
+      tags           = EXCLUDED.tags,
+      indexed_at     = NOW()
+  `;
+  await db.query(sql, [
+    item.source,
+    item.sourceId,
+    item.title,
+    item.summary,
+    item.body,
+    item.publishedAt,
+    item.url ?? null,
+    item.projectContext,
+    JSON.stringify(item.metadata),
+    item.tags,
+  ]);
+}
+
+/** Returns paginated timeline items ordered by published_at DESC. */
+export async function queryTimeline(
+  db: Pool,
+  options: {
+    source?: string;
+    projectContext?: string;
+    page?: number;
+    pageSize: number;
+    before?: string; // ISO date cursor — fetch items published before this datetime
+  },
+): Promise<{ items: ContentItemSummary[]; total: number }> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let paramIndex = 1;
+
+  if (options.source) {
+    conditions.push(`ci.source = $${paramIndex++}`);
+    params.push(options.source);
+  }
+  if (options.projectContext) {
+    conditions.push(`ci.project_context = $${paramIndex++}`);
+    params.push(options.projectContext);
+  }
+  if (options.before) {
+    conditions.push(`ci.published_at < $${paramIndex++}`);
+    params.push(options.before);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  // When using cursor-based pagination, skip the expensive COUNT
+  const total = options.before
+    ? -1
+    : parseInt(
+        (await db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ci ${where}`, params))
+          .rows[0]?.count ?? '0',
+        10,
+      );
+
+  // Legacy offset pagination (page param) or cursor pagination (before param)
+  const offset = options.before ? 0 : ((options.page ?? 1) - 1) * options.pageSize;
+  const dataParams = [...params, options.pageSize, offset];
+
+  const dataResult: QueryResult<ContentItemRow> = await db.query(
+    `SELECT ci.id, ci.source, ci.source_id, ci.title, ci.summary, ci.published_at, ci.indexed_at,
+            ci.url, ci.project_context, ci.metadata, ci.tags,
+            array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids
+     FROM content_items ci
+     LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
+     ${where}
+     GROUP BY ci.id
+     ORDER BY ci.published_at DESC
+     LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+    dataParams,
+  );
+
+  return { items: dataResult.rows.map(rowToSummary), total };
+}
+
+/** Full-text search using PostgreSQL tsvector. */
+export async function searchContentItems(
+  db: Pool,
+  query: string,
+  options: { source?: string; page: number; pageSize: number },
+): Promise<{ items: ContentItemSummary[]; total: number }> {
+  const conditions = [`search_vector @@ plainto_tsquery('english', $1)`];
+  const params: unknown[] = [query];
+  let paramIndex = 2;
+
+  if (options.source) {
+    conditions.push(`source = $${paramIndex++}`);
+    params.push(options.source);
+  }
+
+  const where = `WHERE ${conditions.join(' AND ')}`;
+  const offset = (options.page - 1) * options.pageSize;
+
+  const countResult: QueryResult<{ count: string }> = await db.query(
+    `SELECT COUNT(*) AS count FROM content_items ${where}`,
+    params,
+  );
+  const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+  const dataParams = [...params, options.pageSize, offset];
+  const dataResult: QueryResult<ContentItemRow> = await db.query(
+    `SELECT id, source, source_id, title, summary, published_at, indexed_at,
+            url, project_context, metadata, tags,
+            ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
+     FROM content_items ${where}
+     ORDER BY rank DESC, published_at DESC
+     LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+    dataParams,
+  );
+
+  return { items: dataResult.rows.map(rowToSummary), total };
+}
+
+/** Retrieves top-N relevant items for RAG context. */
+export async function getRagItems(
+  db: Pool,
+  query: string,
+  limit: number,
+): Promise<ContentItem[]> {
+  const result: QueryResult<ContentItemRow & { body: string }> = await db.query(
+    `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
+            url, project_context, metadata, tags,
+            ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
+     FROM content_items
+     WHERE search_vector @@ plainto_tsquery('english', $1)
+     ORDER BY rank DESC, published_at DESC
+     LIMIT $2`,
+    [query, limit],
+  );
+  return result.rows.map(rowToItem);
+}
+
+// ── Sync state ────────────────────────────────────────────────────────────────
+
+export async function getSyncState(
+  db: Pool,
+  source: string,
+): Promise<{ lastSyncAt: Date | null; lastCursor: string | null } | null> {
+  const result = await db.query<{ last_sync_at: Date | null; last_cursor: string | null }>(
+    `SELECT last_sync_at, last_cursor FROM sync_state WHERE source = $1`,
+    [source],
+  );
+  const row = result.rows[0];
+  if (row === undefined) return null;
+  return { lastSyncAt: row.last_sync_at, lastCursor: row.last_cursor };
+}
+
+export async function upsertSyncState(
+  db: Pool,
+  source: string,
+  updates: { lastSyncAt?: Date; lastCursor?: string; itemCount?: number; lastError?: string | null },
+): Promise<void> {
+  await db.query(
+    `INSERT INTO sync_state (source, last_sync_at, last_cursor, item_count, last_error, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (source) DO UPDATE SET
+       last_sync_at = COALESCE($2, sync_state.last_sync_at),
+       last_cursor  = COALESCE($3, sync_state.last_cursor),
+       item_count   = COALESCE($4, sync_state.item_count),
+       last_error   = $5,
+       updated_at   = NOW()`,
+    [
+      source,
+      updates.lastSyncAt ?? null,
+      updates.lastCursor ?? null,
+      updates.itemCount ?? null,
+      updates.lastError ?? null,
+    ],
+  );
+}
+
+// ── Row mapping ───────────────────────────────────────────────────────────────
+
+interface ContentItemRow {
+  id: string;
+  source: string;
+  source_id: string;
+  title: string;
+  summary: string;
+  body?: string;
+  published_at: Date;
+  indexed_at: Date;
+  url: string | null;
+  project_context: string;
+  metadata: unknown;
+  tags: string[];
+  taxonomy_tag_ids: string[] | null;
+}
+
+function rowToSummary(row: ContentItemRow): ContentItemSummary {
+  const base: ContentItemSummary = {
+    id: row.id,
+    source: row.source as ContentItemSummary['source'],
+    sourceId: row.source_id,
+    title: row.title,
+    summary: row.summary,
+    publishedAt: row.published_at.toISOString(),
+    indexedAt: row.indexed_at.toISOString(),
+    projectContext: row.project_context as ContentItemSummary['projectContext'],
+    metadata: row.metadata as Record<string, unknown>,
+    tags: row.tags,
+    taxonomyTagIds: row.taxonomy_tag_ids ?? [],
+  };
+  if (row.url !== null) {
+    base.url = row.url;
+  }
+  return base;
+}
+
+function rowToItem(row: ContentItemRow & { body: string }): ContentItem {
+  return {
+    ...rowToSummary(row),
+    body: row.body,
+  };
+}

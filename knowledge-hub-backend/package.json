@@ -1,0 +1,51 @@
+{
+  "name": "knowledge-hub-backend",
+  "version": "0.1.0",
+  "description": "Personal Knowledge Hub — Node.js/Express/TypeScript backend",
+  "private": true,
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "node --import tsx/esm --watch src/server.ts",
+    "lint": "eslint 'src/**/*.ts' --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "migrate": "node --import tsx/esm src/db/migrate.ts",
+    "validate:ibm-calendar": "node --import tsx/esm scripts/validate-ibm-calendar.ts"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.4.1",
+    "@azure/storage-blob": "^12.24.0",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@opentelemetry/api": "^1.9.0",
+    "@types/mailparser": "^3.4.6",
+    "compression": "^1.7.4",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.1",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "fast-xml-parser": "^4.4.1",
+    "helmet": "^7.1.0",
+    "imapflow": "^1.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "mailparser": "^3.9.8",
+    "pg": "^8.12.0",
+    "winston": "^3.13.1"
+  },
+  "devDependencies": {
+    "@types/compression": "^1.7.5",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.16.0",
+    "@types/pg": "^8.11.6",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "tsx": "^4.15.0",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "type": "module"
+}

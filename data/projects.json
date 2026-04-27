@@ -1,0 +1,217 @@
+[
+  {
+    "id": "structara-ai",
+    "name": "Structara AI",
+    "colour": "purple",
+    "category": "side-hustle",
+    "description": "AI-powered architecture diagramming tool",
+    "gitlabPaths": [
+      "structara-group/Structara-AI"
+    ],
+    "githubRepos": [],
+    "links": [],
+    "tags": [
+      "ai",
+      "architecture",
+      "saas"
+    ],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:19:49.424Z",
+    "priority": "high"
+  },
+  {
+    "id": "ibm-thought-leadership",
+    "name": "IBM Thought Leadership",
+    "colour": "blue",
+    "category": "work",
+    "description": "IBM thought leadership content, speaking and hackathons",
+    "gitlabPaths": [],
+    "githubRepos": [],
+    "links": [],
+    "tags": [
+      "ibm",
+      "content",
+      "eminence"
+    ],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:26:11.021Z",
+    "priority": "high"
+  },
+  {
+    "id": "microsoft-cloud-blog",
+    "name": "Microsoft Cloud Blog",
+    "colour": "teal",
+    "category": "personal",
+    "description": "The Microsoft Cloud Blog \u2014 themicrosoftcloudblog.com",
+    "gitlabPaths": [],
+    "githubRepos": [
+      "richardichogan/themicrosoftcloudblog"
+    ],
+    "links": [],
+    "tags": [
+      "content",
+      "blog",
+      "microsoft"
+    ],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:21:28.646Z",
+    "priority": "medium"
+  },
+  {
+    "id": "blog-site",
+    "name": "Blog Site",
+    "colour": "cyan",
+    "category": "personal",
+    "description": "Personal blog site",
+    "gitlabPaths": [],
+    "githubRepos": [
+      "richardichogan/BlogSite"
+    ],
+    "links": [],
+    "tags": [
+      "content",
+      "blog"
+    ],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:19:49.424Z",
+    "priority": "low"
+  },
+  {
+    "id": "neli-blog",
+    "name": "Neli Blog",
+    "colour": "cyan",
+    "category": "side-hustle",
+    "description": "Neli Hogan's blog site",
+    "gitlabPaths": [],
+    "githubRepos": [
+      "richardichogan/neli-blog"
+    ],
+    "links": [],
+    "tags": [
+      "content",
+      "blog"
+    ],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:21:42.897Z",
+    "priority": "low"
+  },
+  {
+    "id": "techbytes",
+    "name": "TechBytes",
+    "colour": "cyan",
+    "category": "work",
+    "description": "TechBytes content site",
+    "gitlabPaths": [],
+    "githubRepos": [
+      "richardichogan/TechBytes"
+    ],
+    "links": [],
+    "tags": [
+      "content"
+    ],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:21:49.914Z",
+    "priority": "medium"
+  },
+  {
+    "id": "acre",
+    "name": "ACRE",
+    "colour": "green",
+    "category": "work",
+    "description": "ACRE project",
+    "gitlabPaths": [],
+    "githubRepos": [
+      "richardichogan/ACRE"
+    ],
+    "links": [],
+    "tags": [],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:19:49.424Z",
+    "priority": "medium"
+  },
+  {
+    "id": "ifa-project",
+    "name": "IFA Project",
+    "colour": "green",
+    "category": "side-hustle",
+    "description": "IFA project",
+    "gitlabPaths": [],
+    "githubRepos": [
+      "richardichogan/ifa-project"
+    ],
+    "links": [],
+    "tags": [],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:22:07.912Z",
+    "priority": "medium"
+  },
+  {
+    "id": "msft-partner-dashboard",
+    "name": "MSFT Partner Dashboard",
+    "colour": "blue",
+    "category": "work",
+    "description": "Microsoft partner dashboard",
+    "gitlabPaths": [],
+    "githubRepos": [
+      "richardichogan/msft-partner-dashboard"
+    ],
+    "links": [],
+    "tags": [
+      "microsoft"
+    ],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:19:49.424Z",
+    "priority": "medium"
+  },
+  {
+    "id": "content-pipeline",
+    "name": "Content Pipeline",
+    "colour": "magenta",
+    "category": "side-hustle",
+    "description": "Content pipeline automation",
+    "gitlabPaths": [
+      "richardhogan/content-pipeline"
+    ],
+    "githubRepos": [],
+    "links": [],
+    "tags": [
+      "automation",
+      "content"
+    ],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:19:49.424Z",
+    "priority": "medium"
+  },
+  {
+    "id": "healthwise",
+    "name": "Healthwise",
+    "colour": "green",
+    "category": "side-hustle",
+    "description": "Healthwise project",
+    "gitlabPaths": [
+      "richardhogan/Healthwise"
+    ],
+    "githubRepos": [],
+    "links": [],
+    "tags": [],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:22:18.895Z",
+    "priority": "low"
+  },
+  {
+    "id": "imagine",
+    "name": "IMAGINE",
+    "colour": "gray",
+    "category": "work",
+    "description": "",
+    "gitlabPaths": [
+      "IBM-Project-Imagine/mvp-demo"
+    ],
+    "githubRepos": [],
+    "links": [],
+    "tags": [],
+    "createdAt": "2026-04-13T18:23:59.697Z",
+    "updatedAt": "2026-04-13T18:23:59.697Z",
+    "priority": "medium"
+  }
+]
