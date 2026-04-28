@@ -39,6 +39,8 @@ export function createApp(): express.Application {
 
   // ── Body parsing ──────────────────────────────────────────────────────────
   app.use(express.json({ limit: '1mb' }));
+  // Raw binary for image uploads — must be registered before the JSON middleware catches it
+  app.use('/api/images', express.raw({ type: 'image/*', limit: '20mb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   app.use(

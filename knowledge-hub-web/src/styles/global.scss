@@ -1285,7 +1285,7 @@ input, textarea {
 // Two-panel root layout
 .notes-root {
   flex: 1;
-  min-height: 0; // required so flex child can scroll/clip correctly
+  min-height: 0;
   display: flex;
   gap: 0;
   overflow: hidden;
@@ -1571,6 +1571,10 @@ input, textarea {
 .notes-editor-inner {
   max-width: 680px;
   margin: 0 auto;
+
+  @media (min-width: 1400px) {
+    max-width: 100%;
+  }
 
   .bn-editor {
     background: var(--cds-background);
@@ -3063,6 +3067,13 @@ input, textarea {
   margin-top: 6px;
 
   &:hover { text-decoration: underline; }
+}
+
+.dc-published-url-error {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--cds-support-error);
+  margin-top: 4px;
 }
 
 // ── Plan page ─────────────────────────────────────────────────────────────────

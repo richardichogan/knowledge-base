@@ -9,7 +9,6 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import type { Readable } from 'stream';
 import { BlobServiceClient } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
 import { getDb } from '../db/db.js';
@@ -79,20 +78,14 @@ async function runOcr(imageBuffer: Buffer): Promise<string> {
 }
 
 // ── POST /api/images ───────────────────────────────────────────────────────────
-// Expects multipart/form-data with field `image` (binary) and optional `caption`.
+// Expects raw binary body with Content-Type: image/*
 
 router.post('/', (req: Request, res: Response): void => {
   void (async (): Promise<void> => {
     const db = getDb();
 
-    // Collect raw body chunks (multer not used — keep zero extra deps)
-    const chunks: Buffer[] = [];
-    await new Promise<void>((resolve, reject) => {
-      (req as unknown as Readable).on('data', (chunk: Buffer) => chunks.push(chunk));
-      (req as unknown as Readable).on('end', resolve);
-      (req as unknown as Readable).on('error', reject);
-    });
-    const rawBody = Buffer.concat(chunks);
+    // express.raw() puts the buffer directly on req.body
+    const rawBody = req.body instanceof Buffer ? req.body : Buffer.from([]);
 
     if (rawBody.length === 0) {
       throw new ValidationError('image body is empty', { image: 'required' });
@@ -116,7 +109,7 @@ router.post('/', (req: Request, res: Response): void => {
     const blobUrl = blockBlob.url;
 
     // Run OCR
-    const ocrText = await runOcr(rawBody);
+    const ocrText = await runOcr(rawBody as Buffer<ArrayBufferLike>);
 
     // Persist to database
     const result = await db.query<{

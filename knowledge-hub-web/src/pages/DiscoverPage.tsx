@@ -167,13 +167,18 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
   const queryClient = useQueryClient();
   const [value, setValue] = useState(item.publishedUrl ?? '');
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: (url: string | null) => api.updateDiscoverPublishedUrl(item.id, url),
     onSuccess: () => {
       setSaved(true);
+      setError(null);
       setTimeout(() => setSaved(false), 2000);
       void queryClient.invalidateQueries({ queryKey: ['discover'] });
+    },
+    onError: (err: unknown) => {
+      setError(err instanceof Error ? err.message : 'Save failed');
     },
   });
 
@@ -209,6 +214,7 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
           <Launch size={12} /> View post
         </a>
       )}
+      {error !== null && <span className="dc-published-url-error">{error}</span>}
     </div>
   );
 };

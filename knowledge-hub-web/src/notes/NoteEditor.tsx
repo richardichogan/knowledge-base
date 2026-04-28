@@ -96,12 +96,24 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       initialContent: parsedInitial as any,
       uploadFile: async (file: File): Promise<string> => {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => { resolve(reader.result as string); };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+        // Upload to blob storage via backend — returns a permanent URL
+        // instead of storing base64 inline (which breaks on 2+ images due to 1mb body limit)
+        const arrayBuffer = await file.arrayBuffer();
+        const response = await fetch(
+          `${import.meta.env['VITE_API_BASE_URL'] ?? ''}/api/images`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': file.type || 'application/octet-stream',
+              'Authorization': `Bearer ${localStorage.getItem('kh_token') ?? ''}`,
+            },
+            body: arrayBuffer,
+          },
+        );
+        if (!response.ok) throw new Error(`Image upload failed: ${response.status.toString()}`);
+        const json = await response.json() as { success: boolean; data?: { blobUrl: string } };
+        if (!json.success || json.data === undefined) throw new Error('Image upload returned no URL');
+        return json.data.blobUrl;
       },
     },
     [doc.id],
