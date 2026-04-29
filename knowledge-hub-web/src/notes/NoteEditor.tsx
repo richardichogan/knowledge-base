@@ -8,6 +8,7 @@ import { useCreateBlockNote } from '@blocknote/react';
 import '@blocknote/mantine/style.css';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
+import { CreateTaskFromSelectionModal } from './CreateTaskFromSelectionModal';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import {
@@ -65,6 +66,7 @@ function formatDateTime(iso: string): string {
 export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [createTaskSelection, setCreateTaskSelection] = useState<string | null>(null);
 
   // Taxonomy tags for this note
   const { data: noteTagObjects = [] } = useNoteTags(doc.id);
@@ -250,6 +252,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}
+              onCreateTask={(text) => { setCreateTaskSelection(text); }}
             />
           </div>
         </div>
@@ -343,6 +346,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
         onClose={() => { setGithubModalOpen(false); }}
         onConfirm={(fp, msg) => { void handleGitHubConfirm(fp, msg); }}
       />
+
+      {createTaskSelection !== null && (
+        <CreateTaskFromSelectionModal
+          selectedText={createTaskSelection}
+          onClose={() => { setCreateTaskSelection(null); }}
+          onCreated={(taskTitle) => {
+            setCreateTaskSelection(null);
+            setNotification({ kind: 'success', msg: `Task created: ${taskTitle}` });
+            setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS * 2);
+          }}
+        />
+      )}
     </div>
   );
 };

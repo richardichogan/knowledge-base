@@ -98,6 +98,8 @@ export const RANDOM_ID_SLICE_END = 8;
 export const OCR_MAX_POLLS = 10;
 /** Interval between OCR polls in ms. */
 export const OCR_POLL_INTERVAL_MS = 1_000;
+/** Years until image SAS token expires. */
+export const IMAGE_SAS_EXPIRY_YEARS = 10;
 
 // ── AI ────────────────────────────────────────────────────────────────────────
 

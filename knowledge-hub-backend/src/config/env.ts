@@ -47,6 +47,8 @@ export const env = {
   // Azure Blob (CMS) — Managed Identity in production, conn string for local dev
   AZURE_BLOB_ACCOUNT_URL: optional('AZURE_BLOB_ACCOUNT_URL'),
   AZURE_STORAGE_CONNECTION_STRING: optional('AZURE_STORAGE_CONNECTION_STRING'),
+  AZURE_STORAGE_ACCOUNT_NAME: optional('AZURE_STORAGE_ACCOUNT_NAME'),
+  AZURE_STORAGE_ACCOUNT_KEY: optional('AZURE_STORAGE_ACCOUNT_KEY'),
   CMS_BLOB_CONTAINER: optionalWithDefault('CMS_BLOB_CONTAINER', 'blogcontent'),
   CMS_POSTS_PREFIX: optionalWithDefault('CMS_POSTS_PREFIX', 'posts/'),
 

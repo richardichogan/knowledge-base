@@ -9,11 +9,11 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { BlobServiceClient } from '@azure/storage-blob';
+import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
-import { HTTP_STATUS, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, RANDOM_ID_RADIX, RANDOM_ID_SLICE_START, RANDOM_ID_SLICE_END, OCR_MAX_POLLS, OCR_POLL_INTERVAL_MS } from '../config/constants.js';
+import { HTTP_STATUS, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, RANDOM_ID_RADIX, RANDOM_ID_SLICE_START, RANDOM_ID_SLICE_END, OCR_MAX_POLLS, OCR_POLL_INTERVAL_MS, IMAGE_SAS_EXPIRY_YEARS } from '../config/constants.js';
 import { BlobStorageError, ValidationError } from '../types/index.js';
 import type { ApiSuccess, PaginatedList, KnowledgeImage } from '../types/index.js';
 
@@ -101,12 +101,33 @@ router.post('/', (req: Request, res: Response): void => {
     // Upload to Azure Blob Storage
     const service = getBlobService();
     const container = service.getContainerClient(KB_IMAGES_CONTAINER);
-    await container.createIfNotExists({ access: 'blob' });
     const blockBlob = container.getBlockBlobClient(blobName);
     await blockBlob.uploadData(rawBody, {
       blobHTTPHeaders: { blobContentType: req.headers['content-type'] ?? 'application/octet-stream' },
     });
-    const blobUrl = blockBlob.url;
+
+    // Generate a long-lived SAS URL so the image is accessible in the browser
+    // without the container being public. Requires storage account name + key.
+    let blobUrl: string;
+    const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
+    const accountKey = env.AZURE_STORAGE_ACCOUNT_KEY;
+    if (accountName !== undefined && accountKey !== undefined) {
+      const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
+      const expiresOn = new Date();
+      expiresOn.setFullYear(expiresOn.getFullYear() + IMAGE_SAS_EXPIRY_YEARS);
+      const sasToken = generateBlobSASQueryParameters(
+        {
+          containerName: KB_IMAGES_CONTAINER,
+          blobName,
+          permissions: BlobSASPermissions.parse('r'),
+          expiresOn,
+        },
+        sharedKeyCredential,
+      ).toString();
+      blobUrl = `${blockBlob.url}?${sasToken}`;
+    } else {
+      blobUrl = blockBlob.url;
+    }
 
     // Run OCR
     const ocrText = await runOcr(rawBody as Buffer<ArrayBufferLike>);
