@@ -38,9 +38,9 @@ export function createApp(): express.Application {
   app.use(cors({ origin: process.env['CORS_ORIGIN'] ?? '*' }));
 
   // ── Body parsing ──────────────────────────────────────────────────────────
+  // Raw binary for image uploads — MUST come before express.json so binary bodies aren't parsed as JSON
+  app.use('/api/images', express.raw({ type: '*/*', limit: '20mb' }));
   app.use(express.json({ limit: '1mb' }));
-  // Raw binary for image uploads — must be registered before the JSON middleware catches it
-  app.use('/api/images', express.raw({ type: 'image/*', limit: '20mb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   app.use(

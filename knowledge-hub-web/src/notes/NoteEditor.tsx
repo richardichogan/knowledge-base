@@ -105,7 +105,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
             method: 'POST',
             headers: {
               'Content-Type': file.type || 'application/octet-stream',
-              'Authorization': `Bearer ${localStorage.getItem('kh_token') ?? ''}`,
+              'Authorization': `Bearer ${(import.meta.env['VITE_API_TOKEN'] as string | undefined) ?? ''}`,
             },
             body: arrayBuffer,
           },
