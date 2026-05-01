@@ -38,6 +38,20 @@
     "priority": "high"
   },
   {
+    "id": "ibm-msft-practice",
+    "name": "IBM / MSFT Practice",
+    "colour": "blue",
+    "category": "work",
+    "description": "IBM and Microsoft partnership practice work",
+    "gitlabPaths": [],
+    "githubRepos": [],
+    "links": [],
+    "tags": ["ibm", "microsoft", "practice"],
+    "createdAt": "2026-04-13T18:19:49.424Z",
+    "updatedAt": "2026-04-13T18:19:49.424Z",
+    "priority": "high"
+  },
+  {
     "id": "microsoft-cloud-blog",
     "name": "Microsoft Cloud Blog",
     "colour": "teal",
@@ -115,10 +129,10 @@
   },
   {
     "id": "acre",
-    "name": "ACRE",
+    "name": "ATOM",
     "colour": "green",
     "category": "work",
-    "description": "ACRE project",
+    "description": "ATOM project (formerly ACRE)",
     "gitlabPaths": [],
     "githubRepos": [
       "richardichogan/ACRE"
@@ -131,10 +145,10 @@
   },
   {
     "id": "ifa-project",
-    "name": "IFA Project",
+    "name": "NELFIN",
     "colour": "green",
     "category": "side-hustle",
-    "description": "IFA project",
+    "description": "NELFIN project (formerly IFA Project)",
     "gitlabPaths": [],
     "githubRepos": [
       "richardichogan/ifa-project"

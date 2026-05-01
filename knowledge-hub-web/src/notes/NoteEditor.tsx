@@ -102,7 +102,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
         // instead of storing base64 inline (which breaks on 2+ images due to 1mb body limit)
         const arrayBuffer = await file.arrayBuffer();
         const response = await fetch(
-          `${import.meta.env['VITE_API_BASE_URL'] ?? ''}/api/images`,
+          `${(import.meta.env['VITE_API_URL'] as string | undefined) ?? ''}/api/images`,
           {
             method: 'POST',
             headers: {

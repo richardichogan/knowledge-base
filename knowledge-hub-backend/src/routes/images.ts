@@ -8,29 +8,18 @@
  * set, OCR is skipped and ocrText is stored as an empty string.
  */
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
+import { randomUUID } from 'node:crypto';
 import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
-import { DefaultAzureCredential } from '@azure/identity';
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
-import { HTTP_STATUS, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, RANDOM_ID_RADIX, RANDOM_ID_SLICE_START, RANDOM_ID_SLICE_END, OCR_MAX_POLLS, OCR_POLL_INTERVAL_MS, IMAGE_SAS_EXPIRY_YEARS } from '../config/constants.js';
+import { HTTP_STATUS, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, OCR_MAX_POLLS, OCR_POLL_INTERVAL_MS, IMAGE_SAS_EXPIRY_YEARS, BLOB_UPLOAD_TIMEOUT_MS } from '../config/constants.js';
 import { BlobStorageError, ValidationError } from '../types/index.js';
 import type { ApiSuccess, PaginatedList, KnowledgeImage } from '../types/index.js';
 
 const router = Router();
 
 const KB_IMAGES_CONTAINER = 'kb-images';
-
-/** Returns a BlobServiceClient using Managed Identity (prod) or conn string (dev). */
-function getBlobService(): BlobServiceClient {
-  if (env.AZURE_BLOB_ACCOUNT_URL !== undefined) {
-    return new BlobServiceClient(env.AZURE_BLOB_ACCOUNT_URL, new DefaultAzureCredential());
-  }
-  if (env.AZURE_STORAGE_CONNECTION_STRING !== undefined) {
-    return BlobServiceClient.fromConnectionString(env.AZURE_STORAGE_CONNECTION_STRING);
-  }
-  throw new BlobStorageError('init', 'No Azure Blob credentials configured');
-}
 
 /** Calls Azure AI Vision Read API to extract text from an image buffer. */
 async function runOcr(imageBuffer: Buffer): Promise<string> {
@@ -80,8 +69,8 @@ async function runOcr(imageBuffer: Buffer): Promise<string> {
 // ── POST /api/images ───────────────────────────────────────────────────────────
 // Expects raw binary body with Content-Type: image/*
 
-router.post('/', (req: Request, res: Response): void => {
-  void (async (): Promise<void> => {
+router.post('/', (req: Request, res: Response, next: NextFunction): void => {
+  (async (): Promise<void> => {
     const db = getDb();
 
     // express.raw() puts the buffer directly on req.body
@@ -94,40 +83,44 @@ router.post('/', (req: Request, res: Response): void => {
     // Parse caption from query string (multipart form handling is minimal here)
     const caption = typeof req.query['caption'] === 'string' ? req.query['caption'] : '';
 
-    // Generate a deterministic blob name
-    const imageId = `img-${Date.now().toString()}-${Math.random().toString(RANDOM_ID_RADIX).slice(RANDOM_ID_SLICE_START, RANDOM_ID_SLICE_END)}`;
-    const blobName = `${imageId}`;
+    // Generate a UUID for both blob name and DB primary key
+    const imageId = randomUUID();
+    const blobName = imageId;
 
-    // Upload to Azure Blob Storage
-    const service = getBlobService();
-    const container = service.getContainerClient(KB_IMAGES_CONTAINER);
-    const blockBlob = container.getBlockBlobClient(blobName);
-    await blockBlob.uploadData(rawBody, {
-      blobHTTPHeaders: { blobContentType: req.headers['content-type'] ?? 'application/octet-stream' },
-    });
-
-    // Generate a long-lived SAS URL so the image is accessible in the browser
-    // without the container being public. Requires storage account name + key.
-    let blobUrl: string;
+    // Build blob client from account name + key directly (no connection string).
     const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
     const accountKey = env.AZURE_STORAGE_ACCOUNT_KEY;
-    if (accountName !== undefined && accountKey !== undefined) {
-      const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
-      const expiresOn = new Date();
-      expiresOn.setFullYear(expiresOn.getFullYear() + IMAGE_SAS_EXPIRY_YEARS);
-      const sasToken = generateBlobSASQueryParameters(
-        {
-          containerName: KB_IMAGES_CONTAINER,
-          blobName,
-          permissions: BlobSASPermissions.parse('r'),
-          expiresOn,
-        },
-        sharedKeyCredential,
-      ).toString();
-      blobUrl = `${blockBlob.url}?${sasToken}`;
-    } else {
-      blobUrl = blockBlob.url;
+    if (accountName === undefined || accountKey === undefined) {
+      throw new BlobStorageError('config', 'AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY must be set');
     }
+    const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
+    const service = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, sharedKeyCredential);
+    console.log('[images] Built blob service client');
+    const container = service.getContainerClient(KB_IMAGES_CONTAINER);
+    const blockBlob = container.getBlockBlobClient(blobName);
+    console.log('[images] Got block blob client, url:', blockBlob.url.split('?')[0]);
+
+    const uploadAbort = AbortSignal.timeout(BLOB_UPLOAD_TIMEOUT_MS);
+    await blockBlob.uploadData(rawBody, {
+      blobHTTPHeaders: { blobContentType: req.headers['content-type'] ?? 'application/octet-stream' },
+      abortSignal: uploadAbort,
+    });
+    console.log('[images] Upload complete');
+
+    // Generate a long-lived SAS URL so the image is accessible in the browser
+    // without the container being public.
+    const expiresOn = new Date();
+    expiresOn.setFullYear(expiresOn.getFullYear() + IMAGE_SAS_EXPIRY_YEARS);
+    const sasToken = generateBlobSASQueryParameters(
+      {
+        containerName: KB_IMAGES_CONTAINER,
+        blobName,
+        permissions: BlobSASPermissions.parse('r'),
+        expiresOn,
+      },
+      sharedKeyCredential,
+    ).toString();
+    const blobUrl = `${blockBlob.url}?${sasToken}`;
 
     // Run OCR
     const ocrText = await runOcr(rawBody as Buffer<ArrayBufferLike>);
@@ -170,13 +163,16 @@ router.post('/', (req: Request, res: Response): void => {
       },
     };
     res.status(HTTP_STATUS.CREATED).json(body);
-  })();
+  })().catch((err: unknown) => {
+    console.error('[images] POST handler error:', err);
+    next(err);
+  });
 });
 
 // ── GET /api/images ────────────────────────────────────────────────────────────
 
-router.get('/', (req: Request, res: Response): void => {
-  void (async (): Promise<void> => {
+router.get('/', (req: Request, res: Response, next: NextFunction): void => {
+  (async (): Promise<void> => {
     const db = getDb();
     const page = Math.max(1, parseInt(String(req.query['page'] ?? '1'), 10));
     const pageSize = Math.min(
@@ -220,7 +216,10 @@ router.get('/', (req: Request, res: Response): void => {
       data: { items: images, total, page, pageSize, hasMore: offset + images.length < total },
     };
     res.status(HTTP_STATUS.OK).json(body);
-  })();
+  })().catch((err: unknown) => {
+    console.error('[images] GET handler error:', err);
+    next(err);
+  });
 });
 
 export { router as imagesRouter };

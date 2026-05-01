@@ -297,3 +297,7 @@ CREATE TABLE IF NOT EXISTS cfp_items (
 CREATE INDEX IF NOT EXISTS idx_cfp_items_workflow   ON cfp_items (workflow_state);
 CREATE INDEX IF NOT EXISTS idx_cfp_items_deadline   ON cfp_items (cfp_deadline);
 CREATE INDEX IF NOT EXISTS idx_cfp_items_discovered ON cfp_items (discovered_at DESC);
+
+
+-- Migration 015: add target_url to task_links (idempotent)
+ALTER TABLE task_links ADD COLUMN IF NOT EXISTS target_url TEXT NOT NULL DEFAULT '';

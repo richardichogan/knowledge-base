@@ -170,8 +170,12 @@ router.get('/library', (req: Request, res: Response, next: NextFunction): void =
             taxonomyTagIds: [],
           });
         }
-      } catch {
-        // content-store inaccessible — continue
+      } catch (err) {
+        // Don't silently hide — surface as a clear server error so the UI knows
+        console.error('[documents] content-store fetch failed:', err);
+        throw new Error(
+          `Failed to load content-store from GitHub. Check GITHUB_ACCESS_TOKEN — original error: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
 
       // 2. Project repos — docs/ folder and README.md only

@@ -1,12 +1,16 @@
 import { SYNC_CADENCE_MINUTES, DEFAULT_SYNC_CADENCE_MINUTES, MS_PER_MINUTE, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
 import { runTier1Sync } from './syncOrchestrator.js';
+import { archiveCompletedTasks } from '../services/taskArchiveService.js';
 
 /**
  * Simple interval-based scheduler for sync jobs.
  * One timer per source group — cadence defined in constants.ts.
  * Call start() once on server startup.
  */
+
+const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+const MS_PER_DAY  = 24 * MS_PER_HOUR;
 
 const timers: ReturnType<typeof setInterval>[] = [];
 
@@ -38,6 +42,17 @@ export function startSyncScheduler(): void {
   );
 
   console.warn(`[Scheduler] Tier 1 sync scheduled every ${cadenceMinutes} minutes`);
+
+  // Archive completed tasks nightly (runs once per day)
+  timers.push(
+    setInterval(() => {
+      archiveCompletedTasks(db).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error('[Scheduler] Task archive job failed:', message);
+      });
+    }, MS_PER_DAY),
+  );
+  console.warn('[Scheduler] Task archive job scheduled daily');
 }
 
 /** Clears all scheduled timers. Call on graceful shutdown. */

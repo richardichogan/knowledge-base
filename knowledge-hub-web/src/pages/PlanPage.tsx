@@ -9,7 +9,7 @@
 
 import React, { useState } from 'react';
 import type { CarbonIconType } from '@carbon/icons-react';
-import { Calendar, Dashboard } from '@carbon/icons-react';
+import { Calendar, Dashboard, Upload } from '@carbon/icons-react';
 import { CalendarPage } from './CalendarPage';
 import { TasksPage } from './TasksPage';
 
@@ -27,31 +27,44 @@ const VIEW_TABS: ViewTab[] = [
 ];
 
 export const PlanPage: React.FC = () => {
-  const [view, setView] = useState<PlanView>('board');  // default to board
+  const [view, setView] = useState<PlanView>('board');
+  const [importOpen, setImportOpen] = useState(false);
 
   return (
     <div className="plan-root">
       {/* Shared header */}
       <div className="plan-header page-header">
         <h1 className="page-title">Plan</h1>
-        <div className="plan-view-toggle">
-          {VIEW_TABS.map(({ key, label, Icon }) => (
+        <div className="plan-header__right">
+          {view === 'board' && (
             <button
-              key={key}
-              className={`plan-view-btn${view === key ? ' plan-view-btn--active' : ''}`}
-              onClick={() => { setView(key); }}
+              type="button"
+              className="kb-import-btn"
+              onClick={() => setImportOpen(true)}
+              title="Import tasks from a podcast episode"
             >
-              <Icon size={16} />
-              {label}
+              <Upload size={16} /> Import episode
             </button>
-          ))}
+          )}
+          <div className="plan-view-toggle">
+            {VIEW_TABS.map(({ key, label, Icon }) => (
+              <button
+                key={key}
+                className={`plan-view-btn${view === key ? ' plan-view-btn--active' : ''}`}
+                onClick={() => { setView(key); }}
+              >
+                <Icon size={16} />
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Sub-page — .page-header inside is hidden via CSS */}
       <div className="plan-inner">
         {view === 'calendar' && <CalendarPage />}
-        {view === 'board'    && <TasksPage />}
+        {view === 'board'    && <TasksPage onImportOpen={() => setImportOpen(true)} importOpen={importOpen} onImportClose={() => setImportOpen(false)} />}
       </div>
     </div>
   );

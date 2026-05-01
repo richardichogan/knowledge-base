@@ -14,12 +14,12 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading, Tag } from '@carbon/react';
-import { Document, Launch } from '@carbon/icons-react';
+import { Document, Launch, ChevronDown, ChevronRight } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { DocEntry, DocType } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { TagPicker } from '../components/TagPicker';
-import { useFlatTags, useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
+import { useFlatTags, useTaxonomy } from '../hooks/useTaxonomy';
 
 // ── Source config ─────────────────────────────────────────────────────────────
 
@@ -124,18 +124,64 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-// ── Local tag storage ─────────────────────────────────────────────────────────
+// ── DocCard component ─────────────────────────────────────────────────────────
+
+const DocCard: React.FC<{
+  doc: DocEntry;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}> = ({ doc, selectedId, onSelect }) => (
+  <button
+    className={`docs-list-item${selectedId === doc.id ? ' docs-list-item--active' : ''}`}
+    onClick={() => { onSelect(doc.id); }}
+  >
+    <div className="docs-list-item__top">
+      <span className="docs-list-item__title">{doc.title}</span>
+      <span className="docs-type-badge">{TYPE_LABEL[doc.type]}</span>
+    </div>
+    <div className="docs-list-item__meta">
+      <span className="docs-list-item__size">{formatBytes(doc.size)}</span>
+    </div>
+  </button>
+);
+
+// ── DocSection component ──────────────────────────────────────────────────────
+
+const DocSection: React.FC<{
+  label: string;
+  colour?: string | null;
+  count: number;
+  children: React.ReactNode;
+}> = ({ label, colour, count, children }) => {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="docs-section">
+      <button
+        className="docs-section-header"
+        onClick={() => { setOpen((o) => !o); }}
+        aria-expanded={open}
+        ref={(el) => { if (el && colour) el.style.setProperty('--section-colour', colour); }}
+      >
+        <span className="docs-section-chevron">
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </span>
+        {colour && <span className="docs-section-dot" />}
+        <span className="docs-section-label">{label}</span>
+        <span className="docs-section-count">{count}</span>
+      </button>
+      {open && <div className="docs-section-body">{children}</div>}
+    </div>
+  );
+};
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export const DocumentsPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeTagIds, setActiveTagIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
-  // Optimistic overrides: docId → tagIds (updated immediately on change before refetch)
   const [tagOverrides, setTagOverrides] = useState<Map<string, string[]>>(new Map());
   const qc = useQueryClient();
 
-  // ── Fetch unified library ──────────────────────────────────────────────────
   const { data: libraryData, isPending: libraryPending } = useQuery({
     queryKey: ['documents-library'],
     queryFn: () => api.getDocumentLibrary(EXTRA_REPOS, REPO_LABELS),
@@ -144,48 +190,64 @@ export const DocumentsPage: React.FC = () => {
 
   const allDocs: DocEntry[] = useMemo(() => {
     const docs = libraryData?.success === true ? libraryData.data : [];
-    // Apply optimistic tag overrides
     return docs.map((d) => tagOverrides.has(d.id) ? { ...d, taxonomyTagIds: tagOverrides.get(d.id)! } : d);
   }, [libraryData, tagOverrides]);
 
-  // Taxonomy hooks
-  const { data: taxonomyTree = [] } = useTaxonomy();
   const flatTags = useFlatTags();
+  const { data: taxonomyTree = [] } = useTaxonomy();
 
-  // Filter by active taxonomy tag IDs + search query
-  const visibleDocs = useMemo(() => {
-    let docs = activeTagIds.size === 0
-      ? allDocs
-      : allDocs.filter((doc) => {
-          const docTagIds = doc.taxonomyTagIds ?? [];
-          // For each selected tag, expand to include its children
-          return [...activeTagIds].some((selectedId) => {
-            const matchIds = expandTagIds(selectedId, taxonomyTree);
-            return docTagIds.some((id) => matchIds.has(id));
-          });
-        });
-    if (searchQuery.trim() !== '') {
-      const q = searchQuery.toLowerCase();
-      docs = docs.filter((doc) =>
-        doc.title.toLowerCase().includes(q) ||
-        doc.sourceLabel.toLowerCase().includes(q) ||
-        doc.path.toLowerCase().includes(q),
+  // Derive a colour for each sourceLabel by fuzzy-matching against taxonomy tag names
+  const sourceLabelColours = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const doc of allDocs) {
+      if (map.has(doc.sourceLabel)) continue;
+      const lower = doc.sourceLabel.toLowerCase();
+      const match = flatTags.find((t) =>
+        lower.includes(t.name.toLowerCase()) ||
+        t.name.toLowerCase().includes((lower.split(' ')[0]) ?? ''),
       );
+      if (match?.colour) map.set(doc.sourceLabel, match.colour);
     }
-    return docs;
-  }, [allDocs, activeTagIds, searchQuery, taxonomyTree]);
+    return map;
+  }, [allDocs, flatTags]);
 
-  function toggleTagId(id: string): void {
-    setActiveTagIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
+  // Group docs by sourceLabel (or flat list when searching)
+  const grouped = useMemo(() => {
+    const isSearching = searchQuery.trim() !== '';
+    if (isSearching) {
+      const q = searchQuery.toLowerCase();
+      return {
+        isSearching: true,
+        flat: allDocs.filter((d) =>
+          d.title.toLowerCase().includes(q) ||
+          d.sourceLabel.toLowerCase().includes(q) ||
+          d.path.toLowerCase().includes(q),
+        ),
+        sections: [] as Array<{ label: string; colour: string | null; docs: DocEntry[] }>,
+      };
+    }
+    const sectionMap = new Map<string, DocEntry[]>();
+    for (const doc of allDocs) {
+      const arr = sectionMap.get(doc.sourceLabel) ?? [];
+      arr.push(doc);
+      sectionMap.set(doc.sourceLabel, arr);
+    }
+    const sections = [...sectionMap.entries()]
+      .sort(([a], [b]) => {
+        if (a === 'Content Store') return -1;
+        if (b === 'Content Store') return 1;
+        return a.localeCompare(b);
+      })
+      .map(([label, docs]) => ({
+        label,
+        colour: sourceLabelColours.get(label) ?? null,
+        docs,
+      }));
+    return { isSearching: false, flat: [], sections };
+  }, [allDocs, searchQuery, sourceLabelColours]);
 
   const selectedDoc = allDocs.find((d) => d.id === selectedId) ?? null;
 
-  // ── Tag save handler ───────────────────────────────────────────────────────
   const handleDocTagChange = useCallback(async (ids: string[]) => {
     if (!selectedDoc) return;
     setTagOverrides((prev) => new Map([...prev, [selectedDoc.id, ids]]));
@@ -201,7 +263,6 @@ export const DocumentsPage: React.FC = () => {
     }
   }, [selectedDoc, qc]);
 
-  // ── Fetch selected document content ───────────────────────────────────────
   const { data: contentData, isPending: contentPending } = useQuery({
     queryKey: ['document-content', selectedDoc?.repo, selectedDoc?.path],
     queryFn: () => api.getDocumentContent(selectedDoc!.repo, selectedDoc!.path),
@@ -216,42 +277,22 @@ export const DocumentsPage: React.FC = () => {
 
   return (
     <div className="docs-page">
-      {/* ── Header ── */}
       <div className="page-header">
         <div className="page-title-group">
           <h1 className="page-title">Library</h1>
           {allDocs.length > 0 && (
             <p className="page-subtitle">
               {allDocs.length} document{allDocs.length !== 1 ? 's' : ''}
-              {(activeTagIds.size > 0 || searchQuery.trim() !== '') && ` · ${visibleDocs.length} shown`}
+              {searchQuery.trim() !== '' && ` · ${grouped.flat.length} shown`}
             </p>
           )}
         </div>
       </div>
 
-      {/* ── Three-panel body ── */}
       <div className="docs-body">
 
-        {/* ── Left: document list ── */}
+        {/* ── Left: grouped document list ── */}
         <div className="docs-list-panel">
-
-          {/* Taxonomy tag filter */}
-          {taxonomyTree.length > 0 && (
-            <div className="docs-tag-filter">
-              {taxonomyTree.map((parent) => (
-                <button
-                  key={parent.id}
-                  className={`docs-tag-chip${activeTagIds.has(parent.id) ? ' docs-tag-chip--active' : ''}`}
-                  onClick={() => { toggleTagId(parent.id); }}
-                  ref={(el) => { if (el && parent.colour) el.style.setProperty('--chip-colour', parent.colour); }}
-                >
-                  {parent.name}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Search */}
           <div className="docs-search">
             <input
               type="search"
@@ -265,29 +306,28 @@ export const DocumentsPage: React.FC = () => {
           {libraryPending && <InlineLoading description="Loading documents…" className="docs-loading" />}
 
           <div className="docs-list">
-            {visibleDocs.map((doc) => (
-              <button
-                key={doc.id}
-                className={`docs-list-item${selectedId === doc.id ? ' docs-list-item--active' : ''}`}
-                onClick={() => { setSelectedId(doc.id); }}
-              >
-                <div className="docs-list-item__top">
-                  <span className="docs-list-item__title">{doc.title}</span>
-                  <span className="docs-type-badge">
-                    {TYPE_LABEL[doc.type]}
-                  </span>
-                </div>
-                <div className="docs-list-item__meta">
-                  <span className="docs-list-item__source">{doc.sourceLabel}</span>
-                  <span className="docs-list-item__size">{formatBytes(doc.size)}</span>
-                </div>
-              </button>
-            ))}
-
-            {!libraryPending && visibleDocs.length === 0 && (
-              <p className="docs-empty">
-                {activeTagIds.size > 0 ? 'No documents match the selected tags.' : 'No documents found.'}
-              </p>
+            {grouped.isSearching ? (
+              <>
+                {grouped.flat.map((doc) => (
+                  <DocCard key={doc.id} doc={doc} selectedId={selectedId} onSelect={setSelectedId} />
+                ))}
+                {grouped.flat.length === 0 && (
+                  <p className="docs-empty">No documents match "{searchQuery}"</p>
+                )}
+              </>
+            ) : (
+              <>
+                {grouped.sections.map(({ label, colour, docs }) => (
+                  <DocSection key={label} label={label} colour={colour} count={docs.length}>
+                    {docs.map((doc) => (
+                      <DocCard key={doc.id} doc={doc} selectedId={selectedId} onSelect={setSelectedId} />
+                    ))}
+                  </DocSection>
+                ))}
+                {!libraryPending && grouped.sections.length === 0 && (
+                  <p className="docs-empty">No documents found.</p>
+                )}
+              </>
             )}
           </div>
         </div>

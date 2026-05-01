@@ -350,6 +350,36 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async getTaskNotes(taskId: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.get<ApiResponse<unknown>>(`/api/tasks/${taskId}/notes`);
+    return r.data;
+  }
+
+  async addTaskNote(taskId: string, body: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${taskId}/notes`, { body });
+    return r.data;
+  }
+
+  async getTaskLinks(taskId: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.get<ApiResponse<unknown>>(`/api/tasks/${taskId}/links`);
+    return r.data;
+  }
+
+  async addTaskLink(taskId: string, link: { targetType: string; targetId: string; targetTitle: string }): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${taskId}/links`, link);
+    return r.data;
+  }
+
+  async removeTaskLink(taskId: string, linkId: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.delete<ApiResponse<unknown>>(`/api/tasks/${taskId}/links/${linkId}`);
+    return r.data;
+  }
+
+  async importTasks(content: string, type: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>('/api/tasks/import', { content, type });
+    return r.data;
+  }
+
   // ─── Projects ─────────────────────────────────────────────────────────────
 
   async getProjects(): Promise<ApiResponse<Project[]>> {
