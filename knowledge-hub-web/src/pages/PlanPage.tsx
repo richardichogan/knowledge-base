@@ -10,8 +10,11 @@
 import React, { useState } from 'react';
 import type { CarbonIconType } from '@carbon/icons-react';
 import { Calendar, Dashboard, Upload } from '@carbon/icons-react';
+import { Select, SelectItem } from '@carbon/react';
 import { CalendarPage } from './CalendarPage';
 import { TasksPage } from './TasksPage';
+import { useFlatTags } from '../hooks/useTaxonomy';
+import { PROJECTS } from '../config/projects';
 
 type PlanView = 'calendar' | 'board';
 
@@ -29,6 +32,9 @@ const VIEW_TABS: ViewTab[] = [
 export const PlanPage: React.FC = () => {
   const [view, setView] = useState<PlanView>('board');
   const [importOpen, setImportOpen] = useState(false);
+  const [filterProject, setFilterProject] = useState('');
+  const [filterTag,     setFilterTag]     = useState('');
+  const flatTags = useFlatTags();
 
   return (
     <div className="plan-root">
@@ -37,14 +43,26 @@ export const PlanPage: React.FC = () => {
         <h1 className="page-title">Plan</h1>
         <div className="plan-header__right">
           {view === 'board' && (
-            <button
-              type="button"
-              className="kb-import-btn"
-              onClick={() => setImportOpen(true)}
-              title="Import tasks from a podcast episode"
-            >
-              <Upload size={16} /> Import episode
-            </button>
+            <>
+              <Select id="plan-filter-project" labelText="" hideLabel size="sm"
+                value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
+                <SelectItem value="" text="All projects" />
+                {PROJECTS.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
+              </Select>
+              <Select id="plan-filter-tag" labelText="" hideLabel size="sm"
+                value={filterTag} onChange={(e) => setFilterTag(e.target.value)}>
+                <SelectItem value="" text="All tags" />
+                {flatTags.map((t) => <SelectItem key={t.id} value={t.id} text={t.name} />)}
+              </Select>
+              <button
+                type="button"
+                className="kb-import-btn"
+                onClick={() => setImportOpen(true)}
+                title="Import tasks from a podcast episode"
+              >
+                <Upload size={16} /> Import episode
+              </button>
+            </>
           )}
           <div className="plan-view-toggle">
             {VIEW_TABS.map(({ key, label, Icon }) => (
@@ -64,7 +82,15 @@ export const PlanPage: React.FC = () => {
       {/* Sub-page — .page-header inside is hidden via CSS */}
       <div className="plan-inner">
         {view === 'calendar' && <CalendarPage />}
-        {view === 'board'    && <TasksPage onImportOpen={() => setImportOpen(true)} importOpen={importOpen} onImportClose={() => setImportOpen(false)} />}
+        {view === 'board'    && (
+          <TasksPage
+            onImportOpen={() => setImportOpen(true)}
+            importOpen={importOpen}
+            onImportClose={() => setImportOpen(false)}
+            filterProject={filterProject}
+            filterTag={filterTag}
+          />
+        )}
       </div>
     </div>
   );

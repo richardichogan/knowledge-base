@@ -13,6 +13,7 @@ import { api } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { TagPicker } from '../components/TagPicker';
+import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Task {
@@ -680,6 +681,10 @@ const TaskModal: React.FC<{
         {initial != null && (
           <TaskActivitySection taskId={initial.id} />
         )}
+
+        {initial != null && (
+          <ConnectionsPanel refId={initial.id} refType="task" />
+        )}
       </div>
     </Modal>
   );
@@ -687,7 +692,13 @@ const TaskModal: React.FC<{
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export const TasksPage: React.FC<{ onImportOpen?: () => void; importOpen?: boolean; onImportClose?: () => void }> = ({ onImportOpen, importOpen: importOpenProp, onImportClose }) => {
+export const TasksPage: React.FC<{
+  onImportOpen?: () => void;
+  importOpen?: boolean;
+  onImportClose?: () => void;
+  filterProject?: string;
+  filterTag?: string;
+}> = ({ onImportOpen, importOpen: importOpenProp, onImportClose, filterProject: filterProjectProp, filterTag: filterTagProp }) => {
   const queryClient = useQueryClient();
   const [modalOpen,      setModalOpen]      = useState(false);
   const [importOpenLocal, setImportOpenLocal] = useState(false);
@@ -696,7 +707,11 @@ export const TasksPage: React.FC<{ onImportOpen?: () => void; importOpen?: boole
   const openImport = (): void => { if (onImportOpen) { onImportOpen(); } else { setImportOpenLocal(true); } };
   const [editTask,      setEditTask]      = useState<Task | null>(null);
   const [addStatus,     setAddStatus]     = useState<TaskStatus>('backlog');
-  const [filterProject, setFilterProject] = useState('');
+  const [filterProjectLocal, setFilterProjectLocal] = useState('');
+  const [filterTagLocal,     setFilterTagLocal]     = useState('');
+  const filterProject = filterProjectProp ?? filterProjectLocal;
+  const filterTag     = filterTagProp     ?? filterTagLocal;
+  const flatTags = useFlatTags();
 
   const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
 
@@ -773,10 +788,21 @@ export const TasksPage: React.FC<{ onImportOpen?: () => void; importOpen?: boole
             hideLabel
             size="sm"
             value={filterProject}
-            onChange={(e) => setFilterProject(e.target.value)}
+            onChange={(e) => setFilterProjectLocal(e.target.value)}
           >
             <SelectItem value="" text="All projects" />
             {PROJECTS.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
+          </Select>
+          <Select
+            id="kb-filter-tag"
+            labelText=""
+            hideLabel
+            size="sm"
+            value={filterTag}
+            onChange={(e) => setFilterTagLocal(e.target.value)}
+          >
+            <SelectItem value="" text="All tags" />
+            {flatTags.map((t) => <SelectItem key={t.id} value={t.id} text={t.name} />)}
           </Select>
           <button
             type="button"
@@ -794,7 +820,10 @@ export const TasksPage: React.FC<{ onImportOpen?: () => void; importOpen?: boole
 
       <div className="kb-board">
         {COLUMNS.map((col) => {
-          const colTasks = tasks.filter((t) => t.status === col.id);
+          const colTasks = tasks.filter((t) =>
+            t.status === col.id &&
+            (!filterTag || t.taxonomyTagIds?.includes(filterTag))
+          );
           return (
             <div
               key={col.id}

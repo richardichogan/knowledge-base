@@ -19,6 +19,7 @@ import { api } from '../services/api';
 import type { DocEntry, DocType } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { TagPicker } from '../components/TagPicker';
+import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { useFlatTags, useTaxonomy } from '../hooks/useTaxonomy';
 
 // ── Source config ─────────────────────────────────────────────────────────────
@@ -451,6 +452,8 @@ export const DocumentsPage: React.FC = () => {
                 trigger={<button className="notes-tag-picker-trigger">+ Add tag</button>}
               />
             </div>
+
+            <ConnectionsPanel refId={selectedDoc.id} refType="document" />
           </div>
         )}
 

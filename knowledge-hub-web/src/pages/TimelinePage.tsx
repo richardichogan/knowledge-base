@@ -18,6 +18,7 @@ import type { SourceStatus } from '../services/api';
 import type { ContentItemSummary } from '../types';
 import { inferProjectId, PROJECT_MAP, type Project } from '../config/projects';
 import { useFlatTags } from '../hooks/useTaxonomy';
+import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 
 // ── Source metadata ───────────────────────────────────────────────────────────
 
@@ -142,6 +143,17 @@ function getProject(item: ContentItemSummary): { name: string; colour: Project['
 
 // ── Timeline card ─────────────────────────────────────────────────────────────
 
+function mapSourceToRefType(source: string): string {
+  if (source === 'note') return 'note';
+  if (source === 'discovered-article') return 'discover_item';
+  if (source === 'github-commit' || source === 'gitlab-commit') return 'commit';
+  if (source === 'github-pr' || source === 'gitlab-mr') return 'pull_request';
+  if (source === 'cms-blog') return 'blog_post';
+  if (source === 'cms-podcast-show-notes') return 'podcast_episode';
+  if (source === 'cms-newsletter') return 'newsletter';
+  return source;
+}
+
 const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
   const [expanded, setExpanded] = useState(false);
   const flatTags = useFlatTags();
@@ -195,6 +207,9 @@ const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
           {/* Show full summary when expanded */}
           {expanded && hasSummary && (
             <p className="tl-card-summary">{item.summary}</p>
+          )}
+          {expanded && (
+            <ConnectionsPanel refId={item.id} refType={mapSourceToRefType(item.source)} />
           )}
         </div>
 

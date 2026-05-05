@@ -139,9 +139,52 @@ export interface TaxonomyTag {
   slug: string;
   parentId: string | null;
   colour: string | null;
+  role: 'filing' | 'concept';
   usageCount: number;
   children?: TaxonomyTag[];
 }
+
+export interface PendingSuggestion {
+  id: string;
+  suggestedName: string;
+  suggestedCount: number;
+  exampleContent: string[];
+  status: 'pending' | 'accepted' | 'rejected' | 'merged';
+  mergedToId: string | null;
+  createdAt: string;
+}
+
+export interface Spark {
+  id: string;
+  sourceId: string | null;
+  sourceType: string | null;
+  body: string;
+  tags: string[];
+  clusterId: string | null;
+  createdAt: string;
+}
+
+export interface SparkCluster {
+  id: string;
+  theme: string;
+  sparkCount: number;
+  surfaced: boolean;
+  surfacedAt: string | null;
+  dismissed: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConnectionEdge {
+  edgeId: string;
+  edgeType: string;
+  confidence: number;
+  metadata: Record<string, unknown> | null;
+  connectedNode: { id: string; refId: string; refType: string; title: string };
+  createdAt: string;
+}
+
+export type ConnectionsResponse = Record<string, ConnectionEdge[]>;
 
 export interface DiscoverItem {
   id: string;
@@ -308,6 +351,11 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async suggestTagSplit(id: string): Promise<ApiResponse<{ suggestions: string[] }>> {
+    const r = await this.client.post<ApiResponse<{ suggestions: string[] }>>(`/api/tag-suggestions/${id}/split`, {});
+    return r.data;
+  }
+
   async getPendingTags(): Promise<ApiResponse<Array<{ suggestion: string; item_id: string; item_title: string }>>> {
     const r = await this.client.get<ApiResponse<Array<{ suggestion: string; item_id: string; item_title: string }>>>('/api/taxonomy/pending');
     return r.data;
@@ -315,6 +363,31 @@ export class KnowledgeHubApi {
 
   async dismissPendingTag(suggestion: string): Promise<ApiResponse<void>> {
     const r = await this.client.post<ApiResponse<void>>('/api/taxonomy/pending/dismiss', { suggestion });
+    return r.data;
+  }
+
+  async getTagSuggestions(): Promise<ApiResponse<PendingSuggestion[]>> {
+    const r = await this.client.get<ApiResponse<PendingSuggestion[]>>('/api/tag-suggestions');
+    return r.data;
+  }
+
+  async acceptTagSuggestion(id: string, parentId: string | null): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/accept`, { parentId });
+    return r.data;
+  }
+
+  async rejectTagSuggestion(id: string): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/reject`, {});
+    return r.data;
+  }
+
+  async mergeTagSuggestion(id: string, mergeToId: string): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/merge`, { mergeToId });
+    return r.data;
+  }
+
+  async getHealthReport(): Promise<ApiResponse<{ content: string; generatedAt: string | null }>> {
+    const r = await this.client.get<ApiResponse<{ content: string; generatedAt: string | null }>>('/api/tag-suggestions/health');
     return r.data;
   }
 
@@ -513,6 +586,62 @@ export class KnowledgeHubApi {
 
   async triggerCfpSync(): Promise<ApiResponse<{ indexed: number; errors: number }>> {
     const r = await this.client.post<ApiResponse<{ indexed: number; errors: number }>>('/api/cfps/sync');
+    return r.data;
+  }
+
+  // ─── Sparks ──────────────────────────────────────────────────────────────
+
+  async createSpark(input: {
+    body: string;
+    tags?: string[];
+    source_id?: string | null;
+    source_type?: string | null;
+  }): Promise<ApiResponse<Spark>> {
+    const r = await this.client.post<ApiResponse<Spark>>('/api/sparks', input);
+    return r.data;
+  }
+
+  async listSparks(params?: {
+    source_id?: string;
+    source_type?: string;
+    cluster_id?: string;
+    attached?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<ApiResponse<Spark[]>> {
+    const r = await this.client.get<ApiResponse<Spark[]>>('/api/sparks', { params });
+    return r.data;
+  }
+
+  async deleteSpark(id: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.delete<ApiResponse<unknown>>(`/api/sparks/${id}`);
+    return r.data;
+  }
+
+  // ─── Spark clusters ───────────────────────────────────────────────────────
+
+  async listSparkClusters(params?: {
+    surfaced?: boolean;
+    dismissed?: boolean;
+  }): Promise<ApiResponse<SparkCluster[]>> {
+    const r = await this.client.get<ApiResponse<SparkCluster[]>>('/api/spark-clusters', { params });
+    return r.data;
+  }
+
+  async updateSparkCluster(id: string, patch: {
+    dismissed?: boolean;
+    surfaced?: boolean;
+  }): Promise<ApiResponse<unknown>> {
+    const r = await this.client.patch<ApiResponse<unknown>>(`/api/spark-clusters/${id}`, patch);
+    return r.data;
+  }
+
+  // ─── Connections ──────────────────────────────────────────────────────────
+
+  async getConnections(refId: string, refType: string): Promise<ApiResponse<ConnectionsResponse>> {
+    const r = await this.client.get<ApiResponse<ConnectionsResponse>>('/api/connections', {
+      params: { ref_id: refId, ref_type: refType },
+    });
     return r.data;
   }
 }

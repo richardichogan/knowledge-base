@@ -15,6 +15,8 @@ import { Bookmark, Edit, Archive, Renew, Launch, ArrowRight, Link, Checkmark, Mi
 import { api } from '../services/api';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import type { ContentItemSummary } from '../types';
+import { SparkCaptureButton } from '../components/sparks/SparkCaptureButton';
+import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -233,6 +235,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
   const isBlog      = item.workflowState === 'blog';
   const isPublished = item.workflowState === 'published';
   const [copied, setCopied] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
 
   function handleCopyUrl(): void {
     if (item.url === null) return;
@@ -387,7 +390,18 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
             <ArrowRight size={14} /> Restore
           </button>
         )}
+        <SparkCaptureButton sourceId={item.id} sourceType="discover_item" />
+        <button
+          className={`dc-action dc-action--connections${connectionsOpen ? ' dc-action--connections-active' : ''}`}
+          onClick={() => setConnectionsOpen((v) => !v)}
+          title={connectionsOpen ? 'Hide connections' : 'Show connections'}
+        >
+          Connections
+        </button>
       </div>
+      {connectionsOpen && (
+        <ConnectionsPanel refId={item.id} refType="discover_item" />
+      )}
     </div>
   );
 };
