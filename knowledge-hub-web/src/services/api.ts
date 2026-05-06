@@ -159,6 +159,82 @@ export interface DiscoverItem {
   publishedUrl: string | null;
 }
 
+export interface ConnectionEdge {
+  edgeId: string;
+  edgeType: string;
+  confidence: number;
+  metadata: Record<string, unknown> | null;
+  connectedNode: { id: string; refId: string; refType: string; title: string };
+  createdAt: string;
+}
+
+export interface Spark {
+  id: string;
+  body: string;
+  tags: string[];
+  clusterId: string | null;
+  sourceNoteId: string | null;
+  sourceId: string | null;
+  sourceType: string | null;
+  createdAt: string;
+}
+
+export interface SparkCluster {
+  id: string;
+  label: string | null;
+  sparkCount: number;
+  dismissed: boolean;
+  surfaced: boolean;
+  createdAt: string;
+}
+
+export interface PendingSuggestion {
+  id: string;
+  suggestedName: string;
+  suggestedCount: number;
+  exampleContent: string[];
+  status: 'pending' | 'accepted' | 'rejected' | 'merged';
+  mergedToId: string | null;
+  createdAt: string;
+}
+
+export interface Spark {
+  id: string;
+  sourceId: string | null;
+  sourceType: string | null;
+  body: string;
+  tags: string[];
+  clusterId: string | null;
+  createdAt: string;
+}
+
+export interface SparkCluster {
+  id: string;
+  theme: string;
+  sparkCount: number;
+  surfaced: boolean;
+  surfacedAt: string | null;
+  dismissed: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConnectionEdge {
+  edgeId: string;
+  edgeType: string;
+  confidence: number;
+  metadata: Record<string, unknown> | null;
+  connectedNode: { id: string; refId: string; refType: string; title: string };
+  createdAt: string;
+}
+
+export type ConnectionsResponse = Record<string, ConnectionEdge[]>;
+
+export interface HealthReport {
+  content: string;
+  generatedAt: string | null;
+}
+
 export class KnowledgeHubApi {
   private readonly client: AxiosInstance;
 
@@ -483,6 +559,121 @@ export class KnowledgeHubApi {
 
   async triggerCfpSync(): Promise<ApiResponse<{ indexed: number; errors: number }>> {
     const r = await this.client.post<ApiResponse<{ indexed: number; errors: number }>>('/api/cfps/sync');
+    return r.data;
+  }
+
+  // ─── Connections ──────────────────────────────────────────────────────────
+
+  async getConnections(refId: string, refType: string): Promise<ApiResponse<ConnectionsResponse>> {
+    const r = await this.client.get<ApiResponse<ConnectionsResponse>>('/api/connections', {
+      params: { ref_id: refId, ref_type: refType },
+    });
+    return r.data;
+  }
+
+  // ─── Sparks ───────────────────────────────────────────────────────────────
+
+  async createSpark(input: {
+    body: string;
+    tags?: string[];
+    source_id?: string | null;
+    source_type?: string | null;
+  }): Promise<ApiResponse<Spark>> {
+    const r = await this.client.post<ApiResponse<Spark>>('/api/sparks', input);
+    return r.data;
+  }
+
+  async listSparks(params?: {
+    source_id?: string;
+    source_type?: string;
+    cluster_id?: string;
+    attached?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<ApiResponse<Spark[]>> {
+    const r = await this.client.get<ApiResponse<Spark[]>>('/api/sparks', { params });
+    return r.data;
+  }
+
+  async deleteSpark(id: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.delete<ApiResponse<unknown>>(`/api/sparks/${id}`);
+    return r.data;
+  }
+
+  // ─── Spark clusters ───────────────────────────────────────────────────────
+
+  async listSparkClusters(params?: {
+    surfaced?: boolean;
+    dismissed?: boolean;
+  }): Promise<ApiResponse<SparkCluster[]>> {
+    const r = await this.client.get<ApiResponse<SparkCluster[]>>('/api/spark-clusters', { params });
+    return r.data;
+  }
+
+  async updateSparkCluster(id: string, patch: {
+    dismissed?: boolean;
+    surfaced?: boolean;
+  }): Promise<ApiResponse<unknown>> {
+    const r = await this.client.patch<ApiResponse<unknown>>(`/api/spark-clusters/${id}`, patch);
+    return r.data;
+  }
+
+  // ─── Tag Suggestions ──────────────────────────────────────────────────────
+
+  async getTagSuggestions(): Promise<ApiResponse<PendingSuggestion[]>> {
+    const r = await this.client.get<ApiResponse<PendingSuggestion[]>>('/api/tag-suggestions');
+    return r.data;
+  }
+
+  async acceptTagSuggestion(id: string, parentId: string | null): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/accept`, { parentId });
+    return r.data;
+  }
+
+  async rejectTagSuggestion(id: string): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/reject`, {});
+    return r.data;
+  }
+
+  async mergeTagSuggestion(id: string, mergeToId: string): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/merge`, { mergeToId });
+    return r.data;
+  }
+
+  async getHealthReport(): Promise<ApiResponse<HealthReport>> {
+    const r = await this.client.get<ApiResponse<HealthReport>>('/api/tag-suggestions/health');
+    return r.data;
+  }
+
+  async suggestTagSplit(tagId: string): Promise<ApiResponse<{ suggestions: string[] }>> {
+    const r = await this.client.post<ApiResponse<{ suggestions: string[] }>>(`/api/taxonomy/${tagId}/suggest-split`);
+    return r.data;
+  }
+
+  // ─── Task Notes & Links ───────────────────────────────────────────────────
+
+  async getTaskNotes(taskId: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.get<ApiResponse<unknown>>(`/api/tasks/${taskId}/notes`);
+    return r.data;
+  }
+
+  async addTaskNote(taskId: string, body: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${taskId}/notes`, { body });
+    return r.data;
+  }
+
+  async getTaskLinks(taskId: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.get<ApiResponse<unknown>>(`/api/tasks/${taskId}/links`);
+    return r.data;
+  }
+
+  async addTaskLink(taskId: string, link: { targetType: string; targetId: string; targetTitle: string }): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${taskId}/links`, link);
+    return r.data;
+  }
+
+  async removeTaskLink(taskId: string, linkId: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.delete<ApiResponse<unknown>>(`/api/tasks/${taskId}/links/${linkId}`);
     return r.data;
   }
 }

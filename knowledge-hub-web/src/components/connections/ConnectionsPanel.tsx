@@ -65,7 +65,7 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ refId, refTy
       <button
         className="conn-panel__header"
         onClick={() => { setCollapsed((v) => !v); }}
-        aria-expanded={!collapsed ? 'true' : 'false'}
+        aria-expanded={!collapsed}
       >
         <span className="conn-panel__title">CONNECTIONS{totalCount > 0 ? ` · ${totalCount}` : ''}</span>
         <span className="conn-panel__chevron">{collapsed ? '▸' : '▾'}</span>
