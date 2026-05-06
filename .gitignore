@@ -23,5 +23,8 @@ npm-debug.log*
 # Azure deploy artefacts
 *.zip
 
-# Temp scripts
-knowledge-hub-backend/scripts/check-blobs.mjs
+# Deployment scripts — contain environment-specific config, never push
+scripts/deploy-*.sh
+scripts/provision.sh
+scripts/setup-auth.sh
+scripts/migrate-data-to-prod.sh
