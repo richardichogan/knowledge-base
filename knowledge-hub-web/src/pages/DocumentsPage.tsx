@@ -131,6 +131,7 @@ export const DocumentsPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTagIds, setActiveTagIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [tagFilterOpen, setTagFilterOpen] = useState(false);
   // Optimistic overrides: docId → tagIds (updated immediately on change before refetch)
   const [tagOverrides, setTagOverrides] = useState<Map<string, string[]>>(new Map());
   const qc = useQueryClient();
@@ -235,22 +236,6 @@ export const DocumentsPage: React.FC = () => {
         {/* ── Left: document list ── */}
         <div className="docs-list-panel">
 
-          {/* Taxonomy tag filter */}
-          {taxonomyTree.length > 0 && (
-            <div className="docs-tag-filter">
-              {taxonomyTree.map((parent) => (
-                <button
-                  key={parent.id}
-                  className={`docs-tag-chip${activeTagIds.has(parent.id) ? ' docs-tag-chip--active' : ''}`}
-                  onClick={() => { toggleTagId(parent.id); }}
-                  ref={(el) => { if (el && parent.colour) el.style.setProperty('--chip-colour', parent.colour); }}
-                >
-                  {parent.name}
-                </button>
-              ))}
-            </div>
-          )}
-
           {/* Search */}
           <div className="docs-search">
             <input
@@ -262,33 +247,78 @@ export const DocumentsPage: React.FC = () => {
             />
           </div>
 
+          {/* Collapsible tag filter */}
+          {taxonomyTree.length > 0 && (
+            <div className="docs-tag-filter">
+              <button
+                className="docs-tag-filter__toggle"
+                onClick={() => { setTagFilterOpen((v) => !v); }}
+              >
+                Filter by tag {activeTagIds.size > 0 && `(${activeTagIds.size} active)`}
+                <span className={`docs-tag-filter__arrow${tagFilterOpen ? ' docs-tag-filter__arrow--open' : ''}`}>▾</span>
+              </button>
+              {tagFilterOpen && (
+                <div className="docs-tag-filter__chips">
+                  {taxonomyTree.map((parent) => (
+                    <button
+                      key={parent.id}
+                      className={`docs-tag-chip${activeTagIds.has(parent.id) ? ' docs-tag-chip--active' : ''}`}
+                      onClick={() => { toggleTagId(parent.id); }}
+                      ref={(el) => { if (el && parent.colour) el.style.setProperty('--chip-colour', parent.colour); }}
+                    >
+                      {parent.name}
+                    </button>
+                  ))}
+                  {activeTagIds.size > 0 && (
+                    <button className="docs-tag-chip docs-tag-chip--clear" onClick={() => { setActiveTagIds(new Set()); }}>
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {libraryPending && <InlineLoading description="Loading documents…" className="docs-loading" />}
 
+          {/* Group by source (project) */}
           <div className="docs-list">
-            {visibleDocs.map((doc) => (
-              <button
-                key={doc.id}
-                className={`docs-list-item${selectedId === doc.id ? ' docs-list-item--active' : ''}`}
-                onClick={() => { setSelectedId(doc.id); }}
-              >
-                <div className="docs-list-item__top">
-                  <span className="docs-list-item__title">{doc.title}</span>
-                  <span className="docs-type-badge">
-                    {TYPE_LABEL[doc.type]}
-                  </span>
+            {(() => {
+              if (visibleDocs.length === 0 && !libraryPending) {
+                return (
+                  <p className="docs-empty">
+                    {activeTagIds.size > 0 ? 'No documents match the selected tags.' : 'No documents found.'}
+                  </p>
+                );
+              }
+              // Group docs by sourceLabel
+              const groups = new Map<string, typeof visibleDocs>();
+              for (const doc of visibleDocs) {
+                const g = groups.get(doc.sourceLabel) ?? [];
+                g.push(doc);
+                groups.set(doc.sourceLabel, g);
+              }
+              return [...groups.entries()].map(([label, docs]) => (
+                <div key={label} className="docs-group">
+                  <p className="docs-group__label">{label}</p>
+                  {docs.map((doc) => (
+                    <button
+                      key={doc.id}
+                      className={`docs-list-item${selectedId === doc.id ? ' docs-list-item--active' : ''}`}
+                      onClick={() => { setSelectedId(doc.id); }}
+                    >
+                      <div className="docs-list-item__top">
+                        <span className="docs-list-item__title">{doc.title}</span>
+                        <span className="docs-type-badge">{TYPE_LABEL[doc.type]}</span>
+                      </div>
+                      <div className="docs-list-item__meta">
+                        <span className="docs-list-item__size">{formatBytes(doc.size)}</span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-                <div className="docs-list-item__meta">
-                  <span className="docs-list-item__source">{doc.sourceLabel}</span>
-                  <span className="docs-list-item__size">{formatBytes(doc.size)}</span>
-                </div>
-              </button>
-            ))}
-
-            {!libraryPending && visibleDocs.length === 0 && (
-              <p className="docs-empty">
-                {activeTagIds.size > 0 ? 'No documents match the selected tags.' : 'No documents found.'}
-              </p>
-            )}
+              ));
+            })()}
           </div>
         </div>
 
