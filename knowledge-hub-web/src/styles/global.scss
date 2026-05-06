@@ -4043,21 +4043,81 @@ input, textarea {
 // ── NoteList tag filter chips ────────────────────────────────────────────────
 
 .notes-tag-filter {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.5rem 0.75rem;
-  overflow-x: auto;
   flex-shrink: 0;
   border-bottom: 1px solid var(--cds-border-subtle-01);
 
-  &::-webkit-scrollbar {
-    height: 3px;
+  &__toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.4rem 0.75rem;
+    background: none;
+    border: none;
+    color: var(--cds-text-secondary);
+    font-size: 0.75rem;
+    cursor: pointer;
+    text-align: left;
+
+    &:hover {
+      background: var(--cds-layer-hover-01);
+    }
+
+    .badge {
+      margin-left: auto;
+      background: var(--cds-interactive);
+      color: #fff;
+      font-size: 0.65rem;
+      border-radius: 8px;
+      padding: 0.05rem 0.4rem;
+    }
   }
 
-  &::-webkit-scrollbar-thumb {
-    background: var(--cds-border-subtle-01);
-    border-radius: 2px;
+  &__arrow {
+    font-size: 0.6rem;
+    transition: transform 0.15s;
+    margin-right: 0.15rem;
+
+    &--open {
+      transform: rotate(90deg);
+    }
+  }
+
+  &__chips {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.75rem 0.5rem;
+    overflow-x: auto;
+    flex-wrap: wrap;
+
+    &::-webkit-scrollbar {
+      height: 3px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: var(--cds-border-subtle-01);
+      border-radius: 2px;
+    }
+  }
+}
+
+// ── NoteList project groups ──────────────────────────────────────────────────
+
+.notes-group {
+  &__label {
+    padding: 0.5rem 0.75rem 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cds-text-placeholder);
+    border-top: 1px solid var(--cds-border-subtle-00);
+    margin: 0;
+
+    &:first-child {
+      border-top: none;
+    }
   }
 }
 

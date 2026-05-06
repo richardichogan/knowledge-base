@@ -67,6 +67,7 @@ export async function fetchNotes(): Promise<NoteListItem[]> {
       contentType: doc.contentType,
       updatedAt: n.updatedAt,
       tagIds: n.taxonomyTagIds ?? [],
+      ...(n.projectId !== undefined && n.projectId !== null && { projectId: n.projectId }),
     };
   });
 }

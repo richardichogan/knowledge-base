@@ -118,7 +118,7 @@ export function useSetNoteTags(noteId: string | null) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['note-tags', noteId] });
-      void qc.invalidateQueries({ queryKey: ['notes-list'] });
+      void qc.invalidateQueries({ queryKey: ['notes'] }); // matches NotesPage queryKey
     },
   });
 }

@@ -24,6 +24,8 @@ export interface NoteListItem {
   updatedAt: string;
   /** Taxonomy tag UUIDs — populated from note_tags join in list response */
   tagIds?: string[];
+  /** Project UUID this note belongs to, if set */
+  projectId?: string;
 }
 
 export interface GitHubPushPayload {
