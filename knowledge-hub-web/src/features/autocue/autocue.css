@@ -1,0 +1,321 @@
+/* features/autocue/autocue.css — scoped styles for the autocue feature */
+
+/* ── Root wrapper ─────────────────────────────────────────────────────────── */
+.ac-root {
+  min-height: 100vh;
+  background: #0d0d0d;
+  color: #f4f4f4;
+}
+
+/* ── Script selector ──────────────────────────────────────────────────────── */
+.ac-selector {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  padding: 48px 24px;
+  background: #0d0d0d;
+}
+
+.ac-selector__label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #525252;
+  margin: 0;
+}
+
+.ac-selector__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.ac-selector__card {
+  background: #1c1c1c;
+  border: 1px solid #393939;
+  border-radius: 4px;
+  padding: 20px 24px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.ac-selector__card:hover {
+  border-color: var(--kh-accent, #3dDBD9);
+  background: rgba(61, 219, 217, 0.04);
+}
+
+.ac-selector__card-title {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 18px;
+  color: #f4f4f4;
+}
+
+.ac-selector__card-date {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: #525252;
+}
+
+.ac-selector__empty {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: #525252;
+  text-align: center;
+  margin: 0;
+}
+
+/* ── Session ──────────────────────────────────────────────────────────────── */
+.ac-session {
+  position: fixed;
+  inset: 0;
+  background: #0d0d0d;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Script area ──────────────────────────────────────────────────────────── */
+.ac-script-area {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 48px;
+  cursor: pointer;
+  outline: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ac-script-area::-webkit-scrollbar { display: none; }
+
+.ac-script-inner {
+  width: 100%;
+  /* First word sits centre-screen at scrollTop=0; last word can scroll to centre */
+  padding-top: 45vh;
+  padding-bottom: 50vh;
+}
+
+.ac-script-text {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: var(--autocue-font-size, 48px);
+  line-height: 1.6;
+  color: #f4f4f4;
+  text-align: center;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* ── Controls bar ─────────────────────────────────────────────────────────── */
+.ac-controls {
+  height: 64px;
+  background: rgba(13, 13, 13, 0.92);
+  border-top: 1px solid #1c1c1c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 0 32px;
+  flex-shrink: 0;
+}
+
+.ac-ctrl-btn {
+  background: none;
+  border: 1px solid #393939;
+  border-radius: 4px;
+  color: #c6c6c6;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.ac-ctrl-btn:hover:not(:disabled) {
+  border-color: var(--kh-accent, #3dDBD9);
+  color: var(--kh-accent, #3dDBD9);
+}
+
+.ac-ctrl-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.ac-ctrl-btn--primary {
+  border-color: var(--kh-accent, #3dDBD9);
+  color: var(--kh-accent, #3dDBD9);
+}
+
+.ac-ctrl-btn--sm {
+  width: 28px;
+  height: 28px;
+}
+
+.ac-ctrl-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ac-ctrl-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  color: #c6c6c6;
+  min-width: 36px;
+  text-align: center;
+}
+
+/* ── Status indicator ─────────────────────────────────────────────────────── */
+.ac-status {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #525252;
+  z-index: 10;
+  transition: opacity 0.3s;
+}
+
+.ac-status--dim {
+  opacity: 0.2;
+}
+
+.ac-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #393939;
+  flex-shrink: 0;
+}
+
+.ac-status__dot--active {
+  background: var(--kh-accent, #3dDBD9);
+  animation: ac-pulse 1s ease-in-out infinite;
+}
+
+.ac-status__label {
+  color: #525252;
+}
+
+.ac-status__rate-bar-wrap {
+  width: 60px;
+  height: 4px;
+  background: #262626;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ac-status__rate-bar-fill {
+  height: 100%;
+  background: var(--kh-accent, #3dDBD9);
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+
+@keyframes ac-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ── Mic permission overlay ───────────────────────────────────────────────── */
+.ac-mic-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 13, 13, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+}
+
+.ac-mic-card {
+  background: #1c1c1c;
+  border: 1px solid #393939;
+  border-radius: 4px;
+  padding: 32px;
+  max-width: 480px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.ac-mic-text {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #c6c6c6;
+  margin: 0;
+}
+
+.ac-mic-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ac-mic-btn {
+  background: none;
+  border: 1px solid #393939;
+  border-radius: 4px;
+  color: #c6c6c6;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  padding: 10px 16px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.ac-mic-btn:hover {
+  border-color: #c6c6c6;
+}
+
+.ac-mic-btn--primary {
+  border-color: var(--kh-accent, #3dDBD9);
+  color: var(--kh-accent, #3dDBD9);
+}
+
+.ac-mic-btn--primary:hover {
+  background: rgba(61, 219, 217, 0.08);
+}
+
+/* ── Gamepad toast ────────────────────────────────────────────────────────── */
+.ac-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1c1c1c;
+  border: 1px solid var(--kh-accent-border, #008d8b);
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--kh-accent, #3dDBD9);
+  z-index: 200;
+  white-space: nowrap;
+}
