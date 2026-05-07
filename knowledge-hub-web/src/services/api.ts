@@ -68,7 +68,7 @@ export interface DocEntry {
   htmlUrl: string;
   size: number;
   tags: string[];
-  taxonomyTagIds?: string[];
+  taxonomyTagIds: string[];
 }
 
 export interface DocumentContent {
@@ -139,55 +139,9 @@ export interface TaxonomyTag {
   slug: string;
   parentId: string | null;
   colour: string | null;
+  role: 'filing' | 'concept';
   usageCount: number;
   children?: TaxonomyTag[];
-}
-
-export interface DiscoverItem {
-  id: string;
-  sourceId: string;
-  title: string;
-  url: string | null;
-  description: string | null;
-  publishedAt: string;
-  indexedAt: string;
-  sourceTitle: string;
-  workflowState: DiscoverWorkflowState;
-  relevanceScore: number | null;
-  relevanceExplanation: string | null;
-  /** URL of the user's own blog post written about this article */
-  publishedUrl: string | null;
-  /** Taxonomy tag UUIDs from discover_item_tags */
-  taxonomyTagIds: string[];
-}
-
-export interface ConnectionEdge {
-  edgeId: string;
-  edgeType: string;
-  confidence: number;
-  metadata: Record<string, unknown> | null;
-  connectedNode: { id: string; refId: string; refType: string; title: string };
-  createdAt: string;
-}
-
-export interface Spark {
-  id: string;
-  body: string;
-  tags: string[];
-  clusterId: string | null;
-  sourceNoteId: string | null;
-  sourceId: string | null;
-  sourceType: string | null;
-  createdAt: string;
-}
-
-export interface SparkCluster {
-  id: string;
-  label: string | null;
-  sparkCount: number;
-  dismissed: boolean;
-  surfaced: boolean;
-  createdAt: string;
 }
 
 export interface PendingSuggestion {
@@ -232,9 +186,22 @@ export interface ConnectionEdge {
 
 export type ConnectionsResponse = Record<string, ConnectionEdge[]>;
 
-export interface HealthReport {
-  content: string;
-  generatedAt: string | null;
+export interface DiscoverItem {
+  id: string;
+  sourceId: string;
+  title: string;
+  url: string | null;
+  description: string | null;
+  publishedAt: string;
+  indexedAt: string;
+  sourceTitle: string;
+  workflowState: DiscoverWorkflowState;
+  relevanceScore: number | null;
+  relevanceExplanation: string | null;
+  /** URL of the user's own blog post written about this article */
+  publishedUrl: string | null;
+  /** Taxonomy tag UUIDs from discover_item_tags */
+  taxonomyTagIds: string[];
 }
 
 export class KnowledgeHubApi {
@@ -386,6 +353,11 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async suggestTagSplit(id: string): Promise<ApiResponse<{ suggestions: string[] }>> {
+    const r = await this.client.post<ApiResponse<{ suggestions: string[] }>>(`/api/tag-suggestions/${id}/split`, {});
+    return r.data;
+  }
+
   async getPendingTags(): Promise<ApiResponse<Array<{ suggestion: string; item_id: string; item_title: string }>>> {
     const r = await this.client.get<ApiResponse<Array<{ suggestion: string; item_id: string; item_title: string }>>>('/api/taxonomy/pending');
     return r.data;
@@ -393,6 +365,31 @@ export class KnowledgeHubApi {
 
   async dismissPendingTag(suggestion: string): Promise<ApiResponse<void>> {
     const r = await this.client.post<ApiResponse<void>>('/api/taxonomy/pending/dismiss', { suggestion });
+    return r.data;
+  }
+
+  async getTagSuggestions(): Promise<ApiResponse<PendingSuggestion[]>> {
+    const r = await this.client.get<ApiResponse<PendingSuggestion[]>>('/api/tag-suggestions');
+    return r.data;
+  }
+
+  async acceptTagSuggestion(id: string, parentId: string | null): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/accept`, { parentId });
+    return r.data;
+  }
+
+  async rejectTagSuggestion(id: string): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/reject`, {});
+    return r.data;
+  }
+
+  async mergeTagSuggestion(id: string, mergeToId: string): Promise<ApiResponse<void>> {
+    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/merge`, { mergeToId });
+    return r.data;
+  }
+
+  async getHealthReport(): Promise<ApiResponse<{ content: string; generatedAt: string | null }>> {
+    const r = await this.client.get<ApiResponse<{ content: string; generatedAt: string | null }>>('/api/tag-suggestions/health');
     return r.data;
   }
 
@@ -425,6 +422,36 @@ export class KnowledgeHubApi {
 
   async deleteTask(id: string): Promise<ApiResponse<unknown>> {
     const r = await this.client.delete<ApiResponse<unknown>>(`/api/tasks/${id}`);
+    return r.data;
+  }
+
+  async getTaskNotes(taskId: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.get<ApiResponse<unknown>>(`/api/tasks/${taskId}/notes`);
+    return r.data;
+  }
+
+  async addTaskNote(taskId: string, body: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${taskId}/notes`, { body });
+    return r.data;
+  }
+
+  async getTaskLinks(taskId: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.get<ApiResponse<unknown>>(`/api/tasks/${taskId}/links`);
+    return r.data;
+  }
+
+  async addTaskLink(taskId: string, link: { targetType: string; targetId: string; targetTitle: string }): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${taskId}/links`, link);
+    return r.data;
+  }
+
+  async removeTaskLink(taskId: string, linkId: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.delete<ApiResponse<unknown>>(`/api/tasks/${taskId}/links/${linkId}`);
+    return r.data;
+  }
+
+  async importTasks(content: string, type: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>('/api/tasks/import', { content, type });
     return r.data;
   }
 
@@ -564,16 +591,7 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  // ─── Connections ──────────────────────────────────────────────────────────
-
-  async getConnections(refId: string, refType: string): Promise<ApiResponse<ConnectionsResponse>> {
-    const r = await this.client.get<ApiResponse<ConnectionsResponse>>('/api/connections', {
-      params: { ref_id: refId, ref_type: refType },
-    });
-    return r.data;
-  }
-
-  // ─── Sparks ───────────────────────────────────────────────────────────────
+  // ─── Sparks ──────────────────────────────────────────────────────────────
 
   async createSpark(input: {
     body: string;
@@ -620,62 +638,12 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  // ─── Tag Suggestions ──────────────────────────────────────────────────────
+  // ─── Connections ──────────────────────────────────────────────────────────
 
-  async getTagSuggestions(): Promise<ApiResponse<PendingSuggestion[]>> {
-    const r = await this.client.get<ApiResponse<PendingSuggestion[]>>('/api/tag-suggestions');
-    return r.data;
-  }
-
-  async acceptTagSuggestion(id: string, parentId: string | null): Promise<ApiResponse<void>> {
-    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/accept`, { parentId });
-    return r.data;
-  }
-
-  async rejectTagSuggestion(id: string): Promise<ApiResponse<void>> {
-    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/reject`, {});
-    return r.data;
-  }
-
-  async mergeTagSuggestion(id: string, mergeToId: string): Promise<ApiResponse<void>> {
-    const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/merge`, { mergeToId });
-    return r.data;
-  }
-
-  async getHealthReport(): Promise<ApiResponse<HealthReport>> {
-    const r = await this.client.get<ApiResponse<HealthReport>>('/api/tag-suggestions/health');
-    return r.data;
-  }
-
-  async suggestTagSplit(tagId: string): Promise<ApiResponse<{ suggestions: string[] }>> {
-    const r = await this.client.post<ApiResponse<{ suggestions: string[] }>>(`/api/taxonomy/${tagId}/suggest-split`);
-    return r.data;
-  }
-
-  // ─── Task Notes & Links ───────────────────────────────────────────────────
-
-  async getTaskNotes(taskId: string): Promise<ApiResponse<unknown>> {
-    const r = await this.client.get<ApiResponse<unknown>>(`/api/tasks/${taskId}/notes`);
-    return r.data;
-  }
-
-  async addTaskNote(taskId: string, body: string): Promise<ApiResponse<unknown>> {
-    const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${taskId}/notes`, { body });
-    return r.data;
-  }
-
-  async getTaskLinks(taskId: string): Promise<ApiResponse<unknown>> {
-    const r = await this.client.get<ApiResponse<unknown>>(`/api/tasks/${taskId}/links`);
-    return r.data;
-  }
-
-  async addTaskLink(taskId: string, link: { targetType: string; targetId: string; targetTitle: string }): Promise<ApiResponse<unknown>> {
-    const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${taskId}/links`, link);
-    return r.data;
-  }
-
-  async removeTaskLink(taskId: string, linkId: string): Promise<ApiResponse<unknown>> {
-    const r = await this.client.delete<ApiResponse<unknown>>(`/api/tasks/${taskId}/links/${linkId}`);
+  async getConnections(refId: string, refType: string): Promise<ApiResponse<ConnectionsResponse>> {
+    const r = await this.client.get<ApiResponse<ConnectionsResponse>>('/api/connections', {
+      params: { ref_id: refId, ref_type: refType },
+    });
     return r.data;
   }
 }

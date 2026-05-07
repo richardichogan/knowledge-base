@@ -116,18 +116,18 @@ export const PROJECTS: Project[] = [
   // ── Client / Partner Projects ────────────────────────────────────────────────
   {
     id: 'acre',
-    name: 'ACRE',
+    name: 'ATOM',
     colour: 'green',
-    description: 'ACRE project',
+    description: 'ATOM project (formerly ACRE)',
     githubRepos: ['richardichogan/ACRE'],
     links: [],
     tags: [],
   },
   {
     id: 'ifa-project',
-    name: 'IFA Project',
+    name: 'NELFIN',
     colour: 'green',
-    description: 'IFA project',
+    description: 'NELFIN project (formerly IFA Project)',
     githubRepos: ['richardichogan/ifa-project'],
     links: [],
     tags: [],

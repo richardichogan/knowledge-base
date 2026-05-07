@@ -18,6 +18,7 @@ import type { SourceStatus } from '../services/api';
 import type { ContentItemSummary } from '../types';
 import { inferProjectId, PROJECT_MAP, type Project } from '../config/projects';
 import { useFlatTags } from '../hooks/useTaxonomy';
+import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 
 // ── Source metadata ───────────────────────────────────────────────────────────
 
@@ -142,6 +143,17 @@ function getProject(item: ContentItemSummary): { name: string; colour: Project['
 
 // ── Timeline card ─────────────────────────────────────────────────────────────
 
+function mapSourceToRefType(source: string): string {
+  if (source === 'note') return 'note';
+  if (source === 'discovered-article') return 'discover_item';
+  if (source === 'github-commit' || source === 'gitlab-commit') return 'commit';
+  if (source === 'github-pr' || source === 'gitlab-mr') return 'pull_request';
+  if (source === 'cms-blog') return 'blog_post';
+  if (source === 'cms-podcast-show-notes') return 'podcast_episode';
+  if (source === 'cms-newsletter') return 'newsletter';
+  return source;
+}
+
 const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
   const [expanded, setExpanded] = useState(false);
   const flatTags = useFlatTags();
@@ -196,6 +208,9 @@ const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
           {expanded && hasSummary && (
             <p className="tl-card-summary">{item.summary}</p>
           )}
+          {expanded && (
+            <ConnectionsPanel refId={item.id} refType={mapSourceToRefType(item.source)} />
+          )}
         </div>
 
         {/* Actions */}
@@ -235,6 +250,9 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
   const [isSyncing, setIsSyncing] = useState(false);
   const queryClient = useQueryClient();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastSyncTsRef = useRef<number>(0);
+  const loadPageRef = useRef<((p: number) => Promise<void>) | null>(null);
+  const pageRef = useRef<number>(1);
 
   // Live sources query — refetches every 10s passively, every 5s while a sync is running
   const { data: sourcesData } = useQuery({
@@ -243,6 +261,22 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
     refetchInterval: isSyncing ? 5_000 : 10_000,
     staleTime: 0,
   });
+
+  // Auto-refresh timeline when background scheduler completes a sync
+  React.useEffect(() => {
+    if (!sourcesData?.success) return;
+    const latest = Math.max(0, ...sourcesData.data.map((s: SourceStatus) => new Date(s.lastSyncAt ?? 0).getTime()));
+    if (lastSyncTsRef.current === 0) {
+      lastSyncTsRef.current = latest;
+      return;
+    }
+    if (latest > lastSyncTsRef.current) {
+      lastSyncTsRef.current = latest;
+      if (!isSyncing && loadPageRef.current) {
+        void loadPageRef.current(pageRef.current);
+      }
+    }
+  }, [sourcesData, isSyncing]);
 
   function stopPolling(): void {
     if (pollRef.current !== null) {
@@ -315,6 +349,10 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
       setLoading(false);
     }
   }, []);
+
+  // Keep refs in sync so the background-sync effect can call loadPage
+  loadPageRef.current = loadPage;
+  pageRef.current = page;
 
   React.useEffect(() => { void loadPage(1); }, [loadPage]);
 

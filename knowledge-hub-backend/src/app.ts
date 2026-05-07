@@ -23,6 +23,9 @@ import { taxonomyRouter } from './routes/taxonomy.js';
 import { noteTagsRouter } from './routes/noteTags.js';
 import { repoMappingsRouter } from './routes/repoMappings.js';
 import { cfpRouter } from './routes/cfp.js';
+import { tagSuggestionRouter } from './routes/tagSuggestionRoutes.js';
+import { sparkRouter, sparkClusterRouter } from './routes/sparkRoutes.js';
+import { connectionRouter } from './routes/connectionRoutes.js';
 
 /**
  * Creates and configures the Express application.
@@ -38,6 +41,8 @@ export function createApp(): express.Application {
   app.use(cors({ origin: process.env['CORS_ORIGIN'] ?? '*' }));
 
   // ── Body parsing ──────────────────────────────────────────────────────────
+  // Raw binary for image uploads — MUST come before express.json so binary bodies aren't parsed as JSON
+  app.use('/api/images', express.raw({ type: '*/*', limit: '20mb' }));
   app.use(express.json({ limit: '1mb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
@@ -79,6 +84,10 @@ export function createApp(): express.Application {
   app.use('/api/taxonomy', taxonomyRouter);
   app.use('/api/repo-mappings', repoMappingsRouter);
   app.use('/api/cfps', cfpRouter);
+  app.use('/api/tag-suggestions', tagSuggestionRouter);
+  app.use('/api/sparks', sparkRouter);
+  app.use('/api/spark-clusters', sparkClusterRouter);
+  app.use('/api/connections', connectionRouter);
 
   // ── 404 handler ───────────────────────────────────────────────────────────
   app.use((_req: Request, res: Response) => {
