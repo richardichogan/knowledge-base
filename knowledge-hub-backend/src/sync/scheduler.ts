@@ -4,7 +4,8 @@ import { runTier1Sync } from './syncOrchestrator.js';
 import { tagContent, loadConceptTags } from '../services/taxonomyService.js';
 
 /**
- * After each sync, tag any discovered articles that have no tags yet.
+ * After each sync, tag any content_items that have no tags yet.
+ * Covers all sources: discovered articles, GitHub, GitLab, CMS, etc.
  * Runs up to MAX_AUTO_TAG items per cycle to avoid long-running jobs.
  */
 const MAX_AUTO_TAG = 20;
@@ -17,11 +18,10 @@ async function autoTagNewDiscoverItems(): Promise<void> {
     const tags = await loadConceptTags(db);
     if (tags.length === 0) return;
 
-    const result = await db.query<{ id: string; title: string; body: string }>(
-      `SELECT ci.id, ci.title, ci.body
+    const result = await db.query<{ id: string; title: string; body: string; source: string }>(
+      `SELECT ci.id, ci.title, ci.body, ci.source
        FROM content_items ci
-       WHERE ci.source = 'discovered-article'
-         AND NOT EXISTS (
+       WHERE NOT EXISTS (
            SELECT 1 FROM discover_item_tags dit WHERE dit.discover_item_id = ci.id
          )
        ORDER BY ci.indexed_at DESC
@@ -30,11 +30,11 @@ async function autoTagNewDiscoverItems(): Promise<void> {
     );
 
     if (result.rows.length === 0) return;
-    console.warn(`[Scheduler] Auto-tagging ${result.rows.length} untagged discover item(s)…`);
+    console.warn(`[Scheduler] Auto-tagging ${result.rows.length} untagged item(s)…`);
 
     for (const row of result.rows) {
       const summary = `${row.title}\n\n${row.body ?? ''}`.slice(0, AUTO_TAG_SUMMARY_CHARS);
-      await tagContent(db, summary, row.id, 'discover_item', row.title);
+      await tagContent(db, summary, row.id, row.source, row.title);
     }
   } catch (err) {
     console.error('[Scheduler] Auto-tag pass failed:', err instanceof Error ? err.message : err);

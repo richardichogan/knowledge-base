@@ -77,7 +77,7 @@ export async function tagContent(
   db: Pool,
   summary: string,
   contentId: string,
-  contentType: 'note' | 'discover_item' | 'task' | 'cfp_item' | 'document' | 'commit' | 'pull_request',
+  contentType: string,
   exampleTitle: string,
 ): Promise<TaggingResult> {
   try {
@@ -138,9 +138,30 @@ async function applyTag(
     note:         { table: 'note_tags',          idCol: 'note_id' },
     discover_item:{ table: 'discover_item_tags',  idCol: 'discover_item_id' },
     task:         { table: 'task_tags',           idCol: 'task_id' },
+    // All content_items (github, cms, etc.) share discover_item_tags — column name is historical
+    'github-commit':          { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'github-pr':              { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'github-issue':           { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'github-action':          { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'github-release':         { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'github-deployment':      { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'github-pr-review':       { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'gitlab-release':         { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'gitlab-deployment':      { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'gitlab-commit':          { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'gitlab-mr':              { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'gitlab-issue':           { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'gitlab-pipeline':        { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'cms-blog':               { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'cms-newsletter':         { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'cms-podcast-show-notes': { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'cms-session-summary':    { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'graph-calendar':         { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    'graph-todo':             { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    email:                    { table: 'discover_item_tags', idCol: 'discover_item_id' },
+    image:                    { table: 'discover_item_tags', idCol: 'discover_item_id' },
   };
-  const mapping = tableMap[contentType];
-  if (!mapping) return; // commits/PRs/docs/cfp_items stored in content_items — no junction table yet
+  const mapping = tableMap[contentType] ?? { table: 'discover_item_tags', idCol: 'discover_item_id' };
 
   await db.query(
     `INSERT INTO ${mapping.table} (${mapping.idCol}, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
