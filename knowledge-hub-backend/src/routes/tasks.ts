@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { createTodoTask } from '../integrations/graph/todoSync.js';
 import { createGitHubIssue } from '../integrations/github/issuesSync.js';
 import { getDb } from '../db/db.js';
-import { HTTP_STATUS } from '../config/constants.js';
+import { HTTP_STATUS, AI_DEFAULT_MAX_TOKENS } from '../config/constants.js';
 import { ValidationError, NotFoundError } from '../types/errors.js';
 import type { ApiSuccess, PaginatedList } from '../types/apiResponse.js';
 import { FoundryClient } from '../ai/foundryClient.js';
@@ -363,33 +363,63 @@ router.delete('/:id/links/:linkId', (req: Request, res: Response, next: NextFunc
 });
 
 // ── POST /api/tasks/import ────────────────────────────────────────────────────
-// Accepts a markdown file body + import type ('podcast') and uses AI to
-// generate a structured list of suggested tasks for review before saving.
+// Accepts markdown + a document type and uses AI to extract/generate tasks.
 
-const PODCAST_IMPORT_SYSTEM_PROMPT = `You are a task planning assistant for a technology podcast and blog.
+const IMPORT_PROMPTS: Record<string, string> = {
+
+  podcast: `You are a task planning assistant for a technology podcast and blog.
 
 TODAY'S DATE: {{TODAY}}
 
-Given podcast show notes markdown, generate the exact tasks needed to publish and promote this episode.
-Always produce these task types (in order):
-1. "Show Notes" – add/finalise the show notes on the episode page before release. Due on the release date.
-2. "Pre-Release Teaser" – write and schedule a teaser post for LinkedIn, X (Twitter) and Bluesky 2–3 days before release. Due 3 days before release date.
-3. "Release Day Social Posts" – publish LinkedIn, X and Bluesky posts on release day. Due on the release date.
-4. "LinkedIn Post 1 (week 1)" – first follow-up LinkedIn post, 7 days after release. Focus on one key insight from the episode.
-5. "LinkedIn Post 2 (week 2)" – second follow-up, 14 days after release. Different angle or quote.
-6. "LinkedIn Post 3 (week 3)" – third follow-up, 21 days after release. Call to action or episode summary.
-7. "Companion Blog Post" – long-form blog post expanding on the episode's main theme. Due on release date or 1 day after.
+Given podcast episode marketing plan markdown, generate the exact tasks needed to publish and promote this episode.
+Always produce tasks covering (where applicable):
+- Finalising / uploading show notes before release
+- Pre-release teaser posts for LinkedIn, X and Bluesky (3 days before release)
+- Release day social posts (LinkedIn, X, Bluesky)
+- Weekly follow-up LinkedIn posts (weeks 1, 2 and 3 after release)
+- Companion blog post
 
 Rules:
-- Extract the episode title and release date from the markdown. Release date is usually in a "Date:" or "Release:" field, or in the filename/frontmatter.
-- If no release date is found, assume the episode releases within the next 7 days and use TODAY'S DATE + 7 as the release date. Never use dates from before today.
-- For each task, include in the body: a brief description of what to do PLUS 2-3 specific talking points pulled from the episode content that are most relevant to that task.
-- Set priority: "urgent" for release-day and pre-release tasks, "high" for blog post, "normal" for follow-up social posts.
-- Set status: "backlog" for all.
-- Set projectId: "microsoft-cloud-blog" for all.
+- Extract the episode title and release date. Release date is usually in a "Date:" or "Release:" field.
+- If no release date is found, default to TODAY + 7 days. Never use dates before today.
+- Set body to 2-3 specific talking points from the episode content relevant to that task.
+- Priority: "urgent" for release-day/pre-release; "high" for blog post; "normal" for follow-up social posts.
+- Status: "backlog". projectId: "microsoft-cloud-blog".
+Return ONLY a valid JSON array. No markdown fences. Each object: { "title": string, "body": string, "dueDate": "YYYY-MM-DD" | null, "priority": "urgent"|"high"|"normal"|"low", "status": "backlog", "projectId": string }`,
 
-Return ONLY a valid JSON array. No markdown, no explanation. Each object must have:
-{ "title": string, "body": string, "dueDate": "YYYY-MM-DD" | null, "priority": "urgent"|"high"|"normal"|"low", "status": "backlog", "projectId": string }`;
+  meeting: `You are an action-item extraction assistant.
+
+TODAY'S DATE: {{TODAY}}
+
+Given a meeting transcript or notes, extract every action item, commitment or next step that was agreed.
+
+Rules:
+- Look for explicit actions ("X will do Y", "we need to", "action:", "follow up:", "TODO") and implicit commitments made in discussion.
+- Set title to a short imperative phrase (e.g. "Send proposal to client").
+- Set body to 1-2 sentences of context — who raised it, what was decided.
+- Include the owner's name in the body if mentioned.
+- Infer dueDate from any deadline mentioned near the action ("by Friday", "end of week", "before the 15th"). Resolve relative dates against TODAY. If none, set null.
+- Priority: "urgent" if described as urgent/ASAP/critical; "high" if important; otherwise "normal".
+- Status: "backlog". Infer projectId from context if a project name is mentioned; otherwise "personal".
+Return ONLY a valid JSON array. No markdown fences. Each object: { "title": string, "body": string, "dueDate": "YYYY-MM-DD" | null, "priority": "urgent"|"high"|"normal"|"low", "status": "backlog", "projectId": string }`,
+
+  general: `You are a task extraction assistant.
+
+TODAY'S DATE: {{TODAY}}
+
+Given any markdown document, extract everything that looks like a task, action item or to-do.
+Look for: checkbox items (- [ ]), lines starting with TODO/Action/Next step/Follow up, bullet points describing something that needs doing, sentences implying someone needs to act.
+
+Rules:
+- Only extract genuine actions — skip headings, background context and observations.
+- Set title to a short imperative phrase.
+- Set body to supporting context (1-2 sentences). Empty string if none.
+- Infer dueDate from any date mentioned near the task. If none, set null.
+- Infer priority: urgent/ASAP/critical → "urgent"; important/high priority → "high"; default → "normal".
+- Status: "backlog". Infer projectId from context if possible; otherwise "personal".
+Return ONLY a valid JSON array. No markdown fences. Each object: { "title": string, "body": string, "dueDate": "YYYY-MM-DD" | null, "priority": "urgent"|"high"|"normal"|"low", "status": "backlog", "projectId": string }`,
+};
+
 
 interface ImportedTaskSuggestion {
   title: string;
@@ -405,22 +435,21 @@ router.post('/import', (req: Request, res: Response, next: NextFunction): void =
     try {
       const { content, type } = req.body as { content?: string; type?: string };
       if (!content?.trim()) throw new ValidationError('content is required', {});
-      if (type !== 'podcast') throw new ValidationError(`Import type '${type}' is not supported. Supported: podcast`, {});
-
       if (!env.AZURE_OPENAI_API_KEY && !env.AZURE_OPENAI_ENDPOINT) {
         throw new ValidationError('AI service not configured', {});
       }
 
       const client = new FoundryClient();
       const todayStr = new Date().toISOString().substring(0, 'YYYY-MM-DD'.length);
-      const systemPrompt = PODCAST_IMPORT_SYSTEM_PROMPT.replace('{{TODAY}}', todayStr);
+      const promptTemplate = IMPORT_PROMPTS[type ?? 'general'] ?? IMPORT_PROMPTS['general'] ?? '';
+      const systemPrompt = promptTemplate.replace('{{TODAY}}', todayStr);
       const raw = await client.chat(
         'gpt-4o',
         [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Here are the podcast show notes:\n\n${content}` },
+          { role: 'user', content: `Here is the markdown document:\n\n${content}` },
         ],
-        2000,
+        AI_DEFAULT_MAX_TOKENS,
       );
 
       // Strip any markdown code fences the model might add

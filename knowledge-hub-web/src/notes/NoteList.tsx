@@ -5,11 +5,8 @@
 
 import React, { useState } from 'react';
 import { TextInput } from '@carbon/react';
-import { useQuery } from '@tanstack/react-query';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
-import type { TaxonomyTag } from '../services/api';
-import { api } from '../services/api';
 
 interface NoteListProps {
   notes: NoteListItem[];
@@ -35,13 +32,20 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect 
   const [tagFilterOpen,  setTagFilterOpen]  = useState(false);
 
   const { data: parents = [] } = useTaxonomy();
-  const { data: projectsRes } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => api.getProjects(),
-    staleTime: 5 * 60_000,
-  });
-  const projects: Array<{ id: string; name: string }> =
-    projectsRes?.success === true ? projectsRes.data : [];
+
+  // Build a flat map of tagId → tag name, and a set of all "project child" tag IDs.
+  // A project child is any tag whose parent is a top-level project group tag.
+  // We treat every child tag of every top-level tag as a potential project grouper,
+  // preferring the first match found on the note.
+  const tagNameMap = new Map<string, string>();
+  const tagParentMap = new Map<string, string>(); // childId → parentName
+  for (const parent of parents) {
+    tagNameMap.set(parent.id, parent.name);
+    for (const child of parent.children ?? []) {
+      tagNameMap.set(child.id, child.name);
+      tagParentMap.set(child.id, parent.name);
+    }
+  }
 
   const filteredNotes = notes.filter((n) => {
     const textOk = n.title.toLowerCase().includes(filter.toLowerCase());
@@ -51,17 +55,21 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect 
     return (n.tagIds ?? []).some((id) => matchIds.has(id));
   });
 
-  // Group by project — notes without a project go under "General"
+  // Group by the first child taxonomy tag found on the note (its "project tag").
+  // Notes with no child tag go under "General".
   const groups = new Map<string, { label: string; notes: NoteListItem[] }>();
   for (const note of filteredNotes) {
-    const key = note.projectId ?? '__none__';
+    const noteTagIds = note.tagIds ?? [];
+    // Find the first tag that is a child tag (has a parent)
+    const projectTagId = noteTagIds.find((id) => tagParentMap.has(id));
+    const key = projectTagId ?? '__none__';
     if (!groups.has(key)) {
-      const proj = projects.find((p) => p.id === note.projectId);
-      groups.set(key, { label: proj?.name ?? 'General', notes: [] });
+      const label = projectTagId ? (tagNameMap.get(projectTagId) ?? 'General') : 'General';
+      groups.set(key, { label, notes: [] });
     }
     groups.get(key)!.notes.push(note);
   }
-  // Sort: named projects first (alphabetical), then General
+  // Sort: named groups alphabetical, General last
   const sortedGroups = [...groups.entries()].sort(([aKey, a], [bKey, b]) => {
     if (aKey === '__none__') return 1;
     if (bKey === '__none__') return -1;

@@ -1,7 +1,7 @@
 /**
  * PlanPage — calendar-first planning hub.
  *
- * Combines Calendar and Board (tasks) into a single page with a view switcher.
+ * Combines Calendar, Board and List views into a single page with a view switcher.
  * Each sub-view retains its own data-fetching; only the shared page header
  * and view tabs live here. The inner .page-header of each sub-page is hidden
  * via the .plan-inner wrapper.
@@ -9,14 +9,16 @@
 
 import React, { useState } from 'react';
 import type { CarbonIconType } from '@carbon/icons-react';
-import { Calendar, Dashboard, Upload } from '@carbon/icons-react';
+import { Calendar, Dashboard, Upload, List } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
 import { CalendarPage } from './CalendarPage';
 import { TasksPage } from './TasksPage';
+import { TaskListView } from './TaskListView';
 import { useFlatTags } from '../hooks/useTaxonomy';
+import { useDueNotifications } from '../hooks/useDueNotifications';
 import { PROJECTS } from '../config/projects';
 
-type PlanView = 'calendar' | 'board';
+type PlanView = 'calendar' | 'board' | 'list';
 
 interface ViewTab {
   key: PlanView;
@@ -27,6 +29,7 @@ interface ViewTab {
 const VIEW_TABS: ViewTab[] = [
   { key: 'calendar', label: 'Calendar', Icon: Calendar },
   { key: 'board',    label: 'Board',    Icon: Dashboard },
+  { key: 'list',     label: 'List',     Icon: List },
 ];
 
 export const PlanPage: React.FC = () => {
@@ -35,6 +38,9 @@ export const PlanPage: React.FC = () => {
   const [filterProject, setFilterProject] = useState('');
   const [filterTag,     setFilterTag]     = useState('');
   const flatTags = useFlatTags();
+
+  // Fire OS/browser notifications for tasks due today (once per session)
+  useDueNotifications();
 
   return (
     <div className="plan-root">
@@ -58,9 +64,9 @@ export const PlanPage: React.FC = () => {
                 type="button"
                 className="kb-import-btn"
                 onClick={() => setImportOpen(true)}
-                title="Import tasks from a podcast episode"
+                title="Import tasks from a markdown file"
               >
-                <Upload size={16} /> Import episode
+                <Upload size={16} /> Import tasks
               </button>
             </>
           )}
@@ -82,6 +88,7 @@ export const PlanPage: React.FC = () => {
       {/* Sub-page — .page-header inside is hidden via CSS */}
       <div className="plan-inner">
         {view === 'calendar' && <CalendarPage />}
+        {view === 'list'     && <TaskListView />}
         {view === 'board'    && (
           <TasksPage
             onImportOpen={() => setImportOpen(true)}

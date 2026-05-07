@@ -376,7 +376,30 @@ const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) => {
   );
 };
 
-// ── Podcast Import Modal ──────────────────────────────────────────────────────
+// ── Task Import Modal ─────────────────────────────────────────────────────────
+
+type ImportDocType = 'podcast' | 'meeting' | 'general';
+
+const DOC_TYPE_OPTIONS: { value: ImportDocType; label: string; hint: string; placeholder: string }[] = [
+  {
+    value: 'podcast',
+    label: 'Podcast episode plan',
+    hint: 'Upload the marketing plan for a podcast episode. The AI will extract all the tasks needed to publish and promote it — show notes, social posts, blog post etc.',
+    placeholder: '# Episode Title\nDate: 2026-05-07\n\n## Show Notes\n...',
+  },
+  {
+    value: 'meeting',
+    label: 'Meeting transcript / notes',
+    hint: 'Upload a meeting transcript or notes. The AI will identify every action item, owner and due date mentioned.',
+    placeholder: '# Meeting: Project Kick-off\nDate: 2026-05-07\n\nAttendees: ...\n\n## Actions\n- Richard to review the proposal by Friday\n...',
+  },
+  {
+    value: 'general',
+    label: 'General document',
+    hint: 'Upload any markdown document. The AI will extract everything that looks like a task, action item or to-do.',
+    placeholder: '# My Document\n\n- [ ] Task one\n- Action item two\n...',
+  },
+];
 
 interface ImportedTask {
   title: string;
@@ -392,17 +415,19 @@ const PodcastImportModal: React.FC<{
   onClose: () => void;
   onTasksCreated: () => void;
 }> = ({ open, onClose, onTasksCreated }) => {
-  const [step, setStep]         = useState<'upload' | 'review'>('upload');
+  const [step, setStep]           = useState<'upload' | 'review'>('upload');
+  const [docType, setDocType]     = useState<ImportDocType>('podcast');
   const [mdContent, setMdContent] = useState('');
   const [suggestions, setSuggestions] = useState<ImportedTask[]>([]);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selected, setSelected]   = useState<Set<number>>(new Set());
   const [generating, setGenerating] = useState(false);
-  const [saving, setSaving]     = useState(false);
-  const [error, setError]       = useState<string | null>(null);
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reset = (): void => {
     setStep('upload');
+    setDocType('podcast');
     setMdContent('');
     setSuggestions([]);
     setSelected(new Set());
@@ -422,11 +447,11 @@ const PodcastImportModal: React.FC<{
   };
 
   const handleGenerate = async (): Promise<void> => {
-    if (!mdContent.trim()) { setError('Please paste or upload show notes first.'); return; }
+    if (!mdContent.trim()) { setError('Please paste or upload a markdown file first.'); return; }
     setGenerating(true);
     setError(null);
     try {
-      const res = await api.importTasks(mdContent, 'podcast');
+      const res = await api.importTasks(mdContent, docType);
       const typed = res as { success: boolean; data?: ImportedTask[] };
       if (!typed.success || !typed.data) throw new Error('No suggestions returned');
       setSuggestions(typed.data);
@@ -465,8 +490,8 @@ const PodcastImportModal: React.FC<{
   return (
     <Modal
       open={open}
-      modalHeading="Import Podcast Episode Tasks"
-      primaryButtonText={step === 'upload' ? (generating ? 'Generating…' : 'Generate Tasks') : (saving ? 'Creating…' : `Create ${selected.size} task${selected.size !== 1 ? 's' : ''}`)}
+      modalHeading="Import Tasks from Markdown"
+      primaryButtonText={step === 'upload' ? (generating ? 'Extracting…' : 'Extract Tasks') : (saving ? 'Creating…' : `Create ${selected.size} task${selected.size !== 1 ? 's' : ''}`)}
       secondaryButtonText={step === 'review' ? 'Back' : 'Cancel'}
       primaryButtonDisabled={generating || saving || (step === 'upload' && !mdContent.trim())}
       onRequestClose={handleClose}
@@ -479,15 +504,28 @@ const PodcastImportModal: React.FC<{
 
         {step === 'upload' && (
           <>
+            {/* Document type selector */}
+            <div className="kb-import__type-row">
+              {DOC_TYPE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`kb-import__type-btn${docType === opt.value ? ' kb-import__type-btn--active' : ''}`}
+                  onClick={() => { setDocType(opt.value); setMdContent(''); }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
             <p className="kb-import__hint">
-              Upload or paste the show notes markdown for a podcast episode. The AI will generate all the tasks needed — show notes, socials, blog post and more.
+              {DOC_TYPE_OPTIONS.find((o) => o.value === docType)?.hint}
             </p>
             <div className="kb-import__file-row">
               <input
                 ref={fileRef}
                 type="file"
                 accept=".md,.txt"
-                title="Upload show notes markdown file"
+                title="Upload markdown file"
                 className="kb-import__file-input"
                 onChange={handleFile}
               />
@@ -498,11 +536,11 @@ const PodcastImportModal: React.FC<{
             </div>
             <TextArea
               id="import-md"
-              labelText="Or paste show notes here"
+              labelText="Or paste markdown here"
               rows={10}
               value={mdContent}
               onChange={(e) => setMdContent(e.target.value)}
-              placeholder="# Episode Title&#10;Date: 2026-05-05&#10;&#10;## Show Notes&#10;..."
+              placeholder={DOC_TYPE_OPTIONS.find((o) => o.value === docType)?.placeholder ?? ''}
             />
           </>
         )}
