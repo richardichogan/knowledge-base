@@ -157,6 +157,8 @@ export interface DiscoverItem {
   relevanceExplanation: string | null;
   /** URL of the user's own blog post written about this article */
   publishedUrl: string | null;
+  /** Taxonomy tag UUIDs from discover_item_tags */
+  taxonomyTagIds: string[];
 }
 
 export interface ConnectionEdge {

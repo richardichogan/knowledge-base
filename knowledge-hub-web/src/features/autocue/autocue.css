@@ -229,6 +229,7 @@
 
 .ac-status__rate-bar-fill {
   height: 100%;
+  width: var(--rate-bar-pct, 0%);
   background: var(--kh-accent, #3dDBD9);
   border-radius: 2px;
   transition: width 0.1s linear;

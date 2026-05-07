@@ -28,3 +28,4 @@ scripts/deploy-*.sh
 scripts/provision.sh
 scripts/setup-auth.sh
 scripts/migrate-data-to-prod.sh
+scripts/.env.deploy

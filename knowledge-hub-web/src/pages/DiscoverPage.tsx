@@ -15,6 +15,9 @@ import { Bookmark, Edit, Archive, Renew, Launch, ArrowRight, Link, Checkmark, Mi
 import { api } from '../services/api';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import type { ContentItemSummary } from '../types';
+import { SparkCaptureButton } from '../components/sparks/SparkCaptureButton';
+import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { useFlatTags } from '../hooks/useTaxonomy';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -167,13 +170,18 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
   const queryClient = useQueryClient();
   const [value, setValue] = useState(item.publishedUrl ?? '');
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: (url: string | null) => api.updateDiscoverPublishedUrl(item.id, url),
     onSuccess: () => {
       setSaved(true);
+      setError(null);
       setTimeout(() => setSaved(false), 2000);
       void queryClient.invalidateQueries({ queryKey: ['discover'] });
+    },
+    onError: (err: unknown) => {
+      setError(err instanceof Error ? err.message : 'Save failed');
     },
   });
 
@@ -209,6 +217,7 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
           <Launch size={12} /> View post
         </a>
       )}
+      {error !== null && <span className="dc-published-url-error">{error}</span>}
     </div>
   );
 };
@@ -227,6 +236,11 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
   const isBlog      = item.workflowState === 'blog';
   const isPublished = item.workflowState === 'published';
   const [copied, setCopied] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const flatTags = useFlatTags();
+  const taxonomyTags = (item.taxonomyTagIds ?? [])
+    .map((id) => flatTags.find((t) => t.id === id))
+    .filter((t): t is NonNullable<typeof t> => t !== undefined);
 
   function handleCopyUrl(): void {
     if (item.url === null) return;
@@ -381,7 +395,31 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
             <ArrowRight size={14} /> Restore
           </button>
         )}
+        <SparkCaptureButton sourceId={item.id} sourceType="discover_item" />
+        <button
+          className={`dc-action dc-action--connections${connectionsOpen ? ' dc-action--connections-active' : ''}`}
+          onClick={() => setConnectionsOpen((v) => !v)}
+          title={connectionsOpen ? 'Hide connections' : 'Show connections'}
+        >
+          Connections
+        </button>
       </div>
+      {taxonomyTags.length > 0 && (
+        <div className="dc-card-tags">
+          {taxonomyTags.map((t) => (
+            <span
+              key={t.id}
+              className="dc-taxonomy-pill"
+              ref={(el) => { if (el && t.colour) el.style.setProperty('--pill-colour', t.colour); }}
+            >
+              {t.name}
+            </span>
+          ))}
+        </div>
+      )}
+      {connectionsOpen && (
+        <ConnectionsPanel refId={item.id} refType="discover_item" />
+      )}
     </div>
   );
 };

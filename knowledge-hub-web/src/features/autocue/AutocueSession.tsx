@@ -206,7 +206,10 @@ export const AutocueSession: React.FC = () => {
       {/* Syllable rate indicator */}
       <div className={`ac-status${isScrolling.current ? ' ac-status--dim' : ''}`}>
         <span className="ac-status__rate-bar-wrap">
-          <span className="ac-status__rate-bar-fill" style={{ width: `${rateBarPct}%` }} />
+          <span
+            className="ac-status__rate-bar-fill"
+            style={{ '--rate-bar-pct': `${rateBarPct}%` } as React.CSSProperties}
+          />
         </span>
         <span className="ac-status__label">
           {sessionState === 'running'

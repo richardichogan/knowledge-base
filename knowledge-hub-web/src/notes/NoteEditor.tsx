@@ -8,6 +8,7 @@ import { useCreateBlockNote } from '@blocknote/react';
 import '@blocknote/mantine/style.css';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
+import { CreateTaskFromSelectionModal } from './CreateTaskFromSelectionModal';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import {
@@ -65,6 +66,7 @@ function formatDateTime(iso: string): string {
 export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [createTaskSelection, setCreateTaskSelection] = useState<string | null>(null);
 
   // Taxonomy tags for this note
   const { data: noteTagObjects = [] } = useNoteTags(doc.id);
@@ -96,12 +98,24 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       initialContent: parsedInitial as any,
       uploadFile: async (file: File): Promise<string> => {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => { resolve(reader.result as string); };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+        // Upload to blob storage via backend — returns a permanent URL
+        // instead of storing base64 inline (which breaks on 2+ images due to 1mb body limit)
+        const arrayBuffer = await file.arrayBuffer();
+        const response = await fetch(
+          `${(import.meta.env['VITE_API_URL'] as string | undefined) ?? ''}/api/images`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': file.type || 'application/octet-stream',
+              'Authorization': `Bearer ${(import.meta.env['VITE_API_TOKEN'] as string | undefined) ?? ''}`,
+            },
+            body: arrayBuffer,
+          },
+        );
+        if (!response.ok) throw new Error(`Image upload failed: ${response.status.toString()}`);
+        const json = await response.json() as { success: boolean; data?: { blobUrl: string } };
+        if (!json.success || json.data === undefined) throw new Error('Image upload returned no URL');
+        return json.data.blobUrl;
       },
     },
     [doc.id],
@@ -238,6 +252,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}
+              onCreateTask={(text) => { setCreateTaskSelection(text); }}
             />
           </div>
         </div>
@@ -331,6 +346,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
         onClose={() => { setGithubModalOpen(false); }}
         onConfirm={(fp, msg) => { void handleGitHubConfirm(fp, msg); }}
       />
+
+      {createTaskSelection !== null && (
+        <CreateTaskFromSelectionModal
+          selectedText={createTaskSelection}
+          onClose={() => { setCreateTaskSelection(null); }}
+          onCreated={(taskTitle) => {
+            setCreateTaskSelection(null);
+            setNotification({ kind: 'success', msg: `Task created: ${taskTitle}` });
+            setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS * 2);
+          }}
+        />
+      )}
     </div>
   );
 };

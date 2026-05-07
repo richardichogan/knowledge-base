@@ -34,12 +34,15 @@ import {
   Ai,
   Tag,
   Folder,
+  Flash,
 } from '@carbon/icons-react';
 import { AIChatPage } from '../pages/AIChatPage';
 import { CommandPalette } from './CommandPalette';
 import { TagPanel } from './TagPanel';
 import { ProjectsModal } from './ProjectsModal';
+import { QuickSparkModal } from './sparks/QuickSparkModal';
 import { usePendingTags } from '../hooks/useTaxonomy';
+import { useGlobalShortcuts } from '../hooks/useGlobalShortcuts';
 
 interface NavItem {
   path: string;
@@ -61,6 +64,7 @@ export const AppShell: React.FC = () => {
   const [tagPanelOpen, setTagPanelOpen]           = useState(false);
   const [projectsOpen, setProjectsOpen]           = useState(false);
   const [paletteOpen, setPaletteOpen]             = useState(false);
+  const [sparkModalOpen, setSparkModalOpen]       = useState(false);
   const navigate  = useNavigate();
   const location  = useLocation();
   const { data: pendingTags = [] } = usePendingTags();
@@ -76,6 +80,9 @@ export const AppShell: React.FC = () => {
     window.addEventListener('keydown', handler);
     return () => { window.removeEventListener('keydown', handler); };
   }, []);
+
+  // Cmd+. — open quick spark capture
+  useGlobalShortcuts({ onSparkCapture: () => { setSparkModalOpen(true); } });
 
   return (
     <>
@@ -108,6 +115,13 @@ export const AppShell: React.FC = () => {
                 <span className="header-badge">{pendingTags.length}</span>
               )}
             </span>
+          </HeaderGlobalAction>
+          <HeaderGlobalAction
+            aria-label="New Spark"
+            isActive={sparkModalOpen}
+            onClick={() => { setSparkModalOpen((v) => !v); }}
+          >
+            <Flash size={20} />
           </HeaderGlobalAction>
           <HeaderGlobalAction
             aria-label="AI Chat"
@@ -148,6 +162,9 @@ export const AppShell: React.FC = () => {
       <Content>
         <Outlet />
       </Content>
+
+      {/* ── Quick Spark modal ── */}
+      <QuickSparkModal open={sparkModalOpen} onClose={() => { setSparkModalOpen(false); }} />
 
       {/* ── Tag Manager slide-over ── */}
       <TagPanel open={tagPanelOpen} onClose={() => { setTagPanelOpen(false); }} />
