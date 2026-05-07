@@ -23,7 +23,6 @@ export interface TaxonomyTag {
   slug: string;
   parentId: string | null;
   colour: string | null;
-  role: 'filing' | 'concept';
   usageCount: number;
   children?: TaxonomyTag[];
 }
@@ -68,10 +67,9 @@ router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
       const db = getDb();
       const rows = await db.query<{
         id: string; name: string; slug: string; parent_id: string | null;
-        colour: string | null; role: string; usage_count: number;
+        colour: string | null; usage_count: number;
       }>(
         `SELECT t.id, t.name, t.slug, t.parent_id, t.colour,
-                COALESCE(t.role, 'concept') AS role,
                 (SELECT COUNT(*)::int FROM note_tags nt WHERE nt.tag_id = t.id) +
                 (SELECT COUNT(*)::int FROM discover_item_tags dt WHERE dt.tag_id = t.id) AS usage_count
          FROM tags t ORDER BY t.name ASC`,
@@ -79,8 +77,7 @@ router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
 
       const allTags: TaxonomyTag[] = rows.rows.map((r) => ({
         id: r.id, name: r.name, slug: r.slug, parentId: r.parent_id,
-        colour: r.colour, role: r.role === 'filing' ? 'filing' : 'concept',
-        usageCount: r.usage_count, children: [],
+        colour: r.colour, usageCount: r.usage_count, children: [],
       }));
 
       const byId = new Map(allTags.map((t) => [t.id, t]));
@@ -152,18 +149,18 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const db = getDb();
-      const { name, parentId = null, colour = null, role = 'concept' } = req.body as {
-        name: string; parentId?: string | null; colour?: string | null; role?: 'filing' | 'concept';
+      const { name, parentId = null, colour = null } = req.body as {
+        name: string; parentId?: string | null; colour?: string | null;
       };
       await validateName(db, name, parentId);
       const slug = toSlug(name.trim());
       const row = await db.query<{ id: string }>(
-        `INSERT INTO tags (name, slug, parent_id, colour, role) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-        [name.trim(), slug, parentId, colour, role],
+        `INSERT INTO tags (name, slug, parent_id, colour) VALUES ($1,$2,$3,$4) RETURNING id`,
+        [name.trim(), slug, parentId, colour],
       );
       const tagId = row.rows[0]?.id;
       if (tagId === undefined) throw new Error('Insert failed');
-      const tag: TaxonomyTag = { id: tagId, name: name.trim(), slug, parentId, colour, role, usageCount: 0 };
+      const tag: TaxonomyTag = { id: tagId, name: name.trim(), slug, parentId, colour, usageCount: 0 };
       const body: ApiSuccess<TaxonomyTag> = { success: true, data: tag };
       res.status(HTTP_STATUS.CREATED).json(body);
     } catch (err) { next(err); }

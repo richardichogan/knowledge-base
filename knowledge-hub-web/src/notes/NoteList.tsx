@@ -1,22 +1,15 @@
 /**
- * notes/NoteList.tsx — left panel: grouped tree view.
- *
- * Layout:
- *   - Search box at top
- *   - Collapsible section per parent taxonomy tag  (e.g. "IBM", "Azure")
- *     - Child sub-sections if the parent has children and notes within them
- *   - "Uncategorised" section for notes with no tag
- *
- * When the search box is non-empty the tree collapses and a flat filtered
- * list is shown instead, matching the old behaviour.
+ * notes/NoteList.tsx — left panel: notes grouped by project.
+ * Project is the primary navigation. Tags are a secondary collapsible filter.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { TextInput } from '@carbon/react';
-import { ChevronDown, ChevronRight } from '@carbon/icons-react';
+import { useQuery } from '@tanstack/react-query';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import type { TaxonomyTag } from '../services/api';
+import { api } from '../services/api';
 
 interface NoteListProps {
   notes: NoteListItem[];
@@ -36,37 +29,132 @@ const TYPE_STYLE: Record<string, { color: string; bg: string; border: string }> 
   newsletter: { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
 };
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect }) => {
+  const [filter,         setFilter]         = useState('');
+  const [activeTagId,    setActiveTagId]    = useState<string | null>(null);
+  const [tagFilterOpen,  setTagFilterOpen]  = useState(false);
 
-/** All tag IDs that belong to a parent (including itself and all its children). */
-function parentTagIds(parent: TaxonomyTag): Set<string> {
-  const ids = new Set<string>([parent.id]);
-  for (const child of parent.children ?? []) ids.add(child.id);
-  return ids;
-}
+  const { data: parents = [] } = useTaxonomy();
+  const { data: projectsRes } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => api.getProjects(),
+    staleTime: 5 * 60_000,
+  });
+  const projects: Array<{ id: string; name: string }> =
+    projectsRes?.success === true ? projectsRes.data : [];
 
-// ── sub-components ────────────────────────────────────────────────────────────
+  const filteredNotes = notes.filter((n) => {
+    const textOk = n.title.toLowerCase().includes(filter.toLowerCase());
+    if (!textOk) return false;
+    if (!activeTagId) return true;
+    const matchIds = expandTagIds(activeTagId, parents);
+    return (n.tagIds ?? []).some((id) => matchIds.has(id));
+  });
+
+  // Group by project — notes without a project go under "General"
+  const groups = new Map<string, { label: string; notes: NoteListItem[] }>();
+  for (const note of filteredNotes) {
+    const key = note.projectId ?? '__none__';
+    if (!groups.has(key)) {
+      const proj = projects.find((p) => p.id === note.projectId);
+      groups.set(key, { label: proj?.name ?? 'General', notes: [] });
+    }
+    groups.get(key)!.notes.push(note);
+  }
+  // Sort: named projects first (alphabetical), then General
+  const sortedGroups = [...groups.entries()].sort(([aKey, a], [bKey, b]) => {
+    if (aKey === '__none__') return 1;
+    if (bKey === '__none__') return -1;
+    return a.label.localeCompare(b.label);
+  });
+
+  return (
+    <>
+      <div className="notes-list-search">
+        <TextInput id="notes-search" labelText="Search" hideLabel placeholder="Search…" value={filter} onChange={(e) => { setFilter(e.target.value); }} size="sm" />
+      </div>
+
+      {/* Tag filter — collapsible, secondary */}
+      {parents.length > 0 && (
+        <div className="notes-tag-filter">
+          <button
+            className="notes-tag-filter__toggle"
+            onClick={() => { setTagFilterOpen((v) => !v); }}
+          >
+            Filter by tag {activeTagId !== null && '(1 active)'}
+            <span className={`notes-tag-filter__arrow${tagFilterOpen ? ' notes-tag-filter__arrow--open' : ''}`}>▾</span>
+          </button>
+          {tagFilterOpen && (
+            <div className="notes-tag-filter__chips">
+              <button
+                className={`notes-tag-chip${activeTagId === null ? ' notes-tag-chip--active' : ''}`}
+                onClick={() => { setActiveTagId(null); }}
+              >
+                All
+              </button>
+              {parents.map((parent) => (
+                <React.Fragment key={parent.id}>
+                  <button
+                    className={`notes-tag-chip${activeTagId === parent.id ? ' notes-tag-chip--active' : ''}`}
+                    onClick={() => { setActiveTagId(activeTagId === parent.id ? null : parent.id); }}
+                    ref={(el) => { if (el && parent.colour) el.style.setProperty('--chip-colour', parent.colour); }}
+                  >
+                    {parent.name}
+                  </button>
+                  {activeTagId === parent.id && (parent.children ?? []).map((child) => (
+                    <button
+                      key={child.id}
+                      className={`notes-tag-chip notes-tag-chip--child${activeTagId === child.id ? ' notes-tag-chip--active' : ''}`}
+                      onClick={() => { setActiveTagId(child.id); }}
+                      ref={(el) => { if (el && child.colour) el.style.setProperty('--chip-colour', child.colour); }}
+                    >
+                      {child.name}
+                    </button>
+                  ))}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Notes grouped by project */}
+      <div className="notes-list">
+        {sortedGroups.length === 0 && (
+          <div className="notes-list-empty">No documents found</div>
+        )}
+        {sortedGroups.map(([key, group]) => (
+          <div key={key} className="notes-group">
+            <p className="notes-group__label">{group.label}</p>
+            {group.notes.map((note) => (
+              <NoteCard key={note.id} note={note} selectedId={selectedId} onSelect={onSelect} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+};
 
 const NoteCard: React.FC<{
-  note: NoteListItem;
-  selectedId: string | null;
+  note: NoteListItem; selectedId: string | null;
   onSelect: (id: string) => void;
-  indent?: boolean;
-}> = ({ note, selectedId, onSelect, indent = false }) => {
-  const st = TYPE_STYLE[note.contentType] ?? TYPE_STYLE['note']!;
+}> = ({ note, selectedId, onSelect }) => {
+  const st = TYPE_STYLE[note.contentType] ?? TYPE_STYLE['note'] ?? { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' };
   const preview = (note as NoteListItem & { body?: string }).body ?? '';
-  const snippet = preview.replace(/[#*_`>\[\]\n]+/g, ' ').trim().slice(0, 100);
+  const snippet = preview.replace(/[#*_`>\[\]\n]+/g, ' ').trim().slice(0, 120);
 
   return (
     <div
-      className={`notes-list-item${selectedId === note.id ? ' notes-list-item--active' : ''}${indent ? ' notes-list-item--indented' : ''}`}
+      className={`notes-list-item${selectedId === note.id ? ' notes-list-item--active' : ''}`}
       onClick={() => { onSelect(note.id); }}
-      onKeyDown={(e) => { if (e.key === 'Enter') onSelect(note.id); }}
-      role="button"
-      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter') { onSelect(note.id); } }}
+      role="button" tabIndex={0}
     >
       <div className="notes-list-item-title">{note.title}</div>
-      {snippet !== '' && <p className="notes-list-item-preview">{snippet}</p>}
+      {snippet !== '' && (
+        <p className="notes-list-item-preview">{snippet}</p>
+      )}
       <div className="notes-list-item-bottom">
         <span className="notes-list-item-date">{formatDate(note.updatedAt)}</span>
         <span
@@ -83,211 +171,5 @@ const NoteCard: React.FC<{
         </span>
       </div>
     </div>
-  );
-};
-
-/** A collapsible section with a coloured header. */
-const NoteSection: React.FC<{
-  label: string;
-  colour?: string | null;
-  count: number;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}> = ({ label, colour, count, defaultOpen = true, children }) => {
-  const [open, setOpen] = useState(defaultOpen);
-
-  return (
-    <div className="notes-section">
-      <button
-        className="notes-section-header"
-        onClick={() => { setOpen((o) => !o); }}
-        aria-expanded={open}
-        ref={(el) => { if (el && colour) el.style.setProperty('--section-colour', colour); }}
-      >
-        <span className="notes-section-chevron">
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        </span>
-        {colour && <span className="notes-section-dot" />}
-        <span className="notes-section-label">{label}</span>
-        <span className="notes-section-count">{count}</span>
-      </button>
-      {open && <div className="notes-section-body">{children}</div>}
-    </div>
-  );
-};
-
-/** A collapsible child sub-section (indented, smaller header). */
-const NoteSubSection: React.FC<{
-  label: string;
-  colour?: string | null;
-  count: number;
-  children: React.ReactNode;
-}> = ({ label, colour, count, children }) => {
-  const [open, setOpen] = useState(true);
-
-  return (
-    <div className="notes-subsection">
-      <button
-        className="notes-subsection-header"
-        onClick={() => { setOpen((o) => !o); }}
-        aria-expanded={open}
-        ref={(el) => { if (el && colour) el.style.setProperty('--section-colour', colour); }}
-      >
-        <span className="notes-section-chevron">
-          {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-        </span>
-        {colour && <span className="notes-section-dot notes-section-dot--sm" />}
-        <span className="notes-subsection-label">{label}</span>
-        <span className="notes-section-count">{count}</span>
-      </button>
-      {open && <div className="notes-subsection-body">{children}</div>}
-    </div>
-  );
-};
-
-// ── main component ────────────────────────────────────────────────────────────
-
-export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect }) => {
-  const [filter, setFilter] = useState('');
-  const { data: parents = [] } = useTaxonomy();
-
-  // ── grouped structure (only used when not searching) ─────────────────────
-  const grouped = useMemo(() => {
-    // Build a map: noteId → set of all its tag IDs
-    const noteTagMap = new Map<string, Set<string>>();
-    for (const n of notes) {
-      noteTagMap.set(n.id, new Set(n.tagIds ?? []));
-    }
-
-    // For each parent tag, collect the notes that belong to it (or its children).
-    // A note can appear under multiple parent sections.
-    const sections: Array<{
-      parent: TaxonomyTag;
-      allNotes: NoteListItem[];
-      byChild: Array<{ child: TaxonomyTag; notes: NoteListItem[] }>;
-      uncategorisedUnderParent: NoteListItem[];
-    }> = [];
-
-    const claimedIds = new Set<string>();
-
-    for (const parent of parents) {
-      const childIds = new Set((parent.children ?? []).map((c) => c.id));
-      const allParentTagIds = parentTagIds(parent);
-
-      const parentNotes = notes.filter((n) =>
-        (noteTagMap.get(n.id) ?? new Set()).has(parent.id) ||
-        [...(noteTagMap.get(n.id) ?? new Set())].some((id) => allParentTagIds.has(id)),
-      );
-
-      if (parentNotes.length === 0) continue;
-
-      // Sub-group by child tag
-      const byChild: Array<{ child: TaxonomyTag; notes: NoteListItem[] }> = [];
-      for (const child of parent.children ?? []) {
-        const childNotes = parentNotes.filter((n) =>
-          (noteTagMap.get(n.id) ?? new Set()).has(child.id),
-        );
-        if (childNotes.length > 0) byChild.push({ child, notes: childNotes });
-      }
-
-      // Notes tagged with the parent itself (not just a child)
-      const uncategorisedUnderParent = parentNotes.filter(
-        (n) => !(noteTagMap.get(n.id) ?? new Set()).has(parent.id)
-          ? false
-          : true,
-      ).filter((n) => {
-        const tags = noteTagMap.get(n.id) ?? new Set();
-        // Show directly under parent only if NOT also assigned a child tag
-        return ![...(tags)].some((id) => childIds.has(id));
-      });
-
-      parentNotes.forEach((n) => claimedIds.add(n.id));
-      sections.push({ parent, allNotes: parentNotes, byChild, uncategorisedUnderParent });
-    }
-
-    const uncategorised = notes.filter((n) => !claimedIds.has(n.id));
-    return { sections, uncategorised };
-  }, [notes, parents]);
-
-  // ── search mode: flat filtered list ──────────────────────────────────────
-  const isSearching = filter.trim() !== '';
-  const searchResults = isSearching
-    ? notes.filter((n) => n.title.toLowerCase().includes(filter.toLowerCase()))
-    : [];
-
-  return (
-    <>
-      <div className="notes-list-search">
-        <TextInput
-          id="notes-search"
-          labelText="Search"
-          hideLabel
-          placeholder="Search notes…"
-          value={filter}
-          onChange={(e) => { setFilter(e.target.value); }}
-          size="sm"
-        />
-      </div>
-
-      <div className="notes-list">
-        {isSearching ? (
-          <>
-            {searchResults.map((note) => (
-              <NoteCard key={note.id} note={note} selectedId={selectedId} onSelect={onSelect} />
-            ))}
-            {searchResults.length === 0 && (
-              <div className="notes-list-empty">No notes match "{filter}"</div>
-            )}
-          </>
-        ) : (
-          <>
-            {grouped.sections.map(({ parent, allNotes, byChild, uncategorisedUnderParent }) => (
-              <NoteSection
-                key={parent.id}
-                label={parent.name}
-                colour={parent.colour}
-                count={allNotes.length}
-              >
-                {/* Notes with only the parent tag (no child) */}
-                {uncategorisedUnderParent.map((note) => (
-                  <NoteCard key={note.id} note={note} selectedId={selectedId} onSelect={onSelect} />
-                ))}
-
-                {/* Child sub-sections */}
-                {byChild.map(({ child, notes: childNotes }) => (
-                  <NoteSubSection
-                    key={child.id}
-                    label={child.name}
-                    colour={child.colour ?? parent.colour}
-                    count={childNotes.length}
-                  >
-                    {childNotes.map((note) => (
-                      <NoteCard key={note.id} note={note} selectedId={selectedId} onSelect={onSelect} indent />
-                    ))}
-                  </NoteSubSection>
-                ))}
-              </NoteSection>
-            ))}
-
-            {grouped.uncategorised.length > 0 && (
-              <NoteSection
-                label="Uncategorised"
-                colour={null}
-                count={grouped.uncategorised.length}
-                defaultOpen={grouped.sections.length === 0}
-              >
-                {grouped.uncategorised.map((note) => (
-                  <NoteCard key={note.id} note={note} selectedId={selectedId} onSelect={onSelect} />
-                ))}
-              </NoteSection>
-            )}
-
-            {notes.length === 0 && (
-              <div className="notes-list-empty">No notes yet</div>
-            )}
-          </>
-        )}
-      </div>
-    </>
   );
 };

@@ -33,8 +33,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         [noteId],
       );
       const tags: TaxonomyTag[] = rows.rows.map((r) => ({
-        id: r.id, name: r.name, slug: r.slug, parentId: r.parent_id,
-        colour: r.colour, role: 'concept' as const, usageCount: 0,
+        id: r.id, name: r.name, slug: r.slug, parentId: r.parent_id, colour: r.colour, usageCount: 0,
       }));
       const body: ApiSuccess<TaxonomyTag[]> = { success: true, data: tags };
       res.status(HTTP_STATUS.OK).json(body);

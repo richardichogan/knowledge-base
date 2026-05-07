@@ -68,7 +68,7 @@ export interface DocEntry {
   htmlUrl: string;
   size: number;
   tags: string[];
-  taxonomyTagIds: string[];
+  taxonomyTagIds?: string[];
 }
 
 export interface DocumentContent {
