@@ -393,6 +393,14 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async triggerRetag(all = false): Promise<ApiResponse<{ queued: number; message: string }>> {
+    const r = await this.client.post<ApiResponse<{ queued: number; message: string }>>(
+      `/api/taxonomy/retag${all ? '?all=true' : ''}`,
+      {},
+    );
+    return r.data;
+  }
+
   async getNoteTags(noteId: string): Promise<ApiResponse<TaxonomyTag[]>> {
     const r = await this.client.get<ApiResponse<TaxonomyTag[]>>(`/api/notes/${noteId}/tags`);
     return r.data;

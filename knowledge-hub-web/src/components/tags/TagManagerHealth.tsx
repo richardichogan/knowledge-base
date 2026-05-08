@@ -19,6 +19,7 @@ export const TagManagerHealth: React.FC = () => {
   const report = data?.success ? data.data : null;
   const [splitResults, setSplitResults] = useState<Record<string, string[]>>({});
   const [busyId, setBusyId]             = useState<string | null>(null);
+  const [retagStatus, setRetagStatus]   = useState<string | null>(null);
 
   const handleDelete = async (tagId: string): Promise<void> => {
     if (!confirm('Delete this tag? This cannot be undone.')) return;
@@ -73,6 +74,26 @@ export const TagManagerHealth: React.FC = () => {
         >
           ↻ Refresh report
         </button>
+        <button
+          type="button"
+          className="tag-health__action-btn tag-health__action-btn--primary"
+          disabled={busyId !== null || retagStatus === 'running'}
+          onClick={() => {
+            setRetagStatus('running');
+            void api.triggerRetag(true).then((res) => {
+              if (res.success) {
+                setRetagStatus(`Queued ${res.data.queued} items — running in background`);
+              } else {
+                setRetagStatus('Failed to start backfill');
+              }
+            });
+          }}
+        >
+          ⟳ Backfill all tags
+        </button>
+        {retagStatus !== null && (
+          <p className="tag-health__retag-status">{retagStatus}</p>
+        )}
       </div>
     </div>
   );

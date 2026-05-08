@@ -42,13 +42,13 @@ export const TagManagerReviewQueue: React.FC = () => {
     void legacyRefetch();
   };
 
-  if (aiLoading || legacyLoading) return <InlineLoading description="Loading queue…" />;
-
   const uniqueLegacy = React.useMemo(() => {
     const seen = new Set<string>();
     return (legacy as Array<{ suggestion: string; item_id: string; item_title: string }>)
       .filter((p) => { if (seen.has(p.suggestion)) return false; seen.add(p.suggestion); return true; });
   }, [legacy]);
+
+  if (aiLoading || legacyLoading) return <InlineLoading description="Loading queue…" />;
 
   return (
     <div className="tag-review-queue">
