@@ -44,27 +44,26 @@ export const TagManagerHealth: React.FC = () => {
   };
 
   if (isPending) return <InlineLoading description="Loading health report…" />;
-  if (isError || !report) return (
-    <InlineNotification kind="warning" title="No health report available yet."
-      subtitle="It is generated weekly. Run npm run taxonomy:health manually to generate one now."
-      lowContrast hideCloseButton />
-  );
 
   return (
     <div className="tag-health">
-      <p className="tag-health__generated">
-        Generated: {report.generatedAt ?? 'unknown'}
-      </p>
-      <pre className="tag-health__report">{report.content}</pre>
-      <p className="tag-health__note">
-        Use Delete on underused tags and Suggest Split on overused tags listed above.
-      </p>
-      {Object.entries(splitResults).map(([id, suggestions]) => (
-        <div key={id} className="tag-health__split-result">
-          <strong>Split suggestions:</strong>
-          <ul>{suggestions.map((s) => <li key={s}>{s}</li>)}</ul>
-        </div>
-      ))}
+      {(isError || !report) ? (
+        <InlineNotification kind="warning" title="No health report available yet."
+          subtitle="It is generated weekly. Run npm run taxonomy:health manually to generate one now."
+          lowContrast hideCloseButton />
+      ) : (
+        <>
+          <p className="tag-health__generated">Generated: {report.generatedAt ?? 'unknown'}</p>
+          <pre className="tag-health__report">{report.content}</pre>
+          <p className="tag-health__note">Use Delete on underused tags and Suggest Split on overused tags listed above.</p>
+          {Object.entries(splitResults).map(([id, suggestions]) => (
+            <div key={id} className="tag-health__split-result">
+              <strong>Split suggestions:</strong>
+              <ul>{suggestions.map((s) => <li key={s}>{s}</li>)}</ul>
+            </div>
+          ))}
+        </>
+      )}
       <div className="tag-health__actions">
         <button
           type="button"

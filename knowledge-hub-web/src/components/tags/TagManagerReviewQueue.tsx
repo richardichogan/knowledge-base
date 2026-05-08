@@ -14,6 +14,18 @@ import { usePendingTags, useCreateTag } from '../../hooks/useTaxonomy';
 export const TagManagerReviewQueue: React.FC = () => {
   const qc = useQueryClient();
   const refresh = (): void => { void qc.invalidateQueries({ queryKey: ['tag-suggestions'] }); };
+  const [rejectingAll, setRejectingAll] = React.useState(false);
+
+  const rejectAll = async (): Promise<void> => {
+    if (!confirm(`Reject all pending AI suggestions? This cannot be undone.`)) return;
+    setRejectingAll(true);
+    try {
+      await api.rejectAllTagSuggestions();
+      void qc.invalidateQueries({ queryKey: ['tag-suggestions'] });
+    } finally {
+      setRejectingAll(false);
+    }
+  };
 
   const { data: aiSuggestions = [], isPending: aiLoading } = useQuery<PendingSuggestion[]>({
     queryKey: ['tag-suggestions'],
@@ -55,7 +67,17 @@ export const TagManagerReviewQueue: React.FC = () => {
       {/* AI backfill suggestions */}
       {aiSuggestions.length > 0 && (
         <section className="tag-review-queue__section">
-          <h3 className="tag-review-queue__section-title">AI suggestions ({aiSuggestions.length})</h3>
+          <div className="tag-review-queue__section-header">
+            <h3 className="tag-review-queue__section-title">AI suggestions ({aiSuggestions.length})</h3>
+            <button
+              type="button"
+              className="tag-suggestion-row__btn tag-suggestion-row__btn--reject"
+              disabled={rejectingAll}
+              onClick={() => { void rejectAll(); }}
+            >
+              {rejectingAll ? 'Rejecting…' : 'Reject all'}
+            </button>
+          </div>
           {aiSuggestions.map((s) => (
             <PendingSuggestionRow key={s.id} suggestion={s} onRefresh={refresh} />
           ))}

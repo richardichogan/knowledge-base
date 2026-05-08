@@ -383,6 +383,11 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async rejectAllTagSuggestions(): Promise<ApiResponse<{ rejected: number }>> {
+    const r = await this.client.post<ApiResponse<{ rejected: number }>>('/api/tag-suggestions/reject-all', {});
+    return r.data;
+  }
+
   async mergeTagSuggestion(id: string, mergeToId: string): Promise<ApiResponse<void>> {
     const r = await this.client.post<ApiResponse<void>>(`/api/tag-suggestions/${id}/merge`, { mergeToId });
     return r.data;

@@ -131,4 +131,19 @@ router.post('/:id/merge', (req: Request, res: Response, next: NextFunction): voi
   })();
 });
 
+// ── POST /api/tag-suggestions/reject-all ─────────────────────────────────────
+
+router.post('/reject-all', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const db = getDb();
+      const result = await db.query(
+        `UPDATE pending_tag_suggestions SET status = 'rejected', updated_at = now() WHERE status = 'pending'`,
+      );
+      const body: ApiSuccess<{ rejected: number }> = { success: true, data: { rejected: result.rowCount ?? 0 } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) { next(err); }
+  })();
+});
+
 export { router as tagSuggestionRouter };
