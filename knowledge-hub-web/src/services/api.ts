@@ -406,6 +406,11 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async getRetagStatus(): Promise<ApiResponse<{ done: number; total: number; running: boolean; completedAt: string | null }>> {
+    const r = await this.client.get<ApiResponse<{ done: number; total: number; running: boolean; completedAt: string | null }>>('/api/taxonomy/retag/status');
+    return r.data;
+  }
+
   async getNoteTags(noteId: string): Promise<ApiResponse<TaxonomyTag[]>> {
     const r = await this.client.get<ApiResponse<TaxonomyTag[]>>(`/api/notes/${noteId}/tags`);
     return r.data;

@@ -3,7 +3,7 @@
  * Health tab — renders the latest weekly taxonomy drift report and provides
  * Delete (underused tags) and Suggest Split (overused tags) quick actions.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading, InlineNotification } from '@carbon/react';
 import { api } from '../../services/api';
@@ -19,7 +19,24 @@ export const TagManagerHealth: React.FC = () => {
   const report = data?.success ? data.data : null;
   const [splitResults, setSplitResults] = useState<Record<string, string[]>>({});
   const [busyId, setBusyId]             = useState<string | null>(null);
-  const [retagStatus, setRetagStatus]   = useState<string | null>(null);
+  const [retagProgress, setRetagProgress] = useState<{ done: number; total: number; running: boolean } | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startPolling = (): void => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(() => {
+      void api.getRetagStatus().then((res) => {
+        if (!res.success) return;
+        setRetagProgress(res.data);
+        if (!res.data.running) {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+        }
+      });
+    }, 2000);
+  };
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   const handleDelete = async (tagId: string): Promise<void> => {
     if (!confirm('Delete this tag? This cannot be undone.')) return;
@@ -76,22 +93,24 @@ export const TagManagerHealth: React.FC = () => {
         <button
           type="button"
           className="tag-health__action-btn tag-health__action-btn--primary"
-          disabled={busyId !== null || retagStatus === 'running'}
+          disabled={busyId !== null || retagProgress?.running === true}
           onClick={() => {
-            setRetagStatus('running');
             void api.triggerRetag(true).then((res) => {
               if (res.success) {
-                setRetagStatus(`Queued ${res.data.queued} items — running in background`);
-              } else {
-                setRetagStatus('Failed to start backfill');
+                setRetagProgress({ done: 0, total: res.data.queued, running: true });
+                startPolling();
               }
             });
           }}
         >
           ⟳ Backfill all tags
         </button>
-        {retagStatus !== null && (
-          <p className="tag-health__retag-status">{retagStatus}</p>
+        {retagProgress !== null && (
+          <p className="tag-health__retag-status">
+            {retagProgress.running
+              ? `${retagProgress.done} / ${retagProgress.total} processed…`
+              : `✓ Done — ${retagProgress.done} items tagged`}
+          </p>
         )}
       </div>
     </div>

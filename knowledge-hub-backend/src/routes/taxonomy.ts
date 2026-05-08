@@ -225,7 +225,17 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction): void =>
 // Runs in the background — returns 202 immediately with a count estimate.
 
 const RETAG_SUMMARY_CHARS = 2_000;
-const RETAG_LOG_INTERVAL  = 10;
+
+// In-memory progress state (single instance — fine for one server process)
+let retagProgress: { done: number; total: number; running: boolean; completedAt: string | null } = {
+  done: 0, total: 0, running: false, completedAt: null,
+};
+
+// ── GET /api/taxonomy/retag/status ────────────────────────────────────────────
+
+router.get('/retag/status', (_req: Request, res: Response): void => {
+  res.status(HTTP_STATUS.OK).json({ success: true, data: retagProgress });
+});
 
 router.post('/retag', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
@@ -256,6 +266,7 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
       );
 
       const total = discoverRows.rows.length + noteRows.rows.length;
+      retagProgress = { done: 0, total, running: true, completedAt: null };
 
       res.status(HTTP_STATUS.OK).json({
         success: true,
@@ -269,19 +280,17 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
           const summary = (row.summary ?? row.title ?? '').slice(0, RETAG_SUMMARY_CHARS);
           await tagContent(db, summary, row.id, row.source, row.title);
           done++;
-          if (done % RETAG_LOG_INTERVAL === 0) {
-            process.stdout.write(`[retag] ${done}/${total} processed\n`);
-          }
+          retagProgress.done = done;
         }
         for (const row of noteRows.rows) {
           let title = 'Note';
           try { title = (JSON.parse(row.content) as { title?: string }).title ?? 'Note'; } catch { /* raw text */ }
           await tagContent(db, row.content.slice(0, RETAG_SUMMARY_CHARS), row.id, 'note', title);
           done++;
-          if (done % RETAG_LOG_INTERVAL === 0) {
-            process.stdout.write(`[retag] ${done}/${total} processed\n`);
-          }
+          retagProgress.done = done;
         }
+        retagProgress.running = false;
+        retagProgress.completedAt = new Date().toISOString();
         process.stdout.write(`[retag] complete — ${done} items processed\n`);
       })();
     } catch (err) { next(err); }
