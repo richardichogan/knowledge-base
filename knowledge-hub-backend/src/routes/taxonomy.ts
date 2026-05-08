@@ -7,12 +7,14 @@
  * PATCH  /api/taxonomy/:id      — update name / colour
  * DELETE /api/taxonomy/:id      — delete a tag (enforces no-children constraint for parents)
  * GET    /api/taxonomy/pending  — suggested tags not yet in taxonomy (review queue)
+ * POST   /api/taxonomy/retag    — re-run auto-tagging on all untagged content items
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError, NotFoundError } from '../types/errors.js';
+import { tagContent, invalidateConceptTagCache } from '../services/taxonomyService.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 
 const router = Router();
@@ -214,6 +216,74 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction): void =>
       await db.query('DELETE FROM tags WHERE id = $1', [id]);
       const body: ApiSuccess<void> = { success: true, data: undefined };
       res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── POST /api/taxonomy/retag — re-run auto-tagging on all content items ───────
+// Processes discover_items and notes that have no tags yet (or all, if ?all=true).
+// Runs in the background — returns 202 immediately with a count estimate.
+
+const RETAG_SUMMARY_CHARS = 2_000;
+const RETAG_LOG_INTERVAL  = 10;
+
+router.post('/retag', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const db = getDb();
+      const all = req.query['all'] === 'true';
+
+      // Invalidate cache so the refreshed tag list is loaded
+      invalidateConceptTagCache();
+
+      const discoverRows = await db.query<{
+        id: string; source: string; title: string; summary: string;
+      }>(all
+        ? `SELECT id, source, title, summary FROM discover_items ORDER BY created_at DESC`
+        : `SELECT di.id, di.source, di.title, di.summary
+           FROM discover_items di
+           LEFT JOIN discover_item_tags dit ON dit.discover_item_id = di.id
+           WHERE dit.discover_item_id IS NULL
+           ORDER BY di.created_at DESC`,
+      );
+
+      const noteRows = await db.query<{ id: string; content: string }>(all
+        ? `SELECT id, content FROM notes WHERE status = 'active'`
+        : `SELECT n.id, n.content
+           FROM notes n
+           LEFT JOIN note_tags nt ON nt.note_id = n.id
+           WHERE n.status = 'active' AND nt.note_id IS NULL`,
+      );
+
+      const total = discoverRows.rows.length + noteRows.rows.length;
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        data: { queued: total, message: `Retagging ${total} items in background` },
+      });
+
+      // Background — fire and forget after response is sent
+      void (async (): Promise<void> => {
+        let done = 0;
+        for (const row of discoverRows.rows) {
+          const summary = (row.summary ?? row.title ?? '').slice(0, RETAG_SUMMARY_CHARS);
+          await tagContent(db, summary, row.id, row.source, row.title);
+          done++;
+          if (done % RETAG_LOG_INTERVAL === 0) {
+            process.stdout.write(`[retag] ${done}/${total} processed\n`);
+          }
+        }
+        for (const row of noteRows.rows) {
+          let title = 'Note';
+          try { title = (JSON.parse(row.content) as { title?: string }).title ?? 'Note'; } catch { /* raw text */ }
+          await tagContent(db, row.content.slice(0, RETAG_SUMMARY_CHARS), row.id, 'note', title);
+          done++;
+          if (done % RETAG_LOG_INTERVAL === 0) {
+            process.stdout.write(`[retag] ${done}/${total} processed\n`);
+          }
+        }
+        process.stdout.write(`[retag] complete — ${done} items processed\n`);
+      })();
     } catch (err) { next(err); }
   })();
 });

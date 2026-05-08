@@ -50,7 +50,7 @@ export async function loadConceptTags(db: Pool): Promise<ConceptTag[]> {
   const rows = await db.query<{ id: string; name: string; parent_name: string | null }>(
     `SELECT c.id, c.name, p.name AS parent_name
      FROM tags c LEFT JOIN tags p ON p.id = c.parent_id
-     WHERE c.role = 'concept' AND c.parent_id IS NOT NULL
+     WHERE c.parent_id IS NOT NULL
      ORDER BY p.name, c.name`,
   );
   _conceptTagCache = rows.rows.map((r) => ({
