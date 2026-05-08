@@ -19,6 +19,7 @@ export const TagManagerHealth: React.FC = () => {
   const report = data?.success ? data.data : null;
   const [splitResults, setSplitResults] = useState<Record<string, string[]>>({});
   const [busyId, setBusyId]             = useState<string | null>(null);
+  const [isRetagging, setIsRetagging]   = useState(false);
   const [retagProgress, setRetagProgress] = useState<{ done: number; total: number; running: boolean } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -29,6 +30,7 @@ export const TagManagerHealth: React.FC = () => {
         if (!res.success) return;
         setRetagProgress(res.data);
         if (!res.data.running) {
+          setIsRetagging(false);
           clearInterval(pollRef.current!);
           pollRef.current = null;
         }
@@ -93,17 +95,21 @@ export const TagManagerHealth: React.FC = () => {
         <button
           type="button"
           className="tag-health__action-btn tag-health__action-btn--primary"
-          disabled={busyId !== null || retagProgress?.running === true}
+          disabled={isRetagging}
           onClick={() => {
+            setIsRetagging(true);
+            setRetagProgress(null);
             void api.triggerRetag(true).then((res) => {
               if (res.success) {
                 setRetagProgress({ done: 0, total: res.data.queued, running: true });
                 startPolling();
+              } else {
+                setIsRetagging(false);
               }
-            });
+            }).catch(() => { setIsRetagging(false); });
           }}
         >
-          ⟳ Backfill all tags
+          {isRetagging ? 'Running…' : '⟳ Backfill all tags'}
         </button>
         {retagProgress !== null && (
           <p className="tag-health__retag-status">
