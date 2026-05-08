@@ -249,12 +249,12 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
       const discoverRows = await db.query<{
         id: string; source: string; title: string; summary: string;
       }>(all
-        ? `SELECT id, source, title, summary FROM content_items ORDER BY created_at DESC`
+        ? `SELECT id, source, title, summary FROM content_items ORDER BY indexed_at DESC`
         : `SELECT ci.id, ci.source, ci.title, ci.summary
            FROM content_items ci
            LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
            WHERE dit.discover_item_id IS NULL
-           ORDER BY ci.created_at DESC`,
+           ORDER BY ci.indexed_at DESC`,
       );
 
       const noteRows = await db.query<{ id: string; content: string }>(all
