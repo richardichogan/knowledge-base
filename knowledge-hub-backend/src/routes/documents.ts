@@ -124,6 +124,64 @@ async function getRepoTree(gh: GitHubClient, repo: string): Promise<GitHubTreeIt
 
 const CONTENT_STORE = 'richardichogan/content-store';
 
+// ── Library cache — avoids hammering GitHub on every page load ─────────────────
+const LIBRARY_CACHE_TTL_MS = 300_000; // 5 minutes
+let _libraryCache: { docs: DocEntry[]; builtAt: number } | null = null;
+
+async function buildLibrary(gh: GitHubClient, extraRepos: string[], labelMap: Record<string, string>): Promise<DocEntry[]> {
+  const docs: DocEntry[] = [];
+
+  // 1. Content store — all .md files
+  try {
+    const tree = await getRepoTree(gh, CONTENT_STORE);
+    for (const item of tree) {
+      if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
+      docs.push({
+        id: `${CONTENT_STORE}::${item.path}`,
+        title: titleFromPath(item.path),
+        type: inferDocType(item.path, true),
+        repo: CONTENT_STORE,
+        path: item.path,
+        sourceLabel: 'Content Store',
+        htmlUrl: `https://github.com/${CONTENT_STORE}/blob/main/${item.path}`,
+        size: item.size ?? 0,
+        tags: inferTags(item.path, 'Content Store', true),
+        taxonomyTagIds: [],
+      });
+    }
+  } catch (err) {
+    console.warn('[Documents] content-store fetch failed:', err instanceof Error ? err.message : err);
+  }
+
+  // 2. Project repos — docs/ folder and README.md only
+  await Promise.allSettled(
+    extraRepos.map(async (repo) => {
+      const label = labelMap[repo] ?? repo.split('/')[1] ?? repo;
+      try {
+        const tree = await getRepoTree(gh, repo);
+        for (const item of tree) {
+          if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
+          if (!item.path.startsWith('docs/') && item.path.toLowerCase() !== 'readme.md') continue;
+          docs.push({
+            id: `${repo}::${item.path}`,
+            title: titleFromPath(item.path),
+            type: inferDocType(item.path, false),
+            repo,
+            path: item.path,
+            sourceLabel: label,
+            htmlUrl: `https://github.com/${repo}/blob/main/${item.path}`,
+            size: item.size ?? 0,
+            tags: inferTags(item.path, label, false),
+            taxonomyTagIds: [],
+          });
+        }
+      } catch { /* repo inaccessible — skip */ }
+    }),
+  );
+
+  return docs;
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 /**
@@ -152,53 +210,25 @@ router.get('/library', (req: Request, res: Response, next: NextFunction): void =
         } catch { /* ignore malformed JSON */ }
       }
 
-      const docs: DocEntry[] = [];
-
-      // 1. Content store — all .md files
-      try {
-        const tree = await getRepoTree(gh, CONTENT_STORE);
-        for (const item of tree) {
-          if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-          docs.push({
-            id: `${CONTENT_STORE}::${item.path}`,
-            title: titleFromPath(item.path),
-            type: inferDocType(item.path, true),
-            repo: CONTENT_STORE,
-            path: item.path,
-            sourceLabel: 'Content Store',
-            htmlUrl: `https://github.com/${CONTENT_STORE}/blob/main/${item.path}`,
-            size: item.size ?? 0,
-            tags: inferTags(item.path, 'Content Store', true),
-            taxonomyTagIds: [],
-          });
-        }
-      } catch {
-        // content-store inaccessible — continue
-      }
-
-      // 2. Project repos — docs/ folder and README.md only
-      await Promise.allSettled(
-        extraRepos.map(async (repo) => {
-          const label = labelMap[repo] ?? repo.split('/')[1] ?? repo;
-          const tree = await getRepoTree(gh, repo);
-          for (const item of tree) {
-            if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-            if (!item.path.startsWith('docs/') && item.path.toLowerCase() !== 'readme.md') continue;
-            docs.push({
-              id: `${repo}::${item.path}`,
-              title: titleFromPath(item.path),
-              type: inferDocType(item.path, false),
-              repo,
-              path: item.path,
-              sourceLabel: label,
-              htmlUrl: `https://github.com/${repo}/blob/main/${item.path}`,
-              size: item.size ?? 0,
-              tags: inferTags(item.path, label, false),
-              taxonomyTagIds: [],
-            });
+      // Use cache if fresh, otherwise rebuild (and serve stale on GitHub failure)
+      let docs: DocEntry[];
+      const now = Date.now();
+      if (_libraryCache && (now - _libraryCache.builtAt) < LIBRARY_CACHE_TTL_MS) {
+        docs = _libraryCache.docs;
+      } else {
+        try {
+          docs = await buildLibrary(gh, extraRepos, labelMap);
+          if (docs.length > 0) {
+            _libraryCache = { docs, builtAt: now };
+          } else if (_libraryCache) {
+            // GitHub rate-limited — return stale cache rather than empty
+            console.warn('[Documents] GitHub returned 0 docs — serving stale cache');
+            docs = _libraryCache.docs;
           }
-        }),
-      );
+        } catch {
+          docs = _libraryCache?.docs ?? [];
+        }
+      }
 
       docs.sort((a, b) => a.title.localeCompare(b.title));
 
@@ -406,14 +436,16 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
         data: { queued: total, message: `Retagging ${total} documents in background` },
       });
 
-      // Background processing
+      // Background processing — rate-limited: 1 GitHub call per 500ms to avoid secondary rate limit
       void (async (): Promise<void> => {
         const client = new FoundryClient();
         let done = 0;
+        const RATE_LIMIT_DELAY_MS = 500;
 
         for (const doc of docs) {
           try {
-            // Fetch file content
+            // Fetch file content via blob SHA (already in DocSpec) or fall back to contents API
+            await new Promise((r) => setTimeout(r, RATE_LIMIT_DELAY_MS));
             const blob = await gh.get<GitHubBlobResponse>(`/repos/${doc.repo}/contents/${doc.path}`);
             const content = blob.encoding === 'base64'
               ? Buffer.from(blob.content.replace(/\n/g, ''), 'base64').toString('utf8')

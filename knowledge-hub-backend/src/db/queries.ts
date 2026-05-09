@@ -1,16 +1,20 @@
 import type { Pool, QueryResult } from 'pg';
 import type { ContentItem, ContentItemSummary } from '../types/index.js';
+import { tagContent } from '../services/taxonomyService.js';
+
+const TAG_SUMMARY_CHARS = 2000;
 
 // ── Content items ─────────────────────────────────────────────────────────────
 
 /**
  * Upserts a content item into the index.
  * Uses (source, source_id) as the conflict key.
+ * Returns true if this was a newly inserted row, false if it already existed.
  */
 export async function upsertContentItem(
   db: Pool,
   item: Omit<ContentItem, 'id' | 'indexedAt'>,
-): Promise<void> {
+): Promise<{ isNew: boolean; id: string }> {
   const sql = `
     INSERT INTO content_items
       (source, source_id, title, summary, body, published_at, url, project_context, metadata, tags)
@@ -25,8 +29,9 @@ export async function upsertContentItem(
       metadata       = EXCLUDED.metadata,
       tags           = EXCLUDED.tags,
       indexed_at     = NOW()
+    RETURNING id, (xmax = 0) AS is_new
   `;
-  await db.query(sql, [
+  const result = await db.query<{ id: string; is_new: boolean }>(sql, [
     item.source,
     item.sourceId,
     item.title,
@@ -38,6 +43,19 @@ export async function upsertContentItem(
     JSON.stringify(item.metadata),
     item.tags,
   ]);
+  const row = result.rows[0];
+  const isNew = row?.is_new ?? false;
+  const id = row?.id ?? '';
+
+  // Fire-and-forget: tag new items immediately without blocking the caller
+  if (isNew && id) {
+    const summary = `${item.title}\n\n${(item.summary ?? item.body ?? '')}`.slice(0, TAG_SUMMARY_CHARS);
+    void tagContent(db, summary, id, item.source, item.title).catch((err: unknown) => {
+      console.error(`[queries] Auto-tag failed for ${item.source}:${item.sourceId}`, err instanceof Error ? err.message : err);
+    });
+  }
+
+  return { isNew, id };
 }
 
 /** Returns paginated timeline items ordered by published_at DESC. */
