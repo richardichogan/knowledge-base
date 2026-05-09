@@ -411,6 +411,16 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async triggerDocRetag(extraRepos: string[] = []): Promise<ApiResponse<{ queued: number; message: string }>> {
+    const r = await this.client.post<ApiResponse<{ queued: number; message: string }>>('/api/documents/retag', { repos: extraRepos });
+    return r.data;
+  }
+
+  async getDocRetagStatus(): Promise<ApiResponse<{ done: number; total: number; running: boolean; completedAt: string | null }>> {
+    const r = await this.client.get<ApiResponse<{ done: number; total: number; running: boolean; completedAt: string | null }>>('/api/documents/retag/status');
+    return r.data;
+  }
+
   async getNoteTags(noteId: string): Promise<ApiResponse<TaxonomyTag[]>> {
     const r = await this.client.get<ApiResponse<TaxonomyTag[]>>(`/api/notes/${noteId}/tags`);
     return r.data;

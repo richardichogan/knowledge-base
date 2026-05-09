@@ -7,9 +7,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading, InlineNotification } from '@carbon/react';
 import { api } from '../../services/api';
+import { PROJECTS } from '../../config/projects';
 
 export const TagManagerHealth: React.FC = () => {
   const qc = useQueryClient();
+  const allDocRepos = PROJECTS.flatMap((p) => p.githubRepos ?? []);
   const { data, isPending, isError } = useQuery({
     queryKey: ['taxonomy-health'],
     queryFn:  () => api.getHealthReport(),
@@ -22,6 +24,10 @@ export const TagManagerHealth: React.FC = () => {
   const [isRetagging, setIsRetagging]   = useState(false);
   const [retagProgress, setRetagProgress] = useState<{ done: number; total: number; running: boolean } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [isDocRetagging, setIsDocRetagging]   = useState(false);
+  const [docRetagProgress, setDocRetagProgress] = useState<{ done: number; total: number; running: boolean } | null>(null);
+  const docPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startPolling = (): void => {
     if (pollRef.current) return;
@@ -38,7 +44,25 @@ export const TagManagerHealth: React.FC = () => {
     }, 2000);
   };
 
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  const startDocPolling = (): void => {
+    if (docPollRef.current) return;
+    docPollRef.current = setInterval(() => {
+      void api.getDocRetagStatus().then((res) => {
+        if (!res.success) return;
+        setDocRetagProgress(res.data);
+        if (!res.data.running) {
+          setIsDocRetagging(false);
+          clearInterval(docPollRef.current!);
+          docPollRef.current = null;
+        }
+      });
+    }, 2000);
+  };
+
+  useEffect(() => () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (docPollRef.current) clearInterval(docPollRef.current);
+  }, []);
 
   const handleDelete = async (tagId: string): Promise<void> => {
     if (!confirm('Delete this tag? This cannot be undone.')) return;
@@ -116,6 +140,32 @@ export const TagManagerHealth: React.FC = () => {
             {retagProgress.running
               ? `${retagProgress.done} / ${retagProgress.total} processed…`
               : `✓ Done — ${retagProgress.done} items tagged`}
+          </p>
+        )}
+        <button
+          type="button"
+          className="tag-health__action-btn tag-health__action-btn--primary"
+          disabled={isDocRetagging}
+          onClick={() => {
+            setIsDocRetagging(true);
+            setDocRetagProgress(null);
+            void api.triggerDocRetag(allDocRepos).then((res) => {
+              if (res.success) {
+                setDocRetagProgress({ done: 0, total: res.data.queued, running: true });
+                startDocPolling();
+              } else {
+                setIsDocRetagging(false);
+              }
+            }).catch(() => { setIsDocRetagging(false); });
+          }}
+        >
+          {isDocRetagging ? 'Running…' : '⟳ Backfill document tags'}
+        </button>
+        {docRetagProgress !== null && (
+          <p className="tag-health__retag-status">
+            {docRetagProgress.running
+              ? `${docRetagProgress.done} / ${docRetagProgress.total} docs processed…`
+              : `✓ Done — ${docRetagProgress.done} documents tagged`}
           </p>
         )}
       </div>

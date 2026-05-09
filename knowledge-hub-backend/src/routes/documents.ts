@@ -18,6 +18,8 @@ import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
+import { loadConceptTags, invalidateConceptTagCache } from '../services/taxonomyService.js';
+import { FoundryClient } from '../ai/foundryClient.js';
 
 const router = Router();
 
@@ -307,6 +309,153 @@ router.put('/tags', (req: Request, res: Response, next: NextFunction): void => {
       }
       const body: ApiSuccess<string[]> = { success: true, data: ids };
       res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── Document retag progress state ─────────────────────────────────────────────
+let docRetagProgress: { done: number; total: number; running: boolean; completedAt: string | null } = {
+  done: 0, total: 0, running: false, completedAt: null,
+};
+
+const DOC_SUMMARY_CHARS = 3_000;
+
+const DOC_MAX_TOKENS = 300;
+const DOC_TAG_PARAM_OFFSET = 2;
+
+const DOC_SYSTEM_PROMPT = `You are a content tagging assistant. Given a document (markdown file from a GitHub repository) and a taxonomy of concept tags, identify which tags apply.
+
+Apply tags conservatively — only if the document is substantively about that concept.
+Apply between 0 and 6 tags. Return ONLY valid JSON:
+{ "tags": ["Tag Name", "Tag Name"] }`;
+
+/**
+ * GET /api/documents/retag/status
+ * Returns the current document retag progress.
+ */
+router.get('/retag/status', (_req: Request, res: Response): void => {
+  res.status(HTTP_STATUS.OK).json({ success: true, data: docRetagProgress });
+});
+
+/**
+ * POST /api/documents/retag
+ * Re-runs AI tagging on all documents in the library (content-store + project repos).
+ * Runs in background — returns 202 immediately.
+ */
+router.post('/retag', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const db = getDb();
+      const gh = new GitHubClient();
+
+      invalidateConceptTagCache();
+      const conceptTags = await loadConceptTags(db);
+      if (conceptTags.length === 0) {
+        res.status(HTTP_STATUS.OK).json({ success: true, data: { queued: 0, message: 'No concept tags in taxonomy' } });
+        return;
+      }
+
+      // Build taxonomy string for the AI prompt
+      const groups: Record<string, string[]> = {};
+      for (const t of conceptTags) {
+        (groups[t.parentName] ??= []).push(t.name);
+      }
+      const taxonomyListing = Object.entries(groups)
+        .map(([parent, children]) => `${parent}: ${children.join(', ')}`)
+        .join('\n');
+
+      // Get project repos from DB + optional body override
+      const body = req.body as { repos?: unknown };
+      const bodyRepos = Array.isArray(body?.repos)
+        ? (body.repos as unknown[]).filter((r): r is string => typeof r === 'string')
+        : [];
+      const projectRows = await db.query<{ github_repos: string[]; name: string }>(
+        `SELECT github_repos, name FROM projects WHERE array_length(github_repos, 1) > 0`,
+      );
+      const dbRepos: string[] = projectRows.rows.flatMap((r) => r.github_repos ?? []);
+      const extraRepos: string[] = [...new Set([...dbRepos, ...bodyRepos])];
+
+      // Collect all docs (same logic as /library)
+      type DocSpec = { id: string; repo: string; path: string; title: string };
+      const docs: DocSpec[] = [];
+
+      try {
+        const tree = await getRepoTree(gh, CONTENT_STORE);
+        for (const item of tree) {
+          if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
+          docs.push({ id: `${CONTENT_STORE}::${item.path}`, repo: CONTENT_STORE, path: item.path, title: titleFromPath(item.path) });
+        }
+      } catch { /* content-store inaccessible */ }
+
+      await Promise.allSettled(
+        extraRepos.map(async (repo) => {
+          const tree = await getRepoTree(gh, repo);
+          for (const item of tree) {
+            if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
+            if (!item.path.startsWith('docs/') && item.path.toLowerCase() !== 'readme.md') continue;
+            docs.push({ id: `${repo}::${item.path}`, repo, path: item.path, title: titleFromPath(item.path) });
+          }
+        }),
+      );
+
+      const total = docs.length;
+      docRetagProgress = { done: 0, total, running: true, completedAt: null };
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        data: { queued: total, message: `Retagging ${total} documents in background` },
+      });
+
+      // Background processing
+      void (async (): Promise<void> => {
+        const client = new FoundryClient();
+        let done = 0;
+
+        for (const doc of docs) {
+          try {
+            // Fetch file content
+            const blob = await gh.get<GitHubBlobResponse>(`/repos/${doc.repo}/contents/${doc.path}`);
+            const content = blob.encoding === 'base64'
+              ? Buffer.from(blob.content.replace(/\n/g, ''), 'base64').toString('utf8')
+              : blob.content;
+
+            const truncated = content.slice(0, DOC_SUMMARY_CHARS);
+
+            const raw = await client.chat('gpt-4o-mini', [
+              { role: 'system', content: DOC_SYSTEM_PROMPT },
+              { role: 'user', content: `Document: ${doc.title}\n\n${truncated}\n\nAvailable concept tags:\n${taxonomyListing}` },
+            ], DOC_MAX_TOKENS);
+
+            const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+            const parsed = JSON.parse(cleaned) as { tags?: string[] };
+
+            const matchedIds: string[] = [];
+            for (const tagName of parsed.tags ?? []) {
+              const match = conceptTags.find((t) => t.name.toLowerCase() === tagName.toLowerCase());
+              if (match) matchedIds.push(match.id);
+            }
+
+            if (matchedIds.length > 0) {
+              // Replace existing tags for this doc
+              await db.query('DELETE FROM document_tags WHERE doc_id = $1', [doc.id]);
+              const values = matchedIds.map((_, i) => `($1, $${i + DOC_TAG_PARAM_OFFSET}::uuid)`).join(', ');
+              await db.query(
+                `INSERT INTO document_tags (doc_id, tag_id) VALUES ${values} ON CONFLICT DO NOTHING`,
+                [doc.id, ...matchedIds],
+              );
+            }
+          } catch (err) {
+            console.error(`[DocRetag] failed for ${doc.id}:`, err);
+          }
+          done++;
+          docRetagProgress.done = done;
+        }
+
+        docRetagProgress.running = false;
+        docRetagProgress.completedAt = new Date().toISOString();
+        process.stdout.write(`[DocRetag] complete — ${done} documents processed\n`);
+      })();
+
     } catch (err) { next(err); }
   })();
 });

@@ -22,6 +22,7 @@ export interface DiscoverItem {
   relevanceExplanation: string | null;
   /** URL of the user's own blog post written about this article */
   publishedUrl: string | null;
+  taxonomyTagIds: string[];
 }
 
 const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived', 'published'];
@@ -71,11 +72,16 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
           workflow_state: string;
           relevance_score: number | null;
           relevance_explanation: string | null;
+          taxonomy_tag_ids: string[] | null;
         }>(
-          `SELECT id, source_id, title, url, body, published_at, indexed_at,
-                  metadata, workflow_state, relevance_score, relevance_explanation
-           FROM content_items ${where}
-           ORDER BY published_at DESC
+          `SELECT ci.id, ci.source_id, ci.title, ci.url, ci.body, ci.published_at, ci.indexed_at,
+                  ci.metadata, ci.workflow_state, ci.relevance_score, ci.relevance_explanation,
+                  array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids
+           FROM content_items ci
+           LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
+           ${where}
+           GROUP BY ci.id
+           ORDER BY ci.published_at DESC
            LIMIT $${p++} OFFSET $${p}`,
           [...params, pageSize, offset],
         ),
@@ -95,6 +101,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         relevanceScore: row.relevance_score,
         relevanceExplanation: row.relevance_explanation,
         publishedUrl: typeof row.metadata['publishedUrl'] === 'string' ? row.metadata['publishedUrl'] : null,
+        taxonomyTagIds: row.taxonomy_tag_ids ?? [],
       }));
 
       const response: ApiSuccess<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }> = {
