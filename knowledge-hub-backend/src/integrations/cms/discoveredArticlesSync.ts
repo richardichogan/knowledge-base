@@ -127,18 +127,39 @@ function articleToContentItem(
 // ── Relevance scoring ─────────────────────────────────────────────────────────
 
 const SCORE_BATCH_SIZE = 10;
-const RELEVANCE_MAX_TOKENS = 150;
+const RELEVANCE_MAX_TOKENS = 200;
 
-const RELEVANCE_SYSTEM_PROMPT = `You are an editorial assistant for a Microsoft Azure and cloud technology blog.
-Score the relevance of an article for the blog author. The blog covers Microsoft Azure, Microsoft 365, AI/Copilot, developer tools, and cloud strategy.
+const RELEVANCE_SYSTEM_PROMPT = `You are an editorial scoring assistant for Richard Hogan, who writes a Microsoft Azure and cloud technology blog called The Microsoft Cloud Blog.
+
+Score each article 0.0–1.0 based on the following strict priority order:
+
+TOPIC PRIORITY (most important factor):
+1. Azure (Azure services, Azure AI, Azure infrastructure, Azure DevOps) → score starts at 0.7–1.0
+2. GitHub & GitHub Copilot (GitHub features, Copilot coding assistant, Actions, repos) → score starts at 0.6–0.9
+3. Microsoft 365 & M365 Copilot (Teams, Outlook, Word, Excel, SharePoint, M365 Copilot) → score starts at 0.5–0.8
+4. Microsoft Research (research papers, AI research, labs announcements) → score starts at 0.4–0.7
+5. Everything else Microsoft/MSFT → score starts at 0.3–0.6
+6. Non-Microsoft content → score 0.0–0.3 (only relevant if directly about Azure/GitHub/M365 ecosystem)
+
+SOURCE AUTHORITY (second factor — adjust score up or down within the band above):
+- Official Microsoft sources (blog.microsoft.com, techcommunity.microsoft.com, azure.microsoft.com, devblogs.microsoft.com, github.blog, learn.microsoft.com) → boost +0.1
+- Major tech press (TechCrunch, The Verge, ZDNet, InfoQ, Ars Technica, Wired) → neutral
+- Community blogs, personal blogs, individual Microsoft MVPs/community members, forums, Reddit → reduce -0.3 AND cap score at 0.35 regardless of topic (community content is derivative — always lower value than official Microsoft sources, Microsoft Research, or press coverage)
+
+ARTICLE TYPE (third factor — minor adjustment):
+- Thought leadership / opinion / strategy / future vision → boost +0.05
+- Product announcement / new feature / GA / preview → boost +0.05
+- Case study / customer story → neutral
+- General update / release notes / how-to → reduce -0.05
+
+Classify the article type as exactly one of:
+"thought-leadership" | "product-announcement" | "case-study" | "general-update"
 
 Respond with ONLY valid JSON in this exact shape:
-{"score": <0.0–1.0>, "explanation": "<1–2 sentences max>"}
+{"score": <0.0–1.0>, "explanation": "<1–2 sentences>", "articleType": "<one of the four types above>"}`;
 
-score: 1.0 = highly relevant (Microsoft/Azure/AI/dev tools), 0.0 = completely off-topic.
-explanation: why this is or isn't relevant to a Microsoft tech blog.`;
 
-async function scoreUnscored(db: Pool): Promise<void> {
+export async function scoreUnscored(db: Pool): Promise<void> {
   const unscored = await db.query<{ id: string; title: string; body: string; metadata: Record<string, unknown> }>(
     `SELECT id, title, body, metadata FROM content_items
      WHERE source = 'discovered-article' AND relevance_explanation IS NULL
@@ -166,11 +187,14 @@ async function scoreUnscored(db: Pool): Promise<void> {
 
       // Strip markdown fences if model wrapped JSON
       const cleaned = raw.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-      const parsed = JSON.parse(cleaned) as { score: number; explanation: string };
+      const parsed = JSON.parse(cleaned) as { score: number; explanation: string; articleType?: string };
 
       await db.query(
-        `UPDATE content_items SET relevance_score = $1, relevance_explanation = $2 WHERE id = $3`,
-        [parsed.score, parsed.explanation, row.id],
+        `UPDATE content_items
+         SET relevance_score = $1, relevance_explanation = $2,
+             metadata = metadata || jsonb_build_object('articleType', $3::text)
+         WHERE id = $4`,
+        [parsed.score, parsed.explanation, parsed.articleType ?? null, row.id],
       );
       console.warn(`[DiscoveredArticles] Scored ${row.id}: ${parsed.score}`);
     } catch (err) {

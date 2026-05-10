@@ -104,9 +104,9 @@ export async function queryTimeline(
   const dataResult: QueryResult<ContentItemRow> = await db.query(
     `SELECT ci.id, ci.source, ci.source_id, ci.title, ci.summary, ci.published_at, ci.indexed_at,
             ci.url, ci.project_context, ci.metadata, ci.tags,
-            array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids
+            array_agg(cit.tag_id) FILTER (WHERE cit.tag_id IS NOT NULL) AS taxonomy_tag_ids
      FROM content_items ci
-     LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
+     LEFT JOIN content_item_tags cit ON cit.content_item_id = ci.id
      ${where}
      GROUP BY ci.id
      ORDER BY ci.published_at DESC

@@ -1,6 +1,47 @@
 # Session Summary & Notes
 
-## What We Have Done in This Session
+## Session: 10 May 2026 — Discover Feed Scoring Fixes & Admin Tooling
+
+### 1. Relevance Scoring Prompt — Full Rebalance
+- Community posts (MVPs, personal blogs, forums, Reddit) were ranking too high due to insufficient penalty
+- **Fix:** Penalty increased from -0.1 → -0.3, hard cap added at **0.35** regardless of topic
+- Community posts are now always below official Microsoft sources and Microsoft Research
+- Prompt explicitly states community content is derivative and lower value
+
+### 2. Admin Score Endpoints Added (`/api/discover/admin/`)
+- `GET /api/discover/admin/score-status` — returns total/unscored count + sample of unscored articles (no DB connection needed)
+- `POST /api/discover/admin/score-batch` — triggers immediate scoring of next 10 unscored articles
+- Both secured via `x-cron-secret` header (bypasses JWT so they can be called from terminal)
+- Auth middleware updated to skip JWT for `/admin/` paths
+
+### 3. All 169 Articles Re-scored
+- Cleared all existing scores via `UPDATE content_items SET relevance_score = NULL...`
+- Re-scored all 169 articles using the new prompt via 16 batch calls
+- Feed now ordered: official MS announcements → Research → press → community (≤0.35)
+- Order is: `relevance_score DESC, published_at DESC`
+
+### 4. Scoring Prompt — Current Final State
+**Topic priority (score band):**
+1. Azure → 0.7–1.0
+2. GitHub & GitHub Copilot → 0.6–0.9
+3. M365 & M365 Copilot → 0.5–0.8
+4. Microsoft Research → 0.4–0.7
+5. Everything else Microsoft → 0.3–0.6
+6. Non-Microsoft → 0.0–0.3
+
+**Source authority (adjustment within band):**
+- Official Microsoft sources → +0.1
+- Major tech press → neutral
+- Community/personal blogs/MVPs/Reddit → -0.3, **capped at 0.35**
+
+**Article type (minor adjustment):**
+- Thought leadership / product announcement → +0.05
+- Case study → neutral
+- General update / how-to → -0.05
+
+---
+
+## Previous Sessions
 
 ### 1. Projects Page Visual & UI Fixes
 * **Removed Carbon Tile Component**: Stripped out the restrictive `Tile` component in favor of plain `div`s with explicit Carbon CSS vars/pixels to fix invisible card layouts.

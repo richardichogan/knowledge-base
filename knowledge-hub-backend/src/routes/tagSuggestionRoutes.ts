@@ -131,6 +131,40 @@ router.post('/:id/merge', (req: Request, res: Response, next: NextFunction): voi
   })();
 });
 
+// ── POST /api/tag-suggestions/accept-all ─────────────────────────────────────
+// Accepts all pending suggestions as concept tags under the given parentId.
+
+router.post('/accept-all', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const db = getDb();
+      const { parentId = null, colour = null } = req.body as { parentId?: string | null; colour?: string | null };
+
+      const pending = await db.query<{ id: string; suggested_name: string }>(
+        `SELECT id, suggested_name FROM pending_tag_suggestions WHERE status = 'pending'`,
+      );
+
+      let accepted = 0;
+      for (const row of pending.rows) {
+        const slug = toSlug(row.suggested_name);
+        await db.query(
+          `INSERT INTO tags (name, slug, role, parent_id, colour) VALUES ($1,$2,'concept',$3,$4)
+           ON CONFLICT (slug) DO UPDATE SET role = 'concept', updated_at = now()`,
+          [row.suggested_name, slug, parentId, colour],
+        );
+        await db.query(
+          `UPDATE pending_tag_suggestions SET status = 'accepted', updated_at = now() WHERE id = $1`,
+          [row.id],
+        );
+        accepted++;
+      }
+
+      const body: ApiSuccess<{ accepted: number }> = { success: true, data: { accepted } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) { next(err); }
+  })();
+});
+
 // ── POST /api/tag-suggestions/reject-all ─────────────────────────────────────
 
 router.post('/reject-all', (_req: Request, res: Response, next: NextFunction): void => {

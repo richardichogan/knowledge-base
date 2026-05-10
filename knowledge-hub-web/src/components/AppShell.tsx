@@ -14,6 +14,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   Header,
   HeaderName,
@@ -43,6 +44,7 @@ import { ProjectsModal } from './ProjectsModal';
 import { QuickSparkModal } from './sparks/QuickSparkModal';
 import { usePendingTags } from '../hooks/useTaxonomy';
 import { useGlobalShortcuts } from '../hooks/useGlobalShortcuts';
+import { api } from '../services/api';
 
 interface NavItem {
   path: string;
@@ -68,6 +70,15 @@ export const AppShell: React.FC = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
   const { data: pendingTags = [] } = usePendingTags();
+
+  // Poll for unsurfaced spark clusters to show the Think nav dot
+  const { data: unsurfacedData } = useQuery({
+    queryKey: ['unsurfaced-count'],
+    queryFn: () => api.getUnsurfacedClusterCount(),
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+  });
+  const unsurfacedCount = unsurfacedData?.success ? unsurfacedData.data.count : 0;
 
   // Cmd+K / Ctrl+K listener
   useEffect(() => {
@@ -141,6 +152,7 @@ export const AppShell: React.FC = () => {
         <SideNavItems>
           {NAV_ITEMS.map(({ path, label, icon }) => {
             const isActive = location.pathname === path || location.pathname.startsWith(path + '/');
+            const showDot = path === '/think' && unsurfacedCount > 0;
             return (
               <SideNavLink
                 key={path}
@@ -152,7 +164,10 @@ export const AppShell: React.FC = () => {
                   void navigate(path);
                 }}
               >
-                {label}
+                <span className="sidenav-label-wrap">
+                  {label}
+                  {showDot && <span className="sidenav-spark-dot" aria-label="New clusters available" />}
+                </span>
               </SideNavLink>
             );
           })}

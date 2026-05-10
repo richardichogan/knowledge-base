@@ -73,38 +73,47 @@ export async function syncAllNodes(db: Pool): Promise<void> {
 
 async function syncDiscoverItems(db: Pool): Promise<void> {
   const rows = await db.query<{ id: string; title: string }>(
-    `SELECT id::text, COALESCE(title, url, 'Untitled') AS title FROM discover_items`,
+    `SELECT id::text, COALESCE(title, url, 'Untitled') AS title
+     FROM content_items WHERE source = 'discovered-article'`,
   );
   for (const r of rows.rows) await upsertNode(db, r.id, 'discover_item', r.title, []);
 }
 
 async function syncCfpItems(db: Pool): Promise<void> {
-  const rows = await db.query<{ id: string; title: string }>(
-    `SELECT id::text, COALESCE(title, 'Untitled CFP') AS title FROM cfp_items`,
+  const rows = await db.query<{ id: string; conference_name: string }>(
+    `SELECT id::text, COALESCE(conference_name, 'Untitled CFP') AS conference_name FROM cfp_items`,
   );
-  for (const r of rows.rows) await upsertNode(db, r.id, 'cfp_item', r.title, []);
+  for (const r of rows.rows) await upsertNode(db, r.id, 'cfp_item', r.conference_name, []);
 }
 
 async function syncSparks(db: Pool): Promise<void> {
+  const MAX_TITLE_LEN = 80;
+  const TRUNCATE_AT = 77;
   const rows = await db.query<{ id: string; body: string; tags: string[] }>(
     `SELECT id::text, body, tags FROM sparks`,
   );
   for (const r of rows.rows) {
-    const title = r.body.length > 80 ? r.body.slice(0, 77) + '…' : r.body;
+    const title = r.body.length > MAX_TITLE_LEN ? r.body.slice(0, TRUNCATE_AT) + '…' : r.body;
     await upsertNode(db, r.id, 'spark', title, r.tags);
   }
 }
 
 async function syncNotes(db: Pool): Promise<void> {
-  const rows = await db.query<{ id: string; title: string }>(
-    `SELECT id::text, COALESCE(title, 'Untitled Note') AS title FROM notes`,
+  const rows = await db.query<{ id: string; content: string }>(
+    `SELECT id::text, content FROM notes`,
   );
-  for (const r of rows.rows) await upsertNode(db, r.id, 'note', r.title, []);
+  for (const r of rows.rows) {
+    let title = 'Untitled Note';
+    try { const p = JSON.parse(r.content) as { title?: string }; title = p.title ?? title; } catch { /* ignore */ }
+    await upsertNode(db, r.id, 'note', title, []);
+  }
 }
 
 async function syncDocuments(db: Pool): Promise<void> {
+  // Documents live in content_items with source = 'github-doc'
   const rows = await db.query<{ id: string; title: string }>(
-    `SELECT id::text, COALESCE(title, 'Untitled Document') AS title FROM documents`,
+    `SELECT id::text, COALESCE(title, 'Untitled Document') AS title
+     FROM content_items WHERE source = 'github-doc'`,
   );
   for (const r of rows.rows) await upsertNode(db, r.id, 'document', r.title, []);
 }
@@ -118,8 +127,8 @@ async function syncTasks(db: Pool): Promise<void> {
 
 async function syncCommits(db: Pool): Promise<void> {
   const rows = await db.query<{ id: string; title: string }>(
-    `SELECT id::text, COALESCE(message, sha, 'Commit') AS title
-     FROM timeline_items WHERE item_type = 'commit'`,
+    `SELECT id::text, COALESCE(title, source_id, 'Commit') AS title
+     FROM content_items WHERE source IN ('github-commit', 'gitlab-commit')`,
   );
   for (const r of rows.rows) await upsertNode(db, r.id, 'commit', r.title, []);
 }

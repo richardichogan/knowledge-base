@@ -24,6 +24,7 @@ const TYPE_STYLE: Record<string, { color: string; bg: string; border: string }> 
   note:       { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' },
   podcast:    { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
   newsletter: { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
+  script:     { color: '#ff8389', bg: 'rgba(255,131,137,0.1)', border: 'rgba(255,131,137,0.2)' },
 };
 
 export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect }) => {

@@ -222,6 +222,15 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
   );
 };
 
+// ── Article type badge ────────────────────────────────────────────────────────
+
+const ARTICLE_TYPE_LABEL: Record<string, string> = {
+  'thought-leadership':   'Thought Leadership',
+  'product-announcement': 'Product Announcement',
+  'general-update':       'General Update',
+  'case-study':           'Case Study',
+};
+
 // ── Card component ────────────────────────────────────────────────────────────
 
 interface CardProps {
@@ -257,6 +266,11 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
         <span className="dc-card-source">{item.sourceTitle}</span>
         <span className="dc-card-dot">·</span>
         <span className="dc-card-date">{formatDate(item.publishedAt)}</span>
+        {item.articleType !== null && (
+          <span className={`dc-article-type dc-article-type--${item.articleType}`}>
+            {ARTICLE_TYPE_LABEL[item.articleType] ?? item.articleType}
+          </span>
+        )}
         <span className="dc-relevance-badge">
           {scoreLabel(item.relevanceScore)}
         </span>
@@ -431,15 +445,28 @@ export const DiscoverPage: React.FC = () => {
   const [sourceFilter, setSourceFilter] = useState<string | undefined>(undefined);
   const [cfpStateFilter, setCfpStateFilter] = useState<CfpWorkflowState>('to_review');
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
   const queryClient = useQueryClient();
+
+  const PAGE_SIZE = 25;
 
   const isInbox = activeTab === 'inbox';
   const isCfps  = activeTab === 'cfps';
   const workflowState = isInbox ? 'to-review' : activeTab as DiscoverWorkflowState;
 
+  // Reset to page 1 when tab or source filter changes
+  function handleTabChange(tab: ActiveTab): void {
+    setActiveTab(tab);
+    setPage(1);
+  }
+  function handleSourceFilter(source: string | undefined): void {
+    setSourceFilter(source);
+    setPage(1);
+  }
+
   const feedQuery = useQuery({
-    queryKey: ['discover', workflowState, sourceFilter],
-    queryFn: () => api.getDiscoverFeed(workflowState, sourceFilter),
+    queryKey: ['discover', workflowState, sourceFilter, page],
+    queryFn: () => api.getDiscoverFeed(workflowState, sourceFilter, page, PAGE_SIZE),
     enabled: !isInbox && !isCfps,
   });
 
@@ -533,7 +560,7 @@ export const DiscoverPage: React.FC = () => {
           <button
             key={tab.key}
             className={`dc-tab${activeTab === tab.key ? ' dc-tab--active' : ''}`}
-            onClick={() => { setActiveTab(tab.key); }}
+            onClick={() => { handleTabChange(tab.key); }}
           >
             {tab.label}
           </button>
@@ -545,7 +572,7 @@ export const DiscoverPage: React.FC = () => {
         <div className="dc-source-filters">
           <button
             className={`dc-source-chip${sourceFilter === undefined ? ' dc-source-chip--active' : ''}`}
-            onClick={() => { setSourceFilter(undefined); }}
+            onClick={() => { handleSourceFilter(undefined); }}
           >
             All sources
           </button>
@@ -553,7 +580,7 @@ export const DiscoverPage: React.FC = () => {
             <button
               key={s.title}
               className={`dc-source-chip${sourceFilter === s.title ? ' dc-source-chip--active' : ''}`}
-              onClick={() => { setSourceFilter(s.title === sourceFilter ? undefined : s.title); }}
+              onClick={() => { handleSourceFilter(s.title === sourceFilter ? undefined : s.title); }}
             >
               {s.title}
               <span className="dc-source-count">{s.count}</span>
@@ -622,6 +649,29 @@ export const DiscoverPage: React.FC = () => {
               isUpdating={updatingIds.has(item.id)}
             />
           ))}
+
+          {/* Pagination */}
+          {total > PAGE_SIZE && (
+            <div className="dc-pagination">
+              <button
+                className="dc-pagination__btn"
+                disabled={page <= 1}
+                onClick={() => { setPage((p) => Math.max(1, p - 1)); }}
+              >
+                ← Prev
+              </button>
+              <span className="dc-pagination__info">
+                Page {page} of {Math.ceil(total / PAGE_SIZE)}
+              </span>
+              <button
+                className="dc-pagination__btn"
+                disabled={page >= Math.ceil(total / PAGE_SIZE)}
+                onClick={() => { setPage((p) => p + 1); }}
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </div>
       )}
 

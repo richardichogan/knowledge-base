@@ -3,7 +3,7 @@
  * Left: NoteList (260px). Centre: Editor (flex). Right: Metadata panel (220px).
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { Pen } from '@carbon/icons-react';
@@ -11,8 +11,9 @@ import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
 import { fetchNotes, fetchNote, createNote } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
+import { SparkPanel } from '../features/sparks/SparkPanel';
 
-type ViewMode = 'notes' | 'canvas';
+type ViewMode = 'notes' | 'canvas' | 'sparks';
 
 export const NotesPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -26,6 +27,15 @@ export const NotesPage: React.FC = () => {
     staleTime: 30_000,
     retry: 1,
   });
+
+  // Auto-select first note once the list loads (only if nothing selected yet)
+  useEffect(() => {
+    const first = notes[0];
+    if (first !== undefined && selectedId === null) {
+      void handleSelect(first.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes]);
 
   async function handleSelect(id: string): Promise<void> {
     if (id === selectedId) return;
@@ -93,6 +103,12 @@ export const NotesPage: React.FC = () => {
             >
               Canvas
             </button>
+            <button
+              className={`notes-mode-btn${mode === 'sparks' ? ' notes-mode-btn--active' : ''}`}
+              onClick={() => { setMode('sparks'); }}
+            >
+              Sparks
+            </button>
           </div>
 
           {mode === 'notes' && (
@@ -115,10 +131,16 @@ export const NotesPage: React.FC = () => {
               <p className="notes-canvas-placeholder-text">Canvas — coming soon</p>
             </div>
           )}
+
+          {mode === 'sparks' && null /* sparks panel spans full width below */}
         </div>
 
         {/* Centre + Right */}
-        {mode === 'notes' ? (
+        {mode === 'sparks' ? (
+          <div className="notes-editor-area">
+            <SparkPanel />
+          </div>
+        ) : mode === 'notes' ? (
           <div className="notes-editor-area">
             {openDoc !== null ? (
               <NoteEditor

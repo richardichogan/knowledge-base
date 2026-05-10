@@ -9,7 +9,7 @@ export const UNTITLED_DOCUMENT = 'Untitled';
 
 // ── Content type options ──────────────────────────────────────────────────────
 
-export type ContentType = 'blog' | 'podcast' | 'newsletter' | 'project' | 'note';
+export type ContentType = 'blog' | 'podcast' | 'newsletter' | 'project' | 'note' | 'script';
 
 export interface ContentTypeOption {
   id: ContentType;
@@ -22,16 +22,18 @@ export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
   { id: 'newsletter', label: 'Newsletter edition' },
   { id: 'project',    label: 'Project note' },
   { id: 'note',       label: 'General note' },
+  { id: 'script',     label: 'Script' },
 ];
 
 // ── Tag type per content type ─────────────────────────────────────────────────
 
-export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' | 'blue' | 'gray'> = {
+export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' | 'blue' | 'gray' | 'red'> = {
   blog:       'green',
   podcast:    'teal',
   newsletter: 'purple',
   project:    'blue',
   note:       'gray',
+  script:     'red',
 };
 
 // ── BlockNote g100 theme override ─────────────────────────────────────────────

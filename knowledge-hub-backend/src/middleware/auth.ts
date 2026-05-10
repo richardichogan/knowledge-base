@@ -13,6 +13,11 @@ export interface AuthenticatedRequest extends Request {
  * Attaches userId to the request for downstream handlers.
  */
 export function authenticate(req: Request, _res: Response, next: NextFunction): void {
+  // Admin cron routes authenticate via x-cron-secret — skip JWT for these
+  if (req.path.includes('/admin/')) {
+    return next();
+  }
+
   // In development, skip token verification so the UI works without a login flow
   if (env.NODE_ENV === 'development') {
     (req as AuthenticatedRequest).userId = 'dev-user';

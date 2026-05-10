@@ -10,7 +10,7 @@ import { ArrowLeft, Play, Stop, Add, Subtract } from '@carbon/icons-react';
 import { fetchNote } from '../../notes/noteStorage';
 import { useScrollEngine } from './useScrollEngine';
 import { SyllableDetector } from './SyllableDetector';
-import { rateToScrollSpeed } from './rateToScrollSpeed';
+import { rateToScrollSpeed, countSyllables, DEFAULT_SYLLABLES_PER_LINE, LINE_HEIGHT_RATIO } from './rateToScrollSpeed';
 import { GamepadController } from './GamepadController';
 
 const DEFAULT_FONT_SIZE = 64;
@@ -57,6 +57,7 @@ export const AutocueSession: React.FC = () => {
   sessionStateRef.current = sessionState;
   const fontSizeRef = useRef(DEFAULT_FONT_SIZE);
   fontSizeRef.current = fontSize;
+  const sylPerLineRef = useRef<number>(DEFAULT_SYLLABLES_PER_LINE);
 
   const { data: note } = useQuery({
     queryKey: ['note', noteId],
@@ -76,7 +77,7 @@ export const AutocueSession: React.FC = () => {
       onRateUpdate: (sps) => {
         setSylRate(sps);
         if (sessionStateRef.current === 'running') {
-          targetSpeedRef.current = rateToScrollSpeed(sps, fontSizeRef.current);
+          targetSpeedRef.current = rateToScrollSpeed(sps, fontSizeRef.current, sylPerLineRef.current);
         }
       },
       updateIntervalMs: 100,
@@ -157,6 +158,11 @@ export const AutocueSession: React.FC = () => {
     void handlePlay();
   }, [handlePlay]);
 
+  // ── Derived script text (needed by effects below) ────────────────────────
+
+  const scriptText  = note ? extractPlainText(note.contentJson) : '';
+  const scriptWords = scriptText ? scriptText.split(/\s+/).filter(Boolean) : [];
+
   // ── Gamepad ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -183,13 +189,27 @@ export const AutocueSession: React.FC = () => {
     containerRef.current?.style.setProperty('--autocue-font-size', `${fontSize}px`);
   }, [fontSize, containerRef]);
 
+  // Recalculate syllables-per-line whenever the script or font size changes.
+  // Measures the actual rendered scroll height to count lines precisely.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !scriptText) return;
+    // Wait one frame for layout to settle
+    const id = requestAnimationFrame(() => {
+      const linePixels = fontSize * LINE_HEIGHT_RATIO;
+      const totalLines = el.scrollHeight / linePixels;
+      const totalSyllables = countSyllables(scriptText);
+      if (totalLines > 0 && totalSyllables > 0) {
+        sylPerLineRef.current = totalSyllables / totalLines;
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [scriptText, fontSize, containerRef]);
+
   // Cleanup on unmount
   useEffect(() => () => { stopDetector(); }, [stopDetector]);
 
   // ── Render ────────────────────────────────────────────────────────────────
-
-  const scriptText  = note ? extractPlainText(note.contentJson) : '';
-  const scriptWords = scriptText ? scriptText.split(/\s+/).filter(Boolean) : [];
 
   // Rate bar 0–6 syl/sec scale
   const rateBarPct = Math.min(100, Math.round((sylRate / 6) * 100));

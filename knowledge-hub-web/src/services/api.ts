@@ -202,6 +202,8 @@ export interface DiscoverItem {
   publishedUrl: string | null;
   /** Taxonomy tag UUIDs from discover_item_tags */
   taxonomyTagIds: string[];
+  /** AI-classified article type */
+  articleType: string | null;
 }
 
 export class KnowledgeHubApi {
@@ -663,6 +665,12 @@ export class KnowledgeHubApi {
     surfaced?: boolean;
   }): Promise<ApiResponse<unknown>> {
     const r = await this.client.patch<ApiResponse<unknown>>(`/api/spark-clusters/${id}`, patch);
+    return r.data;
+  }
+
+  /** Returns count of clusters with spark_count >= 4 that haven't been surfaced yet. */
+  async getUnsurfacedClusterCount(): Promise<ApiResponse<{ count: number }>> {
+    const r = await this.client.get<ApiResponse<{ count: number }>>('/api/spark-clusters/unsurfaced-count');
     return r.data;
   }
 

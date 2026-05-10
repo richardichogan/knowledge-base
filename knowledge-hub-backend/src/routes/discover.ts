@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
+import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 
 export const discoverRouter = Router();
 
@@ -23,6 +24,8 @@ export interface DiscoverItem {
   /** URL of the user's own blog post written about this article */
   publishedUrl: string | null;
   taxonomyTagIds: string[];
+  /** AI-classified article type */
+  articleType: string | null;
 }
 
 const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived', 'published'];
@@ -81,7 +84,9 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
            LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
            ${where}
            GROUP BY ci.id
-           ORDER BY ci.published_at DESC
+           ORDER BY
+             COALESCE(ci.relevance_score, 0) DESC,
+             ci.published_at DESC
            LIMIT $${p++} OFFSET $${p}`,
           [...params, pageSize, offset],
         ),
@@ -102,6 +107,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         relevanceExplanation: row.relevance_explanation,
         publishedUrl: typeof row.metadata['publishedUrl'] === 'string' ? row.metadata['publishedUrl'] : null,
         taxonomyTagIds: row.taxonomy_tag_ids ?? [],
+        articleType: typeof row.metadata['articleType'] === 'string' ? row.metadata['articleType'] : null,
       }));
 
       const response: ApiSuccess<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }> = {
@@ -197,6 +203,73 @@ discoverRouter.patch('/:id/published-url', (req: Request, res: Response, next: N
       }
 
       res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+// ── Admin auth helper ─────────────────────────────────────────────────────────
+function isAdminAuthed(req: Request): boolean {
+  const secret = process.env['CRON_SECRET'];
+  if (!secret) return false;
+  const header = req.headers['x-cron-secret'] as string | undefined;
+  const query = req.query['secret'] as string | undefined;
+  return header === secret || query === secret;
+}
+
+// ── GET /api/discover/admin/score-status ──────────────────────────────────────
+// Returns count of unscored articles and a sample of their titles/URLs for diagnosis.
+discoverRouter.get('/admin/score-status', (req: Request, res: Response, next: NextFunction): void => {
+  if (!isAdminAuthed(req)) { res.status(HTTP_STATUS.UNAUTHORISED).json({ success: false, error: { code: 'UNAUTHORISED', message: 'Bad secret' } }); return; }
+  void (async (): Promise<void> => {
+    try {
+      const db = getDb();
+      const [countResult, samplesResult] = await Promise.all([
+        db.query<{ unscored: string; total: string }>(
+          `SELECT
+             COUNT(*) FILTER (WHERE relevance_explanation IS NULL) AS unscored,
+             COUNT(*) AS total
+           FROM content_items WHERE source = 'discovered-article'`,
+        ),
+        db.query<{ id: string; title: string; url: string | null; relevance_score: number | null }>(
+          `SELECT id, title, url, relevance_score
+           FROM content_items
+           WHERE source = 'discovered-article' AND relevance_explanation IS NULL
+           ORDER BY indexed_at DESC
+           LIMIT 20`,
+        ),
+      ]);
+      res.json({
+        success: true,
+        data: {
+          unscored: parseInt(countResult.rows[0]?.unscored ?? '0', 10),
+          total: parseInt(countResult.rows[0]?.total ?? '0', 10),
+          unscoredSample: samplesResult.rows,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+// ── POST /api/discover/admin/score-batch ──────────────────────────────────────
+// Triggers immediate scoring of the next batch (up to 10) of unscored articles.
+discoverRouter.post('/admin/score-batch', (req: Request, res: Response, next: NextFunction): void => {
+  if (!isAdminAuthed(req)) { res.status(HTTP_STATUS.UNAUTHORISED).json({ success: false, error: { code: 'UNAUTHORISED', message: 'Bad secret' } }); return; }
+  void (async (): Promise<void> => {
+    try {
+      const db = getDb();
+      const before = await db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM content_items WHERE source = 'discovered-article' AND relevance_explanation IS NULL`,
+      );
+      await scoreUnscored(db);
+      const after = await db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM content_items WHERE source = 'discovered-article' AND relevance_explanation IS NULL`,
+      );
+      const scored = parseInt(before.rows[0]?.count ?? '0', 10) - parseInt(after.rows[0]?.count ?? '0', 10);
+      res.json({ success: true, data: { scored, remainingUnscored: parseInt(after.rows[0]?.count ?? '0', 10) } });
     } catch (err) {
       next(err);
     }

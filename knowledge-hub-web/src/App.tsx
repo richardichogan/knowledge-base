@@ -25,6 +25,7 @@ import { CalendarPage } from './pages/CalendarPage';
 import { NotesPage } from './notes/NotesPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { AutocueApp } from './features/autocue/AutocueApp';
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -35,6 +36,7 @@ const App: React.FC = () => {
       <Theme theme="g100" as="div" style={{ minHeight: '100vh' }}>
         <BrowserRouter>
           <Routes>
+            <Route path="/autocue/*" element={<AutocueApp />} />
             <Route path="/" element={<AppShell />}>
               <Route index element={<Navigate to="/discover" replace />} />
               <Route path="discover" element={<DiscoverPage />} />

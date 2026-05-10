@@ -13,6 +13,7 @@ import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError } from '../types/errors.js';
 import { createSpark, listSparks, deleteSpark } from '../services/sparkService.js';
+import { runClusteringJob } from '../jobs/clusteringJob.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { Spark } from '../services/sparkService.js';
 
@@ -39,6 +40,8 @@ sparkRouter.post('/', (req: Request, res: Response, next: NextFunction): void =>
       });
       const out: ApiSuccess<Spark> = { success: true, data: spark };
       res.status(HTTP_STATUS.CREATED).json(out);
+      // Fire clustering async — does not block the response
+      void runClusteringJob(db);
     } catch (err) { next(err); }
   })();
 });
@@ -73,6 +76,22 @@ sparkRouter.delete('/:id', (req: Request, res: Response, next: NextFunction): vo
       const db = getDb();
       await deleteSpark(db, req.params['id']!);
       res.status(HTTP_STATUS.NO_CONTENT).send();
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── GET /api/spark-clusters/unsurfaced-count ─────────────────────────────────
+
+sparkClusterRouter.get('/unsurfaced-count', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const db = getDb();
+      const row = await db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM spark_clusters
+         WHERE spark_count >= 4 AND surfaced = false AND dismissed = false`,
+      );
+      const count = parseInt(row.rows[0]?.count ?? '0', 10);
+      res.status(HTTP_STATUS.OK).json({ success: true, data: { count } });
     } catch (err) { next(err); }
   })();
 });
