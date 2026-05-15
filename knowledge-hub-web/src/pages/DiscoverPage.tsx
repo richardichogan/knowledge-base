@@ -271,6 +271,25 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
             {ARTICLE_TYPE_LABEL[item.articleType] ?? item.articleType}
           </span>
         )}
+        {item.platform !== null && (
+          <span className={`dc-platform dc-platform--${item.platform.toLowerCase().replace(/ /g, '-')}`} title="Platform recommendation">
+            {item.platform === 'Full Blog Post' && '📝 Blog Post'}
+            {item.platform === 'Newsletter Candidate' && '📧 Newsletter'}
+            {item.platform === 'LinkedIn Standalone' && '🔗 LinkedIn'}
+            {item.platform === 'Podcast' && '🎙️ Podcast'}
+            {item.platform === 'Archive' && '📦 Archive'}
+          </span>
+        )}
+        {item.sourceType !== null && (
+          <span className={`dc-source-type dc-source-type--${item.sourceType.toLowerCase()}`} title="Source type">
+            {item.sourceType}
+          </span>
+        )}
+        {item.spark === true && (
+          <span className="dc-spark-badge" title={item.sparkReason ?? 'High value content'}>
+            ⚡ Spark
+          </span>
+        )}
         <span className="dc-relevance-badge">
           {scoreLabel(item.relevanceScore)}
         </span>

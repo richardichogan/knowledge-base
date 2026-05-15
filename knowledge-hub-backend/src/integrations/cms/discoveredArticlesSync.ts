@@ -33,6 +33,16 @@ interface DiscoveredArticle {
   discoveredAt: string;
   status: 'new' | 'reviewed' | 'dismissed' | 'published';
   newsWorthiness: number | null;
+  // Scoring fields from blog API
+  platform?: string;
+  audienceFit?: number;
+  novelty?: number;
+  strategicSignificance?: number;
+  analyticalDepth?: number;
+  compositeScore?: number;
+  sourceType?: string;
+  spark?: boolean;
+  sparkReason?: string;
 }
 
 export async function syncDiscoveredArticles(
@@ -119,6 +129,16 @@ function articleToContentItem(
       sourceId: article.sourceId,
       status: article.status,
       newsWorthiness: article.newsWorthiness,
+      // Scoring fields from blog API
+      platform: article.platform,
+      audienceFit: article.audienceFit,
+      novelty: article.novelty,
+      strategicSignificance: article.strategicSignificance,
+      analyticalDepth: article.analyticalDepth,
+      compositeScore: article.compositeScore,
+      sourceType: article.sourceType,
+      spark: article.spark,
+      sparkReason: article.sparkReason,
     },
     tags: [article.sourceTitle],  // source name only — status is noise
   };

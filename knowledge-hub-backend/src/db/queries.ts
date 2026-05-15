@@ -20,8 +20,14 @@ export async function upsertContentItem(
     INSERT INTO content_items
       (source, source_id, title, summary, body, published_at, url, project_context, metadata, tags)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    ON CONFLICT (source, source_id) DO NOTHING
-    RETURNING id, TRUE AS is_new
+    ON CONFLICT (source, source_id) DO UPDATE SET
+      title = EXCLUDED.title,
+      summary = EXCLUDED.summary,
+      body = EXCLUDED.body,
+      url = EXCLUDED.url,
+      metadata = EXCLUDED.metadata,
+      updated_at = NOW()
+    RETURNING id, (xmax = 0) AS is_new
   `;
   const result = await db.query<{ id: string; is_new: boolean }>(sql, [
     item.source,

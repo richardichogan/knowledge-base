@@ -26,6 +26,16 @@ export interface DiscoverItem {
   taxonomyTagIds: string[];
   /** AI-classified article type */
   articleType: string | null;
+  /** Treatment plan: Full Blog Post, LinkedIn Standalone, Newsletter Candidate, Archive, Podcast */
+  platform: string | null;
+  /** Source type: Formal, Community, Case Study, Advertorial */
+  sourceType: string | null;
+  /** Spark flag indicating high value */
+  spark: boolean | null;
+  /** Reason for spark flag */
+  sparkReason: string | null;
+  /** Composite relevance score 0-10 */
+  compositeScore: number | null;
 }
 
 const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived', 'published'];
@@ -108,6 +118,11 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         publishedUrl: typeof row.metadata['publishedUrl'] === 'string' ? row.metadata['publishedUrl'] : null,
         taxonomyTagIds: row.taxonomy_tag_ids ?? [],
         articleType: typeof row.metadata['articleType'] === 'string' ? row.metadata['articleType'] : null,
+        platform: typeof row.metadata['platform'] === 'string' ? row.metadata['platform'] : null,
+        sourceType: typeof row.metadata['sourceType'] === 'string' ? row.metadata['sourceType'] : null,
+        spark: typeof row.metadata['spark'] === 'boolean' ? row.metadata['spark'] : null,
+        sparkReason: typeof row.metadata['sparkReason'] === 'string' ? row.metadata['sparkReason'] : null,
+        compositeScore: typeof row.metadata['compositeScore'] === 'number' ? row.metadata['compositeScore'] : null,
       }));
 
       const response: ApiSuccess<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }> = {

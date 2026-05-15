@@ -204,6 +204,16 @@ export interface DiscoverItem {
   taxonomyTagIds: string[];
   /** AI-classified article type */
   articleType: string | null;
+  /** Treatment plan: Full Blog Post, LinkedIn Standalone, Newsletter Candidate, Archive, Podcast */
+  platform: string | null;
+  /** Source type: Formal, Community, Case Study, Advertorial */
+  sourceType: string | null;
+  /** Spark flag indicating high value */
+  spark: boolean | null;
+  /** Reason for spark flag */
+  sparkReason: string | null;
+  /** Composite relevance score 0-10 */
+  compositeScore: number | null;
 }
 
 export class KnowledgeHubApi {

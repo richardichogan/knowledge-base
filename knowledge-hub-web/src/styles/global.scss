@@ -2937,6 +2937,47 @@ input, textarea {
   &--general-update       { color: #a8a8a8; border-color: rgba(168,168,168,0.25); background: rgba(168,168,168,0.06); }
 }
 
+.dc-platform {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px solid;
+  &--full-blog-post        { color: #42be65; border-color: rgba(66,190,101,0.35);  background: rgba(66,190,101,0.08);  }
+  &--newsletter-candidate  { color: #4589ff; border-color: rgba(69,137,255,0.35);  background: rgba(69,137,255,0.08);  }
+  &--linkedin-standalone   { color: #08bdba; border-color: rgba(8,189,186,0.35);   background: rgba(8,189,186,0.08);   }
+  &--podcast               { color: #be84ff; border-color: rgba(190,132,255,0.35); background: rgba(190,132,255,0.08); }
+  &--archive               { color: #6f6f6f; border-color: rgba(111,111,111,0.25); background: rgba(111,111,111,0.06); }
+}
+
+.dc-source-type {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px solid;
+  &--formal      { color: #a8a8a8; border-color: rgba(168,168,168,0.25); background: rgba(168,168,168,0.06); }
+  &--community   { color: #ff7eb6; border-color: rgba(255,126,182,0.35); background: rgba(255,126,182,0.08); }
+  &--case-study  { color: #f1c21b; border-color: rgba(241,194,27,0.35);  background: rgba(241,194,27,0.08);  }
+  &--advertorial { color: #fa4d56; border-color: rgba(250,77,86,0.35);   background: rgba(250,77,86,0.08);   }
+}
+
+.dc-spark-badge {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px solid;
+  color: #ffd500;
+  border-color: rgba(255,213,0,0.4);
+  background: rgba(255,213,0,0.12);
+  cursor: help;
+}
+
 // Pagination
 .dc-pagination {
   display: flex;
