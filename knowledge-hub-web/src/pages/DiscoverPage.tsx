@@ -271,7 +271,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
             {ARTICLE_TYPE_LABEL[item.articleType] ?? item.articleType}
           </span>
         )}
-        {item.platform !== null && (
+        {item.platform && (
           <span className={`dc-platform dc-platform--${item.platform.toLowerCase().replace(/ /g, '-')}`} title="Platform recommendation">
             {item.platform === 'Full Blog Post' && '📝 Blog Post'}
             {item.platform === 'Newsletter Candidate' && '📧 Newsletter'}
@@ -280,7 +280,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
             {item.platform === 'Archive' && '📦 Archive'}
           </span>
         )}
-        {item.sourceType !== null && (
+        {item.sourceType && (
           <span className={`dc-source-type dc-source-type--${item.sourceType.toLowerCase()}`} title="Source type">
             {item.sourceType}
           </span>
