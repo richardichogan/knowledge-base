@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Play, Stop, Add, Subtract } from '@carbon/icons-react';
 import { fetchNote } from '../../notes/noteStorage';
@@ -19,30 +19,58 @@ const MAX_FONT_SIZE     = 96;
 const FONT_SIZE_STEP    = 4;
 const MIC_PERM_KEY      = 'autocue_mic_permission';
 
+// iPad/iOS needs higher sensitivity due to lower mic gain
+const DEFAULT_SENSITIVITY_DESKTOP = 0.05;
+const DEFAULT_SENSITIVITY_IOS = 0.25;  // Much higher for iOS - mic is less sensitive
+
 type SessionState = 'idle' | 'running' | 'paused' | 'stopped';
+
+function isIOSDevice(): boolean {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
 
 function stripMarkdown(text: string): string {
   return text
-    .replace(/^#{1,6}\s+/gm, '').replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1').replace(/`{1,3}[^`]*`{1,3}/g, '')
-    .replace(/^```[\s\S]*?```$/gm, '').replace(/^[-*+]\s+/gm, '')
-    .replace(/^\d+\.\s+/gm, '').replace(/\[(.+?)\]\(.+?\)/g, '$1')
-    .replace(/!\[.*?\]\(.+?\)/g, '').replace(/^>\s+/gm, '')
-    .replace(/---+/g, '').trim();
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`{1,3}[^`]*`{1,3}/g, '')
+    .replace(/^```[\s\S]*?```$/gm, '')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+    .replace(/!\[.*?\]\(.+?\)/g, '')
+    .replace(/^>\s+/gm, '')
+    .replace(/---+/g, '')
+    // Preserve paragraph breaks (double newlines) but normalize single newlines to spaces
+    .replace(/\n\n+/g, '\n\n')
+    .replace(/([^\n])\n([^\n])/g, '$1 $2')
+    .trim();
 }
 
 function extractPlainText(contentJson: string): string {
   try {
     const blocks = JSON.parse(contentJson) as Array<{ content?: Array<{ text?: string }> }>;
     return blocks.flatMap((b) => b.content ?? []).map((c) => c.text ?? '')
-      .join(' ').replace(/\s+/g, ' ').trim();
+      .join('\n\n').trim();
   } catch { return stripMarkdown(contentJson); }
 }
 
 export const AutocueSession: React.FC = () => {
   const { noteId } = useParams<{ noteId: string }>();
   const navigate   = useNavigate();
-
+  const [searchParams] = useSearchParams();
+  
+  // Use higher default sensitivity on iOS devices
+  const defaultSensitivity = isIOSDevice() ? DEFAULT_SENSITIVITY_IOS : DEFAULT_SENSITIVITY_DESKTOP;
+  const initialSensitivity = parseFloat(
+    searchParams.get('sensitivity') ?? 
+    localStorage.getItem('autocue_sensitivity') ?? 
+    defaultSensitivity.toString()
+  );
+  
+  const [sensitivity, setSensitivity] = useState(initialSensitivity);
   const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [fontSize, setFontSize]         = useState(DEFAULT_FONT_SIZE);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -58,6 +86,10 @@ export const AutocueSession: React.FC = () => {
   const fontSizeRef = useRef(DEFAULT_FONT_SIZE);
   fontSizeRef.current = fontSize;
   const sylPerLineRef = useRef<number>(DEFAULT_SYLLABLES_PER_LINE);
+  
+  useEffect(() => {
+    localStorage.setItem('autocue_sensitivity', sensitivity.toString());
+  }, [sensitivity]);
 
   const { data: note } = useQuery({
     queryKey: ['note', noteId],
@@ -81,6 +113,7 @@ export const AutocueSession: React.FC = () => {
         }
       },
       updateIntervalMs: 100,
+      fallbackThreshold: sensitivity,
     });
     detectorRef.current = detector;
     try {
@@ -89,7 +122,7 @@ export const AutocueSession: React.FC = () => {
     } catch {
       setStatusMsg('⚠ Microphone error — check permissions');
     }
-  }, [targetSpeedRef]);
+  }, [targetSpeedRef, sensitivity]);
 
   const stopDetector = useCallback(() => {
     detectorRef.current?.stop();
@@ -160,8 +193,15 @@ export const AutocueSession: React.FC = () => {
 
   // ── Derived script text (needed by effects below) ────────────────────────
 
-  const scriptText  = note ? extractPlainText(note.contentJson) : '';
-  const scriptWords = scriptText ? scriptText.split(/\s+/).filter(Boolean) : [];
+  const scriptText = note ? extractPlainText(note.contentJson) : '';
+  
+  // Split into paragraphs to preserve structure
+  const scriptParagraphs = React.useMemo(() => {
+    if (!scriptText) return [];
+    return scriptText.split(/\n\n+/).filter(Boolean).map(para => 
+      para.split(/\s+/).filter(Boolean)
+    );
+  }, [scriptText]);
 
   // ── Gamepad ───────────────────────────────────────────────────────────────
 
@@ -224,11 +264,11 @@ export const AutocueSession: React.FC = () => {
       )}
 
       {/* Syllable rate indicator */}
-      <div className={`ac-status${isScrolling.current ? ' ac-status--dim' : ''}`}>
+      <div className={`ac-status${isScrolling.current ? ' ac-status--dim' : ''}${sylRate > 1 ? ' ac-status--active' : ''}`}>
         <span className="ac-status__rate-bar-wrap">
           <span
             className="ac-status__rate-bar-fill"
-            style={{ '--rate-bar-pct': `${rateBarPct}%` } as React.CSSProperties}
+            style={{ width: `${rateBarPct}%` }}
           />
         </span>
         <span className="ac-status__label">
@@ -249,13 +289,15 @@ export const AutocueSession: React.FC = () => {
         aria-label="Script area — tap to pause"
       >
         <div className="ac-script-inner">
-          <p className="ac-script-text">
-            {scriptWords.length > 0
-              ? scriptWords.map((word, i) => (
-                  <span key={i} className="ac-word">{word}{' '}</span>
-                ))
-              : 'Loading…'}
-          </p>
+          {scriptParagraphs.length > 0
+            ? scriptParagraphs.map((words, pIndex) => (
+                <p key={pIndex} className="ac-script-text">
+                  {words.map((word, wIndex) => (
+                    <span key={wIndex} className="ac-word">{word}{' '}</span>
+                  ))}
+                </p>
+              ))
+            : <p className="ac-script-text">Loading…</p>}
         </div>
       </div>
 
@@ -278,6 +320,19 @@ export const AutocueSession: React.FC = () => {
             <span className="ac-ctrl-label">{fontSize}px</span>
             <button className="ac-ctrl-btn ac-ctrl-btn--sm" onClick={() => adjustFont(FONT_SIZE_STEP)}
               title="Larger text" disabled={fontSize >= MAX_FONT_SIZE}><Add size={16} /></button>
+          </div>
+          <div className="ac-ctrl-group">
+            <span className="ac-ctrl-label">Mic</span>
+            <input
+              type="range"
+              min="0.01"
+              max="0.30"
+              step="0.01"
+              value={sensitivity}
+              onChange={(e) => setSensitivity(parseFloat(e.target.value))}
+              className="ac-sensitivity-slider"
+              title={`Voice sensitivity: ${sensitivity.toFixed(2)}`}
+            />
           </div>
         </div>
       )}

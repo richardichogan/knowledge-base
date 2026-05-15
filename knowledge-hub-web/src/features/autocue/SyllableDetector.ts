@@ -29,59 +29,127 @@ export interface SyllableDetectorOptions {
   onRateUpdate: (syllablesPerSecond: number) => void;
   /** How often to fire onRateUpdate. Default 100ms. */
   updateIntervalMs?: number;
+  /** Custom threshold for fallback mode. Default 0.05. Lower = more sensitive. */
+  fallbackThreshold?: number;
 }
 
 export class SyllableDetector {
   private onRateUpdate: (sps: number) => void;
   private updateIntervalMs: number;
+  private fallbackThreshold: number;
 
   private audioCtx: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
+  private analyserNode: AnalyserNode | null = null;
   private stream: MediaStream | null = null;
   private intervalId: ReturnType<typeof setInterval> | null = null;
+  private fallbackMode = false;
 
   private peakTimestamps: number[] = [];
+  private lastPeakTime = 0;
 
   constructor(options: SyllableDetectorOptions) {
     this.onRateUpdate     = options.onRateUpdate;
     this.updateIntervalMs = options.updateIntervalMs ?? 100;
+    this.fallbackThreshold = options.fallbackThreshold ?? 0.05;
   }
 
   async start(): Promise<void> {
     // Mic
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 
-    // AudioContext
+    // AudioContext - iOS requires user interaction before creating
     this.audioCtx = new AudioContext();
+    
+    // iOS Safari requires explicit resume after user gesture
+    if (this.audioCtx.state === 'suspended') {
+      await this.audioCtx.resume();
+    }
 
-    // Load worklet via Blob URL (avoids Vite bundling the worklet scope)
-    const blob    = new Blob([SYLLABLE_PROCESSOR_CODE], { type: 'application/javascript' });
-    const blobUrl = URL.createObjectURL(blob);
-    await this.audioCtx.audioWorklet.addModule(blobUrl);
-    URL.revokeObjectURL(blobUrl);
+    // Try AudioWorklet first, fall back to AnalyserNode on iOS/Safari
+    try {
+      // Load worklet via Blob URL (avoids Vite bundling the worklet scope)
+      const blob    = new Blob([SYLLABLE_PROCESSOR_CODE], { type: 'application/javascript' });
+      const blobUrl = URL.createObjectURL(blob);
+      await this.audioCtx.audioWorklet.addModule(blobUrl);
+      URL.revokeObjectURL(blobUrl);
 
-    // Connect: mic → worklet → (no output needed)
-    this.sourceNode = this.audioCtx.createMediaStreamSource(this.stream);
-    this.workletNode = new AudioWorkletNode(this.audioCtx, 'syllable-processor');
+      // Connect: mic → worklet → (no output needed)
+      this.sourceNode = this.audioCtx.createMediaStreamSource(this.stream);
+      this.workletNode = new AudioWorkletNode(this.audioCtx, 'syllable-processor');
 
-    this.workletNode.port.onmessage = (e: MessageEvent) => {
-      if (e.data?.type === 'peak') {
-        this.peakTimestamps.push(Date.now());
-      }
-    };
+      this.workletNode.port.onmessage = (e: MessageEvent) => {
+        if (e.data?.type === 'peak') {
+          this.peakTimestamps.push(Date.now());
+        }
+      };
 
-    this.sourceNode.connect(this.workletNode);
-    // deliberately NOT connecting workletNode to destination — we don't want audio output
+      this.sourceNode.connect(this.workletNode);
+      console.log('[SyllableDetector] Using AudioWorklet mode');
+    } catch (err) {
+      // AudioWorklet not supported (iOS Safari/Edge) — use AnalyserNode fallback
+      console.warn('[SyllableDetector] AudioWorklet failed, using AnalyserNode fallback:', err);
+      this.fallbackMode = true;
+      
+      this.sourceNode = this.audioCtx.createMediaStreamSource(this.stream);
+      this.analyserNode = this.audioCtx.createAnalyser();
+      this.analyserNode.fftSize = 256; // Even smaller FFT for iOS - faster, more responsive
+      this.analyserNode.smoothingTimeConstant = 0.1; // Minimal smoothing for instant response
+      this.analyserNode.minDecibels = -90; // Lower noise floor for better sensitivity
+      this.analyserNode.maxDecibels = -10; // Wider dynamic range
+      this.sourceNode.connect(this.analyserNode);
+      
+      console.log('[SyllableDetector] iOS fallback mode - FFT:', this.analyserNode.fftSize, 'threshold:', this.fallbackThreshold);
+    }
 
     // Rate update timer
     this.intervalId = setInterval(() => {
-      const now         = Date.now();
-      const windowStart = now - ROLLING_WINDOW_MS;
-      this.peakTimestamps = this.peakTimestamps.filter((t) => t >= windowStart);
-      const sps = this.peakTimestamps.length / (ROLLING_WINDOW_MS / 1000);
-      this.onRateUpdate(sps);
+      if (this.fallbackMode) {
+        this.updateFallback();
+      } else {
+        this.updateWorklet();
+      }
     }, this.updateIntervalMs);
+  }
+
+  private updateWorklet(): void {
+    const now         = Date.now();
+    const windowStart = now - ROLLING_WINDOW_MS;
+    this.peakTimestamps = this.peakTimestamps.filter((t) => t >= windowStart);
+    const sps = this.peakTimestamps.length / (ROLLING_WINDOW_MS / 1000);
+    this.onRateUpdate(sps);
+  }
+
+  private updateFallback(): void {
+    if (!this.analyserNode) return;
+
+    const dataArray = new Uint8Array(this.analyserNode.frequencyBinCount);
+    this.analyserNode.getByteTimeDomainData(dataArray);
+
+    // Calculate RMS amplitude
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      const val = dataArray[i];
+      if (val === undefined) continue;
+      const normalized = (val - 128) / 128;
+      sum += normalized * normalized;
+    }
+    const rms = Math.sqrt(sum / dataArray.length);
+
+    // Detect peaks: RMS spike above threshold
+    const now = Date.now();
+    const FALLBACK_MIN_INTERVAL = 80; // Faster response for iOS - was 100ms
+
+    if (rms > this.fallbackThreshold && (now - this.lastPeakTime) > FALLBACK_MIN_INTERVAL) {
+      this.peakTimestamps.push(now);
+      this.lastPeakTime = now;
+    }
+
+    const windowStart = now - ROLLING_WINDOW_MS;
+    this.peakTimestamps = this.peakTimestamps.filter((t) => t >= windowStart);
+    const sps = this.peakTimestamps.length / (ROLLING_WINDOW_MS / 1000);
+    this.onRateUpdate(sps);
   }
 
   stop(): void {
@@ -90,10 +158,12 @@ export class SyllableDetector {
       this.intervalId = null;
     }
     this.workletNode?.disconnect();
+    this.analyserNode?.disconnect();
     this.sourceNode?.disconnect();
     this.stream?.getTracks().forEach((t) => t.stop());
     void this.audioCtx?.close();
     this.workletNode  = null;
+    this.analyserNode = null;
     this.sourceNode   = null;
     this.stream       = null;
     this.audioCtx     = null;

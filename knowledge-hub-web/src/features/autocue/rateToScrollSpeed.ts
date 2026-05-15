@@ -12,6 +12,8 @@
 export const SILENCE_THRESHOLD_SPS = 1.0;
 /** Line height as a multiple of font size. */
 export const LINE_HEIGHT_RATIO = 1.6;
+/** Speed multiplier - increase this to make scrolling faster. */
+export const SPEED_MULTIPLIER = 3.5;
 /**
  * Fallback syllables-per-line used only before the script has been measured.
  * Once the script renders, the real value is calculated from its content.
@@ -52,5 +54,5 @@ export function rateToScrollSpeed(
 
   const linePixels  = baseFontSize * LINE_HEIGHT_RATIO;
   const linesPerSec = syllablesPerSecond / syllablesPerLine;
-  return linesPerSec * linePixels;
+  return linesPerSec * linePixels * SPEED_MULTIPLIER;
 }

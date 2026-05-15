@@ -9,6 +9,7 @@ const TAG_SUMMARY_CHARS = 2000;
 /**
  * Upserts a content item into the index.
  * Uses (source, source_id) as the conflict key.
+ * IMPORTANT: On conflict, does NOTHING to preserve taxonomy tags and user workflow state.
  * Returns true if this was a newly inserted row, false if it already existed.
  */
 export async function upsertContentItem(
@@ -19,17 +20,8 @@ export async function upsertContentItem(
     INSERT INTO content_items
       (source, source_id, title, summary, body, published_at, url, project_context, metadata, tags)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    ON CONFLICT (source, source_id) DO UPDATE SET
-      title          = EXCLUDED.title,
-      summary        = EXCLUDED.summary,
-      body           = EXCLUDED.body,
-      published_at   = EXCLUDED.published_at,
-      url            = EXCLUDED.url,
-      project_context = EXCLUDED.project_context,
-      metadata       = EXCLUDED.metadata,
-      tags           = EXCLUDED.tags,
-      indexed_at     = NOW()
-    RETURNING id, (xmax = 0) AS is_new
+    ON CONFLICT (source, source_id) DO NOTHING
+    RETURNING id, TRUE AS is_new
   `;
   const result = await db.query<{ id: string; is_new: boolean }>(sql, [
     item.source,
@@ -43,6 +35,16 @@ export async function upsertContentItem(
     JSON.stringify(item.metadata),
     item.tags,
   ]);
+  
+  // If no row returned, item already exists - get the existing ID
+  if (result.rows.length === 0) {
+    const existing = await db.query<{ id: string }>(
+      `SELECT id FROM content_items WHERE source = $1 AND source_id = $2`,
+      [item.source, item.sourceId]
+    );
+    return { isNew: false, id: existing.rows[0]?.id ?? '' };
+  }
+  
   const row = result.rows[0];
   const isNew = row?.is_new ?? false;
   const id = row?.id ?? '';
