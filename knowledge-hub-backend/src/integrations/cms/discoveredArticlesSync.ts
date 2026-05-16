@@ -16,6 +16,15 @@ import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import { env } from '../../config/env.js';
 import { FoundryClient } from '../../ai/foundryClient.js';
 import type { ContentItem } from '../../types/contentItem.js';
+import {
+  RELEVANCE_SYSTEM_PROMPT,
+  type ScoringResult,
+  RELEVANCE_MAX_TOKENS,
+  SCORE_BATCH_SIZE,
+  enforceScoreCaps,
+  COMPOSITE_MAX,
+  classifySourceByUrl,
+} from './articleScoringPrompt.js';
 
 const API_BASE = 'https://themicrosoftcloudblog.com';
 const SYNC_STATE_KEY = 'discovered-articles';
@@ -144,44 +153,11 @@ function articleToContentItem(
   };
 }
 
-// ── Relevance scoring ─────────────────────────────────────────────────────────
-
-const SCORE_BATCH_SIZE = 10;
-const RELEVANCE_MAX_TOKENS = 200;
-
-const RELEVANCE_SYSTEM_PROMPT = `You are an editorial scoring assistant for Richard Hogan, who writes a Microsoft Azure and cloud technology blog called The Microsoft Cloud Blog.
-
-Score each article 0.0–1.0 based on the following strict priority order:
-
-TOPIC PRIORITY (most important factor):
-1. Azure (Azure services, Azure AI, Azure infrastructure, Azure DevOps) → score starts at 0.7–1.0
-2. GitHub & GitHub Copilot (GitHub features, Copilot coding assistant, Actions, repos) → score starts at 0.6–0.9
-3. Microsoft 365 & M365 Copilot (Teams, Outlook, Word, Excel, SharePoint, M365 Copilot) → score starts at 0.5–0.8
-4. Microsoft Research (research papers, AI research, labs announcements) → score starts at 0.4–0.7
-5. Everything else Microsoft/MSFT → score starts at 0.3–0.6
-6. Non-Microsoft content → score 0.0–0.3 (only relevant if directly about Azure/GitHub/M365 ecosystem)
-
-SOURCE AUTHORITY (second factor — adjust score up or down within the band above):
-- Official Microsoft sources (blog.microsoft.com, techcommunity.microsoft.com, azure.microsoft.com, devblogs.microsoft.com, github.blog, learn.microsoft.com) → boost +0.1
-- Major tech press (TechCrunch, The Verge, ZDNet, InfoQ, Ars Technica, Wired) → neutral
-- Community blogs, personal blogs, individual Microsoft MVPs/community members, forums, Reddit → reduce -0.3 AND cap score at 0.35 regardless of topic (community content is derivative — always lower value than official Microsoft sources, Microsoft Research, or press coverage)
-
-ARTICLE TYPE (third factor — minor adjustment):
-- Thought leadership / opinion / strategy / future vision → boost +0.05
-- Product announcement / new feature / GA / preview → boost +0.05
-- Case study / customer story → neutral
-- General update / release notes / how-to → reduce -0.05
-
-Classify the article type as exactly one of:
-"thought-leadership" | "product-announcement" | "case-study" | "general-update"
-
-Respond with ONLY valid JSON in this exact shape:
-{"score": <0.0–1.0>, "explanation": "<1–2 sentences>", "articleType": "<one of the four types above>"}`;
-
+// ── Comprehensive article scoring ─────────────────────────────────────────────
 
 export async function scoreUnscored(db: Pool): Promise<void> {
-  const unscored = await db.query<{ id: string; title: string; body: string; metadata: Record<string, unknown> }>(
-    `SELECT id, title, body, metadata FROM content_items
+  const unscored = await db.query<{ id: string; title: string; body: string; url: string; metadata: Record<string, unknown> }>(
+    `SELECT id, title, body, url, metadata FROM content_items
      WHERE source = 'discovered-article' AND relevance_explanation IS NULL
      LIMIT $1`,
     [SCORE_BATCH_SIZE],
@@ -194,7 +170,8 @@ export async function scoreUnscored(db: Pool): Promise<void> {
   for (const row of unscored.rows) {
     try {
       const sourceTitle = (row.metadata['sourceTitle'] as string) || '';
-      const prompt = `Title: ${row.title}\nSource: ${sourceTitle}\nDescription: ${row.body || '(none)'}`;
+      const sourceUrl = row.url || '';
+      const prompt = `Title: ${row.title}\nSource: ${sourceTitle}\nURL: ${sourceUrl}\nDescription: ${row.body || '(none)'}`;
 
       const raw = await client.chat(
         'gpt-4o-mini',
@@ -207,16 +184,46 @@ export async function scoreUnscored(db: Pool): Promise<void> {
 
       // Strip markdown fences if model wrapped JSON
       const cleaned = raw.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-      const parsed = JSON.parse(cleaned) as { score: number; explanation: string; articleType?: string };
+      const parsed = JSON.parse(cleaned) as ScoringResult;
+      
+      // Enforce scoring caps based on source URL
+      const detectedSourceType = classifySourceByUrl(sourceUrl, sourceTitle);
+      const capped = enforceScoreCaps(parsed, detectedSourceType);
+
+      // Calculate 0-1 relevance score from composite (0-10)
+      const relevanceScore = capped.composite / COMPOSITE_MAX;
 
       await db.query(
         `UPDATE content_items
          SET relevance_score = $1, relevance_explanation = $2,
-             metadata = metadata || jsonb_build_object('articleType', $3::text)
-         WHERE id = $4`,
-        [parsed.score, parsed.explanation, parsed.articleType ?? null, row.id],
+             metadata = metadata || jsonb_build_object(
+               'platform', $3::text,
+               'sourceType', $4::text,
+               'audienceFit', $5::int,
+               'novelty', $6::int,
+               'strategicSignificance', $7::int,
+               'analyticalDepth', $8::int,
+               'compositeScore', $9::int,
+               'spark', $10::boolean,
+               'sparkReason', $11::text
+             )
+         WHERE id = $12`,
+        [
+          relevanceScore,
+          capped.explanation,
+          capped.platform,
+          capped.sourceType,
+          capped.audienceFit,
+          capped.novelty,
+          capped.strategicSignificance,
+          capped.analyticalDepth,
+          capped.composite,
+          capped.spark,
+          capped.sparkReason,
+          row.id,
+        ],
       );
-      console.warn(`[DiscoveredArticles] Scored ${row.id}: ${parsed.score}`);
+      console.warn(`[DiscoveredArticles] Scored ${row.id}: ${capped.composite}/10 (${capped.platform})`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[DiscoveredArticles] Scoring failed for ${row.id}: ${message}`);
