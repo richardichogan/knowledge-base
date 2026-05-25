@@ -1,5 +1,60 @@
 # Session Summary & Notes
 
+## Session: 25 May 2026 (Evening) — Canvas Removal, GitHub Sync Fixes, Bug Fixes
+
+### 1. Canvas Feature — Complete Removal
+Canvas was partially built in a prior session (tldraw integrated, then removed, but code stubs remained). All remaining canvas code fully purged:
+
+**Frontend deleted:**
+- `src/components/canvas/` — entire directory (CanvasList, CanvasEditor, CanvasMetadataPanel, CanvasTargetPicker)
+- `src/hooks/useCanvas.ts`
+
+**Frontend cleaned:**
+- `NotesPage.tsx` — canvas imports, hooks, state, mode removed; `ViewMode` is now `'notes' | 'sparks'` only
+- `App.tsx` — `think/canvas/:canvasId` route removed
+- `api.ts` — `CanvasSummary`, `CanvasEdgeRow`, `CanvasFull` types and all canvas API methods removed
+- `GraphSelectionPanel.tsx` — "Open in Canvas" button and `CanvasTargetPicker` removed
+- `NoteList.tsx` — "Send to Canvas" context menu item and `CanvasTargetPicker` removed
+- `DiscoverPage.tsx` — Canvas action button, `CanvasTargetPicker`, `hubItem`, `SendAlt` icon removed
+- `CommandPalette.tsx` — `useCanvases` import, canvases state, Canvases palette section, `Diagram` icon removed (this was the source of the `useCanvas.ts MIME type` browser error)
+
+### 2. GitHub Sync — Fixed 403 Causing All Commits to Be Missed
+**Root cause:** `microsoft/AgentShield` appears in `/user/repos` (user is an org member) but returns 403 on commits/PRs. This silently blocked all syncs — `indexed=0` for every GitHub source since 15 May.
+
+**Fix 1 — Skip list:** Added `GITHUB_REPO_SKIP_LIST` constant to `constants.ts`. All 6 GitHub sync jobs now skip `microsoft/AgentShield` entirely via a `continue` at the top of the repo loop.
+
+**Fix 2 — Silent 403/404:** All 6 sync jobs previously counted 403/404 as errors and set `lastError`. Now 403 (org-restricted) and 404 (Actions/deployments disabled) are silently skipped — only genuine errors are logged and counted.
+
+**Files changed:** `commitsSync.ts`, `pullRequestsSync.ts`, `actionsSync.ts`, `deploymentsSync.ts`, `releasesSync.ts`, `prReviewsSync.ts`
+
+### 3. Discovered Articles Upsert — Fixed ON CONFLICT Error
+**Error:** `[DiscoveredArticles] Upsert failed: there is no unique or exclusion constraint matching the ON CONFLICT specification`
+
+**Root cause:** `upsertContentItem` uses `ON CONFLICT (url) WHERE source = 'discovered-article'` but the required partial unique index didn't exist.
+
+**Fix:** Migration `020_dedup_discovered_articles.sql` — deduplicates existing rows by URL then creates `idx_content_items_discovered_url` partial unique index. Also fixed a bug in that migration (`created_at` → `indexed_at`). Migration `024` added as a safety-net fallback index.
+
+### 4. Tag Upsert — Fixed ON CONFLICT Double-Update Error
+**Error:** `[CMS indexer] Failed to index posts/post-1774003607130.json: ON CONFLICT DO UPDATE command cannot affect row a second time`
+
+**Root cause:** `upsertTags` in `tagHelpers.ts` did a multi-row `INSERT ... ON CONFLICT DO UPDATE` with raw tags from post. If a post had duplicate tags (same tag twice, or different case), two VALUES rows targeted the same `global_tags` row.
+
+**Fix:** Deduplicate and lowercase tags before building the multi-row INSERT:
+```ts
+const trimmed = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0))];
+```
+
+### 5. tsc — Both Packages Clean
+- `knowledge-hub-backend`: exit 0
+- `knowledge-hub-web`: exit 0
+
+### 6. Other Issues Noted (Not Fixed This Session)
+- **GitLab 401** — `GITLAB_ACCESS_TOKEN` in `.env` has expired. Needs a new PAT generated at GitLab → User Settings → Access Tokens with `read_api` scope.
+- **CFP 404** — `CallingAllPapers fetch failed: 404` — CFP feed URL may have changed.
+- **project-docs UTF8 error** — `ACRE/docs/DEPLOYMENT.md` contains a null byte (`0x00`). Needs the file fixed in the repo or the sync to strip null bytes before indexing.
+
+---
+
 ## Session: 25 May 2026 — Cert Tracker Rollback & Rebuild + Tag Consolidation Completion
 
 ### 1. Tag Consolidation — Final State
