@@ -8,14 +8,48 @@ const TAG_SUMMARY_CHARS = 2000;
 
 /**
  * Upserts a content item into the index.
- * Uses (source, source_id) as the conflict key.
- * IMPORTANT: On conflict, does NOTHING to preserve taxonomy tags and user workflow state.
+ * For discovered-article: conflicts on url (stable across feed snapshots).
+ * For all other sources: conflicts on (source, source_id).
  * Returns true if this was a newly inserted row, false if it already existed.
  */
 export async function upsertContentItem(
   db: Pool,
   item: Omit<ContentItem, 'id' | 'indexedAt'>,
 ): Promise<{ isNew: boolean; id: string }> {
+  // discovered-article rows are keyed by URL because the CMS assigns a new
+  // source_id on every feed snapshot — the URL is the stable identifier.
+  if (item.source === 'discovered-article' && item.url) {
+    const sql = `
+      INSERT INTO content_items
+        (source, source_id, title, summary, body, published_at, url, project_context, metadata, tags)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ON CONFLICT (url) WHERE source = 'discovered-article' AND url IS NOT NULL AND url != ''
+      DO UPDATE SET
+        source_id = EXCLUDED.source_id,
+        title     = EXCLUDED.title,
+        summary   = EXCLUDED.summary,
+        body      = EXCLUDED.body,
+        metadata  = content_items.metadata || EXCLUDED.metadata,
+        updated_at = NOW()
+      RETURNING id, (xmax = 0) AS is_new
+    `;
+    const result = await db.query<{ id: string; is_new: boolean }>(sql, [
+      item.source, item.sourceId, item.title, item.summary, item.body,
+      item.publishedAt, item.url, item.projectContext,
+      JSON.stringify(item.metadata), item.tags,
+    ]);
+    const row = result.rows[0];
+    const isNew = row?.is_new ?? false;
+    const id = row?.id ?? '';
+    if (id && isNew) {
+      const summary = `${item.title}\n\n${(item.summary ?? item.body ?? '')}`.slice(0, TAG_SUMMARY_CHARS);
+      void tagContent(db, summary, id, item.source, item.title).catch((err: unknown) => {
+        console.error(`[queries] Auto-tag failed for ${item.source}:${item.sourceId}`, err instanceof Error ? err.message : err);
+      });
+    }
+    return { isNew, id };
+  }
+
   const sql = `
     INSERT INTO content_items
       (source, source_id, title, summary, body, published_at, url, project_context, metadata, tags)
@@ -25,7 +59,9 @@ export async function upsertContentItem(
       summary = EXCLUDED.summary,
       body = EXCLUDED.body,
       url = EXCLUDED.url,
-      metadata = EXCLUDED.metadata,
+      -- Merge metadata: preserve scoring fields (platform, sourceType, spark, etc.) that were calculated
+      -- Only update the source-provided fields (status, newsWorthiness, sourceTitle, etc.)
+      metadata = content_items.metadata || EXCLUDED.metadata,
       updated_at = NOW()
     RETURNING id, (xmax = 0) AS is_new
   `;
@@ -55,8 +91,8 @@ export async function upsertContentItem(
   const isNew = row?.is_new ?? false;
   const id = row?.id ?? '';
 
-  // Fire-and-forget: tag new items immediately without blocking the caller
-  if (isNew && id) {
+  // Fire-and-forget: tag NEW items only.
+  if (id && isNew) {
     const summary = `${item.title}\n\n${(item.summary ?? item.body ?? '')}`.slice(0, TAG_SUMMARY_CHARS);
     void tagContent(db, summary, id, item.source, item.title).catch((err: unknown) => {
       console.error(`[queries] Auto-tag failed for ${item.source}:${item.sourceId}`, err instanceof Error ? err.message : err);
@@ -248,7 +284,7 @@ function rowToSummary(row: ContentItemRow): ContentItemSummary {
     summary: row.summary,
     publishedAt: row.published_at.toISOString(),
     indexedAt: row.indexed_at.toISOString(),
-    projectContext: row.project_context as ContentItemSummary['projectContext'],
+    projectContext: row.project_context,
     metadata: row.metadata as Record<string, unknown>,
     tags: row.tags,
     taxonomyTagIds: row.taxonomy_tag_ids ?? [],

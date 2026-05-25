@@ -21,6 +21,7 @@ import type { ContentType } from './constants';
 import type { NoteDocument } from './types';
 import { useNoteTags, useSetNoteTags, useFlatTags } from '../hooks/useTaxonomy';
 import { TagPicker } from '../components/TagPicker';
+import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 
 interface NoteEditorProps {
   doc: NoteDocument;
@@ -321,6 +322,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
         <div className="notes-meta-section">
           <p className="notes-meta-section-label">Content type</p>
           <p className="notes-meta-section-value">{contentType}</p>
+        </div>
+
+        <div className="notes-meta-section notes-meta-section--connections">
+          <ConnectionsPanel refId={doc.id} refType="note" />
         </div>
       </div>
 

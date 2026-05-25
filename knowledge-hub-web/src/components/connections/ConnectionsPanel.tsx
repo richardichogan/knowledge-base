@@ -23,7 +23,6 @@ const EDGE_ORDER = [
   'has_spark',
   'references',
   'tag_overlap',
-  'produced_in_window',
   'thematically_related',
 ];
 

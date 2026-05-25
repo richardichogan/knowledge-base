@@ -27,9 +27,9 @@ interface ViewTab {
 }
 
 const VIEW_TABS: ViewTab[] = [
-  { key: 'calendar', label: 'Calendar', Icon: Calendar },
-  { key: 'board',    label: 'Board',    Icon: Dashboard },
-  { key: 'list',     label: 'List',     Icon: List },
+  { key: 'calendar', label: 'Calendar',  Icon: Calendar },
+  { key: 'board',    label: 'Board',     Icon: Dashboard },
+  { key: 'list',     label: 'List',      Icon: List },
 ];
 
 export const PlanPage: React.FC = () => {

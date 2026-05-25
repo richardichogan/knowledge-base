@@ -19,6 +19,8 @@ import { syncTodoTasks } from '../integrations/graph/todoSync.js';
 import { syncGraphMail } from '../integrations/graph/graphMailSync.js';
 import { syncProjectDocs } from '../integrations/github/projectDocsSync.js';
 import { syncCfps } from '../services/cfpSyncService.js';
+import { syncAllNodes } from '../services/nodeService.js';
+import { populateExplicitEdges } from '../jobs/explicitEdgePopulator.js';
 
 export interface SyncResult {
   source: string;
@@ -84,6 +86,22 @@ export async function runTier1Sync(db: Pool): Promise<OrchestratorResult> {
   const totalIndexed = results.reduce((sum, r) => sum + r.indexed, 0);
   const totalErrors = results.reduce((sum, r) => sum + r.errors, 0);
   const totalDurationMs = results.reduce((sum, r) => sum + r.durationMs, 0);
+
+  // Sync all nodes from content tables, then rebuild explicit edges.
+  // Errors are logged but do not fail the overall sync result.
+  try {
+    await syncAllNodes(db);
+    console.warn('[Sync] syncAllNodes complete');
+  } catch (err) {
+    console.error('[Sync] syncAllNodes failed:', err instanceof Error ? err.message : String(err));
+  }
+
+  try {
+    await populateExplicitEdges(db);
+    console.warn('[Sync] populateExplicitEdges complete');
+  } catch (err) {
+    console.error('[Sync] populateExplicitEdges failed:', err instanceof Error ? err.message : String(err));
+  }
 
   return { results, totalIndexed, totalErrors, totalDurationMs };
 }

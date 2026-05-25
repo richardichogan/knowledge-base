@@ -1,53 +1,34 @@
-import { SYNC_CADENCE_MINUTES, DEFAULT_SYNC_CADENCE_MINUTES, MS_PER_MINUTE, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
+import { SYNC_CADENCE_MINUTES, DEFAULT_SYNC_CADENCE_MINUTES, MS_PER_MINUTE, MS_PER_DAY, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
 import { runTier1Sync } from './syncOrchestrator.js';
-import { tagContent, loadConceptTags } from '../services/taxonomyService.js';
-
-/**
- * After each sync, tag any content_items that have no tags yet.
- * Covers all sources: discovered articles, GitHub, GitLab, CMS, etc.
- * Runs up to MAX_AUTO_TAG items per cycle to avoid long-running jobs.
- */
-const MAX_AUTO_TAG = 20;
-const AUTO_TAG_SUMMARY_CHARS = 2000;
-
-async function autoTagNewDiscoverItems(): Promise<void> {
-  const db = getDb();
-  try {
-    // Check we have concept tags — no point calling the AI if taxonomy is empty
-    const tags = await loadConceptTags(db);
-    if (tags.length === 0) return;
-
-    const result = await db.query<{ id: string; title: string; body: string; source: string }>(
-      `SELECT ci.id, ci.title, ci.body, ci.source
-       FROM content_items ci
-       WHERE NOT EXISTS (
-           SELECT 1 FROM discover_item_tags dit WHERE dit.discover_item_id = ci.id
-         )
-       ORDER BY ci.indexed_at DESC
-       LIMIT $1`,
-      [MAX_AUTO_TAG],
-    );
-
-    if (result.rows.length === 0) return;
-    console.warn(`[Scheduler] Auto-tagging ${result.rows.length} untagged item(s)…`);
-
-    for (const row of result.rows) {
-      const summary = `${row.title}\n\n${row.body ?? ''}`.slice(0, AUTO_TAG_SUMMARY_CHARS);
-      await tagContent(db, summary, row.id, row.source, row.title);
-    }
-  } catch (err) {
-    console.error('[Scheduler] Auto-tag pass failed:', err instanceof Error ? err.message : err);
-  }
-}
+import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 
 /**
  * Simple interval-based scheduler for sync jobs.
  * One timer per source group — cadence defined in constants.ts.
  * Call start() once on server startup.
+ *
+ * NOTE: Auto-tagging of new items is handled inline in upsertContentItem (queries.ts)
+ * so there is no need for a separate tagging pass here. Scoring of new discovered
+ * articles is handled inside syncDiscoveredArticles via scoreUnscored(), which
+ * only calls the AI for items that have no relevance_explanation yet.
  */
 
+const NIGHTLY_HOUR = 2; // 02:00 local server time
+
 const timers: ReturnType<typeof setInterval>[] = [];
+
+/**
+ * Returns milliseconds until the next 02:00 local time.
+ * If 02:00 has already passed today, returns delay to tomorrow's 02:00.
+ */
+function msUntilNightly(): number {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(NIGHTLY_HOUR, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  return next.getTime() - now.getTime();
+}
 
 export function startSyncScheduler(): void {
   console.warn('[Scheduler] Starting sync scheduler...');
@@ -61,7 +42,6 @@ export function startSyncScheduler(): void {
   setTimeout(() => {
     console.warn('[Scheduler] Running initial sync on startup...');
     runTier1Sync(db)
-      .then(() => autoTagNewDiscoverItems())
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         console.error('[Scheduler] Initial sync failed:', message);
@@ -72,7 +52,6 @@ export function startSyncScheduler(): void {
   timers.push(
     setInterval(() => {
       runTier1Sync(db)
-        .then(() => autoTagNewDiscoverItems())
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
           console.error('[Scheduler] Tier 1 sync failed:', message);
@@ -81,6 +60,23 @@ export function startSyncScheduler(): void {
   );
 
   console.warn(`[Scheduler] Tier 1 sync scheduled every ${cadenceMinutes} minutes`);
+
+  // Nightly inferred-edge job — runs at 02:00 local server time.
+  const nightlyDelay = msUntilNightly();
+  setTimeout(() => {
+    void runInferredEdgeJob(db).catch((err: unknown) => {
+      console.error('[Scheduler] Inferred edge job failed:', err instanceof Error ? err.message : String(err));
+    });
+    // Re-schedule every 24 hours after the first run
+    timers.push(
+      setInterval(() => {
+        void runInferredEdgeJob(db).catch((err: unknown) => {
+          console.error('[Scheduler] Inferred edge job failed:', err instanceof Error ? err.message : String(err));
+        });
+      }, MS_PER_DAY),
+    );
+  }, nightlyDelay);
+  console.warn(`[Scheduler] Inferred edge job scheduled nightly at 02:00 (in ${Math.round(nightlyDelay / MS_PER_MINUTE)} min)`);
 }
 
 /** Clears all scheduled timers. Call on graceful shutdown. */

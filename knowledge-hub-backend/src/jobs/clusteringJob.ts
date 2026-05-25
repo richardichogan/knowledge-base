@@ -22,6 +22,11 @@ interface UncluseredSpark {
   tags: string[];
 }
 
+interface SparkConceptTagRow {
+  spark_id: string;
+  tag_name: string;
+}
+
 interface AiClusterResponse {
   clusters: Array<{ theme: string; spark_indices: number[] }>;
 }
@@ -41,29 +46,35 @@ export async function runClusteringJob(db: Pool): Promise<void> {
   }
 }
 
-/** Step 1 — Group unclustered sparks that share concept tags. */
+/**
+ * Step 1 — Group unclustered sparks by shared concept tags only.
+ * Joins sparks.tags (text array of tag names) against the tags table filtered
+ * by role = 'concept'. Filing tags are excluded. Sparks with no concept tags
+ * remain unclustered and fall through to Pass 2 (AI-based).
+ */
 async function runTagBasedClustering(db: Pool): Promise<void> {
-  // Fetch all unclustered sparks that have at least one tag
-  const rows = await db.query<UncluseredSpark>(
-    `SELECT id, body, tags FROM sparks WHERE cluster_id IS NULL AND array_length(tags, 1) > 0`,
+  // Resolve spark_id → concept tag pairs in one query
+  const tagRows = await db.query<SparkConceptTagRow>(
+    `SELECT s.id AS spark_id, t.name AS tag_name
+     FROM sparks s
+     JOIN tags t ON t.name = ANY(s.tags) AND t.role = 'concept'
+     WHERE s.cluster_id IS NULL`,
   );
-  if (rows.rows.length < MIN_CLUSTER_SIZE) return;
+  if (tagRows.rows.length === 0) return;
 
-  // Build inverted index: tag → spark ids
+  // Build inverted index: concept tag name → spark ids
   const tagMap = new Map<string, string[]>();
-  for (const spark of rows.rows) {
-    for (const tag of spark.tags) {
-      const existing = tagMap.get(tag) ?? [];
-      existing.push(spark.id);
-      tagMap.set(tag, existing);
-    }
+  for (const { spark_id, tag_name } of tagRows.rows) {
+    const existing = tagMap.get(tag_name) ?? [];
+    existing.push(spark_id);
+    tagMap.set(tag_name, existing);
   }
 
-  // For each tag with >= MIN_CLUSTER_SIZE sparks, create a cluster
+  // For each concept tag with >= MIN_CLUSTER_SIZE sparks, create a cluster
   for (const [tag, sparkIds] of tagMap.entries()) {
     if (sparkIds.length < MIN_CLUSTER_SIZE) continue;
 
-    // Check these sparks don't already belong to a cluster
+    // Re-check in DB — some may have been clustered by an earlier iteration
     const unassigned = await db.query<{ id: string }>(
       `SELECT id FROM sparks WHERE id = ANY($1) AND cluster_id IS NULL`,
       [sparkIds],

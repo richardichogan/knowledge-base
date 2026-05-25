@@ -3,20 +3,20 @@
  * Populates explicit graph edges after node sync.
  *
  * Edge types populated here:
- *   has_spark          — spark → its attached source item
- *   tag_overlap        — nodes sharing concept tags (threshold-guarded)
- *   produced_in_window — commits/PRs co-created with notes/blog posts within 24 h
+ *   has_spark   — spark → its attached source item (direct user intent)
+ *   tag_overlap — nodes sharing concept tags (topical relevance)
  *
- * References edges are omitted in this iteration (frontmatter parsing deferred).
+ * produced_in_window (timestamp proximity) was removed — it produced noise
+ * connections based on when things were created, not what they are about.
+ * References edges are deferred (frontmatter parsing not yet implemented).
+ * Thematic edges are handled by inferredEdgeJob (nightly AI pass).
+ *
  * Run after syncAllNodes() on every sync cycle.
  */
 import type { Pool } from 'pg';
 import { upsertEdge } from '../services/edgeService.js';
-import { MS_PER_DAY } from '../config/constants.js';
 
-/** Concept tags with more uses than this are excluded from tag_overlap edges. */
 const TAG_OVERLAP_MAX_USES = 50;
-const WINDOW_MS = MS_PER_DAY;
 const MIN_PAIR_COUNT = 2;
 
 /**
@@ -27,7 +27,6 @@ export async function populateExplicitEdges(db: Pool): Promise<void> {
   await Promise.all([
     populateHasSparkEdges(db).catch(logError('has_spark')),
     populateTagOverlapEdges(db).catch(logError('tag_overlap')),
-    populateProducedInWindowEdges(db).catch(logError('produced_in_window')),
   ]);
 }
 
@@ -107,24 +106,6 @@ async function populateTagOverlapEdges(db: Pool): Promise<void> {
         await upsertEdge(db, stableSrc, stableTgt, 'tag_overlap', 1.0, { shared_tags: [tagName] });
       }
     }
-  }
-}
-
-/** produced_in_window: commit/PR ↔ note/blog_post nodes created within 24 h. */
-async function populateProducedInWindowEdges(db: Pool): Promise<void> {
-  const rows = await db.query<{
-    commit_node_id: string; note_node_id: string;
-  }>(
-    `SELECT nc.id AS commit_node_id, nn.id AS note_node_id
-     FROM nodes nc
-     JOIN nodes nn ON nn.ref_type IN ('note', 'blog_post')
-     WHERE nc.ref_type IN ('commit', 'pull_request')
-       AND ABS(EXTRACT(EPOCH FROM (nc.created_at - nn.created_at)) * 1000) <= $1`,
-    [WINDOW_MS],
-  );
-  for (const r of rows.rows) {
-    const [src, tgt] = [r.commit_node_id, r.note_node_id].sort() as [string, string];
-    await upsertEdge(db, src, tgt, 'produced_in_window');
   }
 }
 

@@ -5,7 +5,7 @@
 
 import React, { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';import {
-  InlineLoading, InlineNotification,
+  Button, InlineLoading, InlineNotification,
   Modal, TextInput, TextArea, Select, SelectItem,
 } from '@carbon/react';
 import { Add, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
@@ -24,6 +24,7 @@ interface Task {
   projectId: string;
   tags: string[];
   priority: TaskPriority;
+  task_type: TaskType;
   dueDate: string | null;
   startDate: string | null;
   endDate: string | null;
@@ -34,8 +35,9 @@ interface Task {
   createdAt: string;
 }
 
-type TaskStatus = 'backlog' | 'in-progress' | 'blocked' | 'awaiting-feedback' | 'completed';
+type TaskStatus   = 'backlog' | 'in-progress' | 'blocked' | 'awaiting-feedback' | 'completed';
 type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
+type TaskType     = 'standard' | 'cert_session' | 'cert_review';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -606,8 +608,21 @@ const TaskModal: React.FC<{
   const [dueDate,     setDueDate]     = useState('');
   const [linkedTagIds, setLinkedTagIds] = useState<string[]>([]);
   const [recurringCadence, setRecurringCadence] = useState<string>('none');
+  const [taskType, setTaskType] = useState<TaskType>('standard');
+
+  // cert score input state (only used for cert_review tasks)
+  const [scoreInput, setScoreInput] = useState('');
+  const [certCode, setCertCode] = useState('');
+  const [scorePosting, setScorePosting] = useState(false);
 
   const flatTags = useFlatTags();
+
+  const { data: scoreHistory, refetch: refetchScores } = useQuery({
+    queryKey: ['cert-scores', certCode],
+    queryFn: () => api.getCertScores(certCode),
+    enabled: taskType === 'cert_review' && !!certCode && initial != null,
+    select: (r) => (r.success ? r.data : []),
+  });
 
   React.useEffect(() => {
     setTitle(initial?.title ?? '');
@@ -620,6 +635,13 @@ const TaskModal: React.FC<{
     setDueDate(initial?.dueDate ?? '');
     setLinkedTagIds(initial?.taxonomyTagIds?.length ? initial.taxonomyTagIds : initial?.linkedTagId ? [initial.linkedTagId] : []);
     setRecurringCadence(initial?.recurringCadence ?? 'none');
+    const tt = initial?.task_type ?? 'standard';
+    setTaskType(tt);
+    if (tt === 'cert_review') {
+      // try to parse cert code from title e.g. "GH-900 practice run" → "GH-900"
+      const match = (initial?.title ?? '').match(/^([A-Z0-9]+-\d+)/i);
+      setCertCode(match ? (match[1] ?? '').toUpperCase() : '');
+    }
   }, [initial, open, defaultStatus]);
 
   return (
@@ -637,6 +659,7 @@ const TaskModal: React.FC<{
           status,
           projectId,
           priority,
+          task_type: taskType,
           startDate: startDate || null,
           endDate: endDate || null,
           dueDate: dueDate || null,
@@ -669,7 +692,7 @@ const TaskModal: React.FC<{
           </Select>
         </div>
 
-        {/* Priority + Repeats — side by side */}
+        {/* Priority + Type — side by side */}
         <div className="kb-modal-form__row">
           <Select id="t-pri" labelText="Priority" value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)}>
             <SelectItem value="urgent" text="Urgent" />
@@ -677,6 +700,15 @@ const TaskModal: React.FC<{
             <SelectItem value="normal" text="Normal" />
             <SelectItem value="low"    text="Low" />
           </Select>
+          <Select id="t-task-type" labelText="Task type" value={taskType} onChange={(e) => setTaskType(e.target.value as TaskType)}>
+            <SelectItem value="standard"     text="Standard" />
+            <SelectItem value="cert_session" text="Cert session" />
+            <SelectItem value="cert_review"  text="Cert review" />
+          </Select>
+        </div>
+
+        {/* Repeats */}
+        <div className="kb-modal-form__row kb-modal-form__row--half-left">
           <Select id="t-recur" labelText="Repeats" value={recurringCadence} onChange={(e) => setRecurringCadence(e.target.value)}>
             <SelectItem value="none"        text="Does not repeat" />
             <SelectItem value="daily"       text="Daily" />
@@ -715,6 +747,54 @@ const TaskModal: React.FC<{
           </div>
         </div>
 
+        {/* Cert score input — only for cert_review tasks when editing */}
+        {taskType === 'cert_review' && initial != null && (
+          <div className="kb-modal-form__field">
+            <p className="kb-modal-form__label">Practice Score</p>
+            <div className="kb-modal-form__row">
+              <TextInput
+                id="t-cert-code"
+                labelText="Cert code (e.g. AZ-900)"
+                value={certCode}
+                onChange={(e) => setCertCode(e.target.value.toUpperCase())}
+              />
+              <TextInput
+                id="t-cert-score"
+                labelText="Score (0–100)"
+                type="number"
+                value={scoreInput}
+                onChange={(e) => setScoreInput(e.target.value)}
+              />
+            </div>
+            <Button
+              kind="secondary"
+              size="sm"
+              disabled={scorePosting || !certCode || !scoreInput}
+              onClick={() => {
+                const score = parseInt(scoreInput, 10);
+                if (!certCode || isNaN(score)) return;
+                setScorePosting(true);
+                void api.postCertScore({ cert_code: certCode, score, task_id: initial.id })
+                  .then(() => { setScoreInput(''); void refetchScores(); })
+                  .finally(() => setScorePosting(false));
+              }}
+            >
+              {scorePosting ? 'Saving…' : 'Log score'}
+            </Button>
+            {scoreHistory && scoreHistory.length > 0 && (
+              <div className="kb-cert-scores">
+                {scoreHistory.map((row, i) => (
+                  <div key={i} className="kb-cert-scores__row">
+                    <span className="kb-cert-scores__score">{String(row['score'])}</span>
+                    <span className="kb-cert-scores__date">{new Date(String(row['taken_at'])).toLocaleDateString()}</span>
+                    {row['notes'] != null && <span className="kb-cert-scores__notes">{String(row['notes'])}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Activity log + linked items — only shown when editing an existing task */}
         {initial != null && (
           <TaskActivitySection taskId={initial.id} />
@@ -747,6 +827,7 @@ export const TasksPage: React.FC<{
   const [addStatus,     setAddStatus]     = useState<TaskStatus>('backlog');
   const [filterProjectLocal, setFilterProjectLocal] = useState('');
   const [filterTagLocal,     setFilterTagLocal]     = useState('');
+  const [filterTypeLocal,    setFilterTypeLocal]    = useState<TaskType | ''>('');
   const filterProject = filterProjectProp ?? filterProjectLocal;
   const filterTag     = filterTagProp     ?? filterTagLocal;
   const flatTags = useFlatTags();
@@ -842,6 +923,19 @@ export const TasksPage: React.FC<{
             <SelectItem value="" text="All tags" />
             {flatTags.map((t) => <SelectItem key={t.id} value={t.id} text={t.name} />)}
           </Select>
+          <Select
+            id="kb-filter-type"
+            labelText=""
+            hideLabel
+            size="sm"
+            value={filterTypeLocal}
+            onChange={(e) => setFilterTypeLocal(e.target.value as TaskType | '')}
+          >
+            <SelectItem value=""             text="All types" />
+            <SelectItem value="standard"     text="Standard" />
+            <SelectItem value="cert_session" text="Cert Session" />
+            <SelectItem value="cert_review"  text="Cert Review" />
+          </Select>
           <button
             type="button"
             className="kb-import-btn"
@@ -860,7 +954,8 @@ export const TasksPage: React.FC<{
         {COLUMNS.map((col) => {
           const colTasks = tasks.filter((t) =>
             t.status === col.id &&
-            (!filterTag || t.taxonomyTagIds?.includes(filterTag))
+            (!filterTag  || t.taxonomyTagIds?.includes(filterTag)) &&
+            (!filterTypeLocal || t.task_type === filterTypeLocal)
           );
           return (
             <div

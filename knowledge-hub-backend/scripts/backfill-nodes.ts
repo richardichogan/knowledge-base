@@ -1,12 +1,12 @@
 /** One-off script: populates nodes and explicit edges from all existing content. */
+import 'dotenv/config';
 import { Pool } from 'pg';
+import { env } from '../src/config/env.js';
 import { syncAllNodes } from '../src/services/nodeService.js';
 import { populateExplicitEdges } from '../src/jobs/explicitEdgePopulator.js';
 
 async function main(): Promise<void> {
-  const pool = new Pool({
-    connectionString: process.env['DATABASE_URL'],
-  });
+  const pool = new Pool({ connectionString: env.DATABASE_URL });
   try {
     console.log('Syncing nodes from all content tables...');
     await syncAllNodes(pool);

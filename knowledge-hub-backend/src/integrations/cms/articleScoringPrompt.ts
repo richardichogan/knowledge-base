@@ -16,6 +16,34 @@ export const ARCHIVE_COMPOSITE_MAX = 3;
 export const SCORE_BATCH_SIZE = 10;
 export const RELEVANCE_MAX_TOKENS = 500;
 
+// Scoring weights for calculating normalized relevance (0-1)
+// These create differentiation beyond the simple additive composite score
+export const SCORING_WEIGHTS = {
+  audienceFit: 0.35,      // Most important - is this even relevant?
+  novelty: 0.25,          // High impact - new information matters
+  strategicSignificance: 0.25,  // Business value
+  analyticalDepth: 0.15,  // Bonus for depth, but not as critical as fit
+  
+  // Platform multipliers applied after base calculation
+  platformMultipliers: {
+    'Full Blog Post': 1.5,
+    'Newsletter Candidate': 1.3,
+    'Podcast Topic': 1.2,
+    'LinkedIn Standalone': 1.0,
+    'Archive': 0.5,
+  },
+  
+  // Source type adjustments
+  sourceTypeBonus: {
+    'Formal': 0.1,          // Official sources get +10% boost
+    'Community': 0.0,       // Neutral
+    'Case Study or Advertorial': -0.5, // Heavy penalty
+  },
+  
+  // Spark bonus
+  sparkBonus: 0.15,         // +15% if has citeable material
+} as const;
+
 export type SourceType = 'Formal' | 'Community' | 'Case Study or Advertorial';
 
 export type Platform =
@@ -208,4 +236,52 @@ export function enforceScoreCaps(
   }
 
   return parsed;
+}
+
+/**
+ * Calculate a sophisticated relevance score (0-1) using weighted components.
+ * This goes beyond the simple additive composite score to create better ranking.
+ * 
+ * Formula:
+ * 1. Normalize each dimension to 0-1 based on its max value
+ * 2. Apply dimension weights (audienceFit 35%, novelty 25%, strategic 25%, depth 15%)
+ * 3. Apply platform multiplier (Full Blog = 1.5x, Archive = 0.5x)
+ * 4. Apply source type bonus/penalty (Formal +10%, Advertorial -50%)
+ * 5. Apply spark bonus (+15% if has citeable material)
+ * 6. Clamp final result to 0-1 range
+ */
+export function calculateWeightedRelevance(result: ScoringResult): number {
+  const MAX_AUDIENCE_FIT = 3;
+  const MAX_NOVELTY = 3;
+  const MAX_STRATEGIC = 2;
+  const MAX_DEPTH = 2;
+  
+  // Step 1: Normalize each dimension to 0-1
+  const normalizedAudienceFit = result.audienceFit / MAX_AUDIENCE_FIT;
+  const normalizedNovelty = result.novelty / MAX_NOVELTY;
+  const normalizedStrategic = result.strategicSignificance / MAX_STRATEGIC;
+  const normalizedDepth = result.analyticalDepth / MAX_DEPTH;
+  
+  // Step 2: Apply dimension weights for base score
+  const baseScore = 
+    (normalizedAudienceFit * SCORING_WEIGHTS.audienceFit) +
+    (normalizedNovelty * SCORING_WEIGHTS.novelty) +
+    (normalizedStrategic * SCORING_WEIGHTS.strategicSignificance) +
+    (normalizedDepth * SCORING_WEIGHTS.analyticalDepth);
+  
+  // Step 3: Apply platform multiplier
+  const platformMultiplier = SCORING_WEIGHTS.platformMultipliers[result.platform] ?? 1.0;
+  let score = baseScore * platformMultiplier;
+  
+  // Step 4: Apply source type bonus/penalty
+  const sourceBonus = SCORING_WEIGHTS.sourceTypeBonus[result.sourceType] ?? 0;
+  score = score * (1 + sourceBonus);
+  
+  // Step 5: Apply spark bonus
+  if (result.spark) {
+    score = score * (1 + SCORING_WEIGHTS.sparkBonus);
+  }
+  
+  // Step 6: Clamp to 0-1 range
+  return Math.max(0, Math.min(1, score));
 }

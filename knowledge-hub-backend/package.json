@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "migrate": "node --import tsx/esm src/db/migrate.ts",
     "validate:ibm-calendar": "node --import tsx/esm scripts/validate-ibm-calendar.ts",
-    "retag-discover": "node --import tsx/esm scripts/retag-discover-items.ts"
+    "retag-discover": "node --import tsx/esm scripts/retag-discover-items.ts",
+    "graph:backfill": "node --import tsx/esm scripts/backfill-nodes.ts"
   },
   "dependencies": {
     "@azure/identity": "^4.4.1",

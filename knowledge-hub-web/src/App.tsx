@@ -5,7 +5,7 @@
  *   /discover  → DiscoverPage (inbound AI-curated feed)
  *   /plan      → PlanPage     (Calendar + Tasks)
  *   /my-work   → MyWorkPage   (output feed)
- *   /think     → ThinkPage    (Notes + Canvas)
+ *   /think     → ThinkPage    (Notes)
  *   /library   → DocumentsPage
  *
  * AI Chat lives in a slide-over panel in AppShell (not a route).
@@ -26,6 +26,7 @@ import { NotesPage } from './notes/NotesPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { AutocueApp } from './features/autocue/AutocueApp';
+import { GraphPage } from './pages/GraphPage';
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -44,6 +45,7 @@ const App: React.FC = () => {
               <Route path="my-work"  element={<MyWorkPage />} />
               <Route path="think"    element={<ThinkPage />} />
               <Route path="library"  element={<DocumentsPage />} />
+              <Route path="graph"    element={<GraphPage />} />
               <Route path="timeline"  element={<Navigate to="/discover" replace />} />
               <Route path="search"    element={<Navigate to="/discover" replace />} />
               <Route path="ai"        element={<Navigate to="/discover" replace />} />

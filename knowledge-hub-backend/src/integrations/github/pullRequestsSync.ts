@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import { GitHubClient } from './githubClient.js';
 import { upsertContentItem, upsertSyncState, getSyncState } from '../../db/queries.js';
-import { MS_PER_DAY, DAYS_INITIAL_SYNC_LOOKBACK } from '../../config/constants.js';
+import { MS_PER_DAY, DAYS_INITIAL_SYNC_LOOKBACK, GITHUB_REPO_SKIP_LIST } from '../../config/constants.js';
 import { loadProjectContextCache, resolveProjectContext } from './projectContext.js';
 import type { ContentItem } from '../../types/contentItem.js';
 
@@ -46,6 +46,7 @@ export async function syncGitHubPullRequests(
   }
 
   for (const repo of repos) {
+    if (GITHUB_REPO_SKIP_LIST.has(repo.full_name)) continue;
     try {
       for await (const prs of client.paginate<GitHubPR>(
         `/repos/${repo.full_name}/pulls`,
@@ -61,9 +62,11 @@ export async function syncGitHubPullRequests(
         if (newPrs.length < prs.length) break; // rest are older, stop
       }
     } catch (err) {
-      errors++;
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[GitHub PRs] Failed for ${repo.full_name}: ${message}`);
+      if (!message.includes('403') && !message.includes('404')) {
+        errors++;
+        console.error(`[GitHub PRs] Failed for ${repo.full_name}: ${message}`);
+      }
     }
   }
 

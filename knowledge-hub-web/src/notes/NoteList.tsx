@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { TextInput } from '@carbon/react';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
+import { useContextMenu } from '../hooks/useContextMenu';
 
 interface NoteListProps {
   notes: NoteListItem[];
@@ -152,12 +153,14 @@ const NoteCard: React.FC<{
   const st = TYPE_STYLE[note.contentType] ?? TYPE_STYLE['note'] ?? { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' };
   const preview = (note as NoteListItem & { body?: string }).body ?? '';
   const snippet = preview.replace(/[#*_`>\[\]\n]+/g, ' ').trim().slice(0, 120);
+  const { open: openCtxMenu, portal: ctxMenuPortal } = useContextMenu();
 
   return (
     <div
       className={`notes-list-item${selectedId === note.id ? ' notes-list-item--active' : ''}`}
       onClick={() => { onSelect(note.id); }}
       onKeyDown={(e) => { if (e.key === 'Enter') { onSelect(note.id); } }}
+      onContextMenu={(e) => openCtxMenu(e, [])}
       role="button" tabIndex={0}
     >
       <div className="notes-list-item-title">{note.title}</div>
@@ -179,6 +182,7 @@ const NoteCard: React.FC<{
           {note.contentType}
         </span>
       </div>
+      {ctxMenuPortal}
     </div>
   );
 };

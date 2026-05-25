@@ -13,7 +13,7 @@ import type { Pool } from 'pg';
 export const REF_TYPES = [
   'discover_item', 'cfp_item', 'spark', 'note',
   'document', 'task', 'commit', 'pull_request',
-  'blog_post', 'podcast_episode',
+  'blog_post', 'podcast_episode', 'canvas',
 ] as const;
 
 export type RefType = typeof REF_TYPES[number];

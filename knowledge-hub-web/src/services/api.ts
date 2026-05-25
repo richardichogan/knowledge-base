@@ -186,6 +186,36 @@ export interface ConnectionEdge {
 
 export type ConnectionsResponse = Record<string, ConnectionEdge[]>;
 
+export interface GraphNode {
+  id: string;
+  refId: string;
+  refType: string;
+  title: string;
+  tags: string[];
+  createdAt: string;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  edgeType: string;
+  confidence: number;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  stats: {
+    totalNodes: number;
+    totalEdges: number;
+    filteredNodes: number;
+    filteredEdges: number;
+    truncated: boolean;
+  };
+}
+
 export interface DiscoverItem {
   id: string;
   sourceId: string;
@@ -690,6 +720,47 @@ export class KnowledgeHubApi {
     const r = await this.client.get<ApiResponse<ConnectionsResponse>>('/api/connections', {
       params: { ref_id: refId, ref_type: refType },
     });
+    return r.data;
+  }
+
+  // ─── Certification Scores ─────────────────────────────────────────────────
+
+  async postCertScore(payload: { cert_code: string; score: number; task_id?: string; notes?: string }): Promise<ApiResponse<Record<string, unknown>>> {
+    const r = await this.client.post<ApiResponse<Record<string, unknown>>>('/api/cert-scores', payload);
+    return r.data;
+  }
+
+  async getCertScores(certCode: string): Promise<ApiResponse<Record<string, unknown>[]>> {
+    const r = await this.client.get<ApiResponse<Record<string, unknown>[]>>('/api/cert-scores', { params: { cert_code: certCode } });
+    return r.data;
+  }
+
+  // ─── Graph ────────────────────────────────────────────────────────────────
+
+  /** Fetches graph nodes and edges for the visualisation page. */
+  async getGraph(params: {
+    days?: number;
+    seed?: string;
+    depth?: number;
+    edgeTypes?: string[];
+    nodeTypes?: string[];
+  }): Promise<ApiResponse<GraphResponse>> {
+    const p: Record<string, string> = {};
+    if (params.days !== undefined) p['days'] = String(params.days);
+    if (params.seed !== undefined) p['seed'] = params.seed;
+    if (params.depth !== undefined) p['depth'] = String(params.depth);
+    if (params.edgeTypes?.length) p['edge_types'] = params.edgeTypes.join(',');
+    if (params.nodeTypes?.length) p['node_types'] = params.nodeTypes.join(',');
+    const r = await this.client.get<ApiResponse<GraphResponse>>('/api/graph', { params: p });
+    return r.data;
+  }
+
+  /** Resolve a graph node by ref_id + ref_type. */
+  async getGraphNodeByRef(refId: string, refType: string): Promise<ApiResponse<{ id: string; refId: string; refType: string; title: string; tags: string[] }>> {
+    const r = await this.client.get<ApiResponse<{ id: string; refId: string; refType: string; title: string; tags: string[] }>>(
+      '/api/connections/node-by-ref',
+      { params: { ref_id: refId, ref_type: refType } },
+    );
     return r.data;
   }
 }

@@ -18,6 +18,7 @@ import type { ContentItemSummary } from '../types';
 import { SparkCaptureButton } from '../components/sparks/SparkCaptureButton';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { useFlatTags } from '../hooks/useTaxonomy';
+import { useContextMenu } from '../hooks/useContextMenu';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -247,6 +248,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
   const [copied, setCopied] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const flatTags = useFlatTags();
+  const { open: openCtxMenu, portal: ctxMenuPortal } = useContextMenu();
   const taxonomyTags = (item.taxonomyTagIds ?? [])
     .map((id) => flatTags.find((t) => t.id === id))
     .filter((t): t is NonNullable<typeof t> => t !== undefined);
@@ -261,7 +263,12 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
   }
 
   return (
-    <div className={`dc-card${isUpdating ? ' dc-card--updating' : ''}`}>
+    <div
+      className={`dc-card${isUpdating ? ' dc-card--updating' : ''}`}
+      onContextMenu={(e) => openCtxMenu(e, [
+        { label: 'Copy URL', onClick: () => handleCopyUrl(), disabled: item.url === null },
+      ])}
+    >
       <div className="dc-card-meta">
         <span className="dc-card-source">{item.sourceTitle}</span>
         <span className="dc-card-dot">·</span>
@@ -453,6 +460,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
       {connectionsOpen && (
         <ConnectionsPanel refId={item.id} refType="discover_item" />
       )}
+      {ctxMenuPortal}
     </div>
   );
 };

@@ -22,8 +22,9 @@ import {
   RELEVANCE_MAX_TOKENS,
   SCORE_BATCH_SIZE,
   enforceScoreCaps,
-  COMPOSITE_MAX,
   classifySourceByUrl,
+  calculateWeightedRelevance,
+  PERCENTAGE_MULTIPLIER,
 } from './articleScoringPrompt.js';
 
 const API_BASE = 'https://themicrosoftcloudblog.com';
@@ -190,8 +191,9 @@ export async function scoreUnscored(db: Pool): Promise<void> {
       const detectedSourceType = classifySourceByUrl(sourceUrl, sourceTitle);
       const capped = enforceScoreCaps(parsed, detectedSourceType);
 
-      // Calculate 0-1 relevance score from composite (0-10)
-      const relevanceScore = capped.composite / COMPOSITE_MAX;
+      // Calculate sophisticated weighted relevance score (0-1)
+      // This uses dimension weights, platform multipliers, source type adjustments, and spark bonus
+      const relevanceScore = calculateWeightedRelevance(capped);
 
       await db.query(
         `UPDATE content_items
@@ -223,7 +225,8 @@ export async function scoreUnscored(db: Pool): Promise<void> {
           row.id,
         ],
       );
-      console.warn(`[DiscoveredArticles] Scored ${row.id}: ${capped.composite}/10 (${capped.platform})`);
+      const percentScore = (relevanceScore * PERCENTAGE_MULTIPLIER).toFixed(0);
+      console.warn(`[DiscoveredArticles] Scored ${row.id}: composite=${capped.composite}/10, weighted=${percentScore}%, platform=${capped.platform}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[DiscoveredArticles] Scoring failed for ${row.id}: ${message}`);

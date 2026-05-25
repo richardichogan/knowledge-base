@@ -10,7 +10,7 @@ import type { Pool } from 'pg';
  * Safe to call with an empty array (no-op).
  */
 export async function upsertTags(db: Pool, tags: string[]): Promise<void> {
-  const trimmed = tags.map((t) => t.trim()).filter((t) => t.length > 0);
+  const trimmed = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0))];
   if (trimmed.length === 0) return;
 
   // Build a multi-row VALUES clause: ($1), ($2), ...

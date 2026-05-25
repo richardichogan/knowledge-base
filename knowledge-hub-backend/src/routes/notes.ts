@@ -10,6 +10,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { getDb } from '../db/db.js';
 import { upsertContentItem } from '../db/queries.js';
 import { upsertTags } from '../db/tagHelpers.js';
+import { upsertNode } from '../services/nodeService.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
@@ -228,6 +229,16 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       syncNoteToTimeline(db, note).catch((e: unknown) => {
         console.error('[notes] Failed to sync new note to timeline:', e);
       });
+      // Upsert graph node so the note appears in the connections graph immediately (fire-and-forget)
+      void (async (): Promise<void> => {
+        try {
+          let title = 'Untitled Note';
+          try { const p = JSON.parse(note.content) as { title?: string }; title = p.title ?? title; } catch { /* ignore */ }
+          await upsertNode(db, note.id, 'note', title, note.tags);
+        } catch (e: unknown) {
+          console.error('[notes] Failed to upsert graph node:', e);
+        }
+      })();
     } catch (err) {
       next(err);
     }
@@ -309,6 +320,16 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       syncNoteToTimeline(db, note).catch((e: unknown) => {
         console.error('[notes] Failed to sync updated note to timeline:', e);
       });
+      // Keep graph node in sync with updated content/tags (fire-and-forget)
+      void (async (): Promise<void> => {
+        try {
+          let title = 'Untitled Note';
+          try { const p = JSON.parse(note.content) as { title?: string }; title = p.title ?? title; } catch { /* ignore */ }
+          await upsertNode(db, note.id, 'note', title, note.tags);
+        } catch (e: unknown) {
+          console.error('[notes] Failed to upsert graph node on update:', e);
+        }
+      })();
     } catch (err) {
       next(err);
     }

@@ -12,6 +12,9 @@ export default defineConfig({
   },
   // In production VITE_API_URL is set to the deployed backend URL in the .env build.
   // In development the proxy below forwards /api → localhost:3000 (used when VITE_API_URL is empty).
+  optimizeDeps: {
+    include: ['react-force-graph-2d'],
+  },
   server: {
     port: 5173,
     proxy: {

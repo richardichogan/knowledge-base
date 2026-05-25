@@ -36,6 +36,7 @@ import {
   Tag,
   Folder,
   Flash,
+  Network_3,
 } from '@carbon/icons-react';
 import { AIChatPage } from '../pages/AIChatPage';
 import { CommandPalette } from './CommandPalette';
@@ -140,6 +141,13 @@ export const AppShell: React.FC = () => {
             onClick={() => { setAiPanelOpen((v) => !v); }}
           >
             <Ai size={20} />
+          </HeaderGlobalAction>
+          <HeaderGlobalAction
+            aria-label="Knowledge Graph"
+            isActive={location.pathname === '/graph'}
+            onClick={() => { void navigate('/graph'); }}
+          >
+            <Network_3 size={20} />
           </HeaderGlobalAction>
         </HeaderGlobalBar>
       </Header>

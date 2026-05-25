@@ -34,6 +34,17 @@ export const MAX_PAGE_SIZE = 1000;
 export const NOTE_TITLE_MAX_LENGTH = 120;
 export const NOTE_SUMMARY_MAX_LENGTH = 200;
 
+// ── GitHub ────────────────────────────────────────────────────────────────────
+
+/**
+ * Repos that should be skipped in all GitHub syncs.
+ * Add full_name (owner/repo) for any repo where the token gets 403'd
+ * (e.g. org-restricted repos you're a member of but can't read via PAT).
+ */
+export const GITHUB_REPO_SKIP_LIST = new Set([
+  'microsoft/AgentShield',
+]);
+
 // ── Sync ──────────────────────────────────────────────────────────────────────
 
 /** Sync cadence in minutes per source. Reviewed before building sync layer. */

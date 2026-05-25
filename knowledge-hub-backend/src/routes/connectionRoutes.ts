@@ -54,7 +54,7 @@ connectionRouter.get('/', (req: Request, res: Response, next: NextFunction): voi
 
       // Fetch all edges where this node is source or target
       const edges = await db.query<{
-        edge_id: string; edge_type: string; confidence: string; metadata: string | null;
+        edge_id: string; edge_type: string; confidence: string; metadata: Record<string, unknown> | string | null;
         connected_id: string; connected_ref_id: string; connected_ref_type: string;
         connected_title: string; created_at: string;
       }>(
@@ -78,7 +78,7 @@ connectionRouter.get('/', (req: Request, res: Response, next: NextFunction): voi
           edgeId: row.edge_id,
           edgeType: row.edge_type,
           confidence: parseFloat(row.confidence),
-          metadata: row.metadata ? (JSON.parse(row.metadata) as Record<string, unknown>) : null,
+          metadata: row.metadata ? (typeof row.metadata === 'string' ? (JSON.parse(row.metadata) as Record<string, unknown>) : row.metadata) : null,
           connectedNode: {
             id: row.connected_id,
             refId: row.connected_ref_id,
@@ -91,6 +91,62 @@ connectionRouter.get('/', (req: Request, res: Response, next: NextFunction): voi
       }
 
       const out: ApiSuccess<ConnectionsResponse> = { success: true, data: grouped };
+      res.status(HTTP_STATUS.OK).json(out);
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── GET /api/connections/node-by-ref?ref_id=&ref_type= ───────────────────────
+// Resolves a node by its ref_id + ref_type pair. Used by the canvas send-to-canvas handler.
+
+connectionRouter.get('/node-by-ref', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { ref_id, ref_type } = req.query as { ref_id?: string; ref_type?: string };
+      if (!ref_id || !ref_type) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'INVALID_PARAMS', message: 'ref_id and ref_type required' } });
+        return;
+      }
+      const db = getDb();
+      const result = await db.query<{ id: string; ref_id: string; ref_type: string; title: string; tags: string[] }>(
+        `SELECT id, ref_id, ref_type, title, tags FROM nodes WHERE ref_id = $1 AND ref_type = $2`,
+        [ref_id, ref_type],
+      );
+      if (result.rows.length === 0) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: { code: 'NOT_FOUND', message: 'Node not found' } });
+        return;
+      }
+      const r = result.rows[0]!;
+      const out: ApiSuccess<{ id: string; refId: string; refType: string; title: string; tags: string[] }> = {
+        success: true,
+        data: { id: r.id, refId: r.ref_id, refType: r.ref_type, title: r.title, tags: r.tags },
+      };
+      res.status(HTTP_STATUS.OK).json(out);
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── GET /api/connections/node/:id ─────────────────────────────────────────────
+// Resolves a single node by its UUID.
+
+connectionRouter.get('/node/:id', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const db = getDb();
+      const result = await db.query<{ id: string; ref_id: string; ref_type: string; title: string; tags: string[] }>(
+        `SELECT id, ref_id, ref_type, title, tags FROM nodes WHERE id = $1`,
+        [id],
+      );
+      if (result.rows.length === 0) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: { code: 'NOT_FOUND', message: `Node ${id} not found` } });
+        return;
+      }
+      const r = result.rows[0]!;
+      const out: ApiSuccess<{ id: string; refId: string; refType: string; title: string; tags: string[] }> = {
+        success: true,
+        data: { id: r.id, refId: r.ref_id, refType: r.ref_type, title: r.title, tags: r.tags },
+      };
       res.status(HTTP_STATUS.OK).json(out);
     } catch (err) { next(err); }
   })();

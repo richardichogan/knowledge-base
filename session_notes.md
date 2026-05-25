@@ -1,5 +1,77 @@
 # Session Summary & Notes
 
+## Session: 25 May 2026 — Cert Tracker Rollback & Rebuild + Tag Consolidation Completion
+
+### 1. Tag Consolidation — Final State
+- Previous session had consolidated 476 → 111 tags via `collapse-tags.ts` and `collapse-arch-tags.ts`
+- This session added **9 curated Architecture & Method sub-tags** under `architecture-and-method`: API Design, Cloud Architecture, Design System, DevSecOps, Migration, Platform Engineering, Reference Architecture, Solution Design, Well-Architected
+- Total tags: **121** (120 + Certification added this session)
+- Added **Certification** concept tag as a child of `devops-and-automation`
+
+### 2. Cert Feature — Full Rollback
+The previous session had built a complex cert learning tracker (separate DB tables, routes, views). This was rolled back in full:
+
+**DB:** Dropped all cert tables and enums:
+- `cert_output_tags`, `cert_practice_scores`, `cert_outputs`, `cert_sessions`, `cert_programmes`
+- Dropped associated Postgres enums
+
+**Backend routes deleted:**
+- `src/routes/cert.ts` — removed
+- `src/seeds/cert-programme.ts` — removed
+- Deregistered from `app.ts`
+
+**Frontend removed:**
+- `features/cert/` directory (all 4 components: `CertLearningView`, `CertOutputsFeed`, `CertSessionPanel`, `CertThinkView`)
+- `types/cert.ts`
+- Learning tab removed from `PlanPage`
+- `CertOutputsFeed` removed from `TimelinePage`
+- Cert mode removed from `NotesPage` (restored to 3-mode: notes/canvas/sparks)
+
+### 3. Cert Feature — Correct Implementation (per spec)
+Simple design: `task_type` on existing tasks + one new table.
+
+**Schema (Change 021):**
+```sql
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_type TEXT NOT NULL DEFAULT 'standard';
+CREATE TABLE IF NOT EXISTS cert_practice_scores (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cert_code TEXT NOT NULL,
+  score INT NOT NULL,
+  task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  notes TEXT,
+  taken_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+**New API routes (`/api/cert-scores`):**
+- `POST /api/cert-scores` — log a score: `{ cert_code, score, task_id?, notes? }`
+- `GET /api/cert-scores?cert_code=` — fetch history ordered by `taken_at DESC`
+
+**API service (`services/api.ts`):**
+- `postCertScore(payload)` — posts a practice score
+- `getCertScores(certCode)` — fetches score history
+
+**Tasks page (`TasksPage.tsx`):**
+- New type `TaskType = 'standard' | 'cert_session' | 'cert_review'`
+- `task_type` added to `Task` interface
+- Task type filter `<Select>` added to board controls (filters board columns)
+- `TaskModal` now includes:
+  - Task Type selector (Standard / Cert session / Cert review) — saved on submit
+  - Repeats row restored as half-width row
+  - **Cert score panel** (shown only for `cert_review` tasks when editing): cert code input, score input (0–100), "Log score" button, score history list below
+
+### 4. Styling — All New Classes Added to `global.scss`
+Previously-unstyled classes now fully defined:
+- **`kb-modal-form__row`** — two-column grid layout; `--half-left` variant for single half-width field
+- **`kb-task-activity__*`** — tab bar (underline active), badge pills, log entries, textarea + add-note button, linked items list, search input + results
+- **`kb-cert-scores__*`** — score history rows (mono score, date, notes; alternating backgrounds)
+
+### 5. tsc — Both Packages Clean
+- `knowledge-hub-backend`: exit 0
+- `knowledge-hub-web`: exit 0
+
+---
+
 ## Session: 10 May 2026 — Discover Feed Scoring Fixes & Admin Tooling
 
 ### 1. Relevance Scoring Prompt — Full Rebalance

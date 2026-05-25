@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS content_items (
   project_context  TEXT NOT NULL DEFAULT 'personal',
   metadata         JSONB NOT NULL DEFAULT '{}',
   tags             TEXT[] NOT NULL DEFAULT '{}',
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   -- Full-text search vector — updated by trigger
   search_vector    TSVECTOR,
   UNIQUE (source, source_id)
@@ -297,3 +298,20 @@ CREATE TABLE IF NOT EXISTS cfp_items (
 CREATE INDEX IF NOT EXISTS idx_cfp_items_workflow   ON cfp_items (workflow_state);
 CREATE INDEX IF NOT EXISTS idx_cfp_items_deadline   ON cfp_items (cfp_deadline);
 CREATE INDEX IF NOT EXISTS idx_cfp_items_discovered ON cfp_items (discovered_at DESC);
+
+-- ── Certification Practice Scores (Change 021) ───────────────────────────────
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_type TEXT NOT NULL DEFAULT 'standard';
+
+CREATE TABLE IF NOT EXISTS cert_practice_scores (
+  id        UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  cert_code TEXT        NOT NULL,
+  score     INT         NOT NULL,
+  task_id   TEXT        REFERENCES tasks(id) ON DELETE SET NULL,
+  notes     TEXT,
+  taken_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cert_scores_code ON cert_practice_scores (cert_code);
+CREATE INDEX IF NOT EXISTS idx_cert_scores_time ON cert_practice_scores (taken_at DESC);
+

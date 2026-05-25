@@ -26,6 +26,9 @@ import { cfpRouter } from './routes/cfp.js';
 import { tagSuggestionRouter } from './routes/tagSuggestionRoutes.js';
 import { sparkRouter, sparkClusterRouter } from './routes/sparkRoutes.js';
 import { connectionRouter } from './routes/connectionRoutes.js';
+import certScoresRouter from './routes/certScores.js';
+import { graphRouter } from './routes/graphRoutes.js';
+import { canvasRouter } from './routes/canvasRoutes.js';
 
 /**
  * Creates and configures the Express application.
@@ -88,6 +91,9 @@ export function createApp(): express.Application {
   app.use('/api/sparks', sparkRouter);
   app.use('/api/spark-clusters', sparkClusterRouter);
   app.use('/api/connections', connectionRouter);
+  app.use('/api/cert-scores', certScoresRouter);
+  app.use('/api/graph', graphRouter);
+  app.use('/api/canvases', canvasRouter);
 
   // ── 404 handler ───────────────────────────────────────────────────────────
   app.use((_req: Request, res: Response) => {
