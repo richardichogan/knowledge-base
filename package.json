@@ -2,7 +2,7 @@
   "name": "knowledge-hub",
   "private": true,
   "scripts": {
-    "dev": "kill -9 $(lsof -ti :5173) 2>/dev/null; kill -9 $(lsof -ti :3000) 2>/dev/null; rm -rf knowledge-hub-web/node_modules/.vite; concurrently --names 'frontend,backend' --prefix-colors 'cyan,yellow' 'cd knowledge-hub-web && npx vite' 'cd knowledge-hub-backend && node --import tsx/esm src/server.ts'"
+    "dev": "concurrently --names \"frontend,backend\" --prefix-colors \"cyan,yellow\" \"npm --prefix knowledge-hub-web run dev\" \"npm --prefix knowledge-hub-backend run dev\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
