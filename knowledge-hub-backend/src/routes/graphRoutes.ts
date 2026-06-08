@@ -27,6 +27,7 @@ export interface GraphNode {
   title: string;
   tags: string[];
   createdAt: string;
+  conceptParent: string | null;
 }
 
 /** A graph edge for the visualisation. */
@@ -131,6 +132,43 @@ graphRouter.get('/', (req: Request, res: Response, next: NextFunction): void => 
         edgeParams,
       );
 
+      // ── Compute dominant concept-area parent per node ─────────────────────
+      // For each node: find its concept tags, count by parent, pick the winner.
+      const conceptRows = await db.query<{ node_id: string; parent_name: string; cnt: string }>(
+        `SELECT n.id AS node_id, p.name AS parent_name, COUNT(*) AS cnt
+         FROM nodes n
+         JOIN LATERAL unnest(n.tags) AS tag_name ON TRUE
+         JOIN tags t ON t.name = tag_name AND t.role = 'concept'
+         JOIN tags p ON p.id = t.parent_id
+         WHERE n.id = ANY($1)
+         GROUP BY n.id, p.name`,
+        [nodeIds],
+      );
+      const conceptParentMap = new Map<string, string>();
+      const PARENT_ORDER = [
+        'Microsoft Cloud', 'AI', 'Security and Identity',
+        'DevOps and Automation', 'Architecture and Method',
+        'Observability and Data', 'Industry',
+      ];
+      // Aggregate: per node_id, track best parent
+      const nodeCounts = new Map<string, Map<string, number>>();
+      for (const row of conceptRows.rows) {
+        if (!nodeCounts.has(row.node_id)) nodeCounts.set(row.node_id, new Map());
+        nodeCounts.get(row.node_id)!.set(row.parent_name, parseInt(row.cnt, 10));
+      }
+      for (const [nodeId, counts] of nodeCounts) {
+        let best: string | null = null;
+        let bestCount = -1;
+        for (const [parent, count] of counts) {
+          const order = PARENT_ORDER.indexOf(parent);
+          const rank  = order === -1 ? PARENT_ORDER.length : order;
+          if (count > bestCount || (count === bestCount && rank < PARENT_ORDER.indexOf(best ?? ''))) {
+            best = parent; bestCount = count;
+          }
+        }
+        if (best) conceptParentMap.set(nodeId, best);
+      }
+
       // ── Shape response ────────────────────────────────────────────────────
       const nodes: GraphNode[] = nodeRows.map((n) => ({
         id: n.id,
@@ -139,6 +177,7 @@ graphRouter.get('/', (req: Request, res: Response, next: NextFunction): void => 
         title: n.title,
         tags: n.tags,
         createdAt: n.created_at,
+        conceptParent: conceptParentMap.get(n.id) ?? null,
       }));
 
       const edges: GraphEdge[] = edgeRaw.rows.map((e) => ({

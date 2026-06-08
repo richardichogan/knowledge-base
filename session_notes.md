@@ -1,5 +1,48 @@
 # Session Summary & Notes
 
+## Session: 28 May 2026 — Canvas Build, Context Menu, Server Chaos
+
+### 1. Canvas Bottom Padding Fix
+- `CanvasEditor.tsx` live-resize and blur-commit both updated: `sh + 120` (was +80/+52)
+- `CanvasRenderer.ts` `setData()` now auto-expands node heights for nodes with body text; `maxLines` raised from 3 → 50
+- Special character rendering fixed: `⎋` → `@`, `✦ AI` → `AI` (font render issues on canvas)
+
+### 2. Global Context Menu — Built but Not Yet Wired
+Built `src/context/GlobalContextMenu.tsx` with full universal right-click coverage:
+- Detects `data-ctx-*` attributes, `<img>`, text selection, `<a href>` — in priority order
+- Two-panel UI: menu (Send to Canvas / Copy URL / Copy text) → canvas picker
+- Uses `gctx__*` CSS classes (no conflict with old classes)
+- Full `gctx` SCSS block added to `global.scss`
+- Discover cards annotated with `data-ctx-title/body/source/url/type` attrs
+- Think canvas list items annotated with `data-ctx-title/type` attrs
+- **NOT yet wired into the app** — needs adding to `App.tsx` as a single wrapper
+
+### 3. FUCK-UP #1 — AppShell JSX Crash (Site Down)
+Wrapped `AppShell`'s `<>` fragment return in `<GlobalContextMenuProvider>`. React requires a provider to have a **single root child** — the fragment `<>` is not a valid single child in this context, causing a runtime crash that took the entire site down.
+
+**Fix:** Rolled back `GlobalContextMenuProvider` from `AppShell`. The correct approach is to wrap in `App.tsx` around `<BrowserRouter>` or `<Theme>` — a single clean child, no fragment sibling. **This still needs to be done.**
+
+### 4. FUCK-UP #2 — Stale Service Worker / Servers Not Running
+After the JSX crash was fixed, the site still wouldn't load. Spent significant time adding SW unregister code (inline script in `index.html`, `main.tsx` unregister block, `public/sw.js` self-destructor) — none of which could work because the **actual problem was the backend server wasn't running**. The backend had died and was never restarted. Every API call was `ECONNREFUSED :3000`, which presented as a broken/blank page.
+
+**Fix:** Started backend manually: `node --import tsx/esm src/server.ts`. Frontend Vite was also not running and had to be restarted.
+
+**Preventative:** `strictPort: true` added to `vite.config.ts` so Vite fails loudly instead of drifting to :5174/:5175 between sessions.
+
+### 5. SW Cleanup Code (Left In — Harmless)
+The three-layer SW unregister code added during the false-alarm debugging is harmless and actually useful — it will clear any genuinely stale SWs from future sessions:
+- `index.html` inline `<script>` — runs before module load
+- `main.tsx` — unregisters on mount
+- `public/sw.js` — self-destructing SW
+
+### 6. Current State
+- Both servers running: backend :3000, frontend :5173
+- `GlobalContextMenu.tsx` built and styled — needs wiring into `App.tsx`
+- `DiscoverPage.tsx` still has unused `useContextMenu` import and `ctxMenuPortal` reference — needs cleanup
+- `tsc --noEmit` — no errors on either package
+
+---
+
 ## Session: 25 May 2026 (Evening) — Canvas Removal, GitHub Sync Fixes, Bug Fixes
 
 ### 1. Canvas Feature — Complete Removal

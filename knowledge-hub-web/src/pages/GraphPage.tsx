@@ -36,12 +36,13 @@ export const GraphPage: React.FC = () => {
   const [selectedNodeTypes, setSelectedNodeTypes] = useState<string[]>([]);
   const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<string[]>([]);
   const [searchQuery, setSearchQuery]             = useState('');
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0);
+  const [releasePinsSignal,   setReleasePinsSignal]   = useState(0);
+  const [colourMode, setColourMode]                   = useState<'type' | 'concept'>('type');
 
   // ── Selection and hover ───────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [hoveredId,   setHoveredId]   = useState<string | null>(null);
-  const [hoveredPos,  setHoveredPos]  = useState({ x: 0, y: 0 });
-
+  // hoveredId is tracked as a ref inside GraphCanvas — not page state
   const containerRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading, isError } = useGraphData({ days, seed, depth: DEFAULT_DEPTH });
@@ -65,24 +66,25 @@ export const GraphPage: React.FC = () => {
     [allNodes, selectedNodeTypes],
   );
   const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((n) => n.id)), [visibleNodes]);
+  // Filter inferred edges below the confidence threshold
   const visibleEdges = useMemo(
     () => allEdges.filter(
       (e) => selectedEdgeTypes.includes(e.edgeType)
         && visibleNodeIds.has(e.source)
-        && visibleNodeIds.has(e.target),
+        && visibleNodeIds.has(e.target)
+        && (e.edgeType !== 'thematically_related' || e.confidence >= confidenceThreshold),
     ),
-    [allEdges, selectedEdgeTypes, visibleNodeIds],
+    [allEdges, selectedEdgeTypes, visibleNodeIds, confidenceThreshold],
   );
 
   // ── Interaction handlers ───────────────────────────────────────────────────
 
-  const handleNodeHover = useCallback((node: GraphNode | null) => {
-    setHoveredId(node?.id ?? null);
+  const handleNodeHover = useCallback((_node: GraphNode | null) => {
+    // Hover is handled entirely inside GraphCanvas via ref — no page state needed
   }, []);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    setHoveredPos({ x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) });
+  const handleMouseMove = useCallback((_e: React.MouseEvent<HTMLDivElement>) => {
+    // Tooltip positioning is handled inside GraphCanvas via a ref — no state update needed
   }, []);
 
   const handleNodeClick = useCallback((node: GraphNode, shiftKey: boolean) => {
@@ -104,6 +106,10 @@ export const GraphPage: React.FC = () => {
   }, []);
 
   const handleBackgroundClick = useCallback(() => { setSelectedIds(new Set()); }, []);
+
+  const handleReleasePins = useCallback(() => {
+    setReleasePinsSignal((n) => n + 1);
+  }, []);
 
   const handleReset = useCallback(() => {
     setDays(DEFAULT_DAYS);
@@ -156,12 +162,12 @@ export const GraphPage: React.FC = () => {
         edges={visibleEdges}
         selectedIds={selectedIds}
         searchQuery={searchQuery}
-        hoveredId={hoveredId}
-        hoveredPos={hoveredPos}
+        colourMode={colourMode}
         onNodeHover={handleNodeHover}
         onNodeClick={handleNodeClick}
         onNodeDblClick={handleNodeDblClick}
         onBackgroundClick={handleBackgroundClick}
+        releasePinsSignal={releasePinsSignal}
       />
 
       <GraphControls
@@ -176,6 +182,11 @@ export const GraphPage: React.FC = () => {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onReset={handleReset}
+        onReleasePins={handleReleasePins}
+        confidenceThreshold={confidenceThreshold}
+        onConfidenceChange={setConfidenceThreshold}
+        colourMode={colourMode}
+        onColourModeChange={setColourMode}
         truncated={data?.stats.truncated ?? false}
         totalNodes={data?.stats.totalNodes ?? 0}
         filteredNodes={visibleNodes.length}

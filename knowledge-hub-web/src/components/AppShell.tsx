@@ -18,13 +18,8 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Header,
   HeaderName,
-  HeaderMenuButton,
   HeaderGlobalBar,
   HeaderGlobalAction,
-  SideNav,
-  SideNavItems,
-  SideNavLink,
-  Content,
 } from '@carbon/react';
 import {
   Compass,
@@ -50,7 +45,8 @@ import { api } from '../services/api';
 interface NavItem {
   path: string;
   label: string;
-  icon: React.ComponentType;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: React.ComponentType<any>;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -62,12 +58,11 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export const AppShell: React.FC = () => {
-  const [isSideNavExpanded, setIsSideNavExpanded] = useState(true);
-  const [aiPanelOpen, setAiPanelOpen]             = useState(false);
-  const [tagPanelOpen, setTagPanelOpen]           = useState(false);
-  const [projectsOpen, setProjectsOpen]           = useState(false);
-  const [paletteOpen, setPaletteOpen]             = useState(false);
-  const [sparkModalOpen, setSparkModalOpen]       = useState(false);
+  const [aiPanelOpen, setAiPanelOpen]     = useState(false);
+  const [tagPanelOpen, setTagPanelOpen]   = useState(false);
+  const [projectsOpen, setProjectsOpen]   = useState(false);
+  const [paletteOpen, setPaletteOpen]     = useState(false);
+  const [sparkModalOpen, setSparkModalOpen] = useState(false);
   const navigate  = useNavigate();
   const location  = useLocation();
   const { data: pendingTags = [] } = usePendingTags();
@@ -99,11 +94,6 @@ export const AppShell: React.FC = () => {
   return (
     <>
       <Header aria-label="Knowledge Hub">
-        <HeaderMenuButton
-          aria-label={isSideNavExpanded ? 'Close menu' : 'Open menu'}
-          onClick={() => setIsSideNavExpanded((v) => !v)}
-          isActive={isSideNavExpanded}
-        />
         <HeaderName href="/discover" prefix="Richard Hogan">
           Knowledge Hub
         </HeaderName>
@@ -152,39 +142,33 @@ export const AppShell: React.FC = () => {
         </HeaderGlobalBar>
       </Header>
 
-      <SideNav
-        aria-label="Side navigation"
-        expanded={isSideNavExpanded}
-        isPersistent={false}
-      >
-        <SideNavItems>
-          {NAV_ITEMS.map(({ path, label, icon }) => {
+      {/* ── Shell: sits below Carbon's fixed header, fills remaining viewport ── */}
+      <div className="kh-shell">
+
+        <nav className="kh-topnav" aria-label="Main navigation">
+          {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
             const isActive = location.pathname === path || location.pathname.startsWith(path + '/');
             const showDot = path === '/think' && unsurfacedCount > 0;
             return (
-              <SideNavLink
+              <button
                 key={path}
-                renderIcon={icon}
-                href={path}
-                isActive={isActive}
-                onClick={(e: React.MouseEvent) => {
-                  e.preventDefault();
-                  void navigate(path);
-                }}
+                className={`kh-topnav__item${isActive ? ' kh-topnav__item--active' : ''}`}
+                onClick={() => { void navigate(path); }}
+                aria-current={isActive ? 'page' : undefined}
               >
-                <span className="sidenav-label-wrap">
-                  {label}
-                  {showDot && <span className="sidenav-spark-dot" aria-label="New clusters available" />}
-                </span>
-              </SideNavLink>
+                <Icon size={16} />
+                {label}
+                {showDot && <span className="kh-topnav__dot" aria-label="New clusters available" />}
+              </button>
             );
           })}
-        </SideNavItems>
-      </SideNav>
+        </nav>
 
-      <Content>
-        <Outlet />
-      </Content>
+        <div className="kh-content">
+          <Outlet />
+        </div>
+
+      </div>
 
       {/* ── Quick Spark modal ── */}
       <QuickSparkModal open={sparkModalOpen} onClose={() => { setSparkModalOpen(false); }} />

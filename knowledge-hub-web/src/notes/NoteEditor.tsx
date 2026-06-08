@@ -233,8 +233,16 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
           </span>
         )}
 
-        {/* Editor scroll area */}
-        <div className="notes-editor-scroll">
+        {/* Editor scroll area — data-ctx-* enables right-click → Send to Canvas with note context */}
+        <div
+          className="notes-editor-scroll"
+          data-ctx-title={doc.title}
+          data-ctx-type="hub_ref"
+          data-ctx-ref-id={doc.id}
+          data-ctx-ref-type="note"
+          data-ctx-source={`Note · ${contentType}`}
+          {...(appliedTags.length > 0 ? { 'data-ctx-tags': appliedTags.map((t) => t.colour ? `${t.name}|${t.colour}` : t.name).join(',') } : {})}
+        >
           <div className="notes-editor-inner">
             <BlockNoteViewWrapper
               editor={editor}

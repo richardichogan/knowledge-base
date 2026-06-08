@@ -123,3 +123,10 @@ export const AI_DEFAULT_MAX_TOKENS = 2_000;
 
 /** Milliseconds per second — used for token expiry calculations. */
 export const MS_PER_SECOND = 1_000;
+
+// ── Canvas ────────────────────────────────────────────────────────────────────
+
+/** Default width of a new canvas node in world-space units. */
+export const CANVAS_NODE_DEFAULT_WIDTH = 280;
+/** Default height of a new canvas node in world-space units. */
+export const CANVAS_NODE_DEFAULT_HEIGHT = 80;

@@ -8,6 +8,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './styles/global.scss';
 
+// Unregister any stale service workers — they cause blank-page / fetch-fail issues
+// when the dev server port changes between sessions.
+if ('serviceWorker' in navigator) {
+  void navigator.serviceWorker.getRegistrations().then((regs) => {
+    for (const reg of regs) void reg.unregister();
+  });
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

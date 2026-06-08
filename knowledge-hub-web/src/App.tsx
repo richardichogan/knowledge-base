@@ -27,6 +27,7 @@ import { DocumentsPage } from './pages/DocumentsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { AutocueApp } from './features/autocue/AutocueApp';
 import { GraphPage } from './pages/GraphPage';
+import { GlobalContextMenuProvider } from './context/GlobalContextMenu';
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -35,29 +36,31 @@ const App: React.FC = () => {
   return (
     <PasswordGate>
       <Theme theme="g100" as="div" style={{ minHeight: '100vh' }}>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/autocue/*" element={<AutocueApp />} />
-            <Route path="/" element={<AppShell />}>
-              <Route index element={<Navigate to="/discover" replace />} />
-              <Route path="discover" element={<DiscoverPage />} />
-              <Route path="plan"     element={<PlanPage />} />
-              <Route path="my-work"  element={<MyWorkPage />} />
-              <Route path="think"    element={<ThinkPage />} />
-              <Route path="library"  element={<DocumentsPage />} />
-              <Route path="graph"    element={<GraphPage />} />
-              <Route path="timeline"  element={<Navigate to="/discover" replace />} />
-              <Route path="search"    element={<Navigate to="/discover" replace />} />
-              <Route path="ai"        element={<Navigate to="/discover" replace />} />
-              <Route path="tasks"     element={<Navigate to="/plan" replace />} />
-              <Route path="calendar"  element={<Navigate to="/plan" replace />} />
-              <Route path="notes"     element={<Navigate to="/think" replace />} />
-              <Route path="projects"  element={<Navigate to="/discover" replace />} />
-              <Route path="documents" element={<Navigate to="/library" replace />} />
-              <Route path="*" element={<NotFoundPage />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
+        <GlobalContextMenuProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/autocue/*" element={<AutocueApp />} />
+              <Route path="/" element={<AppShell />}>
+                <Route index element={<Navigate to="/discover" replace />} />
+                <Route path="discover" element={<DiscoverPage />} />
+                <Route path="plan"     element={<PlanPage />} />
+                <Route path="my-work"  element={<MyWorkPage />} />
+                <Route path="think"    element={<ThinkPage />} />
+                <Route path="library"  element={<DocumentsPage />} />
+                <Route path="graph"    element={<GraphPage />} />
+                <Route path="timeline"  element={<Navigate to="/discover" replace />} />
+                <Route path="search"    element={<Navigate to="/discover" replace />} />
+                <Route path="ai"        element={<Navigate to="/discover" replace />} />
+                <Route path="tasks"     element={<Navigate to="/plan" replace />} />
+                <Route path="calendar"  element={<Navigate to="/plan" replace />} />
+                <Route path="notes"     element={<Navigate to="/think" replace />} />
+                <Route path="projects"  element={<Navigate to="/discover" replace />} />
+                <Route path="documents" element={<Navigate to="/library" replace />} />
+                <Route path="*" element={<NotFoundPage />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </GlobalContextMenuProvider>
       </Theme>
     </PasswordGate>
   );

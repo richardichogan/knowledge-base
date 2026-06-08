@@ -11,20 +11,34 @@ import { NoteEditor } from './NoteEditor';
 import { fetchNotes, fetchNote, createNote } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
+import { CanvasEditor } from '../features/canvas/CanvasEditor';
+import { api } from '../services/api';
+import type { CanvasSummaryApi } from '../services/api';
 
-type ViewMode = 'notes' | 'sparks';
+type ViewMode = 'notes' | 'sparks' | 'canvas';
 
 export const NotesPage: React.FC = () => {
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [openDoc, setOpenDoc] = useState<NoteDocument | null>(null);
-  const [mode, setMode] = useState<ViewMode>('notes');
+  const [selectedId,       setSelectedId]       = useState<string | null>(null);
+  const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
+  const [mode,             setMode]             = useState<ViewMode>('notes');
+  const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
 
   const { data: notes = [], isLoading, isError, refetch } = useQuery<NoteListItem[]>({
     queryKey: ['notes-list'],
     queryFn: fetchNotes,
     staleTime: 30_000,
     retry: 1,
+  });
+
+  const { data: canvases = [], isLoading: canvasLoading } = useQuery<CanvasSummaryApi[]>({
+    queryKey: ['canvases'],
+    queryFn: async () => {
+      const r = await api.listCanvases();
+      return r.success && r.data ? r.data : [];
+    },
+    enabled: mode === 'canvas',
+    staleTime: 30_000,
   });
 
   useEffect(() => {
@@ -48,6 +62,14 @@ export const NotesPage: React.FC = () => {
     }
   }
 
+  async function handleCreateCanvas(): Promise<void> {
+    const r = await api.createCanvas('Untitled Canvas');
+    if (r.success && r.data) {
+      await queryClient.invalidateQueries({ queryKey: ['canvases'] });
+      setSelectedCanvasId(r.data.id);
+    }
+  }
+
   function handleNoteSaved(updated: NoteDocument): void {
     setOpenDoc((prev) => {
       if (prev?.title !== updated.title) void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
@@ -68,18 +90,18 @@ export const NotesPage: React.FC = () => {
       <div className="page-header">
         <div className="page-title-group">
           <h1 className="page-title">Think</h1>
-          {mode === 'notes' && (
-            <p className="page-subtitle">{notes.length} note{notes.length !== 1 ? 's' : ''}</p>
-          )}
+          {mode === 'notes' && <p className="page-subtitle">{notes.length} note{notes.length !== 1 ? 's' : ''}</p>}
+          {mode === 'canvas' && <p className="page-subtitle">{canvases.length} canvas{canvases.length !== 1 ? 'es' : ''}</p>}
         </div>
       </div>
 
       <div className="notes-root">
-        {/* Left panel */}
+        {/* ── Left panel ── */}
         <div className="notes-list-panel">
           <div className="notes-mode-switcher">
-            <button className={`notes-mode-btn${mode === 'notes' ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('notes'); }}>Notes</button>
+            <button className={`notes-mode-btn${mode === 'notes'  ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('notes'); }}>Notes</button>
             <button className={`notes-mode-btn${mode === 'sparks' ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('sparks'); }}>Sparks</button>
+            <button className={`notes-mode-btn${mode === 'canvas' ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('canvas'); }}>Canvas</button>
           </div>
 
           {mode === 'notes' && (
@@ -90,11 +112,55 @@ export const NotesPage: React.FC = () => {
               </div>
             </>
           )}
+
+          {mode === 'canvas' && (
+            <>
+              {canvasLoading ? (
+                <div className="notes-list"><InlineLoading description="Loading…" /></div>
+              ) : (
+                <div className="notes-list">
+                  {canvases.map((c) => (
+                    <div
+                      key={c.id}
+                      className={`notes-list-item${selectedCanvasId === c.id ? ' notes-list-item--active' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      data-ctx-title={c.title}
+                      data-ctx-type="note"
+                      onClick={() => { setSelectedCanvasId(c.id); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') setSelectedCanvasId(c.id); }}
+                    >
+                      <p className="notes-list-item-title">{c.title}</p>
+                      <div className="notes-list-item-bottom">
+                        <span className="notes-list-item-date">
+                          {new Date(c.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {canvases.length === 0 && (
+                    <p className="notes-list-empty">No canvases yet</p>
+                  )}
+                </div>
+              )}
+              <div className="notes-list-footer">
+                <button className="kh-btn-accent" onClick={() => { void handleCreateCanvas(); }}>+ New canvas</button>
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Centre + Right */}
+        {/* ── Right: editor area ── */}
         {mode === 'sparks' ? (
           <div className="notes-editor-area"><SparkPanel /></div>
+        ) : mode === 'canvas' ? (
+          <div className="notes-editor-area">
+            {selectedCanvasId !== null ? (
+              <CanvasEditor canvasId={selectedCanvasId} />
+            ) : (
+              <div className="notes-empty-state">Select a canvas or create a new one</div>
+            )}
+          </div>
         ) : (
           <div className="notes-editor-area">
             {openDoc !== null ? (

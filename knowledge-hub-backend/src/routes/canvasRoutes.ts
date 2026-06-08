@@ -1,138 +1,133 @@
 /**
  * routes/canvasRoutes.ts
- * REST endpoints for Canvas v2.
+ * REST endpoints for the custom canvas.
  *
- * POST   /api/canvases                      create canvas
- * GET    /api/canvases                      list canvases (no snapshot)
- * GET    /api/canvases/:id                  full canvas + edges
- * PATCH  /api/canvases/:id                  update name / snapshot
- * DELETE /api/canvases/:id                  delete canvas (cascades)
- * POST   /api/canvases/:id/edges            create edge
- * PATCH  /api/canvases/:id/edges/:edgeId    update edge label
- * DELETE /api/canvases/:id/edges/:edgeId    delete edge
+ * GET    /api/canvases                          list canvases
+ * POST   /api/canvases                          create canvas
+ * GET    /api/canvases/:id                      full canvas (nodes + edges)
+ * PATCH  /api/canvases/:id                      update title / description / project / viewport
+ * DELETE /api/canvases/:id                      delete canvas (cascades)
+ *
+ * POST   /api/canvases/:id/nodes                add node
+ * PATCH  /api/canvases/:id/nodes/:nodeId        update node
+ * DELETE /api/canvases/:id/nodes/:nodeId        delete node
+ *
+ * POST   /api/canvases/:id/edges                add edge
+ * DELETE /api/canvases/:id/edges/:edgeId        delete edge
  */
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { HTTP_STATUS } from '../config/constants.js';
 import {
-  createCanvas,
-  listCanvases,
-  getCanvas,
-  updateCanvas,
-  deleteCanvas,
-  createCanvasEdge,
-  updateCanvasEdge,
-  deleteCanvasEdge,
+  createCanvas, listCanvases, getCanvas, updateCanvas, deleteCanvas,
+  createNode, updateNode, deleteNodeById,
+  createEdge, deleteEdge,
+  type CreateNodeInput, type UpdateNodeInput, type EdgeType,
 } from '../services/canvasService.js';
 
 export const canvasRouter = Router();
 
-// POST /api/canvases
+// ── Canvas ────────────────────────────────────────────────────────────────────
+
+canvasRouter.get('/', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try { res.json({ success: true, data: await listCanvases() }); }
+    catch (err) { next(err); }
+  })();
+});
+
 canvasRouter.post('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const { name } = req.body as { name?: string };
-      const canvas = await createCanvas(name);
-      res.status(HTTP_STATUS.CREATED).json({ success: true, data: canvas });
+      const { title, description, project } = req.body as Record<string, string | undefined>;
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: await createCanvas(title, description, project) });
     } catch (err) { next(err); }
   })();
 });
 
-// GET /api/canvases
-canvasRouter.get('/', (_req: Request, res: Response, next: NextFunction): void => {
-  void (async (): Promise<void> => {
-    try {
-      const canvases = await listCanvases();
-      res.json({ success: true, data: canvases });
-    } catch (err) { next(err); }
-  })();
-});
-
-// GET /api/canvases/:id
 canvasRouter.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const canvas = await getCanvas(req.params['id'] as string);
-      if (!canvas) {
-        res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: 'Canvas not found' });
-        return;
-      }
+      if (!canvas) { res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: 'Canvas not found' }); return; }
       res.json({ success: true, data: canvas });
     } catch (err) { next(err); }
   })();
 });
 
-// PATCH /api/canvases/:id
 canvasRouter.patch('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const body = req.body as { name?: string; tldrawSnapshot?: Record<string, unknown> };
-      const payload: { name?: string; tldrawSnapshot?: Record<string, unknown> } = {};
-      if (body.name !== undefined) payload.name = body.name;
-      if (body.tldrawSnapshot !== undefined) payload.tldrawSnapshot = body.tldrawSnapshot;
-      const updated = await updateCanvas(req.params['id'] as string, payload);
-      if (!updated) {
-        res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: 'Canvas not found' });
-        return;
-      }
+      const patch = req.body as { title?: string; description?: string; project?: string; viewport?: object };
+      const updated = await updateCanvas(req.params['id'] as string, patch);
+      if (!updated) { res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: 'Canvas not found' }); return; }
       res.json({ success: true, data: updated });
     } catch (err) { next(err); }
   })();
 });
 
-// DELETE /api/canvases/:id
 canvasRouter.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
+    try { await deleteCanvas(req.params['id'] as string); res.status(HTTP_STATUS.NO_CONTENT).send(); }
+    catch (err) { next(err); }
+  })();
+});
+
+// ── Nodes ─────────────────────────────────────────────────────────────────────
+
+canvasRouter.post('/:id/nodes', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
     try {
-      await deleteCanvas(req.params['id'] as string);
+      const input = req.body as CreateNodeInput;
+      if (!input.nodeType || input.x === undefined || input.y === undefined) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: 'nodeType, x, y required' }); return;
+      }
+      const node = await createNode(req.params['id'] as string, input);
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: node });
+    } catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.patch('/:id/nodes/:nodeId', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const patch = req.body as UpdateNodeInput;
+      const node = await updateNode(req.params['id'] as string, req.params['nodeId'] as string, patch);
+      if (!node) { res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: 'Node not found' }); return; }
+      res.json({ success: true, data: node });
+    } catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.delete('/:id/nodes/:nodeId', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      await deleteNodeById(req.params['id'] as string, req.params['nodeId'] as string);
       res.status(HTTP_STATUS.NO_CONTENT).send();
     } catch (err) { next(err); }
   })();
 });
 
-// POST /api/canvases/:id/edges
+// ── Edges ─────────────────────────────────────────────────────────────────────
+
 canvasRouter.post('/:id/edges', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const { sourceNodeId, targetNodeId, label, tldrawShapeId } = req.body as {
-        sourceNodeId?: string;
-        targetNodeId?: string;
-        label?: string;
-        tldrawShapeId?: string;
+      const { sourceId, targetId, edgeType, label } = req.body as {
+        sourceId?: string; targetId?: string; edgeType?: EdgeType; label?: string;
       };
-      if (!sourceNodeId || !targetNodeId || !label || !tldrawShapeId) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: 'sourceNodeId, targetNodeId, label, tldrawShapeId required' });
-        return;
+      if (!sourceId || !targetId) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: 'sourceId, targetId required' }); return;
       }
-      const edge = await createCanvasEdge(req.params['id'] as string, sourceNodeId, targetNodeId, label, tldrawShapeId);
+      const edge = await createEdge(req.params['id'] as string, sourceId, targetId, edgeType, label);
       res.status(HTTP_STATUS.CREATED).json({ success: true, data: edge });
     } catch (err) { next(err); }
   })();
 });
 
-// PATCH /api/canvases/:id/edges/:edgeId
-canvasRouter.patch('/:id/edges/:edgeId', (req: Request, res: Response, next: NextFunction): void => {
-  void (async (): Promise<void> => {
-    try {
-      const { label } = req.body as { label?: string };
-      if (!label) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: 'label required' });
-        return;
-      }
-      const edge = await updateCanvasEdge(req.params['id'] as string, req.params['edgeId'] as string, label);
-      if (!edge) {
-        res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: 'Edge not found' });
-        return;
-      }
-      res.json({ success: true, data: edge });
-    } catch (err) { next(err); }
-  })();
-});
-
-// DELETE /api/canvases/:id/edges/:edgeId
 canvasRouter.delete('/:id/edges/:edgeId', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      await deleteCanvasEdge(req.params['id'] as string, req.params['edgeId'] as string);
+      await deleteEdge(req.params['id'] as string, req.params['edgeId'] as string);
       res.status(HTTP_STATUS.NO_CONTENT).send();
     } catch (err) { next(err); }
   })();

@@ -11,14 +11,14 @@
 import React, { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Bookmark, Edit, Archive, Renew, Launch, ArrowRight, Link, Checkmark, Microphone } from '@carbon/icons-react';
+import { Bookmark, Edit, Archive, Renew, Launch, ArrowRight, Link, Checkmark, Microphone, Diagram } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import type { ContentItemSummary } from '../types';
 import { SparkCaptureButton } from '../components/sparks/SparkCaptureButton';
+import { copyItemToCanvas } from '../features/canvas/canvasClipboard';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { useFlatTags } from '../hooks/useTaxonomy';
-import { useContextMenu } from '../hooks/useContextMenu';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -246,9 +246,9 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
   const isBlog      = item.workflowState === 'blog';
   const isPublished = item.workflowState === 'published';
   const [copied, setCopied] = useState(false);
+  const [sentToCanvas, setSentToCanvas] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const flatTags = useFlatTags();
-  const { open: openCtxMenu, portal: ctxMenuPortal } = useContextMenu();
   const taxonomyTags = (item.taxonomyTagIds ?? [])
     .map((id) => flatTags.find((t) => t.id === id))
     .filter((t): t is NonNullable<typeof t> => t !== undefined);
@@ -265,187 +265,65 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
   return (
     <div
       className={`dc-card${isUpdating ? ' dc-card--updating' : ''}`}
-      onContextMenu={(e) => openCtxMenu(e, [
-        { label: 'Copy URL', onClick: () => handleCopyUrl(), disabled: item.url === null },
-      ])}
+      data-ctx-title={item.title}
+      data-ctx-body={item.relevanceExplanation ?? undefined}
+      data-ctx-source={item.sourceTitle ?? undefined}
+      data-ctx-url={item.url ?? undefined}
+      data-ctx-type="hub_ref"
+      data-ctx-ref-id={item.id}
+      data-ctx-ref-type="discover_item"
+      {...(taxonomyTags.length > 0 ? { 'data-ctx-tags': taxonomyTags.map((t) => t.colour ? `${t.name}|${t.colour}` : t.name).join(',') } : {})}
     >
+      {/* ── Top meta: source · date · type tags · relevance ── */}
       <div className="dc-card-meta">
         <span className="dc-card-source">{item.sourceTitle}</span>
         <span className="dc-card-dot">·</span>
         <span className="dc-card-date">{formatDate(item.publishedAt)}</span>
         {item.articleType !== null && (
-          <span className={`dc-article-type dc-article-type--${item.articleType}`}>
-            {ARTICLE_TYPE_LABEL[item.articleType] ?? item.articleType}
-          </span>
+          <>
+            <span className="dc-card-dot">·</span>
+            <span className="dc-card-type">{ARTICLE_TYPE_LABEL[item.articleType] ?? item.articleType}</span>
+          </>
         )}
-        {item.platform && (
-          <span className={`dc-platform dc-platform--${item.platform.toLowerCase().replace(/ /g, '-')}`} title="Platform recommendation">
-            {item.platform === 'Full Blog Post' && '📝 Blog Post'}
-            {item.platform === 'Newsletter Candidate' && '📧 Newsletter'}
-            {item.platform === 'LinkedIn Standalone' && '🔗 LinkedIn'}
-            {item.platform === 'Podcast' && '🎙️ Podcast'}
-            {item.platform === 'Archive' && '📦 Archive'}
-          </span>
-        )}
-        {item.sourceType && (
-          <span className={`dc-source-type dc-source-type--${item.sourceType.toLowerCase()}`} title="Source type">
-            {item.sourceType}
-          </span>
-        )}
+        <span className="dc-card-meta-spacer" />
         {item.spark === true && (
-          <span className="dc-spark-badge" title={item.sparkReason ?? 'High value content'}>
-            ⚡ Spark
-          </span>
+          <span className="dc-spark-badge" title={item.sparkReason ?? 'High value content'}>⚡ Spark</span>
         )}
-        <span className="dc-relevance-badge">
-          {scoreLabel(item.relevanceScore)}
-        </span>
+        {item.relevanceScore !== null && (
+          <span className="dc-relevance-badge">{Math.round(item.relevanceScore * 100)}%</span>
+        )}
       </div>
 
+      {/* ── Title ── */}
       <div className="dc-card-title-row">
-        <span className="dc-card-title">{item.title}</span>
+        <h3 className="dc-card-title">{item.title}</h3>
         {item.url !== null && (
-          <a
-            href={item.url}
-            target="_blank"
-            rel="noreferrer"
-            className="dc-card-ext-link"
-            title="Open article"
-            aria-label="Open article"
-          >
-            <Launch size={14} />
+          <a href={item.url} target="_blank" rel="noreferrer" className="dc-card-ext-link" title="Open article">
+            <Launch size={16} />
           </a>
         )}
       </div>
 
+      {/* ── Synopsis ── */}
       {item.relevanceExplanation !== null && (
-        <p className="dc-card-explanation">{item.relevanceExplanation}</p>
+        <p className="dc-card-synopsis">{item.relevanceExplanation}</p>
       )}
 
       {/* Published tab: show the blog URL editor */}
       {isPublished && <PublishedUrlEditor item={item} />}
 
-      <div className="dc-card-actions">
-        {/* Copy URL — shown on all cards that have a URL and aren't already published */}
-        {item.url !== null && !isPublished && (
-          <button
-            className={`dc-action dc-action--copy${copied ? ' dc-action--copied' : ''}`}
-            onClick={handleCopyUrl}
-            disabled={isUpdating}
-            title="Copy article URL and mark as published"
-          >
-            {copied ? <Checkmark size={14} /> : <Link size={14} />}
-            {copied ? 'Copied!' : 'Copy URL'}
-          </button>
-        )}
-
-        {isToReview && (
-          <>
-            <button
-              className="dc-action dc-action--save"
-              onClick={() => { onStateChange(item.id, 'saved'); }}
-              disabled={isUpdating}
-              title="Save for later"
-            >
-              <Bookmark size={14} /> Save
-            </button>
-            <button
-              className="dc-action dc-action--blog"
-              onClick={() => { onStateChange(item.id, 'blog'); }}
-              disabled={isUpdating}
-              title="Flag for blog post"
-            >
-              <Edit size={14} /> Blog
-            </button>
-            <button
-              className="dc-action dc-action--archive"
-              onClick={() => { onStateChange(item.id, 'archived'); }}
-              disabled={isUpdating}
-              title="Archive"
-            >
-              <Archive size={14} /> Archive
-            </button>
-          </>
-        )}
-        {isSaved && (
-          <>
-            <button
-              className="dc-action dc-action--blog"
-              onClick={() => { onStateChange(item.id, 'blog'); }}
-              disabled={isUpdating}
-              title="Move to Blog"
-            >
-              <Edit size={14} /> Move to Blog
-            </button>
-            <button
-              className="dc-action dc-action--archive"
-              onClick={() => { onStateChange(item.id, 'archived'); }}
-              disabled={isUpdating}
-              title="Archive"
-            >
-              <Archive size={14} /> Archive
-            </button>
-            <button
-              className="dc-action dc-action--restore"
-              onClick={() => { onStateChange(item.id, 'to-review'); }}
-              disabled={isUpdating}
-              title="Move back to To Review"
-            >
-              <Renew size={14} /> Back
-            </button>
-          </>
-        )}
-        {isBlog && (
-          <>
-            <button
-              className="dc-action dc-action--restore"
-              onClick={() => { onStateChange(item.id, 'saved'); }}
-              disabled={isUpdating}
-              title="Move back to Saved"
-            >
-              <Renew size={14} /> Unsave
-            </button>
-            <button
-              className="dc-action dc-action--archive"
-              onClick={() => { onStateChange(item.id, 'archived'); }}
-              disabled={isUpdating}
-              title="Archive"
-            >
-              <Archive size={14} /> Archive
-            </button>
-          </>
-        )}
-        {isPublished && (
-          <button
-            className="dc-action dc-action--restore"
-            onClick={() => { onStateChange(item.id, 'to-review'); }}
-            disabled={isUpdating}
-            title="Move back to To Review"
-          >
-            <Renew size={14} /> Unpublish
-          </button>
-        )}
-        {item.workflowState === 'archived' && (
-          <button
-            className="dc-action dc-action--restore"
-            onClick={() => { onStateChange(item.id, 'to-review'); }}
-            disabled={isUpdating}
-            title="Restore to To Review"
-          >
-            <ArrowRight size={14} /> Restore
-          </button>
-        )}
-        <SparkCaptureButton sourceId={item.id} sourceType="discover_item" />
-        <button
-          className={`dc-action dc-action--connections${connectionsOpen ? ' dc-action--connections-active' : ''}`}
-          onClick={() => setConnectionsOpen((v) => !v)}
-          title={connectionsOpen ? 'Hide connections' : 'Show connections'}
-        >
-          Connections
-        </button>
-      </div>
-      {taxonomyTags.length > 0 && (
+      {/* ── Footer: tags left · actions right ── */}
+      <div className="dc-card-footer">
         <div className="dc-card-tags">
+          {item.platform && (
+            <span className="dc-platform-pill">
+              {item.platform === 'Full Blog Post' && '📝 Blog'}
+              {item.platform === 'Newsletter Candidate' && '📧 Newsletter'}
+              {item.platform === 'LinkedIn Standalone' && '🔗 LinkedIn'}
+              {item.platform === 'Podcast' && '🎙️ Podcast'}
+              {item.platform === 'Archive' && '📦 Archive'}
+            </span>
+          )}
           {taxonomyTags.map((t) => (
             <span
               key={t.id}
@@ -456,11 +334,95 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
             </span>
           ))}
         </div>
-      )}
-      {connectionsOpen && (
-        <ConnectionsPanel refId={item.id} refType="discover_item" />
-      )}
-      {ctxMenuPortal}
+
+        <div className="dc-card-actions">
+          {item.url !== null && !isPublished && (
+            <button
+              className={`dc-action dc-action--copy${copied ? ' dc-action--copied' : ''}`}
+              onClick={handleCopyUrl}
+              disabled={isUpdating}
+              title="Copy URL and mark as published"
+            >
+              {copied ? <Checkmark size={14} /> : <Link size={14} />}
+              {copied ? 'Copied' : 'Copy URL'}
+            </button>
+          )}
+          <button
+            className={`dc-action dc-action--canvas${sentToCanvas ? ' dc-action--copied' : ''}`}
+            onClick={() => {
+              void copyItemToCanvas({
+                id: item.id,
+                refType: 'discover_item',
+                label: item.title ?? '',
+                ...(item.relevanceExplanation ? { body: item.relevanceExplanation } : {}),
+                ...(item.url ? { url: item.url } : {}),
+                ...(taxonomyTags.length > 0 ? { tags: taxonomyTags.map((t) => t.name) } : {}),
+              });
+              setSentToCanvas(true);
+              setTimeout(() => setSentToCanvas(false), 2000);
+            }}
+            title="Copy to canvas"
+          >
+            <Diagram size={14} /> {sentToCanvas ? 'Copied!' : 'Canvas'}
+          </button>
+          {isToReview && (
+            <>
+              <button className="dc-action dc-action--save" onClick={() => { onStateChange(item.id, 'saved'); }} disabled={isUpdating}>
+                <Bookmark size={14} /> Save
+              </button>
+              <button className="dc-action dc-action--blog" onClick={() => { onStateChange(item.id, 'blog'); }} disabled={isUpdating}>
+                <Edit size={14} /> Blog
+              </button>
+              <button className="dc-action dc-action--archive" onClick={() => { onStateChange(item.id, 'archived'); }} disabled={isUpdating}>
+                <Archive size={14} /> Archive
+              </button>
+            </>
+          )}
+          {isSaved && (
+            <>
+              <button className="dc-action dc-action--blog" onClick={() => { onStateChange(item.id, 'blog'); }} disabled={isUpdating}>
+                <Edit size={14} /> Blog
+              </button>
+              <button className="dc-action dc-action--archive" onClick={() => { onStateChange(item.id, 'archived'); }} disabled={isUpdating}>
+                <Archive size={14} /> Archive
+              </button>
+              <button className="dc-action dc-action--restore" onClick={() => { onStateChange(item.id, 'to-review'); }} disabled={isUpdating}>
+                <Renew size={14} /> Back
+              </button>
+            </>
+          )}
+          {isBlog && (
+            <>
+              <button className="dc-action dc-action--restore" onClick={() => { onStateChange(item.id, 'saved'); }} disabled={isUpdating}>
+                <Renew size={14} /> Unsave
+              </button>
+              <button className="dc-action dc-action--archive" onClick={() => { onStateChange(item.id, 'archived'); }} disabled={isUpdating}>
+                <Archive size={14} /> Archive
+              </button>
+            </>
+          )}
+          {isPublished && (
+            <button className="dc-action dc-action--restore" onClick={() => { onStateChange(item.id, 'to-review'); }} disabled={isUpdating}>
+              <Renew size={14} /> Unpublish
+            </button>
+          )}
+          {item.workflowState === 'archived' && (
+            <button className="dc-action dc-action--restore" onClick={() => { onStateChange(item.id, 'to-review'); }} disabled={isUpdating}>
+              <ArrowRight size={14} /> Restore
+            </button>
+          )}
+          <SparkCaptureButton sourceId={item.id} sourceType="discover_item" />
+          <button
+            className={`dc-action dc-action--icon${connectionsOpen ? ' dc-action--connections-active' : ''}`}
+            onClick={() => setConnectionsOpen((v) => !v)}
+            title="Connections"
+          >
+            <Link size={14} />
+          </button>
+        </div>
+      </div>
+
+      {connectionsOpen && <ConnectionsPanel refId={item.id} refType="discover_item" />}
     </div>
   );
 };
@@ -581,55 +543,49 @@ export const DiscoverPage: React.FC = () => {
         </div>
       </div>
 
-      {/* State tabs */}
-      <div className="dc-tabs">
-        {STATE_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            className={`dc-tab${activeTab === tab.key ? ' dc-tab--active' : ''}`}
-            onClick={() => { handleTabChange(tab.key); }}
+      {/* ── Combined toolbar: state tabs + optional filters ── */}
+      <div className="dc-toolbar">
+        <div className="dc-tabs">
+          {STATE_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              className={`dc-tab${activeTab === tab.key ? ' dc-tab--active' : ''}`}
+              onClick={() => { handleTabChange(tab.key); }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Source filter — select dropdown on article tabs */}
+        {!isInbox && !isCfps && allSources.length > 0 && (
+          <select
+            className="dc-filter-select"
+            value={sourceFilter ?? ''}
+            onChange={(e) => { handleSourceFilter(e.target.value || undefined); }}
+            aria-label="Filter by source"
           >
-            {tab.label}
-          </button>
-        ))}
+            <option value="">All sources ({allSources.reduce((n, s) => n + s.count, 0)})</option>
+            {allSources.map((s) => (
+              <option key={s.title} value={s.title}>{s.title} ({s.count})</option>
+            ))}
+          </select>
+        )}
+
+        {/* CFP state filter */}
+        {isCfps && (
+          <select
+            className="dc-filter-select"
+            value={cfpStateFilter}
+            onChange={(e) => { setCfpStateFilter(e.target.value as CfpWorkflowState); }}
+            aria-label="Filter CFPs by state"
+          >
+            {(['to_review', 'saved', 'submitted', 'archived'] as CfpWorkflowState[]).map((s) => (
+              <option key={s} value={s}>{s.replace('_', ' ')}</option>
+            ))}
+          </select>
+        )}
       </div>
-
-      {/* Source filter — only on article tabs */}
-      {!isInbox && !isCfps && allSources.length > 0 && (
-        <div className="dc-source-filters">
-          <button
-            className={`dc-source-chip${sourceFilter === undefined ? ' dc-source-chip--active' : ''}`}
-            onClick={() => { handleSourceFilter(undefined); }}
-          >
-            All sources
-          </button>
-          {allSources.map((s) => (
-            <button
-              key={s.title}
-              className={`dc-source-chip${sourceFilter === s.title ? ' dc-source-chip--active' : ''}`}
-              onClick={() => { handleSourceFilter(s.title === sourceFilter ? undefined : s.title); }}
-            >
-              {s.title}
-              <span className="dc-source-count">{s.count}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* CFP state filter — only on CFPs tab */}
-      {isCfps && (
-        <div className="dc-source-filters">
-          {(['to_review', 'saved', 'submitted', 'archived'] as CfpWorkflowState[]).map((s) => (
-            <button
-              key={s}
-              className={`dc-source-chip${cfpStateFilter === s ? ' dc-source-chip--active' : ''}`}
-              onClick={() => { setCfpStateFilter(s); }}
-            >
-              {s.replace('_', ' ')}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* CFPs feed */}
       {isCfps && (

@@ -96,8 +96,10 @@ export async function syncDiscoveredArticles(
       }
     }
 
-    // Score any items that don't yet have a relevance explanation
-    await scoreUnscored(db);
+    // Score any items that don't yet have a relevance explanation — production only
+    if (!env.isDevelopment) {
+      await scoreUnscored(db);
+    }
 
     await upsertSyncState(db, SYNC_STATE_KEY, {
       lastSyncAt: new Date(),

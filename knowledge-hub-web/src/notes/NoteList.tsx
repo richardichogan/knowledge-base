@@ -7,7 +7,6 @@ import React, { useState } from 'react';
 import { TextInput } from '@carbon/react';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
-import { useContextMenu } from '../hooks/useContextMenu';
 
 interface NoteListProps {
   notes: NoteListItem[];
@@ -40,11 +39,14 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect 
   // We treat every child tag of every top-level tag as a potential project grouper,
   // preferring the first match found on the note.
   const tagNameMap = new Map<string, string>();
+  const tagColourMap = new Map<string, string>(); // tagId → colour
   const tagParentMap = new Map<string, string>(); // childId → parentName
   for (const parent of parents) {
     tagNameMap.set(parent.id, parent.name);
+    if (parent.colour) tagColourMap.set(parent.id, parent.colour);
     for (const child of parent.children ?? []) {
       tagNameMap.set(child.id, child.name);
+      if (child.colour) tagColourMap.set(child.id, child.colour);
       tagParentMap.set(child.id, parent.name);
     }
   }
@@ -137,7 +139,7 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect 
           <div key={key} className="notes-group">
             <p className="notes-group__label">{group.label}</p>
             {group.notes.map((note) => (
-              <NoteCard key={note.id} note={note} selectedId={selectedId} onSelect={onSelect} />
+              <NoteCard key={note.id} note={note} selectedId={selectedId} onSelect={onSelect} tagNameMap={tagNameMap} tagColourMap={tagColourMap} />
             ))}
           </div>
         ))}
@@ -149,18 +151,34 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect 
 const NoteCard: React.FC<{
   note: NoteListItem; selectedId: string | null;
   onSelect: (id: string) => void;
-}> = ({ note, selectedId, onSelect }) => {
+  tagNameMap: Map<string, string>;
+  tagColourMap: Map<string, string>;
+}> = ({ note, selectedId, onSelect, tagNameMap, tagColourMap }) => {
   const st = TYPE_STYLE[note.contentType] ?? TYPE_STYLE['note'] ?? { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' };
   const preview = (note as NoteListItem & { body?: string }).body ?? '';
   const snippet = preview.replace(/[#*_`>\[\]\n]+/g, ' ').trim().slice(0, 120);
-  const { open: openCtxMenu, portal: ctxMenuPortal } = useContextMenu();
+  // Encode as "name|colour" so the canvas renderer can use the correct colour
+  const tagEntries = (note.tagIds ?? [])
+    .map((id) => {
+      const name = tagNameMap.get(id);
+      if (!name) return null;
+      const colour = tagColourMap.get(id);
+      return colour ? `${name}|${colour}` : name;
+    })
+    .filter((n): n is string => !!n);
 
   return (
     <div
       className={`notes-list-item${selectedId === note.id ? ' notes-list-item--active' : ''}`}
       onClick={() => { onSelect(note.id); }}
       onKeyDown={(e) => { if (e.key === 'Enter') { onSelect(note.id); } }}
-      onContextMenu={(e) => openCtxMenu(e, [])}
+      data-ctx-title={note.title}
+      {...(snippet !== '' ? { 'data-ctx-body': snippet } : {})}
+      data-ctx-type="hub_ref"
+      data-ctx-ref-id={note.id}
+      data-ctx-ref-type="note"
+      data-ctx-source={`Note · ${note.contentType}`}
+      {...(tagEntries.length > 0 ? { 'data-ctx-tags': tagEntries.join(',') } : {})}
       role="button" tabIndex={0}
     >
       <div className="notes-list-item-title">{note.title}</div>
@@ -182,7 +200,6 @@ const NoteCard: React.FC<{
           {note.contentType}
         </span>
       </div>
-      {ctxMenuPortal}
     </div>
   );
 };

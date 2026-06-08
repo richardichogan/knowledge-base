@@ -193,6 +193,7 @@ export interface GraphNode {
   title: string;
   tags: string[];
   createdAt: string;
+  conceptParent: string | null;
 }
 
 export interface GraphEdge {
@@ -763,7 +764,90 @@ export class KnowledgeHubApi {
     );
     return r.data;
   }
+
+  // ── Canvas ──────────────────────────────────────────────────────────────────
+
+  async listCanvases(): Promise<ApiResponse<CanvasSummaryApi[]>> {
+    const r = await this.client.get<ApiResponse<CanvasSummaryApi[]>>('/api/canvases');
+    return r.data;
+  }
+
+  async createCanvas(title?: string, description?: string, project?: string): Promise<ApiResponse<CanvasFullApi>> {
+    const r = await this.client.post<ApiResponse<CanvasFullApi>>('/api/canvases', { title, description, project });
+    return r.data;
+  }
+
+  async getCanvas(id: string): Promise<ApiResponse<CanvasFullApi>> {
+    const r = await this.client.get<ApiResponse<CanvasFullApi>>(`/api/canvases/${id}`);
+    return r.data;
+  }
+
+  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string; viewport?: object }): Promise<ApiResponse<CanvasSummaryApi>> {
+    const r = await this.client.patch<ApiResponse<CanvasSummaryApi>>(`/api/canvases/${id}`, patch);
+    return r.data;
+  }
+
+  async deleteCanvas(id: string): Promise<void> {
+    await this.client.delete(`/api/canvases/${id}`);
+  }
+
+  async createCanvasNode(canvasId: string, input: CanvasNodeInput): Promise<ApiResponse<CanvasNodeApi>> {
+    const r = await this.client.post<ApiResponse<CanvasNodeApi>>(`/api/canvases/${canvasId}/nodes`, input);
+    return r.data;
+  }
+
+  async updateCanvasNode(canvasId: string, nodeId: string, patch: Partial<CanvasNodeInput>): Promise<ApiResponse<CanvasNodeApi>> {
+    const r = await this.client.patch<ApiResponse<CanvasNodeApi>>(`/api/canvases/${canvasId}/nodes/${nodeId}`, patch);
+    return r.data;
+  }
+
+  async deleteCanvasNode(canvasId: string, nodeId: string): Promise<void> {
+    await this.client.delete(`/api/canvases/${canvasId}/nodes/${nodeId}`);
+  }
+
+  async createCanvasEdge(canvasId: string, sourceId: string, targetId: string, edgeType?: string, label?: string): Promise<ApiResponse<CanvasEdgeApi>> {
+    const r = await this.client.post<ApiResponse<CanvasEdgeApi>>(`/api/canvases/${canvasId}/edges`, { sourceId, targetId, edgeType, label });
+    return r.data;
+  }
+
+  async deleteCanvasEdge(canvasId: string, edgeId: string): Promise<void> {
+    await this.client.delete(`/api/canvases/${canvasId}/edges/${edgeId}`);
+  }
 }
 
 /** Singleton instance — used by all React Query hooks. */
 export const api = new KnowledgeHubApi();
+
+// ── Canvas API types ──────────────────────────────────────────────────────────
+
+export interface CanvasSummaryApi {
+  id: string; title: string; description: string | null;
+  project: string | null; createdAt: string; updatedAt: string;
+}
+
+export interface CanvasNodeApi {
+  id: string; canvasId: string; nodeType: string;
+  refType: string | null; refId: string | null;
+  label: string | null; body: string | null;
+  url: string | null; tags: string[] | null;
+  x: number; y: number; width: number; height: number;
+  colour: string | null; createdAt: string;
+}
+
+export interface CanvasEdgeApi {
+  id: string; canvasId: string; sourceId: string; targetId: string;
+  edgeType: string; label: string | null; createdAt: string;
+}
+
+export interface CanvasFullApi extends CanvasSummaryApi {
+  viewport: { x: number; y: number; zoom: number };
+  nodes: CanvasNodeApi[];
+  edges: CanvasEdgeApi[];
+}
+
+export interface CanvasNodeInput {
+  nodeType: string; refType?: string; refId?: string;
+  label?: string; body?: string; url?: string; tags?: string[];
+  x: number; y: number; width?: number; height?: number; colour?: string;
+}
+

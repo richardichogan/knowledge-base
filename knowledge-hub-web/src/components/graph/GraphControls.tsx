@@ -26,6 +26,11 @@ interface GraphControlsProps {
   searchQuery: string;
   onSearchChange: (v: string) => void;
   onReset: () => void;
+  onReleasePins: () => void;
+  confidenceThreshold: number;
+  onConfidenceChange: (v: number) => void;
+  colourMode: 'type' | 'concept';
+  onColourModeChange: (v: 'type' | 'concept') => void;
   truncated: boolean;
   totalNodes: number;
   filteredNodes: number;
@@ -41,9 +46,14 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
   allNodeTypes, selectedNodeTypes, onNodeTypesChange,
   allEdgeTypes, selectedEdgeTypes, onEdgeTypesChange,
   searchQuery, onSearchChange,
-  onReset, truncated, totalNodes,
+  onReset, onReleasePins, confidenceThreshold, onConfidenceChange,
+  colourMode, onColourModeChange,
+  truncated, totalNodes,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
+  // Buffer both sliders locally — only fire the fetch-triggering callback on mouseUp
+  const [localDays, setLocalDays]               = useState(days);
+  const [localConfidence, setLocalConfidence]   = useState(Math.round(confidenceThreshold * 100));
 
   function toggleNodeType(type: string): void {
     if (selectedNodeTypes.includes(type)) {
@@ -77,16 +87,33 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
       {!collapsed && (
         <div className="graph-controls__body">
           <div className="graph-controls__section">
+            <p className="graph-controls__label">Colour by</p>
+            <div className="graph-controls__chips">
+              {(['type', 'concept'] as const).map((m) => (
+                <button
+                  key={m}
+                  className={`graph-controls__chip${colourMode === m ? ' graph-controls__chip--active' : ''}`}
+                  onClick={() => { onColourModeChange(m); }}
+                >
+                  {m === 'type' ? 'Type' : 'Concept area'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="graph-controls__section">
             <label className="graph-controls__label" htmlFor="graph-days-slider">
-              Last {days} day{days !== 1 ? 's' : ''}
+              Last {localDays} day{localDays !== 1 ? 's' : ''}
             </label>
             <input
               id="graph-days-slider"
               type="range"
               min={1}
               max={365}
-              value={days}
-              onChange={(e) => { onDaysChange(parseInt(e.target.value, 10)); }}
+              value={localDays}
+              onChange={(e) => { setLocalDays(parseInt(e.target.value, 10)); }}
+              onMouseUp={(e) => { onDaysChange(parseInt((e.target as HTMLInputElement).value, 10)); }}
+              onTouchEnd={(e) => { onDaysChange(parseInt((e.target as HTMLInputElement).value, 10)); }}
               className="graph-controls__slider"
             />
           </div>
@@ -134,6 +161,27 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
 
           <button className="graph-controls__reset" onClick={onReset}>
             Reset
+          </button>
+
+          <div className="graph-controls__section">
+            <label className="graph-controls__label" htmlFor="graph-confidence-slider">
+              Min confidence: {localConfidence}%
+            </label>
+            <input
+              id="graph-confidence-slider"
+              type="range"
+              min={0}
+              max={100}
+              value={localConfidence}
+              onChange={(e) => { setLocalConfidence(parseInt(e.target.value, 10)); }}
+              onMouseUp={(e) => { onConfidenceChange(parseInt((e.target as HTMLInputElement).value, 10) / 100); }}
+              onTouchEnd={(e) => { onConfidenceChange(parseInt((e.target as HTMLInputElement).value, 10) / 100); }}
+              className="graph-controls__slider"
+            />
+          </div>
+
+          <button className="graph-controls__reset" onClick={onReleasePins}>
+            Release pins
           </button>
 
           {truncated && (

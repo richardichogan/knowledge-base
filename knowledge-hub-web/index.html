@@ -6,6 +6,14 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="theme-color" content="#161616" />
     <title>Knowledge Hub</title>
+    <script>
+      // Kill any stale service workers immediately, before they can intercept requests.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          regs.forEach(function(r) { r.unregister(); });
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

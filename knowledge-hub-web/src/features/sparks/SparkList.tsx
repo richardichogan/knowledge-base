@@ -17,7 +17,15 @@ function formatDate(iso: string): string {
 
 /** Single spark row with delete action. */
 const SparkRow: React.FC<{ spark: Spark; onDelete: (id: string) => void }> = ({ spark, onDelete }) => (
-  <div className="spark-row">
+  <div
+    className="spark-row"
+    data-ctx-title={spark.body.length > 80 ? spark.body.slice(0, 80) + '…' : spark.body}
+    data-ctx-body={spark.body}
+    data-ctx-type="hub_ref"
+    data-ctx-ref-id={spark.id}
+    data-ctx-ref-type="spark"
+    {...(spark.sourceType ? { 'data-ctx-source': `Spark · ${spark.sourceType}` } : { 'data-ctx-source': 'Spark' })}
+  >
     <p className="spark-row__body">{spark.body}</p>
     <div className="spark-row__meta">
       <span className="spark-row__date">{formatDate(spark.createdAt)}</span>
