@@ -2,6 +2,7 @@
 // Knowledge Hub — Azure Infrastructure (Bicep)
 // Target: ibm-alliance tenant / Alliance Tenant Reporting subscription
 // Region: UK South
+// Uses Container Apps (consumption) to avoid App Service VM quota limits.
 // ─────────────────────────────────────────────────────────────────────────────
 
 targetScope = 'resourceGroup'
@@ -105,57 +106,97 @@ resource postgresFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewa
   }
 }
 
-// ─── App Service Plan ────────────────────────────────────────────────────────
+// ─── Log Analytics (required for Container Apps Environment) ──────────────────
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
-  name: '${prefix}-plan'
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: '${prefix}-logs-${take(uniqueSuffix, 6)}'
   location: location
-  sku: {
-    name: 'B1'
-    tier: 'Basic'
-  }
-  kind: 'linux'
   properties: {
-    reserved: true // Required for Linux
+    sku: { name: 'PerGB2018' }
+    retentionInDays: 30
   }
 }
 
-// ─── App Service (Backend — Node.js) ─────────────────────────────────────────
+// ─── Container Apps Environment (consumption — no VM quota) ──────────────────
 
-resource appService 'Microsoft.Web/sites@2023-12-01' = {
-  name: '${prefix}-api-${take(uniqueSuffix, 6)}'
+resource containerAppEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: '${prefix}-env'
   location: location
-  kind: 'app,linux'
-  identity: { type: 'SystemAssigned' }
   properties: {
-    serverFarmId: appServicePlan.id
-    httpsOnly: true
-    siteConfig: {
-      linuxFxVersion: 'NODE|20-lts'
-      alwaysOn: true
-      minTlsVersion: '1.2'
-      appSettings: [
-        { name: 'NODE_ENV', value: 'production' }
-        { name: 'PORT', value: '8080' }
-        { name: 'DATABASE_URL', value: 'postgresql://${postgresAdminLogin}:${postgresAdminPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/knowledge_hub?sslmode=require' }
-        { name: 'JWT_SECRET', value: jwtSecret }
-        { name: 'ADMIN_PASSWORD', value: adminPassword }
-        { name: 'AZURE_BLOB_ACCOUNT_URL', value: storageAccount.properties.primaryEndpoints.blob }
-        { name: 'AZURE_STORAGE_ACCOUNT_NAME', value: storageAccount.name }
-        { name: 'CMS_BLOB_CONTAINER', value: 'blogcontent' }
-        { name: 'WEBSITE_RUN_FROM_PACKAGE', value: '1' }
-      ]
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: logAnalytics.properties.customerId
+        sharedKey: logAnalytics.listKeys().primarySharedKey
+      }
     }
   }
 }
 
-// Grant App Service Managed Identity → Storage Blob Data Contributor
+// ─── Container App (Backend — Node.js) ───────────────────────────────────────
+
+resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
+  name: '${prefix}-api'
+  location: location
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    managedEnvironmentId: containerAppEnv.id
+    configuration: {
+      ingress: {
+        external: true
+        targetPort: 3000
+        transport: 'http'
+        allowInsecure: false
+      }
+      registries: []
+      secrets: [
+        { name: 'database-url', value: 'postgresql://${postgresAdminLogin}:${postgresAdminPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/knowledge_hub?sslmode=require' }
+        { name: 'jwt-secret', value: jwtSecret }
+        { name: 'admin-password', value: adminPassword }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'backend'
+          image: 'node:20-slim'
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: [
+            { name: 'NODE_ENV', value: 'production' }
+            { name: 'PORT', value: '3000' }
+            { name: 'DATABASE_URL', secretRef: 'database-url' }
+            { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
+            { name: 'ADMIN_PASSWORD', secretRef: 'admin-password' }
+            { name: 'AZURE_BLOB_ACCOUNT_URL', value: storageAccount.properties.primaryEndpoints.blob }
+            { name: 'AZURE_STORAGE_ACCOUNT_NAME', value: storageAccount.name }
+            { name: 'CMS_BLOB_CONTAINER', value: 'blogcontent' }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 3
+        rules: [
+          {
+            name: 'http-scaling'
+            http: { metadata: { concurrentRequests: '50' } }
+          }
+        ]
+      }
+    }
+  }
+}
+
+// Grant Container App Managed Identity → Storage Blob Data Contributor
 resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, appService.id, 'Storage Blob Data Contributor')
+  name: guid(storageAccount.id, containerApp.id, 'Storage Blob Data Contributor')
   scope: storageAccount
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
-    principalId: appService.identity.principalId
+    principalId: containerApp.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -164,7 +205,7 @@ resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
 
 resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
   name: '${prefix}-web'
-  location: location
+  location: 'westeurope' // SWA has limited region support; serves globally via CDN
   sku: { name: 'Free', tier: 'Free' }
   properties: {
     buildProperties: {
@@ -176,8 +217,8 @@ resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
 
 // ─── Outputs ─────────────────────────────────────────────────────────────────
 
-@description('Backend App Service URL')
-output backendUrl string = 'https://${appService.properties.defaultHostName}'
+@description('Backend Container App URL')
+output backendUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
 
 @description('Static Web App URL')
 output frontendUrl string = 'https://${staticWebApp.properties.defaultHostname}'
