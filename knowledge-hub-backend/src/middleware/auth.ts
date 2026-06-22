@@ -18,8 +18,8 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
     return next();
   }
 
-  // In development, skip token verification so the UI works without a login flow
-  if (env.NODE_ENV === 'development') {
+  // In development or when SKIP_AUTH is set, bypass JWT so the UI works without login
+  if (env.NODE_ENV === 'development' || process.env.SKIP_AUTH === 'true') {
     (req as AuthenticatedRequest).userId = 'dev-user';
     return next();
   }

@@ -358,8 +358,7 @@ export class KnowledgeHubApi {
     proposalId: string,
   ): Promise<ApiResponse<WriteActionProposal>> {
     const r = await this.client.post<ApiResponse<WriteActionProposal>>(
-      '/api/ai/actions/confirm',
-      { proposalId },
+      `/api/ai/actions/${proposalId}/confirm`,
     );
     return r.data;
   }
@@ -368,8 +367,7 @@ export class KnowledgeHubApi {
     proposalId: string,
   ): Promise<ApiResponse<WriteActionProposal>> {
     const r = await this.client.post<ApiResponse<WriteActionProposal>>(
-      '/api/ai/actions/cancel',
-      { proposalId },
+      `/api/ai/actions/${proposalId}/cancel`,
     );
     return r.data;
   }

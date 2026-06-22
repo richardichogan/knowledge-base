@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
@@ -18,34 +19,35 @@ const sessions = new Map<string, { history: ConversationMessage[]; startedAt: st
 /**
  * POST /api/ai/chat
  * Sends a message and gets a response. Maintains session history.
- * Body: { sessionId: string, message: string, model?: 'gpt-4o' | 'gpt-4o-mini' }
+ * Body: { sessionId?: string, message: string, model?: 'gpt-4o' | 'gpt-4o-mini' }
+ * If sessionId is omitted, a new session is created and its ID returned.
  */
 router.post('/chat', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
     try {
-      const { sessionId, message, model } = req.body as {
+      const { sessionId: providedSessionId, message, model } = req.body as {
         sessionId?: string;
         message?: string;
         model?: 'gpt-4o' | 'gpt-4o-mini';
       };
 
-      if (!sessionId) throw new ValidationError('sessionId required', { sessionId: 'required' });
       if (!message) throw new ValidationError('message required', { message: 'required' });
 
-      const session = sessions.get(sessionId) ?? { history: [], startedAt: new Date().toISOString() };
+      const effectiveSessionId = providedSessionId ?? randomUUID();
+      const session = sessions.get(effectiveSessionId) ?? { history: [], startedAt: new Date().toISOString() };
       const db = getDb();
 
-      const response = await handleConversationTurn(db, session.history, message, model ?? 'gpt-4o');
+      const reply = await handleConversationTurn(db, session.history, message, model ?? 'gpt-4o');
 
       session.history.push({ role: 'user', content: message });
-      session.history.push({ role: 'assistant', content: response });
-      sessions.set(sessionId, session);
+      session.history.push({ role: 'assistant', content: reply });
+      sessions.set(effectiveSessionId, session);
 
-      const pending = getPendingProposals(sessionId);
+      const pending = getPendingProposals(effectiveSessionId);
 
-      const body: ApiSuccess<{ response: string; pendingActions: typeof pending }> = {
+      const body: ApiSuccess<{ reply: string; sessionId: string; pendingActions: typeof pending }> = {
         success: true,
-        data: { response, pendingActions: pending },
+        data: { reply, sessionId: effectiveSessionId, pendingActions: pending },
       };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {

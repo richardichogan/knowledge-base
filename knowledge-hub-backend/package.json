@@ -7,7 +7,7 @@
     "build": "tsc --project tsconfig.json",
     "start": "node dist/server.js",
     "dev": "node --import tsx/esm --watch src/server.ts",
-    "lint": "eslint 'src/**/*.ts' --max-warnings 0",
+    "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "migrate": "node --import tsx/esm src/db/migrate.ts",
     "validate:ibm-calendar": "node --import tsx/esm scripts/validate-ibm-calendar.ts",
