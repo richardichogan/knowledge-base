@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { runTier1Sync } from '../sync/syncOrchestrator.js';
+import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { SYNC_CADENCE_MINUTES } from '../config/constants.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
@@ -47,13 +48,29 @@ router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
 router.post('/sync', (_req: Request, res: Response, next: NextFunction): void => {
   try {
     const db = getDb();
-    // Respond immediately — don't keep the browser connection open for 20+ seconds
     const body: ApiSuccess<{ message: string }> = { success: true, data: { message: 'Sync started' } };
     res.status(HTTP_STATUS.ACCEPTED).json(body);
-    // Run sync in background after response is sent
     runTier1Sync(db).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       console.error('[Sources] Manual sync failed:', message);
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/sources/score
+ * Runs a scoring pass on unscored discovered articles. Returns immediately.
+ */
+router.post('/score', (_req: Request, res: Response, next: NextFunction): void => {
+  try {
+    const db = getDb();
+    const body: ApiSuccess<{ message: string }> = { success: true, data: { message: 'Scoring started' } };
+    res.status(HTTP_STATUS.ACCEPTED).json(body);
+    scoreUnscored(db).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[Sources] Manual score failed:', message);
     });
   } catch (err) {
     next(err);

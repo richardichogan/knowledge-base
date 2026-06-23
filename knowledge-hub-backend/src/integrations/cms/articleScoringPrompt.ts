@@ -13,7 +13,7 @@ export const PERCENTAGE_MULTIPLIER = 100;
 export const FULL_BLOG_POST_DEPTH_MIN = 2;
 export const FULL_BLOG_POST_COMPOSITE_MIN = 8;
 export const ARCHIVE_COMPOSITE_MAX = 3;
-export const SCORE_BATCH_SIZE = 10;
+export const SCORE_BATCH_SIZE = 50;
 export const RELEVANCE_MAX_TOKENS = 500;
 
 // Scoring weights for calculating normalized relevance (0-1)
