@@ -3,7 +3,7 @@
  * Force-directed graph canvas. Wraps react-force-graph-2d with:
  * - Square-root degree scaling, dashed inferred edges (via graphDraw.ts)
  * - Hover spotlight: hovered node + 1-hop neighbours at full alpha, rest dimmed
- * - Gentle 2.5s settle animation with node fade-in over 1.5s
+ * - Layout pre-computed in warmupTicks (off-screen) so graph is static on first paint
  * - Node pinning on drag; full freeze on engine stop; release-all-pins signal
  * - Labels fade in past zoom threshold (1.6)
  */
@@ -112,21 +112,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const el = tooltipRef.current;
       if (el) { el.style.left = `${mousePosRef.current.x + 12}px`; el.style.top = `${mousePosRef.current.y - 8}px`; }
     };
-    // Freeze all nodes the moment the mouse enters the canvas so hover/click is reliable.
-    // Nodes are unfrozen again when the user drags or clicks "Release Pins".
-    const onEnter = () => {
-      const live: FGNode[] = fgRef.current?.graphData?.()?.nodes ?? [];
-      for (const n of live) {
-        if (n.x !== undefined) n.fx = n.x;
-        if (n.y !== undefined) n.fy = n.y;
-      }
-    };
     container.addEventListener('mousemove', onMove);
-    container.addEventListener('mouseenter', onEnter);
-    return () => {
-      container.removeEventListener('mousemove', onMove);
-      container.removeEventListener('mouseenter', onEnter);
-    };
+    return () => container.removeEventListener('mousemove', onMove);
   }, []);
 
   const nodeCanvasObject = useCallback((node: FGNode, ctx: CanvasRenderingContext2D, gs: number) => {
@@ -229,9 +216,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         onEngineStop={handleEngineStop}
         onBackgroundClick={onBackgroundClick}
         backgroundColor="#161616"
+        // Pre-compute the full layout before the first paint — graph appears
+        // already settled so it never moves while the user is interacting.
+        warmupTicks={300}
+        // Stop the live simulation immediately after warmup; onEngineStop then
+        // pins every node so nothing can drift even if the engine reheats briefly.
+        cooldownTicks={0}
+        // Belt-and-braces: also stop by time in case warmup exits early on small graphs
+        cooldownTime={0}
         d3AlphaDecay={0.08}
         d3VelocityDecay={0.6}
-        cooldownTime={1200}
         {...(containerRef.current?.clientWidth  !== undefined && { width:  containerRef.current.clientWidth  })}
         {...(containerRef.current?.clientHeight !== undefined && { height: containerRef.current.clientHeight })}
       />
