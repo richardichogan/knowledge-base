@@ -189,8 +189,8 @@ export async function scoreUnscored(db: Pool): Promise<void> {
       const cleaned = raw.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
       const parsed = JSON.parse(cleaned) as ScoringResult;
       
-      // Enforce scoring caps based on source URL
-      const detectedSourceType = classifySourceByUrl(sourceUrl, sourceTitle);
+      // Enforce scoring caps based on source URL and title (catches advertorial)
+      const detectedSourceType = classifySourceByUrl(sourceUrl, `${sourceTitle} ${row.title}`);
       const capped = enforceScoreCaps(parsed, detectedSourceType);
 
       // Calculate sophisticated weighted relevance score (0-1)
