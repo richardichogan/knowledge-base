@@ -109,8 +109,21 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const el = tooltipRef.current;
       if (el) { el.style.left = `${mousePosRef.current.x + 12}px`; el.style.top = `${mousePosRef.current.y - 8}px`; }
     };
+    // Freeze all nodes the moment the mouse enters the canvas so hover/click is reliable.
+    // Nodes are unfrozen again when the user drags or clicks "Release Pins".
+    const onEnter = () => {
+      const live: FGNode[] = fgRef.current?.graphData?.()?.nodes ?? [];
+      for (const n of live) {
+        if (n.x !== undefined) n.fx = n.x;
+        if (n.y !== undefined) n.fy = n.y;
+      }
+    };
     container.addEventListener('mousemove', onMove);
-    return () => container.removeEventListener('mousemove', onMove);
+    container.addEventListener('mouseenter', onEnter);
+    return () => {
+      container.removeEventListener('mousemove', onMove);
+      container.removeEventListener('mouseenter', onEnter);
+    };
   }, []);
 
   const nodeCanvasObject = useCallback((node: FGNode, ctx: CanvasRenderingContext2D, gs: number) => {
@@ -212,9 +225,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         onEngineStop={handleEngineStop}
         onBackgroundClick={onBackgroundClick}
         backgroundColor="#161616"
-        d3AlphaDecay={0.035}
-        d3VelocityDecay={0.5}
-        cooldownTime={2500}
+        d3AlphaDecay={0.08}
+        d3VelocityDecay={0.6}
+        cooldownTime={1200}
         {...(containerRef.current?.clientWidth  !== undefined && { width:  containerRef.current.clientWidth  })}
         {...(containerRef.current?.clientHeight !== undefined && { height: containerRef.current.clientHeight })}
       />
