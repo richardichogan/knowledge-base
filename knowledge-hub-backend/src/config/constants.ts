@@ -79,6 +79,11 @@ export const DB_POOL_MAX = 20;
 export const DB_POOL_WARN_THRESHOLD = 18; // warn when near capacity
 export const DB_STATEMENT_TIMEOUT_MS = 30_000;
 export const DB_CONNECTION_TIMEOUT_MS = 10_000;
+// Azure's networking silently drops idle TCP connections (~4 min). Reap pooled
+// connections before that so the pool never hands out a dead socket, and enable
+// TCP keepalive so long-lived sockets are kept warm.
+export const DB_IDLE_TIMEOUT_MS = 60_000;
+export const DB_KEEPALIVE_INITIAL_DELAY_MS = 10_000;
 
 // ── HTTP ──────────────────────────────────────────────────────────────────────
 

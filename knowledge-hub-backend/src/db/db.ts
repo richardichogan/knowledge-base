@@ -5,6 +5,8 @@ import {
   DB_POOL_WARN_THRESHOLD,
   DB_STATEMENT_TIMEOUT_MS,
   DB_CONNECTION_TIMEOUT_MS,
+  DB_IDLE_TIMEOUT_MS,
+  DB_KEEPALIVE_INITIAL_DELAY_MS,
 } from '../config/constants.js';
 
 let pool: Pool | undefined;
@@ -18,14 +20,22 @@ export function getDb(): Pool {
     pool = new Pool({
       connectionString: env.DATABASE_URL,
       max: DB_POOL_MAX,
-      idleTimeoutMillis: 30_000,
+      // Reap idle connections before Azure's networking silently kills them,
+      // otherwise the pool hands out dead sockets → "Connection terminated
+      // unexpectedly" → API 500s until the container is restarted.
+      idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
       connectionTimeoutMillis: DB_CONNECTION_TIMEOUT_MS,
       statement_timeout: DB_STATEMENT_TIMEOUT_MS,
       query_timeout: DB_STATEMENT_TIMEOUT_MS,
+      // Keep long-lived TCP sockets warm so idle middleboxes don't drop them.
+      keepAlive: true,
+      keepAliveInitialDelayMillis: DB_KEEPALIVE_INITIAL_DELAY_MS,
     });
 
     pool.on('error', (err: Error) => {
-      console.error('[DB] Unexpected pool error:', err);
+      // A backend connection died while idle in the pool. pg removes it
+      // automatically; we just log so it doesn't crash the process.
+      console.error('[DB] Unexpected pool error (idle client removed):', err.message);
     });
 
     // Log pool exhaustion — helps diagnose hangs
