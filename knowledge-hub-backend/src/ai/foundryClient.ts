@@ -1,6 +1,6 @@
 import { env } from '../config/env.js';
 import { AiError } from '../types/errors.js';
-import { AI_DEFAULT_MAX_TOKENS } from '../config/constants.js';
+import { AI_DEFAULT_MAX_TOKENS, AI_REQUEST_TIMEOUT_MS } from '../config/constants.js';
 import type { ConversationMessage, AiModel } from '../types/aiContext.js';
 
 interface ChatCompletionResponse {
@@ -48,6 +48,8 @@ export class FoundryClient {
         max_tokens: maxTokens,
         temperature: 0.7,
       }),
+      // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.
+      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) {

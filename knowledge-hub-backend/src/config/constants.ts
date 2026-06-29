@@ -85,6 +85,18 @@ export const DB_CONNECTION_TIMEOUT_MS = 10_000;
 export const DB_IDLE_TIMEOUT_MS = 60_000;
 export const DB_KEEPALIVE_INITIAL_DELAY_MS = 10_000;
 
+// Background jobs must never check out more than a fraction of the pool at once,
+// or live API traffic can't acquire a client and every route 500s with
+// "Connection terminated due to connection timeout". Keep fan-out well below
+// DB_POOL_MAX so there is always headroom for user requests.
+export const JOB_DB_CONCURRENCY = 4;
+
+// AI calls must time out — an unreachable/slow Foundry endpoint (e.g. mid
+// repoint) was hanging sync jobs forever, never releasing their work.
+export const AI_REQUEST_TIMEOUT_MS = 30_000;
+// External HTTP fetches (blog admin API) must also time out.
+export const EXTERNAL_FETCH_TIMEOUT_MS = 20_000;
+
 // ── HTTP ──────────────────────────────────────────────────────────────────────
 
 export const HTTP_STATUS = {

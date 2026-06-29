@@ -14,6 +14,7 @@
 import type { Pool } from 'pg';
 import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import { env } from '../../config/env.js';
+import { EXTERNAL_FETCH_TIMEOUT_MS } from '../../config/constants.js';
 import { FoundryClient } from '../../ai/foundryClient.js';
 import type { ContentItem } from '../../types/contentItem.js';
 import {
@@ -74,6 +75,7 @@ export async function syncDiscoveredArticles(
     const response = await fetch(url, {
       headers: { 'x-admin-auth': password },
       redirect: 'follow',
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
