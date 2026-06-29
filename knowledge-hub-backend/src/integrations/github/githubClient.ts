@@ -1,5 +1,6 @@
 import { env } from '../../config/env.js';
 import { IntegrationError } from '../../types/errors.js';
+import { EXTERNAL_FETCH_TIMEOUT_MS } from '../../config/constants.js';
 
 /**
  * Thin wrapper around the GitHub REST API v3.
@@ -24,7 +25,7 @@ export class GitHubClient {
       url.searchParams.set(key, value);
     }
 
-    const response = await fetch(url.toString(), { headers: this.headers });
+    const response = await fetch(url.toString(), { headers: this.headers, signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
 
     if (!response.ok) {
       throw new IntegrationError(
@@ -73,7 +74,7 @@ export class GitHubClient {
       url.searchParams.set('per_page', perPage);
       url.searchParams.set('page', page);
 
-      const response = await fetch(url.toString(), { headers: this.headers });
+      const response = await fetch(url.toString(), { headers: this.headers, signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
 
       if (!response.ok) {
         throw new IntegrationError(
