@@ -79,10 +79,25 @@ export const DB_POOL_MAX = 20;
 export const DB_POOL_WARN_THRESHOLD = 18; // warn when near capacity
 export const DB_STATEMENT_TIMEOUT_MS = 30_000;
 export const DB_CONNECTION_TIMEOUT_MS = 10_000;
-// Azure's networking silently drops idle TCP connections (~4 min). Reap pooled
-// connections before that so the pool never hands out a dead socket, and enable
-// TCP keepalive so long-lived sockets are kept warm.
-export const DB_IDLE_TIMEOUT_MS = 60_000;
+
+// SNAT survival — the real fix for "Connection terminated due to connection
+// timeout" bursts.
+//
+// This app runs on a consumption Container Apps environment with no VNet, so
+// every outbound connection (DB, AI, GitHub, GitLab, blog) shares Azure's small
+// platform-managed SNAT port pool. Opening a NEW DB connection is the most
+// frequent outbound dial, and under load the SNAT pool exhausts — new DB
+// connections then never reach Postgres and die at DB_CONNECTION_TIMEOUT_MS,
+// even though the server is healthy and logs zero failed connections.
+//
+// Mitigation: keep a warm floor of long-lived connections that are REUSED
+// instead of re-dialed. TCP keepalive keeps them alive so Azure won't silently
+// drop them, and a long idle timeout means low-traffic gaps no longer force a
+// reconnect storm through the congested SNAT pool.
+export const DB_POOL_MIN = 8;
+// Keep idle connections ~10 min (was 60s). Long enough to survive quiet periods
+// without re-dialing; keepalive prevents the sockets from going stale.
+export const DB_IDLE_TIMEOUT_MS = 600_000;
 export const DB_KEEPALIVE_INITIAL_DELAY_MS = 10_000;
 
 // Background jobs must never check out more than a fraction of the pool at once,

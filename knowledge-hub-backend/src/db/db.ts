@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { env } from '../config/env.js';
 import {
   DB_POOL_MAX,
+  DB_POOL_MIN,
   DB_POOL_WARN_THRESHOLD,
   DB_STATEMENT_TIMEOUT_MS,
   DB_CONNECTION_TIMEOUT_MS,
@@ -20,9 +21,12 @@ export function getDb(): Pool {
     pool = new Pool({
       connectionString: env.DATABASE_URL,
       max: DB_POOL_MAX,
-      // Reap idle connections before Azure's networking silently kills them,
-      // otherwise the pool hands out dead sockets → "Connection terminated
-      // unexpectedly" → API 500s until the container is restarted.
+      // Keep a warm floor of long-lived connections. On this non-VNet Container
+      // App every new outbound dial competes for a small shared SNAT pool, so
+      // re-establishing DB connections under load fails with "Connection
+      // terminated due to connection timeout". Reusing a warm pool avoids the
+      // re-dial entirely.
+      min: DB_POOL_MIN,
       idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
       connectionTimeoutMillis: DB_CONNECTION_TIMEOUT_MS,
       statement_timeout: DB_STATEMENT_TIMEOUT_MS,
@@ -47,6 +51,26 @@ export function getDb(): Pool {
     });
   }
   return pool;
+}
+
+/**
+ * Pre-warms the pool to its minimum size so the app never has to establish
+ * fresh connections on the hot path (which fail under SNAT pressure). Call once
+ * at startup. Best-effort — logs and continues on failure.
+ */
+export async function warmUpDb(): Promise<void> {
+  const p = getDb();
+  const clients = await Promise.allSettled(
+    Array.from({ length: DB_POOL_MIN }, () => p.connect()),
+  );
+  let warmed = 0;
+  for (const c of clients) {
+    if (c.status === 'fulfilled') {
+      warmed += 1;
+      c.value.release();
+    }
+  }
+  console.log(`[DB] Pool pre-warmed: ${warmed}/${DB_POOL_MIN} connections ready`);
 }
 
 /** Closes the pool — call on graceful shutdown. */

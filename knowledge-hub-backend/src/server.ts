@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
-import { closeDb } from './db/db.js';
+import { closeDb, warmUpDb } from './db/db.js';
 import { startSyncScheduler, stopSyncScheduler } from './sync/scheduler.js';
 
 /**
@@ -13,7 +13,9 @@ const app = createApp();
 
 const server = app.listen(env.PORT, () => {
   console.warn(`[Server] Knowledge Hub backend running on port ${env.PORT} (${env.NODE_ENV})`);
-  startSyncScheduler();
+  // Pre-warm the DB pool before the scheduler fires so sync/edge jobs reuse
+  // warm connections instead of dialing new ones through the shared SNAT pool.
+  void warmUpDb().finally(() => startSyncScheduler());
 });
 
 function gracefulShutdown(signal: string): void {
