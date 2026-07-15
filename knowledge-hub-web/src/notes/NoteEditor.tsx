@@ -10,6 +10,7 @@ import { codeBlockOptions } from '@blocknote/code-block';
 import '@blocknote/mantine/style.css';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
+import { TrashCan } from '@carbon/icons-react';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import { api } from '../services/api';
@@ -29,6 +30,7 @@ import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 interface NoteEditorProps {
   doc: NoteDocument;
   onSaved: (updated: NoteDocument) => void;
+  onDelete?: (id: string) => void;
 }
 
 // Default schema with the codeBlock spec swapped for one with shiki syntax
@@ -116,7 +118,7 @@ function formatDateTime(iso: string): string {
     d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
 
@@ -367,6 +369,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved }) => {
           <button className="notes-push-link" onClick={() => { setGithubModalOpen(true); }}>
             Push to GitHub
           </button>
+          {onDelete && (
+            <button
+              className="notes-delete-link"
+              onClick={() => {
+                if (!window.confirm(`Delete "${savedDocRef.current.title}"? This cannot be undone.`)) return;
+                onDelete(doc.id);
+              }}
+            >
+              <TrashCan size={14} /> Delete
+            </button>
+          )}
         </div>
 
         {notification !== null && (

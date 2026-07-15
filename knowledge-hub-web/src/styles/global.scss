@@ -1760,7 +1760,8 @@ input, textarea {
 }
 
 .notes-list-item {
-  padding: 14px 16px;
+  position: relative;
+  padding: 14px 40px 14px 16px;
   cursor: pointer;
   border-bottom: 1px solid var(--cds-border-subtle-00);
   border-left: 3px solid transparent;
@@ -1768,11 +1769,42 @@ input, textarea {
 
   &:hover {
     background: var(--cds-layer-hover-01);
+
+    .notes-list-item__delete {
+      opacity: 1;
+    }
   }
 
   &--active {
     background: var(--cds-layer-02);
     border-left-color: var(--kh-accent);
+  }
+}
+
+.notes-list-item__delete {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: var(--cds-text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+
+  &:hover {
+    color: #fa4d56;
+    background: var(--cds-layer-hover-02, rgba(255, 255, 255, 0.08));
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 }
 
@@ -2667,6 +2699,7 @@ input, textarea {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 1rem;
   padding: 0.625rem 1.5rem;
   border-bottom: 1px solid var(--cds-border-subtle-00);
   flex-shrink: 0;
@@ -2682,6 +2715,25 @@ input, textarea {
   letter-spacing: 0.04em;
   cursor: pointer;
   &:hover { text-decoration: underline; }
+}
+
+.notes-delete-link {
+  background: none;
+  border: none;
+  color: var(--cds-text-secondary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+
+  &:hover {
+    color: #fa4d56;
+    text-decoration: underline;
+  }
 }
 
 // Save status
