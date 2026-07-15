@@ -19,12 +19,16 @@ function formatDate(iso: string): string {
 }
 
 const TYPE_STYLE: Record<string, { color: string; bg: string; border: string }> = {
-  project:    { color: '#3ddbd9', bg: 'rgba(61,219,217,0.1)',  border: 'rgba(61,219,217,0.2)' },
-  blog:       { color: '#f1c21b', bg: 'rgba(241,194,27,0.1)',  border: 'rgba(241,194,27,0.2)' },
-  note:       { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' },
-  podcast:    { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
-  newsletter: { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
-  script:     { color: '#ff8389', bg: 'rgba(255,131,137,0.1)', border: 'rgba(255,131,137,0.2)' },
+  project:      { color: '#3ddbd9', bg: 'rgba(61,219,217,0.1)',  border: 'rgba(61,219,217,0.2)' },
+  blog:         { color: '#f1c21b', bg: 'rgba(241,194,27,0.1)',  border: 'rgba(241,194,27,0.2)' },
+  note:         { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' },
+  podcast:      { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
+  newsletter:   { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
+  script:       { color: '#ff8389', bg: 'rgba(255,131,137,0.1)', border: 'rgba(255,131,137,0.2)' },
+  architecture: { color: '#4589ff', bg: 'rgba(69,137,255,0.1)',  border: 'rgba(69,137,255,0.2)' },
+  meeting:      { color: '#ff832b', bg: 'rgba(255,131,43,0.1)',  border: 'rgba(255,131,43,0.2)' },
+  research:     { color: '#1192e8', bg: 'rgba(17,146,232,0.1)',  border: 'rgba(17,146,232,0.2)' },
+  spec:         { color: '#ee5396', bg: 'rgba(238,83,150,0.1)',  border: 'rgba(238,83,150,0.2)' },
 };
 
 export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect }) => {
