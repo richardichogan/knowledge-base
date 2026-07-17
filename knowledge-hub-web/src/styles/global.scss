@@ -2717,6 +2717,36 @@ input, textarea {
   &:hover { text-decoration: underline; }
 }
 
+.notes-export-anchor {
+  position: relative;
+  margin-right: auto;
+}
+
+.notes-export-link {
+  background: none;
+  border: none;
+  color: var(--cds-text-secondary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+
+  &:hover {
+    color: var(--kh-accent);
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    text-decoration: none;
+  }
+}
+
 .notes-delete-link {
   background: none;
   border: none;

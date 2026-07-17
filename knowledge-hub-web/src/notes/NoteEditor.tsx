@@ -8,9 +8,10 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteSchema, defaultBlockSpecs, createCodeBlockSpec } from '@blocknote/core';
 import { codeBlockOptions } from '@blocknote/code-block';
 import '@blocknote/mantine/style.css';
+import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
-import { TrashCan } from '@carbon/icons-react';
+import { TrashCan, Export, DocumentExport, Image as ImageIcon } from '@carbon/icons-react';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import { api } from '../services/api';
@@ -121,6 +122,10 @@ function formatDateTime(iso: string): string {
 export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const editorScrollRef = useRef<HTMLDivElement>(null);
 
   // Taxonomy tags for this note
   const { data: noteTagObjects = [] } = useNoteTags(doc.id);
@@ -325,6 +330,73 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!exportMenuOpen) return;
+    const close = (e: MouseEvent): void => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) setExportMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [exportMenuOpen]);
+
+  function slugifyTitle(title: string): string {
+    const trimmed = title.trim().length > 0 ? title.trim() : UNTITLED_DOCUMENT;
+    return trimmed.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'note';
+  }
+
+  function downloadBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleExportMarkdown(): Promise<void> {
+    setExportMenuOpen(false);
+    setExporting(true);
+    try {
+      const markdown = editor.blocksToMarkdownLossy(editor.document);
+      const header = `# ${savedDocRef.current.title || UNTITLED_DOCUMENT}\n\n`;
+      const blob = new Blob([header + markdown], { type: 'text/markdown;charset=utf-8' });
+      downloadBlob(blob, `${slugifyTitle(savedDocRef.current.title)}.md`);
+      setNotification({ kind: 'success', msg: 'Exported as Markdown' });
+    } catch (err) {
+      console.error('[NoteEditor] markdown export failed:', err);
+      setNotification({ kind: 'error', msg: 'Export failed' });
+    } finally {
+      setExporting(false);
+      setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS);
+    }
+  }
+
+  async function handleExportImage(): Promise<void> {
+    setExportMenuOpen(false);
+    setExporting(true);
+    try {
+      const node = editorScrollRef.current;
+      if (node === null) throw new Error('editor not mounted');
+      const dataUrl = await toPng(node, {
+        backgroundColor: '#161616',
+        pixelRatio: 2,
+        cacheBust: true,
+      });
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      downloadBlob(blob, `${slugifyTitle(savedDocRef.current.title)}.png`);
+      setNotification({ kind: 'success', msg: 'Exported as Image' });
+    } catch (err) {
+      console.error('[NoteEditor] image export failed:', err);
+      setNotification({ kind: 'error', msg: 'Export failed' });
+    } finally {
+      setExporting(false);
+      setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS);
+    }
+  }
+
+  useEffect(() => {
     const handleVisibilityChange = (): void => {
       if (document.visibilityState === 'hidden') { void doSave(); }
     };
@@ -366,6 +438,29 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
       <div className="notes-editor-centre">
         {/* Top bar */}
         <div className="notes-top-bar">
+          <div className="notes-export-anchor" ref={exportMenuRef}>
+            <button
+              className="notes-export-link"
+              disabled={exporting}
+              onClick={() => { setExportMenuOpen((v) => !v); }}
+            >
+              <Export size={14} /> {exporting ? 'Exporting…' : 'Export'}
+            </button>
+            {exportMenuOpen && (
+              <ul className="kb-menu" role="menu">
+                <li role="menuitem">
+                  <button className="kb-menu__item" onClick={() => { void handleExportMarkdown(); }}>
+                    <DocumentExport size={16} /> Export as Markdown (.md)
+                  </button>
+                </li>
+                <li role="menuitem">
+                  <button className="kb-menu__item" onClick={() => { void handleExportImage(); }}>
+                    <ImageIcon size={16} /> Export as Image (.png)
+                  </button>
+                </li>
+              </ul>
+            )}
+          </div>
           <button className="notes-push-link" onClick={() => { setGithubModalOpen(true); }}>
             Push to GitHub
           </button>
@@ -391,6 +486,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
         {/* Editor scroll area — data-ctx-* enables right-click → Send to Canvas with note context */}
         <div
           className="notes-editor-scroll"
+          ref={editorScrollRef}
           data-ctx-title={doc.title}
           data-ctx-type="hub_ref"
           data-ctx-ref-id={doc.id}
