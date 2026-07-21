@@ -1,9 +1,11 @@
 /**
  * AIChatPage — streaming AI conversation with write-action confirmation.
+ * Renders full-page (Discover-style) by default, or `compact` for use inside
+ * the floating chat widget (FloatingAIChat.tsx) — same logic, lighter chrome.
  */
 
 import React, { useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   TextInput,
@@ -14,12 +16,18 @@ import { Send, Checkmark, Close } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { ChatMessage, WriteActionProposal } from '../types';
 
-export const AIChatPage: React.FC = () => {
+interface AIChatPageProps {
+  /** Renders without the page header/wrapper padding, for use in a floating widget. */
+  compact?: boolean;
+}
+
+export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
 
   const chatMutation = useMutation({
     mutationFn: (message: string) =>
@@ -37,6 +45,10 @@ export const AIChatPage: React.FC = () => {
       if (result.data.pendingActions.length > 0) {
         setPendingActions((prev) => [...prev, ...result.data.pendingActions]);
       }
+      // The AI may have created/updated tasks or notes via tool calls this turn —
+      // refresh the relevant lists so they show up without a manual reload.
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
       setTimeout(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 50);
@@ -77,13 +89,14 @@ export const AIChatPage: React.FC = () => {
   }
 
   return (
-    <div className="page-root">
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">AI Chat</h1>
+    <div className={compact ? 'ai-chat-compact' : 'page-root'}>
+      {!compact && (
+        <div className="page-header">
+          <div className="page-title-group">
+            <h1 className="page-title">AI Chat</h1>
+          </div>
         </div>
-      </div>
-
+      )}
       {pendingActions.map((action) => (
         <Tile key={action.id} className="ai-action-banner">
           <p className="ai-action-desc">{action.description}</p>

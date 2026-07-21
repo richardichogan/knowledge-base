@@ -150,6 +150,12 @@ export const BLOB_UPLOAD_TIMEOUT_MS = 30_000;
 
 /** Default max tokens for AI completion requests. */
 export const AI_DEFAULT_MAX_TOKENS = 2_000;
+/** Max round-trips of tool calls per chat turn before giving up (prevents infinite loops). */
+export const AI_MAX_TOOL_ITERATIONS = 4;
+/** Max search_knowledge_base results the AI chat tool can request in one call. */
+export const AI_TOOL_SEARCH_MAX_LIMIT = 20;
+/** Default search_knowledge_base result count when the AI doesn't specify one. */
+export const AI_TOOL_SEARCH_DEFAULT_LIMIT = 8;
 
 // ── Graph / tokens ────────────────────────────────────────────────────────────
 

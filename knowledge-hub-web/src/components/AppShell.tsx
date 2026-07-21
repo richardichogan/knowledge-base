@@ -8,7 +8,7 @@
  *   Think      — Notes + Canvas scratchpad
  *   Library    — Formal markdown document library
  *
- * AI Chat is a persistent slide-over panel triggered from the header.
+ * AI Chat is a floating popup widget in the bottom-right corner.
  * Search is Cmd+K (command palette — not yet implemented).
  */
 
@@ -27,13 +27,12 @@ import {
   Portfolio,
   Idea,
   Book,
-  Ai,
   Tag,
   Folder,
   Flash,
   Network_3,
 } from '@carbon/icons-react';
-import { AIChatPage } from '../pages/AIChatPage';
+import { FloatingAIChat } from './FloatingAIChat';
 import { CommandPalette } from './CommandPalette';
 import { TagPanel } from './TagPanel';
 import { ProjectsModal } from './ProjectsModal';
@@ -58,7 +57,6 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export const AppShell: React.FC = () => {
-  const [aiPanelOpen, setAiPanelOpen]     = useState(false);
   const [tagPanelOpen, setTagPanelOpen]   = useState(false);
   const [projectsOpen, setProjectsOpen]   = useState(false);
   const [paletteOpen, setPaletteOpen]     = useState(false);
@@ -126,13 +124,6 @@ export const AppShell: React.FC = () => {
             <Flash size={20} />
           </HeaderGlobalAction>
           <HeaderGlobalAction
-            aria-label="AI Chat"
-            isActive={aiPanelOpen}
-            onClick={() => { setAiPanelOpen((v) => !v); }}
-          >
-            <Ai size={20} />
-          </HeaderGlobalAction>
-          <HeaderGlobalAction
             aria-label="Knowledge Graph"
             isActive={location.pathname === '/graph'}
             onClick={() => { void navigate('/graph'); }}
@@ -179,15 +170,8 @@ export const AppShell: React.FC = () => {
       {/* ── Projects slide-over ── */}
       <ProjectsModal open={projectsOpen} onClose={() => { setProjectsOpen(false); }} />
 
-      {/* ── AI Chat slide-over panel ── */}
-      {aiPanelOpen && (
-        <div className="ai-slideover">
-          <div className="ai-slideover__backdrop" onClick={() => { setAiPanelOpen(false); }} />
-          <div className="ai-slideover__panel">
-            <AIChatPage />
-          </div>
-        </div>
-      )}
+      {/* ── AI Chat floating widget ── */}
+      <FloatingAIChat />
 
       {/* ── Cmd+K command palette ── */}
       <CommandPalette open={paletteOpen} onClose={() => { setPaletteOpen(false); }} />
