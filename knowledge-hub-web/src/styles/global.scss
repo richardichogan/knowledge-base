@@ -3014,6 +3014,10 @@ input, textarea {
   background: var(--cds-layer-01);
   overflow-y: auto;
   padding: 1rem;
+  // Reserve clearance below the panel's content so it never sits directly
+  // under the fixed bottom-right AI chat button (3.25rem + 1.5rem margin) —
+  // the button should float clearly above this panel, not overlap its rows.
+  padding-bottom: 6rem;
 }
 
 .notes-meta-section {
@@ -4113,6 +4117,10 @@ input, textarea {
   border: 1px solid var(--cds-border-subtle-00);
   border-left: none;
   overflow-y: auto;
+  // Reserve clearance below the panel's content so it never sits directly
+  // under the fixed bottom-right AI chat button (3.25rem + 1.5rem margin) —
+  // the button should float clearly above this panel, not overlap its rows.
+  padding-bottom: 6rem;
 }
 
 .docs-info-panel__section {
@@ -6462,11 +6470,6 @@ $project-colour-map: (
 .conn-panel {
   border: 1px solid var(--cds-border-subtle-01);
   margin-top: 1rem;
-  // Reserve room below the panel's last row so it can scroll clear of the
-  // fixed bottom-right AI chat button (3.25rem button + 1.5rem margin) —
-  // without this, pagination controls like "Show all (N)" render hidden
-  // behind the button with no way to scroll past it.
-  margin-bottom: 4.5rem;
 }
 
 .conn-panel__header {
