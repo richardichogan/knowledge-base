@@ -6462,6 +6462,11 @@ $project-colour-map: (
 .conn-panel {
   border: 1px solid var(--cds-border-subtle-01);
   margin-top: 1rem;
+  // Reserve room below the panel's last row so it can scroll clear of the
+  // fixed bottom-right AI chat button (3.25rem button + 1.5rem margin) —
+  // without this, pagination controls like "Show all (N)" render hidden
+  // behind the button with no way to scroll past it.
+  margin-bottom: 4.5rem;
 }
 
 .conn-panel__header {
