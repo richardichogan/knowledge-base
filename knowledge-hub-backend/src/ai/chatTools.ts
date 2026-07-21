@@ -51,6 +51,29 @@ export function getToolDefinitions(): LlmToolDefinition[] {
     {
       type: 'function',
       function: {
+        name: 'list_tasks',
+        description:
+          "Lists real tasks from the user's Plan board (Kanban) — the source of truth for outstanding/due/" +
+          'overdue work. Use this (not search_knowledge_base) whenever the user asks what tasks, to-dos, or ' +
+          'work items they have, are due, are overdue, or outstanding — search_knowledge_base only searches ' +
+          "indexed documents/commits/notes, not the task board.",
+        parameters: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: [...TASK_STATUSES], description: 'Filter to a single status. Omit for all non-completed statuses.' },
+            dueOnOrBefore: { type: 'string', description: 'ISO date YYYY-MM-DD — only tasks due on or before this date (e.g. today, for "due today or overdue").' },
+            overdueOnly: { type: 'boolean', description: 'If true, only tasks with a due date strictly before today that are not completed.' },
+            projectId: { type: 'string', description: 'Filter to a specific project id.' },
+            includeCompleted: { type: 'boolean', description: 'If true, include completed tasks too. Defaults to false.' },
+            limit: { type: 'integer', description: `Max results (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'create_task',
         description: "Creates a new task on the user's Plan board (Kanban).",
         parameters: {
@@ -126,6 +149,7 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string):
 
   switch (name) {
     case 'search_knowledge_base': return searchKnowledgeBase(db, args);
+    case 'list_tasks':            return listTasks(db, args);
     case 'create_task':           return createTask(db, args);
     case 'update_task':           return updateTask(db, args);
     case 'create_note_draft':     return createNoteDraft(db, args);
@@ -154,6 +178,49 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
       url: item.url ?? null,
     })),
   };
+}
+
+// ── list_tasks ────────────────────────────────────────────────────────────────
+
+async function listTasks(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  const conditions: string[] = ['archived = false'];
+  const params: unknown[] = [];
+
+  const includeCompleted = args['includeCompleted'] === true;
+  const overdueOnly = args['overdueOnly'] === true;
+
+  if (TASK_STATUSES.includes(args['status'] as typeof TASK_STATUSES[number])) {
+    params.push(args['status']);
+    conditions.push(`status = $${params.length}`);
+  } else if (!includeCompleted) {
+    conditions.push(`status != 'completed'`);
+  }
+
+  if (typeof args['projectId'] === 'string' && args['projectId'].trim() !== '') {
+    params.push(args['projectId'].trim());
+    conditions.push(`project_id = $${params.length}`);
+  }
+
+  if (overdueOnly) {
+    conditions.push(`due_date IS NOT NULL AND due_date < CURRENT_DATE`);
+  } else if (typeof args['dueOnOrBefore'] === 'string' && args['dueOnOrBefore'].trim() !== '') {
+    params.push(args['dueOnOrBefore'].trim());
+    conditions.push(`due_date IS NOT NULL AND due_date <= $${params.length}`);
+  }
+
+  const rawLimit = Number(args['limit']);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(Math.trunc(rawLimit), AI_TOOL_SEARCH_MAX_LIMIT)
+    : AI_TOOL_SEARCH_DEFAULT_LIMIT;
+  params.push(limit);
+
+  const result = await db.query<Record<string, unknown>>(
+    `SELECT * FROM tasks WHERE ${conditions.join(' AND ')} ORDER BY due_date ASC NULLS LAST, created_at DESC LIMIT $${params.length}`,
+    params,
+  );
+
+  const tasks = result.rows.map(rowToTask);
+  return { resultCount: tasks.length, tasks: tasks.map(summariseTask) };
 }
 
 // ── create_task / update_task ────────────────────────────────────────────────

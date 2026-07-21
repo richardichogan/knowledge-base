@@ -15,7 +15,10 @@ const PROJECT_CONTEXT_BLOB = 'config/project-context.md';
 const TOOL_CAPABILITIES_BLURB = [
   '## Capabilities',
   'You have tools available — use them proactively, don\'t just describe what you would do:',
-  '- `search_knowledge_base`: call this before answering any question about the user\'s own projects, ' +
+  '- `list_tasks`: call this whenever the user asks what tasks/to-dos/work they have, what\'s due, overdue, ' +
+    'or outstanding. This is the real Plan board — always use it for task questions instead of ' +
+    'search_knowledge_base, which only covers indexed documents/commits/notes, not the task board.',
+  '- `search_knowledge_base`: call this before answering any other question about the user\'s own projects, ' +
     'activity, or existing content. Do not rely on memory or the RAG snippets alone if the question needs ' +
     'more detail — search again with more specific terms.',
   '- `create_task` / `update_task`: use these whenever the user asks you to add, log, create, or change a ' +
