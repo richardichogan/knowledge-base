@@ -24,6 +24,10 @@ const TIMEOUT_MS = 8_000;
 // Blob upload + OCR polling on the backend can take up to ~40s; give image
 // uploads a much longer client-side timeout than regular API calls.
 const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
+// AI chat turns can chain several tool calls (KG search, Library search, task
+// writes) plus an LLM generation pass — this routinely exceeds the default
+// 8s timeout, which was silently killing the request with no visible error.
+const CHAT_TIMEOUT_MS = 90_000;
 
 function makeClient(baseURL: string, token: string): AxiosInstance {
   return axios.create({
@@ -346,6 +350,7 @@ export class KnowledgeHubApi {
     const r = await this.client.post<ApiResponse<ChatResponse>>(
       '/api/ai/chat',
       request,
+      { timeout: CHAT_TIMEOUT_MS },
     );
     return r.data;
   }

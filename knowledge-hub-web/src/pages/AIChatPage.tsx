@@ -14,6 +14,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, WriteActionProposal } from '../types';
 
 interface AIChatPageProps {
@@ -52,6 +53,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
       setTimeout(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 50);
+    },
+    onError: (err: unknown) => {
+      const isTimeout =
+        typeof err === 'object' &&
+        err !== null &&
+        'code' in err &&
+        (err as { code?: string }).code === 'ECONNABORTED';
+      appendMessage(
+        'assistant',
+        isTimeout
+          ? "⚠️ That took too long and timed out. The backend may still be working on it — try again in a moment, or ask a more specific question."
+          : '⚠️ Something went wrong sending that message. Please try again.',
+      );
     },
   });
 
@@ -157,7 +171,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
             <div className="ai-bubble-label">
               {msg.role === 'user' ? 'You' : 'Knowledge Hub AI'}
             </div>
-            <div className="ai-bubble-text">{msg.content}</div>
+            {msg.role === 'user' ? (
+              <div className="ai-bubble-text">{msg.content}</div>
+            ) : (
+              <div
+                className="ai-bubble-text ai-bubble-text--md"
+                // eslint-disable-next-line react/no-danger
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+              />
+            )}
           </div>
         ))}
         {chatMutation.isPending && (
