@@ -12,7 +12,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { ChatMessage, WriteActionProposal } from '../types';
 
@@ -88,6 +88,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
     chatMutation.mutate(text);
   }
 
+  function handleNewChat(): void {
+    setMessages([]);
+    setSessionId(null);
+    setPendingActions([]);
+  }
+
   return (
     <div className={compact ? 'ai-chat-compact' : 'page-root'}>
       {!compact && (
@@ -95,6 +101,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
           <div className="page-title-group">
             <h1 className="page-title">AI Chat</h1>
           </div>
+        </div>
+      )}
+      {messages.length > 0 && (
+        <div className="ai-new-chat-row">
+          <Button
+            size="sm"
+            kind="ghost"
+            renderIcon={Renew}
+            iconDescription="New chat"
+            onClick={handleNewChat}
+            disabled={chatMutation.isPending}
+          >
+            New chat
+          </Button>
         </div>
       )}
       {pendingActions.map((action) => (

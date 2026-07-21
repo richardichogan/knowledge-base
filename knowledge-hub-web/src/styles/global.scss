@@ -452,6 +452,20 @@ input, textarea {
   gap: 0.5rem;
 }
 
+.ai-new-chat-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+
+  .cds--btn {
+    color: var(--cds-text-secondary);
+
+    &:hover {
+      color: var(--cds-text-primary);
+    }
+  }
+}
+
 .ai-messages {
   min-height: 400px;
   max-height: 60vh;
