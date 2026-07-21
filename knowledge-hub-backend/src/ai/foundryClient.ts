@@ -109,7 +109,7 @@ export class FoundryClient {
       } as Record<string, string>,
       body: JSON.stringify({
         messages,
-        max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
         temperature: 0.7,
         ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: 'auto' }),
       }),
