@@ -199,13 +199,22 @@ export async function searchContentItems(
   return { items: dataResult.rows.map(rowToSummary), total };
 }
 
-/** Retrieves top-N relevant items for RAG context. */
+/**
+ * Retrieves top-N relevant items for RAG context.
+ *
+ * `plainto_tsquery` ANDs every word together, so a multi-word query like
+ * "project imagine" only matches rows containing *both* "project" and
+ * "imagine" literally — which silently returns zero rows for the vast
+ * majority of real content that just mentions "imagine" on its own. If the
+ * AND query comes back empty, fall back to an OR-joined tsquery built from
+ * the same words so any single matching term still surfaces results.
+ */
 export async function getRagItems(
   db: Pool,
   query: string,
   limit: number,
 ): Promise<ContentItem[]> {
-  const result: QueryResult<ContentItemRow & { body: string }> = await db.query(
+  const andResult: QueryResult<ContentItemRow & { body: string }> = await db.query(
     `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
             url, project_context, metadata, tags,
             ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
@@ -215,7 +224,30 @@ export async function getRagItems(
      LIMIT $2`,
     [query, limit],
   );
-  return result.rows.map(rowToItem);
+  if (andResult.rows.length > 0) return andResult.rows.map(rowToItem);
+
+  // Fallback: OR the individual words together via to_tsquery so a phrase
+  // like "project imagine" still matches rows that only contain "imagine".
+  const orQuery = query
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w !== '')
+    .map((w) => w.replace(/[^\w]/g, ''))
+    .filter((w) => w !== '')
+    .join(' | ');
+  if (orQuery === '') return [];
+
+  const orResult: QueryResult<ContentItemRow & { body: string }> = await db.query(
+    `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
+            url, project_context, metadata, tags,
+            ts_rank(search_vector, to_tsquery('english', $1)) AS rank
+     FROM content_items
+     WHERE search_vector @@ to_tsquery('english', $1)
+     ORDER BY rank DESC, published_at DESC
+     LIMIT $2`,
+    [orQuery, limit],
+  );
+  return orResult.rows.map(rowToItem);
 }
 
 // ── Sync state ────────────────────────────────────────────────────────────────

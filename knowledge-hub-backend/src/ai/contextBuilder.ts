@@ -19,8 +19,14 @@ const TOOL_CAPABILITIES_BLURB = [
     'or outstanding. This is the real Plan board — always use it for task questions instead of ' +
     'search_knowledge_base, which only covers indexed documents/commits/notes, not the task board.',
   '- `search_knowledge_base`: call this before answering any other question about the user\'s own projects, ' +
-    'activity, or existing content. Do not rely on memory or the RAG snippets alone if the question needs ' +
-    'more detail — search again with more specific terms.',
+    'activity, or existing content (commits, PRs, issues, notes, emails, calendar). Do not rely on memory or ' +
+    'the RAG snippets alone if the question needs more detail — search again with more specific terms. If a ' +
+    'multi-word query returns nothing, retry with just the core keyword (e.g. "imagine" not "project imagine").' +
+    ' Every project has real, extensive activity indexed here — a "not found" result almost always means the ' +
+    'query was too narrow, not that the content doesn\'t exist.',
+  '- `search_library`: call this for questions about formal documentation, specs, READMEs, or architecture ' +
+    'docs for a project — search_knowledge_base does not cover these files. Pass projectId to scope to one ' +
+    'project (e.g. "imagine").',
   '- `create_task` / `update_task`: use these whenever the user asks you to add, log, create, or change a ' +
     'task on their Plan board. Just do it — don\'t ask for permission first. If update_task returns ' +
     'ambiguous candidates, ask the user which one they mean before retrying.',

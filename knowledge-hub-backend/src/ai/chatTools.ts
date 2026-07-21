@@ -19,6 +19,8 @@ import type { LlmToolDefinition } from './foundryClient.js';
 import { getRagItems } from '../db/queries.js';
 import { createNoteRecord } from '../routes/notes.js';
 import { rowToTask, type Task } from '../routes/tasks.js';
+import { buildLibrary, CONTENT_STORE } from '../routes/documents.js';
+import { GitHubClient } from '../integrations/github/githubClient.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
 
 const TASK_STATUSES = ['backlog', 'in-progress', 'blocked', 'awaiting-feedback', 'completed'] as const;
@@ -65,6 +67,26 @@ export function getToolDefinitions(): LlmToolDefinition[] {
             overdueOnly: { type: 'boolean', description: 'If true, only tasks with a due date strictly before today that are not completed.' },
             projectId: { type: 'string', description: 'Filter to a specific project id.' },
             includeCompleted: { type: 'boolean', description: 'If true, include completed tasks too. Defaults to false.' },
+            limit: { type: 'integer', description: `Max results (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'search_library',
+        description:
+          "Searches the Library section — formal markdown documents (specs, READMEs, docs/ folders) stored " +
+          "in the user's GitHub repos, organised by project. Use this for questions about project " +
+          'documentation, specs, architecture docs, or README content — search_knowledge_base does not cover ' +
+          'these files.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search terms to match against document titles/paths.' },
+            projectId: { type: 'string', description: 'Optional project id to scope the search to (e.g. "imagine"). Omit to search across all projects.' },
             limit: { type: 'integer', description: `Max results (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: [],
@@ -150,6 +172,7 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string):
   switch (name) {
     case 'search_knowledge_base': return searchKnowledgeBase(db, args);
     case 'list_tasks':            return listTasks(db, args);
+    case 'search_library':        return searchLibrary(db, args);
     case 'create_task':           return createTask(db, args);
     case 'update_task':           return updateTask(db, args);
     case 'create_note_draft':     return createNoteDraft(db, args);
@@ -221,6 +244,63 @@ async function listTasks(db: Pool, args: Record<string, unknown>): Promise<unkno
 
   const tasks = result.rows.map(rowToTask);
   return { resultCount: tasks.length, tasks: tasks.map(summariseTask) };
+}
+
+// ── search_library ──────────────────────────────────────────────────────────
+
+async function searchLibrary(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  const query = typeof args['query'] === 'string' ? args['query'].trim().toLowerCase() : '';
+  const projectId = typeof args['projectId'] === 'string' ? args['projectId'].trim() : '';
+  const rawLimit = Number(args['limit']);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(Math.trunc(rawLimit), AI_TOOL_SEARCH_MAX_LIMIT)
+    : AI_TOOL_SEARCH_DEFAULT_LIMIT;
+
+  let repos: string[] = [];
+  const labelMap: Record<string, string> = {};
+
+  if (projectId !== '') {
+    const r = await db.query<{ id: string; name: string; github_repos: string[] }>(
+      `SELECT id, name, github_repos FROM projects WHERE id = $1`,
+      [projectId],
+    );
+    const row = r.rows[0];
+    if (row === undefined) return { error: `No project found with id "${projectId}"` };
+    repos = row.github_repos ?? [];
+    for (const repo of repos) labelMap[repo] = row.name;
+  } else {
+    const r = await db.query<{ name: string; github_repos: string[] }>(
+      `SELECT name, github_repos FROM projects WHERE array_length(github_repos, 1) > 0`,
+    );
+    for (const row of r.rows) {
+      for (const repo of row.github_repos) {
+        repos.push(repo);
+        labelMap[repo] = row.name;
+      }
+    }
+  }
+
+  const gh = new GitHubClient();
+  const docs = await buildLibrary(gh, repos, labelMap);
+
+  const filtered = query === ''
+    ? docs
+    : docs.filter((d) =>
+        d.title.toLowerCase().includes(query) ||
+        d.path.toLowerCase().includes(query) ||
+        d.sourceLabel.toLowerCase().includes(query) ||
+        d.repo.toLowerCase().includes(query),
+      );
+
+  const results = filtered.slice(0, limit).map((d) => ({
+    title: d.title,
+    repo: d.repo === CONTENT_STORE ? 'Content Store' : d.repo,
+    path: d.path,
+    sourceLabel: d.sourceLabel,
+    url: d.htmlUrl,
+  }));
+
+  return { resultCount: results.length, totalScanned: docs.length, documents: results };
 }
 
 // ── create_task / update_task ────────────────────────────────────────────────
