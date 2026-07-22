@@ -9,7 +9,17 @@ export const UNTITLED_DOCUMENT = 'Untitled';
 
 // ── Content type options ──────────────────────────────────────────────────────
 
-export type ContentType = 'blog' | 'podcast' | 'newsletter' | 'project' | 'note' | 'script';
+export type ContentType =
+  | 'blog'
+  | 'podcast'
+  | 'newsletter'
+  | 'project'
+  | 'note'
+  | 'script'
+  | 'architecture'
+  | 'meeting'
+  | 'research'
+  | 'spec';
 
 export interface ContentTypeOption {
   id: ContentType;
@@ -17,23 +27,31 @@ export interface ContentTypeOption {
 }
 
 export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
-  { id: 'blog',       label: 'Blog draft' },
-  { id: 'podcast',    label: 'Podcast script' },
-  { id: 'newsletter', label: 'Newsletter edition' },
-  { id: 'project',    label: 'Project note' },
-  { id: 'note',       label: 'General note' },
-  { id: 'script',     label: 'Script' },
+  { id: 'blog',         label: 'Blog draft' },
+  { id: 'podcast',      label: 'Podcast script' },
+  { id: 'newsletter',   label: 'Newsletter edition' },
+  { id: 'project',      label: 'Project note' },
+  { id: 'note',         label: 'General note' },
+  { id: 'script',       label: 'Script' },
+  { id: 'architecture', label: 'Architecture doc' },
+  { id: 'meeting',      label: 'Meeting notes / transcript' },
+  { id: 'research',     label: 'Research brief' },
+  { id: 'spec',         label: 'Technical spec' },
 ];
 
 // ── Tag type per content type ─────────────────────────────────────────────────
 
-export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' | 'blue' | 'gray' | 'red'> = {
-  blog:       'green',
-  podcast:    'teal',
-  newsletter: 'purple',
-  project:    'blue',
-  note:       'gray',
-  script:     'red',
+export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' | 'blue' | 'gray' | 'red' | 'cyan' | 'magenta' | 'orange'> = {
+  blog:         'green',
+  podcast:      'teal',
+  newsletter:   'purple',
+  project:      'blue',
+  note:         'gray',
+  script:       'red',
+  architecture: 'blue',
+  meeting:      'orange',
+  research:     'cyan',
+  spec:         'magenta',
 };
 
 // ── BlockNote g100 theme override ─────────────────────────────────────────────

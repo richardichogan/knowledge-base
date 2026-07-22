@@ -1,7 +1,7 @@
 import { MS_PER_MINUTE, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
-import { runTier1Sync } from './syncOrchestrator.js';
+import { runTier1Sync, isSyncInProgress } from './syncOrchestrator.js';
 import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 
 /**
@@ -37,7 +37,7 @@ function shouldRunSync(): boolean {
 
 function shouldRunEdgeJob(): boolean {
   const now = new Date();
-  if (now.getHours() !== EDGE_JOB_HOUR) return false;
+  if (now.getHours() < EDGE_JOB_HOUR) return false;
   if (lastEdgeDay === now.getDate()) return false;
   return true;
 }
@@ -72,8 +72,10 @@ export function startSyncScheduler(): void {
         });
       }
 
-      // Inferred edge job — production only, runs at 08:00 daily
-      if (!env.isDevelopment && shouldRunEdgeJob()) {
+      // Inferred edge job — production only, runs at 08:00 daily. Must NOT run
+      // concurrently with a sync: both fan out DB work and together they starve
+      // the pool, 500ing every live route. Defer until the sync has finished.
+      if (!env.isDevelopment && shouldRunEdgeJob() && !isSyncInProgress()) {
         lastEdgeDay = new Date().getDate();
         console.warn('[Scheduler] Running daily inferred edge job...');
         void runInferredEdgeJob(db).catch((err: unknown) => {

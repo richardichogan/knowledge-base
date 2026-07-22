@@ -59,6 +59,17 @@ export const env = {
   AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI', 'gpt-4o-mini'),
   AZURE_OPENAI_API_VERSION: optionalWithDefault('AZURE_OPENAI_API_VERSION', '2024-08-01-preview'),
 
+  // Azure Speech (voice chat) — same pattern as client-demo's voiceProvider.ts.
+  // The Azure AI Services multi-service key also covers the Speech REST API, so
+  // AZURE_SPEECH_KEY falls back to AZURE_OPENAI_API_KEY when not set separately.
+  AZURE_SPEECH_KEY: optional('AZURE_SPEECH_KEY'),
+  AZURE_SPEECH_REGION: optionalWithDefault('AZURE_SPEECH_REGION', 'uksouth'),
+  AZURE_SPEECH_VOICE: optionalWithDefault('AZURE_SPEECH_VOICE', 'en-US-Harper:MAI-Voice-2'),
+  // Used when the preferred voice above (MAI-Voice-2) isn't enabled on the resource.
+  AZURE_SPEECH_FALLBACK_VOICE: optionalWithDefault('AZURE_SPEECH_FALLBACK_VOICE', 'en-US-SaraNeural'),
+  // Set to 'mock' to force the deterministic mock voice provider (no network).
+  VOICE_PROVIDER: optional('VOICE_PROVIDER'),
+
   // Microsoft Graph (personal M365)
   GRAPH_CLIENT_ID: integrationCredential('GRAPH_CLIENT_ID'),
   GRAPH_CLIENT_SECRET: integrationCredential('GRAPH_CLIENT_SECRET'),

@@ -9,6 +9,7 @@
 
 import type { Pool } from 'pg';
 import { FoundryClient } from '../ai/foundryClient.js';
+import { EXTERNAL_FETCH_TIMEOUT_MS } from '../config/constants.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ interface CapEntry {
  * Filters out any with a deadline in the past.
  */
 async function fetchFromCallingAllPapers(): Promise<NormalisedCfp[]> {
-  const res = await fetch(CAP_URL, { headers: { Accept: 'application/json' } });
+  const res = await fetch(CAP_URL, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`CallingAllPapers fetch failed: ${res.status}`);
 
   const json = await res.json() as { cfps?: CapEntry[] };
@@ -140,7 +141,7 @@ async function fetchFromCallingAllPapers(): Promise<NormalisedCfp[]> {
  * Posts contain structured CFP listings; we parse via regex patterns.
  */
 async function fetchFromAdatoRss(): Promise<NormalisedCfp[]> {
-  const res = await fetch(RSS_URL, { headers: { Accept: 'application/rss+xml, application/xml, text/xml' } });
+  const res = await fetch(RSS_URL, { headers: { Accept: 'application/rss+xml, application/xml, text/xml' }, signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`Adato RSS fetch failed: ${res.status}`);
 
   const xml = await res.text();

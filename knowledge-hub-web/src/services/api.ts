@@ -21,6 +21,13 @@ const BASE_URL = import.meta.env['VITE_API_URL'] as string | undefined ?? '';
 const TOKEN = import.meta.env['VITE_API_TOKEN'] as string | undefined ?? '';
 
 const TIMEOUT_MS = 8_000;
+// Blob upload + OCR polling on the backend can take up to ~40s; give image
+// uploads a much longer client-side timeout than regular API calls.
+const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
+// AI chat turns can chain several tool calls (KG search, Library search, task
+// writes) plus an LLM generation pass — this routinely exceeds the default
+// 8s timeout, which was silently killing the request with no visible error.
+const CHAT_TIMEOUT_MS = 90_000;
 
 function makeClient(baseURL: string, token: string): AxiosInstance {
   return axios.create({
@@ -324,13 +331,15 @@ export class KnowledgeHubApi {
     file: File,
     caption?: string,
   ): Promise<ApiResponse<{ id: string; blobUrl: string; ocrText?: string }>> {
-    const form = new FormData();
-    form.append('image', file);
-    if (caption !== undefined) form.append('caption', caption);
+    // Backend expects a raw binary body (express.raw), not multipart/form-data.
+    const buffer = await file.arrayBuffer();
     const r = await this.client.post<
       ApiResponse<{ id: string; blobUrl: string; ocrText?: string }>
-    >('/api/images', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    >('/api/images', buffer, {
+      headers: { 'Content-Type': file.type !== '' ? file.type : 'application/octet-stream' },
+      params: caption !== undefined && caption !== '' ? { caption } : undefined,
+      // Blob upload + OCR polling can take longer than the default request timeout.
+      timeout: IMAGE_UPLOAD_TIMEOUT_MS,
     });
     return r.data;
   }
@@ -341,6 +350,36 @@ export class KnowledgeHubApi {
     const r = await this.client.post<ApiResponse<ChatResponse>>(
       '/api/ai/chat',
       request,
+      { timeout: CHAT_TIMEOUT_MS },
+    );
+    return r.data;
+  }
+
+  // ─── Voice (Azure Speech, ported from client-demo's voiceRoutes.ts) ────────
+
+  /** Transcribes base64-encoded audio (16kHz mono WAV) via /api/voice/transcribe. */
+  async transcribeVoice(
+    audioBase64: string,
+    mimeType: string,
+    language?: string,
+  ): Promise<ApiResponse<{ text: string; provider: string }>> {
+    const r = await this.client.post<ApiResponse<{ text: string; provider: string }>>(
+      '/api/voice/transcribe',
+      { audioBase64, mimeType, language },
+      { timeout: CHAT_TIMEOUT_MS },
+    );
+    return r.data;
+  }
+
+  /** Synthesises speech for the given text via /api/voice/synthesize. Returns base64 audio. */
+  async synthesizeVoice(
+    text: string,
+    voice?: string,
+  ): Promise<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>> {
+    const r = await this.client.post<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>>(
+      '/api/voice/synthesize',
+      { text, voice },
+      { timeout: CHAT_TIMEOUT_MS },
     );
     return r.data;
   }

@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { EXTERNAL_FETCH_TIMEOUT_MS } from '../../config/constants.js';
 import { IntegrationError, UnauthorisedError } from '../../types/errors.js';
 import { MS_PER_SECOND } from '../../config/constants.js';
 
@@ -48,6 +49,7 @@ export class GraphClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -75,6 +77,7 @@ export class GraphClient {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -97,6 +100,7 @@ export class GraphClient {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -119,6 +123,7 @@ export class GraphClient {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -147,6 +152,7 @@ export class GraphClient {
       const token = await this.getAccessToken();
       const response = await fetch(nextUrl, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
       });
 
       if (!response.ok) {

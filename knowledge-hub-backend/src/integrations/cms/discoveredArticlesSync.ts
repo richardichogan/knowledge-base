@@ -14,6 +14,7 @@
 import type { Pool } from 'pg';
 import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import { env } from '../../config/env.js';
+import { EXTERNAL_FETCH_TIMEOUT_MS } from '../../config/constants.js';
 import { FoundryClient } from '../../ai/foundryClient.js';
 import type { ContentItem } from '../../types/contentItem.js';
 import {
@@ -74,6 +75,7 @@ export async function syncDiscoveredArticles(
     const response = await fetch(url, {
       headers: { 'x-admin-auth': password },
       redirect: 'follow',
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -189,8 +191,8 @@ export async function scoreUnscored(db: Pool): Promise<void> {
       const cleaned = raw.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
       const parsed = JSON.parse(cleaned) as ScoringResult;
       
-      // Enforce scoring caps based on source URL
-      const detectedSourceType = classifySourceByUrl(sourceUrl, sourceTitle);
+      // Enforce scoring caps based on source URL and title (catches advertorial)
+      const detectedSourceType = classifySourceByUrl(sourceUrl, `${sourceTitle} ${row.title}`);
       const capped = enforceScoreCaps(parsed, detectedSourceType);
 
       // Calculate sophisticated weighted relevance score (0-1)

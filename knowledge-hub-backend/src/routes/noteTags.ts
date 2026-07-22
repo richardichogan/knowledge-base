@@ -54,25 +54,33 @@ router.put('/', (req: Request, res: Response, next: NextFunction): void => {
       const noteCheck = await db.query('SELECT id FROM notes WHERE id = $1 AND status = $2', [noteId, 'active']);
       if (noteCheck.rows.length === 0) throw new NotFoundError(`Note ${noteId} not found`);
 
-      // Replace tag set in a transaction
-      await db.query('BEGIN');
-      await db.query('DELETE FROM note_tags WHERE note_id = $1', [noteId]);
-      if (tagIds.length > 0) {
-        const placeholders = tagIds.map((_, i) => `($1, $${i + 2})`).join(', '); // $1 = noteId, $2+ = tagIds  // eslint-disable-line @typescript-eslint/no-magic-numbers
-        await db.query(
-          `INSERT INTO note_tags (note_id, tag_id) VALUES ${placeholders} ON CONFLICT DO NOTHING`,
-          [noteId, ...tagIds],
-        );
+      // Replace tag set in a transaction on a single dedicated client.
+      // Running BEGIN/COMMIT on the pool spreads statements across different
+      // connections — the transaction is meaningless and can leak an open one.
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM note_tags WHERE note_id = $1', [noteId]);
+        if (tagIds.length > 0) {
+          const placeholders = tagIds.map((_, i) => `($1, $${i + 2})`).join(', '); // $1 = noteId, $2+ = tagIds  // eslint-disable-line @typescript-eslint/no-magic-numbers
+          await client.query(
+            `INSERT INTO note_tags (note_id, tag_id) VALUES ${placeholders} ON CONFLICT DO NOTHING`,
+            [noteId, ...tagIds],
+          );
+        }
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw txErr;
+      } finally {
+        client.release();
       }
-      await db.query('COMMIT');
 
       const body: ApiSuccess<{ noteId: string; tagIds: string[] }> = {
         success: true, data: { noteId: noteId, tagIds },
       };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
-      const db = getDb();
-      await db.query('ROLLBACK').catch(() => undefined);
       next(err);
     }
   })();

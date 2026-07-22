@@ -3,14 +3,14 @@
  * Force-directed graph canvas. Wraps react-force-graph-2d with:
  * - Square-root degree scaling, dashed inferred edges (via graphDraw.ts)
  * - Hover spotlight: hovered node + 1-hop neighbours at full alpha, rest dimmed
- * - Gentle 2.5s settle animation with node fade-in over 1.5s
+ * - Layout pre-computed in warmupTicks (off-screen) so graph is static on first paint
  * - Node pinning on drag; full freeze on engine stop; release-all-pins signal
  * - Labels fade in past zoom threshold (1.6)
  */
 import React, { useRef, useCallback, useEffect, useMemo } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import type { GraphNode, GraphEdge } from '../../services/api';
-import { GraphTooltip } from './GraphTooltip';
+import { TooltipHost, type TooltipHostHandle } from './GraphTooltip';
 import { FADE_DURATION, nodeRadius, drawNode, drawEdge } from './graphDraw';
 import { nodeColour, type ColourMode } from './graphColour';
 import { TYPE_TO_SHAPE } from './graphShapes';
@@ -62,6 +62,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 }) => {
   const containerRef  = useRef<HTMLDivElement>(null);
   const tooltipRef    = useRef<HTMLDivElement | null>(null);
+  const tooltipHostRef = useRef<TooltipHostHandle | null>(null);
   const lastClickRef  = useRef<{ id: string; time: number } | null>(null);
   const mousePosRef   = useRef({ x: 0, y: 0 });
   const hoveredIdRef  = useRef<string | null>(null);
@@ -69,7 +70,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const mountTimeRef  = useRef(Date.now());
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef         = useRef<any>(null);
-  const [hoveredNode, setHoveredNode] = React.useState<GraphNode | null>(null);
 
   const adjacency  = useMemo(() => buildAdjacency(edges), [edges]);
   const edgeCounts = useMemo(() => {
@@ -89,6 +89,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     () => edges.map((e) => ({ source: e.source, target: e.target, edgeType: e.edgeType, confidence: e.confidence })),
     [edges],
   );
+  // Stable object reference — ForceGraph2D restarts the simulation whenever graphData
+  // changes by reference, so this MUST NOT be an inline object literal.
+  const graphData = useMemo(() => ({ nodes: fgNodes, links: fgLinks }), [fgNodes, fgLinks]);
 
   // Release all pins when the signal increments
   useEffect(() => {
@@ -154,14 +157,15 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     });
   }, [selectedIds]);
 
-  const setHoveredNodeRef = useRef(setHoveredNode);
-  setHoveredNodeRef.current = setHoveredNode;
-
   // Stable — reads refs only, never changes identity → ForceGraph2D never sees a new prop
   const handleNodeHover = useCallback((node: FGNode | null) => {
     const gn = node ? (node as unknown as GraphNode) : null;
     hoveredIdRef.current = gn?.id ?? null;
-    setHoveredNodeRef.current(gn);
+    // Update the isolated TooltipHost (only that tiny component re-renders, NOT GraphCanvas)
+    tooltipHostRef.current?.setNode(gn);
+    // Show/hide tooltip wrapper
+    const el = tooltipRef.current;
+    if (el) el.style.display = gn ? 'block' : 'none';
     fgRef.current?.refresh?.(); // repaint canvas with updated spotlight state
     onNodeHover?.(gn);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -201,7 +205,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     <div ref={containerRef} className="graph-canvas-wrap">
       <ForceGraph2D
         ref={fgRef}
-        graphData={{ nodes: fgNodes, links: fgLinks }}
+        graphData={graphData}
         nodeCanvasObject={nodeCanvasObject}
         nodeCanvasObjectMode={canvasObjectMode}
         linkCanvasObject={linkCanvasObject}
@@ -212,17 +216,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         onEngineStop={handleEngineStop}
         onBackgroundClick={onBackgroundClick}
         backgroundColor="#161616"
-        d3AlphaDecay={0.035}
-        d3VelocityDecay={0.5}
-        cooldownTime={2500}
+        // Pre-compute the full layout before the first paint — graph appears
+        // already settled so it never moves while the user is interacting.
+        warmupTicks={300}
+        // Stop the live simulation immediately after warmup; onEngineStop then
+        // pins every node so nothing can drift even if the engine reheats briefly.
+        cooldownTicks={0}
+        // Belt-and-braces: also stop by time in case warmup exits early on small graphs
+        cooldownTime={0}
+        d3AlphaDecay={0.08}
+        d3VelocityDecay={0.6}
         {...(containerRef.current?.clientWidth  !== undefined && { width:  containerRef.current.clientWidth  })}
         {...(containerRef.current?.clientHeight !== undefined && { height: containerRef.current.clientHeight })}
       />
-      {hoveredNode !== null && (
-        <div className="graph-tooltip-wrap" ref={tooltipRef}>
-          <GraphTooltip node={hoveredNode} edges={edges} x={0} y={0} />
-        </div>
-      )}
+      {/* TooltipHost owns its own state — only it re-renders on hover, not GraphCanvas */}
+      <div className="graph-tooltip-wrap" ref={tooltipRef} style={{ display: 'none' }}>
+        <TooltipHost ref={tooltipHostRef} edges={edges} />
+      </div>
     </div>
   );
 };

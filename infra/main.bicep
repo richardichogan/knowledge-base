@@ -178,13 +178,14 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       scale: {
         minReplicas: 1
-        maxReplicas: 3
-        rules: [
-          {
-            name: 'http-scaling'
-            http: { metadata: { concurrentRequests: '50' } }
-          }
-        ]
+        maxReplicas: 1
+        // IMPORTANT: keep this at 1. Each replica runs its own sync scheduler
+        // AND its own pg pool (DB_POOL_MAX). The Burstable Postgres caps
+        // max_connections at 50, so multiple replicas (e.g. 3 × 20 = 60)
+        // exhaust the connection limit → "timeout exceeded when trying to
+        // connect" outages even though DB CPU/memory are idle. A single replica
+        // also guarantees exactly one sync scheduler runs.
+        rules: []
       }
     }
   }

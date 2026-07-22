@@ -13,7 +13,7 @@ export const PERCENTAGE_MULTIPLIER = 100;
 export const FULL_BLOG_POST_DEPTH_MIN = 2;
 export const FULL_BLOG_POST_COMPOSITE_MIN = 8;
 export const ARCHIVE_COMPOSITE_MAX = 3;
-export const SCORE_BATCH_SIZE = 10;
+export const SCORE_BATCH_SIZE = 50;
 export const RELEVANCE_MAX_TOKENS = 500;
 
 // Scoring weights for calculating normalized relevance (0-1)
@@ -77,6 +77,19 @@ const COMMUNITY_DOMAINS = [
   'stackoverflow.com',
 ];
 
+/** Keywords in title/description that indicate vendor-sponsored content. */
+const ADVERTORIAL_SIGNALS = [
+  'forrester',
+  'total economic impact',
+  'commissioned study',
+  'sponsored by',
+  'idc report',
+  'benefited from',
+  'roi of',
+  '% roi',
+  'total cost of ownership',
+];
+
 const FORMAL_DOMAINS = [
   'azure.microsoft.com',
   'microsoft.com/en-us/security/blog',
@@ -89,11 +102,17 @@ const FORMAL_DOMAINS = [
   'msrc.microsoft.com',
 ];
 
-/** Classify source type from the article or feed URL. */
+/** Classify source type from the article or feed URL, plus title/description. */
 export function classifySourceByUrl(
   articleUrl: string | null,
-  feedUrl: string | null,
+  feedUrlOrTitle: string | null,
 ): SourceType | null {
+  // Check for advertorial signals in title/description
+  const combinedText = [articleUrl, feedUrlOrTitle].filter(Boolean).join(' ').toLowerCase();
+  for (const signal of ADVERTORIAL_SIGNALS) {
+    if (combinedText.includes(signal)) return 'Case Study or Advertorial';
+  }
+
   const check = (u: string): SourceType | null => {
     const lower = u.toLowerCase();
     for (const d of COMMUNITY_DOMAINS) {
@@ -111,8 +130,8 @@ export function classifySourceByUrl(
     const result = check(articleUrl);
     if (result) return result;
   }
-  if (feedUrl) {
-    const result = check(feedUrl);
+  if (feedUrlOrTitle) {
+    const result = check(feedUrlOrTitle);
     if (result) return result;
   }
   return null;
@@ -140,7 +159,7 @@ The source type (Formal / Community / Case Study or Advertorial) is provided. Do
 ## Scoring Dimensions — BE HARSH
 
 **Audience Fit (0-3)**
-- 3: Strategic content that informs how enterprise leaders think about their Microsoft cloud investments — industry trends affecting Azure/M365/D365, architectural patterns, security strategies, AI/Copilot adoption, digital transformation, future of work. Includes authoritative third-party analysis (McKinsey, Gartner, Forrester) on topics directly relevant to Microsoft platform decisions. NOT beginner tutorials.
+- 3: Strategic content that informs how enterprise leaders think about their Microsoft cloud investments — industry trends affecting Azure/M365/D365, architectural patterns, security strategies, AI/Copilot adoption, digital transformation, future of work. Includes INDEPENDENT third-party analysis (McKinsey, Gartner) on topics directly relevant to Microsoft platform decisions. NOT beginner tutorials. NOT vendor-commissioned studies (Forrester TEI, IDC sponsored reports) — those are advertorial regardless of brand name.
 - 2: Developer or IT-pro content with clear architectural or strategic implications
 - 1: Tangentially related. Niche updates or how-to guides without broader strategic context.
 - 0: End-user features, consumer products, or pure marketing
@@ -282,6 +301,6 @@ export function calculateWeightedRelevance(result: ScoringResult): number {
     score = score * (1 + SCORING_WEIGHTS.sparkBonus);
   }
   
-  // Step 6: Clamp to 0-1 range
-  return Math.max(0, Math.min(1, score));
+  // Step 6: Clamp to 0-0.95 range (nothing should ever be 100% relevant)
+  return Math.max(0, Math.min(0.95, score));
 }

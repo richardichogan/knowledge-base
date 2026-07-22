@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
-import { fetchNotes, fetchNote, createNote } from './noteStorage';
+import { fetchNotes, fetchNote, createNote, deleteNote } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
 import { CanvasEditor } from '../features/canvas/CanvasEditor';
@@ -23,6 +23,7 @@ export const NotesPage: React.FC = () => {
   const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
   const [mode,             setMode]             = useState<ViewMode>('notes');
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
+  const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
 
   const { data: notes = [], isLoading, isError, refetch } = useQuery<NoteListItem[]>({
     queryKey: ['notes-list'],
@@ -59,6 +60,27 @@ export const NotesPage: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
       setSelectedId(doc.id);
       setOpenDoc(doc);
+    }
+  }
+
+  async function handleDeleteNote(id: string): Promise<void> {
+    setDeletingNoteId(id);
+    try {
+      await deleteNote(id);
+      await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+      if (selectedId === id) {
+        const remaining = notes.filter((n) => n.id !== id);
+        const next = remaining[0];
+        if (next !== undefined) {
+          setSelectedId(null); // force re-fetch via handleSelectNote
+          await handleSelectNote(next.id);
+        } else {
+          setSelectedId(null);
+          setOpenDoc(null);
+        }
+      }
+    } finally {
+      setDeletingNoteId(null);
     }
   }
 
@@ -106,7 +128,13 @@ export const NotesPage: React.FC = () => {
 
           {mode === 'notes' && (
             <>
-              <NoteList notes={notes} selectedId={selectedId} onSelect={(id) => { void handleSelectNote(id); }} />
+              <NoteList
+                notes={notes}
+                selectedId={selectedId}
+                onSelect={(id) => { void handleSelectNote(id); }}
+                onDelete={(id) => { void handleDeleteNote(id); }}
+                deletingId={deletingNoteId}
+              />
               <div className="notes-list-footer">
                 <button className="kh-btn-accent" onClick={() => { void handleCreateNote(); }}>+ New note</button>
               </div>
@@ -164,7 +192,7 @@ export const NotesPage: React.FC = () => {
         ) : (
           <div className="notes-editor-area">
             {openDoc !== null ? (
-              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} />
+              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>
             )}
