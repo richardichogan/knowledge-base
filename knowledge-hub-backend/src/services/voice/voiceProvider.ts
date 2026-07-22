@@ -118,7 +118,7 @@ const VOICE_TIMEOUT_MS = 60_000;
  * default, via AZURE_SPEECH_VOICE). It uses the same cognitiveservices/v1
  * endpoint as all Azure Neural voices — only the SSML voice name and output
  * format differ. If MAI voices are not enabled on the resource, synthesize()
- * auto-retries with en-US-AriaNeural and logs a warning.
+ * auto-retries with AZURE_SPEECH_FALLBACK_VOICE (en-US-SaraNeural by default) and logs a warning.
  *
  * TTS:  POST https://{region}.tts.speech.microsoft.com/cognitiveservices/v1
  *       Body: SSML with mstts namespace, headers: Ocp-Apim-Subscription-Key + X-Microsoft-OutputFormat
@@ -196,7 +196,7 @@ export class AzureSpeechProvider implements VoiceProvider {
 
   async synthesize(request: SynthesizeRequest): Promise<SynthesizeResult> {
     // MAI-Voice-2 is the preferred voice (same cognitiveservices/v1 endpoint, different SSML voice name).
-    // Falls back to en-US-AriaNeural automatically if MAI voices are not enabled on the resource.
+    // Falls back to AZURE_SPEECH_FALLBACK_VOICE automatically if MAI voices are not enabled on the resource.
     const preferredVoice = request.voice ?? env.AZURE_SPEECH_VOICE;
     const isMaiVoice = preferredVoice.includes('MAI-Voice');
 
@@ -212,15 +212,16 @@ export class AzureSpeechProvider implements VoiceProvider {
       if (err instanceof Error && err.name === 'AbortError') {
         throw new Error(`Azure Speech TTS timed out after ${VOICE_TIMEOUT_MS}ms`);
       }
-      // MAI voices return 400 when not enabled on the resource — auto-retry with AriaNeural.
+      // MAI voices return 400 when not enabled on the resource — auto-retry with the configured fallback voice.
       if (isMaiVoice && err instanceof Error && err.message.includes('400')) {
-        console.warn(`[AzureSpeechProvider] ${preferredVoice} not available on this resource — falling back to en-US-AriaNeural`);
+        const fallbackVoice = env.AZURE_SPEECH_FALLBACK_VOICE;
+        console.warn(`[AzureSpeechProvider] ${preferredVoice} not available on this resource — falling back to ${fallbackVoice}`);
         clearTimeout(tid);
         const fallbackController = new AbortController();
         const fallbackTid = setTimeout(() => fallbackController.abort(), VOICE_TIMEOUT_MS);
         try {
-          const result = await this.callTts('en-US-AriaNeural', 'audio-16khz-32kbitrate-mono-mp3', prepareTtsText(request.text), fallbackController.signal);
-          return { ...result, provider: `${this.name} (en-US-AriaNeural, MAI fallback)` };
+          const result = await this.callTts(fallbackVoice, 'audio-16khz-32kbitrate-mono-mp3', prepareTtsText(request.text), fallbackController.signal);
+          return { ...result, provider: `${this.name} (${fallbackVoice}, MAI fallback)` };
         } finally {
           clearTimeout(fallbackTid);
         }

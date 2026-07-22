@@ -65,6 +65,8 @@ export const env = {
   AZURE_SPEECH_KEY: optional('AZURE_SPEECH_KEY'),
   AZURE_SPEECH_REGION: optionalWithDefault('AZURE_SPEECH_REGION', 'uksouth'),
   AZURE_SPEECH_VOICE: optionalWithDefault('AZURE_SPEECH_VOICE', 'en-US-Harper:MAI-Voice-2'),
+  // Used when the preferred voice above (MAI-Voice-2) isn't enabled on the resource.
+  AZURE_SPEECH_FALLBACK_VOICE: optionalWithDefault('AZURE_SPEECH_FALLBACK_VOICE', 'en-US-SaraNeural'),
   // Set to 'mock' to force the deterministic mock voice provider (no network).
   VOICE_PROVIDER: optional('VOICE_PROVIDER'),
 
