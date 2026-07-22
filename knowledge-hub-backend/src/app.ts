@@ -47,6 +47,9 @@ export function createApp(): express.Application {
   // ── Body parsing ──────────────────────────────────────────────────────────
   // Raw binary for image uploads — MUST come before express.json so binary bodies aren't parsed as JSON
   app.use('/api/images', express.raw({ type: '*/*', limit: '20mb' }));
+  // Voice audio travels as base64 JSON (see voiceRoutes.ts) — a ~30s WAV clip
+  // base64-encodes to several MB, well past the default 1mb JSON limit.
+  app.use('/api/voice', express.json({ limit: '20mb' }));
   app.use(express.json({ limit: '1mb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
