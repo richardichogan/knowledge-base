@@ -79,7 +79,7 @@ export function assembleMessages(
   ].join('\n\n');
 
   const ragBlock = formatRagContext(context.ragItems);
-  const userMessageWithRag = `${ragBlock}\n\n---\n\n${userMessage}`;
+  const userMessageWithRag = ragBlock === '' ? userMessage : `${ragBlock}\n\n---\n\n${userMessage}`;
 
   return [
     { role: 'system', content: systemPrompt },

@@ -228,12 +228,23 @@ export async function getRagItems(
 
   // Fallback: OR the individual words together via to_tsquery so a phrase
   // like "project imagine" still matches rows that only contain "imagine".
+  // Common stopwords are dropped first — without this, a query like
+  // "are you sure" ORs on "you"/"are", which match almost every row in the
+  // table and return effectively random content.
+  const STOPWORDS = new Set([
+    'a', 'an', 'the', 'is', 'are', 'am', 'was', 'were', 'be', 'been', 'being',
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+    'my', 'your', 'his', 'its', 'our', 'their', 'this', 'that', 'these', 'those',
+    'do', 'does', 'did', 'have', 'has', 'had', 'can', 'could', 'will', 'would',
+    'should', 'may', 'might', 'must', 'to', 'of', 'in', 'on', 'at', 'for', 'with',
+    'and', 'or', 'but', 'not', 'so', 'if', 'as', 'like', 'sure', 'ok', 'okay',
+  ]);
   const orQuery = query
     .trim()
     .split(/\s+/)
     .filter((w) => w !== '')
     .map((w) => w.replace(/[^\w]/g, ''))
-    .filter((w) => w !== '')
+    .filter((w) => w !== '' && !STOPWORDS.has(w.toLowerCase()))
     .join(' | ');
   if (orQuery === '') return [];
 
