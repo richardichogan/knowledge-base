@@ -124,6 +124,82 @@ export class FoundryClient {
 
     return response.json() as Promise<ChatCompletionResponse>;
   }
+
+  /** True when the Foundry instance has a Whisper deployment configured for speech-to-text. */
+  public hasSpeechToText(): boolean {
+    return env.AZURE_OPENAI_DEPLOYMENT_WHISPER !== undefined;
+  }
+
+  /** True when the Foundry instance has a TTS deployment configured for speech synthesis. */
+  public hasTextToSpeech(): boolean {
+    return env.AZURE_OPENAI_DEPLOYMENT_TTS !== undefined;
+  }
+
+  /**
+   * Transcribes an audio buffer via the Foundry Whisper deployment.
+   * @param audio Raw audio bytes (webm/ogg/wav/mp3 — whatever the browser recorded).
+   * @param mimeType Content-Type of the audio, used to name the multipart file part.
+   */
+  public async transcribeAudio(audio: Buffer, mimeType: string): Promise<string> {
+    const deployment = env.AZURE_OPENAI_DEPLOYMENT_WHISPER;
+    if (deployment === undefined) {
+      throw new AiError('Speech-to-text is not configured (AZURE_OPENAI_DEPLOYMENT_WHISPER unset)');
+    }
+
+    const url = `${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${deployment}/audio/transcriptions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
+    const extension = mimeType.includes('wav') ? 'wav' : mimeType.includes('mp3') || mimeType.includes('mpeg') ? 'mp3' : 'webm';
+
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(audio)], { type: mimeType }), `speech.${extension}`);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...(env.AZURE_OPENAI_API_KEY !== undefined && { 'api-key': env.AZURE_OPENAI_API_KEY }),
+      } as Record<string, string>,
+      body: form,
+      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new AiError(`${response.status} ${response.statusText}: ${text}`);
+    }
+
+    const data = (await response.json()) as { text?: string };
+    return data.text ?? '';
+  }
+
+  /**
+   * Synthesises speech audio from text via the Foundry TTS deployment.
+   * Returns raw MP3 bytes.
+   */
+  public async synthesiseSpeech(text: string, voice = 'alloy'): Promise<Buffer> {
+    const deployment = env.AZURE_OPENAI_DEPLOYMENT_TTS;
+    if (deployment === undefined) {
+      throw new AiError('Text-to-speech is not configured (AZURE_OPENAI_DEPLOYMENT_TTS unset)');
+    }
+
+    const url = `${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${deployment}/audio/speech?api-version=${env.AZURE_OPENAI_API_VERSION}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(env.AZURE_OPENAI_API_KEY !== undefined && { 'api-key': env.AZURE_OPENAI_API_KEY }),
+      } as Record<string, string>,
+      body: JSON.stringify({ input: text, voice, response_format: 'mp3' }),
+      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new AiError(`${response.status} ${response.statusText}: ${errText}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
 }
 
 let foundryClientInstance: FoundryClient | undefined;

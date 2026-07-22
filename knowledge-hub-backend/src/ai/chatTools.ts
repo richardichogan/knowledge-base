@@ -326,6 +326,23 @@ async function createTask(db: Pool, args: Record<string, unknown>): Promise<unkn
   const body = typeof args['body'] === 'string' ? args['body'] : '';
   const dueDate = typeof args['dueDate'] === 'string' && args['dueDate'].trim() !== '' ? args['dueDate'].trim() : null;
 
+  // Duplicate-call guard: if the model re-issues create_task for a task it
+  // (or the user, via another route) already created moments ago — e.g. the
+  // model mistakenly re-triggers the same tool call after a follow-up
+  // message like "thanks" — return the existing task instead of inserting
+  // a second copy. Scoped to an exact-title match created in the last 5
+  // minutes, so intentional duplicate titles created later are unaffected.
+  const dupe = await db.query<Record<string, unknown>>(
+    `SELECT * FROM tasks
+     WHERE archived = false AND title = $1 AND created_at > now() - interval '5 minutes'
+     ORDER BY created_at DESC LIMIT 1`,
+    [title],
+  );
+  const dupeRow = dupe.rows[0];
+  if (dupeRow !== undefined) {
+    return { success: true, task: summariseTask(rowToTask(dupeRow)), duplicate: true };
+  }
+
   const result = await db.query<Record<string, unknown>>(
     `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,

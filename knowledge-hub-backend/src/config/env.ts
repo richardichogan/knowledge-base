@@ -58,6 +58,10 @@ export const env = {
   AZURE_OPENAI_DEPLOYMENT_GPT4O: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT4O', 'gpt-4o'),
   AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI', 'gpt-4o-mini'),
   AZURE_OPENAI_API_VERSION: optionalWithDefault('AZURE_OPENAI_API_VERSION', '2024-08-01-preview'),
+  // Optional — voice chat. Undefined means the Foundry instance has no speech
+  // deployments; the frontend hides the mic/speaker controls in that case.
+  AZURE_OPENAI_DEPLOYMENT_WHISPER: optional('AZURE_OPENAI_DEPLOYMENT_WHISPER'),
+  AZURE_OPENAI_DEPLOYMENT_TTS: optional('AZURE_OPENAI_DEPLOYMENT_TTS'),
 
   // Microsoft Graph (personal M365)
   GRAPH_CLIENT_ID: integrationCredential('GRAPH_CLIENT_ID'),

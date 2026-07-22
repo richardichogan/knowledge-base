@@ -34,6 +34,10 @@ const TOOL_CAPABILITIES_BLURB = [
     'document/note in the Think section.',
   'After calling a tool, always confirm in plain language what you did (include the task/note title, and ' +
     'ID if useful) — never claim to have done something without actually calling the tool.',
+  'Do not call create_task, update_task, or create_note_draft again for something you already created or ' +
+    'changed earlier in this same conversation, unless the user explicitly asks for another one. Brief ' +
+    'acknowledgements like "thanks", "great", "ok", or "cool" need only a short reply — never trigger a ' +
+    'tool call in response to these.',
 ].join('\n');
 
 /**

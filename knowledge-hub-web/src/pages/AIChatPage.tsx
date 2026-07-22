@@ -4,7 +4,7 @@
  * the floating chat widget (FloatingAIChat.tsx) — same logic, lighter chrome.
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
@@ -12,7 +12,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, MicrophoneOff, VolumeUp, VolumeMute } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, WriteActionProposal } from '../types';
@@ -27,8 +27,35 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
+  const [voiceConfig, setVoiceConfig] = useState({ speechToText: false, textToSpeech: false });
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [voiceOutputOn, setVoiceOutputOn] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    void api.getVoiceConfig().then((result) => {
+      if (result.success) setVoiceConfig(result.data);
+    });
+  }, []);
+
+  function playReply(text: string): void {
+    if (!voiceOutputOn || !voiceConfig.textToSpeech) return;
+    void api.textToSpeech(text).then((blob) => {
+      const url = URL.createObjectURL(blob);
+      audioPlayerRef.current?.pause();
+      const audio = new Audio(url);
+      audioPlayerRef.current = audio;
+      void audio.play();
+      audio.onended = () => URL.revokeObjectURL(url);
+    }).catch(() => {
+      // Voice output is a nice-to-have — fail silently rather than surfacing an error bubble.
+    });
+  }
 
   const chatMutation = useMutation({
     mutationFn: (message: string) =>
@@ -43,6 +70,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
       }
       if (sessionId === null) setSessionId(result.data.sessionId);
       appendMessage('assistant', result.data.reply);
+      playReply(result.data.reply);
       if (result.data.pendingActions.length > 0) {
         setPendingActions((prev) => [...prev, ...result.data.pendingActions]);
       }
@@ -108,6 +136,39 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
     setPendingActions([]);
   }
 
+  async function handleMicClick(): Promise<void> {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        setIsRecording(false);
+        setIsTranscribing(true);
+        void api.speechToText(blob)
+          .then((result) => {
+            if (result.success && result.data.text.trim() !== '') {
+              setInput((prev) => (prev.trim() === '' ? result.data.text : `${prev} ${result.data.text}`));
+            }
+          })
+          .finally(() => setIsTranscribing(false));
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+    } catch {
+      appendMessage('assistant', '⚠️ Could not access the microphone. Check your browser permissions and try again.');
+    }
+  }
+
   return (
     <div className={compact ? 'ai-chat-compact' : 'page-root'}>
       {!compact && (
@@ -117,18 +178,32 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
           </div>
         </div>
       )}
-      {messages.length > 0 && (
+      {(messages.length > 0 || voiceConfig.textToSpeech) && (
         <div className="ai-new-chat-row">
-          <Button
-            size="sm"
-            kind="ghost"
-            renderIcon={Renew}
-            iconDescription="New chat"
-            onClick={handleNewChat}
-            disabled={chatMutation.isPending}
-          >
-            New chat
-          </Button>
+          {messages.length > 0 && (
+            <Button
+              size="sm"
+              kind="ghost"
+              renderIcon={Renew}
+              iconDescription="New chat"
+              onClick={handleNewChat}
+              disabled={chatMutation.isPending}
+            >
+              New chat
+            </Button>
+          )}
+          {voiceConfig.textToSpeech && (
+            <Button
+              size="sm"
+              kind="ghost"
+              hasIconOnly
+              renderIcon={voiceOutputOn ? VolumeUp : VolumeMute}
+              iconDescription={voiceOutputOn ? 'Voice replies on — click to mute' : 'Voice replies off — click to enable'}
+              tooltipPosition="bottom"
+              className="ai-voice-toggle"
+              onClick={() => setVoiceOutputOn((v) => !v)}
+            />
+          )}
         </div>
       )}
       {pendingActions.map((action) => (
@@ -196,13 +271,26 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
             id="ai-chat-input"
             labelText=""
             hideLabel
-            placeholder="Ask your knowledge hub…"
+            placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : 'Ask your knowledge hub…'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={chatMutation.isPending}
             autoFocus
           />
         </div>
+        {voiceConfig.speechToText && (
+          <Button
+            type="button"
+            kind={isRecording ? 'danger' : 'ghost'}
+            hasIconOnly
+            renderIcon={isRecording ? MicrophoneOff : Microphone}
+            iconDescription={isRecording ? 'Stop recording' : 'Voice input'}
+            tooltipPosition="top"
+            className="ai-mic-button"
+            onClick={() => void handleMicClick()}
+            disabled={chatMutation.isPending || isTranscribing}
+          />
+        )}
         <Button
           type="submit"
           renderIcon={Send}

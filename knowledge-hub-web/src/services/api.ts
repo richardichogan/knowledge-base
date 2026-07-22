@@ -355,6 +355,38 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  // ─── Voice (speech-to-text / text-to-speech) ───────────────────────────────
+
+  async getVoiceConfig(): Promise<ApiResponse<{ speechToText: boolean; textToSpeech: boolean }>> {
+    const r = await this.client.get<ApiResponse<{ speechToText: boolean; textToSpeech: boolean }>>(
+      '/api/ai/voice-config',
+    );
+    return r.data;
+  }
+
+  /** Sends a recorded audio blob for transcription. Returns the transcribed text. */
+  async speechToText(audio: Blob): Promise<ApiResponse<{ text: string }>> {
+    const buffer = await audio.arrayBuffer();
+    const r = await this.client.post<ApiResponse<{ text: string }>>(
+      '/api/ai/speech-to-text',
+      buffer,
+      {
+        headers: { 'Content-Type': audio.type !== '' ? audio.type : 'audio/webm' },
+        timeout: CHAT_TIMEOUT_MS,
+      },
+    );
+    return r.data;
+  }
+
+  /** Synthesises speech for the given text. Returns a playable audio blob (mp3). */
+  async textToSpeech(text: string): Promise<Blob> {
+    const r = await this.client.post('/api/ai/speech', { text }, {
+      responseType: 'blob',
+      timeout: CHAT_TIMEOUT_MS,
+    });
+    return r.data as Blob;
+  }
+
   async endSession(
     sessionId: string,
   ): Promise<ApiResponse<{ summary: string }>> {
