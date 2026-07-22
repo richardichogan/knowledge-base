@@ -4,7 +4,7 @@
  * the floating chat widget (FloatingAIChat.tsx) — same logic, lighter chrome.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
@@ -12,7 +12,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, MicrophoneOff, VolumeUp, VolumeMute } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, WriteActionProposal } from '../types';
@@ -22,36 +22,107 @@ interface AIChatPageProps {
   compact?: boolean;
 }
 
+// Azure Speech STT reliably handles PCM WAV only, so we capture raw 16kHz mono
+// PCM via AudioContext and encode a WAV ourselves — same approach as the
+// client-demo FNOL/Steward voice components, ported for this app's Foundry
+// Speech instance.
+const STT_SAMPLE_RATE = 16000;
+
+function encodeWav(samples: Float32Array, sampleRate: number): Blob {
+  const pcm = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    pcm[i] = Math.max(-32768, Math.min(32767, (samples[i] ?? 0) * 32768));
+  }
+  const dataLen = pcm.byteLength;
+  const buf = new ArrayBuffer(44 + dataLen);
+  const v = new DataView(buf);
+  const le = true;
+  v.setUint32(0, 0x52494646, false); // 'RIFF'
+  v.setUint32(4, 36 + dataLen, le);
+  v.setUint32(8, 0x57415645, false); // 'WAVE'
+  v.setUint32(12, 0x666d7420, false); // 'fmt '
+  v.setUint32(16, 16, le);
+  v.setUint16(20, 1, le);
+  v.setUint16(22, 1, le);
+  v.setUint32(24, sampleRate, le);
+  v.setUint32(28, sampleRate * 2, le);
+  v.setUint16(32, 2, le);
+  v.setUint16(34, 16, le);
+  v.setUint32(36, 0x64617461, false); // 'data'
+  v.setUint32(40, dataLen, le);
+  new Int16Array(buf, 44).set(pcm);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error as Error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Strip markdown syntax before TTS so voice replies read as clean prose.
+function stripMarkdownForSpeech(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\n{2,}/g, '. ')
+    .replace(/\n/g, '. ')
+    .replace(/\.\s*\.\s*/g, '. ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
-  const [voiceConfig, setVoiceConfig] = useState({ speechToText: false, textToSpeech: false });
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceOutputOn, setVoiceOutputOn] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const pcmChunksRef = useRef<Float32Array[]>([]);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const queryClient = useQueryClient();
 
-  useEffect(() => {
-    void api.getVoiceConfig().then((result) => {
-      if (result.success) setVoiceConfig(result.data);
-    });
-  }, []);
+  function stopTts(): void {
+    const audio = ttsAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.src = '';
+      ttsAudioRef.current = null;
+    }
+  }
 
   function playReply(text: string): void {
-    if (!voiceOutputOn || !voiceConfig.textToSpeech) return;
-    void api.textToSpeech(text).then((blob) => {
-      const url = URL.createObjectURL(blob);
-      audioPlayerRef.current?.pause();
-      const audio = new Audio(url);
-      audioPlayerRef.current = audio;
-      void audio.play();
-      audio.onended = () => URL.revokeObjectURL(url);
+    if (!voiceOutputOn) return;
+    const clean = stripMarkdownForSpeech(text);
+    if (clean === '') return;
+    stopTts();
+    void api.synthesizeVoice(clean).then((result) => {
+      if (!result.success) return;
+      const audio = new Audio(`data:${result.data.mimeType};base64,${result.data.audioBase64}`);
+      ttsAudioRef.current = audio;
+      void audio.play().catch(() => {
+        // Autoplay can be blocked without a user gesture — non-fatal, text reply still shown.
+      });
+      audio.onended = () => { ttsAudioRef.current = null; };
     }).catch(() => {
       // Voice output is a nice-to-have — fail silently rather than surfacing an error bubble.
     });
@@ -136,36 +207,89 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
     setPendingActions([]);
   }
 
-  async function handleMicClick(): Promise<void> {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      return;
-    }
+  async function startRecording(): Promise<void> {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      audioChunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioContextCtor();
+      const source = ctx.createMediaStreamSource(stream);
+      // ScriptProcessorNode is deprecated but remains the most broadly supported
+      // way to get raw PCM samples synchronously — same choice as client-demo.
+      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      pcmChunksRef.current = [];
+      processor.onaudioprocess = (e) => {
+        pcmChunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
       };
-      recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        setIsRecording(false);
-        setIsTranscribing(true);
-        void api.speechToText(blob)
-          .then((result) => {
-            if (result.success && result.data.text.trim() !== '') {
-              setInput((prev) => (prev.trim() === '' ? result.data.text : `${prev} ${result.data.text}`));
-            }
-          })
-          .finally(() => setIsTranscribing(false));
-      };
-      mediaRecorderRef.current = recorder;
-      recorder.start();
+      source.connect(processor);
+      processor.connect(ctx.destination);
+      audioCtxRef.current = ctx;
+      processorRef.current = processor;
+      streamRef.current = stream;
       setIsRecording(true);
     } catch {
       appendMessage('assistant', '⚠️ Could not access the microphone. Check your browser permissions and try again.');
+    }
+  }
+
+  async function stopRecording(): Promise<void> {
+    const ctx = audioCtxRef.current;
+    const processor = processorRef.current;
+    const stream = streamRef.current;
+    if (!ctx || !processor) {
+      setIsRecording(false);
+      return;
+    }
+    processor.disconnect();
+    stream?.getTracks().forEach((t) => t.stop());
+    const nativeSampleRate = ctx.sampleRate;
+    await ctx.close();
+    audioCtxRef.current = null;
+    processorRef.current = null;
+    streamRef.current = null;
+    setIsRecording(false);
+
+    const chunks = pcmChunksRef.current;
+    pcmChunksRef.current = [];
+    const totalLen = chunks.reduce((sum, c) => sum + c.length, 0);
+    if (totalLen === 0) return;
+    const merged = new Float32Array(totalLen);
+    let offset = 0;
+    for (const c of chunks) {
+      merged.set(c, offset);
+      offset += c.length;
+    }
+    // Downsample to 16kHz mono for the Azure Speech REST API.
+    const ratio = nativeSampleRate / STT_SAMPLE_RATE;
+    const resampled = new Float32Array(Math.round(merged.length / ratio));
+    for (let i = 0; i < resampled.length; i++) {
+      resampled[i] = merged[Math.min(merged.length - 1, Math.round(i * ratio))] ?? 0;
+    }
+    const wavBlob = encodeWav(resampled, STT_SAMPLE_RATE);
+
+    setIsTranscribing(true);
+    try {
+      const audioBase64 = await blobToBase64(wavBlob);
+      const result = await api.transcribeVoice(audioBase64, 'audio/wav');
+      const text = result.success ? result.data.text.trim() : '';
+      if (text !== '') {
+        // Speaking a message auto-enables spoken replies for the rest of the
+        // session, matching FNOL/Steward — typing doesn't opt you back in.
+        setVoiceOutputOn(true);
+        appendMessage('user', text);
+        chatMutation.mutate(text);
+      }
+    } catch {
+      appendMessage('assistant', '⚠️ Could not transcribe that recording. Please try again or type your message.');
+    } finally {
+      setIsTranscribing(false);
+    }
+  }
+
+  function handleMicClick(): void {
+    if (isRecording) {
+      void stopRecording();
+    } else {
+      void startRecording();
     }
   }
 
@@ -178,8 +302,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
           </div>
         </div>
       )}
-      {(messages.length > 0 || voiceConfig.textToSpeech) && (
-        <div className="ai-new-chat-row">
+      <div className="ai-new-chat-row">
           {messages.length > 0 && (
             <Button
               size="sm"
@@ -192,20 +315,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
               New chat
             </Button>
           )}
-          {voiceConfig.textToSpeech && (
-            <Button
-              size="sm"
-              kind="ghost"
-              hasIconOnly
-              renderIcon={voiceOutputOn ? VolumeUp : VolumeMute}
-              iconDescription={voiceOutputOn ? 'Voice replies on — click to mute' : 'Voice replies off — click to enable'}
-              tooltipPosition="bottom"
-              className="ai-voice-toggle"
-              onClick={() => setVoiceOutputOn((v) => !v)}
-            />
-          )}
-        </div>
-      )}
+          <Button
+            size="sm"
+            kind="ghost"
+            hasIconOnly
+            renderIcon={voiceOutputOn ? VolumeUp : VolumeMute}
+            iconDescription={voiceOutputOn ? 'Voice replies on — click to mute' : 'Voice replies off — click to enable'}
+            tooltipPosition="bottom"
+            className="ai-voice-toggle"
+            onClick={() => { stopTts(); setVoiceOutputOn((v) => !v); }}
+          />
+      </div>
       {pendingActions.map((action) => (
         <Tile key={action.id} className="ai-action-banner">
           <p className="ai-action-desc">{action.description}</p>
@@ -278,19 +398,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
             autoFocus
           />
         </div>
-        {voiceConfig.speechToText && (
-          <Button
-            type="button"
-            kind={isRecording ? 'danger' : 'ghost'}
-            hasIconOnly
-            renderIcon={isRecording ? MicrophoneOff : Microphone}
-            iconDescription={isRecording ? 'Stop recording' : 'Voice input'}
-            tooltipPosition="top"
-            className="ai-mic-button"
-            onClick={() => void handleMicClick()}
-            disabled={chatMutation.isPending || isTranscribing}
-          />
-        )}
+        <Button
+          type="button"
+          kind={isRecording ? 'danger' : 'ghost'}
+          hasIconOnly
+          renderIcon={isRecording ? StopFilled : Microphone}
+          iconDescription={isRecording ? 'Stop recording' : 'Voice input'}
+          tooltipPosition="top"
+          className="ai-mic-button"
+          onClick={handleMicClick}
+          disabled={chatMutation.isPending || isTranscribing}
+        />
         <Button
           type="submit"
           renderIcon={Send}

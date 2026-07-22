@@ -29,6 +29,7 @@ import { connectionRouter } from './routes/connectionRoutes.js';
 import certScoresRouter from './routes/certScores.js';
 import { graphRouter } from './routes/graphRoutes.js';
 import { canvasRouter } from './routes/canvasRoutes.js';
+import { voiceRouter } from './routes/voiceRoutes.js';
 
 /**
  * Creates and configures the Express application.
@@ -46,7 +47,6 @@ export function createApp(): express.Application {
   // ── Body parsing ──────────────────────────────────────────────────────────
   // Raw binary for image uploads — MUST come before express.json so binary bodies aren't parsed as JSON
   app.use('/api/images', express.raw({ type: '*/*', limit: '20mb' }));
-  app.use('/api/ai/speech-to-text', express.raw({ type: '*/*', limit: '20mb' }));
   app.use(express.json({ limit: '1mb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
@@ -76,6 +76,7 @@ export function createApp(): express.Application {
   app.use('/api/search', searchRouter);
   app.use('/api/sources', sourcesRouter);
   app.use('/api/ai', aiRouter);
+  app.use('/api/voice', voiceRouter);
   app.use('/api/tasks', tasksRouter);
   app.use('/api/capture', captureRouter);
   app.use('/api/notes/:noteId/tags', noteTagsRouter);

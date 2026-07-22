@@ -5,7 +5,6 @@ import { getDb } from '../db/db.js';
 import { handleConversationTurn, summariseSession } from '../ai/conversationService.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
-import { getFoundryClient } from '../ai/foundryClient.js';
 import { env } from '../config/env.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError } from '../types/errors.js';
@@ -51,66 +50,6 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
         data: { reply, sessionId: effectiveSessionId, pendingActions: pending },
       };
       res.status(HTTP_STATUS.OK).json(body);
-    } catch (err) {
-      next(err);
-    }
-  })();
-});
-
-/**
- * GET /api/ai/voice-config
- * Tells the frontend whether Foundry speech-to-text / text-to-speech
- * deployments are configured, so the mic/speaker controls can be hidden
- * cleanly when they're not available (e.g. before the new Foundry instance
- * is wired up).
- */
-router.get('/voice-config', (_req: Request, res: Response): void => {
-  const client = getFoundryClient();
-  const body: ApiSuccess<{ speechToText: boolean; textToSpeech: boolean }> = {
-    success: true,
-    data: { speechToText: client.hasSpeechToText(), textToSpeech: client.hasTextToSpeech() },
-  };
-  res.status(HTTP_STATUS.OK).json(body);
-});
-
-/**
- * POST /api/ai/speech-to-text
- * Body: raw audio bytes (any Content-Type the browser's MediaRecorder produced).
- * Transcribes via the Foundry Whisper deployment.
- */
-router.post('/speech-to-text', (req: Request, res: Response, next: NextFunction): void => {
-  void (async () => {
-    try {
-      const audio = req.body instanceof Buffer ? req.body : Buffer.from([]);
-      if (audio.length === 0) throw new ValidationError('audio body is empty', { audio: 'required' });
-
-      const mimeType = req.headers['content-type'] ?? 'audio/webm';
-      const text = await getFoundryClient().transcribeAudio(audio, mimeType);
-
-      const body: ApiSuccess<{ text: string }> = { success: true, data: { text } };
-      res.status(HTTP_STATUS.OK).json(body);
-    } catch (err) {
-      next(err);
-    }
-  })();
-});
-
-/**
- * POST /api/ai/speech
- * Body: { text: string, voice?: string }
- * Synthesises speech via the Foundry TTS deployment. Responds with raw MP3 bytes.
- */
-router.post('/speech', (req: Request, res: Response, next: NextFunction): void => {
-  void (async () => {
-    try {
-      const { text, voice } = req.body as { text?: string; voice?: string };
-      if (!text) throw new ValidationError('text required', { text: 'required' });
-
-      const audio = await getFoundryClient().synthesiseSpeech(text, voice);
-
-      res.status(HTTP_STATUS.OK);
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.send(audio);
     } catch (err) {
       next(err);
     }

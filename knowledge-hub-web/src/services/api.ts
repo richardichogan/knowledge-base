@@ -355,36 +355,33 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  // ─── Voice (speech-to-text / text-to-speech) ───────────────────────────────
+  // ─── Voice (Azure Speech, ported from client-demo's voiceRoutes.ts) ────────
 
-  async getVoiceConfig(): Promise<ApiResponse<{ speechToText: boolean; textToSpeech: boolean }>> {
-    const r = await this.client.get<ApiResponse<{ speechToText: boolean; textToSpeech: boolean }>>(
-      '/api/ai/voice-config',
+  /** Transcribes base64-encoded audio (16kHz mono WAV) via /api/voice/transcribe. */
+  async transcribeVoice(
+    audioBase64: string,
+    mimeType: string,
+    language?: string,
+  ): Promise<ApiResponse<{ text: string; provider: string }>> {
+    const r = await this.client.post<ApiResponse<{ text: string; provider: string }>>(
+      '/api/voice/transcribe',
+      { audioBase64, mimeType, language },
+      { timeout: CHAT_TIMEOUT_MS },
     );
     return r.data;
   }
 
-  /** Sends a recorded audio blob for transcription. Returns the transcribed text. */
-  async speechToText(audio: Blob): Promise<ApiResponse<{ text: string }>> {
-    const buffer = await audio.arrayBuffer();
-    const r = await this.client.post<ApiResponse<{ text: string }>>(
-      '/api/ai/speech-to-text',
-      buffer,
-      {
-        headers: { 'Content-Type': audio.type !== '' ? audio.type : 'audio/webm' },
-        timeout: CHAT_TIMEOUT_MS,
-      },
+  /** Synthesises speech for the given text via /api/voice/synthesize. Returns base64 audio. */
+  async synthesizeVoice(
+    text: string,
+    voice?: string,
+  ): Promise<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>> {
+    const r = await this.client.post<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>>(
+      '/api/voice/synthesize',
+      { text, voice },
+      { timeout: CHAT_TIMEOUT_MS },
     );
     return r.data;
-  }
-
-  /** Synthesises speech for the given text. Returns a playable audio blob (mp3). */
-  async textToSpeech(text: string): Promise<Blob> {
-    const r = await this.client.post('/api/ai/speech', { text }, {
-      responseType: 'blob',
-      timeout: CHAT_TIMEOUT_MS,
-    });
-    return r.data as Blob;
   }
 
   async endSession(
