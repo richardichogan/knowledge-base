@@ -653,10 +653,11 @@ export class KnowledgeHubApi {
     source?: string,
     page = 1,
     pageSize = 50,
+    title?: string,
   ): Promise<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>> {
     const r = await this.client.get<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>>(
       '/api/discover',
-      { params: { state, source, page, pageSize } },
+      { params: { state, source, page, pageSize, title } },
     );
     return r.data;
   }

@@ -11,6 +11,7 @@ import '@blocknote/mantine/style.css';
 import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
+import { setActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
 import { TrashCan, Export, DocumentExport, Image as ImageIcon } from '@carbon/icons-react';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
@@ -206,6 +207,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
 
   const editorRef = useRef(editor);
   useEffect(() => { editorRef.current = editor; }, [editor]);
+
+  // Register as the "active" BlockNote editor so the global right-click menu
+  // can read table/text selections directly from the editor (native
+  // window.getSelection() doesn't reflect ProseMirror table cell selections).
+  useEffect(() => {
+    setActiveBlockNoteEditor(editor);
+    return () => { setActiveBlockNoteEditor(null); };
+  }, [editor]);
+
   const isDirtyRef = useRef(false);
 
   // Formatting toolbar — tracks the block type / inline styles at the cursor so
@@ -493,6 +503,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
           data-ctx-ref-type="note"
           data-ctx-source={`Note · ${contentType}`}
           {...(appliedTags.length > 0 ? { 'data-ctx-tags': appliedTags.map((t) => t.colour ? `${t.name}|${t.colour}` : t.name).join(',') } : {})}
+          {...(appliedTags.length > 0 ? { 'data-ctx-tag-ids': appliedTags.map((t) => t.id).join(',') } : {})}
         >
           <div className="notes-editor-inner">
             <BlockNoteViewWrapper
