@@ -8,10 +8,10 @@
  * CFPs (Calls for Papers) appear in their own tab — scored, sorted by deadline.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Bookmark, Edit, Archive, Renew, Launch, ArrowRight, Link, Checkmark, Microphone, Diagram } from '@carbon/icons-react';
+import { Bookmark, Edit, Archive, Renew, Launch, ArrowRight, Link, Checkmark, Microphone, Diagram, Search, Close } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import type { ContentItemSummary } from '../types';
@@ -435,6 +435,8 @@ export const DiscoverPage: React.FC = () => {
   const [cfpStateFilter, setCfpStateFilter] = useState<CfpWorkflowState>('to_review');
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
+  const [titleSearch, setTitleSearch] = useState('');
+  const [debouncedTitleSearch, setDebouncedTitleSearch] = useState('');
   const queryClient = useQueryClient();
 
   const PAGE_SIZE = 25;
@@ -442,6 +444,12 @@ export const DiscoverPage: React.FC = () => {
   const isInbox = activeTab === 'inbox';
   const isCfps  = activeTab === 'cfps';
   const workflowState = isInbox ? 'to-review' : activeTab as DiscoverWorkflowState;
+
+  // Debounce the title search so we don't fire a request on every keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => { setDebouncedTitleSearch(titleSearch.trim()); }, 300);
+    return () => { clearTimeout(timer); };
+  }, [titleSearch]);
 
   // Reset to page 1 when tab or source filter changes
   function handleTabChange(tab: ActiveTab): void {
@@ -452,10 +460,14 @@ export const DiscoverPage: React.FC = () => {
     setSourceFilter(source);
     setPage(1);
   }
+  function handleTitleSearchChange(value: string): void {
+    setTitleSearch(value);
+    setPage(1);
+  }
 
   const feedQuery = useQuery({
-    queryKey: ['discover', workflowState, sourceFilter, page],
-    queryFn: () => api.getDiscoverFeed(workflowState, sourceFilter, page, PAGE_SIZE),
+    queryKey: ['discover', workflowState, sourceFilter, page, debouncedTitleSearch],
+    queryFn: () => api.getDiscoverFeed(workflowState, sourceFilter, page, PAGE_SIZE, debouncedTitleSearch || undefined),
     enabled: !isInbox && !isCfps,
   });
 
@@ -557,34 +569,61 @@ export const DiscoverPage: React.FC = () => {
           ))}
         </div>
 
-        {/* Source filter — select dropdown on article tabs */}
-        {!isInbox && !isCfps && allSources.length > 0 && (
-          <select
-            className="dc-filter-select"
-            value={sourceFilter ?? ''}
-            onChange={(e) => { handleSourceFilter(e.target.value || undefined); }}
-            aria-label="Filter by source"
-          >
-            <option value="">All sources ({allSources.reduce((n, s) => n + s.count, 0)})</option>
-            {allSources.map((s) => (
-              <option key={s.title} value={s.title}>{s.title} ({s.count})</option>
-            ))}
-          </select>
-        )}
+        <div className="dc-toolbar__filters">
+          {/* Title search — plain text, article tabs only */}
+          {!isInbox && !isCfps && (
+            <div className="dc-search">
+              <Search size={16} className="dc-search__icon" />
+              <input
+                type="text"
+                className="dc-search__input"
+                placeholder="Search titles…"
+                value={titleSearch}
+                onChange={(e) => { handleTitleSearchChange(e.target.value); }}
+                aria-label="Search articles by title"
+              />
+              {titleSearch !== '' && (
+                <button
+                  type="button"
+                  className="dc-search__clear"
+                  onClick={() => { handleTitleSearchChange(''); }}
+                  aria-label="Clear search"
+                >
+                  <Close size={14} />
+                </button>
+              )}
+            </div>
+          )}
 
-        {/* CFP state filter */}
-        {isCfps && (
-          <select
-            className="dc-filter-select"
-            value={cfpStateFilter}
-            onChange={(e) => { setCfpStateFilter(e.target.value as CfpWorkflowState); }}
-            aria-label="Filter CFPs by state"
-          >
-            {(['to_review', 'saved', 'submitted', 'archived'] as CfpWorkflowState[]).map((s) => (
-              <option key={s} value={s}>{s.replace('_', ' ')}</option>
-            ))}
-          </select>
-        )}
+          {/* Source filter — select dropdown on article tabs */}
+          {!isInbox && !isCfps && allSources.length > 0 && (
+            <select
+              className="dc-filter-select"
+              value={sourceFilter ?? ''}
+              onChange={(e) => { handleSourceFilter(e.target.value || undefined); }}
+              aria-label="Filter by source"
+            >
+              <option value="">All sources ({allSources.reduce((n, s) => n + s.count, 0)})</option>
+              {allSources.map((s) => (
+                <option key={s.title} value={s.title}>{s.title} ({s.count})</option>
+              ))}
+            </select>
+          )}
+
+          {/* CFP state filter */}
+          {isCfps && (
+            <select
+              className="dc-filter-select"
+              value={cfpStateFilter}
+              onChange={(e) => { setCfpStateFilter(e.target.value as CfpWorkflowState); }}
+              aria-label="Filter CFPs by state"
+            >
+              {(['to_review', 'saved', 'submitted', 'archived'] as CfpWorkflowState[]).map((s) => (
+                <option key={s} value={s}>{s.replace('_', ' ')}</option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       {/* CFPs feed */}
@@ -620,7 +659,9 @@ export const DiscoverPage: React.FC = () => {
 
           {!feedQuery.isLoading && !feedQuery.isError && items.length === 0 && (
             <div className="dc-empty">
-              <p>No articles in <strong>{activeTabDef?.label}</strong>.</p>
+              {debouncedTitleSearch !== ''
+                ? <p>No articles matching <strong>&ldquo;{debouncedTitleSearch}&rdquo;</strong> in <strong>{activeTabDef?.label}</strong>.</p>
+                : <p>No articles in <strong>{activeTabDef?.label}</strong>.</p>}
             </div>
           )}
 

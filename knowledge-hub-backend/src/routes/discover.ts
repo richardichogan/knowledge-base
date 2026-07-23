@@ -49,6 +49,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       const db = getDb();
       const state = (req.query['state'] as string) || 'to-review';
       const sourceFilter = req.query['source'] as string | undefined;
+      const titleFilter = (req.query['title'] as string | undefined)?.trim();
       const page = Math.max(1, parseInt((req.query['page'] as string) || '1', 10));
       const pageSize = Math.min(
         DISCOVER_PAGE_SIZE_MAX,
@@ -67,6 +68,10 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       if (sourceFilter) {
         conditions.push(`metadata->>'sourceTitle' = $${p++}`);
         params.push(sourceFilter);
+      }
+      if (titleFilter) {
+        conditions.push(`title ILIKE $${p++}`);
+        params.push(`%${titleFilter}%`);
       }
 
       const where = `WHERE ${conditions.join(' AND ')}`;
