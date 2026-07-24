@@ -93,6 +93,46 @@ function stripMarkdownForSpeech(md: string): string {
     .trim();
 }
 
+// Colour-coded status chip rules applied to assistant replies before markdown
+// rendering — turns plain-text status words into small pill badges so dense
+// task-list replies are scannable at a glance instead of a wall of text.
+const STATUS_CHIP_RULES: Array<[RegExp, string]> = [
+  [/\bhigh priority\b/gi, '<span class="kh-chip kh-chip--danger">🔴 High priority</span>'],
+  [/\bmedium priority\b/gi, '<span class="kh-chip kh-chip--warning">🟠 Medium priority</span>'],
+  [/\blow priority\b/gi, '<span class="kh-chip kh-chip--neutral">⚪ Low priority</span>'],
+  [/\bin progress\b/gi, '<span class="kh-chip kh-chip--info">🔵 In progress</span>'],
+  [/\bto-review\b/gi, '<span class="kh-chip kh-chip--info">👀 To review</span>'],
+  [/\bbacklog\b/gi, '<span class="kh-chip kh-chip--neutral">📥 Backlog</span>'],
+  [/\boverdue\b/gi, '<span class="kh-chip kh-chip--danger">⚠️ Overdue</span>'],
+];
+
+// Turns "Overdue tasks: N" (bolded or plain) into a prominent alert banner
+// instead of a plain heading — the single most important line in a task
+// summary reply deserves to stand out.
+function enrichOverdueBanner(text: string): string {
+  return text.replace(/\*{0,2}Overdue tasks:\s*(\d+)\*{0,2}/gi, (_match, n: string) => {
+    const count = parseInt(n, 10);
+    if (count === 0) return '<div class="kh-alert kh-alert--success">✅ No overdue tasks</div>';
+    return `<div class="kh-alert kh-alert--danger">⚠️ <strong>${count}</strong> overdue task${count === 1 ? '' : 's'} need attention</div>`;
+  });
+}
+
+// Applies the chip/banner enrichment to assistant text only, skipping the
+// inside of fenced code blocks so real code snippets are left untouched.
+function enrichAssistantText(text: string): string {
+  return text
+    .split(/(```[\s\S]*?```)/g)
+    .map((part, i) => {
+      if (i % 2 === 1) return part; // fenced code block — leave as-is
+      let out = enrichOverdueBanner(part);
+      for (const [re, replacement] of STATUS_CHIP_RULES) {
+        out = out.replace(re, replacement);
+      }
+      return out;
+    })
+    .join('');
+}
+
 export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -400,7 +440,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
                 <div
                   className="ai-bubble-text ai-bubble-text--md"
                   // eslint-disable-next-line react/no-danger
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(enrichAssistantText(msg.content)) }}
                 />
               )}
             </div>

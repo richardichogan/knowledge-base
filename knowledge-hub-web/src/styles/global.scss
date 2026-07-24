@@ -549,12 +549,81 @@ input, textarea {
 
   code {
     font-family: 'IBM Plex Mono', 'Courier New', monospace;
-    font-size: 0.8125em;
-    background: var(--cds-layer-01);
-    border: 1px solid var(--cds-border-subtle-00);
-    padding: 0.0625em 0.3em;
-    border-radius: 2px;
+    font-size: 0.75em;
+    font-weight: 600;
+    background: var(--kh-accent-bg);
+    color: var(--kh-accent);
+    border: 1px solid var(--kh-accent-border);
+    padding: 0.125em 0.55em;
+    border-radius: 999px;
     word-break: break-word;
+  }
+
+  // Status chips + overdue alert banner injected by enrichAssistantText()
+  // (AIChatPage.tsx) — turns plain status words into colour-coded pills so
+  // dense task-list replies are scannable instead of a wall of text.
+  .kh-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    padding: 0.05em 0.6em;
+    border-radius: 999px;
+    font-size: 0.8125em;
+    font-weight: 600;
+    line-height: 1.7;
+    white-space: nowrap;
+  }
+
+  .kh-chip--danger {
+    background: rgba(250, 77, 86, 0.14);
+    color: #ff8389;
+    border: 1px solid rgba(250, 77, 86, 0.35);
+  }
+
+  .kh-chip--warning {
+    background: rgba(255, 131, 43, 0.14);
+    color: #ffb84d;
+    border: 1px solid rgba(255, 131, 43, 0.35);
+  }
+
+  .kh-chip--info {
+    background: rgba(69, 137, 255, 0.14);
+    color: #78a9ff;
+    border: 1px solid rgba(69, 137, 255, 0.35);
+  }
+
+  .kh-chip--success {
+    background: rgba(66, 190, 101, 0.14);
+    color: #42be65;
+    border: 1px solid rgba(66, 190, 101, 0.35);
+  }
+
+  .kh-chip--neutral {
+    background: var(--cds-layer-02);
+    color: var(--cds-text-secondary);
+    border: 1px solid var(--cds-border-subtle-01);
+  }
+
+  .kh-alert {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    margin: 0.25rem 0 0.75rem;
+  }
+
+  .kh-alert--danger {
+    background: rgba(250, 77, 86, 0.1);
+    border: 1px solid rgba(250, 77, 86, 0.3);
+    color: #ff8389;
+  }
+
+  .kh-alert--success {
+    background: rgba(66, 190, 101, 0.1);
+    border: 1px solid rgba(66, 190, 101, 0.3);
+    color: #42be65;
   }
 
   pre {
@@ -569,6 +638,9 @@ input, textarea {
       background: none;
       border: none;
       padding: 0;
+      border-radius: 0;
+      color: inherit;
+      font-weight: 400;
       font-size: 0.75rem;
       white-space: pre;
     }
@@ -682,9 +754,9 @@ input, textarea {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 1.25rem 1.5rem 1.5rem;
+  // Full-width like the rest of the app (no cramped fixed column) — just
+  // generous side padding so long lines don't run edge-to-edge.
+  padding: 1.5rem 3rem 1.75rem;
   box-sizing: border-box;
 
   .ai-messages {
@@ -697,7 +769,7 @@ input, textarea {
   }
 
   .ai-bubble {
-    max-width: 78%;
+    max-width: 70%;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   }
 
