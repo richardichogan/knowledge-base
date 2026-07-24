@@ -1,0 +1,14 @@
+{
+  "name": "Knowledge Hub Chat",
+  "short_name": "KH Chat",
+  "description": "Standalone AI chat for Knowledge Hub",
+  "start_url": "/chat",
+  "scope": "/chat",
+  "display": "standalone",
+  "background_color": "#161616",
+  "theme_color": "#161616",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
