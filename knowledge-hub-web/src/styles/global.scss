@@ -806,7 +806,7 @@ input, textarea {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.875rem 1.5rem;
+  padding: calc(0.875rem + env(safe-area-inset-top)) 1.5rem 0.875rem;
   background: var(--cds-layer-01);
   border-bottom: 1px solid var(--cds-border-subtle-01);
 }
@@ -840,7 +840,7 @@ input, textarea {
   width: 100%;
   // Full-width like the rest of the app (no cramped fixed column) — just
   // generous side padding so long lines don't run edge-to-edge.
-  padding: 1.5rem 3rem 1.75rem;
+  padding: 1.5rem 3rem calc(1.75rem + env(safe-area-inset-bottom));
   box-sizing: border-box;
 
   .ai-messages {
