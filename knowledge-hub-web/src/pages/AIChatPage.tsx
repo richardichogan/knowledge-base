@@ -20,6 +20,8 @@ import type { ChatMessage, WriteActionProposal } from '../types';
 interface AIChatPageProps {
   /** Renders without the page header/wrapper padding, for use in a floating widget. */
   compact?: boolean;
+  /** Renders as a centered, full-height desktop layout, for use as an installed PWA (see /chat route). */
+  standalone?: boolean;
 }
 
 // Azure Speech STT reliably handles PCM WAV only, so we capture raw 16kHz mono
@@ -68,6 +70,9 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 // Strip markdown syntax before TTS so voice replies read as clean prose.
+// Also drops IDs/URLs — those are useful to see on screen but tedious and
+// unhelpful to hear read aloud; the spoken reply should stick to the
+// salient points (status, priority, due date, etc.).
 function stripMarkdownForSpeech(md: string): string {
   return md
     .replace(/```[\s\S]*?```/g, ' ')
@@ -78,6 +83,9 @@ function stripMarkdownForSpeech(md: string): string {
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^\s*[-*]\s+/gm, '')
     .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/^\s*(ID|Url|URL|Link)\s*:.*$/gim, '')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '')
     .replace(/\n{2,}/g, '. ')
     .replace(/\n/g, '. ')
     .replace(/\.\s*\.\s*/g, '. ')
@@ -85,7 +93,7 @@ function stripMarkdownForSpeech(md: string): string {
     .trim();
 }
 
-export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
+export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
@@ -293,131 +301,152 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false }) => {
     }
   }
 
+  const actionButtons = (
+    <>
+      {messages.length > 0 && (
+        <Button
+          size="sm"
+          kind="ghost"
+          renderIcon={Renew}
+          iconDescription="New chat"
+          onClick={handleNewChat}
+          disabled={chatMutation.isPending}
+        >
+          New chat
+        </Button>
+      )}
+      <Button
+        size="sm"
+        kind="ghost"
+        hasIconOnly
+        renderIcon={voiceOutputOn ? VolumeUp : VolumeMute}
+        iconDescription={voiceOutputOn ? 'Voice replies on — click to mute' : 'Voice replies off — click to enable'}
+        tooltipPosition="bottom"
+        className="ai-voice-toggle"
+        onClick={() => { stopTts(); setVoiceOutputOn((v) => !v); }}
+      />
+    </>
+  );
+
   return (
-    <div className={compact ? 'ai-chat-compact' : 'page-root'}>
-      {!compact && (
+    <div className={standalone ? 'ai-chat-standalone' : compact ? 'ai-chat-compact' : 'page-root'}>
+      {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
             <h1 className="page-title">AI Chat</h1>
           </div>
         </div>
       )}
-      <div className="ai-new-chat-row">
-          {messages.length > 0 && (
-            <Button
-              size="sm"
-              kind="ghost"
-              renderIcon={Renew}
-              iconDescription="New chat"
-              onClick={handleNewChat}
-              disabled={chatMutation.isPending}
-            >
-              New chat
-            </Button>
-          )}
-          <Button
-            size="sm"
-            kind="ghost"
-            hasIconOnly
-            renderIcon={voiceOutputOn ? VolumeUp : VolumeMute}
-            iconDescription={voiceOutputOn ? 'Voice replies on — click to mute' : 'Voice replies off — click to enable'}
-            tooltipPosition="bottom"
-            className="ai-voice-toggle"
-            onClick={() => { stopTts(); setVoiceOutputOn((v) => !v); }}
-          />
-      </div>
-      {pendingActions.map((action) => (
-        <Tile key={action.id} className="ai-action-banner">
-          <p className="ai-action-desc">{action.description}</p>
-          <div className="ai-action-buttons">
-            <Button
-              size="sm"
-              kind="primary"
-              renderIcon={Checkmark}
-              iconDescription="Confirm"
-              onClick={() => confirmMutation.mutate(action.id)}
-              disabled={confirmMutation.isPending}
-            >
-              Confirm
-            </Button>
-            <Button
-              size="sm"
-              kind="ghost"
-              renderIcon={Close}
-              iconDescription="Cancel"
-              onClick={() => cancelMutation.mutate(action.id)}
-              disabled={cancelMutation.isPending}
-            >
-              Cancel
-            </Button>
+      {standalone && (
+        <div className="ai-chat-standalone__topbar">
+          <div className="ai-chat-standalone__brand">
+            <img src="/favicon.svg" alt="" className="ai-chat-standalone__logo" />
+            <span>Knowledge Hub</span>
           </div>
-        </Tile>
-      ))}
-
-      <Tile className="ai-messages">
-        {messages.length === 0 && (
-          <p className="ai-empty">Ask anything about your knowledge hub…</p>
-        )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={msg.role === 'user' ? 'ai-bubble ai-bubble--user' : 'ai-bubble ai-bubble--ai'}
-          >
-            <div className="ai-bubble-label">
-              {msg.role === 'user' ? 'You' : 'Knowledge Hub AI'}
-            </div>
-            {msg.role === 'user' ? (
-              <div className="ai-bubble-text">{msg.content}</div>
-            ) : (
-              <div
-                className="ai-bubble-text ai-bubble-text--md"
-                // eslint-disable-next-line react/no-danger
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
-              />
-            )}
+          <div className="ai-new-chat-row ai-chat-standalone__actions">
+            {actionButtons}
           </div>
-        ))}
-        {chatMutation.isPending && (
-          <div className="ai-bubble ai-bubble--ai">
-            <InlineLoading description="Knowledge Hub AI is thinking…" />
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </Tile>
-
-      <form onSubmit={handleSend} className="ai-input-row">
-        <div className="ai-input-field">
-          <TextInput
-            id="ai-chat-input"
-            labelText=""
-            hideLabel
-            placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : 'Ask your knowledge hub…'}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={chatMutation.isPending}
-            autoFocus
-          />
         </div>
-        <Button
-          type="button"
-          kind={isRecording ? 'danger' : 'ghost'}
-          hasIconOnly
-          renderIcon={isRecording ? StopFilled : Microphone}
-          iconDescription={isRecording ? 'Stop recording' : 'Voice input'}
-          tooltipPosition="top"
-          className="ai-mic-button"
-          onClick={handleMicClick}
-          disabled={chatMutation.isPending || isTranscribing}
-        />
-        <Button
-          type="submit"
-          renderIcon={Send}
-          iconDescription="Send"
-          disabled={chatMutation.isPending || input.trim() === ''}
-        >
-          Send
-        </Button>
-      </form>
+      )}
+      {!standalone && (
+        <div className="ai-new-chat-row">
+          {actionButtons}
+        </div>
+      )}
+      <div className={standalone ? 'ai-chat-standalone__body' : ''}>
+        {pendingActions.map((action) => (
+          <Tile key={action.id} className="ai-action-banner">
+            <p className="ai-action-desc">{action.description}</p>
+            <div className="ai-action-buttons">
+              <Button
+                size="sm"
+                kind="primary"
+                renderIcon={Checkmark}
+                iconDescription="Confirm"
+                onClick={() => confirmMutation.mutate(action.id)}
+                disabled={confirmMutation.isPending}
+              >
+                Confirm
+              </Button>
+              <Button
+                size="sm"
+                kind="ghost"
+                renderIcon={Close}
+                iconDescription="Cancel"
+                onClick={() => cancelMutation.mutate(action.id)}
+                disabled={cancelMutation.isPending}
+              >
+                Cancel
+              </Button>
+            </div>
+          </Tile>
+        ))}
+
+        <Tile className="ai-messages">
+          {messages.length === 0 && (
+            <p className="ai-empty">Ask anything about your knowledge hub…</p>
+          )}
+          {messages.map((msg, i) => (
+            <div
+              key={i}
+              className={msg.role === 'user' ? 'ai-bubble ai-bubble--user' : 'ai-bubble ai-bubble--ai'}
+            >
+              <div className="ai-bubble-label">
+                {msg.role === 'user' ? 'You' : 'Knowledge Hub AI'}
+              </div>
+              {msg.role === 'user' ? (
+                <div className="ai-bubble-text">{msg.content}</div>
+              ) : (
+                <div
+                  className="ai-bubble-text ai-bubble-text--md"
+                  // eslint-disable-next-line react/no-danger
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                />
+              )}
+            </div>
+          ))}
+          {chatMutation.isPending && (
+            <div className="ai-bubble ai-bubble--ai">
+              <InlineLoading description="Knowledge Hub AI is thinking…" />
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </Tile>
+
+        <form onSubmit={handleSend} className="ai-input-row">
+          <div className="ai-input-field">
+            <TextInput
+              id="ai-chat-input"
+              labelText=""
+              hideLabel
+              placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : 'Ask your knowledge hub…'}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              disabled={chatMutation.isPending}
+              autoFocus
+            />
+          </div>
+          <Button
+            type="button"
+            kind={isRecording ? 'danger' : 'ghost'}
+            hasIconOnly
+            renderIcon={isRecording ? StopFilled : Microphone}
+            iconDescription={isRecording ? 'Stop recording' : 'Voice input'}
+            tooltipPosition="top"
+            className="ai-mic-button"
+            onClick={handleMicClick}
+            disabled={chatMutation.isPending || isTranscribing}
+          />
+          <Button
+            type="submit"
+            renderIcon={Send}
+            iconDescription="Send"
+            disabled={chatMutation.isPending || input.trim() === ''}
+          >
+            Send
+          </Button>
+        </form>
+      </div>
     </div>
   );
 };
