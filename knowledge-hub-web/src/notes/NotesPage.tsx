@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { NoteList } from './NoteList';
@@ -19,6 +20,7 @@ type ViewMode = 'notes' | 'sparks' | 'canvas';
 
 export const NotesPage: React.FC = () => {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedId,       setSelectedId]       = useState<string | null>(null);
   const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
   const [mode,             setMode]             = useState<ViewMode>('notes');
@@ -43,6 +45,13 @@ export const NotesPage: React.FC = () => {
   });
 
   useEffect(() => {
+    const linkedId = searchParams.get('noteId');
+    if (linkedId !== null) {
+      void handleSelectNote(linkedId);
+      searchParams.delete('noteId');
+      setSearchParams(searchParams, { replace: true });
+      return;
+    }
     const first = notes[0];
     if (first !== undefined && selectedId === null) void handleSelectNote(first.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps

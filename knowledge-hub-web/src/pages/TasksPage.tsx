@@ -3,7 +3,8 @@
  * Columns: Backlog | In Progress | Blocked | Awaiting Feedback | Completed
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';import {
   Button, InlineLoading, InlineNotification,
   Modal, TextInput, TextArea, Select, SelectItem,
@@ -818,6 +819,7 @@ export const TasksPage: React.FC<{
   filterTag?: string;
 }> = ({ onImportOpen, importOpen: importOpenProp, onImportClose, filterProject: filterProjectProp, filterTag: filterTagProp }) => {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [modalOpen,      setModalOpen]      = useState(false);
   const [importOpenLocal, setImportOpenLocal] = useState(false);
   const importOpen = importOpenProp ?? importOpenLocal;
@@ -844,6 +846,21 @@ export const TasksPage: React.FC<{
     (data as { success: boolean; data?: { items: Task[] } } | undefined)?.success === true
       ? (data as { data: { items: Task[] } }).data.items
       : [];
+
+  // Deep-link support: a chat reply's "View task" link points at
+  // /plan?taskId=<id> — open that task's edit modal directly once it's
+  // loaded, then strip the param so back/refresh doesn't reopen it.
+  useEffect(() => {
+    const linkedId = searchParams.get('taskId');
+    if (linkedId === null) return;
+    const found = tasks.find((t) => t.id === linkedId);
+    if (found === undefined) return;
+    setEditTask(found);
+    setModalOpen(true);
+    searchParams.delete('taskId');
+    setSearchParams(searchParams, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, searchParams]);
 
   const createMutation = useMutation({
     mutationFn: (input: Partial<Task> & { title: string }) => api.createTask(input as never),

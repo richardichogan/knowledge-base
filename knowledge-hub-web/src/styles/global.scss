@@ -518,13 +518,14 @@ input, textarea {
 
 .ai-bubble-text {
   white-space: pre-wrap;
+  font-size: 0.9375rem;
 }
 
 // Markdown formatting inside AI assistant replies — compact variant of
 // .docs-viewer__content, tuned for narrow chat bubbles instead of full pages.
 .ai-bubble-text--md {
   white-space: normal;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   line-height: 1.55;
 
   > *:first-child { margin-top: 0; }
@@ -677,7 +678,7 @@ input, textarea {
 
   .kh-task-card__title {
     font-weight: 600;
-    font-size: 0.9375rem;
+    font-size: 1rem;
     line-height: 1.35;
   }
 
@@ -691,7 +692,7 @@ input, textarea {
     display: flex;
     flex-wrap: wrap;
     gap: 0.75rem;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--cds-text-secondary);
   }
 
@@ -703,6 +704,50 @@ input, textarea {
 
   .kh-task-card__detail-icon {
     font-size: 0.9em;
+  }
+
+  .kh-task-card__link {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    margin-top: 0.15rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--cds-link-primary, #78a9ff);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--cds-focus, #78a9ff);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+  }
+
+  // Standalone "Open in Knowledge Hub" link for replies that reference a
+  // note/task/source outside a task-card block (see enrichSourceLinks()).
+  .kh-source-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    margin: 0.1em 0 0.5em;
+    padding: 0.3em 0.7em;
+    border-radius: 999px;
+    background: rgba(69, 137, 255, 0.14);
+    border: 1px solid rgba(69, 137, 255, 0.35);
+    color: #78a9ff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+
+    &:hover {
+      background: rgba(69, 137, 255, 0.22);
+      text-decoration: none;
+    }
   }
 
   pre {
