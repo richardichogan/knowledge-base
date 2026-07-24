@@ -2,17 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#161616" />
     <title>Knowledge Hub</title>
     <script>
-      // Kill any stale service workers immediately, before they can intercept requests.
+      // Register the (no-op, network-passthrough) service worker so Android
+      // Chrome's PWA install criteria are met, after first clearing out any
+      // old/stale registration from a previous deployment.
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function(regs) {
-          regs.forEach(function(r) { r.unregister(); });
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          regs.forEach(function (r) {
+            if (!r.active || r.active.scriptURL.indexOf('/sw.js') === -1) r.unregister();
+          });
+        });
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
         });
       }
     </script>
