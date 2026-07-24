@@ -628,6 +628,83 @@ input, textarea {
     color: #42be65;
   }
 
+  // Task summary cards injected by renderAssistantMessage() (AIChatPage.tsx)
+  // — replaces the old bold-title + "Status:/Priority:/..." plain-text wall
+  // with an actual bordered card per task, colour-coded by priority/overdue.
+  .kh-task-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    background: var(--cds-layer-01);
+    border: 1px solid var(--cds-border-subtle-01);
+    border-left: 3px solid var(--cds-border-subtle-01);
+    border-radius: 0.5rem;
+    padding: 0.75rem 0.875rem;
+    margin: 0 0 0.6em;
+
+    &--urgent, &--high {
+      border-left-color: #ff8389;
+    }
+
+    &--medium, &--normal {
+      border-left-color: #ffb84d;
+    }
+
+    &--low {
+      border-left-color: var(--cds-border-subtle-01);
+    }
+
+    &--overdue {
+      border-color: rgba(250, 77, 86, 0.35);
+      background: rgba(250, 77, 86, 0.06);
+    }
+  }
+
+  .kh-task-card__overdue-flag {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    padding: 0.05em 0.6em;
+    border-radius: 999px;
+    font-size: 0.75em;
+    font-weight: 600;
+    background: rgba(250, 77, 86, 0.14);
+    color: #ff8389;
+    border: 1px solid rgba(250, 77, 86, 0.35);
+  }
+
+  .kh-task-card__title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    line-height: 1.35;
+  }
+
+  .kh-task-card__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .kh-task-card__details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--cds-text-secondary);
+  }
+
+  .kh-task-card__detail {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+  }
+
+  .kh-task-card__detail-icon {
+    font-size: 0.9em;
+  }
+
   pre {
     background: var(--cds-layer-01);
     border: 1px solid var(--cds-border-subtle-00);
