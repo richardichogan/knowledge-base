@@ -8,7 +8,9 @@
  *   /think     → ThinkPage    (Notes)
  *   /library   → DocumentsPage
  *
- * AI Chat lives in a slide-over panel in AppShell (not a route).
+ * AI Chat lives in a slide-over panel in AppShell (not a route), plus a
+ * standalone full-screen route at /chat (no sidebar/nav) for use as a
+ * desktop PWA shortcut (see docs/local-chat-app.md).
  * Old routes redirect to preserve any bookmarks.
  */
 
@@ -28,6 +30,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { AutocueApp } from './features/autocue/AutocueApp';
 import { GraphPage } from './pages/GraphPage';
 import { GlobalContextMenuProvider } from './context/GlobalContextMenu';
+import { AIChatPage } from './pages/AIChatPage';
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -40,6 +43,9 @@ const App: React.FC = () => {
           <BrowserRouter>
             <Routes>
               <Route path="/autocue/*" element={<AutocueApp />} />
+              {/* Standalone full-screen chat, no sidebar/nav — for use as a
+                  desktop PWA shortcut (Edge/Chrome "install as app"). */}
+              <Route path="/chat" element={<AIChatPage />} />
               <Route path="/" element={<AppShell />}>
                 <Route index element={<Navigate to="/discover" replace />} />
                 <Route path="discover" element={<DiscoverPage />} />
