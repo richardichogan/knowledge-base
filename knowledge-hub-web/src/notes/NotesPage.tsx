@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
+import { UploadMarkdownModal } from './UploadMarkdownModal';
 import { fetchNotes, fetchNote, createNote, deleteNote } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
@@ -24,6 +25,7 @@ export const NotesPage: React.FC = () => {
   const [mode,             setMode]             = useState<ViewMode>('notes');
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
+  const [showUploadModal,  setShowUploadModal]  = useState(false);
 
   const { data: notes = [], isLoading, isError, refetch } = useQuery<NoteListItem[]>({
     queryKey: ['notes-list'],
@@ -92,6 +94,16 @@ export const NotesPage: React.FC = () => {
     }
   }
 
+  async function handleUploadDone(noteId: string | null, taskCount: number): Promise<void> {
+    setShowUploadModal(false);
+    await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+    if (taskCount > 0) await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    if (noteId !== null) {
+      setSelectedId(null); // force re-fetch via handleSelectNote
+      await handleSelectNote(noteId);
+    }
+  }
+
   function handleNoteSaved(updated: NoteDocument): void {
     setOpenDoc((prev) => {
       if (prev?.title !== updated.title) void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
@@ -137,6 +149,7 @@ export const NotesPage: React.FC = () => {
               />
               <div className="notes-list-footer">
                 <button className="kh-btn-accent" onClick={() => { void handleCreateNote(); }}>+ New note</button>
+                <button className="kh-btn-ghost" onClick={() => setShowUploadModal(true)}>⬆ Upload .md</button>
               </div>
             </>
           )}
@@ -199,6 +212,13 @@ export const NotesPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {showUploadModal && (
+        <UploadMarkdownModal
+          onClose={() => setShowUploadModal(false)}
+          onDone={(noteId, taskCount) => { void handleUploadDone(noteId, taskCount); }}
+        />
+      )}
     </div>
   );
 };
