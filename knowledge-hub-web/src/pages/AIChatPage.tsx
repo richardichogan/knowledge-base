@@ -154,6 +154,132 @@ function enrichAssistantText(text: string): string {
     .join('');
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Short, scannable date for card display, e.g. "24 Jul 2026" — distinct from
+// formatDateForSpeech() above, which spells the month out for TTS.
+function formatDueDateShort(due: string): string {
+  const m = due.match(/^\d{4}-\d{2}-\d{2}$/);
+  if (!m) return escapeHtml(due);
+  const d = new Date(`${due}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return escapeHtml(due);
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(d);
+}
+
+function statusChipHtml(status: string): string {
+  const s = status.toLowerCase();
+  if (s.includes('progress')) return '<span class="kh-chip kh-chip--info">🔵 In progress</span>';
+  if (s.includes('review')) return '<span class="kh-chip kh-chip--info">👀 To review</span>';
+  if (s.includes('backlog')) return '<span class="kh-chip kh-chip--neutral">📥 Backlog</span>';
+  if (s.includes('blocked')) return '<span class="kh-chip kh-chip--danger">⛔ Blocked</span>';
+  if (s.includes('done') || s.includes('complete')) return '<span class="kh-chip kh-chip--success">✅ Done</span>';
+  return `<span class="kh-chip kh-chip--neutral">${escapeHtml(status)}</span>`;
+}
+
+function priorityChipHtml(priority: string): string {
+  const p = priority.toLowerCase();
+  if (p === 'urgent') return '<span class="kh-chip kh-chip--danger">🔺 Urgent</span>';
+  if (p === 'high') return '<span class="kh-chip kh-chip--danger">🔴 High priority</span>';
+  if (p === 'medium' || p === 'normal') return '<span class="kh-chip kh-chip--warning">🟠 Medium priority</span>';
+  if (p === 'low') return '<span class="kh-chip kh-chip--neutral">⚪ Low priority</span>';
+  return `<span class="kh-chip kh-chip--neutral">${escapeHtml(priority)}</span>`;
+}
+
+// A single task summary block — "**Title**" followed by Status:/Priority:/
+// Project:/Due: lines — rendered as a proper card rather than a wall of bold
+// text and colons, so dense task-list replies are actually scannable.
+function buildTaskCardHtml(title: string, fields: Record<string, string>, overdue: boolean): string {
+  const priorityClass = fields.priority ? ` kh-task-card--${fields.priority.toLowerCase()}` : '';
+  const overdueClass = overdue ? ' kh-task-card--overdue' : '';
+  const metaRow = [
+    fields.status ? statusChipHtml(fields.status) : '',
+    fields.priority ? priorityChipHtml(fields.priority) : '',
+  ].filter(Boolean).join('');
+  const detailRow = [
+    fields.project
+      ? `<span class="kh-task-card__detail"><span class="kh-task-card__detail-icon">📁</span>${escapeHtml(fields.project)}</span>`
+      : '',
+    fields.due
+      ? `<span class="kh-task-card__detail"><span class="kh-task-card__detail-icon">📅</span>${formatDueDateShort(fields.due)}</span>`
+      : '',
+  ].filter(Boolean).join('');
+  return [
+    `<div class="kh-task-card${priorityClass}${overdueClass}">`,
+    overdue ? '<span class="kh-task-card__overdue-flag">⚠️ Overdue</span>' : '',
+    `<div class="kh-task-card__title">${escapeHtml(title)}</div>`,
+    metaRow ? `<div class="kh-task-card__meta">${metaRow}</div>` : '',
+    detailRow ? `<div class="kh-task-card__details">${detailRow}</div>` : '',
+    '</div>',
+  ].filter(Boolean).join('');
+}
+
+const TASK_TITLE_RE = /^\*\*(.+?)\*\*\s*$/;
+const TASK_FIELD_RE = /^(Status|Priority|Project|Due)\s*:\s*(.+)$/i;
+const TASK_OVERDUE_RE = /^(?:⚠️\s*)?overdue\s*$/i;
+
+// Scans assistant text line-by-line for task-summary blocks and swaps them
+// for real cards, running everything else through the normal markdown +
+// chip pipeline unchanged.
+function renderAssistantMessage(raw: string): string {
+  const lines = raw.split('\n');
+  const htmlParts: string[] = [];
+  let textBuf: string[] = [];
+
+  const flushText = () => {
+    if (textBuf.length > 0) {
+      htmlParts.push(renderMarkdown(enrichAssistantText(textBuf.join('\n'))));
+      textBuf = [];
+    }
+  };
+
+  let i = 0;
+  while (i < lines.length) {
+    let idx = i;
+    let overdue = false;
+    if (TASK_OVERDUE_RE.test((lines[idx] ?? '').trim())) {
+      overdue = true;
+      idx += 1;
+    }
+    const titleMatch = TASK_TITLE_RE.exec((lines[idx] ?? '').trim());
+    if (titleMatch) {
+      const fields: Record<string, string> = {};
+      let j = idx + 1;
+      while (j < lines.length) {
+        const l = (lines[j] ?? '').trim();
+        const fieldMatch = TASK_FIELD_RE.exec(l);
+        if (fieldMatch) {
+          fields[fieldMatch[1]!.toLowerCase()] = fieldMatch[2]!.trim();
+          j += 1;
+          continue;
+        }
+        if (TASK_OVERDUE_RE.test(l)) {
+          overdue = true;
+          j += 1;
+          continue;
+        }
+        break;
+      }
+      if (Object.keys(fields).length >= 2) {
+        flushText();
+        htmlParts.push(buildTaskCardHtml(titleMatch[1] ?? '', fields, overdue));
+        i = j;
+        continue;
+      }
+    }
+    textBuf.push(lines[i] ?? '');
+    i += 1;
+  }
+  flushText();
+
+  return htmlParts.join('\n');
+}
+
 export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -495,7 +621,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
                 <div
                   className="ai-bubble-text ai-bubble-text--md"
                   // eslint-disable-next-line react/no-danger
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(enrichAssistantText(msg.content)) }}
+                  dangerouslySetInnerHTML={{ __html: renderAssistantMessage(msg.content) }}
                 />
               )}
             </div>
