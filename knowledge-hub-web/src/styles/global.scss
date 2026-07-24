@@ -798,11 +798,29 @@ input, textarea {
   align-items: center;
 }
 
+// The text field now hosts the attach + mic buttons inside itself (pill
+// search-bar style) instead of as separate buttons beside it — saves
+// horizontal space, especially on mobile.
 .ai-input-field {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--cds-field);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 1.5rem;
+  padding: 0 0.25rem 0 0.25rem;
 
   .cds--text-input {
     height: 2.5rem;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  .cds--form-item {
+    flex: 1;
+    min-width: 0;
   }
 }
 
@@ -810,21 +828,27 @@ input, textarea {
   display: none;
 }
 
-.ai-attach-button.cds--btn.cds--btn--icon-only,
-.ai-mic-button.cds--btn.cds--btn--icon-only {
+.ai-attach-button--inline.cds--btn.cds--btn--icon-only,
+.ai-mic-button--inline.cds--btn.cds--btn--icon-only {
   flex-shrink: 0;
-  height: 2.5rem;
-  min-height: 2.5rem;
+  width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  border-radius: 50%;
 
   &.cds--btn--danger {
     animation: ai-mic-pulse 1.4s ease-in-out infinite;
   }
 }
 
-.ai-input-row > .cds--btn:not(.cds--btn--icon-only) {
+.ai-send-button.cds--btn.cds--btn--icon-only {
   flex-shrink: 0;
+  width: 2.5rem;
   height: 2.5rem;
   min-height: 2.5rem;
+  border-radius: 50%;
+  padding: 0;
+  justify-content: center;
 }
 
 @keyframes ai-mic-pulse {
@@ -916,17 +940,11 @@ input, textarea {
   .ai-input-row {
     flex-shrink: 0;
     margin-top: 0.875rem;
-    padding: 0.5rem 0.5rem 0.5rem 0.875rem;
-    background: var(--cds-layer-01);
-    border: 1px solid var(--cds-border-subtle-01);
-    border-radius: 0.75rem;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   }
 
-  .ai-input-field .cds--text-input {
-    background: transparent;
-    border: none;
-    box-shadow: none;
+  .ai-input-field {
+    background: var(--cds-layer-01);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   }
 }
 
