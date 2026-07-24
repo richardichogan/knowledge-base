@@ -655,18 +655,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             className="ai-file-input-hidden"
             onChange={(e) => { void handleFileSelected(e); }}
           />
-          <Button
-            type="button"
-            kind="ghost"
-            hasIconOnly
-            renderIcon={Attachment}
-            iconDescription="Attach a Markdown file"
-            tooltipPosition="top"
-            className="ai-attach-button"
-            onClick={handleAttachClick}
-            disabled={chatMutation.isPending}
-          />
           <div className="ai-input-field">
+            <Button
+              type="button"
+              kind="ghost"
+              hasIconOnly
+              size="sm"
+              renderIcon={Attachment}
+              iconDescription="Attach a Markdown file"
+              tooltipPosition="top"
+              className="ai-attach-button ai-attach-button--inline"
+              onClick={handleAttachClick}
+              disabled={chatMutation.isPending}
+            />
             <TextInput
               id="ai-chat-input"
               labelText=""
@@ -677,26 +678,28 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               disabled={chatMutation.isPending}
               autoFocus
             />
+            <Button
+              type="button"
+              kind={isRecording ? 'danger' : 'ghost'}
+              hasIconOnly
+              size="sm"
+              renderIcon={isRecording ? StopFilled : Microphone}
+              iconDescription={isRecording ? 'Stop recording' : 'Voice input'}
+              tooltipPosition="top"
+              className="ai-mic-button ai-mic-button--inline"
+              onClick={handleMicClick}
+              disabled={chatMutation.isPending || isTranscribing}
+            />
           </div>
           <Button
-            type="button"
-            kind={isRecording ? 'danger' : 'ghost'}
-            hasIconOnly
-            renderIcon={isRecording ? StopFilled : Microphone}
-            iconDescription={isRecording ? 'Stop recording' : 'Voice input'}
-            tooltipPosition="top"
-            className="ai-mic-button"
-            onClick={handleMicClick}
-            disabled={chatMutation.isPending || isTranscribing}
-          />
-          <Button
             type="submit"
+            hasIconOnly
             renderIcon={Send}
             iconDescription="Send"
+            tooltipPosition="top"
+            className="ai-send-button"
             disabled={chatMutation.isPending || input.trim() === ''}
-          >
-            Send
-          </Button>
+          />
         </form>
       </div>
     </div>
