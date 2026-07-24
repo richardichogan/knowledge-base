@@ -146,12 +146,22 @@ function enrichAssistantText(text: string): string {
     .map((part, i) => {
       if (i % 2 === 1) return part; // fenced code block — leave as-is
       let out = enrichOverdueBanner(part);
+      out = enrichSourceLinks(out);
       for (const [re, replacement] of STATUS_CHIP_RULES) {
         out = out.replace(re, replacement);
       }
       return out;
     })
     .join('');
+}
+
+// Turns a standalone "Link: <url>" line (e.g. after a create_note_draft
+// reply) into a clickable button instead of a raw, awkward-to-read URL —
+// only used for links that fall outside a task card block (see
+// buildTaskCardHtml for the in-card version).
+function enrichSourceLinks(text: string): string {
+  return text.replace(/^Link:\s*(\S+)\s*$/gim, (_m, url: string) =>
+    `<a class="kh-source-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">🔗 Open in Knowledge Hub</a>`);
 }
 
 function escapeHtml(s: string): string {
@@ -215,12 +225,15 @@ function buildTaskCardHtml(title: string, fields: Record<string, string>, overdu
     `<div class="kh-task-card__title">${escapeHtml(title)}</div>`,
     metaRow ? `<div class="kh-task-card__meta">${metaRow}</div>` : '',
     detailRow ? `<div class="kh-task-card__details">${detailRow}</div>` : '',
+    fields.link
+      ? `<a class="kh-task-card__link" href="${escapeHtml(fields.link)}" target="_blank" rel="noreferrer">Open in Knowledge Hub →</a>`
+      : '',
     '</div>',
   ].filter(Boolean).join('');
 }
 
 const TASK_TITLE_RE = /^\*\*(.+?)\*\*\s*$/;
-const TASK_FIELD_RE = /^(Status|Priority|Project|Due)\s*:\s*(.+)$/i;
+const TASK_FIELD_RE = /^(Status|Priority|Project|Due|Link)\s*:\s*(.+)$/i;
 const TASK_OVERDUE_RE = /^(?:⚠️\s*)?overdue\s*$/i;
 
 // Scans assistant text line-by-line for task-summary blocks and swaps them

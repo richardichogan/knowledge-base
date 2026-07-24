@@ -22,6 +22,7 @@ import { rowToTask, type Task } from '../routes/tasks.js';
 import { buildLibrary, CONTENT_STORE } from '../routes/documents.js';
 import { GitHubClient } from '../integrations/github/githubClient.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
+import { env } from '../config/env.js';
 
 const TASK_STATUSES = ['backlog', 'in-progress', 'blocked', 'awaiting-feedback', 'completed'] as const;
 const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
@@ -313,6 +314,9 @@ function summariseTask(task: Task): Record<string, unknown> {
     priority: task.priority,
     projectId: task.projectId,
     dueDate: task.dueDate,
+    // Deep link back into the Plan board — lets chat replies point at the
+    // actual task in the app instead of just naming it in plain text.
+    url: `${env.FRONTEND_BASE_URL}/plan?taskId=${task.id}`,
   };
 }
 
@@ -454,5 +458,14 @@ async function createNoteDraft(db: Pool, args: Record<string, unknown>): Promise
   const wrapper = { title, contentType, contentJson: JSON.stringify(blocks) };
 
   const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), tags: [] });
-  return { success: true, note: { id: note.id, title, contentType } };
+  return {
+    success: true,
+    note: {
+      id: note.id,
+      title,
+      contentType,
+      // Deep link back into the Think library — same pattern as summariseTask().
+      url: `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`,
+    },
+  };
 }

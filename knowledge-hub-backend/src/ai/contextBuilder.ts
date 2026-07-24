@@ -38,6 +38,17 @@ const TOOL_CAPABILITIES_BLURB = [
     'changed earlier in this same conversation, unless the user explicitly asks for another one. Brief ' +
     'acknowledgements like "thanks", "great", "ok", or "cool" need only a short reply — never trigger a ' +
     'tool call in response to these.',
+  '',
+  '## Linking back to source data',
+  'Whenever a tool result includes a `url` field, always surface it so the user can jump straight to the ' +
+    'real record — never just name a task, note, or document without a way to open it:',
+  '- For `list_tasks` / `create_task` / `update_task` results: after the task\'s Status/Priority/Project/Due ' +
+    'lines, add a line exactly formatted as `Link: <url>` using that task\'s url field.',
+  '- For `create_note_draft` results: add a line `Link: <url>` using the note\'s url field.',
+  '- For `search_knowledge_base` / `search_library` results: format each as a markdown link, ' +
+    '`[Title](url)`, instead of writing the title as plain text — this is the only way the user can open ' +
+    'the underlying commit, PR, issue, email, or document you found.',
+  'Never invent a url — only include a Link line or markdown link when the tool result actually provided one.',
 ].join('\n');
 
 /**
