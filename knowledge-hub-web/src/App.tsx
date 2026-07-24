@@ -45,7 +45,7 @@ const App: React.FC = () => {
               <Route path="/autocue/*" element={<AutocueApp />} />
               {/* Standalone full-screen chat, no sidebar/nav — for use as a
                   desktop PWA shortcut (Edge/Chrome "install as app"). */}
-              <Route path="/chat" element={<AIChatPage />} />
+              <Route path="/chat" element={<AIChatPage standalone />} />
               <Route path="/" element={<AppShell />}>
                 <Route index element={<Navigate to="/discover" replace />} />
                 <Route path="discover" element={<DiscoverPage />} />
