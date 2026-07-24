@@ -194,6 +194,287 @@ input, textarea {
   padding-top: 0.5rem;
 }
 
+// ── Upload markdown modal (.umd-) — file upload + AI task extraction preview ──
+
+.umd-panel {
+  width: 640px;
+  max-width: calc(100vw - 3rem);
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+}
+
+.umd-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+  border: 2px dashed var(--cds-border-subtle-01);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms;
+
+  &:hover, &:focus-visible {
+    border-color: var(--kh-accent);
+    background: rgba(61, 219, 217, 0.04);
+    outline: none;
+  }
+}
+
+.umd-dropzone--active {
+  border-color: var(--kh-accent);
+  background: rgba(61, 219, 217, 0.08);
+}
+
+.umd-dropzone-icon { color: var(--cds-text-secondary); }
+
+.umd-dropzone-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cds-text-primary);
+  margin: 0;
+}
+
+.umd-dropzone-hint {
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+  margin: 0;
+}
+
+.umd-file-input { display: none; }
+
+.umd-analyzing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--cds-text-secondary);
+  font-size: 0.875rem;
+}
+
+.umd-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--cds-border-subtle-01);
+  border-top-color: var(--kh-accent);
+  animation: umd-spin 0.8s linear infinite;
+}
+
+@keyframes umd-spin {
+  to { transform: rotate(360deg); }
+}
+
+.umd-doc-summary {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.umd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+
+  &:first-child { flex: 2; }
+  &:last-child { flex: 1; }
+}
+
+.umd-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cds-text-secondary);
+}
+
+.umd-input, .umd-select {
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+  color: var(--cds-text-primary);
+  padding: 0.5rem 0.625rem;
+  font-size: 0.875rem;
+  border-radius: 4px;
+  outline: none;
+
+  &:focus { border-color: var(--kh-accent); }
+}
+
+.umd-error {
+  font-size: 0.8125rem;
+  color: var(--cds-support-error);
+  background: rgba(250, 77, 86, 0.1);
+  border: 1px solid rgba(250, 77, 86, 0.3);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.umd-tasks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--cds-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.umd-tasks-count {
+  font-weight: 400;
+  color: var(--cds-text-secondary);
+}
+
+.umd-no-tasks {
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+  padding: 0.75rem;
+  background: var(--cds-layer-01);
+  border-radius: 4px;
+  margin: 0;
+}
+
+.umd-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.umd-task-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.625rem;
+  background: var(--cds-layer-01);
+  border: 1px solid var(--cds-border-subtle-00);
+  border-radius: 6px;
+  opacity: 0.55;
+  transition: opacity 100ms, border-color 100ms;
+}
+
+.umd-task-card--selected {
+  opacity: 1;
+  border-color: var(--kh-accent-border);
+}
+
+.umd-task-toggle {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 50%;
+  color: var(--cds-text-disabled);
+  cursor: pointer;
+  padding: 0;
+  margin-top: 0.125rem;
+
+  .umd-task-card--selected & {
+    color: var(--kh-accent);
+    border-color: var(--kh-accent);
+    background: var(--kh-accent-bg);
+  }
+}
+
+.umd-task-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.umd-task-title {
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  color: var(--cds-text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.125rem 0;
+  outline: none;
+
+  &:focus { border-bottom-color: var(--kh-accent); }
+}
+
+.umd-task-desc {
+  background: none;
+  border: none;
+  color: var(--cds-text-secondary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  resize: none;
+  padding: 0;
+  outline: none;
+}
+
+.umd-task-meta-row {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.umd-task-priority, .umd-task-project, .umd-task-due {
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+  color: var(--cds-text-secondary);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.umd-task-priority--urgent { color: #ff8389; border-color: rgba(250, 77, 86, 0.4); }
+.umd-task-priority--high   { color: #ffb84d; border-color: rgba(255, 131, 43, 0.4); }
+.umd-task-priority--normal { color: #78a9ff; border-color: rgba(69, 137, 255, 0.4); }
+.umd-task-priority--low    { color: var(--cds-text-secondary); }
+
+.umd-task-remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--cds-text-disabled);
+  cursor: pointer;
+  padding: 0.25rem;
+  margin-top: 0.125rem;
+
+  &:hover { color: #ff8389; }
+}
+
+.umd-btn-primary {
+  padding: 0.5rem 1.125rem;
+  background: var(--kh-accent);
+  color: #08211f;
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  cursor: pointer;
+
+  &:hover { background: #4ef0ec; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+.umd-btn-secondary {
+  padding: 0.5rem 1.125rem;
+  background: none;
+  border: 1px solid var(--cds-border-subtle-01);
+  color: var(--cds-text-primary);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+
+  &:hover { border-color: var(--cds-text-secondary); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
 // ── Active nav item — teal left border (kept for any legacy SideNav remnants) ─
 .cds--side-nav__link--current,
 .cds--side-nav__link[aria-current='page'] {
@@ -202,6 +483,7 @@ input, textarea {
   background: rgba(61, 219, 217, 0.06) !important;
   color: #f4f4f4 !important;
 }
+
 
 // ── Horizontal top navigation ─────────────────────────────────────────────────
 
@@ -2165,6 +2447,13 @@ input, textarea {
   padding: 0.75rem 1rem;
   border-top: 1px solid var(--cds-border-subtle-00);
   flex-shrink: 0;
+  display: flex;
+  gap: 0.5rem;
+
+  button {
+    flex: 1;
+    justify-content: center;
+  }
 }
 
 // ── Mode switcher ─────────────────────────────────────────────────────────────

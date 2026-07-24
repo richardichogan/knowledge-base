@@ -13,6 +13,7 @@ export interface CreateTaskInput {
   projectContext?: string;
   projectId?: string;
   status?: TaskStatus;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
   tags?: string[];
   taxonomyTagIds?: string[];
   dueDate?: string;
