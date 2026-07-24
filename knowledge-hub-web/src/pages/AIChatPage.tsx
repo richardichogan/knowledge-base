@@ -12,7 +12,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, WriteActionProposal } from '../types';
@@ -168,6 +168,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const streamRef = useRef<MediaStream | null>(null);
   const pcmChunksRef = useRef<Float32Array[]>([]);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
   function stopTts(): void {
@@ -268,6 +269,39 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     appendMessage('user', text);
     setInput('');
     chatMutation.mutate(text);
+  }
+
+  function handleAttachClick(): void {
+    fileInputRef.current?.click();
+  }
+
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+    if (!/\.(md|markdown)$/i.test(file.name)) {
+      appendMessage('assistant', '⚠️ Please attach a Markdown (.md) file — podcast notes, a newsletter draft, etc.');
+      return;
+    }
+    const text = (await file.text()).trim();
+    if (text === '') {
+      appendMessage('assistant', `⚠️ "${file.name}" looks empty — there's nothing to add.`);
+      return;
+    }
+    appendMessage('user', `📎 Uploaded ${file.name}`);
+    // The AI's own create_note_draft / create_task tools do the real work here —
+    // no separate preview modal, this rides the same chat + tool-calling flow
+    // as every other message.
+    const prompt = [
+      `I'm attaching a markdown file named "${file.name}" — likely podcast notes, a newsletter draft, or similar source material. Please:`,
+      '1. Save the full content to my Think library as a new note (use create_note_draft), choosing a sensible title and the best-fitting content type.',
+      "2. If the content implies any concrete action items, create them as tasks (use create_task) — use your judgement, most notes won't need any.",
+      '3. Reply with a brief, conversational summary: what you titled/saved the note as, and any tasks you created (or say you created none). Do not repeat the raw file content back to me.',
+      '',
+      `--- ${file.name} ---`,
+      text.slice(0, 12000),
+    ].join('\n');
+    chatMutation.mutate(prompt);
   }
 
   function handleNewChat(): void {
@@ -475,6 +509,24 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         </Tile>
 
         <form onSubmit={handleSend} className="ai-input-row">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".md,.markdown,text/markdown"
+            className="ai-file-input-hidden"
+            onChange={(e) => { void handleFileSelected(e); }}
+          />
+          <Button
+            type="button"
+            kind="ghost"
+            hasIconOnly
+            renderIcon={Attachment}
+            iconDescription="Attach a Markdown file"
+            tooltipPosition="top"
+            className="ai-attach-button"
+            onClick={handleAttachClick}
+            disabled={chatMutation.isPending}
+          />
           <div className="ai-input-field">
             <TextInput
               id="ai-chat-input"
