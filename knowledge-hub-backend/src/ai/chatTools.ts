@@ -202,6 +202,11 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
       title: item.title,
       summary: item.summary,
       publishedAt: item.publishedAt,
+      // For PRs/issues/MRs/pipelines/deployments this is when the item was
+      // created, not when it was last worked on — metadata.updatedAt (surfaced
+      // below as lastActivityAt) is the source's own last-touched timestamp
+      // and is what "what's new"/"recent activity" questions should use.
+      lastActivityAt: (item.metadata as { updatedAt?: string } | null)?.updatedAt ?? item.publishedAt,
       url: item.url ?? null,
     })),
   };

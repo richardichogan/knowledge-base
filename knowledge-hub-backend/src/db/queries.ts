@@ -31,6 +31,16 @@ const SOURCE_RANK_WEIGHT_SQL = `
   END
 `;
 
+// For long-lived resources (PRs, issues, MRs, pipelines, deployments) the
+// sync layer stashes the source's own last-updated timestamp in
+// metadata.updatedAt (see pullRequestsSync/issuesSync/mergeRequestsSync
+// etc.), because `published_at` is fixed at creation time and never moves —
+// a PR opened last week but pushed to again this morning would otherwise
+// look stale to any "what's new/recent" query. Falling back to published_at
+// keeps this correct for point-in-time events (commits, notes) that don't
+// have a separate updatedAt.
+const ACTIVITY_AT_SQL = `COALESCE(NULLIF(metadata->>'updatedAt', '')::timestamptz, published_at)`;
+
 // ── Content items ─────────────────────────────────────────────────────────────
 
 /**
@@ -247,7 +257,7 @@ export async function getRagItems(
             ts_rank(search_vector, plainto_tsquery('english', $1)) * ${SOURCE_RANK_WEIGHT_SQL} AS rank
      FROM content_items
      WHERE search_vector @@ plainto_tsquery('english', $1)
-     ORDER BY rank DESC, published_at DESC
+     ORDER BY rank DESC, ${ACTIVITY_AT_SQL} DESC
      LIMIT $2`,
     [query, limit],
   );
@@ -281,7 +291,7 @@ export async function getRagItems(
             ts_rank(search_vector, to_tsquery('english', $1)) * ${SOURCE_RANK_WEIGHT_SQL} AS rank
      FROM content_items
      WHERE search_vector @@ to_tsquery('english', $1)
-     ORDER BY rank DESC, published_at DESC
+     ORDER BY rank DESC, ${ACTIVITY_AT_SQL} DESC
      LIMIT $2`,
     [orQuery, limit],
   );

@@ -85,7 +85,11 @@ const TOOL_CAPABILITIES_BLURB = [
     'the RAG snippets alone if the question needs more detail — search again with more specific terms. If a ' +
     'multi-word query returns nothing, retry with just the core keyword (e.g. "imagine" not "project imagine").' +
     ' Every project has real, extensive activity indexed here — a "not found" result almost always means the ' +
-    'query was too narrow, not that the content doesn\'t exist.',
+    'query was too narrow, not that the content doesn\'t exist. For "what\'s new"/"recent activity" questions ' +
+    'about PRs, issues, or merge requests, judge recency by `lastActivityAt`, not `publishedAt` — ' +
+    '`publishedAt` is fixed at creation time, so a PR opened last week but pushed to again this morning still ' +
+    'shows an old publishedAt; `lastActivityAt` reflects when it was actually last touched and is what tells ' +
+    'you whether there has been fresh activity.',
   '- `search_library`: call this for questions about formal documentation, specs, READMEs, or architecture ' +
     'docs for a project — search_knowledge_base does not cover these files. Pass projectId to scope to one ' +
     'project (e.g. "imagine").',
