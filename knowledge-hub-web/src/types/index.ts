@@ -20,6 +20,7 @@ export type {
   ChatRequest,
   ChatMessage,
   ChatResponse,
+  ChatSessionSummary,
   WriteActionType,
   WriteActionProposal,
 } from './ai';

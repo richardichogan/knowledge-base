@@ -943,11 +943,125 @@ input, textarea {
 .ai-chat-standalone {
   height: 100vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   background:
     radial-gradient(circle at 18% 8%, rgba(61, 219, 217, 0.06), transparent 45%),
     var(--cds-background);
   overflow: hidden;
+}
+
+.ai-chat-standalone__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+// Chat history sidebar (standalone window only) — lists past Athena
+// sessions so the user can pick up an old conversation without losing the
+// thread of whatever else they're working on ("New chat" resets, doesn't
+// destroy prior chats).
+.kh-chat-sidebar {
+  flex-shrink: 0;
+  width: 260px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: calc(0.875rem + env(safe-area-inset-top)) 0.75rem 0.875rem;
+  background: var(--cds-layer-01);
+  border-right: 1px solid var(--cds-border-subtle-01);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.kh-chat-sidebar__new {
+  width: 100%;
+  justify-content: center;
+  border-color: var(--kh-accent);
+  color: var(--kh-accent);
+
+  &:hover {
+    background: rgba(61, 219, 217, 0.08);
+  }
+}
+
+.kh-chat-sidebar__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.kh-chat-sidebar__empty {
+  padding: 0.75rem 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+  line-height: 1.4;
+}
+
+.kh-chat-sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+
+  &:hover {
+    background: var(--cds-layer-hover-01);
+
+    .kh-chat-sidebar__delete {
+      opacity: 1;
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--kh-accent);
+    outline-offset: -2px;
+  }
+}
+
+.kh-chat-sidebar__item--active {
+  background: rgba(61, 219, 217, 0.12);
+
+  &:hover {
+    background: rgba(61, 219, 217, 0.16);
+  }
+
+  .kh-chat-sidebar__item-title {
+    color: var(--kh-accent);
+  }
+}
+
+.kh-chat-sidebar__item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.kh-chat-sidebar__item-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--cds-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kh-chat-sidebar__item-time {
+  font-size: 0.6875rem;
+  color: var(--cds-text-secondary);
+  margin-top: 0.125rem;
+}
+
+.kh-chat-sidebar__delete {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
 
 .ai-chat-standalone__topbar {

@@ -38,3 +38,11 @@ export interface ChatResponse {
   sessionId: string;
   pendingActions: WriteActionProposal[];
 }
+
+export interface ChatSessionSummary {
+  id: string;
+  title: string;
+  startedAt: string;
+  updatedAt: string;
+  preview: string;
+}

@@ -11,6 +11,7 @@ import type {
   ChatRequest,
   ChatResponse,
   ChatMessage,
+  ChatSessionSummary,
   CreateTaskInput,
   CreateNoteInput,
   Note,
@@ -392,6 +393,18 @@ export class KnowledgeHubApi {
     const r = await this.client.get<ApiResponse<{ sessionId: string; messages: ChatMessage[] }>>(
       `/api/ai/session/${sessionId}/history`,
     );
+    return r.data;
+  }
+
+  /** Lists past chat sessions for the sidebar, most recently active first. */
+  async listChatSessions(): Promise<ApiResponse<{ sessions: ChatSessionSummary[] }>> {
+    const r = await this.client.get<ApiResponse<{ sessions: ChatSessionSummary[] }>>('/api/ai/sessions');
+    return r.data;
+  }
+
+  /** Deletes a chat session and its messages. */
+  async deleteChatSession(sessionId: string): Promise<ApiResponse<{ deleted: true }>> {
+    const r = await this.client.delete<ApiResponse<{ deleted: true }>>(`/api/ai/session/${sessionId}`);
     return r.data;
   }
 
