@@ -2577,6 +2577,11 @@ input, textarea {
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin: 0 0 0.5rem;
+
+  &--empty {
+    color: var(--cds-text-placeholder);
+    font-style: italic;
+  }
 }
 
 .notes-list-item-bottom {
@@ -3686,6 +3691,47 @@ input, textarea {
   border-bottom: 1px solid var(--cds-border-subtle-00);
 
   &:last-child { border-bottom: none; margin-bottom: 0; }
+}
+
+// ── Collapsible section (generic — metadata panel, and reusable elsewhere) ───
+
+.collapsible-section {
+  border-bottom: 1px solid var(--cds-border-subtle-00);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+
+  &:last-of-type { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+}
+
+.collapsible-section__header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0 0 0.5rem;
+  cursor: pointer;
+  color: #6f6f6f;
+
+  &:hover { color: var(--cds-text-primary); }
+}
+
+.collapsible-section__label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.collapsible-section__body {
+  .notes-meta-section {
+    border-bottom: none;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0;
+
+    &:last-child { margin-bottom: 0; }
+  }
 }
 
 .notes-meta-section-label {
@@ -7282,7 +7328,23 @@ $project-colour-map: (
   flex-shrink: 0;
 }
 
-.conn-item__reason { font-size: 0.75rem; color: var(--cds-text-helper); margin: 0; }
+.conn-item__reason {
+  font-size: 0.75rem;
+  color: var(--cds-text-helper);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  // Expand to the full (wrapped) reason text on hover/keyboard focus so the
+  // AI-generated "thematically related" explanation stays available on demand
+  // without keeping every row multi-line by default.
+  .conn-item:hover &,
+  .conn-item:focus-visible & {
+    white-space: normal;
+    overflow: visible;
+  }
+}
 .conn-item__dots { display: flex; gap: 3px; margin-top: 2px; }
 
 .conn-item__dot {

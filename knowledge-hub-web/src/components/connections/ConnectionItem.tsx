@@ -46,7 +46,7 @@ export const ConnectionItem: React.FC<ConnectionItemProps> = ({ edge, onClick })
         <span className={`conn-item__type conn-item__type--${edge.connectedNode.refType}`}>{label}</span>
       </div>
       {reason !== undefined && (
-        <p className="conn-item__reason">{reason}</p>
+            <p className="conn-item__reason" title={reason}>{reason}</p>
       )}
       {dots !== null && (
         <div className="conn-item__dots" aria-label={`Confidence: ${Math.round(edge.confidence * 100)}%`}>

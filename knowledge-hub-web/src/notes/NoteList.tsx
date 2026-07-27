@@ -87,6 +87,12 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
     if (bKey === '__none__') return -1;
     return a.label.localeCompare(b.label);
   });
+  // Within each group, sort by modification date descending. The API's own
+  // ordering (created_at) is not a reliable proxy for "most recently edited",
+  // so this must be re-applied client-side after grouping rather than trusted.
+  for (const [, group] of sortedGroups) {
+    group.notes.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
 
   return (
     <>
@@ -213,8 +219,10 @@ const NoteCard: React.FC<{
         <TrashCan size={14} />
       </button>
       <div className="notes-list-item-title">{note.title}</div>
-      {snippet !== '' && (
+      {snippet !== '' ? (
         <p className="notes-list-item-preview">{snippet}</p>
+      ) : (
+        <p className="notes-list-item-preview notes-list-item-preview--empty">No content</p>
       )}
       <div className="notes-list-item-bottom">
         <span className="notes-list-item-date">{formatDate(note.updatedAt)}</span>

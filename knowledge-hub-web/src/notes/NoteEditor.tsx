@@ -21,13 +21,11 @@ import {
   SAVED_BANNER_DURATION_MS,
   BLOCKNOTE_G100_THEME,
   UNTITLED_DOCUMENT,
-  CONTENT_TYPE_OPTIONS,
 } from './constants';
 import type { ContentType } from './constants';
 import type { NoteDocument } from './types';
 import { useNoteTags, useSetNoteTags, useFlatTags } from '../hooks/useTaxonomy';
-import { TagPicker } from '../components/TagPicker';
-import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { MetadataPanel } from './MetadataPanel';
 
 interface NoteEditorProps {
   doc: NoteDocument;
@@ -112,12 +110,6 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   }
 
   return { isCode: false, language: 'text', formatted: text };
-}
-
-function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ', ' +
-    d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }) => {
@@ -595,81 +587,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
       </div>
 
       {/* Right: metadata panel */}
-      <div className="notes-meta-panel">
-        <div className="notes-meta-section">
-          <p className="notes-meta-section-label">Content type</p>
-          <select
-            title="Content type"
-            className="notes-meta-type-select"
-            value={contentType}
-            onChange={(e) => { setContentType(e.target.value as ContentType); isDirtyRef.current = true; }}
-          >
-            {CONTENT_TYPE_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="notes-meta-section">
-          <p className="notes-meta-section-label">Created</p>
-          <p className="notes-meta-section-value">{formatDateTime(doc.createdAt)}</p>
-        </div>
-
-        <div className="notes-meta-section">
-          <p className="notes-meta-section-label">Modified</p>
-          <p className="notes-meta-section-value">{formatDateTime(doc.updatedAt)}</p>
-        </div>
-
-        <div className="notes-meta-section">
-          <p className="notes-meta-section-label">Tags</p>
-          <div className="notes-meta-tags-chips">
-            {appliedTags.map((t) => (
-              <span key={t.id} className="notes-meta-tag-chip">{t.name}</span>
-            ))}
-            <TagPicker
-              selectedIds={taxonomyTagIds}
-              onChange={(ids) => { void setNoteTagsMutation.mutate(ids); }}
-              trigger={<button className="notes-tag-picker-trigger">+ Add tag</button>}
-            />
-          </div>
-        </div>
-
-        <div className="notes-meta-section">
-          <p className="notes-meta-section-label">Stats</p>
-          <div className="notes-meta-stat-row">
-            <span className="notes-meta-stat-label">Words</span>
-            <span className="notes-meta-stat-value">{wordCount}</span>
-          </div>
-          <div className="notes-meta-stat-row">
-            <span className="notes-meta-stat-label">Reading time</span>
-            <span className="notes-meta-stat-value">{readingTime} min</span>
-          </div>
-          <div className="notes-meta-stat-row">
-            <span className="notes-meta-stat-label">Blocks</span>
-            <span className="notes-meta-stat-value">{blockCount}</span>
-          </div>
-        </div>
-
-        <div className="notes-meta-section">
-          <p className="notes-meta-section-label">GitHub</p>
-          <div className="notes-meta-gh-status">
-            <div className="notes-meta-gh-dot" ref={(el) => { if (el) el.style.background = ghDotColor; }} />
-            <div>
-              <span className="notes-meta-gh-heading">{ghStatus === 'synced' ? 'Synced' : 'Not pushed'}</span>
-              <span className="notes-meta-gh-text">
-                {ghStatus === 'synced' ? githubPath : 'Push to content-store to sync'}
-              </span>
-            </div>
-          </div>
-          <button className="kh-btn-accent notes-meta-gh-push" onClick={() => { setGithubModalOpen(true); }}>
-            ↑ Push to content-store
-          </button>
-        </div>
-
-        <div className="notes-meta-section notes-meta-section--connections">
-          <ConnectionsPanel refId={doc.id} refType="note" />
-        </div>
-      </div>
+      <MetadataPanel
+        doc={doc}
+        contentType={contentType}
+        onContentTypeChange={(value) => { setContentType(value); isDirtyRef.current = true; }}
+        taxonomyTagIds={taxonomyTagIds}
+        appliedTags={appliedTags}
+        onTagIdsChange={(ids) => { void setNoteTagsMutation.mutate(ids); }}
+        wordCount={wordCount}
+        readingTime={readingTime}
+        blockCount={blockCount}
+        ghStatus={ghStatus}
+        ghDotColor={ghDotColor}
+        githubPath={githubPath}
+        onPushToGitHub={() => { setGithubModalOpen(true); }}
+      />
 
       <GitHubModal
         open={githubModalOpen}
