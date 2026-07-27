@@ -11,6 +11,7 @@ import { getDb } from '../db/db.js';
 import { upsertContentItem } from '../db/queries.js';
 import { upsertTags } from '../db/tagHelpers.js';
 import { upsertNode } from '../services/nodeService.js';
+import { env } from '../config/env.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
@@ -96,6 +97,7 @@ async function syncNoteToTimeline(db: ReturnType<typeof getDb>, note: Note): Pro
     summary: extractNoteSummary(note.content),
     body: note.content,
     publishedAt: note.updatedAt,
+    url: `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`,
     projectContext: 'personal',
     metadata: { noteId: note.id, tags: note.tags },
     tags: note.tags,
