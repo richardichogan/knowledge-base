@@ -12,6 +12,7 @@ export const UNTITLED_DOCUMENT = 'Untitled';
 export type ContentType =
   | 'blog'
   | 'podcast'
+  | 'podcast-show-notes'
   | 'newsletter'
   | 'project'
   | 'note'
@@ -27,31 +28,33 @@ export interface ContentTypeOption {
 }
 
 export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
-  { id: 'blog',         label: 'Blog draft' },
-  { id: 'podcast',      label: 'Podcast script' },
-  { id: 'newsletter',   label: 'Newsletter edition' },
-  { id: 'project',      label: 'Project note' },
-  { id: 'note',         label: 'General note' },
-  { id: 'script',       label: 'Script' },
-  { id: 'architecture', label: 'Architecture doc' },
-  { id: 'meeting',      label: 'Meeting notes / transcript' },
-  { id: 'research',     label: 'Research brief' },
-  { id: 'spec',         label: 'Technical spec' },
+  { id: 'blog',                label: 'Blog draft' },
+  { id: 'podcast',              label: 'Podcast script' },
+  { id: 'podcast-show-notes',   label: 'Podcast show notes' },
+  { id: 'newsletter',           label: 'Newsletter edition' },
+  { id: 'project',              label: 'Project note' },
+  { id: 'note',                 label: 'General note' },
+  { id: 'script',               label: 'Script' },
+  { id: 'architecture',         label: 'Architecture doc' },
+  { id: 'meeting',              label: 'Meeting notes / transcript' },
+  { id: 'research',             label: 'Research brief' },
+  { id: 'spec',                 label: 'Technical spec' },
 ];
 
 // ── Tag type per content type ─────────────────────────────────────────────────
 
 export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' | 'blue' | 'gray' | 'red' | 'cyan' | 'magenta' | 'orange'> = {
-  blog:         'green',
-  podcast:      'teal',
-  newsletter:   'purple',
-  project:      'blue',
-  note:         'gray',
-  script:       'red',
-  architecture: 'blue',
-  meeting:      'orange',
-  research:     'cyan',
-  spec:         'magenta',
+  blog:                'green',
+  podcast:             'teal',
+  'podcast-show-notes': 'purple',
+  newsletter:          'purple',
+  project:             'blue',
+  note:                'gray',
+  script:              'red',
+  architecture:        'blue',
+  meeting:             'orange',
+  research:            'cyan',
+  spec:                'magenta',
 };
 
 // ── BlockNote g100 theme override ─────────────────────────────────────────────

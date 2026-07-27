@@ -27,7 +27,7 @@ import { env } from '../config/env.js';
 const TASK_STATUSES = ['backlog', 'in-progress', 'blocked', 'awaiting-feedback', 'completed'] as const;
 const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 const NOTE_CONTENT_TYPES = [
-  'blog', 'podcast', 'newsletter', 'project', 'note', 'script', 'architecture', 'meeting', 'research', 'spec',
+  'blog', 'podcast', 'podcast-show-notes', 'newsletter', 'project', 'note', 'script', 'architecture', 'meeting', 'research', 'spec',
 ] as const;
 
 export function getToolDefinitions(): LlmToolDefinition[] {
