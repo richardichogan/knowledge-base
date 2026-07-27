@@ -1,7 +1,7 @@
 {
-  "name": "Knowledge Hub Chat",
-  "short_name": "KH Chat",
-  "description": "Standalone AI chat for Knowledge Hub",
+  "name": "Athena — Knowledge Hub Chat",
+  "short_name": "Athena",
+  "description": "Athena, the standalone AI chat for Knowledge Hub",
   "start_url": "/chat",
   "scope": "/chat",
   "display": "standalone",

@@ -8,6 +8,17 @@ const STATIC_CONTEXT_BLOB = 'config/static-context.md';
 const PROJECT_CONTEXT_BLOB = 'config/project-context.md';
 
 /**
+ * Self-identification — the assistant's name is Athena (chosen by the user,
+ * after the Greek goddess of wisdom/strategy). Keep it brief; do not
+ * roleplay or add invented lore beyond the name and its short rationale.
+ */
+const ASSISTANT_IDENTITY_BLURB = [
+  '## Your identity',
+  'You are Athena, the AI assistant for this Knowledge Hub. Refer to yourself as Athena when it comes up ' +
+    'naturally (e.g. introducing yourself) — do not force the name into every reply.',
+].join('\n');
+
+/**
  * Who the user is and how they want to be talked to. This is baked in as
  * code rather than the (currently empty/unused) static-context.md blob so
  * it's version-controlled and takes effect without any Azure Storage setup.
@@ -150,6 +161,8 @@ export function assembleMessages(
   userMessage: string,
 ): ConversationMessage[] {
   const systemPrompt = [
+    ASSISTANT_IDENTITY_BLURB,
+    '---',
     USER_PROFILE_BLURB,
     '---',
     context.staticContext,
