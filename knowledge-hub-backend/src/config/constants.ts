@@ -156,6 +156,12 @@ export const AI_MAX_TOOL_ITERATIONS = 6;
 export const AI_TOOL_SEARCH_MAX_LIMIT = 20;
 /** Default search_knowledge_base result count when the AI doesn't specify one. */
 export const AI_TOOL_SEARCH_DEFAULT_LIMIT = 10;
+/** Once a session has more than this many unsummarized messages, fold the oldest ones into a rolling summary. */
+export const AI_ROLLING_SUMMARY_TRIGGER_MESSAGES = 24;
+/** How many of the most recent messages to always keep verbatim (never folded into the summary). */
+export const AI_ROLLING_SUMMARY_KEEP_TAIL = 8;
+/** Max chars of a session's first user message used as its auto-generated sidebar title. */
+export const AI_SESSION_TITLE_MAX_LENGTH = 60;
 
 // ── Graph / tokens ────────────────────────────────────────────────────────────
 

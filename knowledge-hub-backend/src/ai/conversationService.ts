@@ -77,3 +77,41 @@ export async function summariseSession(
 
   return client.chat('gpt-4o-mini', messages, 1_000);
 }
+
+/**
+ * Rolls an older batch of messages into (or alongside) a session's existing
+ * rolling summary, producing a compact plain-prose paragraph — not a
+ * structured report like summariseSession — since this gets re-injected as
+ * context on every future turn and needs to stay short. Called by
+ * chatSessionStore.rollUpSummaryIfNeeded once a session accumulates more
+ * than AI_ROLLING_SUMMARY_TRIGGER_MESSAGES unsummarized messages, so a long
+ * chat doesn't replay its full history — and cost — on every turn.
+ */
+export async function rollUpConversationSummary(
+  previousSummary: string | null,
+  batch: ConversationMessage[],
+): Promise<string> {
+  const client = getFoundryClient();
+  const messages: ConversationMessage[] = [
+    {
+      role: 'system',
+      content:
+        'Fold the given older messages into a single short rolling summary of this ongoing conversation. ' +
+        'Write 2-4 tight sentences of plain prose (no headings, no bullet points) capturing what was ' +
+        'discussed, decided, or created, and anything the user will likely refer back to later. If a ' +
+        'previous summary is given, merge it with the new messages rather than replacing it — keep ' +
+        'everything still relevant, drop anything superseded.',
+    },
+    {
+      role: 'user',
+      content: [
+        previousSummary != null && previousSummary.trim() !== ''
+          ? `Previous summary:\n${previousSummary}`
+          : 'No previous summary yet.',
+        `Older messages to fold in:\n\n${batch.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')}`,
+      ].join('\n\n---\n\n'),
+    },
+  ];
+
+  return client.chat('gpt-4o-mini', messages, 400);
+}

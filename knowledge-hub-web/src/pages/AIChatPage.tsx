@@ -12,10 +12,10 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
-import type { ChatMessage, WriteActionProposal } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal } from '../types';
 
 interface AIChatPageProps {
   /** Renders without the page header/wrapper padding, for use in a floating widget. */
@@ -306,6 +306,22 @@ function formatMessageTime(iso: string): string {
   return `${datePart}, ${time}`;
 }
 
+// Compact relative label for the sidebar list ("2h ago", "3d ago", or a date
+// once it's old enough that a relative label stops being useful).
+function formatSessionTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const diffMs = Date.now() - d.getTime();
+  const diffMins = Math.round(diffMs / 60_000);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.round(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 // Delegated click handler for the "Copy" button injected into fenced code
 // blocks by renderMarkdown() — avoids attaching a listener per code block
 // inside dangerouslySetInnerHTML content.
@@ -341,6 +357,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     }
   });
   const [isRestoringHistory, setIsRestoringHistory] = useState(sessionId !== null);
+  const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   const [input, setInput] = useState('');
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -381,6 +398,48 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     } catch {
       // localStorage can be unavailable (private browsing) — session still works in-memory.
     }
+  }
+
+  // The chat history sidebar is only shown in the standalone window (see JSX
+  // below) — the floating widget stays compact rather than growing a sidebar.
+  function refreshSessionList(): void {
+    if (!standalone) return;
+    void api.listChatSessions().then((result) => {
+      if (result.success) setChatSessions(result.data.sessions);
+    }).catch(() => {
+      // Non-fatal — sidebar just won't update until the next successful load.
+    });
+  }
+
+  useEffect(() => {
+    refreshSessionList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleSelectSession(id: string): void {
+    if (id === sessionId) return;
+    stopTts();
+    persistSessionId(id);
+    setMessages([]);
+    setPendingActions([]);
+    setIsRestoringHistory(true);
+    void api.getSessionHistory(id).then((result) => {
+      if (result.success) setMessages(result.data.messages);
+      setIsRestoringHistory(false);
+    }).catch(() => {
+      setIsRestoringHistory(false);
+    });
+  }
+
+  function handleDeleteSession(id: string, e: React.MouseEvent): void {
+    e.stopPropagation();
+    if (!window.confirm('Delete this chat? This cannot be undone.')) return;
+    void api.deleteChatSession(id).then(() => {
+      setChatSessions((prev) => prev.filter((s) => s.id !== id));
+      if (id === sessionId) handleNewChat();
+    }).catch(() => {
+      // Non-fatal — the item just won't disappear from the sidebar until reload.
+    });
   }
 
   function stopTts(): void {
@@ -424,6 +483,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       if (sessionId === null) persistSessionId(result.data.sessionId);
       appendMessage('assistant', result.data.reply);
       playReply(result.data.reply);
+      refreshSessionList();
       if (result.data.pendingActions.length > 0) {
         setPendingActions((prev) => [...prev, ...result.data.pendingActions]);
       }
@@ -642,6 +702,55 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
 
   return (
     <div className={standalone ? 'ai-chat-standalone' : compact ? 'ai-chat-compact' : 'page-root'}>
+      {standalone && (
+        <aside className="kh-chat-sidebar">
+          <Button
+            size="sm"
+            kind="tertiary"
+            renderIcon={Add}
+            className="kh-chat-sidebar__new"
+            onClick={handleNewChat}
+            disabled={chatMutation.isPending}
+          >
+            New chat
+          </Button>
+          <div className="kh-chat-sidebar__list">
+            {chatSessions.length === 0 && (
+              <p className="kh-chat-sidebar__empty">Your past chats with Athena will show up here.</p>
+            )}
+            {chatSessions.map((s) => (
+              <div
+                key={s.id}
+                className={
+                  s.id === sessionId
+                    ? 'kh-chat-sidebar__item kh-chat-sidebar__item--active'
+                    : 'kh-chat-sidebar__item'
+                }
+                onClick={() => handleSelectSession(s.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSelectSession(s.id); }}
+              >
+                <div className="kh-chat-sidebar__item-main">
+                  <div className="kh-chat-sidebar__item-title">{s.title}</div>
+                  <div className="kh-chat-sidebar__item-time">{formatSessionTime(s.updatedAt)}</div>
+                </div>
+                <Button
+                  size="sm"
+                  kind="ghost"
+                  hasIconOnly
+                  renderIcon={TrashCan}
+                  iconDescription="Delete chat"
+                  tooltipPosition="right"
+                  className="kh-chat-sidebar__delete"
+                  onClick={(e) => handleDeleteSession(s.id, e)}
+                />
+              </div>
+            ))}
+          </div>
+        </aside>
+      )}
+      <div className={standalone ? 'ai-chat-standalone__main' : ''}>
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
@@ -789,6 +898,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             disabled={chatMutation.isPending || input.trim() === ''}
           />
         </form>
+      </div>
       </div>
     </div>
   );
