@@ -679,13 +679,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         <Button
           size="sm"
           kind="ghost"
+          hasIconOnly
           renderIcon={Renew}
           iconDescription="New chat"
+          tooltipPosition="bottom"
           onClick={handleNewChat}
           disabled={chatMutation.isPending}
-        >
-          New chat
-        </Button>
+        />
       )}
       <Button
         size="sm"
@@ -704,16 +704,21 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     <div className={standalone ? 'ai-chat-standalone' : compact ? 'ai-chat-compact' : 'page-root'}>
       {standalone && (
         <aside className="kh-chat-sidebar">
+          <div className="kh-chat-sidebar__brand">
+            <img src="/favicon.svg" alt="" className="kh-chat-sidebar__logo" />
+            <span>Athena</span>
+          </div>
           <Button
             size="sm"
             kind="tertiary"
+            hasIconOnly
             renderIcon={Add}
+            iconDescription="New chat"
+            tooltipPosition="right"
             className="kh-chat-sidebar__new"
             onClick={handleNewChat}
             disabled={chatMutation.isPending}
-          >
-            New chat
-          </Button>
+          />
           <div className="kh-chat-sidebar__list">
             {chatSessions.length === 0 && (
               <p className="kh-chat-sidebar__empty">Your past chats with Athena will show up here.</p>
@@ -759,11 +764,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         </div>
       )}
       {standalone && (
-        <div className="ai-chat-standalone__topbar">
-          <div className="ai-chat-standalone__brand">
-            <img src="/favicon.svg" alt="" className="ai-chat-standalone__logo" />
-            <span>Athena</span>
-          </div>
+        <div className="ai-chat-standalone__topbar ai-chat-standalone__topbar--minimal">
           <div className="ai-new-chat-row ai-chat-standalone__actions">
             {actionButtons}
           </div>
