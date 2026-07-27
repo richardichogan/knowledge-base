@@ -22,7 +22,7 @@ export const PODCAST_SLUG_MAX_LENGTH = 60;
 // ── AI ────────────────────────────────────────────────────────────────────────
 
 /** Number of RAG items to retrieve per conversation turn. */
-export const RAG_ITEMS_LIMIT = 8;
+export const RAG_ITEMS_LIMIT = 10;
 
 /** Max token estimate for RAG context injection. */
 export const RAG_MAX_TOKENS = 4_000;
@@ -151,11 +151,11 @@ export const BLOB_UPLOAD_TIMEOUT_MS = 30_000;
 /** Default max tokens for AI completion requests. */
 export const AI_DEFAULT_MAX_TOKENS = 2_000;
 /** Max round-trips of tool calls per chat turn before giving up (prevents infinite loops). */
-export const AI_MAX_TOOL_ITERATIONS = 4;
+export const AI_MAX_TOOL_ITERATIONS = 6;
 /** Max search_knowledge_base results the AI chat tool can request in one call. */
 export const AI_TOOL_SEARCH_MAX_LIMIT = 20;
 /** Default search_knowledge_base result count when the AI doesn't specify one. */
-export const AI_TOOL_SEARCH_DEFAULT_LIMIT = 8;
+export const AI_TOOL_SEARCH_DEFAULT_LIMIT = 10;
 
 // ── Graph / tokens ────────────────────────────────────────────────────────────
 

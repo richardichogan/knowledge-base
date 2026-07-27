@@ -4,7 +4,7 @@
  * the floating chat widget (FloatingAIChat.tsx) — same logic, lighter chrome.
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
@@ -325,9 +325,22 @@ function handleCodeCopyClick(e: React.MouseEvent<HTMLElement>): void {
   });
 }
 
+// Persisted so a page reload or reopening the standalone Athena PWA window
+// restores the same conversation instead of starting blank — the backend
+// now keeps history in Postgres (ai_chat_sessions/messages), so this just
+// needs to remember which session ID to ask for.
+const SESSION_STORAGE_KEY = 'kh-athena-session-id';
+
 export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    try {
+      return window.localStorage.getItem(SESSION_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const [isRestoringHistory, setIsRestoringHistory] = useState(sessionId !== null);
   const [input, setInput] = useState('');
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -341,6 +354,34 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+
+  // Restore persisted history for a stored session ID once on mount, so a
+  // reload or reopening the standalone Athena window continues the same
+  // conversation instead of starting blank.
+  useEffect(() => {
+    if (sessionId === null) return;
+    let cancelled = false;
+    void api.getSessionHistory(sessionId).then((result) => {
+      if (cancelled) return;
+      if (result.success && result.data.messages.length > 0) {
+        setMessages(result.data.messages);
+      }
+      setIsRestoringHistory(false);
+    }).catch(() => {
+      if (!cancelled) setIsRestoringHistory(false);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function persistSessionId(id: string): void {
+    setSessionId(id);
+    try {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, id);
+    } catch {
+      // localStorage can be unavailable (private browsing) — session still works in-memory.
+    }
+  }
 
   function stopTts(): void {
     const audio = ttsAudioRef.current;
@@ -380,7 +421,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         appendMessage('assistant', `Error: ${result.error.message}`);
         return;
       }
-      if (sessionId === null) setSessionId(result.data.sessionId);
+      if (sessionId === null) persistSessionId(result.data.sessionId);
       appendMessage('assistant', result.data.reply);
       playReply(result.data.reply);
       if (result.data.pendingActions.length > 0) {
@@ -479,6 +520,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
+    try {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch {
+      // Non-fatal — worst case the old session ID lingers until overwritten by a new one.
+    }
   }
 
   async function startRecording(): Promise<void> {
@@ -649,7 +695,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         ))}
 
         <Tile className="ai-messages" onClick={handleCodeCopyClick}>
-          {messages.length === 0 && (
+          {messages.length === 0 && isRestoringHistory && (
+            <div className="ai-empty">
+              <InlineLoading description="Restoring conversation…" />
+            </div>
+          )}
+          {messages.length === 0 && !isRestoringHistory && (
             <div className="ai-empty">
               <ChatLaunch size={28} className="ai-empty__icon" />
               <p className="ai-empty__title">Athena</p>

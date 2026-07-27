@@ -10,6 +10,7 @@ import type {
   ContentItemSummary,
   ChatRequest,
   ChatResponse,
+  ChatMessage,
   CreateTaskInput,
   CreateNoteInput,
   Note,
@@ -380,6 +381,16 @@ export class KnowledgeHubApi {
       '/api/voice/synthesize',
       { text, voice },
       { timeout: CHAT_TIMEOUT_MS },
+    );
+    return r.data;
+  }
+
+  /** Fetches (and lazily creates) a session's persisted message history, so a reload/reopen can restore it. */
+  async getSessionHistory(
+    sessionId: string,
+  ): Promise<ApiResponse<{ sessionId: string; messages: ChatMessage[] }>> {
+    const r = await this.client.get<ApiResponse<{ sessionId: string; messages: ChatMessage[] }>>(
+      `/api/ai/session/${sessionId}/history`,
     );
     return r.data;
   }
