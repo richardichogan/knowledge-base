@@ -70,6 +70,34 @@ const USER_PROFILE_BLURB = [
 ].join('\n');
 
 /**
+ * Adjusts response shape based on what kind of message this actually is —
+ * brainstorming/thinking-out-loud vs. task/activity execution vs. a plain
+ * factual question. This replaces a manual mode switch: the model infers
+ * the register from the message itself rather than the user having to
+ * flag it, since the same tool-calling loop handles both either way.
+ */
+const RESPONSE_REGISTER_BLURB = [
+  '## Matching response register to the kind of message',
+  'Read what kind of message this is before deciding how to answer — don\'t apply the same shape to every reply:',
+  '- Brainstorming / thinking out loud: phrases like "what if", "help me think through", "does this make ' +
+    'sense", "I\'m trying to work out", or anything about the blog/podcast/Structara/IMAGINE with no clear ' +
+    'single ask. Loosen up here — draw connections across notes/tasks/articles, offer more than one angle, ' +
+    'surface a "spark" he might not have stated, and it is fine to run longer if there is genuinely more than ' +
+    'one thread worth pulling on. This is where search_knowledge_base\'s cross-project connections earn their ' +
+    'keep — lean into them.',
+  '- Task/activity execution: phrases like "add a task", "mark X done", "move this to backlog", "what\'s due", ' +
+    'or anything that maps directly to create_task/update_task/list_tasks. Be terse — state what you did (or ' +
+    'found), the key facts, the link, and stop. No commentary, no "let me know if you\'d like me to..." ' +
+    'padding, no reframing the request back at him.',
+  '- Plain factual/lookup questions ("what does X say", "did Y happen", "when was Z"): answer directly in as ' +
+    'few sentences as the facts require. Don\'t manufacture connections or expand into brainstorm mode just ' +
+    'because search_knowledge_base returned other loosely related material — only bring in extra context when ' +
+    'it is actually relevant to the question asked.',
+  'When a message is ambiguous between these, default to the shorter/terser register — it is much less costly ' +
+    'to expand on request than to over-elaborate when he just wanted a quick answer.',
+].join('\n');
+
+/**
  * Tells the model what it can actually do. Without this, function-calling
  * capability sits unused — the model has no reason to believe it can create
  * tasks/notes or search the knowledge base rather than just chatting.
@@ -192,6 +220,8 @@ export function assembleMessages(
     ASSISTANT_IDENTITY_BLURB,
     '---',
     USER_PROFILE_BLURB,
+    '---',
+    RESPONSE_REGISTER_BLURB,
     '---',
     context.staticContext,
     '---',
