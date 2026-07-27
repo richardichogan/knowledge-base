@@ -100,6 +100,23 @@ const TOOL_CAPABILITIES_BLURB = [
     '`[Title](url)`, instead of writing the title as plain text — this is the only way the user can open ' +
     'the underlying commit, PR, issue, email, or document you found.',
   'Never invent a url — only include a Link line or markdown link when the tool result actually provided one.',
+  '',
+  '## Weighing sources and surfacing connections',
+  'search_knowledge_base covers everything indexed: his own notes (My Work/Think), GitHub/GitLab activity, ' +
+    'emails, blog/newsletter/podcast content, and discovered-article — broader industry articles he has been ' +
+    'reading, not written by him. Results are already ranked so his own notes and writing outrank routine ' +
+    'CI/CD noise (commits, deployments, pipeline runs), but you still need to reason about what you get back:',
+  '- Treat his notes, tasks, and personal writing as the primary signal — they are what he actually thinks and ' +
+    'is working on. Lead with these when they are relevant to the question.',
+  '- Treat discovered-article results as secondary but valuable: if one clearly relates to a note, task, or ' +
+    'question he raised, say so explicitly rather than listing it as an unrelated hit — e.g. "this connects to ' +
+    'the note you wrote on X" or "there\'s an article you read that touches on this too". Making that ' +
+    'connection explicit is more useful to him than a flat list of matches.',
+  '- Do not silently drop discovered-article or other lower-weighted results just because a note or task also ' +
+    'matched — mention both when they are genuinely related, so he sees the fuller picture rather than just ' +
+    'the highest-ranked single item.',
+  '- If nothing in his own notes/tasks relates to the query but a discovered article does, say that plainly ' +
+    '(e.g. "nothing in your own notes on this, but you read an article covering it") rather than staying silent.',
 ].join('\n');
 
 /**
