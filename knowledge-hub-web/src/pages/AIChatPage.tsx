@@ -12,7 +12,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal } from '../types';
@@ -358,6 +358,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   });
   const [isRestoringHistory, setIsRestoringHistory] = useState(sessionId !== null);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
+  const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false);
+  const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
   const [input, setInput] = useState('');
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -673,6 +675,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     }
   }
 
+  const filteredSidebarSessions = sidebarSearchQuery.trim() === ''
+    ? chatSessions
+    : chatSessions.filter((s) => s.title.toLowerCase().includes(sidebarSearchQuery.trim().toLowerCase()));
+
   const actionButtons = (
     <>
       {messages.length > 0 && (
@@ -704,26 +710,55 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     <div className={standalone ? 'ai-chat-standalone' : compact ? 'ai-chat-compact' : 'page-root'}>
       {standalone && (
         <aside className="kh-chat-sidebar">
-          <div className="kh-chat-sidebar__brand">
-            <img src="/favicon.svg" alt="" className="kh-chat-sidebar__logo" />
-            <span>Athena</span>
+          <div className="kh-chat-sidebar__header">
+            <div className="kh-chat-sidebar__brand">
+              <img src="/favicon.svg" alt="" className="kh-chat-sidebar__logo" />
+              <span>Athena</span>
+            </div>
+            <Button
+              size="sm"
+              kind="ghost"
+              hasIconOnly
+              renderIcon={Search}
+              iconDescription="Search chats"
+              tooltipPosition="right"
+              className="kh-chat-sidebar__header-action"
+              onClick={() => setIsSidebarSearchOpen((open) => !open)}
+            />
           </div>
-          <Button
-            size="sm"
-            kind="tertiary"
-            hasIconOnly
-            renderIcon={Add}
-            iconDescription="New chat"
-            tooltipPosition="right"
-            className="kh-chat-sidebar__new"
-            onClick={handleNewChat}
-            disabled={chatMutation.isPending}
-          />
+          <nav className="kh-chat-sidebar__nav">
+            <button
+              type="button"
+              className="kh-chat-sidebar__nav-item"
+              onClick={handleNewChat}
+              disabled={chatMutation.isPending}
+            >
+              <Add className="kh-chat-sidebar__nav-icon" />
+              New chat
+            </button>
+          </nav>
+          {isSidebarSearchOpen && (
+            <div className="kh-chat-sidebar__search">
+              <Search className="kh-chat-sidebar__search-icon" />
+              <input
+                type="text"
+                className="kh-chat-sidebar__search-input"
+                placeholder="Search chats"
+                value={sidebarSearchQuery}
+                onChange={(e) => setSidebarSearchQuery(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+          <div className="kh-chat-sidebar__section-label">Recents</div>
           <div className="kh-chat-sidebar__list">
             {chatSessions.length === 0 && (
               <p className="kh-chat-sidebar__empty">Your past chats with Athena will show up here.</p>
             )}
-            {chatSessions.map((s) => (
+            {chatSessions.length > 0 && filteredSidebarSessions.length === 0 && (
+              <p className="kh-chat-sidebar__empty">No chats match "{sidebarSearchQuery}".</p>
+            )}
+            {filteredSidebarSessions.map((s) => (
               <div
                 key={s.id}
                 className={
