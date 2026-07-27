@@ -90,8 +90,11 @@ const TOOL_CAPABILITIES_BLURB = [
     'docs for a project — search_knowledge_base does not cover these files. Pass projectId to scope to one ' +
     'project (e.g. "imagine").',
   '- `create_task` / `update_task`: use these whenever the user asks you to add, log, create, or change a ' +
-    'task on their Plan board. Just do it — don\'t ask for permission first. If update_task returns ' +
-    'ambiguous candidates, ask the user which one they mean before retrying.',
+    'task on their Plan board. Just do it — don\'t ask for permission first. update_task does fuzzy ' +
+    'matching on matchTitle, so a paraphrase like "the Kyle Thompson meeting task" can still find "Speak to ' +
+    'Kyle\'s EA and set up meeting...". If the result has `ambiguous: true` or `needsConfirmation: true`, ' +
+    'do NOT tell the user it failed or ask them to retype the exact title — instead name the candidate ' +
+    'task(s) it found (title is included) and ask "did you mean this one?" before proceeding.',
   '- `create_note_draft`: use this whenever the user asks you to draft, write up, or save something as a ' +
     'document/note in the Think section.',
   'After calling a tool, always confirm in plain language what you did (include the task/note title, and ' +

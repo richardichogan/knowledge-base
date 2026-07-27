@@ -119,9 +119,12 @@ export function getToolDefinitions(): LlmToolDefinition[] {
         name: 'update_task',
         description:
           'Updates an existing task. Provide taskId if already known (e.g. returned from a prior ' +
-          'create_task/search_knowledge_base call in this conversation); otherwise provide matchTitle to ' +
-          'find it by a partial, case-insensitive title match. If multiple tasks match, the tool returns ' +
-          'the candidates instead of updating — ask the user to clarify, or re-call with the exact taskId.',
+          'create_task/search_knowledge_base call in this conversation); otherwise provide matchTitle — a ' +
+          'paraphrase or description is fine, it does not need to be an exact substring of the title. The ' +
+          'tool does fuzzy keyword matching, not just literal substring matching. If the result has ' +
+          '`ambiguous: true` or `needsConfirmation: true`, do not treat the task as updated — show the ' +
+          'candidate(s) to the user and ask them to confirm which one they mean before re-calling with the ' +
+          'exact taskId.',
         parameters: {
           type: 'object',
           properties: {
@@ -359,11 +362,36 @@ async function createTask(db: Pool, args: Record<string, unknown>): Promise<unkn
   return { success: true, task: summariseTask(task) };
 }
 
+// Common English filler words to strip when tokenizing a matchTitle for fuzzy
+// keyword matching — keeps the signal on the words that actually identify
+// the task (names, subjects) rather than connective words every title has.
+const TITLE_STOPWORDS = new Set([
+  'a', 'an', 'the', 'to', 'for', 'and', 'or', 'of', 'with', 'on', 'in', 'at', 'is', 'are',
+  'we', 'i', 've', 'have', 'has', 'got', 'please', 'set', 'up', 'set up', 'that', 'this',
+  'task', 'organise', 'organize', 'arrange', 'schedule', 'about', 'our', 'the', 'move', 'mark',
+]);
+
+function tokenizeTitle(text: string): string[] {
+  return Array.from(new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9']+/)
+      .map((w) => w.replace(/^'|'s$|'$/g, ''))
+      .filter((w) => w.length >= 3 && !TITLE_STOPWORDS.has(w)),
+  ));
+}
+
 async function resolveTask(
   db: Pool,
   taskId: unknown,
   matchTitle: unknown,
-): Promise<{ id: string; title: string } | { ambiguous: Array<{ id: string; title: string }> } | { notFound: true } | { error: string }> {
+): Promise<
+  | { id: string; title: string }
+  | { ambiguous: Array<{ id: string; title: string }> }
+  | { suggested: { id: string; title: string } }
+  | { notFound: true }
+  | { error: string }
+> {
   if (typeof taskId === 'string' && taskId.trim() !== '') {
     const r = await db.query<{ id: string; title: string }>(
       `SELECT id, title FROM tasks WHERE id = $1 AND archived = false`,
@@ -373,13 +401,55 @@ async function resolveTask(
     return row !== undefined ? row : { notFound: true };
   }
   if (typeof matchTitle === 'string' && matchTitle.trim() !== '') {
+    const trimmed = matchTitle.trim();
     const r = await db.query<{ id: string; title: string }>(
       `SELECT id, title FROM tasks WHERE archived = false AND title ILIKE $1 ORDER BY created_at DESC LIMIT 5`,
-      [`%${matchTitle.trim()}%`],
+      [`%${trimmed}%`],
     );
-    if (r.rows.length === 0) return { notFound: true };
+    if (r.rows.length === 1) return r.rows[0] as { id: string; title: string };
     if (r.rows.length > 1) return { ambiguous: r.rows };
-    return r.rows[0] as { id: string; title: string };
+
+    // No literal substring match — fall back to fuzzy keyword-overlap matching
+    // so a paraphrase like "organise a meeting with Kyle Thompson" can still
+    // find "Speak to Kyle's EA and set up meeting on Project Imagine...".
+    const keywords = tokenizeTitle(trimmed);
+    if (keywords.length === 0) return { notFound: true };
+
+    const orConditions = keywords.map((_, i) => `title ILIKE $${i + 1}`).join(' OR ');
+    const params = keywords.map((kw) => `%${kw}%`);
+    const fuzzy = await db.query<{ id: string; title: string }>(
+      `SELECT id, title FROM tasks WHERE archived = false AND (${orConditions}) ORDER BY created_at DESC LIMIT 20`,
+      params,
+    );
+    if (fuzzy.rows.length === 0) return { notFound: true };
+
+    const scored = fuzzy.rows
+      .map((row) => {
+        const titleLower = row.title.toLowerCase();
+        const matched = keywords.filter((kw) => titleLower.includes(kw)).length;
+        return { row, score: matched / keywords.length };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const best = scored[0];
+    if (best === undefined) return { notFound: true };
+
+    // All keywords present — confident enough to resolve outright.
+    if (best.score === 1) return best.row;
+
+    const runnerUp = scored[1];
+    // Best candidate matched most keywords and clearly beats the next one —
+    // still surface it for confirmation rather than silently updating the
+    // wrong task, but as a single suggestion rather than a raw "not found".
+    if (best.score >= 0.5 && (runnerUp === undefined || best.score - runnerUp.score >= 0.25)) {
+      return { suggested: best.row };
+    }
+
+    // Multiple plausible candidates within the same ballpark — let the user pick.
+    const topCandidates = scored.filter((s) => s.score >= 0.34).slice(0, 5).map((s) => s.row);
+    if (topCandidates.length > 0) return { ambiguous: topCandidates };
+
+    return { notFound: true };
   }
   return { error: 'Provide either taskId or matchTitle' };
 }
@@ -387,7 +457,12 @@ async function resolveTask(
 async function updateTask(db: Pool, args: Record<string, unknown>): Promise<unknown> {
   const resolved = await resolveTask(db, args['taskId'], args['matchTitle']);
   if ('error' in resolved) return resolved;
-  if ('notFound' in resolved) return { error: 'No matching task found.' };
+  if ('notFound' in resolved) {
+    return {
+      error: 'No matching task found — this may be worded very differently from any task title. ' +
+        'Ask the user for more detail (a keyword, project, or the exact title) rather than giving up silently.',
+    };
+  }
   if ('ambiguous' in resolved) {
     return {
       ambiguous: true,
@@ -395,6 +470,17 @@ async function updateTask(db: Pool, args: Record<string, unknown>): Promise<unkn
       candidates: resolved.ambiguous,
     };
   }
+  if ('suggested' in resolved) {
+    return {
+      needsConfirmation: true,
+      message:
+        `Found a likely match — "${resolved.suggested.title}" — but the wording didn't match closely enough ` +
+        'to update it automatically. Ask the user to confirm this is the right task before re-calling with ' +
+        'its exact taskId.',
+      candidate: resolved.suggested,
+    };
+  }
+
 
   const fields: string[] = [];
   const params: unknown[] = [];
