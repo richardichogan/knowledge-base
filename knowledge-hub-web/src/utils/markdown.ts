@@ -34,8 +34,8 @@ export function renderMarkdown(md: string): string {
   for (const line of lines) {
     if (line.startsWith('```')) {
       if (inList) { html.push('</ul>'); inList = false; }
-      if (inCode) { html.push('</code></pre>'); inCode = false; }
-      else { html.push(`<pre><code class="language-${escapeHtml(line.slice(3).trim())}">`); inCode = true; }
+      if (inCode) { html.push('</code></pre></div>'); inCode = false; }
+      else { html.push(`<div class="kh-code-block"><button type="button" class="kh-code-copy-btn" data-copy-code>Copy</button><pre><code class="language-${escapeHtml(line.slice(3).trim())}">`); inCode = true; }
       continue;
     }
     if (inCode) { html.push(escapeHtml(line)); continue; }
@@ -66,6 +66,6 @@ export function renderMarkdown(md: string): string {
   }
 
   if (inList) html.push('</ul>');
-  if (inCode) html.push('</code></pre>');
+  if (inCode) html.push('</code></pre></div>');
   return html.join('\n');
 }

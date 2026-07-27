@@ -15,7 +15,7 @@ export const FloatingAIChat: React.FC = () => {
       {open && (
         <div className="ai-float-panel" role="dialog" aria-label="AI Chat">
           <div className="ai-float-panel__header">
-            <span className="ai-float-panel__title">Knowledge Hub AI</span>
+            <span className="ai-float-panel__title">Athena</span>
             <button
               type="button"
               className="ai-float-panel__close"

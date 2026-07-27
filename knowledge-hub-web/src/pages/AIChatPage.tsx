@@ -12,7 +12,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, WriteActionProposal } from '../types';
@@ -293,6 +293,38 @@ function renderAssistantMessage(raw: string): string {
   return htmlParts.join('\n');
 }
 
+// Relative time for messages sent today, absolute date prefix otherwise —
+// keeps the timeline scannable without seconds-level noise.
+function formatMessageTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  if (isToday) return time;
+  const datePart = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return `${datePart}, ${time}`;
+}
+
+// Delegated click handler for the "Copy" button injected into fenced code
+// blocks by renderMarkdown() — avoids attaching a listener per code block
+// inside dangerouslySetInnerHTML content.
+function handleCodeCopyClick(e: React.MouseEvent<HTMLElement>): void {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-copy-code]');
+  if (!btn) return;
+  const code = btn.parentElement?.querySelector('pre code');
+  if (!code?.textContent) return;
+  void navigator.clipboard.writeText(code.textContent).then(() => {
+    const original = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('kh-code-copy-btn--copied');
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.classList.remove('kh-code-copy-btn--copied');
+    }, 1500);
+  });
+}
+
 export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -567,7 +599,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
-            <h1 className="page-title">AI Chat</h1>
+            <h1 className="page-title">Athena</h1>
           </div>
         </div>
       )}
@@ -575,7 +607,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         <div className="ai-chat-standalone__topbar">
           <div className="ai-chat-standalone__brand">
             <img src="/favicon.svg" alt="" className="ai-chat-standalone__logo" />
-            <span>Knowledge Hub</span>
+            <span>Athena</span>
           </div>
           <div className="ai-new-chat-row ai-chat-standalone__actions">
             {actionButtons}
@@ -616,9 +648,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           </Tile>
         ))}
 
-        <Tile className="ai-messages">
+        <Tile className="ai-messages" onClick={handleCodeCopyClick}>
           {messages.length === 0 && (
-            <p className="ai-empty">Ask anything about your knowledge hub…</p>
+            <div className="ai-empty">
+              <ChatLaunch size={28} className="ai-empty__icon" />
+              <p className="ai-empty__title">Athena</p>
+              <p className="ai-empty__subtitle">Notes, tasks, commits, articles, sparks — ask anything.</p>
+            </div>
           )}
           {messages.map((msg, i) => (
             <div
@@ -626,7 +662,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               className={msg.role === 'user' ? 'ai-bubble ai-bubble--user' : 'ai-bubble ai-bubble--ai'}
             >
               <div className="ai-bubble-label">
-                {msg.role === 'user' ? 'You' : 'Knowledge Hub AI'}
+                {msg.role === 'user' ? 'You' : 'Athena'}
               </div>
               {msg.role === 'user' ? (
                 <div className="ai-bubble-text">{msg.content}</div>
@@ -637,11 +673,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
                   dangerouslySetInnerHTML={{ __html: renderAssistantMessage(msg.content) }}
                 />
               )}
+              <div className="ai-bubble-time">{formatMessageTime(msg.timestamp)}</div>
             </div>
           ))}
           {chatMutation.isPending && (
             <div className="ai-bubble ai-bubble--ai">
-              <InlineLoading description="Knowledge Hub AI is thinking…" />
+              <InlineLoading description="Athena is thinking…" />
             </div>
           )}
           <div ref={bottomRef} />
