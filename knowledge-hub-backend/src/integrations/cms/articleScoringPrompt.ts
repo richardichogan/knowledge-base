@@ -159,15 +159,15 @@ The source type (Formal / Community / Case Study or Advertorial) is provided. Do
 ## Scoring Dimensions — BE HARSH
 
 **Audience Fit (0-3)**
-- 3: Strategic content that informs how enterprise leaders think about their Microsoft cloud investments — industry trends affecting Azure/M365/D365, architectural patterns, security strategies, AI/Copilot adoption, digital transformation, future of work. Includes INDEPENDENT third-party analysis (McKinsey, Gartner) on topics directly relevant to Microsoft platform decisions. NOT beginner tutorials. NOT vendor-commissioned studies (Forrester TEI, IDC sponsored reports) — those are advertorial regardless of brand name.
+- 3: Strategic content that informs how enterprise leaders think about their Microsoft cloud investments — industry trends affecting Azure/M365/D365, architectural patterns, security strategies, AI/Copilot adoption, digital transformation, future of work. Includes independent third-party analysis from credible analyst firms or consultancies on topics directly relevant to Microsoft platform decisions. NOT beginner tutorials. NOT vendor-commissioned studies (Forrester TEI, IDC sponsored reports) — those are advertorial regardless of brand name.
 - 2: Developer or IT-pro content with clear architectural or strategic implications
 - 1: Tangentially related. Niche updates or how-to guides without broader strategic context.
 - 0: End-user features, consumer products, or pure marketing
 
 **Novelty (0-3)**
-- 3: RARE. A brand-new service launch, critical security disclosure (CVE), or fundamental shift in industry thinking that changes how enterprises approach their Microsoft investments. Third-party research revealing a new strategic reality (e.g., "AI is disrupting ERP") counts if genuinely new.
+- 3: RARE. A brand-new service launch, critical security disclosure (CVE), or fundamental shift in industry thinking that changes how enterprises approach their Microsoft investments. Third-party research revealing a genuinely new strategic reality (e.g., "AI is disrupting ERP") counts if the finding itself is new — not just because the publisher is well-known.
 - 2: Meaningful update — GA announcement changing enterprise planning, significant new capability, or fresh perspective on an existing strategic challenge
-- 1: Incremental update, best-practice guide, how-to, monthly roundup, or familiar strategic thinking presented again. MOST articles score 1.
+- 1: Incremental update, best-practice guide, how-to, monthly roundup, or familiar strategic thinking presented again. MOST articles score 1. This includes formulaic "[trend] in [industry]" thought-leadership pieces that restate a publisher's standard AI-transformation narrative with a new industry label swapped in — score these 1 even from otherwise credible sources, since the underlying idea isn't new.
 - 0: Rehash, old news, documentation rewrite, marketing copy
 
 **Strategic Significance (0-2)**
@@ -176,7 +176,7 @@ The source type (Formal / Community / Case Study or Advertorial) is provided. Do
 - 0: No strategic or operational implication
 
 **Analytical Depth Potential (0-2)**
-- 2: Richard could write 800+ words of ORIGINAL analysis connecting this to Microsoft platform strategy, enterprise decision-making, or architectural trade-offs. Third-party research (McKinsey, Gartner) on relevant topics usually has depth potential because Richard can analyze the implications for Microsoft customers. Ask: "What's Richard's angle — the thing he would say that the source doesn't?" If it's clear and substantial, this is a 2.
+- 2: Richard could write 800+ words of ORIGINAL analysis connecting this to Microsoft platform strategy, enterprise decision-making, or architectural trade-offs. Judge this article on its own merits — do not assume depth potential just because it comes from a recognizable analyst brand; a formulaic piece from a well-known publisher deserves the same scrutiny as one from an unknown blog. Ask: "What's Richard's angle — the thing he would say that the source doesn't?" If it's clear and substantial, this is a 2.
 - 1: Worth a sharp paragraph in a newsletter or LinkedIn post  
 - 0: Nothing to say beyond the news itself
 
