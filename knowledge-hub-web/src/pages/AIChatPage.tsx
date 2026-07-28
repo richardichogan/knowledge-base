@@ -12,7 +12,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal } from '../types';
@@ -345,9 +345,34 @@ function handleCodeCopyClick(e: React.MouseEvent<HTMLElement>): void {
 // restores the same conversation instead of starting blank — the backend
 // now keeps history in Postgres (ai_chat_sessions/messages), so this just
 // needs to remember which session ID to ask for.
-const SESSION_STORAGE_KEY = 'kh-athena-session-id';
+//
+// The floating in-app widget and the standalone /chat window are separate
+// contexts (quick lookup vs a dedicated deep-work session) and each gets its
+// own storage key so they no longer show the same conversation.
+const SESSION_STORAGE_KEY_STANDALONE = 'kh-athena-session-id-standalone';
+const SESSION_STORAGE_KEY_WIDGET = 'kh-athena-session-id-widget';
+
+// Mobile breakpoint shared with the CSS in global.scss (.kh-chat-sidebar,
+// .ai-float-panel mobile rules) — keep these in sync.
+const MOBILE_BREAKPOINT_QUERY = '(max-width: 640px)';
+
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(() => (
+    typeof window !== 'undefined' && window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches
+  ));
+  useEffect(() => {
+    const mql = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
+    const onChange = (): void => setIsMobile(mql.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+  return isMobile;
+}
 
 export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false }) => {
+  const SESSION_STORAGE_KEY = standalone ? SESSION_STORAGE_KEY_STANDALONE : SESSION_STORAGE_KEY_WIDGET;
+  const isMobile = useIsMobile();
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(() => {
     try {
@@ -419,6 +444,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   }, []);
 
   function handleSelectSession(id: string): void {
+    setIsMobileSidebarOpen(false);
     if (id === sessionId) return;
     stopTts();
     persistSessionId(id);
@@ -579,6 +605,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   }
 
   function handleNewChat(): void {
+    setIsMobileSidebarOpen(false);
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
@@ -709,7 +736,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   return (
     <div className={standalone ? 'ai-chat-standalone' : compact ? 'ai-chat-compact' : 'page-root'}>
       {standalone && (
-        <aside className="kh-chat-sidebar">
+        <aside className={`kh-chat-sidebar${isMobile && isMobileSidebarOpen ? ' kh-chat-sidebar--open' : ''}`}>
           <div className="kh-chat-sidebar__header">
             <div className="kh-chat-sidebar__brand">
               <img src="/favicon.svg" alt="" className="kh-chat-sidebar__logo" />
@@ -790,6 +817,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           </div>
         </aside>
       )}
+      {standalone && isMobile && isMobileSidebarOpen && (
+        <div
+          className="kh-chat-sidebar__backdrop"
+          role="presentation"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
       <div className={standalone ? 'ai-chat-standalone__main' : ''}>
       {!compact && !standalone && (
         <div className="page-header">
@@ -800,6 +834,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       )}
       {standalone && (
         <div className="ai-chat-standalone__topbar ai-chat-standalone__topbar--minimal">
+          <Button
+            size="sm"
+            kind="ghost"
+            hasIconOnly
+            renderIcon={Menu}
+            iconDescription="Chat history"
+            tooltipPosition="bottom"
+            className="ai-chat-standalone__menu-toggle"
+            onClick={() => setIsMobileSidebarOpen((open) => !open)}
+          />
           <div className="ai-new-chat-row ai-chat-standalone__actions">
             {actionButtons}
           </div>
