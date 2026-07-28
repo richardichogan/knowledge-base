@@ -31,6 +31,7 @@ import { AutocueApp } from './features/autocue/AutocueApp';
 import { GraphPage } from './pages/GraphPage';
 import { GlobalContextMenuProvider } from './context/GlobalContextMenu';
 import { AIChatPage } from './pages/AIChatPage';
+import { HomePage } from './pages/HomePage';
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -47,7 +48,7 @@ const App: React.FC = () => {
                   desktop PWA shortcut (Edge/Chrome "install as app"). */}
               <Route path="/chat" element={<AIChatPage standalone />} />
               <Route path="/" element={<AppShell />}>
-                <Route index element={<Navigate to="/discover" replace />} />
+                <Route index element={<HomePage />} />
                 <Route path="discover" element={<DiscoverPage />} />
                 <Route path="plan"     element={<PlanPage />} />
                 <Route path="my-work"  element={<MyWorkPage />} />

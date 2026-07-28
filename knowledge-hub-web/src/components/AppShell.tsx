@@ -22,6 +22,7 @@ import {
   HeaderGlobalAction,
 } from '@carbon/react';
 import {
+  Home,
   Compass,
   CalendarTools,
   Portfolio,
@@ -49,6 +50,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { path: '/',         label: 'Today',    icon: Home },
   { path: '/discover', label: 'Discover', icon: Compass },
   { path: '/plan',     label: 'Plan',     icon: CalendarTools },
   { path: '/my-work',  label: 'My Work',  icon: Portfolio },

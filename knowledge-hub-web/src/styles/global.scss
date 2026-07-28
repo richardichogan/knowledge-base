@@ -1312,6 +1312,131 @@ input, textarea {
   }
 }
 
+// ── Today (Home) dashboard ────────────────────────────────────────────────────
+
+.today-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .today-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.today-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--cds-layer-01);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem 1.25rem;
+  min-height: 12rem;
+}
+
+.today-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.today-card__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cds-text-primary);
+}
+
+.today-card__icon {
+  color: var(--kh-accent);
+  flex-shrink: 0;
+}
+
+.today-card__view-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--cds-text-secondary);
+  text-decoration: none;
+
+  &:hover {
+    color: var(--kh-accent);
+    text-decoration: none;
+  }
+}
+
+.today-card__body {
+  flex: 1;
+  min-height: 0;
+}
+
+.today-card__empty {
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+  margin: 0.25rem 0 0;
+}
+
+.today-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.today-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.25rem;
+  border-radius: 6px;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--cds-border-subtle-00);
+  }
+}
+
+.today-list__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--cds-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.today-list__meta {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--cds-text-secondary);
+}
+
+.today-list__badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--cds-text-secondary);
+
+  &--overdue {
+    color: var(--cds-support-error);
+  }
+}
+
 // ── Calendar ──────────────────────────────────────────────────────────────────
 
 .cal-filters {
