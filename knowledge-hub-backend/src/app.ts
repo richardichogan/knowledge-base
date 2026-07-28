@@ -30,6 +30,7 @@ import certScoresRouter from './routes/certScores.js';
 import { graphRouter } from './routes/graphRoutes.js';
 import { canvasRouter } from './routes/canvasRoutes.js';
 import { voiceRouter } from './routes/voiceRoutes.js';
+import { todayRouter } from './routes/today.js';
 
 /**
  * Creates and configures the Express application.
@@ -99,6 +100,7 @@ export function createApp(): express.Application {
   app.use('/api/cert-scores', certScoresRouter);
   app.use('/api/graph', graphRouter);
   app.use('/api/canvases', canvasRouter);
+  app.use('/api/today', todayRouter);
 
   // ── 404 handler ───────────────────────────────────────────────────────────
   app.use((_req: Request, res: Response) => {

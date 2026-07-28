@@ -10022,3 +10022,181 @@ $project-colour-map: (
   padding: 2rem;
 }
 
+// ── Today dashboard (rebuilt) ─────────────────────────────────────────────────
+
+$layer-01:         #262626;
+$text-primary:     #f4f4f4;
+$text-secondary:   #c6c6c6;
+$text-placeholder: #6f6f6f;
+$border-subtle-01: #393939;
+$interactive:      #0f62fe;
+
+.today-section-card {
+  background: $layer-01;
+  border: 1px solid $border-subtle-01;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.today-section-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+}
+
+.today-section-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.today-ranked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.today-ranked-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+
+  &:last-child { border-bottom: none; }
+
+  &:hover { background: rgba(255, 255, 255, 0.03); }
+}
+
+.today-ranked-row__badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  &--task { background: rgba(0, 163, 127, 0.15); color: #00a37f; }
+  &--to-review { background: rgba(15, 98, 254, 0.15); color: #4589ff; }
+  &--spark-cluster { background: rgba(255, 163, 0, 0.15); color: #ffa300; }
+}
+
+.today-ranked-row__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.today-ranked-row__title {
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  color: $text-primary;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &:hover { color: $interactive; }
+}
+
+.today-ranked-row__context {
+  font-size: 12px;
+  color: $text-secondary;
+  margin-top: 2px;
+}
+
+.today-ranked-row__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.today-ranked-row__snooze-input {
+  background: #333;
+  border: 1px solid $border-subtle-01;
+  border-radius: 4px;
+  color: $text-primary;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  cursor: pointer;
+
+  &:focus { outline: 2px solid $interactive; }
+}
+
+.today-github-group {
+  padding: 8px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+
+  &:last-child { border-bottom: none; }
+}
+
+.today-github-group__repo {
+  font-size: 11px;
+  font-weight: 600;
+  color: $text-secondary;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.today-github-empty {
+  padding: 12px 16px;
+  font-size: 13px;
+  color: $text-secondary;
+  margin: 0;
+}
+
+.today-spark-capture {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+
+  &__input {
+    flex: 1;
+    background: #333;
+    border: 1px solid $border-subtle-01;
+    border-radius: 4px;
+    color: $text-primary;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px 10px;
+
+    &::placeholder { color: $text-placeholder; }
+    &:focus { outline: 2px solid $interactive; }
+  }
+}
+
+.today-doc-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+
+  &:last-child { border-bottom: none; }
+
+  &__badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: rgba(15, 98, 254, 0.15);
+    color: #4589ff;
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  &__relatedness {
+    font-size: 11px;
+    color: $text-placeholder;
+    margin-top: 3px;
+  }
+}
+
+

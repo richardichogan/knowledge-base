@@ -18,6 +18,7 @@ import type { ContentItemSummary } from '../types';
 import { SparkCaptureButton } from '../components/sparks/SparkCaptureButton';
 import { copyItemToCanvas } from '../features/canvas/canvasClipboard';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { DiscoverActions } from '../components/discover/DiscoverActions';
 import { useFlatTags } from '../hooks/useTaxonomy';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -366,18 +367,12 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
             <Diagram size={14} /> {sentToCanvas ? 'Copied!' : 'Canvas'}
           </button>
           {isToReview && (
-            <>
-              <button className="dc-action dc-action--save" onClick={() => { onStateChange(item.id, 'saved'); }} disabled={isUpdating}>
-                <Bookmark size={14} /> Save
-              </button>
-              <button className="dc-action dc-action--blog" onClick={() => { onStateChange(item.id, 'blog'); }} disabled={isUpdating}>
-                <Edit size={14} /> Blog
-              </button>
-              <button className="dc-action dc-action--archive" onClick={() => { onStateChange(item.id, 'archived'); }} disabled={isUpdating}>
-                <Archive size={14} /> Archive
-              </button>
-            </>
-          )}
+              <DiscoverActions
+                itemId={item.id}
+                onStateChange={onStateChange}
+                isUpdating={isUpdating}
+              />
+            )}
           {isSaved && (
             <>
               <button className="dc-action dc-action--blog" onClick={() => { onStateChange(item.id, 'blog'); }} disabled={isUpdating}>

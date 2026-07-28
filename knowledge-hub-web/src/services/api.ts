@@ -875,6 +875,22 @@ export class KnowledgeHubApi {
   async deleteCanvasEdge(canvasId: string, edgeId: string): Promise<void> {
     await this.client.delete(`/api/canvases/${canvasId}/edges/${edgeId}`);
   }
+
+  // ─── Today dashboard ───────────────────────────────────────────────────────
+
+  /**
+   * Fetches GitHub activity items (commits, PRs, issues) tagged with any of
+   * the given taxonomy tag UUIDs.  Returns an empty array if tagIds is empty.
+   */
+  async getTodayGitHubActivity(tagIds: string[]): Promise<ApiResponse<GitHubActivityItem[]>> {
+    const params = new URLSearchParams();
+    tagIds.forEach((id) => params.append('tagIds[]', id));
+    const qs = tagIds.length > 0 ? `?${params.toString()}` : '';
+    const r = await this.client.get<ApiResponse<GitHubActivityItem[]>>(
+      `/api/today/github-activity${qs}`,
+    );
+    return r.data;
+  }
 }
 
 /** Singleton instance — used by all React Query hooks. */
@@ -913,3 +929,15 @@ export interface CanvasNodeInput {
   x: number; y: number; width?: number; height?: number; colour?: string;
 }
 
+// ── Today dashboard API types ─────────────────────────────────────────────────
+
+/** A single GitHub activity item returned by GET /api/today/github-activity. */
+export interface GitHubActivityItem {
+  id: string;
+  source: string;
+  title: string;
+  summary: string | null;
+  published_at: string;
+  url: string | null;
+  metadata: Record<string, unknown> | null;
+}
