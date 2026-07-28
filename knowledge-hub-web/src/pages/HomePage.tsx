@@ -23,7 +23,9 @@ import {
 } from '@carbon/icons-react';
 import type { CarbonIconType } from '@carbon/icons-react';
 import { api, type DiscoverItem } from '../services/api';
-import type { Note } from '../types';
+import type { ContentItemSummary } from '../types';
+import { fetchNotes } from '../notes/noteStorage';
+import type { NoteListItem } from '../notes/types';
 
 type TaskStatus = 'backlog' | 'in-progress' | 'blocked' | 'awaiting-feedback' | 'completed';
 type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
@@ -37,7 +39,11 @@ interface Task {
   projectId: string;
 }
 
-const GITHUB_SOURCES = new Set(['github-commit', 'github-pr', 'github-issue']);
+// Fetched as three separate small requests (rather than one shared "latest
+// 30 across all sources" call) because github-* items are a small minority
+// of total content volume — a single shared page can easily come back with
+// zero or one GitHub item even when there's plenty of recent activity.
+const GITHUB_SOURCES = ['github-commit', 'github-pr', 'github-issue'] as const;
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -103,9 +109,13 @@ export const HomePage: React.FC = () => {
     queryKey: ['home-tasks'],
     queryFn: () => api.getTasks(),
   });
-  const timelineQuery = useQuery({
-    queryKey: ['home-timeline'],
-    queryFn: () => api.getTimeline({ page: 1, pageSize: 30 }),
+  // One request per GitHub source so a low-volume source can't get crowded
+  // out of a single shared "latest N" page — see comment on GITHUB_SOURCES.
+  const githubQuery = useQuery({
+    queryKey: ['home-github-activity'],
+    queryFn: () => Promise.all(
+      GITHUB_SOURCES.map((source) => api.getTimeline({ source, page: 1, pageSize: 5 })),
+    ),
   });
   const discoverQuery = useQuery({
     queryKey: ['home-discover'],
@@ -113,7 +123,7 @@ export const HomePage: React.FC = () => {
   });
   const notesQuery = useQuery({
     queryKey: ['home-notes'],
-    queryFn: () => api.getNotes(1, 30),
+    queryFn: () => fetchNotes(),
   });
 
   const allTasks: Task[] =
@@ -126,17 +136,19 @@ export const HomePage: React.FC = () => {
     .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
     .slice(0, 5);
 
-  const githubActivity = (timelineQuery.data?.success === true ? timelineQuery.data.data.items : [])
-    .filter((item) => GITHUB_SOURCES.has(item.source))
+  const githubActivity: ContentItemSummary[] = (githubQuery.data ?? [])
+    .flatMap((res) => (res.success ? res.data.items : []))
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
     .slice(0, 5);
 
   const discoverItems: DiscoverItem[] =
     discoverQuery.data?.success === true ? discoverQuery.data.data.items : [];
 
-  const recentNotes: Note[] = (notesQuery.data?.success === true ? notesQuery.data.data.items : [])
+  const recentNotes: NoteListItem[] = (notesQuery.data ?? [])
     .slice()
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 5);
+
 
   return (
     <div className="page-root today-page">
@@ -173,7 +185,7 @@ export const HomePage: React.FC = () => {
           title="Recent GitHub activity"
           Icon={LogoGithub}
           viewAllHref="/my-work"
-          isLoading={timelineQuery.isLoading}
+          isLoading={githubQuery.isLoading}
           isEmpty={githubActivity.length === 0}
           emptyLabel="No recent GitHub activity."
         >
@@ -216,7 +228,7 @@ export const HomePage: React.FC = () => {
           <ul className="today-list">
             {recentNotes.map((n) => (
               <li key={n.id} className="today-list__item">
-                <span className="today-list__title">{n.content.slice(0, 60) || 'Untitled note'}</span>
+                <span className="today-list__title">{n.title || 'Untitled note'}</span>
                 <span className="today-list__meta">{timeAgo(n.updatedAt)}</span>
               </li>
             ))}
