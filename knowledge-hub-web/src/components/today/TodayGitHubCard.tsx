@@ -1,49 +1,37 @@
-/**
- * components/today/TodayGitHubCard.tsx
- * GitHub activity filtered by user-selected project taxonomy tags.
- * Tag selection is persisted to localStorage; default = Imagine tag.
- */
-
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Settings } from '@carbon/icons-react';
 import { api } from '../../services/api';
-import type { GitHubActivityItem } from '../../services/api';
-import { TagPicker } from '../TagPicker';
+import type { GitHubActivityItem, TodayGitHubActivityResponse } from '../../services/api';
 
-const LS_KEY = 'kh-github-tag-filter';
-const DEFAULT_TAG_IDS = ['793b0516-50ff-4d04-aa07-c11d47149709'];
 const TRIVIAL_RE = /^(merge branch|rename|version bump|\d+\.\d+\.\d+)/i;
 const TICKET_RE = /#\d+|PR-\d+/i;
 
-function loadTagIds(): string[] {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw) as string[];
-  } catch { /* ignore */ }
-  return DEFAULT_TAG_IDS;
-}
-
-function saveTagIds(ids: string[]): void {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(ids)); } catch { /* ignore */ }
-}
-
-/** Returns true if the commit/item title should be filtered out as noise. */
+/** Returns true if a commit/PR title is housekeeping noise. */
 function isTrivial(title: string): boolean {
   if (TRIVIAL_RE.test(title)) return true;
   const words = title.trim().split(/\s+/);
-  if (words.length < 3 && !TICKET_RE.test(title)) return true;
-  return false;
+  return words.length < 3 && !TICKET_RE.test(title);
 }
 
-/** Extract repo name from GitHub item metadata or title prefix. */
-function extractRepo(item: GitHubActivityItem): string {
-  const meta = item.metadata;
-  if (meta && typeof meta['repository'] === 'string') return meta['repository'] as string;
-  const match = /^([^/:]+\/[^/:]+)/.exec(item.title);
-  return match ? match[1] ?? 'Unknown repo' : 'Unknown repo';
+/** Groups mapped activity by project tag then repository. */
+function groupByTagAndRepo(items: GitHubActivityItem[]): Map<string, Map<string, GitHubActivityItem[]>> {
+  const groups = new Map<string, Map<string, GitHubActivityItem[]>>();
+  for (const item of items) {
+    const tag = item.project_tag_name;
+    const repo = item.repo_full_name || 'Unknown repo';
+    if (!groups.has(tag)) groups.set(tag, new Map<string, GitHubActivityItem[]>());
+    const byRepo = groups.get(tag);
+    if (!byRepo) continue;
+    const existing = byRepo.get(repo) ?? [];
+    if (existing.length < 5) existing.push(item);
+    byRepo.set(repo, existing);
+  }
+  return groups;
 }
 
+/** Compact relative timestamp label. */
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.round(diffMs / 60_000);
@@ -53,96 +41,65 @@ function timeAgo(iso: string): string {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
-interface RepoGroup { repo: string; items: GitHubActivityItem[]; }
-
-function groupByRepo(items: GitHubActivityItem[]): RepoGroup[] {
-  const map = new Map<string, GitHubActivityItem[]>();
-  for (const item of items) {
-    const repo = extractRepo(item);
-    const existing = map.get(repo) ?? [];
-    if (existing.length < 5) {
-      existing.push(item);
-      map.set(repo, existing);
-    }
-  }
-  return Array.from(map.entries()).map(([repo, its]) => ({ repo, items: its }));
-}
-
-/** GitHub activity card with tag-filter picker. */
+/** GitHub activity card grouped by mapped project tag and repository. */
 export const TodayGitHubCard: React.FC = () => {
-  const [tagIds, setTagIds] = useState<string[]>(loadTagIds);
-
-  function handleTagChange(ids: string[]): void {
-    setTagIds(ids);
-    saveTagIds(ids);
-  }
-
   const query = useQuery({
-    queryKey: ['today-github-activity', tagIds],
-    queryFn: () => api.getTodayGitHubActivity(tagIds),
-    enabled: tagIds.length > 0,
+    queryKey: ['today-github-activity-mapped'],
+    queryFn: () => api.getTodayGitHubActivity(),
   });
 
-  const rawItems: GitHubActivityItem[] =
-    query.data?.success === true ? (query.data.data as GitHubActivityItem[]) : [];
-
-  const filteredItems = useMemo(
-    () => rawItems.filter((i) => !isTrivial(i.title)),
-    [rawItems],
+  const response: TodayGitHubActivityResponse | null =
+    query.data?.success === true ? query.data.data : null;
+  const hasMappings = response?.hasMappings === true;
+  const filtered = useMemo(
+    () => (response?.items ?? []).filter((item) => !isTrivial(item.title)),
+    [response],
   );
-
-  const groups = useMemo(() => groupByRepo(filteredItems), [filteredItems]);
+  const grouped = useMemo(() => groupByTagAndRepo(filtered), [filtered]);
 
   return (
     <div className="today-section-card">
       <div className="today-section-card__header">
         <span className="today-section-card__title">GitHub activity</span>
-        <TagPicker
-          selectedIds={tagIds}
-          onChange={handleTagChange}
-          trigger={
-            <button className="dc-action dc-action--icon" title="Filter by project tags">
-              <Settings size={16} />
-            </button>
-          }
-        />
+        <Link className="today-github-settings-link" to="/settings/repo-mappings" title="Manage repo mapping">
+          <Settings size={16} />
+          Manage repo mapping
+        </Link>
       </div>
 
-      {query.isLoading && (
-        <p style={{ padding: '12px 16px', fontSize: 13, color: 'var(--cds-text-secondary)', margin: 0 }}>
-          Loading…
-        </p>
-      )}
+      {query.isLoading && <p className="today-github-empty">Loading…</p>}
 
-      {!query.isLoading && tagIds.length === 0 && (
+      {!query.isLoading && !hasMappings && (
         <p className="today-github-empty">
-          No project tags selected. Use ⚙ to configure project tags.
+          No repos mapped yet. Set up repo-to-project mapping in{' '}
+          <Link to="/settings/repo-mappings">settings</Link>.
         </p>
       )}
 
-      {!query.isLoading && tagIds.length > 0 && groups.length === 0 && (
-        <p className="today-github-empty">
-          No tagged GitHub activity found. Use ⚙ to configure project tags.
-        </p>
+      {!query.isLoading && hasMappings && grouped.size === 0 && (
+        <p className="today-github-empty">No mapped GitHub activity found yet.</p>
       )}
 
-      {groups.map(({ repo, items }) => (
-        <div key={repo} className="today-github-group">
-          <div className="today-github-group__repo">{repo}</div>
-          {items.map((item) => (
-            <div key={item.id} className="today-ranked-row">
-              <div className="today-ranked-row__body">
-                <div className="today-ranked-row__title">
-                  {item.url ? (
-                    <a href={item.url} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>
-                      {item.title}
-                    </a>
-                  ) : item.title}
+      {Array.from(grouped.entries()).map(([tagName, byRepo]) => (
+        <div key={tagName} className="today-github-group">
+          <div className="today-github-group__tag">{tagName}</div>
+          {Array.from(byRepo.entries()).map(([repo, items]) => (
+            <div key={`${tagName}:${repo}`}>
+              <div className="today-github-group__repo">{repo}</div>
+              {items.map((item) => (
+                <div key={item.id} className="today-ranked-row">
+                  <div className="today-ranked-row__body">
+                    <div className="today-ranked-row__title">
+                      {item.url
+                        ? <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
+                        : item.title}
+                    </div>
+                    <div className="today-ranked-row__context">
+                      {item.source.replace('github-', '')} · {timeAgo(item.published_at)}
+                    </div>
+                  </div>
                 </div>
-                <div className="today-ranked-row__context">
-                  {item.source.replace('github-', '')} · {timeAgo(item.published_at)}
-                </div>
-              </div>
+              ))}
             </div>
           ))}
         </div>
