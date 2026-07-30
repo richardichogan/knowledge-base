@@ -92,11 +92,16 @@ function inferDocType(filePath: string, isContentStore: boolean): DocType {
   const filename = lower.split('/').pop() ?? '';
 
   if (filename === 'readme.md') return 'readme';
-  if (!isContentStore) return 'doc';
 
-  if (lower.startsWith('posts/') || lower.startsWith('drafts/')) return 'blog-draft';
-  if (lower.startsWith('spec') || lower.endsWith('-spec.md') || lower.includes('/spec')) return 'spec';
-  if (lower.startsWith('newsletter')) return 'newsletter';
+  if (isContentStore) {
+    if (lower.startsWith('posts/') || lower.startsWith('drafts/')) return 'blog-draft';
+    if (lower.startsWith('spec') || lower.endsWith('-spec.md') || lower.includes('/spec')) return 'spec';
+    if (lower.startsWith('newsletter')) return 'newsletter';
+    return 'doc';
+  }
+
+  // Project repo heuristics
+  if (lower.endsWith('-spec.md') || lower.includes('/spec') || lower.startsWith('specs/') || lower.startsWith('rfcs/')) return 'spec';
   return 'doc';
 }
 
@@ -122,7 +127,52 @@ async function getRepoTree(gh: GitHubClient, repo: string): Promise<GitHubTreeIt
   return tree.tree;
 }
 
-export const CONTENT_STORE = 'richardichogan/content-store';
+/**
+ * Optional dedicated content-store repo. Falls back to env var, then skips gracefully.
+ * Set GITHUB_CONTENT_STORE_REPO=owner/repo in the backend env to enable.
+ */
+export const CONTENT_STORE: string | null = process.env['GITHUB_CONTENT_STORE_REPO'] ?? null;
+
+/**
+ * Root-level .md files that are repo meta/housekeeping — never surfaced as documents.
+ * Everything else under docs/ and other named doc folders is included.
+ */
+const EXCLUDED_META_FILES = new Set([
+  'contributing.md', 'changelog.md', 'code_of_conduct.md',
+  'license.md', 'security.md', 'codeowners.md', 'authors.md',
+  'maintainers.md', 'notice.md', 'patents.md',
+]);
+
+/**
+ * Returns true if a file path from a project repo should appear in the Library.
+ * Rules:
+ *   - Never include .github/ or hidden directories
+ *   - Root-level: README.md and any .md not in the meta exclusion list above
+ *   - Sub-directories: only docs/, architecture/, specs/, rfcs/, wiki/, design/
+ */
+function isDocumentablePath(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+
+  // Never include .github/ templates, hidden dirs, or node_modules
+  if (lower.startsWith('.github/') || lower.startsWith('.') || lower.startsWith('node_modules/')) return false;
+
+  const hasDir = lower.includes('/');
+
+  if (!hasDir) {
+    // Root-level: include README and curated doc files, exclude meta/housekeeping
+    return lower.endsWith('.md') && !EXCLUDED_META_FILES.has(lower);
+  }
+
+  // Sub-directory: only explicit documentation folders
+  return (
+    lower.startsWith('docs/') ||
+    lower.startsWith('architecture/') ||
+    lower.startsWith('specs/') ||
+    lower.startsWith('rfcs/') ||
+    lower.startsWith('wiki/') ||
+    lower.startsWith('design/')
+  );
+}
 
 // ── Library cache — avoids hammering GitHub on every page load ─────────────────
 const LIBRARY_CACHE_TTL_MS = 300_000; // 5 minutes
@@ -131,29 +181,31 @@ let _libraryCache: { docs: DocEntry[]; builtAt: number } | null = null;
 export async function buildLibrary(gh: GitHubClient, extraRepos: string[], labelMap: Record<string, string>): Promise<DocEntry[]> {
   const docs: DocEntry[] = [];
 
-  // 1. Content store — all .md files
-  try {
-    const tree = await getRepoTree(gh, CONTENT_STORE);
-    for (const item of tree) {
-      if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-      docs.push({
-        id: `${CONTENT_STORE}::${item.path}`,
-        title: titleFromPath(item.path),
-        type: inferDocType(item.path, true),
-        repo: CONTENT_STORE,
-        path: item.path,
-        sourceLabel: 'Content Store',
-        htmlUrl: `https://github.com/${CONTENT_STORE}/blob/main/${item.path}`,
-        size: item.size ?? 0,
-        tags: inferTags(item.path, 'Content Store', true),
-        taxonomyTagIds: [],
-      });
+  // 1. Content store — all .md files (only if GITHUB_CONTENT_STORE_REPO is configured)
+  if (CONTENT_STORE) {
+    try {
+      const tree = await getRepoTree(gh, CONTENT_STORE);
+      for (const item of tree) {
+        if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
+        docs.push({
+          id: `${CONTENT_STORE}::${item.path}`,
+          title: titleFromPath(item.path),
+          type: inferDocType(item.path, true),
+          repo: CONTENT_STORE,
+          path: item.path,
+          sourceLabel: 'Content Store',
+          htmlUrl: `https://github.com/${CONTENT_STORE}/blob/main/${item.path}`,
+          size: item.size ?? 0,
+          tags: inferTags(item.path, 'Content Store', true),
+          taxonomyTagIds: [],
+        });
+      }
+    } catch (err) {
+      console.warn('[Documents] content-store fetch failed:', err instanceof Error ? err.message : err);
     }
-  } catch (err) {
-    console.warn('[Documents] content-store fetch failed:', err instanceof Error ? err.message : err);
   }
 
-  // 2. Project repos — docs/ folder and README.md only
+  // 2. Project repos — docs/, README, root-level .md files, and common doc folders
   await Promise.allSettled(
     extraRepos.map(async (repo) => {
       const label = labelMap[repo] ?? repo.split('/')[1] ?? repo;
@@ -161,7 +213,7 @@ export async function buildLibrary(gh: GitHubClient, extraRepos: string[], label
         const tree = await getRepoTree(gh, repo);
         for (const item of tree) {
           if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-          if (!item.path.startsWith('docs/') && item.path.toLowerCase() !== 'readme.md') continue;
+          if (!isDocumentablePath(item.path)) continue;
           docs.push({
             id: `${repo}::${item.path}`,
             title: titleFromPath(item.path),
@@ -410,10 +462,12 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
       const docs: DocSpec[] = [];
 
       try {
-        const tree = await getRepoTree(gh, CONTENT_STORE);
-        for (const item of tree) {
-          if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-          docs.push({ id: `${CONTENT_STORE}::${item.path}`, repo: CONTENT_STORE, path: item.path, title: titleFromPath(item.path) });
+        if (CONTENT_STORE) {
+          const tree = await getRepoTree(gh, CONTENT_STORE);
+          for (const item of tree) {
+            if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
+            docs.push({ id: `${CONTENT_STORE}::${item.path}`, repo: CONTENT_STORE, path: item.path, title: titleFromPath(item.path) });
+          }
         }
       } catch { /* content-store inaccessible */ }
 
@@ -422,7 +476,7 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
           const tree = await getRepoTree(gh, repo);
           for (const item of tree) {
             if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-            if (!item.path.startsWith('docs/') && item.path.toLowerCase() !== 'readme.md') continue;
+            if (!isDocumentablePath(item.path)) continue;
             docs.push({ id: `${repo}::${item.path}`, repo, path: item.path, title: titleFromPath(item.path) });
           }
         }),

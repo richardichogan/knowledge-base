@@ -30,6 +30,17 @@ export interface Project {
 }
 
 export const PROJECTS: Project[] = [
+  // ── Knowledge Hub (this app) ─────────────────────────────────────────────────
+  {
+    id: 'knowledge-hub',
+    name: 'Knowledge Hub',
+    colour: 'purple',
+    description: 'This Knowledge Hub application',
+    githubRepos: ['richardichogan/knowledge-base'],
+    links: [],
+    tags: ['tools'],
+  },
+
   // ── Structara AI ────────────────────────────────────────────────────────────
   {
     id: 'structara-ai',
