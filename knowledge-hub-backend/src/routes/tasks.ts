@@ -31,7 +31,7 @@ export interface Task {
   updatedAt: string;
 }
 
-function rowToTask(row: Record<string, unknown>): Task {
+export function rowToTask(row: Record<string, unknown>): Task {
   const toDate = (val: unknown): string | null =>
     val ? new Date(val as string).toISOString().substring(0, 'YYYY-MM-DD'.length) : null;
   return {

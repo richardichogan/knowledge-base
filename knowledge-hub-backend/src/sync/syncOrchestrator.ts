@@ -37,13 +37,60 @@ export interface OrchestratorResult {
 }
 
 /**
+ * Re-entrancy guard. A full Tier 1 sync is a long-running job (tens of minutes
+ * on the Burstable DB). It can be triggered from three places — the startup
+ * initial sync, the 5-minute scheduler, and the manual POST /api/sources/sync
+ * endpoint — none of which previously coordinated. Overlapping runs stacked up,
+ * each holding pg pool connections, eventually starving the pool so the API
+ * could no longer acquire a client ("timeout exceeded when trying to connect")
+ * and the UI lost all data until the container was restarted — which then fired
+ * a fresh initial sync, repeating the cycle. This module-level lock guarantees
+ * only one sync ever runs at a time (single replica), so the pool always has
+ * headroom for live API traffic.
+ */
+let syncInProgress = false;
+let syncStartedAt: number | null = null;
+
+/** True while a Tier 1 sync is actively running. */
+export function isSyncInProgress(): boolean {
+  return syncInProgress;
+}
+
+const EMPTY_RESULT: OrchestratorResult = {
+  results: [],
+  totalIndexed: 0,
+  totalErrors: 0,
+  totalDurationMs: 0,
+};
+
+/**
  * Runs all Tier 1 source syncs sequentially.
  * Running in parallel exhausted the pg connection pool (max 10) causing
  * API requests to hang waiting for a connection. Sequential execution
  * keeps pool usage low so the API stays responsive during sync.
  * Sources that fail are logged but do not block other sources.
+ *
+ * Guarded against concurrent invocation — if a sync is already running, the
+ * call is skipped (see the re-entrancy guard note above).
  */
 export async function runTier1Sync(db: Pool): Promise<OrchestratorResult> {
+  if (syncInProgress) {
+    const runningForSec = syncStartedAt ? Math.round((Date.now() - syncStartedAt) / 1000) : 0;
+    console.warn(`[Sync] Skipped — a sync is already in progress (running for ${runningForSec}s). Refusing to start an overlapping run.`);
+    return EMPTY_RESULT;
+  }
+
+  syncInProgress = true;
+  syncStartedAt = Date.now();
+  try {
+    return await runTier1SyncInner(db);
+  } finally {
+    syncInProgress = false;
+    syncStartedAt = null;
+  }
+}
+
+async function runTier1SyncInner(db: Pool): Promise<OrchestratorResult> {
   const sources: Array<{ name: string; sync: (db: Pool) => Promise<{ indexed: number; errors: number }> }> = [
     { name: 'cms',              sync: indexAllPosts },
     { name: 'discovered-articles', sync: syncDiscoveredArticles },

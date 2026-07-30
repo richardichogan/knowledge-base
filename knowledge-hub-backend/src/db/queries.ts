@@ -4,6 +4,43 @@ import { tagContent } from '../services/taxonomyService.js';
 
 const TAG_SUMMARY_CHARS = 2000;
 
+// ── Source weighting for RAG/knowledge-base search ──────────────────────────
+//
+// Plain ts_rank treats every source equally, but content_items is dominated
+// numerically by low-value CI/CD noise (github-action ~2.9k rows,
+// github-deployment ~660, gitlab-pipeline) versus a tiny slice of the user's
+// own thinking (notes ~40, cms-blog/newsletter/podcast ~50 combined). Without
+// weighting, that noise routinely outranks or drowns out notes/tasks/personal
+// writing for any query that also happens to match commit/workflow text.
+// This multiplier boosts personal-authorship content (notes, blog,
+// newsletter, podcast notes), gives discovered-article (broader topics the
+// user has been reading) a moderate boost so it still surfaces as a genuine
+// connection when relevant, and suppresses pure operational noise so it only
+// wins when nothing else matches at all.
+const SOURCE_RANK_WEIGHT_SQL = `
+  CASE source
+    WHEN 'note' THEN 3.0
+    WHEN 'cms-blog' THEN 2.5
+    WHEN 'cms-newsletter' THEN 2.5
+    WHEN 'cms-podcast-show-notes' THEN 2.5
+    WHEN 'discovered-article' THEN 1.5
+    WHEN 'github-action' THEN 0.25
+    WHEN 'github-deployment' THEN 0.25
+    WHEN 'gitlab-pipeline' THEN 0.25
+    ELSE 1.0
+  END
+`;
+
+// For long-lived resources (PRs, issues, MRs, pipelines, deployments) the
+// sync layer stashes the source's own last-updated timestamp in
+// metadata.updatedAt (see pullRequestsSync/issuesSync/mergeRequestsSync
+// etc.), because `published_at` is fixed at creation time and never moves —
+// a PR opened last week but pushed to again this morning would otherwise
+// look stale to any "what's new/recent" query. Falling back to published_at
+// keeps this correct for point-in-time events (commits, notes) that don't
+// have a separate updatedAt.
+const ACTIVITY_AT_SQL = `COALESCE(NULLIF(metadata->>'updatedAt', '')::timestamptz, published_at)`;
+
 // ── Content items ─────────────────────────────────────────────────────────────
 
 /**
@@ -189,7 +226,7 @@ export async function searchContentItems(
   const dataResult: QueryResult<ContentItemRow> = await db.query(
     `SELECT id, source, source_id, title, summary, published_at, indexed_at,
             url, project_context, metadata, tags,
-            ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
+            ts_rank(search_vector, plainto_tsquery('english', $1)) * ${SOURCE_RANK_WEIGHT_SQL} AS rank
      FROM content_items ${where}
      ORDER BY rank DESC, published_at DESC
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
@@ -199,23 +236,66 @@ export async function searchContentItems(
   return { items: dataResult.rows.map(rowToSummary), total };
 }
 
-/** Retrieves top-N relevant items for RAG context. */
+/**
+ * Retrieves top-N relevant items for RAG context.
+ *
+ * `plainto_tsquery` ANDs every word together, so a multi-word query like
+ * "project imagine" only matches rows containing *both* "project" and
+ * "imagine" literally — which silently returns zero rows for the vast
+ * majority of real content that just mentions "imagine" on its own. If the
+ * AND query comes back empty, fall back to an OR-joined tsquery built from
+ * the same words so any single matching term still surfaces results.
+ */
 export async function getRagItems(
   db: Pool,
   query: string,
   limit: number,
 ): Promise<ContentItem[]> {
-  const result: QueryResult<ContentItemRow & { body: string }> = await db.query(
+  const andResult: QueryResult<ContentItemRow & { body: string }> = await db.query(
     `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
             url, project_context, metadata, tags,
-            ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
+            ts_rank(search_vector, plainto_tsquery('english', $1)) * ${SOURCE_RANK_WEIGHT_SQL} AS rank
      FROM content_items
      WHERE search_vector @@ plainto_tsquery('english', $1)
-     ORDER BY rank DESC, published_at DESC
+     ORDER BY rank DESC, ${ACTIVITY_AT_SQL} DESC
      LIMIT $2`,
     [query, limit],
   );
-  return result.rows.map(rowToItem);
+  if (andResult.rows.length > 0) return andResult.rows.map(rowToItem);
+
+  // Fallback: OR the individual words together via to_tsquery so a phrase
+  // like "project imagine" still matches rows that only contain "imagine".
+  // Common stopwords are dropped first — without this, a query like
+  // "are you sure" ORs on "you"/"are", which match almost every row in the
+  // table and return effectively random content.
+  const STOPWORDS = new Set([
+    'a', 'an', 'the', 'is', 'are', 'am', 'was', 'were', 'be', 'been', 'being',
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+    'my', 'your', 'his', 'its', 'our', 'their', 'this', 'that', 'these', 'those',
+    'do', 'does', 'did', 'have', 'has', 'had', 'can', 'could', 'will', 'would',
+    'should', 'may', 'might', 'must', 'to', 'of', 'in', 'on', 'at', 'for', 'with',
+    'and', 'or', 'but', 'not', 'so', 'if', 'as', 'like', 'sure', 'ok', 'okay',
+  ]);
+  const orQuery = query
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w !== '')
+    .map((w) => w.replace(/[^\w]/g, ''))
+    .filter((w) => w !== '' && !STOPWORDS.has(w.toLowerCase()))
+    .join(' | ');
+  if (orQuery === '') return [];
+
+  const orResult: QueryResult<ContentItemRow & { body: string }> = await db.query(
+    `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
+            url, project_context, metadata, tags,
+            ts_rank(search_vector, to_tsquery('english', $1)) * ${SOURCE_RANK_WEIGHT_SQL} AS rank
+     FROM content_items
+     WHERE search_vector @@ to_tsquery('english', $1)
+     ORDER BY rank DESC, ${ACTIVITY_AT_SQL} DESC
+     LIMIT $2`,
+    [orQuery, limit],
+  );
+  return orResult.rows.map(rowToItem);
 }
 
 // ── Sync state ────────────────────────────────────────────────────────────────

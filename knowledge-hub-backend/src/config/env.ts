@@ -52,12 +52,28 @@ export const env = {
   CMS_BLOB_CONTAINER: optionalWithDefault('CMS_BLOB_CONTAINER', 'blogcontent'),
   CMS_POSTS_PREFIX: optionalWithDefault('CMS_POSTS_PREFIX', 'posts/'),
 
+  // Frontend base URL — used to build deep links back into the app (e.g. a
+  // task link in an AI chat reply) so responses can point at the actual
+  // Knowledge Hub record instead of just naming it in plain text.
+  FRONTEND_BASE_URL: optionalWithDefault('FRONTEND_BASE_URL', 'https://nice-mud-0f780fb03.7.azurestaticapps.net'),
+
   // Azure AI Foundry
   AZURE_OPENAI_ENDPOINT: integrationCredential('AZURE_OPENAI_ENDPOINT'),
   AZURE_OPENAI_API_KEY: integrationCredential('AZURE_OPENAI_API_KEY'),
   AZURE_OPENAI_DEPLOYMENT_GPT4O: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT4O', 'gpt-4o'),
   AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI', 'gpt-4o-mini'),
   AZURE_OPENAI_API_VERSION: optionalWithDefault('AZURE_OPENAI_API_VERSION', '2024-08-01-preview'),
+
+  // Azure Speech (voice chat) — same pattern as client-demo's voiceProvider.ts.
+  // The Azure AI Services multi-service key also covers the Speech REST API, so
+  // AZURE_SPEECH_KEY falls back to AZURE_OPENAI_API_KEY when not set separately.
+  AZURE_SPEECH_KEY: optional('AZURE_SPEECH_KEY'),
+  AZURE_SPEECH_REGION: optionalWithDefault('AZURE_SPEECH_REGION', 'uksouth'),
+  AZURE_SPEECH_VOICE: optionalWithDefault('AZURE_SPEECH_VOICE', 'en-US-Harper:MAI-Voice-2'),
+  // Used when the preferred voice above (MAI-Voice-2) isn't enabled on the resource.
+  AZURE_SPEECH_FALLBACK_VOICE: optionalWithDefault('AZURE_SPEECH_FALLBACK_VOICE', 'en-US-SaraNeural'),
+  // Set to 'mock' to force the deterministic mock voice provider (no network).
+  VOICE_PROVIDER: optional('VOICE_PROVIDER'),
 
   // Microsoft Graph (personal M365)
   GRAPH_CLIENT_ID: integrationCredential('GRAPH_CLIENT_ID'),

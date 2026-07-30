@@ -194,6 +194,7 @@ input, textarea {
   padding-top: 0.5rem;
 }
 
+
 // ── Active nav item — teal left border (kept for any legacy SideNav remnants) ─
 .cds--side-nav__link--current,
 .cds--side-nav__link[aria-current='page'] {
@@ -202,6 +203,7 @@ input, textarea {
   background: rgba(61, 219, 217, 0.06) !important;
   color: #f4f4f4 !important;
 }
+
 
 // ── Horizontal top navigation ─────────────────────────────────────────────────
 
@@ -452,6 +454,70 @@ input, textarea {
   gap: 0.5rem;
 }
 
+.ai-new-chat-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+
+  .cds--btn {
+    color: var(--cds-text-secondary);
+
+    &:hover {
+      color: var(--cds-text-primary);
+    }
+  }
+}
+
+.ai-voice-toggle.cds--btn.cds--btn--icon-only {
+  color: var(--cds-text-secondary);
+
+  &:hover {
+    color: var(--cds-text-primary);
+  }
+}
+
+// Code block copy button — shared by AIChatPage (.ai-bubble-text--md) and
+// DocumentsPage (.docs-viewer__content), both of which render output from
+// utils/markdown.ts's renderMarkdown(), which wraps fenced code in this div.
+.kh-code-block {
+  position: relative;
+}
+
+.kh-code-copy-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cds-text-secondary);
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 4px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+
+  .kh-code-block:hover & {
+    opacity: 1;
+  }
+
+  &:hover {
+    color: var(--kh-accent);
+    border-color: var(--kh-accent-border);
+  }
+
+  &--copied {
+    opacity: 1 !important;
+    color: var(--kh-accent);
+    border-color: var(--kh-accent-border);
+  }
+}
+
 .ai-messages {
   min-height: 400px;
   max-height: 60vh;
@@ -463,7 +529,34 @@ input, textarea {
 }
 
 .ai-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  margin: auto;
+  padding: 2rem 1rem;
+  text-align: center;
   color: var(--cds-text-secondary);
+}
+
+.ai-empty__icon {
+  color: var(--kh-accent);
+  margin-bottom: 0.25rem;
+}
+
+.ai-empty__title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8125rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cds-text-primary);
+  margin: 0;
+}
+
+.ai-empty__subtitle {
+  font-size: 0.8125rem;
+  margin: 0;
 }
 
 .ai-bubble {
@@ -474,34 +567,874 @@ input, textarea {
 
 .ai-bubble--user {
   align-self: flex-end;
-  background: var(--cds-interactive);
-  color: var(--cds-text-on-color);
+  background: var(--kh-accent-bg);
+  border: 1px solid var(--kh-accent-border);
+  color: var(--cds-text-primary);
 }
 
 .ai-bubble--ai {
   align-self: flex-start;
   background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
   color: var(--cds-text-primary);
 }
 
 .ai-bubble-label {
-  font-size: 0.75rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   margin-bottom: 0.25rem;
-  opacity: 0.7;
+  color: var(--cds-text-secondary);
+
+  .ai-bubble--user & { color: var(--kh-accent); }
+}
+
+.ai-bubble-time {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.625rem;
+  color: var(--cds-text-placeholder, #525252);
+  margin-top: 0.3rem;
 }
 
 .ai-bubble-text {
   white-space: pre-wrap;
+  font-size: 0.9375rem;
+}
+
+// Markdown formatting inside AI assistant replies — compact variant of
+// .docs-viewer__content, tuned for narrow chat bubbles instead of full pages.
+.ai-bubble-text--md {
+  white-space: normal;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+
+  > *:first-child { margin-top: 0; }
+  > *:last-child { margin-bottom: 0; }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    margin: 0.75em 0 0.35em;
+    color: var(--cds-text-primary);
+    line-height: 1.3;
+  }
+
+  h1 { font-size: 1.05rem; }
+  h2 { font-size: 1rem; }
+  h3, h4, h5, h6 { font-size: 0.9375rem; }
+
+  p { margin: 0 0 0.6em; }
+
+  a { color: var(--cds-link-primary); }
+  a:hover { color: var(--cds-link-primary-hover); }
+
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+
+  code {
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    font-size: 0.75em;
+    font-weight: 600;
+    background: var(--kh-accent-bg);
+    color: var(--kh-accent);
+    border: 1px solid var(--kh-accent-border);
+    padding: 0.125em 0.55em;
+    border-radius: 999px;
+    word-break: break-word;
+  }
+
+  // Status chips + overdue alert banner injected by enrichAssistantText()
+  // (AIChatPage.tsx) — turns plain status words into colour-coded pills so
+  // dense task-list replies are scannable instead of a wall of text.
+  .kh-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    padding: 0.05em 0.6em;
+    border-radius: 999px;
+    font-size: 0.8125em;
+    font-weight: 600;
+    line-height: 1.7;
+    white-space: nowrap;
+  }
+
+  .kh-chip--danger {
+    background: rgba(250, 77, 86, 0.14);
+    color: #ff8389;
+    border: 1px solid rgba(250, 77, 86, 0.35);
+  }
+
+  .kh-chip--warning {
+    background: rgba(255, 131, 43, 0.14);
+    color: #ffb84d;
+    border: 1px solid rgba(255, 131, 43, 0.35);
+  }
+
+  .kh-chip--info {
+    background: var(--kh-accent-bg);
+    color: var(--kh-accent);
+    border: 1px solid var(--kh-accent-border);
+  }
+
+  .kh-chip--success {
+    background: rgba(66, 190, 101, 0.14);
+    color: #42be65;
+    border: 1px solid rgba(66, 190, 101, 0.35);
+  }
+
+  .kh-chip--neutral {
+    background: var(--cds-layer-02);
+    color: var(--cds-text-secondary);
+    border: 1px solid var(--cds-border-subtle-01);
+  }
+
+  .kh-alert {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    margin: 0.25rem 0 0.75rem;
+  }
+
+  .kh-alert--danger {
+    background: rgba(250, 77, 86, 0.1);
+    border: 1px solid rgba(250, 77, 86, 0.3);
+    color: #ff8389;
+  }
+
+  .kh-alert--success {
+    background: rgba(66, 190, 101, 0.1);
+    border: 1px solid rgba(66, 190, 101, 0.3);
+    color: #42be65;
+  }
+
+  // Task summary cards injected by renderAssistantMessage() (AIChatPage.tsx)
+  // — replaces the old bold-title + "Status:/Priority:/..." plain-text wall
+  // with an actual bordered card per task, colour-coded by priority/overdue.
+  .kh-task-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    background: var(--cds-layer-01);
+    border: 1px solid var(--cds-border-subtle-01);
+    border-left: 3px solid var(--cds-border-subtle-01);
+    border-radius: 0.5rem;
+    padding: 0.75rem 0.875rem;
+    margin: 0 0 0.6em;
+
+    &--urgent, &--high {
+      border-left-color: #ff8389;
+    }
+
+    &--medium, &--normal {
+      border-left-color: #ffb84d;
+    }
+
+    &--low {
+      border-left-color: var(--cds-border-subtle-01);
+    }
+
+    &--overdue {
+      border-color: rgba(250, 77, 86, 0.35);
+      background: rgba(250, 77, 86, 0.06);
+    }
+  }
+
+  .kh-task-card__overdue-flag {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    padding: 0.05em 0.6em;
+    border-radius: 999px;
+    font-size: 0.75em;
+    font-weight: 600;
+    background: rgba(250, 77, 86, 0.14);
+    color: #ff8389;
+    border: 1px solid rgba(250, 77, 86, 0.35);
+  }
+
+  .kh-task-card__title {
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.35;
+  }
+
+  .kh-task-card__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .kh-task-card__details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--cds-text-secondary);
+  }
+
+  .kh-task-card__detail {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+  }
+
+  .kh-task-card__detail-icon {
+    font-size: 0.9em;
+  }
+
+  .kh-task-card__link {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    margin-top: 0.15rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--kh-accent);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--kh-accent);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+  }
+
+  // Standalone "Open in Knowledge Hub" link for replies that reference a
+  // note/task/source outside a task-card block (see enrichSourceLinks()).
+  .kh-source-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    margin: 0.1em 0 0.5em;
+    padding: 0.3em 0.7em;
+    border-radius: 999px;
+    background: var(--kh-accent-bg);
+    border: 1px solid var(--kh-accent-border);
+    color: var(--kh-accent);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+
+    &:hover {
+      background: rgba(61, 219, 217, 0.16);
+      text-decoration: none;
+    }
+  }
+
+  pre {
+    background: var(--cds-layer-01);
+    border: 1px solid var(--cds-border-subtle-00);
+    padding: 0.625rem 0.75rem;
+    overflow-x: auto;
+    margin: 0 0 0.6em;
+    border-radius: 4px;
+
+    code {
+      background: none;
+      border: none;
+      padding: 0;
+      border-radius: 0;
+      color: inherit;
+      font-weight: 400;
+      font-size: 0.75rem;
+      white-space: pre;
+    }
+  }
+
+  ul, ol {
+    padding-left: 1.25rem;
+    margin: 0 0 0.6em;
+  }
+
+  li { margin-bottom: 0.2em; }
+
+  blockquote {
+    border-left: 3px solid var(--kh-accent);
+    margin: 0 0 0.6em;
+    padding: 0.375rem 0.75rem;
+    background: var(--cds-layer-01);
+    color: var(--cds-text-secondary);
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--cds-border-subtle-01);
+    margin: 0.75em 0;
+  }
 }
 
 .ai-input-row {
   display: flex;
   gap: 0.5rem;
-  align-items: flex-end;
+  align-items: center;
 }
 
+// The text field now hosts the attach + mic buttons inside itself (pill
+// search-bar style) instead of as separate buttons beside it — saves
+// horizontal space, especially on mobile.
 .ai-input-field {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--cds-field);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 1.5rem;
+  padding: 0 0.25rem 0 0.25rem;
+
+  .cds--text-input {
+    height: 2.5rem;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  .cds--form-item {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.ai-file-input-hidden {
+  display: none;
+}
+
+.ai-attach-button--inline.cds--btn.cds--btn--icon-only,
+.ai-mic-button--inline.cds--btn.cds--btn--icon-only {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  border-radius: 50%;
+
+  &.cds--btn--danger {
+    animation: ai-mic-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+.ai-send-button.cds--btn.cds--btn--icon-only {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  min-height: 2.5rem;
+  border-radius: 50%;
+  padding: 0;
+  justify-content: center;
+}
+
+@keyframes ai-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(218, 30, 40, 0.55); }
+  50% { box-shadow: 0 0 0 6px rgba(218, 30, 40, 0); }
+}
+
+// Standalone /chat route — installed as a desktop PWA (no AppShell sidebar).
+// Centered, full-height layout designed to look like its own little app
+// rather than a stretched-out enterprise page.
+.ai-chat-standalone {
+  height: 100vh;
+  display: flex;
+  flex-direction: row;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(61, 219, 217, 0.06), transparent 45%),
+    var(--cds-background);
+  overflow: hidden;
+}
+
+.ai-chat-standalone__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+// Chat history sidebar (standalone window only) — lists past Athena
+// sessions so the user can pick up an old conversation without losing the
+// thread of whatever else they're working on ("New chat" resets, doesn't
+// destroy prior chats). Structure follows the Claude/M365 Copilot pattern:
+// a header row (brand + search), a nav list of primary actions, a
+// "Recents" section label, then the session list.
+.kh-chat-sidebar {
+  flex-shrink: 0;
+  width: 260px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: calc(0.875rem + env(safe-area-inset-top)) 0.75rem 0.875rem;
+  background: var(--cds-layer-01);
+  border-right: 1px solid var(--cds-border-subtle-01);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+// Below the mobile breakpoint the sidebar can't sit alongside the chat body
+// without squeezing it unusably narrow, so it becomes an off-canvas drawer
+// toggled by the hamburger button in the topbar (see
+// .ai-chat-standalone__menu-toggle) instead of a permanent column.
+@media (max-width: 640px) {
+  .kh-chat-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 9200;
+    width: min(80vw, 300px);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.4);
+
+    &--open {
+      transform: translateX(0);
+    }
+  }
+}
+
+.kh-chat-sidebar__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9100;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.kh-chat-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.25rem 0.75rem;
+}
+
+.kh-chat-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cds-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.kh-chat-sidebar__header-action {
+  color: var(--cds-text-secondary);
+}
+
+.kh-chat-sidebar__logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+// Primary actions ("New chat" and friends) — a flat icon+label row like
+// Claude's/M365's nav list, not a bordered button, so it reads as part of
+// the same nav rather than a floating call-to-action.
+.kh-chat-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-bottom: 0.5rem;
+}
+
+.kh-chat-sidebar__nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.5rem 0.5rem;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--kh-accent);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease;
+
+  &:hover {
+    background: rgba(61, 219, 217, 0.08);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+
+.kh-chat-sidebar__nav-icon {
+  flex-shrink: 0;
+}
+
+.kh-chat-sidebar__search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  margin-bottom: 0.5rem;
+  border-radius: 6px;
+  background: var(--cds-field-01);
+  border: 1px solid var(--cds-border-subtle-01);
+}
+
+.kh-chat-sidebar__search-icon {
+  flex-shrink: 0;
+  color: var(--cds-text-secondary);
+}
+
+.kh-chat-sidebar__search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--cds-text-primary);
+  font-size: 0.8125rem;
+
+  &:focus {
+    outline: none;
+  }
+
+  &::placeholder {
+    color: var(--cds-text-secondary);
+  }
+}
+
+.kh-chat-sidebar__section-label {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cds-text-secondary);
+}
+
+.kh-chat-sidebar__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.kh-chat-sidebar__empty {
+  padding: 0.75rem 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+  line-height: 1.4;
+}
+
+.kh-chat-sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+
+  &:hover {
+    background: var(--cds-layer-hover-01);
+
+    .kh-chat-sidebar__delete {
+      opacity: 1;
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--kh-accent);
+    outline-offset: -2px;
+  }
+}
+
+.kh-chat-sidebar__item--active {
+  background: rgba(61, 219, 217, 0.12);
+
+  &:hover {
+    background: rgba(61, 219, 217, 0.16);
+  }
+
+  .kh-chat-sidebar__item-title {
+    color: var(--kh-accent);
+  }
+}
+
+.kh-chat-sidebar__item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.kh-chat-sidebar__item-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--cds-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kh-chat-sidebar__item-time {
+  font-size: 0.6875rem;
+  color: var(--cds-text-secondary);
+  margin-top: 0.125rem;
+}
+
+.kh-chat-sidebar__delete {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.ai-chat-standalone__topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: calc(0.875rem + env(safe-area-inset-top)) 1.5rem 0.875rem;
+  background: var(--cds-layer-01);
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+// Now that the Athena brand lives in the sidebar, the topbar is just a thin
+// row of icon controls — no need for it to read as its own distinct panel.
+.ai-chat-standalone__topbar--minimal {
+  justify-content: flex-end;
+  padding: calc(0.5rem + env(safe-area-inset-top)) 1rem 0.5rem;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+}
+
+// Hidden on desktop (sidebar is always visible there) — only takes up space
+// once the sidebar becomes an off-canvas drawer below the mobile breakpoint.
+.ai-chat-standalone__menu-toggle {
+  display: none;
+  margin-right: auto;
+}
+
+@media (max-width: 640px) {
+  .ai-chat-standalone__topbar--minimal {
+    justify-content: space-between;
+  }
+
+  .ai-chat-standalone__menu-toggle {
+    display: inline-flex;
+  }
+}
+
+.ai-chat-standalone__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cds-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.ai-chat-standalone__logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.ai-chat-standalone__actions {
+  margin-bottom: 0; // override .ai-new-chat-row's page-flow margin, this row has its own topbar padding
+}
+
+.ai-chat-standalone__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  // Full-width like the rest of the app (no cramped fixed column) — just
+  // generous side padding so long lines don't run edge-to-edge.
+  padding: 1.5rem 3rem calc(1.75rem + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+
+  .ai-messages {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    background: transparent;
+    border: none;
+    padding: 0.25rem 0.125rem 0;
+  }
+
+  .ai-bubble {
+    max-width: 70%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  }
+
+  .ai-bubble--ai {
+    background: var(--cds-layer-01);
+    border: 1px solid var(--cds-border-subtle-00);
+  }
+
+  .ai-empty {
+    margin: auto 0;
+    text-align: center;
+    font-size: 0.9375rem;
+  }
+
+  .ai-input-row {
+    flex-shrink: 0;
+    margin-top: 0.875rem;
+  }
+
+  .ai-input-field {
+    background: var(--cds-layer-01);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  }
+}
+
+// Full-width, generously-padded desktop layout doesn't leave room for the
+// input row (and its send button) on a narrow viewport — cut padding right
+// down and let bubbles use the full width instead of a 70% column.
+@media (max-width: 640px) {
+  .ai-chat-standalone__body {
+    padding: 0.75rem 0.75rem calc(1rem + env(safe-area-inset-bottom));
+
+    .ai-bubble {
+      max-width: 100%;
+    }
+  }
+}
+
+// ── Today (Home) dashboard ────────────────────────────────────────────────────
+
+.today-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .today-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.today-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--cds-layer-01);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem 1.25rem;
+  min-height: 12rem;
+}
+
+.today-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.today-card__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cds-text-primary);
+}
+
+.today-card__icon {
+  color: var(--kh-accent);
+  flex-shrink: 0;
+}
+
+.today-card__view-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--cds-text-secondary);
+  text-decoration: none;
+
+  &:hover {
+    color: var(--kh-accent);
+    text-decoration: none;
+  }
+}
+
+.today-card__body {
+  flex: 1;
+  min-height: 0;
+}
+
+.today-card__empty {
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+  margin: 0.25rem 0 0;
+}
+
+.today-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.today-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.25rem;
+  border-radius: 6px;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--cds-border-subtle-00);
+  }
+}
+
+.today-list__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--cds-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.today-list__meta {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--cds-text-secondary);
+}
+
+.today-list__badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--cds-text-secondary);
+
+  &--overdue {
+    color: var(--cds-support-error);
+  }
 }
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
@@ -1739,7 +2672,7 @@ input, textarea {
 // ── Left panel ────────────────────────────────────────────────────────────────
 
 .notes-list-panel {
-  width: 260px;
+  width: 320px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1760,7 +2693,8 @@ input, textarea {
 }
 
 .notes-list-item {
-  padding: 14px 16px;
+  position: relative;
+  padding: 14px 40px 14px 16px;
   cursor: pointer;
   border-bottom: 1px solid var(--cds-border-subtle-00);
   border-left: 3px solid transparent;
@@ -1768,11 +2702,42 @@ input, textarea {
 
   &:hover {
     background: var(--cds-layer-hover-01);
+
+    .notes-list-item__delete {
+      opacity: 1;
+    }
   }
 
   &--active {
     background: var(--cds-layer-02);
     border-left-color: var(--kh-accent);
+  }
+}
+
+.notes-list-item__delete {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: var(--cds-text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+
+  &:hover {
+    color: #fa4d56;
+    background: var(--cds-layer-hover-02, rgba(255, 255, 255, 0.08));
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 }
 
@@ -1796,6 +2761,11 @@ input, textarea {
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin: 0 0 0.5rem;
+
+  &--empty {
+    color: var(--cds-text-placeholder);
+    font-style: italic;
+  }
 }
 
 .notes-list-item-bottom {
@@ -2281,8 +3251,15 @@ input, textarea {
 
   svg { opacity: 0.7; flex-shrink: 0; }
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--cds-layer-hover, #333333);
+    svg { opacity: 1; }
+  }
+
+  &:disabled {
+    cursor: default;
+    color: var(--kh-accent, #3dDBD9);
+
     svg { opacity: 1; }
   }
 }
@@ -2666,24 +3643,11 @@ input, textarea {
 .notes-top-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  gap: 1rem;
   padding: 0.625rem 1.5rem;
   border-bottom: 1px solid var(--cds-border-subtle-00);
   flex-shrink: 0;
-}
-
-.notes-type-select {
-  background: transparent;
-  border: 1px solid var(--cds-border-subtle-00);
-  color: var(--cds-text-primary);
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 4px 8px;
-  cursor: pointer;
-
-  option { background: #262626; color: #f4f4f4; }
 }
 
 .notes-push-link {
@@ -2696,6 +3660,55 @@ input, textarea {
   letter-spacing: 0.04em;
   cursor: pointer;
   &:hover { text-decoration: underline; }
+}
+
+.notes-export-anchor {
+  position: relative;
+  margin-right: auto;
+}
+
+.notes-export-link {
+  background: none;
+  border: none;
+  color: var(--cds-text-secondary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+
+  &:hover {
+    color: var(--kh-accent);
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    text-decoration: none;
+  }
+}
+
+.notes-delete-link {
+  background: none;
+  border: none;
+  color: var(--cds-text-secondary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+
+  &:hover {
+    color: #fa4d56;
+    text-decoration: underline;
+  }
 }
 
 // Save status
@@ -2732,13 +3745,66 @@ input, textarea {
   .bn-editor {
     background: var(--cds-background);
     color: var(--cds-text-primary);
-  }
 
-  // Title (first heading)
-  .bn-editor > [data-node-type="blockGroup"] > [data-node-type="blockOuter"]:first-child h1 {
-    font-size: 28px;
-    font-weight: 300;
-    line-height: 1.25;
+    // BlockNote (v0.47+) renders headings as div[data-content-type="heading"][data-level="N"],
+    // NOT semantic <h1>-<h6> tags. A prior override targeted a literal `h1` tag selector here,
+    // which never matched anything, so headings silently fell back to BlockNote's own defaults
+    // (H1=3em/700, H2=2em/700, H3=1.3em/700) — H2 sitting close to H1 in weight/size read as
+    // "more prominent" once our thin document-title style was layered on top only for H1.
+    // Explicit, deliberate scale so H1 > H2 > H3 always holds, matching the thin dark-Carbon look:
+    [data-content-type="heading"] {
+      font-weight: 600;
+    }
+    [data-content-type="heading"][data-level="1"] { --level: 1.75em; }
+    [data-content-type="heading"][data-level="2"] { --level: 1.375em; }
+    [data-content-type="heading"][data-level="3"] { --level: 1.125em; }
+
+    // Document title — the very first block, when it's a heading — stays visually distinct:
+    // larger and thinner than any in-body heading, so it always reads as the top of the hierarchy.
+    > [data-node-type="blockGroup"] > [data-node-type="blockOuter"]:first-child {
+      [data-content-type="heading"] {
+        font-size: 28px !important;
+        font-weight: 300 !important;
+        line-height: 1.25;
+      }
+    }
+
+    // Code blocks — dark Carbon theme, IBM Plex Mono, horizontal scroll (no wrap-mangling)
+    [data-content-type="codeBlock"] {
+      background: #161616;
+      border: 1px solid var(--cds-border-subtle-00);
+      border-radius: 4px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.8125rem;
+      line-height: 1.6;
+
+      > pre {
+        background: transparent;
+        padding: 1rem;
+        margin: 0;
+        overflow-x: auto;
+        white-space: pre;
+
+        code { font-family: inherit; }
+      }
+
+      // Language selector shown at the top of the block
+      select,
+      .bn-select {
+        background: #262626;
+        color: var(--cds-text-secondary);
+        border: 1px solid transparent;
+        border-radius: 2px;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.6875rem;
+        padding: 2px 6px;
+        cursor: pointer;
+        transition: background-color 0.1s, color 0.1s;
+
+        &:hover { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); }
+        &:focus { outline: none; border-color: var(--kh-accent, #0f62fe); color: var(--cds-text-primary); }
+      }
+    }
   }
 
   // Body text
@@ -2763,10 +3829,20 @@ input, textarea {
 }
 
 .notes-tb-btn {
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--cds-text-secondary);
   padding: 4px 8px;
   cursor: pointer;
   border-radius: 2px;
-  &:hover { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); }
+  transition: background-color 0.1s, color 0.1s;
+
+  &:hover     { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); }
+  &:active    { background: var(--cds-layer-active-01, #393939); }
+  &--active   { background: var(--kh-accent-bg, rgba(15,98,254,0.16)); color: var(--kh-accent); }
+  &--active:hover { background: var(--kh-accent-bg, rgba(15,98,254,0.24)); color: var(--kh-accent); }
 }
 
 .notes-tb-sep {
@@ -2785,7 +3861,7 @@ input, textarea {
 // ── Metadata panel (right sidebar) ────────────────────────────────────────────
 
 .notes-meta-panel {
-  width: 220px;
+  width: 280px;
   flex-shrink: 0;
   border-left: 1px solid var(--cds-border-subtle-00);
   background: var(--cds-layer-01);
@@ -2801,6 +3877,47 @@ input, textarea {
   &:last-child { border-bottom: none; margin-bottom: 0; }
 }
 
+// ── Collapsible section (generic — metadata panel, and reusable elsewhere) ───
+
+.collapsible-section {
+  border-bottom: 1px solid var(--cds-border-subtle-00);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+
+  &:last-of-type { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+}
+
+.collapsible-section__header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0 0 0.5rem;
+  cursor: pointer;
+  color: #6f6f6f;
+
+  &:hover { color: var(--cds-text-primary); }
+}
+
+.collapsible-section__label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.collapsible-section__body {
+  .notes-meta-section {
+    border-bottom: none;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0;
+
+    &:last-child { margin-bottom: 0; }
+  }
+}
+
 .notes-meta-section-label {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.625rem;
@@ -2814,6 +3931,24 @@ input, textarea {
   font-size: 0.8125rem;
   color: var(--cds-text-primary);
   margin: 0;
+}
+
+.notes-meta-type-select {
+  width: 100%;
+  background: var(--cds-background);
+  border: 1px solid var(--cds-border-subtle-00);
+  color: var(--cds-text-primary);
+  font-size: 0.8125rem;
+  padding: 6px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 0.1s;
+
+  &:hover   { border-color: var(--cds-border-strong-01, #6f6f6f); }
+  &:focus   { outline: 2px solid var(--kh-accent); outline-offset: -1px; border-color: var(--kh-accent); }
+  &:disabled { color: var(--cds-text-disabled, #6f6f6f); cursor: not-allowed; }
+
+  option { background: #262626; color: #f4f4f4; }
 }
 
 .notes-meta-tags-chips {
@@ -3369,40 +4504,138 @@ input, textarea {
   color: var(--cds-text-secondary);
 }
 
-// ── AI Chat slide-over panel ──────────────────────────────────────────────────
+// ── AI Chat floating widget ───────────────────────────────────────────────────
 
-.ai-slideover {
+.ai-float-button {
   position: fixed;
-  inset: 0;
-  z-index: 9000;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 9999;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 50%;
+  border: none;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
+  background: var(--cds-interactive);
+  color: var(--cds-text-on-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+
+  &:hover {
+    background: var(--cds-interactive-hover, var(--cds-interactive));
+    transform: scale(1.05);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--cds-focus);
+    outline-offset: 2px;
+  }
 }
 
-.ai-slideover__backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.ai-slideover__panel {
-  position: relative;
-  z-index: 1;
-  width: 480px;
-  max-width: 100vw;
-  height: 100%;
+.ai-float-panel {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 5.5rem;
+  z-index: 9999;
+  width: 400px;
+  max-width: calc(100vw - 2rem);
+  height: 600px;
+  max-height: calc(100vh - 8rem);
   background: var(--cds-background);
-  border-left: 1px solid var(--cds-border-subtle-01);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
 
-  // Override the page-level padding/height the AIChatPage applies
-  // so it fills the panel naturally
-  .page-root,
-  .ai-page {
-    padding: 0;
+// On a phone-sized viewport a 400x600 floating box is unusable — the message
+// list can't scroll into view and the send button ends up clipped below the
+// fold. Take it full-screen instead, same pattern as most mobile chat widgets.
+@media (max-width: 640px) {
+  .ai-float-panel {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    top: 0;
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: none;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .ai-float-button {
+    right: 1rem;
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+}
+
+.ai-float-panel__header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--cds-layer-01);
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.ai-float-panel__title {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.ai-float-panel__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--cds-text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--cds-layer-hover-01);
+    color: var(--cds-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--cds-focus);
+    outline-offset: 2px;
+  }
+}
+
+.ai-float-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+
+  .ai-chat-compact {
+    display: flex;
+    flex-direction: column;
     height: 100%;
+    padding: 0.75rem;
+
+    .ai-messages {
+      flex: 1;
+      min-height: 0;
+      max-height: none;
+    }
   }
 }
 
@@ -3930,6 +5163,16 @@ input, textarea {
   border-bottom: 1px solid var(--cds-border-subtle-01);
 }
 
+// Groups the search box + filter select together on the right side of the
+// toolbar, so they sit adjacent rather than being spread out by the
+// toolbar's own space-between (which only has two flex children: tabs + this group).
+.dc-toolbar__filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 // Filter select — source or CFP state
 .dc-filter-select {
   background: var(--cds-field-02);
@@ -3958,6 +5201,68 @@ input, textarea {
   display: flex;
   align-items: stretch;
   gap: 0;
+}
+
+// Title search — plain text input, article tabs only
+.dc-search {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: var(--cds-field-02);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-bottom: 2px solid var(--cds-border-strong-01);
+  padding: 0.3rem 0.625rem;
+  flex-shrink: 0;
+  min-width: 200px;
+  max-width: 280px;
+  margin-bottom: 0.25rem;  // optical alignment with tab underline
+  transition: border-color 120ms;
+
+  &:focus-within {
+    outline: 2px solid var(--kh-accent);
+    outline-offset: -2px;
+    border-bottom-color: var(--kh-accent);
+  }
+}
+
+.dc-search__icon {
+  color: var(--cds-text-secondary);
+  flex-shrink: 0;
+}
+
+.dc-search__input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--cds-text-primary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  min-width: 0;
+
+  &:focus {
+    outline: none;
+  }
+
+  &::placeholder {
+    color: var(--cds-text-placeholder);
+  }
+}
+
+.dc-search__clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  color: var(--cds-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 80ms;
+
+  &:hover {
+    color: var(--cds-text-primary);
+  }
 }
 
 .dc-tab {
@@ -6200,6 +7505,7 @@ $project-colour-map: (
 }
 
 .conn-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -6232,7 +7538,37 @@ $project-colour-map: (
   flex-shrink: 0;
 }
 
-.conn-item__reason { font-size: 0.75rem; color: var(--cds-text-helper); margin: 0; }
+.conn-item__reason {
+  font-size: 0.75rem;
+  color: var(--cds-text-helper);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  // Expand into a floating tooltip-style overlay on hover/keyboard focus so
+  // the full AI-generated "thematically related" reason is available on
+  // demand. Deliberately taken out of document flow (position: absolute)
+  // rather than wrapped inline — reflowing to multiple lines in-flow grows
+  // the connection item's height, which pushes the panel's total content
+  // past its fixed height and pops an unwanted scrollbar on hover.
+  .conn-item:hover &,
+  .conn-item:focus-visible & {
+    position: absolute;
+    left: 0.5rem;
+    right: 0.5rem;
+    top: 100%;
+    z-index: 20;
+    margin-top: 2px;
+    padding: 0.375rem 0.5rem;
+    background: var(--cds-layer-02);
+    border: 1px solid var(--cds-border-subtle-01);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    white-space: normal;
+    overflow: visible;
+  }
+}
 .conn-item__dots { display: flex; gap: 3px; margin-top: 2px; }
 
 .conn-item__dot {
@@ -8685,4 +10021,182 @@ $project-colour-map: (
   color: #fa4d56;
   padding: 2rem;
 }
+
+// ── Today dashboard (rebuilt) ─────────────────────────────────────────────────
+
+$layer-01:         #262626;
+$text-primary:     #f4f4f4;
+$text-secondary:   #c6c6c6;
+$text-placeholder: #6f6f6f;
+$border-subtle-01: #393939;
+$interactive:      #0f62fe;
+
+.today-section-card {
+  background: $layer-01;
+  border: 1px solid $border-subtle-01;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.today-section-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+}
+
+.today-section-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.today-ranked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.today-ranked-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+
+  &:last-child { border-bottom: none; }
+
+  &:hover { background: rgba(255, 255, 255, 0.03); }
+}
+
+.today-ranked-row__badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  &--task { background: rgba(0, 163, 127, 0.15); color: #00a37f; }
+  &--to-review { background: rgba(15, 98, 254, 0.15); color: #4589ff; }
+  &--spark-cluster { background: rgba(255, 163, 0, 0.15); color: #ffa300; }
+}
+
+.today-ranked-row__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.today-ranked-row__title {
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  color: $text-primary;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &:hover { color: $interactive; }
+}
+
+.today-ranked-row__context {
+  font-size: 12px;
+  color: $text-secondary;
+  margin-top: 2px;
+}
+
+.today-ranked-row__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.today-ranked-row__snooze-input {
+  background: #333;
+  border: 1px solid $border-subtle-01;
+  border-radius: 4px;
+  color: $text-primary;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  cursor: pointer;
+
+  &:focus { outline: 2px solid $interactive; }
+}
+
+.today-github-group {
+  padding: 8px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+
+  &:last-child { border-bottom: none; }
+}
+
+.today-github-group__repo {
+  font-size: 11px;
+  font-weight: 600;
+  color: $text-secondary;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.today-github-empty {
+  padding: 12px 16px;
+  font-size: 13px;
+  color: $text-secondary;
+  margin: 0;
+}
+
+.today-spark-capture {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+
+  &__input {
+    flex: 1;
+    background: #333;
+    border: 1px solid $border-subtle-01;
+    border-radius: 4px;
+    color: $text-primary;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px 10px;
+
+    &::placeholder { color: $text-placeholder; }
+    &:focus { outline: 2px solid $interactive; }
+  }
+}
+
+.today-doc-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid $border-subtle-01;
+
+  &:last-child { border-bottom: none; }
+
+  &__badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: rgba(15, 98, 254, 0.15);
+    color: #4589ff;
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  &__relatedness {
+    font-size: 11px;
+    color: $text-placeholder;
+    margin-top: 3px;
+  }
+}
+
 

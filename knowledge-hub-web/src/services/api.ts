@@ -10,6 +10,8 @@ import type {
   ContentItemSummary,
   ChatRequest,
   ChatResponse,
+  ChatMessage,
+  ChatSessionSummary,
   CreateTaskInput,
   CreateNoteInput,
   Note,
@@ -21,6 +23,13 @@ const BASE_URL = import.meta.env['VITE_API_URL'] as string | undefined ?? '';
 const TOKEN = import.meta.env['VITE_API_TOKEN'] as string | undefined ?? '';
 
 const TIMEOUT_MS = 8_000;
+// Blob upload + OCR polling on the backend can take up to ~40s; give image
+// uploads a much longer client-side timeout than regular API calls.
+const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
+// AI chat turns can chain several tool calls (KG search, Library search, task
+// writes) plus an LLM generation pass — this routinely exceeds the default
+// 8s timeout, which was silently killing the request with no visible error.
+const CHAT_TIMEOUT_MS = 90_000;
 
 function makeClient(baseURL: string, token: string): AxiosInstance {
   return axios.create({
@@ -324,13 +333,15 @@ export class KnowledgeHubApi {
     file: File,
     caption?: string,
   ): Promise<ApiResponse<{ id: string; blobUrl: string; ocrText?: string }>> {
-    const form = new FormData();
-    form.append('image', file);
-    if (caption !== undefined) form.append('caption', caption);
+    // Backend expects a raw binary body (express.raw), not multipart/form-data.
+    const buffer = await file.arrayBuffer();
     const r = await this.client.post<
       ApiResponse<{ id: string; blobUrl: string; ocrText?: string }>
-    >('/api/images', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    >('/api/images', buffer, {
+      headers: { 'Content-Type': file.type !== '' ? file.type : 'application/octet-stream' },
+      params: caption !== undefined && caption !== '' ? { caption } : undefined,
+      // Blob upload + OCR polling can take longer than the default request timeout.
+      timeout: IMAGE_UPLOAD_TIMEOUT_MS,
     });
     return r.data;
   }
@@ -341,7 +352,59 @@ export class KnowledgeHubApi {
     const r = await this.client.post<ApiResponse<ChatResponse>>(
       '/api/ai/chat',
       request,
+      { timeout: CHAT_TIMEOUT_MS },
     );
+    return r.data;
+  }
+
+  // ─── Voice (Azure Speech, ported from client-demo's voiceRoutes.ts) ────────
+
+  /** Transcribes base64-encoded audio (16kHz mono WAV) via /api/voice/transcribe. */
+  async transcribeVoice(
+    audioBase64: string,
+    mimeType: string,
+    language?: string,
+  ): Promise<ApiResponse<{ text: string; provider: string }>> {
+    const r = await this.client.post<ApiResponse<{ text: string; provider: string }>>(
+      '/api/voice/transcribe',
+      { audioBase64, mimeType, language },
+      { timeout: CHAT_TIMEOUT_MS },
+    );
+    return r.data;
+  }
+
+  /** Synthesises speech for the given text via /api/voice/synthesize. Returns base64 audio. */
+  async synthesizeVoice(
+    text: string,
+    voice?: string,
+  ): Promise<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>> {
+    const r = await this.client.post<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>>(
+      '/api/voice/synthesize',
+      { text, voice },
+      { timeout: CHAT_TIMEOUT_MS },
+    );
+    return r.data;
+  }
+
+  /** Fetches (and lazily creates) a session's persisted message history, so a reload/reopen can restore it. */
+  async getSessionHistory(
+    sessionId: string,
+  ): Promise<ApiResponse<{ sessionId: string; messages: ChatMessage[] }>> {
+    const r = await this.client.get<ApiResponse<{ sessionId: string; messages: ChatMessage[] }>>(
+      `/api/ai/session/${sessionId}/history`,
+    );
+    return r.data;
+  }
+
+  /** Lists past chat sessions for the sidebar, most recently active first. */
+  async listChatSessions(): Promise<ApiResponse<{ sessions: ChatSessionSummary[] }>> {
+    const r = await this.client.get<ApiResponse<{ sessions: ChatSessionSummary[] }>>('/api/ai/sessions');
+    return r.data;
+  }
+
+  /** Deletes a chat session and its messages. */
+  async deleteChatSession(sessionId: string): Promise<ApiResponse<{ deleted: true }>> {
+    const r = await this.client.delete<ApiResponse<{ deleted: true }>>(`/api/ai/session/${sessionId}`);
     return r.data;
   }
 
@@ -358,8 +421,7 @@ export class KnowledgeHubApi {
     proposalId: string,
   ): Promise<ApiResponse<WriteActionProposal>> {
     const r = await this.client.post<ApiResponse<WriteActionProposal>>(
-      '/api/ai/actions/confirm',
-      { proposalId },
+      `/api/ai/actions/${proposalId}/confirm`,
     );
     return r.data;
   }
@@ -368,8 +430,7 @@ export class KnowledgeHubApi {
     proposalId: string,
   ): Promise<ApiResponse<WriteActionProposal>> {
     const r = await this.client.post<ApiResponse<WriteActionProposal>>(
-      '/api/ai/actions/cancel',
-      { proposalId },
+      `/api/ai/actions/${proposalId}/cancel`,
     );
     return r.data;
   }
@@ -616,10 +677,11 @@ export class KnowledgeHubApi {
     source?: string,
     page = 1,
     pageSize = 50,
+    title?: string,
   ): Promise<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>> {
     const r = await this.client.get<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>>(
       '/api/discover',
-      { params: { state, source, page, pageSize } },
+      { params: { state, source, page, pageSize, title } },
     );
     return r.data;
   }
@@ -813,6 +875,22 @@ export class KnowledgeHubApi {
   async deleteCanvasEdge(canvasId: string, edgeId: string): Promise<void> {
     await this.client.delete(`/api/canvases/${canvasId}/edges/${edgeId}`);
   }
+
+  // ─── Today dashboard ───────────────────────────────────────────────────────
+
+  /**
+   * Fetches GitHub activity items (commits, PRs, issues) tagged with any of
+   * the given taxonomy tag UUIDs.  Returns an empty array if tagIds is empty.
+   */
+  async getTodayGitHubActivity(tagIds: string[]): Promise<ApiResponse<GitHubActivityItem[]>> {
+    const params = new URLSearchParams();
+    tagIds.forEach((id) => params.append('tagIds[]', id));
+    const qs = tagIds.length > 0 ? `?${params.toString()}` : '';
+    const r = await this.client.get<ApiResponse<GitHubActivityItem[]>>(
+      `/api/today/github-activity${qs}`,
+    );
+    return r.data;
+  }
 }
 
 /** Singleton instance — used by all React Query hooks. */
@@ -851,3 +929,15 @@ export interface CanvasNodeInput {
   x: number; y: number; width?: number; height?: number; colour?: string;
 }
 
+// ── Today dashboard API types ─────────────────────────────────────────────────
+
+/** A single GitHub activity item returned by GET /api/today/github-activity. */
+export interface GitHubActivityItem {
+  id: string;
+  source: string;
+  title: string;
+  summary: string | null;
+  published_at: string;
+  url: string | null;
+  metadata: Record<string, unknown> | null;
+}

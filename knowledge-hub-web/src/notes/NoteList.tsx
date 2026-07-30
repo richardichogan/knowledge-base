@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { TextInput } from '@carbon/react';
+import { TrashCan } from '@carbon/icons-react';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 
@@ -12,6 +13,8 @@ interface NoteListProps {
   notes: NoteListItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+  deletingId?: string | null;
 }
 
 function formatDate(iso: string): string {
@@ -19,15 +22,20 @@ function formatDate(iso: string): string {
 }
 
 const TYPE_STYLE: Record<string, { color: string; bg: string; border: string }> = {
-  project:    { color: '#3ddbd9', bg: 'rgba(61,219,217,0.1)',  border: 'rgba(61,219,217,0.2)' },
-  blog:       { color: '#f1c21b', bg: 'rgba(241,194,27,0.1)',  border: 'rgba(241,194,27,0.2)' },
-  note:       { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' },
-  podcast:    { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
-  newsletter: { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
-  script:     { color: '#ff8389', bg: 'rgba(255,131,137,0.1)', border: 'rgba(255,131,137,0.2)' },
+  project:      { color: '#3ddbd9', bg: 'rgba(61,219,217,0.1)',  border: 'rgba(61,219,217,0.2)' },
+  blog:         { color: '#f1c21b', bg: 'rgba(241,194,27,0.1)',  border: 'rgba(241,194,27,0.2)' },
+  note:         { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' },
+  podcast:      { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
+  'podcast-show-notes': { color: '#8a3ffc', bg: 'rgba(138,63,252,0.1)', border: 'rgba(138,63,252,0.2)' },
+  newsletter:   { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
+  script:       { color: '#ff8389', bg: 'rgba(255,131,137,0.1)', border: 'rgba(255,131,137,0.2)' },
+  architecture: { color: '#4589ff', bg: 'rgba(69,137,255,0.1)',  border: 'rgba(69,137,255,0.2)' },
+  meeting:      { color: '#ff832b', bg: 'rgba(255,131,43,0.1)',  border: 'rgba(255,131,43,0.2)' },
+  research:     { color: '#1192e8', bg: 'rgba(17,146,232,0.1)',  border: 'rgba(17,146,232,0.2)' },
+  spec:         { color: '#ee5396', bg: 'rgba(238,83,150,0.1)',  border: 'rgba(238,83,150,0.2)' },
 };
 
-export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect }) => {
+export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect, onDelete, deletingId = null }) => {
   const [filter,         setFilter]         = useState('');
   const [activeTagId,    setActiveTagId]    = useState<string | null>(null);
   const [tagFilterOpen,  setTagFilterOpen]  = useState(false);
@@ -79,6 +87,12 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect 
     if (bKey === '__none__') return -1;
     return a.label.localeCompare(b.label);
   });
+  // Within each group, sort by modification date descending. The API's own
+  // ordering (created_at) is not a reliable proxy for "most recently edited",
+  // so this must be re-applied client-side after grouping rather than trusted.
+  for (const [, group] of sortedGroups) {
+    group.notes.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
 
   return (
     <>
@@ -139,7 +153,16 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect 
           <div key={key} className="notes-group">
             <p className="notes-group__label">{group.label}</p>
             {group.notes.map((note) => (
-              <NoteCard key={note.id} note={note} selectedId={selectedId} onSelect={onSelect} tagNameMap={tagNameMap} tagColourMap={tagColourMap} />
+              <NoteCard
+                key={note.id}
+                note={note}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                onDelete={onDelete}
+                deleting={deletingId === note.id}
+                tagNameMap={tagNameMap}
+                tagColourMap={tagColourMap}
+              />
             ))}
           </div>
         ))}
@@ -151,9 +174,11 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect 
 const NoteCard: React.FC<{
   note: NoteListItem; selectedId: string | null;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+  deleting: boolean;
   tagNameMap: Map<string, string>;
   tagColourMap: Map<string, string>;
-}> = ({ note, selectedId, onSelect, tagNameMap, tagColourMap }) => {
+}> = ({ note, selectedId, onSelect, onDelete, deleting, tagNameMap, tagColourMap }) => {
   const st = TYPE_STYLE[note.contentType] ?? TYPE_STYLE['note'] ?? { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' };
   const preview = (note as NoteListItem & { body?: string }).body ?? '';
   const snippet = preview.replace(/[#*_`>\[\]\n]+/g, ' ').trim().slice(0, 120);
@@ -181,9 +206,23 @@ const NoteCard: React.FC<{
       {...(tagEntries.length > 0 ? { 'data-ctx-tags': tagEntries.join(',') } : {})}
       role="button" tabIndex={0}
     >
+      <button
+        className="notes-list-item__delete"
+        title="Delete note"
+        disabled={deleting}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!window.confirm(`Delete "${note.title}"? This cannot be undone.`)) return;
+          onDelete(note.id);
+        }}
+      >
+        <TrashCan size={14} />
+      </button>
       <div className="notes-list-item-title">{note.title}</div>
-      {snippet !== '' && (
+      {snippet !== '' ? (
         <p className="notes-list-item-preview">{snippet}</p>
+      ) : (
+        <p className="notes-list-item-preview notes-list-item-preview--empty">No content</p>
       )}
       <div className="notes-list-item-bottom">
         <span className="notes-list-item-date">{formatDate(note.updatedAt)}</span>

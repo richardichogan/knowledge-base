@@ -11,6 +11,7 @@ import { getDb } from '../db/db.js';
 import { upsertContentItem } from '../db/queries.js';
 import { upsertTags } from '../db/tagHelpers.js';
 import { upsertNode } from '../services/nodeService.js';
+import { env } from '../config/env.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
@@ -96,6 +97,7 @@ async function syncNoteToTimeline(db: ReturnType<typeof getDb>, note: Note): Pro
     summary: extractNoteSummary(note.content),
     body: note.content,
     publishedAt: note.updatedAt,
+    url: `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`,
     projectContext: 'personal',
     metadata: { noteId: note.id, tags: note.tags },
     tags: note.tags,
@@ -174,71 +176,83 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
 
 // ── POST /api/notes ────────────────────────────────────────────────────────────
 
+/**
+ * Creates a note record: inserts into `notes`, then fires off (non-blocking)
+ * side effects — tag upsert, content_items timeline mirror, graph node upsert.
+ * Shared by the POST /api/notes route and the AI chat's create_note_draft tool.
+ */
+export async function createNoteRecord(
+  db: ReturnType<typeof getDb>,
+  input: Partial<CreateNoteInput>,
+): Promise<Note> {
+  if (typeof input.content !== 'string' || input.content.trim() === '') {
+    throw new ValidationError('content is required', { content: 'must be a non-empty string' });
+  }
+
+  const projectId: string | null =
+    typeof input.projectId === 'string' && input.projectId.trim() !== ''
+      ? input.projectId.trim()
+      : null;
+
+  const result = await db.query<{
+    id: string;
+    content: string;
+    created_at: string;
+    updated_at: string;
+    tags: string[];
+    linked_items: string[];
+    status: string;
+    project_id: string | null;
+  }>(
+    `INSERT INTO notes (content, tags, project_id)
+     VALUES ($1, $2, $3)
+     RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`,
+    [input.content.trim(), input.tags ?? [], projectId],
+  );
+
+  const row = result.rows[0];
+  if (row === undefined) throw new Error('Insert returned no rows');
+
+  const note: Note = {
+    id: row.id,
+    content: row.content,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    tags: row.tags,
+    linkedItems: row.linked_items,
+    status: row.status as Note['status'],
+    ...(row.project_id !== null && { projectId: row.project_id }),
+  };
+
+  // Auto-upsert tags into global_tags (fire-and-forget)
+  upsertTags(db, note.tags).catch((e: unknown) => {
+    console.error('[notes] Failed to upsert tags:', e);
+  });
+  // Mirror note into content_items for timeline visibility (fire-and-forget)
+  syncNoteToTimeline(db, note).catch((e: unknown) => {
+    console.error('[notes] Failed to sync new note to timeline:', e);
+  });
+  // Upsert graph node so the note appears in the connections graph immediately (fire-and-forget)
+  void (async (): Promise<void> => {
+    try {
+      let title = 'Untitled Note';
+      try { const p = JSON.parse(note.content) as { title?: string }; title = p.title ?? title; } catch { /* ignore */ }
+      await upsertNode(db, note.id, 'note', title, note.tags);
+    } catch (e: unknown) {
+      console.error('[notes] Failed to upsert graph node:', e);
+    }
+  })();
+
+  return note;
+}
+
 router.post('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const db = getDb();
-      const input = req.body as Partial<CreateNoteInput>;
-
-      if (typeof input.content !== 'string' || input.content.trim() === '') {
-        throw new ValidationError('content is required', { content: 'must be a non-empty string' });
-      }
-
-      const projectId: string | null =
-        typeof input.projectId === 'string' && input.projectId.trim() !== ''
-          ? input.projectId.trim()
-          : null;
-
-      const result = await db.query<{
-        id: string;
-        content: string;
-        created_at: string;
-        updated_at: string;
-        tags: string[];
-        linked_items: string[];
-        status: string;
-        project_id: string | null;
-      }>(
-        `INSERT INTO notes (content, tags, project_id)
-         VALUES ($1, $2, $3)
-         RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`,
-        [input.content.trim(), input.tags ?? [], projectId],
-      );
-
-      const row = result.rows[0];
-      if (row === undefined) throw new Error('Insert returned no rows');
-
-      const note: Note = {
-        id: row.id,
-        content: row.content,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        tags: row.tags,
-        linkedItems: row.linked_items,
-        status: row.status as Note['status'],
-        ...(row.project_id !== null && { projectId: row.project_id }),
-      };
-
+      const note = await createNoteRecord(db, req.body as Partial<CreateNoteInput>);
       const body: ApiSuccess<Note> = { success: true, data: note };
       res.status(HTTP_STATUS.CREATED).json(body);
-      // Auto-upsert tags into global_tags (fire-and-forget)
-      upsertTags(db, note.tags).catch((e: unknown) => {
-        console.error('[notes] Failed to upsert tags:', e);
-      });
-      // Mirror note into content_items for timeline visibility (fire-and-forget)
-      syncNoteToTimeline(db, note).catch((e: unknown) => {
-        console.error('[notes] Failed to sync new note to timeline:', e);
-      });
-      // Upsert graph node so the note appears in the connections graph immediately (fire-and-forget)
-      void (async (): Promise<void> => {
-        try {
-          let title = 'Untitled Note';
-          try { const p = JSON.parse(note.content) as { title?: string }; title = p.title ?? title; } catch { /* ignore */ }
-          await upsertNode(db, note.id, 'note', title, note.tags);
-        } catch (e: unknown) {
-          console.error('[notes] Failed to upsert graph node:', e);
-        }
-      })();
     } catch (err) {
       next(err);
     }

@@ -19,9 +19,12 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Checkmark, Diagram, Link, Copy } from '@carbon/icons-react';
+import { Checkmark, Diagram, Link, Copy, TaskAdd } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { CanvasSummaryApi } from '../services/api';
+import { extractTasksWithAI } from '../utils/aiTaskExtraction';
+import { addWorkingDays, toISODateString } from '../utils/dates';
+import { getActiveBlockNoteSelectedText, clearActiveBlockNoteSelectionSnapshot, suspendBlockNoteSelectionCapture, resumeBlockNoteSelectionCapture } from '../utils/activeBlockNoteEditor';
 
 export interface CtxItemData {
   title: string;
@@ -33,6 +36,7 @@ export interface CtxItemData {
   refId?: string | undefined;
   refType?: string | undefined;
   tags?: string[] | undefined;
+  taxonomyTagIds?: string[] | undefined;
 }
 
 interface MenuState { x: number; y: number; item: CtxItemData; }
@@ -43,6 +47,11 @@ export function useGlobalContextMenu() { return useContext(Ctx); }
 
 export function GlobalContextMenuProvider({ children }: { children: React.ReactNode }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // Browsers collapse the current selection if a right-click lands outside its
+  // bounds, *before* the 'contextmenu' event fires — losing the text the user
+  // meant to act on. Capture the selection on mousedown (capture phase, which
+  // runs before that collapse) so we can fall back to it.
+  const lastMouseDownSelection = useRef<string>('');
 
   const openMenu = useCallback((e: MouseEvent | React.MouseEvent, item: CtxItemData) => {
     e.preventDefault();
@@ -50,9 +59,47 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
   }, []);
 
   useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (e.button === 2) {
+        const sel = window.getSelection()?.toString().trim() ?? '';
+        lastMouseDownSelection.current = sel;
+        // Freeze the BlockNote selection snapshot right now, before the
+        // browser's native "select word under cursor to build its context
+        // menu" behavior can run. That native behavior happens between
+        // mousedown and the contextmenu event and isn't something JS can
+        // prevent — but if we stop *our own* snapshot from listening to any
+        // selectionchange it triggers, the real (multi-row) selection the
+        // user made a moment earlier survives intact.
+        suspendBlockNoteSelectionCapture();
+        // Stop the event dead here (capture phase, before it reaches the
+        // target). This prevents BOTH the browser's default "collapse
+        // selection to click point" behavior AND any rich-text editor
+        // (ProseMirror/BlockNote) from seeing the mousedown and repositioning
+        // or collapsing its own internal selection (e.g. a table
+        // CellSelection) in response to the right-click.
+        e.preventDefault();
+        e.stopPropagation();
+      } else {
+        // A fresh left-click/drag is starting a new selection — resume
+        // tracking so the next right-click has an up-to-date snapshot.
+        resumeBlockNoteSelectionCapture();
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown, true);
+    return () => document.removeEventListener('mousedown', onMouseDown, true);
+  }, []);
+
+  useEffect(() => {
     function onContextMenu(e: MouseEvent) {
       const target = e.target as HTMLElement;
-      const sel = window.getSelection()?.toString().trim() ?? '';
+      const liveSel = window.getSelection()?.toString().trim() ?? '';
+      // BlockNote/ProseMirror table cell-range selections don't populate the
+      // native browser Selection object correctly — ask the editor directly
+      // first (covers both plain text and table selections in notes).
+      const editorSel = getActiveBlockNoteSelectedText();
+      const sel = editorSel.length > 2 ? editorSel
+        : liveSel.length > 2 ? liveSel
+        : lastMouseDownSelection.current;
 
       // 1. Walk DOM for data-ctx-title
       let el: HTMLElement | null = target;
@@ -68,6 +115,8 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         const body = sel.length > 2 ? sel : (el.getAttribute('data-ctx-body') ?? undefined);
         const rawTags = el.getAttribute('data-ctx-tags');
         const tags = rawTags ? rawTags.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
+        const rawTagIds = el.getAttribute('data-ctx-tag-ids');
+        const taxonomyTagIds = rawTagIds ? rawTagIds.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
         setMenu({
           x: e.clientX, y: e.clientY,
           item: {
@@ -78,6 +127,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
             ...(el.getAttribute('data-ctx-ref-id')   ? { refId:   el.getAttribute('data-ctx-ref-id')! } : {}),
             ...(el.getAttribute('data-ctx-ref-type') ? { refType: el.getAttribute('data-ctx-ref-type')!} : {}),
             ...(tags?.length                         ? { tags                                          } : {}),
+            ...(taxonomyTagIds?.length                ? { taxonomyTagIds                                } : {}),
             nodeType: el.getAttribute('data-ctx-type') ?? 'text',
           },
         });
@@ -202,6 +252,33 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
   const copyUrl  = async () => { if (item.url) await navigator.clipboard.writeText(item.url); onClose(); };
   const copyText = async () => { await navigator.clipboard.writeText(item.body ?? item.title); onClose(); };
 
+  const { mutate: createTasks, isPending: creatingTasks, data: taskCount } = useMutation({
+    mutationFn: async () => {
+      const sourceText = item.body ?? item.title;
+      const tags = (item.tags ?? []).map((t) => t.split('|')[0] ?? t);
+      const taxonomyTagIds = item.taxonomyTagIds ?? [];
+      const parsed = await extractTasksWithAI(sourceText);
+      const dueDate = toISODateString(addWorkingDays(new Date(), 2));
+      await Promise.all(parsed.map((draft) => api.createTask({
+        title: draft.title,
+        body: draft.body,
+        status: 'backlog',
+        dueDate,
+        ...(tags.length > 0 ? { tags } : {}),
+        ...(taxonomyTagIds.length > 0 ? { taxonomyTagIds } : {}),
+      })));
+      return parsed.length;
+    },
+    onSuccess: () => {
+      clearActiveBlockNoteSelectionSnapshot();
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+      setTimeout(onClose, 1400);
+    },
+    onError: (err) => {
+      console.error('[GlobalContextMenu] createTask failed:', err);
+    },
+  });
+
   const posStyle: React.CSSProperties = { left: x, top: y };
 
   if (panel === 'menu') return (
@@ -213,6 +290,15 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
       <div className="gctx__divider" />
       <button className="gctx__item" onClick={() => setPanel('picker')}>
         <Diagram size={15} /> Send to Canvas…
+      </button>
+      <button
+        className="gctx__item"
+        onClick={() => { createTasks(); }}
+        disabled={creatingTasks || taskCount !== undefined}
+      >
+        {taskCount !== undefined
+          ? <><Checkmark size={15} /> {taskCount > 1 ? `${taskCount} tasks created` : 'Task created'}</>
+          : <><TaskAdd size={15} /> {creatingTasks ? 'Thinking…' : 'Create Task'}</>}
       </button>
       {item.url && (
         <button className="gctx__item" onClick={() => { void copyUrl(); }}>

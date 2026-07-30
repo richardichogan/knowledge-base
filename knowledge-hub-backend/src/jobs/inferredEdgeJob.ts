@@ -9,6 +9,7 @@
 import type { Pool } from 'pg';
 import { FoundryClient } from '../ai/foundryClient.js';
 import { upsertEdge } from '../services/edgeService.js';
+import { JOB_DB_CONCURRENCY } from '../config/constants.js';
 
 const RECENT_MODIFIED_DAYS = 7;
 const CANDIDATE_LOOKBACK_DAYS = 90;
@@ -85,14 +86,23 @@ async function processNode(
   );
   if (candidates.rows.length === 0) return;
 
-  const candidateList = await Promise.all(
-    candidates.rows.map(async (c) => ({
-      id: c.id,
-      title: c.title,
-      type: c.ref_type,
-      summary: await getNodeSummary(db, c),
-    })),
-  );
+  // Resolve summaries in small bounded batches. Firing all 30 candidate reads
+  // at once checked out more pool clients than live API traffic could spare,
+  // which starved the pool and 500'd every route. Cap concurrency so the job
+  // always leaves connections free.
+  const candidateList: Array<{ id: string; title: string; type: string; summary: string }> = [];
+  for (let i = 0; i < candidates.rows.length; i += JOB_DB_CONCURRENCY) {
+    const batch = candidates.rows.slice(i, i + JOB_DB_CONCURRENCY);
+    const resolved = await Promise.all(
+      batch.map(async (c) => ({
+        id: c.id,
+        title: c.title,
+        type: c.ref_type,
+        summary: await getNodeSummary(db, c),
+      })),
+    );
+    candidateList.push(...resolved);
+  }
 
   const userMsg = JSON.stringify({
     source: { title: source.title, type: source.ref_type, summary: sourceSummary },

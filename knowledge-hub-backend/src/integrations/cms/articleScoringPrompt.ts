@@ -13,7 +13,7 @@ export const PERCENTAGE_MULTIPLIER = 100;
 export const FULL_BLOG_POST_DEPTH_MIN = 2;
 export const FULL_BLOG_POST_COMPOSITE_MIN = 8;
 export const ARCHIVE_COMPOSITE_MAX = 3;
-export const SCORE_BATCH_SIZE = 10;
+export const SCORE_BATCH_SIZE = 50;
 export const RELEVANCE_MAX_TOKENS = 500;
 
 // Scoring weights for calculating normalized relevance (0-1)
@@ -77,6 +77,19 @@ const COMMUNITY_DOMAINS = [
   'stackoverflow.com',
 ];
 
+/** Keywords in title/description that indicate vendor-sponsored content. */
+const ADVERTORIAL_SIGNALS = [
+  'forrester',
+  'total economic impact',
+  'commissioned study',
+  'sponsored by',
+  'idc report',
+  'benefited from',
+  'roi of',
+  '% roi',
+  'total cost of ownership',
+];
+
 const FORMAL_DOMAINS = [
   'azure.microsoft.com',
   'microsoft.com/en-us/security/blog',
@@ -89,11 +102,17 @@ const FORMAL_DOMAINS = [
   'msrc.microsoft.com',
 ];
 
-/** Classify source type from the article or feed URL. */
+/** Classify source type from the article or feed URL, plus title/description. */
 export function classifySourceByUrl(
   articleUrl: string | null,
-  feedUrl: string | null,
+  feedUrlOrTitle: string | null,
 ): SourceType | null {
+  // Check for advertorial signals in title/description
+  const combinedText = [articleUrl, feedUrlOrTitle].filter(Boolean).join(' ').toLowerCase();
+  for (const signal of ADVERTORIAL_SIGNALS) {
+    if (combinedText.includes(signal)) return 'Case Study or Advertorial';
+  }
+
   const check = (u: string): SourceType | null => {
     const lower = u.toLowerCase();
     for (const d of COMMUNITY_DOMAINS) {
@@ -111,8 +130,8 @@ export function classifySourceByUrl(
     const result = check(articleUrl);
     if (result) return result;
   }
-  if (feedUrl) {
-    const result = check(feedUrl);
+  if (feedUrlOrTitle) {
+    const result = check(feedUrlOrTitle);
     if (result) return result;
   }
   return null;
@@ -140,15 +159,15 @@ The source type (Formal / Community / Case Study or Advertorial) is provided. Do
 ## Scoring Dimensions — BE HARSH
 
 **Audience Fit (0-3)**
-- 3: Strategic content that informs how enterprise leaders think about their Microsoft cloud investments — industry trends affecting Azure/M365/D365, architectural patterns, security strategies, AI/Copilot adoption, digital transformation, future of work. Includes authoritative third-party analysis (McKinsey, Gartner, Forrester) on topics directly relevant to Microsoft platform decisions. NOT beginner tutorials.
+- 3: Strategic content that informs how enterprise leaders think about their Microsoft cloud investments — industry trends affecting Azure/M365/D365, architectural patterns, security strategies, AI/Copilot adoption, digital transformation, future of work. Includes independent third-party analysis from credible analyst firms or consultancies on topics directly relevant to Microsoft platform decisions. NOT beginner tutorials. NOT vendor-commissioned studies (Forrester TEI, IDC sponsored reports) — those are advertorial regardless of brand name.
 - 2: Developer or IT-pro content with clear architectural or strategic implications
 - 1: Tangentially related. Niche updates or how-to guides without broader strategic context.
 - 0: End-user features, consumer products, or pure marketing
 
 **Novelty (0-3)**
-- 3: RARE. A brand-new service launch, critical security disclosure (CVE), or fundamental shift in industry thinking that changes how enterprises approach their Microsoft investments. Third-party research revealing a new strategic reality (e.g., "AI is disrupting ERP") counts if genuinely new.
+- 3: RARE. A brand-new service launch, critical security disclosure (CVE), or fundamental shift in industry thinking that changes how enterprises approach their Microsoft investments. Third-party research revealing a genuinely new strategic reality (e.g., "AI is disrupting ERP") counts if the finding itself is new — not just because the publisher is well-known.
 - 2: Meaningful update — GA announcement changing enterprise planning, significant new capability, or fresh perspective on an existing strategic challenge
-- 1: Incremental update, best-practice guide, how-to, monthly roundup, or familiar strategic thinking presented again. MOST articles score 1.
+- 1: Incremental update, best-practice guide, how-to, monthly roundup, or familiar strategic thinking presented again. MOST articles score 1. This includes formulaic "[trend] in [industry]" thought-leadership pieces that restate a publisher's standard AI-transformation narrative with a new industry label swapped in — score these 1 even from otherwise credible sources, since the underlying idea isn't new.
 - 0: Rehash, old news, documentation rewrite, marketing copy
 
 **Strategic Significance (0-2)**
@@ -157,7 +176,7 @@ The source type (Formal / Community / Case Study or Advertorial) is provided. Do
 - 0: No strategic or operational implication
 
 **Analytical Depth Potential (0-2)**
-- 2: Richard could write 800+ words of ORIGINAL analysis connecting this to Microsoft platform strategy, enterprise decision-making, or architectural trade-offs. Third-party research (McKinsey, Gartner) on relevant topics usually has depth potential because Richard can analyze the implications for Microsoft customers. Ask: "What's Richard's angle — the thing he would say that the source doesn't?" If it's clear and substantial, this is a 2.
+- 2: Richard could write 800+ words of ORIGINAL analysis connecting this to Microsoft platform strategy, enterprise decision-making, or architectural trade-offs. Judge this article on its own merits — do not assume depth potential just because it comes from a recognizable analyst brand; a formulaic piece from a well-known publisher deserves the same scrutiny as one from an unknown blog. Ask: "What's Richard's angle — the thing he would say that the source doesn't?" If it's clear and substantial, this is a 2.
 - 1: Worth a sharp paragraph in a newsletter or LinkedIn post  
 - 0: Nothing to say beyond the news itself
 
@@ -282,6 +301,6 @@ export function calculateWeightedRelevance(result: ScoringResult): number {
     score = score * (1 + SCORING_WEIGHTS.sparkBonus);
   }
   
-  // Step 6: Clamp to 0-1 range
-  return Math.max(0, Math.min(1, score));
+  // Step 6: Clamp to 0-0.95 range (nothing should ever be 100% relevant)
+  return Math.max(0, Math.min(0.95, score));
 }

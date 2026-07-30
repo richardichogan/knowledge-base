@@ -22,7 +22,7 @@ export const PODCAST_SLUG_MAX_LENGTH = 60;
 // ── AI ────────────────────────────────────────────────────────────────────────
 
 /** Number of RAG items to retrieve per conversation turn. */
-export const RAG_ITEMS_LIMIT = 8;
+export const RAG_ITEMS_LIMIT = 10;
 
 /** Max token estimate for RAG context injection. */
 export const RAG_MAX_TOKENS = 4_000;
@@ -80,6 +80,38 @@ export const DB_POOL_WARN_THRESHOLD = 18; // warn when near capacity
 export const DB_STATEMENT_TIMEOUT_MS = 30_000;
 export const DB_CONNECTION_TIMEOUT_MS = 10_000;
 
+// SNAT survival — the real fix for "Connection terminated due to connection
+// timeout" bursts.
+//
+// This app runs on a consumption Container Apps environment with no VNet, so
+// every outbound connection (DB, AI, GitHub, GitLab, blog) shares Azure's small
+// platform-managed SNAT port pool. Opening a NEW DB connection is the most
+// frequent outbound dial, and under load the SNAT pool exhausts — new DB
+// connections then never reach Postgres and die at DB_CONNECTION_TIMEOUT_MS,
+// even though the server is healthy and logs zero failed connections.
+//
+// Mitigation: keep a warm floor of long-lived connections that are REUSED
+// instead of re-dialed. TCP keepalive keeps them alive so Azure won't silently
+// drop them, and a long idle timeout means low-traffic gaps no longer force a
+// reconnect storm through the congested SNAT pool.
+export const DB_POOL_MIN = 8;
+// Keep idle connections ~10 min (was 60s). Long enough to survive quiet periods
+// without re-dialing; keepalive prevents the sockets from going stale.
+export const DB_IDLE_TIMEOUT_MS = 600_000;
+export const DB_KEEPALIVE_INITIAL_DELAY_MS = 10_000;
+
+// Background jobs must never check out more than a fraction of the pool at once,
+// or live API traffic can't acquire a client and every route 500s with
+// "Connection terminated due to connection timeout". Keep fan-out well below
+// DB_POOL_MAX so there is always headroom for user requests.
+export const JOB_DB_CONCURRENCY = 4;
+
+// AI calls must time out — an unreachable/slow Foundry endpoint (e.g. mid
+// repoint) was hanging sync jobs forever, never releasing their work.
+export const AI_REQUEST_TIMEOUT_MS = 30_000;
+// External HTTP fetches (blog admin API) must also time out.
+export const EXTERNAL_FETCH_TIMEOUT_MS = 20_000;
+
 // ── HTTP ──────────────────────────────────────────────────────────────────────
 
 export const HTTP_STATUS = {
@@ -118,6 +150,18 @@ export const BLOB_UPLOAD_TIMEOUT_MS = 30_000;
 
 /** Default max tokens for AI completion requests. */
 export const AI_DEFAULT_MAX_TOKENS = 2_000;
+/** Max round-trips of tool calls per chat turn before giving up (prevents infinite loops). */
+export const AI_MAX_TOOL_ITERATIONS = 6;
+/** Max search_knowledge_base results the AI chat tool can request in one call. */
+export const AI_TOOL_SEARCH_MAX_LIMIT = 20;
+/** Default search_knowledge_base result count when the AI doesn't specify one. */
+export const AI_TOOL_SEARCH_DEFAULT_LIMIT = 10;
+/** Once a session has more than this many unsummarized messages, fold the oldest ones into a rolling summary. */
+export const AI_ROLLING_SUMMARY_TRIGGER_MESSAGES = 24;
+/** How many of the most recent messages to always keep verbatim (never folded into the summary). */
+export const AI_ROLLING_SUMMARY_KEEP_TAIL = 8;
+/** Max chars of a session's first user message used as its auto-generated sidebar title. */
+export const AI_SESSION_TITLE_MAX_LENGTH = 60;
 
 // ── Graph / tokens ────────────────────────────────────────────────────────────
 

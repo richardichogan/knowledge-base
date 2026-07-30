@@ -5,21 +5,39 @@
  * Positioned via data-x / data-y attributes — CSS uses attr() to place it.
  * Parent must be position:relative.
  */
-import React from 'react';
+import React, { forwardRef, useImperativeHandle, useState } from 'react';
 import type { GraphNode, GraphEdge } from '../../services/api';
 
 interface GraphTooltipProps {
-  node: GraphNode;
+  node: GraphNode | null;
   edges: GraphEdge[];
   x: number;
   y: number;
 }
 
+export interface TooltipHostHandle {
+  setNode: (node: GraphNode | null) => void;
+}
+
+/**
+ * Wrapper that owns its own state so it can update without re-rendering GraphCanvas.
+ * GraphCanvas calls `ref.current.setNode(node)` imperatively on hover.
+ */
+export const TooltipHost = forwardRef<TooltipHostHandle, { edges: GraphEdge[] }>(
+  ({ edges }, ref) => {
+    const [node, setNode] = useState<GraphNode | null>(null);
+    useImperativeHandle(ref, () => ({ setNode }), []);
+    if (!node) return null;
+    return <GraphTooltip node={node} edges={edges} x={0} y={0} />;
+  },
+);
+TooltipHost.displayName = 'TooltipHost';
+
 /**
  * Renders a tooltip absolutely positioned at (x, y) inside the graph canvas.
- * Uses a wrapper element with data attributes so CSS can read the position.
  */
 export const GraphTooltip: React.FC<GraphTooltipProps> = ({ node, edges, x, y }) => {
+  if (!node) return null;
   const edgeCount = edges.filter(
     (e) => e.source === node.id || e.target === node.id,
   ).length;

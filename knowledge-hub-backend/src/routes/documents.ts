@@ -122,13 +122,13 @@ async function getRepoTree(gh: GitHubClient, repo: string): Promise<GitHubTreeIt
   return tree.tree;
 }
 
-const CONTENT_STORE = 'richardichogan/content-store';
+export const CONTENT_STORE = 'richardichogan/content-store';
 
 // ── Library cache — avoids hammering GitHub on every page load ─────────────────
 const LIBRARY_CACHE_TTL_MS = 300_000; // 5 minutes
 let _libraryCache: { docs: DocEntry[]; builtAt: number } | null = null;
 
-async function buildLibrary(gh: GitHubClient, extraRepos: string[], labelMap: Record<string, string>): Promise<DocEntry[]> {
+export async function buildLibrary(gh: GitHubClient, extraRepos: string[], labelMap: Record<string, string>): Promise<DocEntry[]> {
   const docs: DocEntry[] = [];
 
   // 1. Content store — all .md files
