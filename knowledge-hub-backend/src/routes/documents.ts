@@ -127,11 +127,8 @@ async function getRepoTree(gh: GitHubClient, repo: string): Promise<GitHubTreeIt
   return tree.tree;
 }
 
-/**
- * Optional dedicated content-store repo. Falls back to env var, then skips gracefully.
- * Set GITHUB_CONTENT_STORE_REPO=owner/repo in the backend env to enable.
- */
-export const CONTENT_STORE: string | null = process.env['GITHUB_CONTENT_STORE_REPO'] ?? null;
+/** The canonical writing content store. Must exist — Library is broken without it. */
+export const CONTENT_STORE = 'richardichogan/content-store';
 
 /**
  * Root-level .md files that are repo meta/housekeeping — never surfaced as documents.
@@ -174,35 +171,29 @@ function isDocumentablePath(filePath: string): boolean {
   );
 }
 
-// ── Library cache — avoids hammering GitHub on every page load ─────────────────
-const LIBRARY_CACHE_TTL_MS = 300_000; // 5 minutes
-let _libraryCache: { docs: DocEntry[]; builtAt: number } | null = null;
-
 export async function buildLibrary(gh: GitHubClient, extraRepos: string[], labelMap: Record<string, string>): Promise<DocEntry[]> {
   const docs: DocEntry[] = [];
 
-  // 1. Content store — all .md files (only if GITHUB_CONTENT_STORE_REPO is configured)
-  if (CONTENT_STORE) {
-    try {
-      const tree = await getRepoTree(gh, CONTENT_STORE);
-      for (const item of tree) {
-        if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-        docs.push({
-          id: `${CONTENT_STORE}::${item.path}`,
-          title: titleFromPath(item.path),
-          type: inferDocType(item.path, true),
-          repo: CONTENT_STORE,
-          path: item.path,
-          sourceLabel: 'Content Store',
-          htmlUrl: `https://github.com/${CONTENT_STORE}/blob/main/${item.path}`,
-          size: item.size ?? 0,
-          tags: inferTags(item.path, 'Content Store', true),
-          taxonomyTagIds: [],
-        });
-      }
-    } catch (err) {
-      console.warn('[Documents] content-store fetch failed:', err instanceof Error ? err.message : err);
+  // 1. Content store — all .md files. This repo must exist; log an error if it's unreachable.
+  try {
+    const tree = await getRepoTree(gh, CONTENT_STORE);
+    for (const item of tree) {
+      if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
+      docs.push({
+        id: `${CONTENT_STORE}::${item.path}`,
+        title: titleFromPath(item.path),
+        type: inferDocType(item.path, true),
+        repo: CONTENT_STORE,
+        path: item.path,
+        sourceLabel: 'Content Store',
+        htmlUrl: `https://github.com/${CONTENT_STORE}/blob/main/${item.path}`,
+        size: item.size ?? 0,
+        tags: inferTags(item.path, 'Content Store', true),
+        taxonomyTagIds: [],
+      });
     }
+  } catch (err) {
+    console.error(`[Documents] CRITICAL: content-store (${CONTENT_STORE}) is unreachable — Library will be empty. Check GITHUB_ACCESS_TOKEN has access to this repo.`, err instanceof Error ? err.message : err);
   }
 
   // 2. Project repos — docs/, README, root-level .md files, and common doc folders
@@ -239,54 +230,72 @@ export async function buildLibrary(gh: GitHubClient, extraRepos: string[], label
 /**
  * GET /api/documents/library
  *
- * Always includes content-store.  Optional ?repos[]=owner/repo params add
- * project repos (docs/ folder + README.md only).
+ * Returns the indexed Library view from PostgreSQL, not a live GitHub scrape.
+ * Sources:
+ *   1. github-content-store
+ *   2. github-doc
  */
-router.get('/library', (req: Request, res: Response, next: NextFunction): void => {
+router.get('/library', (_req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const gh = new GitHubClient();
+      const db = getDb();
+      const result = await db.query<{
+        source: 'github-doc' | 'github-content-store';
+        title: string;
+        html_url: string | null;
+        project_context: string | null;
+        metadata: Record<string, unknown> | null;
+        body: string | null;
+      }>(
+        `SELECT
+           ci.source,
+           COALESCE(NULLIF(ci.title, ''), 'Untitled Document') AS title,
+           ci.url AS html_url,
+           ci.project_context,
+           ci.metadata,
+           ci.body
+         FROM content_items ci
+         WHERE ci.source IN ('github-doc', 'github-content-store')
+         ORDER BY ci.updated_at DESC, ci.indexed_at DESC`,
+      );
 
-      // Extra project repos from query string
-      const extraRepos: string[] = Array.isArray(req.query['repos'])
-        ? (req.query['repos'] as string[]).filter((r) => /^[\w.-]+\/[\w.-]+$/.test(r))
-        : typeof req.query['repos'] === 'string' && /^[\w.-]+\/[\w.-]+$/.test(req.query['repos'])
-          ? [req.query['repos']]
-          : [];
+      const docsById = new Map<string, DocEntry>();
+      for (const row of result.rows) {
+        const metadata = row.metadata ?? {};
+        const repo = typeof metadata['repo'] === 'string' ? metadata['repo'] : '';
+        const path = typeof metadata['path'] === 'string' ? metadata['path'] : '';
+        if (!repo || !path || !path.toLowerCase().endsWith('.md')) continue;
 
-      // Optional label map: JSON string of { "owner/repo": "Human Label" }
-      const labelMap: Record<string, string> = {};
-      if (typeof req.query['repoLabels'] === 'string') {
-        try {
-          Object.assign(labelMap, JSON.parse(req.query['repoLabels']) as Record<string, string>);
-        } catch { /* ignore malformed JSON */ }
+        const sourceLabel =
+          typeof metadata['sourceLabel'] === 'string' && metadata['sourceLabel']
+            ? metadata['sourceLabel']
+            : row.source === 'github-content-store'
+              ? 'Content Store'
+              : row.project_context ?? repo;
+
+        const id = `${repo}::${path}`;
+        if (docsById.has(id)) continue;
+
+        docsById.set(id, {
+          id,
+          title: row.title,
+          type: inferDocType(path, row.source === 'github-content-store'),
+          repo,
+          path,
+          sourceLabel,
+          htmlUrl: row.html_url ?? `https://github.com/${repo}/blob/main/${path}`,
+          size: Buffer.byteLength(row.body ?? '', 'utf8'),
+          tags: inferTags(path, sourceLabel, row.source === 'github-content-store'),
+          taxonomyTagIds: [],
+        });
       }
 
-      // Use cache if fresh, otherwise rebuild (and serve stale on GitHub failure)
-      let docs: DocEntry[];
-      const now = Date.now();
-      if (_libraryCache && (now - _libraryCache.builtAt) < LIBRARY_CACHE_TTL_MS) {
-        docs = _libraryCache.docs;
-      } else {
-        try {
-          docs = await buildLibrary(gh, extraRepos, labelMap);
-          if (docs.length > 0) {
-            _libraryCache = { docs, builtAt: now };
-          } else if (_libraryCache) {
-            // GitHub rate-limited — return stale cache rather than empty
-            console.warn('[Documents] GitHub returned 0 docs — serving stale cache');
-            docs = _libraryCache.docs;
-          }
-        } catch {
-          docs = _libraryCache?.docs ?? [];
-        }
-      }
+      const docs = [...docsById.values()];
 
       docs.sort((a, b) => a.title.localeCompare(b.title));
 
       // Join taxonomy tag IDs from document_tags table
       if (docs.length > 0) {
-        const db = getDb();
         const docIds = docs.map((d) => d.id);
         const tagRows = await db.query<{ doc_id: string; tag_id: string }>(
           `SELECT doc_id, tag_id::text FROM document_tags WHERE doc_id = ANY($1)`,
