@@ -1,23 +1,256 @@
-# constitution.md
+﻿# constitution.md
 
 > This file is the authoritative guide for GitHub Copilot and all AI agents working in this
 > repository. Read it in full before touching any file. It has two sections:
 > **Repo Conventions** (permanent, codebase-wide rules) and
 > **Current Session** (the active feature being built).
 
+---
+
 ## Repo Conventions
 
-> ⚠️  No repo conventions have been set yet. Edit this section in the SDLC Orchestrator
-> (Scope → Repo Conventions) and re-run Spec Kit init to commit the updated file.
+### Repository overview
 
-### Placeholder conventions
-- Deliver all work via pull request. No direct pushes to `main` or any production branch.
-- Every PR must pass CI before merge.
-- Write or update tests for every changed behaviour.
-- Follow existing code style. Do not reformat unrelated files.
-- Prefer extending existing patterns over adding new frameworks or dependencies.
-- Keep commits small and independently green.
+**Personal Knowledge Hub** — a single-user productivity system that aggregates content from
+GitHub, GitLab, Microsoft 365 (Planner tasks, calendar), RSS/podcast feeds, and personal
+notes into one web application. Owner: Richard Hogan. All data belongs to one user; there
+is no multi-tenancy.
+
+**Monorepo structure:**
+
+```
+knowledge-hub-backend/   Node.js / Express / TypeScript backend (port 3000)
+knowledge-hub-web/       React / TypeScript / Carbon Design System frontend (port 5173)
+knowledge-hub-raycast/   Raycast extension (rarely touched)
+infra/                   Bicep IaC for Azure resources
+data/                    Static reference data (projects.json etc.)
+scripts/                 One-off maintenance scripts
+```
+
+---
+
+### Infrastructure and deployment
+
+| Resource | Value |
+|---|---|
+| Azure subscription | **Alliance Tenant Reporting** |
+| Resource group | `rg-knowledge-hub-prod` |
+| Frontend (SWA) | `kh-prod-web` → `https://nice-mud-0f780fb03.7.azurestaticapps.net` |
+| Backend (Container App) | `knowledge-hub-backend` in the same RG |
+| Database | Azure Database for PostgreSQL Flexible Server: `kh-prod-pg-r6mgdn.postgres.database.azure.com` |
+| Blob storage | Azure Storage Account (CMS/images) |
+| AI | Azure AI Foundry (OpenAI-compatible endpoint) — `gpt-4o` and `gpt-4o-mini` deployments |
+| Speech | Azure AI Services Speech REST API (`uksouth`) |
+
+**Deploy frontend:**
+```sh
+az account set --subscription "Alliance Tenant Reporting"
+cd knowledge-hub-web && npm run build
+TOKEN=$(az staticwebapp secrets list --name kh-prod-web --resource-group rg-knowledge-hub-prod --query "properties.apiKey" -o tsv)
+npx --yes @azure/static-web-apps-cli deploy dist --deployment-token $TOKEN --env production
+```
+
+**Deploy backend:** Push to `main`; CI/CD pipeline re-deploys the Container App. Or use
+`az containerapp update` / Docker push for manual deploys.
+
+**Run locally:**
+```sh
+# Backend (port 3000)
+cd knowledge-hub-backend && node --import tsx/esm src/server.ts
+
+# Frontend (port 5173, strictPort)
+cd knowledge-hub-web && npm run dev
+```
+SKIP_AUTH=true in the backend .env bypasses JWT so the UI works without a login flow locally.
+
+---
+
+### Database
+
+PostgreSQL (Azure Flexible Server). Connection string in `DATABASE_URL` env var.
+
+**Migration pattern:** numbered SQL files in `knowledge-hub-backend/src/db/migrations/`.
+Run with `npm run migrate` (in the backend package). Always add a new migration file —
+never ALTER the existing ones. Name them `NNN_description.sql` using the next number.
+
+**Key tables (all in `public` schema):**
+
+| Table | Purpose |
+|---|---|
+| `content_items` | Discover feed — articles, GitHub commits/PRs/issues, docs. Source types: `github-commit`, `github-pr`, `github-issue`, `github-action`, `github-deployment`, `github-doc`, `discovered-article`, `email`, `podcast-episode`, `gitlab-commit`, etc. |
+| `discover_item_tags` | Junction: `discover_item_id → content_items.id`, `tag_id → tags.id`, `is_primary BOOL` |
+| `tags` | Taxonomy. Two-level hierarchy (no grandchildren enforced by trigger). Columns: `id, name, slug, parent_id, colour, role (filing\|concept), created_at, updated_at` |
+| `note_tags` | Junction: `note_id, tag_id` |
+| `task_tags` | Junction: `task_id, tag_id` |
+| `notes` | Think-page notes. `content` column stores **JSON-serialised payload** `{title, contentType, contentJson, githubPath}` — never treat it as plain text. Use `fetchNotes()` from `notes/noteStorage.ts` to get parsed titles. |
+| `tasks` | Planner tasks. Synced from Microsoft Graph. |
+| `sparks` | Quick-capture thoughts. Columns: `id, source_id, source_type, body, tags[], cluster_id, created_at` |
+| `spark_clusters` | AI-clustered spark groups. Columns: `id, theme, spark_count, surfaced, surfaced_at, dismissed, created_at, updated_at` |
+| `ai_chat_sessions` | Athena chat session records with rolling summaries |
+| `ai_chat_messages` | Per-session message history |
+| `nodes` / `edges` | Knowledge graph (exists, not yet populated — wiring pending Gap 5 work) |
+| `repo_tag_mappings` | Legacy: maps GitHub repo → tag. Replaced by `repo_project_mappings` in newest work. |
+| `repo_project_mappings` | Maps `repo_full_name TEXT` → `project_tag_id UUID REFERENCES tags(id)` for Today GitHub card |
+
+**Filing-role tags** (used to categorise project ownership):
+Eminence, Blog Site, Newsletter, Podcast, Vibe Coding YouTube, IBM Projects, AI FinOps,
+AI Security and Governance, AI Well Architected Framework, ATOM, IBM Advantage,
+Imagine, MSFT Dashboard, Nelfin, Personal, Independent Ventures, Knowledge Hub, ModelAIr.
+Query: `SELECT id, name, slug FROM tags WHERE role = 'filing'`
+
+---
+
+### Backend conventions
+
+**Language:** TypeScript, ESM (`"type": "module"` in package.json). Node ≥ 20.
+**Framework:** Express 4. **DB client:** `pg` (node-postgres) — raw SQL, no ORM.
+**Runtime start:** `node --import tsx/esm src/server.ts`
+
+**File structure — one concern per file, ≤ 200 lines each:**
+- `src/routes/` — Express routers, one per resource
+- `src/services/` — business logic (no HTTP concerns)
+- `src/db/` — DB pool (`db.ts`), migrations, query helpers
+- `src/ai/` — Foundry client, RAG retriever, chat session store, tool definitions
+- `src/integrations/` — GitHub, GitLab, Graph, CMS sync clients
+- `src/sync/` — scheduler and sync orchestrator
+- `src/jobs/` — background jobs (inferred edges etc.)
+- `src/config/env.ts` — **the only place** that reads `process.env`. All env access elsewhere goes through `import { env } from '../config/env.js'`
+
+**All routes use this pattern:**
+```ts
+router.get('/path', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      // ... work
+      res.json(out);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+```
+
+**Response envelope (always use these types from `src/types/apiResponse.ts`):**
+```ts
+// Success
+const out: ApiSuccess<T> = { success: true, data: payload };
+res.json(out);
+
+// Error — let errorHandler middleware handle it; throw typed errors:
+throw new NotFoundError('Task not found');    // → 404
+throw new UnauthorisedError('...');           // → 401
+throw new ValidationError('...', fields);    // → 400
+```
+
+**Register new routers in `src/app.ts`** — follow the existing `app.use('/api/xyz', xyzRouter)` pattern. All `/api/*` routes go through the `authenticate` middleware automatically.
+
+**Authentication:** JWT in `Authorization: Bearer <token>` header. Dev mode (`NODE_ENV=development` or `SKIP_AUTH=true`) bypasses JWT entirely. Cron/admin routes use `x-cron-secret` header.
+
+**DB access:**
+```ts
+const db = getDb();                // singleton pool
+const result = await db.query<RowType>('SELECT ...', [param1, param2]);
+```
+Never create a new Pool directly. All queries use parameterised `$1, $2, ...` placeholders.
+
+**Scheduler:** Sync jobs run at 08:00, 14:00, 20:00 only (no overnight). In dev mode, AI-backed jobs (inferred edges, article scoring) are skipped to avoid burning AI credits.
+
+---
+
+### Frontend conventions
+
+**Language:** TypeScript + React 18. **Build:** Vite 5. **UI:** Carbon Design System g100 (dark theme).
+**Routing:** React Router v6. **Data fetching:** TanStack Query v5.
+
+**File structure:**
+- `src/pages/` — top-level route components (one per route)
+- `src/components/` — shared/reusable components, grouped by domain in subdirectories
+- `src/notes/` — Think-page note editor and storage (special: notes use serialised JSON content)
+- `src/features/` — self-contained feature slices (sparks, autocue)
+- `src/services/api.ts` — **all** backend calls go through this typed API client class
+- `src/styles/global.scss` — **all** custom CSS lives here; no per-component CSS modules
+- `src/types/` — shared TypeScript interfaces
+- `src/services/todayUrgencyService.ts` — pure scoring functions, no React
+
+**Theme:** Carbon g100. Theme token: `<Theme theme="g100">` wraps the app in `App.tsx`.
+Use `var(--cds-*)` custom properties in CSS, not hardcoded hex where possible.
+Exception: palette constants `#ffb784` (amber), `#fa4d56` (red), `#00a37f` (teal),
+`#4589ff` (blue), `#ffa300` (amber-bright) are used where specific severity colours are needed.
+
+**CSS conventions:**
+- All styles in `src/styles/global.scss`
+- BEM naming with project prefixes: `kh-` (shell/layout), `dc-` (discover card), `gctx__` (global context menu), `kb-modal-` (modals), `today-` (Today dashboard), `kh-chat-` (chat UI)
+- Always style hover, active, disabled, open/closed states when interactive
+- Dark Carbon theme: layer `#262626`, border `#393939`, text `#f4f4f4`, secondary `#c6c6c6`, placeholder `#6f6f6f`
+- Never ship unstyled elements relying on browser defaults
+
+**Routing (App.tsx):**
+- `/` → `HomePage` (Today dashboard)
+- `/discover` → `DiscoverPage`
+- `/plan` → `PlanPage`
+- `/my-work` → `TimelinePage` (GitHub/GitLab activity)
+- `/think` → `NotesPage`
+- `/library` → `DocumentsPage`
+- `/graph` → `GraphPage`
+- `/chat` → `AIChatPage` standalone (no nav/sidebar — desktop PWA)
+- Old routes redirect: `timeline→discover`, `tasks/calendar→plan`, `notes→think`, etc.
+
+**AppShell.tsx:** Returns a `<>` fragment. Do NOT add providers inside AppShell — add them in `App.tsx` wrapping the whole tree. The nav (`NAV_ITEMS`) is defined in AppShell.
+
+**Notes content quirk (critical):** `Note.content` from `/api/notes` is **not** plain text or markdown. It is a JSON string `{"title":"...","contentType":"...","contentJson":"...","githubPath":"..."}`. Always use `fetchNotes()` from `src/notes/noteStorage.ts` to get parsed `NoteListItem[]`. Never slice `.content` directly.
+
+**API client (`src/services/api.ts`):**
+- Uses axios, base URL from `VITE_API_URL` env var (empty string = relative URL, proxied by Vite dev server)
+- Token from `VITE_API_TOKEN`
+- All methods return `ApiResponse<T>` — always check `.success` before accessing `.data`
+- Chat requests use 90s timeout; image uploads use 60s; everything else 8s
+
+**Reusable components to use, not rebuild:**
+- `components/TagPicker.tsx` — taxonomy tag selector, portal-rendered, props: `{ selectedIds, onChange, trigger }`
+- `components/sparks/QuickSparkModal.tsx` — spark capture modal, props: `{ open, onClose }`
+- `components/sparks/ClusterCard.tsx` / `features/sparks/SparkClusterCard.tsx` — cluster display with Draft/Dismiss actions
+- `components/discover/DiscoverActions.tsx` — Save/Blog/Archive action buttons for discover items
+- `components/CollapsibleSection.tsx` — collapsible section header
+
+**AI chat (Athena):**
+- Floating widget: `components/FloatingAIChat.tsx` → renders `<AIChatPage compact />`
+- Standalone PWA: `/chat` route → `<AIChatPage standalone />`
+- Widget and standalone use **separate** `localStorage` session keys (`kh-athena-session-id-widget` vs `-standalone`) so conversations don't bleed between surfaces
+- Mobile breakpoint: 640px — at this width standalone sidebar becomes off-canvas drawer, float panel goes full-screen
+
+---
+
+### TypeScript rules (both packages)
+
+- Strict mode. `npx tsc --noEmit` must pass with zero errors before any PR.
+- No `any` unless absolutely unavoidable; if used, add `// eslint-disable-line` comment with justification.
+- All exported functions and interfaces require JSDoc `/** ... */` comments.
+- No file over 200 lines — split into focused files if needed.
+- Imports use `.js` extension in the backend (ESM interop). Frontend uses no extension.
+
+---
+
+### Git and PR conventions
+
+- All work via pull request. No direct pushes to `main` unless the repo owner explicitly does so.
+- Every PR must pass TypeScript checks (`tsc --noEmit`) in both frontend and backend before merge.
+- Commit messages: imperative present tense, concise subject, body explains the *why* not the *what*.
+- Co-authored-by trailer on every AI-assisted commit:
+  `Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>`
 - Do not delete or overwrite `.specify/` artefacts or this file.
+
+---
+
+### What NOT to change without explicit instruction
+
+- The JSX structure of `AppShell.tsx` — it returns `<>` fragment; providers wrap at `App.tsx` level
+- The Carbon `<Theme theme="g100">` wrapper
+- The sync scheduler timing (08:00, 14:00, 20:00) or the SNAT-aware DB pool settings
+- The `notes/noteStorage.ts` serialise/deserialise contract — other code depends on the JSON format
+- Any production `.env` secret values
+- The `PasswordGate` component — it protects the whole app
+
+---
 
 ## Current Session
 
@@ -178,71 +411,5 @@ mapping screen.
   link are gone, replaced by the repo mapping screen
 - No file exceeds 200 lines
 - All new functions and exported interfaces have JSDoc comments
-
-### Specification: Today Page Triage Styling and Repo-to-Project Mapping Enhancement
-
-**Summary:** Implement an incremental enhancement to the existing Personal Knowledge Hub by splitting the Today page "Needs attention" rendering into separate Overdue and Awaiting a decision sections, adding overdue severity styling based on days overdue, and replacing the broken GitHub activity "configure project tags" flow with a real repo-to-project mapping mechanism backed by a new repo_project_mappings table and settings UI. This change must preserve existing sync, scoring, and Planner logic while updating only rendering, data wiring, and settings behavior in the existing repository.
-
-**Goals:**
-- Improve Today page triage clarity by rendering overdue Planner tasks separately from Discover items awaiting workflow action.
-- Visually distinguish overdue task severity using existing palette values and minimal row styling changes.
-- Replace the non-functional GitHub activity project-tag configuration concept with a manual repo-to-project mapping tied to existing filing-role tags.
-- Ensure the Today page GitHub activity card groups synced commits and pull requests by mapped project tag and excludes unmapped repos.
-- Keep the enhancement incremental within the existing Personal Knowledge Hub codebase without changing underlying sync or business logic.
-
-**In Scope:**
-- Update the existing Today page rendering in knowledge-hub-web to split the current merged "Needs attention" list into two sections: Overdue and Awaiting a decision.
-- Use existing data already returned to the Today page and perform a rendering-only split without changing source queries for Planner tasks or Discover items.
-- Apply overdue severity tiers to overdue task rows using only left border and overdue text colour changes, with thresholds of 0-6, 7-30, and 31+ days overdue.
-- Reuse the existing collapsed item count constant for each section's independent "Show N more" behavior rather than introducing a new hardcoded value.
-- Add a backend database migration in knowledge-hub-backend for the repo_project_mappings table and index exactly as specified.
-- Add backend read/write support in knowledge-hub-backend for listing connected repos from existing sync configuration, listing filing-role tags, reading existing mappings, and saving a mapping per repo.
-- Replace the current GitHub activity settings action and copy with a new Manage repo mapping screen in knowledge-hub-web.
-- Build the mapping screen as a simple table with one row per connected repo, mapped tag selection filtered to filing-role tags only, and a per-row save action.
-- Confirm Carbon Dropdown props before implementing the mapping selector and style the new UI per repository conventions.
-- Update the Today page GitHub activity card to join existing synced GitHub and GitLab activity against repo_project_mappings by repo_full_name and group results by mapped project tag.
-- Update empty-state copy on the Today page GitHub activity card to reference repo mapping instead of project tags when zero mappings exist.
-- Add JSDoc comments to all new functions and exported interfaces and keep all touched or added files under the 200-line limit.
-
-**Out of Scope:**
-- Any change to Planner task sync, due date calculation, or overdue determination logic.
-- Any change to Discover relevance scoring, workflow state logic, or the definition of the `To Review` state.
-- Any AI-based categorisation, inference, or tagging of commits, pull requests, or repositories.
-- Any change to the existing tags taxonomy beyond selecting existing filing-role tags.
-- Any fresh external API fetch for repos in the mapping screen; repo rows must come from existing GitHub/GitLab sync configuration already stored or exposed by the app.
-- Any change to other Today page sections, including Sparks composer.
-- Any change to mobile or Raycast clients unless they already share the same settings or Today page implementation and require a compile-safe adjustment only.
-
-**Proposed Approach:**
-In knowledge-hub-web, refactor the existing Today page "Needs attention" presentation into two independently rendered section components or sub-render blocks while preserving the current upstream data inputs. Derive an overdue Planner task collection from the existing merged inputs, sort it by computed days overdue descending, and derive an awaiting-decision Discover collection filtered to existing `To Review` items and sorted by discovery date descending as it is today. Each section should display its own heading, count, and local expansion state using the existing visible-item pagination constant imported from the current implementation. For overdue rows, add a small severity helper that computes the tier from days overdue and returns class names or style tokens mapped to existing palette constants, specifically neutral for 0-6 days, amber for 7-30 days using the existing TAG_COLOURS amber value `#ffb784`, and red for 31+ days using the existing TAG_COLOURS red value `#fa4d56`. Apply only border-left and overdue text colour changes in SCSS, leaving row dimensions, controls, and checkbox styling untouched.
-
-In knowledge-hub-backend, add a migration to create repo_project_mappings and its index exactly as specified, plus any standard updated_at trigger pattern already used in the repository if one exists. Implement repository/service/controller support for: listing connected repos from the existing sync configuration source already used by the app, listing filing-role tags from the existing tags table, listing current repo mappings, and upserting a mapping by repo_full_name. Keep the data model anchored to the existing tags table and do not introduce a new project entity. Expose minimal endpoints needed by the existing app, following current Express and TypeScript patterns.
-
-In knowledge-hub-web settings, replace the broken GitHub activity settings action with navigation to a new Manage repo mapping screen. Build a table-style UI with one row per connected repo, showing repo full name, current mapping state, a filing-tag-only selector, and a save action per row. Repos without a mapping should display an explicit Unmapped state in the UI. Use the existing TagPicker if it already supports filtering by role cleanly; otherwise use a Carbon Dropdown after confirming the correct props via the Carbon MCP server. Add full styling in the relevant SCSS/global.scss using existing naming conventions and dark theme overrides.
-
-For the Today page GitHub activity card, update the existing backend query or aggregation path so commits and pull requests from existing sync data are associated to repo_project_mappings by repo_full_name, then grouped by mapped project tag for response/rendering. Unmapped repos must be excluded silently from the Today page card. If there are no mappings at all, return or render the corrected empty state copy: "No repos mapped yet. Set up repo-to-project mapping in settings." with a link to the new mapping screen. Remove all remaining references to "configure project tags" in this flow. Keep implementation incremental, split logic into small files if needed to respect the 200-line limit, and add JSDoc to all new functions and exported interfaces.
-
-**Acceptance Criteria:**
-- The Today page no longer renders a single merged "Needs attention" list and instead shows two sections in this order: Overdue, then Awaiting a decision.
-- The Overdue section contains only Planner tasks past their due date and is sorted by days overdue descending.
-- The Awaiting a decision section contains only Discover items in `To Review` state and is sorted by discovery date most recent first.
-- Each section displays its own heading and item count.
-- Each section has its own independent collapsed/expanded "Show N more" behavior using the existing pagination/display-count constant rather than a newly hardcoded number.
-- Overdue task rows 0-6 days overdue retain neutral styling with no border change and overdue text colour `#c6c6c6`.
-- Overdue task rows 7-30 days overdue show a 2px left border and overdue text colour using the existing amber palette value `#ffb784`.
-- Overdue task rows 31+ days overdue show a 2px left border and overdue text colour using the existing red palette value `#fa4d56`.
-- No overdue severity styling change alters row height, padding, Done/Snooze button styling, or checkbox icon styling.
-- A repo_project_mappings table exists in the database with columns and constraints matching the provided schema, including a unique repo_full_name and foreign key to tags(id).
-- An index exists on repo_project_mappings(project_tag_id).
-- The settings flow no longer references "configure project tags" for GitHub activity.
-- A Manage repo mapping screen exists in knowledge-hub-web and lists one row per connected repo sourced from existing sync configuration rather than a fresh external API call.
-- Each repo row shows the repo full name, current mapped filing tag or Unmapped state, a filing-role-only selector, and a per-row save action.
-- Saving a repo mapping persists repo_full_name to project_tag_id in repo_project_mappings without creating any new project taxonomy.
-- The Today page GitHub activity card groups commits and pull requests by mapped project tag using repo_full_name joins against repo_project_mappings.
-- Repos with no mapping are excluded from the Today page GitHub activity card without showing an error on the Today page.
-- If zero mappings exist, the Today page GitHub activity card shows the empty state copy: "No repos mapped yet. Set up repo-to-project mapping in settings." and links to the new mapping screen.
-- No user-facing copy in this flow refers to GitHub commit or PR tags or to configuring project tags.
-- All new functions and exported interfaces include JSDoc comments.
-- No added or modified file exceeds 200 lines.
 
 > See `.specify/spec.md` for the full specification and `.specify/tasks.md` for the issue task list.
