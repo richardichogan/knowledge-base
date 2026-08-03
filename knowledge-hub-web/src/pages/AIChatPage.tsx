@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
@@ -397,7 +398,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const pcmChunksRef = useRef<Float32Array[]>([]);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Prevents the Android Share auto-send from firing more than once per page load. */
+  const shareProcessedRef = useRef(false);
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Restore persisted history for a stored session ID once on mount, so a
   // reload or reopening the standalone Athena window continues the same
@@ -426,6 +430,41 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       // localStorage can be unavailable (private browsing) — session still works in-memory.
     }
   }
+
+  // Android Share Target handler — fires once history restore is complete so
+  // the auto-sent message lands in a fresh conversation without overwriting
+  // existing history. Params come from the manifest share_target GET action:
+  // /chat?title=...&text=...&url=...
+  useEffect(() => {
+    if (isRestoringHistory) return;
+    if (shareProcessedRef.current) return;
+    const sharedTitle = searchParams.get('title') ?? '';
+    const sharedUrl   = searchParams.get('url')   ?? '';
+    const sharedText  = searchParams.get('text')  ?? '';
+    if (!sharedTitle && !sharedUrl && !sharedText) return;
+
+    shareProcessedRef.current = true;
+    // Clean the share params from the URL so a reload doesn't re-trigger.
+    setSearchParams({}, { replace: true });
+
+    const contextLines: string[] = ['[Shared from Android]'];
+    if (sharedTitle) contextLines.push(`Title: ${sharedTitle}`);
+    if (sharedUrl)   contextLines.push(`URL: ${sharedUrl}`);
+    if (sharedText && sharedText.trim() !== sharedUrl.trim()) contextLines.push(`Description: ${sharedText}`);
+
+    // The user-visible bubble is a short label; the message Athena receives
+    // has full context and the question — mirrors the file-upload pattern.
+    const displayLabel = `📤 Shared: ${sharedTitle || sharedUrl || sharedText.slice(0, 60)}`;
+    const athenaMessage = [
+      contextLines.join('\n'),
+      '',
+      "What would you like me to do with this? I can save it to Think as a note (with the URL and description), add it to Discover for later review, or just chat about it — your call.",
+    ].join('\n');
+
+    appendMessage('user', displayLabel);
+    chatMutation.mutate(athenaMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRestoringHistory]);
 
   // The chat history sidebar is only shown in the standalone window (see JSX
   // below) — the floating widget stays compact rather than growing a sidebar.
