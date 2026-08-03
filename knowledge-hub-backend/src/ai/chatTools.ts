@@ -338,21 +338,38 @@ async function createTask(db: Pool, args: Record<string, unknown>): Promise<unkn
   const body = typeof args['body'] === 'string' ? args['body'] : '';
   const dueDate = typeof args['dueDate'] === 'string' && args['dueDate'].trim() !== '' ? args['dueDate'].trim() : null;
 
-  // Duplicate-call guard: if the model re-issues create_task for a task it
-  // (or the user, via another route) already created moments ago — e.g. the
-  // model mistakenly re-triggers the same tool call after a follow-up
-  // message like "thanks" — return the existing task instead of inserting
-  // a second copy. Scoped to an exact-title match created in the last 5
-  // minutes, so intentional duplicate titles created later are unaffected.
-  const dupe = await db.query<Record<string, unknown>>(
+  // First guard: if an active task with the same title already exists in the
+  // same project, reuse it instead of creating a second open copy.
+  const openDupe = await db.query<Record<string, unknown>>(
     `SELECT * FROM tasks
-     WHERE archived = false AND title = $1 AND created_at > now() - interval '5 minutes'
-     ORDER BY created_at DESC LIMIT 1`,
-    [title],
+     WHERE archived = false
+       AND status <> 'completed'
+       AND project_id = $1
+       AND lower(title) = lower($2)
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [projectId, title],
   );
-  const dupeRow = dupe.rows[0];
-  if (dupeRow !== undefined) {
-    return { success: true, task: summariseTask(rowToTask(dupeRow)), duplicate: true };
+  const openDupeRow = openDupe.rows[0];
+  if (openDupeRow !== undefined) {
+    return { success: true, task: summariseTask(rowToTask(openDupeRow)), duplicate: true };
+  }
+
+  // Second guard: catches immediate accidental replays (e.g. duplicate tool
+  // call in the same chat turn) even when the first row was completed quickly.
+  const recentDupe = await db.query<Record<string, unknown>>(
+    `SELECT * FROM tasks
+     WHERE archived = false
+       AND project_id = $1
+       AND lower(title) = lower($2)
+       AND created_at > now() - interval '5 minutes'
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [projectId, title],
+  );
+  const recentDupeRow = recentDupe.rows[0];
+  if (recentDupeRow !== undefined) {
+    return { success: true, task: summariseTask(rowToTask(recentDupeRow)), duplicate: true };
   }
 
   const result = await db.query<Record<string, unknown>>(
