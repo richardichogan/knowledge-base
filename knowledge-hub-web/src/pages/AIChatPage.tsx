@@ -458,7 +458,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     const athenaMessage = [
       contextLines.join('\n'),
       '',
-      "What would you like me to do with this? I can save it to Think as a note (with the URL and description), add it to Discover for later review, or just chat about it — your call.",
+      'The user has shared a link from Android.',
+      'First, ask a concise clarification question and wait for their reply.',
+      'Offer these options: Spark, blog source, Think note, Discover item, or chat-only.',
+      'Do not create, update, or file anything until the user explicitly chooses one option.',
     ].join('\n');
 
     appendMessage('user', displayLabel);
@@ -1022,4 +1025,3 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     </div>
   );
 };
-
