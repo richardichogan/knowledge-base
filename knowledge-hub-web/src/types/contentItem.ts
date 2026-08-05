@@ -75,6 +75,7 @@ export interface KnowledgeImage {
   id: string;
   blobUrl: string;
   ocrText?: string;
+  visionAnalysis?: string;
   caption?: string;
   createdAt: string;
   tags: string[];

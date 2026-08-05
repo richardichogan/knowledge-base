@@ -142,11 +142,12 @@ CREATE TABLE IF NOT EXISTS kb_images (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   blob_url         TEXT NOT NULL,
   ocr_text         TEXT NOT NULL DEFAULT '',
+  vision_analysis  TEXT NOT NULL DEFAULT '',
   caption          TEXT NOT NULL DEFAULT '',
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   tags             TEXT[] NOT NULL DEFAULT '{}',
   linked_items     UUID[] NOT NULL DEFAULT '{}',
-  -- FTS on OCR text + caption
+  -- FTS on caption, vision_analysis, and OCR text
   search_vector    TSVECTOR
 );
 
@@ -161,7 +162,8 @@ RETURNS TRIGGER AS $$
 BEGIN
   NEW.search_vector :=
     setweight(to_tsvector('english', coalesce(NEW.caption, '')), 'A') ||
-    setweight(to_tsvector('english', coalesce(NEW.ocr_text, '')), 'B');
+    setweight(to_tsvector('english', coalesce(NEW.vision_analysis, '')), 'B') ||
+    setweight(to_tsvector('english', coalesce(NEW.ocr_text, '')), 'C');
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

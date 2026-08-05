@@ -1,11 +1,12 @@
 /**
  * Images routes — Change 003
  *
- * POST /api/images   — upload an image, run OCR, store in kb-images blob container
+ * POST /api/images   — upload an image, run OCR + GPT-4V vision analysis, store in kb-images blob container
  * GET  /api/images   — paginated list of images
  *
- * Azure AI Vision is used for OCR. If the AZURE_VISION_ENDPOINT env var is not
- * set, OCR is skipped and ocrText is stored as an empty string.
+ * Vision analysis: Uses Azure OpenAI GPT-4V to understand image content semantically.
+ * OCR: Azure AI Vision Read API extracts text as a fallback/supplement.
+ * If neither credential is set, visionAnalysis and ocrText are empty strings.
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -15,6 +16,7 @@ import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
 import { HTTP_STATUS, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, OCR_MAX_POLLS, OCR_POLL_INTERVAL_MS, IMAGE_SAS_EXPIRY_YEARS, BLOB_UPLOAD_TIMEOUT_MS } from '../config/constants.js';
 import { BlobStorageError, ValidationError } from '../types/index.js';
+import { analyzeImageWithVision } from '../services/visionAnalyzer.js';
 import type { ApiSuccess, PaginatedList, KnowledgeImage } from '../types/index.js';
 
 const router = Router();
@@ -82,6 +84,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
 
     // Parse caption from query string (multipart form handling is minimal here)
     const caption = typeof req.query['caption'] === 'string' ? req.query['caption'] : '';
+    const contentType = (req.headers['content-type'] ?? 'application/octet-stream') as string;
 
     // Generate a UUID for both blob name and DB primary key
     const imageId = randomUUID();
@@ -102,7 +105,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
 
     const uploadAbort = AbortSignal.timeout(BLOB_UPLOAD_TIMEOUT_MS);
     await blockBlob.uploadData(rawBody, {
-      blobHTTPHeaders: { blobContentType: req.headers['content-type'] ?? 'application/octet-stream' },
+      blobHTTPHeaders: { blobContentType: contentType },
       abortSignal: uploadAbort,
     });
     console.log('[images] Upload complete');
@@ -122,23 +125,33 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
     ).toString();
     const blobUrl = `${blockBlob.url}?${sasToken}`;
 
-    // Run OCR
-    const ocrText = await runOcr(rawBody as Buffer<ArrayBufferLike>);
+    // Run vision analysis (GPT-4V) and OCR in parallel
+    const [visionAnalysis, ocrText] = await Promise.all([
+      analyzeImageWithVision(rawBody as Buffer<ArrayBufferLike>, contentType).catch((err) => {
+        console.error('[images] Vision analysis failed, continuing with OCR only:', err);
+        return '';
+      }),
+      runOcr(rawBody as Buffer<ArrayBufferLike>),
+    ]);
+
+    console.log('[images] Vision analysis:', visionAnalysis.slice(0, 100), '...');
+    console.log('[images] OCR text:', ocrText.slice(0, 100), '...');
 
     // Persist to database
     const result = await db.query<{
       id: string;
       blob_url: string;
       ocr_text: string;
+      vision_analysis: string;
       caption: string;
       created_at: string;
       tags: string[];
       linked_items: string[];
     }>(
-      `INSERT INTO kb_images (id, blob_url, ocr_text, caption)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, blob_url, ocr_text, caption, created_at, tags, linked_items`,
-      [imageId, blobUrl, ocrText, caption],
+      `INSERT INTO kb_images (id, blob_url, ocr_text, vision_analysis, caption)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, blob_url, ocr_text, vision_analysis, caption, created_at, tags, linked_items`,
+      [imageId, blobUrl, ocrText, visionAnalysis, caption],
     );
 
     const row = result.rows[0];
@@ -148,18 +161,20 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       id: row.id,
       blobUrl: row.blob_url,
       ...(row.ocr_text !== '' && { ocrText: row.ocr_text }),
+      ...(row.vision_analysis !== '' && { visionAnalysis: row.vision_analysis }),
       ...(row.caption !== '' && { caption: row.caption }),
       createdAt: row.created_at,
       tags: row.tags,
       linkedItems: row.linked_items,
     };
 
-    const body: ApiSuccess<{ id: string; blobUrl: string; ocrText?: string }> = {
+    const body: ApiSuccess<{ id: string; blobUrl: string; ocrText?: string; visionAnalysis?: string }> = {
       success: true,
       data: {
         id: image.id,
         blobUrl: image.blobUrl,
         ...(image.ocrText !== undefined && { ocrText: image.ocrText }),
+        ...(image.visionAnalysis !== undefined && { visionAnalysis: image.visionAnalysis }),
       },
     };
     res.status(HTTP_STATUS.CREATED).json(body);
@@ -186,12 +201,13 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         id: string;
         blob_url: string;
         ocr_text: string;
+        vision_analysis: string;
         caption: string;
         created_at: string;
         tags: string[];
         linked_items: string[];
       }>(
-        `SELECT id, blob_url, ocr_text, caption, created_at, tags, linked_items
+        `SELECT id, blob_url, ocr_text, vision_analysis, caption, created_at, tags, linked_items
          FROM kb_images
          ORDER BY created_at DESC
          LIMIT $1 OFFSET $2`,
@@ -205,6 +221,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       id: row.id,
       blobUrl: row.blob_url,
       ...(row.ocr_text !== '' && { ocrText: row.ocr_text }),
+      ...(row.vision_analysis !== '' && { visionAnalysis: row.vision_analysis }),
       ...(row.caption !== '' && { caption: row.caption }),
       createdAt: row.created_at,
       tags: row.tags,
@@ -223,3 +240,4 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
 });
 
 export { router as imagesRouter };
+
