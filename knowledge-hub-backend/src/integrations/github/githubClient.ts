@@ -55,6 +55,24 @@ export class GitHubClient {
     return response.json() as Promise<T>;
   }
 
+  /** Makes a PUT request to the GitHub API (for creating/updating files). */
+  public async put<T>(path: string, body: unknown): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: 'PUT',
+      headers: { ...this.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      throw new IntegrationError(
+        'github',
+        `PUT ${path} failed: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    return response.json() as Promise<T>;
+  }
+
   /**
    * Paginates through all pages of a GitHub list endpoint.
    * GitHub uses Link header with rel="next" for pagination.

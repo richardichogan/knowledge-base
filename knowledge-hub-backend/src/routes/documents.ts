@@ -555,4 +555,75 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
   })();
 });
 
+/**
+ * POST /api/documents/upload
+ * Body: multipart/form-data
+ *   file: Buffer (PDF, DOCX, PPTX)
+ *   title?: string (optional, defaults to filename stem)
+ *
+ * Commits the uploaded file to richardichogan/content-store via GitHub API.
+ * Returns the file path and metadata.
+ */
+router.post('/upload', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const file = (req as any).file as { buffer: Buffer; originalname: string } | undefined;
+      const title = (req.body as any)?.title as string | undefined;
+
+      if (!file || !file.buffer) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: { message: 'No file provided' },
+        });
+        return;
+      }
+
+      const filename = file.originalname || 'document';
+      const ext = filename.toLowerCase().split('.').pop() || '';
+
+      // Validate file type
+      if (!['pdf', 'docx', 'pptx'].includes(ext)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: { message: `Unsupported file type: .${ext}. Supported: PDF, DOCX, PPTX` },
+        });
+        return;
+      }
+
+      const gh = new GitHubClient();
+      const contentStoreRepo = 'richardichogan/content-store';
+
+      // Generate path: documents/ + sanitized filename
+      const sanitized = filename.replace(/[^a-z0-9.-]/gi, '_').toLowerCase();
+      const filePath = `documents/${sanitized}`;
+
+      // Encode file as base64 for GitHub API
+      const base64Content = file.buffer.toString('base64');
+
+      // Commit via GitHub API (put contents)
+      const commitMessage = title
+        ? `Upload: ${title}`
+        : `Upload: ${sanitized}`;
+
+      await gh.put(`/repos/${contentStoreRepo}/contents/${filePath}`, {
+        message: commitMessage,
+        content: base64Content,
+        branch: 'main',
+      });
+
+      const body: ApiSuccess<{ path: string; title: string; message: string }> = {
+        success: true,
+        data: {
+          path: filePath,
+          title: title || filename.replace(/\.[^.]+$/, ''),
+          message: `File uploaded to ${contentStoreRepo}/${filePath}. It will be indexed on the next sync.`,
+        },
+      };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
 export { router as documentsRouter };
