@@ -519,7 +519,7 @@ input, textarea {
 }
 
 .ai-messages {
-  min-height: 400px;
+  min-height: 200px;
   max-height: 60vh;
   overflow-y: auto;
   margin-bottom: 1rem;
@@ -534,7 +534,6 @@ input, textarea {
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  margin: auto;
   padding: 2rem 1rem;
   text-align: center;
   color: var(--cds-text-secondary);
@@ -557,6 +556,23 @@ input, textarea {
 .ai-empty__subtitle {
   font-size: 0.8125rem;
   margin: 0;
+}
+
+.ai-empty__context {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.ai-empty__context-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--kh-accent);
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .ai-bubble {
@@ -4587,9 +4603,21 @@ input, textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.75rem 1rem;
   background: var(--cds-layer-01);
   border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.ai-float-panel__context-badge {
+  flex: 1;
+  font-size: 0.6875rem;
+  color: var(--kh-accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 0.25rem;
+  opacity: 0.85;
 }
 
 .ai-float-panel__title {
@@ -4630,11 +4658,26 @@ input, textarea {
     flex-direction: column;
     height: 100%;
     padding: 0.75rem;
+    box-sizing: border-box;
 
     .ai-messages {
       flex: 1;
       min-height: 0;
       max-height: none;
+      margin-bottom: 0;
+      overflow-y: auto;
+    }
+
+    // In compact mode the empty state should sit near the top, not centred in
+    // the full message area height (which caused the enormous empty gap).
+    .ai-empty {
+      justify-content: flex-start;
+      padding-top: 2.5rem;
+    }
+
+    .ai-input-row {
+      flex-shrink: 0;
+      margin-top: 0.75rem;
     }
   }
 }

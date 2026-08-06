@@ -40,6 +40,7 @@ import { ProjectsModal } from './ProjectsModal';
 import { QuickSparkModal } from './sparks/QuickSparkModal';
 import { usePendingTags } from '../hooks/useTaxonomy';
 import { useGlobalShortcuts } from '../hooks/useGlobalShortcuts';
+import { useAthenaContext } from '../context/AthenaContext';
 import { api } from '../services/api';
 
 interface NavItem {
@@ -66,6 +67,7 @@ export const AppShell: React.FC = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
   const { data: pendingTags = [] } = usePendingTags();
+  const { pageContext } = useAthenaContext();
 
   // Poll for unsurfaced spark clusters to show the Think nav dot
   const { data: unsurfacedData } = useQuery({
@@ -173,7 +175,7 @@ export const AppShell: React.FC = () => {
       <ProjectsModal open={projectsOpen} onClose={() => { setProjectsOpen(false); }} />
 
       {/* ── AI Chat floating widget ── */}
-      <FloatingAIChat />
+      <FloatingAIChat pageContext={pageContext ?? undefined} />
 
       {/* ── Cmd+K command palette ── */}
       <CommandPalette open={paletteOpen} onClose={() => { setPaletteOpen(false); }} />

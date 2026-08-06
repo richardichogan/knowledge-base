@@ -18,11 +18,19 @@ import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal } from '../types';
 
+import type { AthenaPageContext } from '../context/AthenaContext';
+
 interface AIChatPageProps {
   /** Renders without the page header/wrapper padding, for use in a floating widget. */
   compact?: boolean;
   /** Renders as a centered, full-height desktop layout, for use as an installed PWA (see /chat route). */
   standalone?: boolean;
+  /**
+   * Optional context about the currently selected/visible item in the app.
+   * When provided, Athena is primed with this context so questions like
+   * "what is this?" or "summarise this" make sense without re-explaining.
+   */
+  pageContext?: AthenaPageContext | undefined;
 }
 
 // Azure Speech STT reliably handles PCM WAV only, so we capture raw 16kHz mono
@@ -370,7 +378,7 @@ function useIsMobile(): boolean {
   return isMobile;
 }
 
-export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false }) => {
+export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false, pageContext }) => {
   const SESSION_STORAGE_KEY = standalone ? SESSION_STORAGE_KEY_STANDALONE : SESSION_STORAGE_KEY_WIDGET;
   const isMobile = useIsMobile();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -610,7 +618,21 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     if (text === '') return;
     appendMessage('user', text);
     setInput('');
-    chatMutation.mutate(text);
+    // On the very first message, prepend page context so Athena knows what
+    // the user is looking at without them having to re-explain it.
+    const isFirstMessage = messages.length === 0 && sessionId === null;
+    if (isFirstMessage && pageContext) {
+      const contextBlock = [
+        `[Context: The user is currently viewing a ${pageContext.type} in the Knowledge Hub]`,
+        `Title: ${pageContext.title}`,
+        pageContext.detail ? `Detail: ${pageContext.detail}` : '',
+        '',
+        text,
+      ].filter(Boolean).join('\n');
+      chatMutation.mutate(contextBlock);
+    } else {
+      chatMutation.mutate(text);
+    }
   }
 
   function handleAttachClick(): void {
@@ -935,7 +957,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             <div className="ai-empty">
               <ChatLaunch size={28} className="ai-empty__icon" />
               <p className="ai-empty__title">Athena</p>
-              <p className="ai-empty__subtitle">Notes, tasks, commits, articles, sparks — ask anything.</p>
+              {pageContext ? (
+                <p className="ai-empty__subtitle ai-empty__context">
+                  <span className="ai-empty__context-label">Context:</span> {pageContext.title}
+                </p>
+              ) : (
+                <p className="ai-empty__subtitle">Notes, tasks, commits, articles, sparks — ask anything.</p>
+              )}
             </div>
           )}
           {messages.map((msg, i) => (

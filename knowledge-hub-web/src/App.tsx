@@ -30,6 +30,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { AutocueApp } from './features/autocue/AutocueApp';
 import { GraphPage } from './pages/GraphPage';
 import { GlobalContextMenuProvider } from './context/GlobalContextMenu';
+import { AthenaContextProvider } from './context/AthenaContext';
 import { AIChatPage } from './pages/AIChatPage';
 import { HomePage } from './pages/HomePage';
 import { RepoProjectMappingsPage } from './pages/RepoProjectMappingsPage';
@@ -42,6 +43,7 @@ const App: React.FC = () => {
     <PasswordGate>
       <Theme theme="g100" as="div" style={{ minHeight: '100vh' }}>
         <GlobalContextMenuProvider>
+          <AthenaContextProvider>
           <BrowserRouter>
             <Routes>
               <Route path="/autocue/*" element={<AutocueApp />} />
@@ -69,6 +71,7 @@ const App: React.FC = () => {
               </Route>
             </Routes>
           </BrowserRouter>
+          </AthenaContextProvider>
         </GlobalContextMenuProvider>
       </Theme>
     </PasswordGate>
