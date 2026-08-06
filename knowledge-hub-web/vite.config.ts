@@ -16,11 +16,11 @@ export default defineConfig({
     include: ['react-force-graph-2d'],
   },
   server: {
-    port: 5180,
+    port: 5173,
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3010',
+        target: 'http://localhost:3000',
         changeOrigin: true,
         proxyTimeout: 60_000,
         timeout: 60_000,

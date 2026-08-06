@@ -11,6 +11,7 @@ import { getDb } from '../db/db.js';
 import { upsertContentItem } from '../db/queries.js';
 import { upsertTags } from '../db/tagHelpers.js';
 import { upsertNode } from '../services/nodeService.js';
+import { parseNoteContent } from '../utils/noteContent.js';
 import { env } from '../config/env.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput } from '../types/index.js';
@@ -27,42 +28,6 @@ const router = Router();
  * Extract a display title from the first heading block, falling back to the
  * first paragraph text, then a generic label.
  */
-interface BlockContent { text?: string }
-interface Block { type?: string; content?: BlockContent[]; children?: Block[] }
-interface NoteContentWrapper { title?: string; contentType?: string; contentJson?: string }
-
-/**
- * Content is stored as JSON: { title, contentType, contentJson }
- * where contentJson is a serialised BlockNote block array.
- * Extract the title from the wrapper first, then fall back to the first
- * heading/paragraph block in contentJson.
- */
-function parseNoteContent(contentJson: string): { title: string | null; blocks: Block[] } {
-  try {
-    const outer = JSON.parse(contentJson) as unknown;
-    // Wrapped format: { title, contentType, contentJson }
-    if (outer !== null && typeof outer === 'object' && !Array.isArray(outer)) {
-      const wrapper = outer as NoteContentWrapper;
-      const title = typeof wrapper.title === 'string' && wrapper.title.trim() !== '' && wrapper.title !== 'Untitled'
-        ? wrapper.title.trim()
-        : null;
-      let blocks: Block[] = [];
-      if (typeof wrapper.contentJson === 'string') {
-        try {
-          const inner = JSON.parse(wrapper.contentJson) as unknown;
-          blocks = Array.isArray(inner) ? (inner as Block[]) : [];
-        } catch { /* ignore */ }
-      }
-      return { title, blocks };
-    }
-    // Raw array format (legacy)
-    const blocks = Array.isArray(outer) ? (outer as Block[]) : [];
-    return { title: null, blocks };
-  } catch {
-    return { title: null, blocks: [] };
-  }
-}
-
 function extractNoteTitle(contentJson: string): string {
   const { title, blocks } = parseNoteContent(contentJson);
   if (title !== null) return title.slice(0, NOTE_TITLE_MAX_LENGTH);

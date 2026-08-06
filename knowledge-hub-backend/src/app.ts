@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import multer from 'multer';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -31,6 +32,7 @@ import { graphRouter } from './routes/graphRoutes.js';
 import { canvasRouter } from './routes/canvasRoutes.js';
 import { voiceRouter } from './routes/voiceRoutes.js';
 import { todayRouter } from './routes/today.js';
+import { repoProjectMappingsRouter } from './routes/repoProjectMappings.js';
 
 /**
  * Creates and configures the Express application.
@@ -51,6 +53,9 @@ export function createApp(): express.Application {
   // Voice audio travels as base64 JSON (see voiceRoutes.ts) — a ~30s WAV clip
   // base64-encodes to several MB, well past the default 1mb JSON limit.
   app.use('/api/voice', express.json({ limit: '20mb' }));
+  // Document uploads — multipart/form-data for PDF/DOCX/PPTX
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+  app.use('/api/documents/upload', upload.single('file'));
   app.use(express.json({ limit: '1mb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
@@ -101,6 +106,7 @@ export function createApp(): express.Application {
   app.use('/api/graph', graphRouter);
   app.use('/api/canvases', canvasRouter);
   app.use('/api/today', todayRouter);
+  app.use('/api/repo-project-mappings', repoProjectMappingsRouter);
 
   // ── 404 handler ───────────────────────────────────────────────────────────
   app.use((_req: Request, res: Response) => {

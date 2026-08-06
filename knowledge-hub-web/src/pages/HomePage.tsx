@@ -4,15 +4,13 @@
  * Sparks, and recently-worked-on notes.
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import { TodayRankedList } from '../components/today/TodayRankedList';
 import { TodayGitHubCard } from '../components/today/TodayGitHubCard';
 import { TodaySparksCard } from '../components/today/TodaySparksCard';
 import { TodayDocumentsCard } from '../components/today/TodayDocumentsCard';
 
 export const HomePage: React.FC = () => {
-  const [rankedClusterIds, setRankedClusterIds] = useState<string[]>([]);
-
   return (
     <div className="page-root today-page">
       <div className="page-header">
@@ -22,11 +20,10 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      <TodayRankedList onRankedClusterIds={setRankedClusterIds} />
+      <TodayRankedList />
       <TodayGitHubCard />
-      <TodaySparksCard rankedClusterIds={rankedClusterIds} />
+      <TodaySparksCard />
       <TodayDocumentsCard />
     </div>
   );
 };
-

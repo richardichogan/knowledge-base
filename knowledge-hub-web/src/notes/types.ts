@@ -22,6 +22,8 @@ export interface NoteListItem {
   title: string;
   contentType: ContentType;
   updatedAt: string;
+  /** Plain-text preview extracted from the note body, for list-view snippets. */
+  body?: string;
   /** Taxonomy tag UUIDs — populated from note_tags join in list response */
   tagIds?: string[];
   /** Project UUID this note belongs to, if set */

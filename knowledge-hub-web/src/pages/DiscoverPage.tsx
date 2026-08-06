@@ -20,6 +20,7 @@ import { copyItemToCanvas } from '../features/canvas/canvasClipboard';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { DiscoverActions } from '../components/discover/DiscoverActions';
 import { useFlatTags } from '../hooks/useTaxonomy';
+import { useAthenaContext } from '../context/AthenaContext';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -239,9 +240,10 @@ interface CardProps {
   item: DiscoverItem;
   onStateChange: (id: string, state: DiscoverWorkflowState) => void;
   isUpdating: boolean;
+  onActivate?: (item: DiscoverItem) => void;
 }
 
-const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) => {
+const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate }) => {
   const isToReview  = item.workflowState === 'to-review';
   const isSaved     = item.workflowState === 'saved';
   const isBlog      = item.workflowState === 'blog';
@@ -266,6 +268,10 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating }) 
   return (
     <div
       className={`dc-card${isUpdating ? ' dc-card--updating' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => { onActivate?.(item); }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onActivate?.(item); }}
       data-ctx-title={item.title}
       data-ctx-body={item.relevanceExplanation ?? undefined}
       data-ctx-source={item.sourceTitle ?? undefined}
@@ -432,7 +438,9 @@ export const DiscoverPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [titleSearch, setTitleSearch] = useState('');
   const [debouncedTitleSearch, setDebouncedTitleSearch] = useState('');
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const { setAthenaContext } = useAthenaContext();
 
   const PAGE_SIZE = 25;
 
@@ -536,6 +544,24 @@ export const DiscoverPage: React.FC = () => {
     feedQuery.data?.success ? feedQuery.data.data.total : 0;
 
   const activeTabDef = STATE_TABS.find((t) => t.key === activeTab) ?? STATE_TABS[0];
+
+  useEffect(() => {
+    const activeItem = items.find((item) => item.id === activeItemId) ?? null;
+    if (activeItem === null) {
+      setAthenaContext(null);
+      return;
+    }
+    setAthenaContext({
+      type: 'discover item',
+      title: activeItem.title,
+      detail: [
+        activeItem.sourceTitle,
+        activeItem.relevanceExplanation ?? '',
+        activeItem.url ?? '',
+      ].filter(Boolean).join(' | '),
+    });
+    return () => { setAthenaContext(null); };
+  }, [activeItemId, items, setAthenaContext]);
 
   return (
     <div className="page-root">
@@ -666,6 +692,7 @@ export const DiscoverPage: React.FC = () => {
               item={item}
               onStateChange={handleStateChange}
               isUpdating={updatingIds.has(item.id)}
+              onActivate={(nextItem) => { setActiveItemId(nextItem.id); }}
             />
           ))}
 

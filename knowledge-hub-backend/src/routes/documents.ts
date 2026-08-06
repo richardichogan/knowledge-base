@@ -92,11 +92,16 @@ function inferDocType(filePath: string, isContentStore: boolean): DocType {
   const filename = lower.split('/').pop() ?? '';
 
   if (filename === 'readme.md') return 'readme';
-  if (!isContentStore) return 'doc';
 
-  if (lower.startsWith('posts/') || lower.startsWith('drafts/')) return 'blog-draft';
-  if (lower.startsWith('spec') || lower.endsWith('-spec.md') || lower.includes('/spec')) return 'spec';
-  if (lower.startsWith('newsletter')) return 'newsletter';
+  if (isContentStore) {
+    if (lower.startsWith('posts/') || lower.startsWith('drafts/')) return 'blog-draft';
+    if (lower.startsWith('spec') || lower.endsWith('-spec.md') || lower.includes('/spec')) return 'spec';
+    if (lower.startsWith('newsletter')) return 'newsletter';
+    return 'doc';
+  }
+
+  // Project repo heuristics
+  if (lower.endsWith('-spec.md') || lower.includes('/spec') || lower.startsWith('specs/') || lower.startsWith('rfcs/')) return 'spec';
   return 'doc';
 }
 
@@ -122,16 +127,54 @@ async function getRepoTree(gh: GitHubClient, repo: string): Promise<GitHubTreeIt
   return tree.tree;
 }
 
+/** The canonical writing content store. Must exist — Library is broken without it. */
 export const CONTENT_STORE = 'richardichogan/content-store';
 
-// ── Library cache — avoids hammering GitHub on every page load ─────────────────
-const LIBRARY_CACHE_TTL_MS = 300_000; // 5 minutes
-let _libraryCache: { docs: DocEntry[]; builtAt: number } | null = null;
+/**
+ * Root-level .md files that are repo meta/housekeeping — never surfaced as documents.
+ * Everything else under docs/ and other named doc folders is included.
+ */
+const EXCLUDED_META_FILES = new Set([
+  'contributing.md', 'changelog.md', 'code_of_conduct.md',
+  'license.md', 'security.md', 'codeowners.md', 'authors.md',
+  'maintainers.md', 'notice.md', 'patents.md',
+]);
+
+/**
+ * Returns true if a file path from a project repo should appear in the Library.
+ * Rules:
+ *   - Never include .github/ or hidden directories
+ *   - Root-level: README.md and any .md not in the meta exclusion list above
+ *   - Sub-directories: only docs/, architecture/, specs/, rfcs/, wiki/, design/
+ */
+function isDocumentablePath(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+
+  // Never include .github/ templates, hidden dirs, or node_modules
+  if (lower.startsWith('.github/') || lower.startsWith('.') || lower.startsWith('node_modules/')) return false;
+
+  const hasDir = lower.includes('/');
+
+  if (!hasDir) {
+    // Root-level: include README and curated doc files, exclude meta/housekeeping
+    return lower.endsWith('.md') && !EXCLUDED_META_FILES.has(lower);
+  }
+
+  // Sub-directory: only explicit documentation folders
+  return (
+    lower.startsWith('docs/') ||
+    lower.startsWith('architecture/') ||
+    lower.startsWith('specs/') ||
+    lower.startsWith('rfcs/') ||
+    lower.startsWith('wiki/') ||
+    lower.startsWith('design/')
+  );
+}
 
 export async function buildLibrary(gh: GitHubClient, extraRepos: string[], labelMap: Record<string, string>): Promise<DocEntry[]> {
   const docs: DocEntry[] = [];
 
-  // 1. Content store — all .md files
+  // 1. Content store — all .md files. This repo must exist; log an error if it's unreachable.
   try {
     const tree = await getRepoTree(gh, CONTENT_STORE);
     for (const item of tree) {
@@ -150,10 +193,10 @@ export async function buildLibrary(gh: GitHubClient, extraRepos: string[], label
       });
     }
   } catch (err) {
-    console.warn('[Documents] content-store fetch failed:', err instanceof Error ? err.message : err);
+    console.error(`[Documents] CRITICAL: content-store (${CONTENT_STORE}) is unreachable — Library will be empty. Check GITHUB_ACCESS_TOKEN has access to this repo.`, err instanceof Error ? err.message : err);
   }
 
-  // 2. Project repos — docs/ folder and README.md only
+  // 2. Project repos — docs/, README, root-level .md files, and common doc folders
   await Promise.allSettled(
     extraRepos.map(async (repo) => {
       const label = labelMap[repo] ?? repo.split('/')[1] ?? repo;
@@ -161,7 +204,7 @@ export async function buildLibrary(gh: GitHubClient, extraRepos: string[], label
         const tree = await getRepoTree(gh, repo);
         for (const item of tree) {
           if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-          if (!item.path.startsWith('docs/') && item.path.toLowerCase() !== 'readme.md') continue;
+          if (!isDocumentablePath(item.path)) continue;
           docs.push({
             id: `${repo}::${item.path}`,
             title: titleFromPath(item.path),
@@ -187,54 +230,72 @@ export async function buildLibrary(gh: GitHubClient, extraRepos: string[], label
 /**
  * GET /api/documents/library
  *
- * Always includes content-store.  Optional ?repos[]=owner/repo params add
- * project repos (docs/ folder + README.md only).
+ * Returns the indexed Library view from PostgreSQL, not a live GitHub scrape.
+ * Sources:
+ *   1. github-content-store
+ *   2. github-doc
  */
-router.get('/library', (req: Request, res: Response, next: NextFunction): void => {
+router.get('/library', (_req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const gh = new GitHubClient();
+      const db = getDb();
+      const result = await db.query<{
+        source: 'github-doc' | 'github-content-store';
+        title: string;
+        html_url: string | null;
+        project_context: string | null;
+        metadata: Record<string, unknown> | null;
+        body: string | null;
+      }>(
+        `SELECT
+           ci.source,
+           COALESCE(NULLIF(ci.title, ''), 'Untitled Document') AS title,
+           ci.url AS html_url,
+           ci.project_context,
+           ci.metadata,
+           ci.body
+         FROM content_items ci
+         WHERE ci.source IN ('github-doc', 'github-content-store')
+         ORDER BY ci.updated_at DESC, ci.indexed_at DESC`,
+      );
 
-      // Extra project repos from query string
-      const extraRepos: string[] = Array.isArray(req.query['repos'])
-        ? (req.query['repos'] as string[]).filter((r) => /^[\w.-]+\/[\w.-]+$/.test(r))
-        : typeof req.query['repos'] === 'string' && /^[\w.-]+\/[\w.-]+$/.test(req.query['repos'])
-          ? [req.query['repos']]
-          : [];
+      const docsById = new Map<string, DocEntry>();
+      for (const row of result.rows) {
+        const metadata = row.metadata ?? {};
+        const repo = typeof metadata['repo'] === 'string' ? metadata['repo'] : '';
+        const path = typeof metadata['path'] === 'string' ? metadata['path'] : '';
+        if (!repo || !path || !path.toLowerCase().endsWith('.md')) continue;
 
-      // Optional label map: JSON string of { "owner/repo": "Human Label" }
-      const labelMap: Record<string, string> = {};
-      if (typeof req.query['repoLabels'] === 'string') {
-        try {
-          Object.assign(labelMap, JSON.parse(req.query['repoLabels']) as Record<string, string>);
-        } catch { /* ignore malformed JSON */ }
+        const sourceLabel =
+          typeof metadata['sourceLabel'] === 'string' && metadata['sourceLabel']
+            ? metadata['sourceLabel']
+            : row.source === 'github-content-store'
+              ? 'Content Store'
+              : row.project_context ?? repo;
+
+        const id = `${repo}::${path}`;
+        if (docsById.has(id)) continue;
+
+        docsById.set(id, {
+          id,
+          title: row.title,
+          type: inferDocType(path, row.source === 'github-content-store'),
+          repo,
+          path,
+          sourceLabel,
+          htmlUrl: row.html_url ?? `https://github.com/${repo}/blob/main/${path}`,
+          size: Buffer.byteLength(row.body ?? '', 'utf8'),
+          tags: inferTags(path, sourceLabel, row.source === 'github-content-store'),
+          taxonomyTagIds: [],
+        });
       }
 
-      // Use cache if fresh, otherwise rebuild (and serve stale on GitHub failure)
-      let docs: DocEntry[];
-      const now = Date.now();
-      if (_libraryCache && (now - _libraryCache.builtAt) < LIBRARY_CACHE_TTL_MS) {
-        docs = _libraryCache.docs;
-      } else {
-        try {
-          docs = await buildLibrary(gh, extraRepos, labelMap);
-          if (docs.length > 0) {
-            _libraryCache = { docs, builtAt: now };
-          } else if (_libraryCache) {
-            // GitHub rate-limited — return stale cache rather than empty
-            console.warn('[Documents] GitHub returned 0 docs — serving stale cache');
-            docs = _libraryCache.docs;
-          }
-        } catch {
-          docs = _libraryCache?.docs ?? [];
-        }
-      }
+      const docs = [...docsById.values()];
 
       docs.sort((a, b) => a.title.localeCompare(b.title));
 
       // Join taxonomy tag IDs from document_tags table
       if (docs.length > 0) {
-        const db = getDb();
         const docIds = docs.map((d) => d.id);
         const tagRows = await db.query<{ doc_id: string; tag_id: string }>(
           `SELECT doc_id, tag_id::text FROM document_tags WHERE doc_id = ANY($1)`,
@@ -410,10 +471,12 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
       const docs: DocSpec[] = [];
 
       try {
-        const tree = await getRepoTree(gh, CONTENT_STORE);
-        for (const item of tree) {
-          if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-          docs.push({ id: `${CONTENT_STORE}::${item.path}`, repo: CONTENT_STORE, path: item.path, title: titleFromPath(item.path) });
+        if (CONTENT_STORE) {
+          const tree = await getRepoTree(gh, CONTENT_STORE);
+          for (const item of tree) {
+            if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
+            docs.push({ id: `${CONTENT_STORE}::${item.path}`, repo: CONTENT_STORE, path: item.path, title: titleFromPath(item.path) });
+          }
         }
       } catch { /* content-store inaccessible */ }
 
@@ -422,7 +485,7 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
           const tree = await getRepoTree(gh, repo);
           for (const item of tree) {
             if (item.type !== 'blob' || !item.path.endsWith('.md')) continue;
-            if (!item.path.startsWith('docs/') && item.path.toLowerCase() !== 'readme.md') continue;
+            if (!isDocumentablePath(item.path)) continue;
             docs.push({ id: `${repo}::${item.path}`, repo, path: item.path, title: titleFromPath(item.path) });
           }
         }),
@@ -489,6 +552,77 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
       })();
 
     } catch (err) { next(err); }
+  })();
+});
+
+/**
+ * POST /api/documents/upload
+ * Body: multipart/form-data
+ *   file: Buffer (PDF, DOCX, PPTX)
+ *   title?: string (optional, defaults to filename stem)
+ *
+ * Commits the uploaded file to richardichogan/content-store via GitHub API.
+ * Returns the file path and metadata.
+ */
+router.post('/upload', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const file = (req as any).file as { buffer: Buffer; originalname: string } | undefined;
+      const title = (req.body as any)?.title as string | undefined;
+
+      if (!file || !file.buffer) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: { message: 'No file provided' },
+        });
+        return;
+      }
+
+      const filename = file.originalname || 'document';
+      const ext = filename.toLowerCase().split('.').pop() || '';
+
+      // Validate file type
+      if (!['pdf', 'docx', 'pptx'].includes(ext)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: { message: `Unsupported file type: .${ext}. Supported: PDF, DOCX, PPTX` },
+        });
+        return;
+      }
+
+      const gh = new GitHubClient();
+      const contentStoreRepo = 'richardichogan/content-store';
+
+      // Generate path: documents/ + sanitized filename
+      const sanitized = filename.replace(/[^a-z0-9.-]/gi, '_').toLowerCase();
+      const filePath = `documents/${sanitized}`;
+
+      // Encode file as base64 for GitHub API
+      const base64Content = file.buffer.toString('base64');
+
+      // Commit via GitHub API (put contents)
+      const commitMessage = title
+        ? `Upload: ${title}`
+        : `Upload: ${sanitized}`;
+
+      await gh.put(`/repos/${contentStoreRepo}/contents/${filePath}`, {
+        message: commitMessage,
+        content: base64Content,
+        branch: 'main',
+      });
+
+      const body: ApiSuccess<{ path: string; title: string; message: string }> = {
+        success: true,
+        data: {
+          path: filePath,
+          title: title || filename.replace(/\.[^.]+$/, ''),
+          message: `File uploaded to ${contentStoreRepo}/${filePath}. It will be indexed on the next sync.`,
+        },
+      };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
   })();
 });
 

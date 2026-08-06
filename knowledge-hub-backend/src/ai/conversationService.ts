@@ -11,9 +11,10 @@ import type { AiModel } from '../types/aiContext.js';
  * Handles a single conversation turn.
  * Builds three-layer context, assembles message history, calls Azure AI Foundry.
  * Supports function calling — the model may request search_knowledge_base,
- * create_task, update_task, or create_note_draft tool calls, which are
- * executed here and fed back in a loop (capped at AI_MAX_TOOL_ITERATIONS)
- * until the model produces a final text reply.
+ * create_task, update_task, create_note_draft, or (live from the Microsoft
+ * Learn MCP server) microsoft_docs_search/microsoft_docs_fetch/etc. tool
+ * calls, which are executed here and fed back in a loop (capped at
+ * AI_MAX_TOOL_ITERATIONS) until the model produces a final text reply.
  */
 export async function handleConversationTurn(
   db: Pool,
@@ -26,7 +27,7 @@ export async function handleConversationTurn(
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
   const client = getFoundryClient();
-  const tools = getToolDefinitions();
+  const tools = await getToolDefinitions();
 
   for (let i = 0; i < AI_MAX_TOOL_ITERATIONS; i++) {
     const response = await client.chatWithTools(model, messages, tools);

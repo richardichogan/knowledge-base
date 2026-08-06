@@ -11,16 +11,17 @@
  * No repo dropdown. No file tree. The library is the navigation.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading, Tag } from '@carbon/react';
-import { Document, Launch } from '@carbon/icons-react';
+import { Document, Launch, DocumentAdd } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { DocEntry, DocType } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { TagPicker } from '../components/TagPicker';
 import { useFlatTags, useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { useAthenaContext } from '../context/AthenaContext';
 import { renderMarkdown } from '../utils/markdown';
 
 // ── Source config ─────────────────────────────────────────────────────────────
@@ -72,7 +73,12 @@ export const DocumentsPage: React.FC = () => {
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
   // Optimistic overrides: docId → tagIds (updated immediately on change before refetch)
   const [tagOverrides, setTagOverrides] = useState<Map<string, string[]>>(new Map());
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
+  const { setAthenaContext } = useAthenaContext();
 
   // ── Fetch unified library ──────────────────────────────────────────────────
   const { data: libraryData, isPending: libraryPending } = useQuery({
@@ -153,6 +159,73 @@ export const DocumentsPage: React.FC = () => {
     return renderMarkdown(contentData.data.content);
   }, [contentData]);
 
+  useEffect(() => {
+    if (selectedDoc === null) {
+      setAthenaContext(null);
+      return;
+    }
+    setAthenaContext({
+      type: 'document',
+      title: selectedDoc.title,
+      detail: [
+        `Source: ${selectedDoc.sourceLabel}`,
+        `Repo: ${selectedDoc.repo}`,
+        `Path: ${selectedDoc.path}`,
+        `Type: ${TYPE_LABEL[selectedDoc.type]}`,
+      ].join(' | '),
+    });
+    return () => { setAthenaContext(null); };
+  }, [selectedDoc, setAthenaContext]);
+
+  // ── Upload handler ─────────────────────────────────────────────────────────
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.toLowerCase().split('.').pop() || '';
+    if (!['pdf', 'docx', 'pptx'].includes(ext)) {
+      alert(`Unsupported file type: .${ext}\n\nSupported: PDF, DOCX, PPTX`);
+      return;
+    }
+
+    handleUpload(file);
+  }, []);
+
+  const handleUpload = useCallback(async (file: File) => {
+    setUploadLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (uploadTitle.trim()) {
+        formData.append('title', uploadTitle.trim());
+      }
+
+      const response = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData?.error?.message || 'Upload failed');
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        alert(`✓ ${data.data.message}`);
+        setUploadDialogOpen(false);
+        setUploadTitle('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        // Refetch library
+        void qc.invalidateQueries({ queryKey: ['documents-library'] });
+      }
+    } catch (err) {
+      alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setUploadLoading(false);
+    }
+  }, [uploadTitle, qc]);
+
   return (
     <div className="docs-page">
       {/* ── Header ── */}
@@ -166,6 +239,14 @@ export const DocumentsPage: React.FC = () => {
             </p>
           )}
         </div>
+        <button
+          className="docs-upload-btn"
+          onClick={() => setUploadDialogOpen(true)}
+          title="Upload PDF, DOCX, or PPTX"
+        >
+          <DocumentAdd size={20} />
+          Upload Document
+        </button>
       </div>
 
       {/* ── Three-panel body ── */}
@@ -385,6 +466,74 @@ export const DocumentsPage: React.FC = () => {
         )}
 
       </div>
+
+      {/* ── Upload dialog ── */}
+      {uploadDialogOpen && (
+        <div className="docs-upload-dialog-overlay">
+          <div className="docs-upload-dialog">
+            <h2 className="docs-upload-dialog__title">Upload Document</h2>
+            <p className="docs-upload-dialog__subtitle">PDF, DOCX, or PPTX files will be added to the content-store and indexed automatically.</p>
+
+            {/* File input */}
+            <div className="docs-upload-dialog__section">
+              <label className="docs-upload-dialog__label">File</label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx,.pptx"
+                onChange={handleFileSelect}
+                disabled={uploadLoading}
+                style={{ display: 'none' }}
+              />
+              <button
+                className="docs-upload-dialog__file-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadLoading}
+              >
+                {fileInputRef.current?.files?.[0]?.name || 'Choose file…'}
+              </button>
+            </div>
+
+            {/* Title input */}
+            <div className="docs-upload-dialog__section">
+              <label className="docs-upload-dialog__label">Title (optional)</label>
+              <input
+                type="text"
+                className="docs-upload-dialog__input"
+                placeholder="Document title"
+                value={uploadTitle}
+                onChange={(e) => setUploadTitle(e.target.value)}
+                disabled={uploadLoading}
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="docs-upload-dialog__actions">
+              <button
+                className="docs-upload-dialog__btn docs-upload-dialog__btn--cancel"
+                onClick={() => {
+                  setUploadDialogOpen(false);
+                  setUploadTitle('');
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                disabled={uploadLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className="docs-upload-dialog__btn docs-upload-dialog__btn--primary"
+                onClick={() => {
+                  const file = fileInputRef.current?.files?.[0];
+                  if (file) handleUpload(file);
+                }}
+                disabled={uploadLoading || !fileInputRef.current?.files?.[0]}
+              >
+                {uploadLoading ? 'Uploading…' : 'Upload'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

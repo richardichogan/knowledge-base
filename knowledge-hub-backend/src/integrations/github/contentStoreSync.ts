@@ -24,6 +24,7 @@ import { upsertContentItem, upsertSyncState, getSyncState } from '../../db/queri
 import { env } from '../../config/env.js';
 import { NOTE_SUMMARY_MAX_LENGTH } from '../../config/constants.js';
 import type { ContentItem } from '../../types/contentItem.js';
+import { extractDocumentText } from './documentExtractor.js';
 
 /** Number of hex chars to show in a short Git SHA log message. */
 const GIT_SHORT_SHA_LENGTH = 7;
@@ -257,55 +258,62 @@ export async function syncContentStore(db: Pool): Promise<{ indexed: number; err
     console.warn('[content-store] Tree was truncated by GitHub — some files may be missed');
   }
 
-  // Filter to .md blobs only (skip README, _template, etc.)
-  const mdBlobs = tree.tree.filter(
+  // Filter to .md, .pdf, .docx, .pptx blobs only (skip README, _template, etc.)
+  const contentBlobs = tree.tree.filter(
     (item) =>
       item.type === 'blob' &&
-      item.path.endsWith('.md') &&
+      /\.(md|pdf|docx|pptx)$/i.test(item.path) &&
       !item.path.startsWith('_') &&
-      !/README\.md$/i.test(item.path),
+      !/README\.(md|pdf|docx|pptx)$/i.test(item.path),
   );
 
-  console.warn(`[content-store] Found ${mdBlobs.length} markdown files to sync`);
+  console.warn(`[content-store] Found ${contentBlobs.length} content files to sync`);
 
   // ── Fetch and upsert each file ────────────────────────────────────────────
-  for (const blob of mdBlobs) {
+  for (const blob of contentBlobs) {
     try {
       const gitBlob = await client.get<GitBlob>(`/repos/${repo}/git/blobs/${blob.sha}`);
-      const rawContent = Buffer.from(gitBlob.content.replace(/\n/g, ''), 'base64').toString('utf-8');
+      const buffer = Buffer.from(gitBlob.content.replace(/\n/g, ''), 'base64');
 
-      const { meta, body } = parseFrontMatter(rawContent);
+      let title = titleFromPath(blob.path);
+      let body = '';
+      const ext = blob.path.toLowerCase().split('.').pop() || '';
 
-      const title = meta.title?.trim() || titleFromPath(blob.path);
-      const summary = meta.summary?.trim() ?? body.slice(0, NOTE_SUMMARY_MAX_LENGTH).replace(/\s+/g, ' ');
-      const plainBody = stripMarkdown(body);
-
-      // Determine publishedAt: prefer front-matter date, fall back to now
-      let publishedAt: string;
-      if (meta.date) {
-        const parsed = new Date(meta.date);
-        publishedAt = isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
-      } else {
-        publishedAt = new Date().toISOString();
+      // Handle based on file type
+      if (ext === 'md') {
+        // Markdown: parse front-matter
+        const rawContent = buffer.toString('utf-8');
+        const { meta, body: mdBody } = parseFrontMatter(rawContent);
+        title = meta.title?.trim() || title;
+        body = stripMarkdown(mdBody);
+      } else if (['pdf', 'docx', 'pptx'].includes(ext)) {
+        // Documents: extract text
+        const result = await extractDocumentText(buffer, blob.path);
+        if (result.error) {
+          console.warn(`[content-store] Document extraction warning for ${blob.path}: ${result.error}`);
+        }
+        body = result.text;
       }
 
-      const tags: string[] = [CONTENT_STORE_TAG, ...(meta.tags ?? [])];
+      const summary = body.slice(0, NOTE_SUMMARY_MAX_LENGTH).replace(/\s+/g, ' ');
+      const publishedAt = new Date().toISOString();
+      const tags: string[] = [CONTENT_STORE_TAG];
 
       const item: Omit<ContentItem, 'id' | 'indexedAt'> = {
         source: SOURCE,
-        sourceId: blob.sha, // blob SHA is stable per file+content combination
+        sourceId: blob.sha,
         title,
         summary,
-        body: plainBody,
+        body,
         publishedAt,
-        url: meta.url ?? `https://github.com/${repo}/blob/main/${blob.path}`,
-        projectContext: resolveProjectContext(meta.project),
+        url: `https://github.com/${repo}/blob/main/${blob.path}`,
+        projectContext: resolveProjectContext(undefined),
         metadata: {
           repo,
           path: blob.path,
           blobSha: blob.sha,
           commitSha: headSha,
-          rawTitle: meta.title,
+          fileType: ext,
         },
         tags,
       };

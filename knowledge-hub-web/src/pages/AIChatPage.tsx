@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
@@ -17,11 +18,19 @@ import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal } from '../types';
 
+import type { AthenaPageContext } from '../context/AthenaContext';
+
 interface AIChatPageProps {
   /** Renders without the page header/wrapper padding, for use in a floating widget. */
   compact?: boolean;
   /** Renders as a centered, full-height desktop layout, for use as an installed PWA (see /chat route). */
   standalone?: boolean;
+  /**
+   * Optional context about the currently selected/visible item in the app.
+   * When provided, Athena is primed with this context so questions like
+   * "what is this?" or "summarise this" make sense without re-explaining.
+   */
+  pageContext?: AthenaPageContext | undefined;
 }
 
 // Azure Speech STT reliably handles PCM WAV only, so we capture raw 16kHz mono
@@ -369,7 +378,7 @@ function useIsMobile(): boolean {
   return isMobile;
 }
 
-export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false }) => {
+export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false, pageContext }) => {
   const SESSION_STORAGE_KEY = standalone ? SESSION_STORAGE_KEY_STANDALONE : SESSION_STORAGE_KEY_WIDGET;
   const isMobile = useIsMobile();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -397,7 +406,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const pcmChunksRef = useRef<Float32Array[]>([]);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Prevents the Android Share auto-send from firing more than once per page load. */
+  const shareProcessedRef = useRef(false);
+  /** Tracks the last pageContext title we've already injected into a message, so
+   *  switching to a different note/canvas mid-session re-primes Athena instead
+   *  of only ever doing it once for a brand new session. */
+  const lastInjectedContextTitleRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Restore persisted history for a stored session ID once on mount, so a
   // reload or reopening the standalone Athena window continues the same
@@ -426,6 +442,44 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       // localStorage can be unavailable (private browsing) — session still works in-memory.
     }
   }
+
+  // Android Share Target handler — fires once history restore is complete so
+  // the auto-sent message lands in a fresh conversation without overwriting
+  // existing history. Params come from the manifest share_target GET action:
+  // /chat?title=...&text=...&url=...
+  useEffect(() => {
+    if (isRestoringHistory) return;
+    if (shareProcessedRef.current) return;
+    const sharedTitle = searchParams.get('title') ?? '';
+    const sharedUrl   = searchParams.get('url')   ?? '';
+    const sharedText  = searchParams.get('text')  ?? '';
+    if (!sharedTitle && !sharedUrl && !sharedText) return;
+
+    shareProcessedRef.current = true;
+    // Clean the share params from the URL so a reload doesn't re-trigger.
+    setSearchParams({}, { replace: true });
+
+    const contextLines: string[] = ['[Shared from Android]'];
+    if (sharedTitle) contextLines.push(`Title: ${sharedTitle}`);
+    if (sharedUrl)   contextLines.push(`URL: ${sharedUrl}`);
+    if (sharedText && sharedText.trim() !== sharedUrl.trim()) contextLines.push(`Description: ${sharedText}`);
+
+    // The user-visible bubble is a short label; the message Athena receives
+    // has full context and the question — mirrors the file-upload pattern.
+    const displayLabel = `📤 Shared: ${sharedTitle || sharedUrl || sharedText.slice(0, 60)}`;
+    const athenaMessage = [
+      contextLines.join('\n'),
+      '',
+      'The user has shared a link from Android.',
+      'First, ask a concise clarification question and wait for their reply.',
+      'Offer these options: Spark, blog source, Think note, Discover item, or chat-only.',
+      'Do not create, update, or file anything until the user explicitly chooses one option.',
+    ].join('\n');
+
+    appendMessage('user', displayLabel);
+    chatMutation.mutate(athenaMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRestoringHistory]);
 
   // The chat history sidebar is only shown in the standalone window (see JSX
   // below) — the floating widget stays compact rather than growing a sidebar.
@@ -568,7 +622,24 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     if (text === '') return;
     appendMessage('user', text);
     setInput('');
-    chatMutation.mutate(text);
+    // Prepend page context on the first message of a session, or whenever the
+    // user has navigated to a different note/canvas/item since we last told
+    // Athena about one — otherwise it keeps answering with stale or no context.
+    const isFirstMessage = messages.length === 0 && sessionId === null;
+    const contextChanged = pageContext !== undefined && lastInjectedContextTitleRef.current !== pageContext.title;
+    if ((isFirstMessage || contextChanged) && pageContext) {
+      lastInjectedContextTitleRef.current = pageContext.title;
+      const contextBlock = [
+        `[Context: The user is currently viewing a ${pageContext.type} in the Knowledge Hub]`,
+        `Title: ${pageContext.title}`,
+        pageContext.detail ? `Detail: ${pageContext.detail}` : '',
+        '',
+        text,
+      ].filter(Boolean).join('\n');
+      chatMutation.mutate(contextBlock);
+    } else {
+      chatMutation.mutate(text);
+    }
   }
 
   function handleAttachClick(): void {
@@ -824,7 +895,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           onClick={() => setIsMobileSidebarOpen(false)}
         />
       )}
-      <div className={standalone ? 'ai-chat-standalone__main' : ''}>
+      <div className={standalone ? 'ai-chat-standalone__main' : compact ? 'ai-chat-compact__wrap' : ''}>
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
@@ -850,11 +921,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         </div>
       )}
       {!standalone && (
-        <div className="ai-new-chat-row">
+        <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact' : 'ai-new-chat-row'}>
           {actionButtons}
         </div>
       )}
-      <div className={standalone ? 'ai-chat-standalone__body' : ''}>
+      <div className={standalone ? 'ai-chat-standalone__body' : compact ? 'ai-chat-compact__body' : ''}>
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
             <p className="ai-action-desc">{action.description}</p>
@@ -883,7 +954,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           </Tile>
         ))}
 
-        <Tile className="ai-messages" onClick={handleCodeCopyClick}>
+        <div className={compact ? 'ai-messages ai-messages--compact' : 'ai-messages cds--tile'} onClick={handleCodeCopyClick}>
           {messages.length === 0 && isRestoringHistory && (
             <div className="ai-empty">
               <InlineLoading description="Restoring conversation…" />
@@ -893,7 +964,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             <div className="ai-empty">
               <ChatLaunch size={28} className="ai-empty__icon" />
               <p className="ai-empty__title">Athena</p>
-              <p className="ai-empty__subtitle">Notes, tasks, commits, articles, sparks — ask anything.</p>
+              {pageContext ? (
+                <p className="ai-empty__subtitle ai-empty__context">
+                  <span className="ai-empty__context-label">Context:</span> {pageContext.title}
+                </p>
+              ) : (
+                <p className="ai-empty__subtitle">Notes, tasks, commits, articles, sparks — ask anything.</p>
+              )}
             </div>
           )}
           {messages.map((msg, i) => (
@@ -922,7 +999,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             </div>
           )}
           <div ref={bottomRef} />
-        </Tile>
+        </div>
 
         <form onSubmit={handleSend} className="ai-input-row">
           <input
@@ -983,4 +1060,3 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     </div>
   );
 };
-

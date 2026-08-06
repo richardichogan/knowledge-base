@@ -346,6 +346,25 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /**
+   * Look up stored vision analysis / OCR text for image blobs already embedded
+   * in a note or canvas (matched by the blob name in each URL). Used to prime
+   * Athena with what a pasted screenshot/diagram actually shows, instead of
+   * just its filename.
+   */
+  async lookupImages(
+    blobUrls: string[],
+  ): Promise<ApiResponse<{ items: Array<{ id: string; visionAnalysis?: string; ocrText?: string; caption?: string }> }>> {
+    // The /api/images mount uses express.raw() for every content-type, so send
+    // JSON as a raw buffer rather than relying on axios's default JSON headers.
+    const r = await this.client.post<
+      ApiResponse<{ items: Array<{ id: string; visionAnalysis?: string; ocrText?: string; caption?: string }> }>
+    >('/api/images/lookup', JSON.stringify({ blobUrls }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return r.data;
+  }
+
   // ─── AI Chat ──────────────────────────────────────────────────────────────
 
   async chat(request: ChatRequest): Promise<ApiResponse<ChatResponse>> {
@@ -878,16 +897,26 @@ export class KnowledgeHubApi {
 
   // ─── Today dashboard ───────────────────────────────────────────────────────
 
-  /**
-   * Fetches GitHub activity items (commits, PRs, issues) tagged with any of
-   * the given taxonomy tag UUIDs.  Returns an empty array if tagIds is empty.
-   */
-  async getTodayGitHubActivity(tagIds: string[]): Promise<ApiResponse<GitHubActivityItem[]>> {
-    const params = new URLSearchParams();
-    tagIds.forEach((id) => params.append('tagIds[]', id));
-    const qs = tagIds.length > 0 ? `?${params.toString()}` : '';
-    const r = await this.client.get<ApiResponse<GitHubActivityItem[]>>(
-      `/api/today/github-activity${qs}`,
+  /** Fetches mapped GitHub commits/PRs for the Today card. */
+  async getTodayGitHubActivity(): Promise<ApiResponse<TodayGitHubActivityResponse>> {
+    const r = await this.client.get<ApiResponse<TodayGitHubActivityResponse>>('/api/today/github-activity');
+    return r.data;
+  }
+
+  /** Fetches repo mapping config (connected repos + filing tags + current mappings). */
+  async getRepoProjectMappingConfig(): Promise<ApiResponse<RepoProjectMappingConfig>> {
+    const r = await this.client.get<ApiResponse<RepoProjectMappingConfig>>('/api/repo-project-mappings/config');
+    return r.data;
+  }
+
+  /** Upserts one repo->project tag mapping row. Null projectTagId removes mapping. */
+  async saveRepoProjectMapping(
+    repoFullName: string,
+    projectTagId: string | null,
+  ): Promise<ApiResponse<{ repoFullName: string; projectTagId: string | null }>> {
+    const r = await this.client.put<ApiResponse<{ repoFullName: string; projectTagId: string | null }>>(
+      '/api/repo-project-mappings',
+      { repoFullName, projectTagId },
     );
     return r.data;
   }
@@ -931,7 +960,7 @@ export interface CanvasNodeInput {
 
 // ── Today dashboard API types ─────────────────────────────────────────────────
 
-/** A single GitHub activity item returned by GET /api/today/github-activity. */
+/** A single mapped GitHub activity item returned by GET /api/today/github-activity. */
 export interface GitHubActivityItem {
   id: string;
   source: string;
@@ -940,4 +969,34 @@ export interface GitHubActivityItem {
   published_at: string;
   url: string | null;
   metadata: Record<string, unknown> | null;
+  repo_full_name: string;
+  project_tag_id: string;
+  project_tag_name: string;
+}
+
+/** Today GitHub activity API envelope payload. */
+export interface TodayGitHubActivityResponse {
+  hasMappings: boolean;
+  items: GitHubActivityItem[];
+}
+
+/** Connected repository source row for repo mapping settings. */
+export interface ConnectedRepo {
+  repoFullName: string;
+  provider: 'github' | 'gitlab';
+}
+
+/** Existing repo->project mapping row from settings config endpoint. */
+export interface RepoProjectMapping {
+  repoFullName: string;
+  projectTagId: string;
+  projectTagName: string;
+  updatedAt: string;
+}
+
+/** Repo mapping settings bootstrap payload. */
+export interface RepoProjectMappingConfig {
+  repos: ConnectedRepo[];
+  filingTags: Array<{ id: string; name: string; parentName: string | null }>;
+  mappings: RepoProjectMapping[];
 }

@@ -3,7 +3,7 @@
  * Left: NoteList (260px). Centre: Editor. Right: Metadata panel (220px).
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
@@ -14,6 +14,7 @@ import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
 import { CanvasEditor } from '../features/canvas/CanvasEditor';
 import { api } from '../services/api';
+import { useAthenaContext } from '../context/AthenaContext';
 import type { CanvasSummaryApi } from '../services/api';
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
@@ -26,6 +27,7 @@ export const NotesPage: React.FC = () => {
   const [mode,             setMode]             = useState<ViewMode>('notes');
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
+  const { setAthenaContext } = useAthenaContext();
 
   const { data: notes = [], isLoading, isError, refetch } = useQuery<NoteListItem[]>({
     queryKey: ['notes-list'],
@@ -107,6 +109,105 @@ export const NotesPage: React.FC = () => {
       return updated;
     });
   }
+
+  /** Recursively walk BlockNote's Block[] JSON and collect every image block's URL. */
+  function extractImageUrls(blocks: unknown): string[] {
+    if (!Array.isArray(blocks)) return [];
+    const urls: string[] = [];
+    for (const block of blocks) {
+      if (typeof block !== 'object' || block === null) continue;
+      const b = block as { type?: unknown; props?: { url?: unknown }; children?: unknown };
+      if (b.type === 'image' && typeof b.props?.url === 'string' && b.props.url !== '') {
+        urls.push(b.props.url);
+      }
+      if (Array.isArray(b.children)) urls.push(...extractImageUrls(b.children));
+    }
+    return urls;
+  }
+
+  // Guards against re-running the image lookup on every autosave tick — the
+  // editor's autosave interval/debounce hands back a *new* NoteDocument object
+  // (new `updatedAt`) even when nothing actually changed, and openDoc was
+  // previously a direct effect dependency, so this used to refire the lookup
+  // in a tight loop and flood the backend. Only re-run when the note's id or
+  // its actual serialized content changes.
+  const lastLookupKeyRef = useRef<string | null>(null);
+  const noteId = mode === 'notes' ? openDoc?.id ?? null : null;
+  const noteContentJson = mode === 'notes' ? openDoc?.contentJson ?? null : null;
+  const noteTitle = mode === 'notes' ? openDoc?.title ?? null : null;
+  const noteContentType = mode === 'notes' ? openDoc?.contentType ?? null : null;
+
+  useEffect(() => {
+    if (mode === 'notes' && openDoc !== null) {
+      const lookupKey = `${openDoc.id}:${noteContentJson ?? ''}`;
+
+      // Prime with basic context immediately, then upgrade it once any
+      // embedded images' vision analysis has loaded (async, may take a beat).
+      setAthenaContext({
+        type: 'note',
+        title: openDoc.title,
+        detail: `Content type: ${openDoc.contentType}`,
+      });
+
+      if (lastLookupKeyRef.current === lookupKey) {
+        return () => { setAthenaContext(null); };
+      }
+      lastLookupKeyRef.current = lookupKey;
+
+      let cancelled = false;
+      void (async (): Promise<void> => {
+        let blocks: unknown;
+        try {
+          blocks = JSON.parse(openDoc.contentJson);
+        } catch {
+          return;
+        }
+        const imageUrls = extractImageUrls(blocks);
+        if (imageUrls.length === 0) return;
+
+        const r = await api.lookupImages(imageUrls);
+        if (cancelled || !r.success) return;
+
+        const descriptions = r.data.items
+          .map((img, i) => {
+            const parts: string[] = [];
+            if (img.visionAnalysis !== undefined) parts.push(img.visionAnalysis);
+            else if (img.ocrText !== undefined) parts.push(`Text in image: ${img.ocrText}`);
+            if (img.caption !== undefined) parts.push(`Caption: ${img.caption}`);
+            return parts.length > 0 ? `[Image ${(i + 1).toString()}] ${parts.join(' — ').slice(0, 600)}` : null;
+          })
+          .filter((d): d is string => d !== null);
+
+        if (descriptions.length === 0 || cancelled) return;
+
+        setAthenaContext({
+          type: 'note',
+          title: openDoc.title,
+          detail: `Content type: ${openDoc.contentType}. Contains ${imageUrls.length.toString()} embedded image(s):\n${descriptions.join('\n')}`,
+        });
+      })();
+
+      return () => { cancelled = true; setAthenaContext(null); };
+    }
+    if (mode === 'canvas' && selectedCanvasId !== null) {
+      const selectedCanvas = canvases.find((c) => c.id === selectedCanvasId) ?? null;
+      if (selectedCanvas !== null) {
+        setAthenaContext({
+          type: 'canvas',
+          title: selectedCanvas.title,
+          detail: `Updated: ${new Date(selectedCanvas.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        });
+        return () => { setAthenaContext(null); };
+      }
+    }
+    setAthenaContext(null);
+    return undefined;
+    // Depend on primitive fields, not the `openDoc` object reference — autosave
+    // hands back a new object (new updatedAt) on every save tick even when
+    // nothing changed, which would otherwise refire this effect (and the image
+    // lookup fetch inside it) in a tight loop on a timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, noteId, noteContentJson, noteTitle, noteContentType, selectedCanvasId, canvases, setAthenaContext]);
 
   if (isLoading) return <InlineLoading description="Loading documents…" />;
   if (isError) return (

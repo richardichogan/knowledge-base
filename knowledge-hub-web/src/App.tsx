@@ -30,8 +30,10 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { AutocueApp } from './features/autocue/AutocueApp';
 import { GraphPage } from './pages/GraphPage';
 import { GlobalContextMenuProvider } from './context/GlobalContextMenu';
+import { AthenaContextProvider } from './context/AthenaContext';
 import { AIChatPage } from './pages/AIChatPage';
 import { HomePage } from './pages/HomePage';
+import { RepoProjectMappingsPage } from './pages/RepoProjectMappingsPage';
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -41,6 +43,7 @@ const App: React.FC = () => {
     <PasswordGate>
       <Theme theme="g100" as="div" style={{ minHeight: '100vh' }}>
         <GlobalContextMenuProvider>
+          <AthenaContextProvider>
           <BrowserRouter>
             <Routes>
               <Route path="/autocue/*" element={<AutocueApp />} />
@@ -55,6 +58,7 @@ const App: React.FC = () => {
                 <Route path="think"    element={<ThinkPage />} />
                 <Route path="library"  element={<DocumentsPage />} />
                 <Route path="graph"    element={<GraphPage />} />
+                <Route path="settings/repo-mappings" element={<RepoProjectMappingsPage />} />
                 <Route path="timeline"  element={<Navigate to="/discover" replace />} />
                 <Route path="search"    element={<Navigate to="/discover" replace />} />
                 <Route path="ai"        element={<Navigate to="/discover" replace />} />
@@ -67,6 +71,7 @@ const App: React.FC = () => {
               </Route>
             </Routes>
           </BrowserRouter>
+          </AthenaContextProvider>
         </GlobalContextMenuProvider>
       </Theme>
     </PasswordGate>

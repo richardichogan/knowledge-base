@@ -121,6 +121,7 @@ interface TodayRankedRowProps {
   item: UrgencyItem;
   updatingDiscoverIds: Set<string>;
   onDiscoverStateChange: (id: string, state: import('../../services/api').DiscoverWorkflowState) => void;
+  overdueSeverity?: 'neutral' | 'warning' | 'critical';
 }
 
 /** Renders a single urgency-ranked row with type badge, title, context, and inline actions. */
@@ -128,6 +129,7 @@ export const TodayRankedRow: React.FC<TodayRankedRowProps> = ({
   item,
   updatingDiscoverIds,
   onDiscoverStateChange,
+  overdueSeverity = 'neutral',
 }) => {
   const navigate = useNavigate();
 
@@ -139,8 +141,10 @@ export const TodayRankedRow: React.FC<TodayRankedRowProps> = ({
 
   const badgeClass = `today-ranked-row__badge today-ranked-row__badge--${item.type}`;
 
+  const severityClass = item.type === 'task' ? ` today-ranked-row--overdue-${overdueSeverity}` : '';
+
   return (
-    <div className="today-ranked-row">
+    <div className={`today-ranked-row${severityClass}`}>
       <div className={badgeClass}>
         {item.type === 'task' && <CheckmarkOutline size={16} />}
         {item.type === 'to-review' && <Compass size={16} />}

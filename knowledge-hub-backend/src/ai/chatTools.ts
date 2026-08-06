@@ -23,6 +23,16 @@ import { buildLibrary, CONTENT_STORE } from '../routes/documents.js';
 import { GitHubClient } from '../integrations/github/githubClient.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
 import { env } from '../config/env.js';
+import {
+  parseNoteContent,
+  extractImageBlockUrls,
+  blocksToTextWithImages,
+  blobIdFromUrl,
+} from '../utils/noteContent.js';
+import { getLearnMcpTools, isLearnMcpTool, callLearnMcpTool } from './learnMcpClient.js';
+
+/** Cap on how much note text (including image vision analysis) we hand to the model per result. */
+const NOTE_CONTENT_MAX_CHARS = 6000;
 
 const TASK_STATUSES = ['backlog', 'in-progress', 'blocked', 'awaiting-feedback', 'completed'] as const;
 const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
@@ -30,7 +40,8 @@ const NOTE_CONTENT_TYPES = [
   'blog', 'podcast', 'podcast-show-notes', 'newsletter', 'project', 'note', 'script', 'architecture', 'meeting', 'research', 'spec',
 ] as const;
 
-export function getToolDefinitions(): LlmToolDefinition[] {
+export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
+  const learnTools = await getLearnMcpTools();
   return [
     {
       type: 'function',
@@ -40,7 +51,10 @@ export function getToolDefinitions(): LlmToolDefinition[] {
           'Full-text search across everything indexed in the knowledge hub: GitHub/GitLab commits, pull ' +
           'requests, issues, releases, deployments, calendar events, emails, blog posts, discovered articles, ' +
           "and notes. Always call this before answering questions about the user's own projects, activity, " +
-          "or existing content — don't answer from memory alone.",
+          "or existing content — don't answer from memory alone. For notes, results include a `content` " +
+          'field with the full note text; any pasted diagram/screenshot is included there as ' +
+          '"[Image: <description>]" using its stored vision analysis — treat that description as what the ' +
+          "image actually shows, don't claim you can't see embedded images.",
         parameters: {
           type: 'object',
           properties: {
@@ -161,6 +175,12 @@ export function getToolDefinitions(): LlmToolDefinition[] {
         },
       },
     },
+    // Microsoft Learn MCP tools (microsoft_docs_search, microsoft_docs_fetch,
+    // microsoft_code_sample_search as of writing) — fetched live from the
+    // remote MCP server so we track whatever it currently advertises rather
+    // than hardcoding a schema that may drift. Empty array (not an error) if
+    // the server is unreachable this turn.
+    ...learnTools,
   ];
 }
 
@@ -180,7 +200,9 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string):
     case 'create_task':           return createTask(db, args);
     case 'update_task':           return updateTask(db, args);
     case 'create_note_draft':     return createNoteDraft(db, args);
-    default:                      return { error: `Unknown tool: ${name}` };
+    default:
+      if (isLearnMcpTool(name)) return callLearnMcpTool(name, args);
+      return { error: `Unknown tool: ${name}` };
   }
 }
 
@@ -195,21 +217,55 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
     : AI_TOOL_SEARCH_DEFAULT_LIMIT;
 
   const items = await getRagItems(db, query, limit);
-  return {
-    resultCount: items.length,
-    results: items.map((item) => ({
-      source: item.source,
-      title: item.title,
-      summary: item.summary,
-      publishedAt: item.publishedAt,
-      // For PRs/issues/MRs/pipelines/deployments this is when the item was
-      // created, not when it was last worked on — metadata.updatedAt (surfaced
-      // below as lastActivityAt) is the source's own last-touched timestamp
-      // and is what "what's new"/"recent activity" questions should use.
-      lastActivityAt: (item.metadata as { updatedAt?: string } | null)?.updatedAt ?? item.publishedAt,
-      url: item.url ?? null,
-    })),
-  };
+  const results = await Promise.all(items.map(async (item) => ({
+    source: item.source,
+    title: item.title,
+    summary: item.summary,
+    // For notes, hand the model the actual note text — including any
+    // embedded diagrams/screenshots described via their stored GPT-4V vision
+    // analysis — not just the plain-text summary, which silently drops
+    // images entirely. Without this, Athena can find that a note like
+    // "Supply Chain Demo" exists but has no way to say what its diagram
+    // actually shows.
+    ...(item.source === 'note' && { content: await buildNoteContentForAI(db, item.body) }),
+    publishedAt: item.publishedAt,
+    // For PRs/issues/MRs/pipelines/deployments this is when the item was
+    // created, not when it was last worked on — metadata.updatedAt (surfaced
+    // below as lastActivityAt) is the source's own last-touched timestamp
+    // and is what "what's new"/"recent activity" questions should use.
+    lastActivityAt: (item.metadata as { updatedAt?: string } | null)?.updatedAt ?? item.publishedAt,
+    url: item.url ?? null,
+  })));
+
+  return { resultCount: results.length, results };
+}
+
+/**
+ * Renders a note's raw stored content (the `{ title, contentType, contentJson }`
+ * wrapper written by the notes editor) as plain text for the model, replacing
+ * each embedded image block with its stored GPT-4V vision analysis so
+ * Athena actually knows what a pasted diagram/screenshot shows.
+ */
+async function buildNoteContentForAI(db: Pool, rawContentJson: string): Promise<string> {
+  const { blocks } = parseNoteContent(rawContentJson);
+  const imageUrls = extractImageBlockUrls(blocks);
+
+  const visionByBlobId = new Map<string, string>();
+  if (imageUrls.length > 0) {
+    const ids = imageUrls.map(blobIdFromUrl).filter((id) => id !== '');
+    if (ids.length > 0) {
+      const result = await db.query<{ id: string; vision_analysis: string }>(
+        `SELECT id, vision_analysis FROM kb_images WHERE id = ANY($1)`,
+        [ids],
+      );
+      for (const row of result.rows) {
+        if (row.vision_analysis !== '') visionByBlobId.set(row.id, row.vision_analysis);
+      }
+    }
+  }
+
+  const text = blocksToTextWithImages(blocks, visionByBlobId);
+  return text.length > NOTE_CONTENT_MAX_CHARS ? `${text.slice(0, NOTE_CONTENT_MAX_CHARS)}…` : text;
 }
 
 // ── list_tasks ────────────────────────────────────────────────────────────────
@@ -338,21 +394,38 @@ async function createTask(db: Pool, args: Record<string, unknown>): Promise<unkn
   const body = typeof args['body'] === 'string' ? args['body'] : '';
   const dueDate = typeof args['dueDate'] === 'string' && args['dueDate'].trim() !== '' ? args['dueDate'].trim() : null;
 
-  // Duplicate-call guard: if the model re-issues create_task for a task it
-  // (or the user, via another route) already created moments ago — e.g. the
-  // model mistakenly re-triggers the same tool call after a follow-up
-  // message like "thanks" — return the existing task instead of inserting
-  // a second copy. Scoped to an exact-title match created in the last 5
-  // minutes, so intentional duplicate titles created later are unaffected.
-  const dupe = await db.query<Record<string, unknown>>(
+  // First guard: if an active task with the same title already exists in the
+  // same project, reuse it instead of creating a second open copy.
+  const openDupe = await db.query<Record<string, unknown>>(
     `SELECT * FROM tasks
-     WHERE archived = false AND title = $1 AND created_at > now() - interval '5 minutes'
-     ORDER BY created_at DESC LIMIT 1`,
-    [title],
+     WHERE archived = false
+       AND status <> 'completed'
+       AND project_id = $1
+       AND lower(title) = lower($2)
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [projectId, title],
   );
-  const dupeRow = dupe.rows[0];
-  if (dupeRow !== undefined) {
-    return { success: true, task: summariseTask(rowToTask(dupeRow)), duplicate: true };
+  const openDupeRow = openDupe.rows[0];
+  if (openDupeRow !== undefined) {
+    return { success: true, task: summariseTask(rowToTask(openDupeRow)), duplicate: true };
+  }
+
+  // Second guard: catches immediate accidental replays (e.g. duplicate tool
+  // call in the same chat turn) even when the first row was completed quickly.
+  const recentDupe = await db.query<Record<string, unknown>>(
+    `SELECT * FROM tasks
+     WHERE archived = false
+       AND project_id = $1
+       AND lower(title) = lower($2)
+       AND created_at > now() - interval '5 minutes'
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [projectId, title],
+  );
+  const recentDupeRow = recentDupe.rows[0];
+  if (recentDupeRow !== undefined) {
+    return { success: true, task: summariseTask(rowToTask(recentDupeRow)), duplicate: true };
   }
 
   const result = await db.query<Record<string, unknown>>(
