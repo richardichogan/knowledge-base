@@ -408,6 +408,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Prevents the Android Share auto-send from firing more than once per page load. */
   const shareProcessedRef = useRef(false);
+  /** Tracks the last pageContext title we've already injected into a message, so
+   *  switching to a different note/canvas mid-session re-primes Athena instead
+   *  of only ever doing it once for a brand new session. */
+  const lastInjectedContextTitleRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -618,10 +622,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     if (text === '') return;
     appendMessage('user', text);
     setInput('');
-    // On the very first message, prepend page context so Athena knows what
-    // the user is looking at without them having to re-explain it.
+    // Prepend page context on the first message of a session, or whenever the
+    // user has navigated to a different note/canvas/item since we last told
+    // Athena about one — otherwise it keeps answering with stale or no context.
     const isFirstMessage = messages.length === 0 && sessionId === null;
-    if (isFirstMessage && pageContext) {
+    const contextChanged = pageContext !== undefined && lastInjectedContextTitleRef.current !== pageContext.title;
+    if ((isFirstMessage || contextChanged) && pageContext) {
+      lastInjectedContextTitleRef.current = pageContext.title;
       const contextBlock = [
         `[Context: The user is currently viewing a ${pageContext.type} in the Knowledge Hub]`,
         `Title: ${pageContext.title}`,
@@ -888,7 +895,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           onClick={() => setIsMobileSidebarOpen(false)}
         />
       )}
-      <div className={standalone ? 'ai-chat-standalone__main' : ''}>
+      <div className={standalone ? 'ai-chat-standalone__main' : compact ? 'ai-chat-compact__wrap' : ''}>
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
@@ -914,11 +921,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         </div>
       )}
       {!standalone && (
-        <div className="ai-new-chat-row">
+        <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact' : 'ai-new-chat-row'}>
           {actionButtons}
         </div>
       )}
-      <div className={standalone ? 'ai-chat-standalone__body' : ''}>
+      <div className={standalone ? 'ai-chat-standalone__body' : compact ? 'ai-chat-compact__body' : ''}>
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
             <p className="ai-action-desc">{action.description}</p>
@@ -947,7 +954,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           </Tile>
         ))}
 
-        <Tile className="ai-messages" onClick={handleCodeCopyClick}>
+        <div className={compact ? 'ai-messages ai-messages--compact' : 'ai-messages cds--tile'} onClick={handleCodeCopyClick}>
           {messages.length === 0 && isRestoringHistory && (
             <div className="ai-empty">
               <InlineLoading description="Restoring conversation…" />
@@ -992,7 +999,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             </div>
           )}
           <div ref={bottomRef} />
-        </Tile>
+        </div>
 
         <form onSubmit={handleSend} className="ai-input-row">
           <input

@@ -44,7 +44,7 @@ export async function analyzeImageWithVision(imageBuffer: Buffer, mimeType: stri
             ],
           },
         ],
-        max_tokens: 1000,
+        max_completion_tokens: 1000,
       }),
     });
 

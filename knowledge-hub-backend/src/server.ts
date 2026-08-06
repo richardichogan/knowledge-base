@@ -15,7 +15,13 @@ const server = app.listen(env.PORT, () => {
   console.warn(`[Server] Knowledge Hub backend running on port ${env.PORT} (${env.NODE_ENV})`);
   // Pre-warm the DB pool before the scheduler fires so sync/edge jobs reuse
   // warm connections instead of dialing new ones through the shared SNAT pool.
-  void warmUpDb().finally(() => startSyncScheduler());
+  void warmUpDb().finally(() => {
+    if (env.NODE_ENV !== 'development') {
+      startSyncScheduler();
+      return;
+    }
+    console.warn('[Scheduler] Development mode — scheduler disabled to keep local chat/dev stable.');
+  });
 });
 
 function gracefulShutdown(signal: string): void {

@@ -180,7 +180,7 @@ const NoteCard: React.FC<{
   tagColourMap: Map<string, string>;
 }> = ({ note, selectedId, onSelect, onDelete, deleting, tagNameMap, tagColourMap }) => {
   const st = TYPE_STYLE[note.contentType] ?? TYPE_STYLE['note'] ?? { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' };
-  const preview = (note as NoteListItem & { body?: string }).body ?? '';
+  const preview = note.body ?? '';
   const snippet = preview.replace(/[#*_`>\[\]\n]+/g, ' ').trim().slice(0, 120);
   // Encode as "name|colour" so the canvas renderer can use the correct colour
   const tagEntries = (note.tagIds ?? [])

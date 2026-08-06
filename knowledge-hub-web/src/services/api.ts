@@ -346,6 +346,25 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /**
+   * Look up stored vision analysis / OCR text for image blobs already embedded
+   * in a note or canvas (matched by the blob name in each URL). Used to prime
+   * Athena with what a pasted screenshot/diagram actually shows, instead of
+   * just its filename.
+   */
+  async lookupImages(
+    blobUrls: string[],
+  ): Promise<ApiResponse<{ items: Array<{ id: string; visionAnalysis?: string; ocrText?: string; caption?: string }> }>> {
+    // The /api/images mount uses express.raw() for every content-type, so send
+    // JSON as a raw buffer rather than relying on axios's default JSON headers.
+    const r = await this.client.post<
+      ApiResponse<{ items: Array<{ id: string; visionAnalysis?: string; ocrText?: string; caption?: string }> }>
+    >('/api/images/lookup', JSON.stringify({ blobUrls }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return r.data;
+  }
+
   // ─── AI Chat ──────────────────────────────────────────────────────────────
 
   async chat(request: ChatRequest): Promise<ApiResponse<ChatResponse>> {

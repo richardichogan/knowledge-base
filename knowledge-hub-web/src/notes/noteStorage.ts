@@ -56,16 +56,46 @@ function deserialise(raw: string, id: string, createdAt: string, updatedAt: stri
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 
+interface PreviewBlock { type?: string; content?: { text?: string }[]; children?: PreviewBlock[] }
+
+/** Recursively joins block text content into a flat preview snippet, skipping non-text blocks (e.g. images). */
+function extractPreviewText(blocks: PreviewBlock[]): string {
+  const parts: string[] = [];
+  for (const block of blocks) {
+    if (Array.isArray(block.content)) {
+      const text = block.content.map((c) => c.text ?? '').join('');
+      if (text.trim() !== '') parts.push(text.trim());
+    }
+    if (Array.isArray(block.children)) {
+      const childText = extractPreviewText(block.children);
+      if (childText !== '') parts.push(childText);
+    }
+  }
+  return parts.join(' ');
+}
+
+function buildPreview(contentJson: string): string {
+  try {
+    const blocks = JSON.parse(contentJson) as unknown;
+    if (!Array.isArray(blocks)) return '';
+    return extractPreviewText(blocks as PreviewBlock[]).slice(0, 200);
+  } catch {
+    return '';
+  }
+}
+
 export async function fetchNotes(): Promise<NoteListItem[]> {
   const result = await api.getNotes(1, 100);
   if (!result.success) return [];
   return result.data.items.map((n) => {
     const doc = deserialise(n.content, n.id, n.createdAt, n.updatedAt);
+    const body = buildPreview(doc.contentJson);
     return {
       id: n.id,
       title: doc.title,
       contentType: doc.contentType,
       updatedAt: n.updatedAt,
+      ...(body !== '' && { body }),
       tagIds: n.taxonomyTagIds ?? [],
       ...(n.projectId !== undefined && n.projectId !== null && { projectId: n.projectId }),
     };

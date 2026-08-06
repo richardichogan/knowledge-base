@@ -184,6 +184,70 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
   });
 });
 
+// ── POST /api/images/lookup ─────────────────────────────────────────────────────
+// Given the blob URLs embedded in a note/canvas (as returned by POST /api/images),
+// return each image's stored vision analysis / OCR text so the AI chat can be
+// primed with what's actually in the picture, not just its filename/URL.
+// Note: `/api/images` is mounted behind `express.raw({ type: '*/*' })` (see
+// app.ts), so even this JSON endpoint arrives as a raw Buffer — parse it by hand.
+
+router.post('/lookup', (req: Request, res: Response, next: NextFunction): void => {
+  (async (): Promise<void> => {
+    const db = getDb();
+
+    const rawBody = req.body instanceof Buffer ? req.body : Buffer.from([]);
+    let parsed: unknown;
+    try {
+      parsed = rawBody.length > 0 ? JSON.parse(rawBody.toString('utf-8')) : {};
+    } catch {
+      throw new ValidationError('invalid JSON body', { body: 'must be valid JSON' });
+    }
+
+    const blobUrls = (parsed as { blobUrls?: unknown }).blobUrls;
+    if (!Array.isArray(blobUrls) || blobUrls.some((u) => typeof u !== 'string')) {
+      throw new ValidationError('blobUrls must be an array of strings', { blobUrls: 'required' });
+    }
+
+    // The blob name (== kb_images.id) is the last path segment before the
+    // SAS query string, e.g. https://acct.blob.core.windows.net/kb-images/<id>?sv=...
+    const ids = (blobUrls as string[])
+      .map((url) => {
+        const withoutQuery = url.split('?')[0] ?? '';
+        const segments = withoutQuery.split('/');
+        return segments[segments.length - 1] ?? '';
+      })
+      .filter((id) => id !== '');
+
+    if (ids.length === 0) {
+      res.status(HTTP_STATUS.OK).json({ success: true, data: { items: [] } });
+      return;
+    }
+
+    const result = await db.query<{
+      id: string;
+      ocr_text: string;
+      vision_analysis: string;
+      caption: string;
+    }>(
+      `SELECT id, ocr_text, vision_analysis, caption FROM kb_images WHERE id = ANY($1)`,
+      [ids],
+    );
+
+    const items = result.rows.map((row) => ({
+      id: row.id,
+      ...(row.ocr_text !== '' && { ocrText: row.ocr_text }),
+      ...(row.vision_analysis !== '' && { visionAnalysis: row.vision_analysis }),
+      ...(row.caption !== '' && { caption: row.caption }),
+    }));
+
+    const body: ApiSuccess<{ items: typeof items }> = { success: true, data: { items } };
+    res.status(HTTP_STATUS.OK).json(body);
+  })().catch((err: unknown) => {
+    console.error('[images] POST /lookup handler error:', err);
+    next(err);
+  });
+});
+
 // ── GET /api/images ────────────────────────────────────────────────────────────
 
 router.get('/', (req: Request, res: Response, next: NextFunction): void => {

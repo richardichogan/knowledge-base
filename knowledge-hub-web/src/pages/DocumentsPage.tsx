@@ -11,7 +11,7 @@
  * No repo dropdown. No file tree. The library is the navigation.
  */
 
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading, Tag } from '@carbon/react';
 import { Document, Launch, DocumentAdd } from '@carbon/icons-react';
@@ -21,6 +21,7 @@ import { PROJECTS } from '../config/projects';
 import { TagPicker } from '../components/TagPicker';
 import { useFlatTags, useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { useAthenaContext } from '../context/AthenaContext';
 import { renderMarkdown } from '../utils/markdown';
 
 // ── Source config ─────────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ export const DocumentsPage: React.FC = () => {
   const [uploadLoading, setUploadLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
+  const { setAthenaContext } = useAthenaContext();
 
   // ── Fetch unified library ──────────────────────────────────────────────────
   const { data: libraryData, isPending: libraryPending } = useQuery({
@@ -156,6 +158,24 @@ export const DocumentsPage: React.FC = () => {
     if (contentData?.success !== true) return '';
     return renderMarkdown(contentData.data.content);
   }, [contentData]);
+
+  useEffect(() => {
+    if (selectedDoc === null) {
+      setAthenaContext(null);
+      return;
+    }
+    setAthenaContext({
+      type: 'document',
+      title: selectedDoc.title,
+      detail: [
+        `Source: ${selectedDoc.sourceLabel}`,
+        `Repo: ${selectedDoc.repo}`,
+        `Path: ${selectedDoc.path}`,
+        `Type: ${TYPE_LABEL[selectedDoc.type]}`,
+      ].join(' | '),
+    });
+    return () => { setAthenaContext(null); };
+  }, [selectedDoc, setAthenaContext]);
 
   // ── Upload handler ─────────────────────────────────────────────────────────
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
