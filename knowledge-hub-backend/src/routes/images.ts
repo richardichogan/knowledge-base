@@ -1,7 +1,9 @@
 /**
  * Images routes — Change 003
  *
- * POST /api/images   — upload an image, run OCR + GPT-4V vision analysis, store in kb-images blob container
+ * POST /api/images   — upload an image, store in kb-images blob container, respond immediately;
+ *                       OCR + GPT-4V vision analysis run afterwards in the background and backfill
+ *                       the row (so pasting an image into a note isn't blocked on either call).
  * GET  /api/images   — paginated list of images
  *
  * Vision analysis: Uses Azure OpenAI GPT-4V to understand image content semantically.
@@ -125,19 +127,11 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
     ).toString();
     const blobUrl = `${blockBlob.url}?${sasToken}`;
 
-    // Run vision analysis (GPT-4V) and OCR in parallel
-    const [visionAnalysis, ocrText] = await Promise.all([
-      analyzeImageWithVision(rawBody as Buffer<ArrayBufferLike>, contentType).catch((err) => {
-        console.error('[images] Vision analysis failed, continuing with OCR only:', err);
-        return '';
-      }),
-      runOcr(rawBody as Buffer<ArrayBufferLike>),
-    ]);
-
-    console.log('[images] Vision analysis:', visionAnalysis.slice(0, 100), '...');
-    console.log('[images] OCR text:', ocrText.slice(0, 100), '...');
-
-    // Persist to database
+    // Persist immediately with empty vision/OCR fields so the note-taking flow
+    // isn't blocked on GPT-4V + OCR (which can take several seconds). Analysis
+    // runs in the background afterwards and backfills the row via UPDATE — the
+    // AI chat tools read whatever is in the DB at query time, so a short delay
+    // between paste and the image being "understood" is fine.
     const result = await db.query<{
       id: string;
       blob_url: string;
@@ -149,9 +143,9 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       linked_items: string[];
     }>(
       `INSERT INTO kb_images (id, blob_url, ocr_text, vision_analysis, caption)
-       VALUES ($1, $2, $3, $4, $5)
+       VALUES ($1, $2, '', '', $3)
        RETURNING id, blob_url, ocr_text, vision_analysis, caption, created_at, tags, linked_items`,
-      [imageId, blobUrl, ocrText, visionAnalysis, caption],
+      [imageId, blobUrl, caption],
     );
 
     const row = result.rows[0];
@@ -160,24 +154,44 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
     const image: KnowledgeImage = {
       id: row.id,
       blobUrl: row.blob_url,
-      ...(row.ocr_text !== '' && { ocrText: row.ocr_text }),
-      ...(row.vision_analysis !== '' && { visionAnalysis: row.vision_analysis }),
       ...(row.caption !== '' && { caption: row.caption }),
       createdAt: row.created_at,
       tags: row.tags,
       linkedItems: row.linked_items,
     };
 
-    const body: ApiSuccess<{ id: string; blobUrl: string; ocrText?: string; visionAnalysis?: string }> = {
+    const body: ApiSuccess<{ id: string; blobUrl: string }> = {
       success: true,
       data: {
         id: image.id,
         blobUrl: image.blobUrl,
-        ...(image.ocrText !== undefined && { ocrText: image.ocrText }),
-        ...(image.visionAnalysis !== undefined && { visionAnalysis: image.visionAnalysis }),
       },
     };
     res.status(HTTP_STATUS.CREATED).json(body);
+
+    // Fire-and-forget: run vision analysis (GPT-4V) and OCR in parallel, then
+    // backfill the row. Errors are logged only — the upload already succeeded.
+    void (async (): Promise<void> => {
+      try {
+        const [visionAnalysis, ocrText] = await Promise.all([
+          analyzeImageWithVision(rawBody as Buffer<ArrayBufferLike>, contentType).catch((err) => {
+            console.error('[images] Vision analysis failed, continuing with OCR only:', err);
+            return '';
+          }),
+          runOcr(rawBody as Buffer<ArrayBufferLike>),
+        ]);
+
+        console.log('[images] Vision analysis:', visionAnalysis.slice(0, 100), '...');
+        console.log('[images] OCR text:', ocrText.slice(0, 100), '...');
+
+        await db.query(
+          `UPDATE kb_images SET ocr_text = $1, vision_analysis = $2 WHERE id = $3`,
+          [ocrText, visionAnalysis, imageId],
+        );
+      } catch (err) {
+        console.error('[images] Background vision/OCR analysis failed:', err);
+      }
+    })();
   })().catch((err: unknown) => {
     console.error('[images] POST handler error:', err);
     next(err);
