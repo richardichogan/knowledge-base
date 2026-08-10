@@ -100,6 +100,9 @@ const FORMAL_DOMAINS = [
   'news.microsoft.com',
   'research.microsoft.com',
   'msrc.microsoft.com',
+  'github.blog',
+  'github.com/security',
+  'github.com/newsroom',
 ];
 
 /** Classify source type from the article or feed URL, plus title/description. */
@@ -117,9 +120,6 @@ export function classifySourceByUrl(
     const lower = u.toLowerCase();
     for (const d of COMMUNITY_DOMAINS) {
       if (lower.includes(d)) return 'Community';
-    }
-    if (lower.includes('github.blog') && !lower.includes('/security')) {
-      return 'Community';
     }
     for (const d of FORMAL_DOMAINS) {
       if (lower.includes(d)) return 'Formal';

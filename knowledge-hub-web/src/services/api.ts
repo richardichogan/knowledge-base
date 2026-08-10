@@ -332,15 +332,17 @@ export class KnowledgeHubApi {
   async uploadImage(
     file: File,
     caption?: string,
-  ): Promise<ApiResponse<{ id: string; blobUrl: string; ocrText?: string }>> {
+  ): Promise<ApiResponse<{ id: string; blobUrl: string }>> {
     // Backend expects a raw binary body (express.raw), not multipart/form-data.
+    // The response returns as soon as the blob upload completes — OCR/vision
+    // analysis run afterwards in the background on the server, so this is
+    // fast even though the blob upload itself can still take a moment.
     const buffer = await file.arrayBuffer();
     const r = await this.client.post<
-      ApiResponse<{ id: string; blobUrl: string; ocrText?: string }>
+      ApiResponse<{ id: string; blobUrl: string }>
     >('/api/images', buffer, {
       headers: { 'Content-Type': file.type !== '' ? file.type : 'application/octet-stream' },
       params: caption !== undefined && caption !== '' ? { caption } : undefined,
-      // Blob upload + OCR polling can take longer than the default request timeout.
       timeout: IMAGE_UPLOAD_TIMEOUT_MS,
     });
     return r.data;
