@@ -1031,6 +1031,48 @@ input, textarea {
   }
 }
 
+// Desktop collapsed state — sidebar narrows to icon-only width
+.kh-chat-sidebar--collapsed {
+  width: 60px;
+  padding: calc(0.875rem + env(safe-area-inset-top)) 0.5rem 0.875rem;
+
+  .kh-chat-sidebar__brand span,
+  .kh-chat-sidebar__nav-item:not(.kh-chat-sidebar__collapse-btn),
+  .kh-chat-sidebar__search-input,
+  .kh-chat-sidebar__section-label,
+  .kh-chat-sidebar__item-title,
+  .kh-chat-sidebar__item-time {
+    display: none;
+  }
+
+  .kh-chat-sidebar__search-input {
+    display: none;
+  }
+
+  .kh-chat-sidebar__nav-item {
+    justify-content: center;
+    padding: 0.5rem;
+  }
+
+  .kh-chat-sidebar__nav {
+    gap: 0.25rem;
+  }
+
+  .kh-chat-sidebar__item {
+    width: 48px;
+    margin: 0 auto;
+  }
+
+  .kh-chat-sidebar__list {
+    margin: 0 auto;
+  }
+
+  .kh-chat-sidebar__search {
+    display: none;
+  }
+}
+
+
 .kh-chat-sidebar__backdrop {
   position: fixed;
   inset: 0;
@@ -1056,6 +1098,16 @@ input, textarea {
 }
 
 .kh-chat-sidebar__header-action {
+  color: var(--cds-text-secondary);
+}
+
+.kh-chat-sidebar__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.kh-chat-sidebar__collapse-btn {
   color: var(--cds-text-secondary);
 }
 

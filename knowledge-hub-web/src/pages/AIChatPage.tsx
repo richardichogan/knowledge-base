@@ -13,7 +13,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal } from '../types';
@@ -382,6 +382,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const SESSION_STORAGE_KEY = standalone ? SESSION_STORAGE_KEY_STANDALONE : SESSION_STORAGE_KEY_WIDGET;
   const isMobile = useIsMobile();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(() => {
     try {
@@ -807,22 +808,36 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   return (
     <div className={standalone ? 'ai-chat-standalone' : compact ? 'ai-chat-compact' : 'page-root'}>
       {standalone && (
-        <aside className={`kh-chat-sidebar${isMobile && isMobileSidebarOpen ? ' kh-chat-sidebar--open' : ''}`}>
+        <aside className={`kh-chat-sidebar${isMobile && isMobileSidebarOpen ? ' kh-chat-sidebar--open' : ''}${!isMobile && isDesktopSidebarCollapsed ? ' kh-chat-sidebar--collapsed' : ''}`}>
           <div className="kh-chat-sidebar__header">
             <div className="kh-chat-sidebar__brand">
               <img src="/favicon.svg" alt="" className="kh-chat-sidebar__logo" />
               <span>Athena</span>
             </div>
-            <Button
-              size="sm"
-              kind="ghost"
-              hasIconOnly
-              renderIcon={Search}
-              iconDescription="Search chats"
-              tooltipPosition="right"
-              className="kh-chat-sidebar__header-action"
-              onClick={() => setIsSidebarSearchOpen((open) => !open)}
-            />
+            <div className="kh-chat-sidebar__header-actions">
+              {!isMobile && (
+                <Button
+                  size="sm"
+                  kind="ghost"
+                  hasIconOnly
+                  renderIcon={isDesktopSidebarCollapsed ? ChevronRight : ChevronLeft}
+                  iconDescription={isDesktopSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                  tooltipPosition="right"
+                  className="kh-chat-sidebar__collapse-btn"
+                  onClick={() => setIsDesktopSidebarCollapsed((v) => !v)}
+                />
+              )}
+              <Button
+                size="sm"
+                kind="ghost"
+                hasIconOnly
+                renderIcon={Search}
+                iconDescription="Search chats"
+                tooltipPosition="right"
+                className="kh-chat-sidebar__header-action"
+                onClick={() => setIsSidebarSearchOpen((open) => !open)}
+              />
+            </div>
           </div>
           <nav className="kh-chat-sidebar__nav">
             <button
