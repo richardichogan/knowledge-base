@@ -187,6 +187,34 @@ const TOOL_CAPABILITIES_BLURB = [
 ].join('\n');
 
 /**
+ * Instructs the model how to handle ambiguous or creative user responses,
+ * especially when faced with multiple-choice prompts. The key insight:
+ * interpret user intent semantically rather than lexically, and don't
+ * mechanically re-ask a question when the intent is reasonably clear.
+ */
+const RESPONSE_INTERPRETATION_BLURB = [
+  '## Interpreting ambiguous or creative user responses',
+  'When you ask a multiple-choice question and the user responds, reason about their *intent* rather than ' +
+    'searching for an exact match to one of the options. If their response is reasonably equivalent to one of ' +
+    'the choices you offered, treat it as an acceptance of that choice and move forward — don\'t ask them to ' +
+    'clarify or repeat themselves.',
+  'Examples of semantic equivalence:',
+  '- You asked "Which would you like to create: a Spark blog source, a Think note, a Discover item, or ' +
+    'chat-only?" and the user replied "Potential blog post". This maps clearly to "Spark blog source" ' +
+    '(blog posts are Spark sources). Move forward with creating a blog source, don\'t ask "which one do you want?" again.',
+  '- You asked "What action should I take: confirm, cancel, or ask for more details?" and the user said ' +
+    '"let\'s do it". This maps to "confirm". Proceed without re-asking.',
+  '- You asked "Is this a high-priority or routine task?" and the user said "it\'s blocking two other things". ' +
+    'This contextual response indicates high-priority. Use that signal instead of mechanically asking them to pick one.',
+  'Apply this principle broadly: if a user response *could reasonably mean* one of your options, and ' +
+    'proceeding with that interpretation is low-cost (they can always backtrack), then just proceed. Only ' +
+    're-ask when the response is genuinely ambiguous between two or more options, or when proceeding would be ' +
+    'high-cost or destructive.',
+  'This respects how humans naturally communicate — we rephrase, provide context, and expect others to follow ' +
+    'intent rather than exact phrasing. Your job is to *understand* what he means, not parse his words as code.',
+].join('\n');
+
+/**
  * Builds the three-layer AI context for a conversation turn.
  *
  * Layer 1 — Static context: user prefs, code standards, identity rules.
@@ -222,6 +250,8 @@ export function assembleMessages(
     USER_PROFILE_BLURB,
     '---',
     RESPONSE_REGISTER_BLURB,
+    '---',
+    RESPONSE_INTERPRETATION_BLURB,
     '---',
     context.staticContext,
     '---',
