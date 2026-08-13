@@ -879,7 +879,15 @@ input, textarea {
     margin: 0 0 0.6em;
   }
 
-  li { margin-bottom: 0.2em; }
+  ul { list-style: disc outside; }
+  ol { list-style: decimal outside; }
+  ul ul { list-style-type: circle; }
+
+  li {
+    display: list-item;
+    margin-bottom: 0.2em;
+    padding-left: 0.15em;
+  }
 
   blockquote {
     border-left: 3px solid var(--kh-accent);
@@ -5209,7 +5217,15 @@ input, textarea {
     margin: 0 0 1em;
   }
 
-  li { margin-bottom: 0.25em; }
+  ul { list-style: disc outside; }
+  ol { list-style: decimal outside; }
+  ul ul { list-style-type: circle; }
+
+  li {
+    display: list-item;
+    margin-bottom: 0.25em;
+    padding-left: 0.15em;
+  }
 
   blockquote {
     border-left: 3px solid var(--cds-interactive);
