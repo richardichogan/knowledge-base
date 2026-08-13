@@ -1239,6 +1239,24 @@ input, textarea {
   flex-shrink: 0;
 }
 
+.kh-persona-switch__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// The floating widget (400px) and other compact surfaces can't fit three
+// full text labels alongside the action icons without wrapping or forcing
+// a horizontal scrollbar — collapse to icon-only buttons there instead.
+.ai-new-chat-row--compact .kh-persona-switch__btn {
+  flex: 0 0 auto;
+  padding: 0.375rem;
+}
+
+.ai-new-chat-row--compact .kh-persona-switch__label {
+  display: none;
+}
+
 .kh-chat-sidebar__search {
   display: flex;
   align-items: center;

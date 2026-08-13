@@ -6,7 +6,7 @@
 // picks it by default) — not currently selectable from the frontend.
 export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
 
-export type AthenaPersona = 'general' | 'brainstorming';
+export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach';
 
 export interface ChatRequest {
   message: string;

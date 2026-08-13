@@ -13,7 +13,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
@@ -831,7 +831,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         title="General assistant"
       >
         <Notebook className="kh-persona-switch__icon" />
-        General
+        <span className="kh-persona-switch__label">General</span>
       </button>
       <button
         type="button"
@@ -840,7 +840,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         title="Ideas sounding board — stress-tests and sharpens early-stage thinking"
       >
         <Idea className="kh-persona-switch__icon" />
-        Brainstorm
+        <span className="kh-persona-switch__label">Brainstorm</span>
+      </button>
+      <button
+        type="button"
+        className={`kh-persona-switch__btn${persona === 'copilot_coach' ? ' kh-persona-switch__btn--active' : ''}`}
+        onClick={() => handlePersonaChange('copilot_coach')}
+        title="Copilot Coach — expert guide on using GitHub Copilot agents, skills, and workflows"
+      >
+        <Compass className="kh-persona-switch__icon" />
+        <span className="kh-persona-switch__label">Copilot Coach</span>
       </button>
     </div>
   );
