@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { readFileSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { getDb } from './db.js';
+import { getDb, closeDb } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -10,8 +10,10 @@ const __dirname = dirname(__filename);
 /**
  * Runs the schema.sql and any numbered migrations/*.sql files that haven't
  * been applied yet.  Uses a simple applied_migrations table to track state.
+ * Exported so it can also be called once on server startup (idempotent —
+ * every statement is IF NOT EXISTS / tracked), not just via `npm run migrate`.
  */
-async function migrate(): Promise<void> {
+export async function runMigrations(): Promise<void> {
   const db = getDb();
 
   // 1. Base schema (idempotent CREATE TABLE IF NOT EXISTS statements)
@@ -50,10 +52,17 @@ async function migrate(): Promise<void> {
   }
 
   console.warn('Migration complete.');
-  await db.end();
 }
 
-migrate().catch((err: unknown) => {
-  console.error('Migration failed:', err);
-  process.exit(1);
-});
+// Only run as a standalone CLI script (npm run migrate) when this module is
+// the entry point — not when imported by server.ts on startup.
+if (process.argv[1] === __filename) {
+  runMigrations()
+    .then(async () => {
+      await closeDb();
+    })
+    .catch((err: unknown) => {
+      console.error('Migration failed:', err);
+      process.exit(1);
+    });
+}
