@@ -2,17 +2,10 @@
 
 These rules apply to every change made in this repository. Follow them without exception.
 
----
-
-## Styling — MANDATORY
-
-**Every new UI element must be fully styled before the change is considered complete.**
-
-- Every new component, button, input, modal, panel, list item, badge, or icon added to the frontend MUST have corresponding CSS in `global.scss` (or the relevant component SCSS file).
-- Never add a raw unstyled HTML element or Carbon component without defining its visual appearance.
-- Use existing BEM naming conventions already present in the codebase (e.g. `kh-`, `dc-`, `gctx__`, `kb-modal-`, etc.).
-- If a component has interactive states (hover, active, disabled, open/closed), all states must be styled.
-- Do not ship a PR or consider a task complete if any element relies solely on browser defaults or Carbon defaults without intentional overrides matching the app's dark Carbon theme.
+Path-specific rules live in `.github/instructions/*.instructions.md` (each scoped via an `applyTo` glob) and load automatically when you touch matching files:
+- `frontend.instructions.md` — `knowledge-hub-web/**` (styling, AppShell structure, compact-widget CSS)
+- `backend.instructions.md` — `knowledge-hub-backend/**` (server, migrations)
+- `athena-persona.instructions.md` — Athena AI persona files in both frontend and backend
 
 ---
 
@@ -35,7 +28,6 @@ These rules apply to every change made in this repository. Follow them without e
 
 ## Code Changes
 
-- Never break the existing JSX structure of `AppShell.tsx` — it returns a `<>` fragment. Any new providers must wrap at the `App.tsx` level, not inside AppShell.
 - Always run `tsc --noEmit` after changes to both `knowledge-hub-web` and `knowledge-hub-backend` before declaring work done.
 - Never deploy to production without an explicit instruction from the user to do so.
 
@@ -80,19 +72,3 @@ npm run build
 $token = az staticwebapp secrets list --name kh-prod-web --resource-group rg-knowledge-hub-prod --query "properties.apiKey" -o tsv
 npx --yes @azure/static-web-apps-cli deploy ./dist --deployment-token $token --env production
 ```
-
-### Database migrations
-
-- Migrations live in `knowledge-hub-backend/migrations/*.sql` and run automatically on every backend startup via `runMigrations()` in `src/db/migrate.ts`, tracked in an `applied_migrations` table — idempotent, safe to redeploy without a manual migration step.
-- The Dockerfile must copy both `schema.sql` and `migrations/*.sql` into `dist/db/` — if a new migration isn't showing up in prod logs after deploy, check this first.
-
----
-
-## Athena AI Persona Architecture
-
-- Athena (the in-app AI assistant) supports multiple selectable personas, defined in `knowledge-hub-backend/src/ai/contextBuilder.ts` (`PERSONA_PROMPTS` — persona id → system prompt blurb) and mirrored in the frontend persona switcher in `knowledge-hub-web/src/pages/AIChatPage.tsx` (`personaSwitch`).
-- Current personas: `general` (default operational assistant), `brainstorming` (ideas sounding board / critique), `copilot_coach` (guide on using GitHub Copilot itself — agents, skills, extensions, workflows).
-- Model routing lives in `knowledge-hub-backend/src/routes/ai.ts` — the `brainstorming` persona defaults to the `gpt-5.5` model (a separate Azure AI Foundry resource, see table above); other personas use the default model.
-- Tool-calling loop and available tools (KB search, task/note actions, `fetch_web_page` external-URL grounding, Microsoft Learn MCP tools) live in `knowledge-hub-backend/src/ai/chatTools.ts` / `conversationService.ts`.
-- When adding a persona: add its blurb + `PERSONA_PROMPTS` entry (backend), add its `AthenaPersona` union member (both `knowledge-hub-backend/src/types/aiContext.ts` and `knowledge-hub-web/src/types/ai.ts`), and add a button to `personaSwitch` in `AIChatPage.tsx` — remember the floating-widget/compact view is narrow (400px), so new buttons need `.kh-persona-switch__label` to collapse to icon-only there (see `.ai-new-chat-row--compact` in `global.scss`) rather than causing wrap/scroll.
-
