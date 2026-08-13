@@ -23,7 +23,7 @@ const router = Router();
  * restarts/redeploys and can be restored by the frontend after a reload.
  * The model only ever sees a rolling summary + recent messages, not the
  * full raw history, so long-running sessions stay cheap (see chatSessionStore).
- * Body: { sessionId?: string, message: string, model?: 'gpt-4o' | 'gpt-4o-mini' }
+ * Body: { sessionId?: string, message: string, model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5' }
  * If sessionId is omitted, a new session is created and its ID returned.
  */
 router.post('/chat', (req: Request, res: Response, next: NextFunction): void => {
@@ -32,7 +32,7 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       const { sessionId: providedSessionId, message, model, persona: requestedPersona } = req.body as {
         sessionId?: string;
         message?: string;
-        model?: 'gpt-4o' | 'gpt-4o-mini';
+        model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
         persona?: string;
       };
 
@@ -52,7 +52,12 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       }
       const persona = requestedPersona ?? (await getSessionPersona(db, effectiveSessionId));
 
-      const reply = await handleConversationTurn(db, modelHistory, message, model ?? 'gpt-4o', persona);
+      // The brainstorming persona defaults to the stronger gpt-5.5 model
+      // (better at critiquing reasoning, less prone to softening pushback over
+      // a long thread) unless the caller explicitly requested a specific model.
+      const effectiveModel = model ?? (persona === 'brainstorming' ? 'gpt-5.5' : 'gpt-4o');
+
+      const reply = await handleConversationTurn(db, modelHistory, message, effectiveModel, persona);
 
       await appendTurn(db, effectiveSessionId, message, reply);
       if (isFirstMessage) await setSessionTitleIfMissing(db, effectiveSessionId, message);

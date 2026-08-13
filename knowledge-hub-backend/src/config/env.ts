@@ -64,6 +64,15 @@ export const env = {
   AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI', 'gpt-4o-mini'),
   AZURE_OPENAI_API_VERSION: optionalWithDefault('AZURE_OPENAI_API_VERSION', '2024-08-01-preview'),
 
+  // Separate Azure AI Foundry resource used only for the 'gpt-5.5' model
+  // (brainstorming persona) — lives in a different subscription/project than
+  // the main endpoint above, so it needs its own endpoint/key/deployment.
+  // Optional: if unset, the brainstorming persona silently falls back to the
+  // default model rather than failing the request.
+  AZURE_OPENAI_ENDPOINT_GPT55: optional('AZURE_OPENAI_ENDPOINT_GPT55'),
+  AZURE_OPENAI_API_KEY_GPT55: optional('AZURE_OPENAI_API_KEY_GPT55'),
+  AZURE_OPENAI_DEPLOYMENT_GPT55: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT55', 'gpt-5.5'),
+
   // Azure Speech (voice chat) — same pattern as client-demo's voiceProvider.ts.
   // The Azure AI Services multi-service key also covers the Speech REST API, so
   // AZURE_SPEECH_KEY falls back to AZURE_OPENAI_API_KEY when not set separately.

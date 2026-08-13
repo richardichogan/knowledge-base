@@ -38,15 +38,25 @@ interface ChatCompletionResponse {
 }
 
 /**
- * Azure AI Foundry client for GPT-4o and GPT-4o mini.
- * All AI usage billed against MSDN credits via Azure AI Foundry endpoint.
+ * Azure AI Foundry client for GPT-4o, GPT-4o mini, and GPT-5.5.
+ * All AI usage billed against MSDN credits via Azure AI Foundry endpoint(s).
+ * GPT-5.5 is served from a separate Foundry resource (see env.ts) — it needs
+ * its own endpoint/key, not just a different deployment name on the main one.
  * No Anthropic API — Azure AI Foundry only.
  */
 export class FoundryClient {
   private getDeployment(model: AiModel): string {
-    return model === 'gpt-4o'
-      ? env.AZURE_OPENAI_DEPLOYMENT_GPT4O
-      : env.AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI;
+    if (model === 'gpt-4o') return env.AZURE_OPENAI_DEPLOYMENT_GPT4O;
+    if (model === 'gpt-5.5') return env.AZURE_OPENAI_DEPLOYMENT_GPT55;
+    return env.AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI;
+  }
+
+  /** Resolves the endpoint + api key to use for a given model — gpt-5.5 lives on a separate resource. */
+  private getConnection(model: AiModel): { endpoint: string | undefined; apiKey: string | undefined } {
+    if (model === 'gpt-5.5' && env.AZURE_OPENAI_ENDPOINT_GPT55) {
+      return { endpoint: env.AZURE_OPENAI_ENDPOINT_GPT55, apiKey: env.AZURE_OPENAI_API_KEY_GPT55 };
+    }
+    return { endpoint: env.AZURE_OPENAI_ENDPOINT, apiKey: env.AZURE_OPENAI_API_KEY };
   }
 
   /**
@@ -99,13 +109,14 @@ export class FoundryClient {
     maxTokens: number,
   ): Promise<ChatCompletionResponse> {
     const deployment = this.getDeployment(model);
-    const url = `${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
+    const { endpoint, apiKey } = this.getConnection(model);
+    const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(env.AZURE_OPENAI_API_KEY !== undefined && { 'api-key': env.AZURE_OPENAI_API_KEY }),
+        ...(apiKey !== undefined && { 'api-key': apiKey }),
       } as Record<string, string>,
       body: JSON.stringify({
         messages,
