@@ -594,7 +594,7 @@ interface DraftBlock {
 }
 
 /** Splits plain/markdown-ish text into simple BlockNote paragraph/heading blocks. */
-function textToBlocks(text: string): DraftBlock[] {
+export function textToBlocks(text: string): DraftBlock[] {
   const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p !== '');
   return paragraphs.map((p) => {
     const headingMatch = /^(#{1,3})\s+(.*)$/.exec(p);

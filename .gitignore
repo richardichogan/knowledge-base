@@ -29,3 +29,5 @@ scripts/provision.sh
 scripts/setup-auth.sh
 scripts/migrate-data-to-prod.sh
 scripts/.env.deploy
+
+node_modules_backup/

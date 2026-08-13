@@ -13,10 +13,10 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 
@@ -396,6 +396,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
   const [input, setInput] = useState('');
+  const [persona, setPersona] = useState<AthenaPersona>('general');
+  const [isExporting, setIsExporting] = useState(false);
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -426,6 +428,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       if (cancelled) return;
       if (result.success && result.data.messages.length > 0) {
         setMessages(result.data.messages);
+      }
+      if (result.success && result.data.persona) {
+        setPersona(result.data.persona);
       }
       setIsRestoringHistory(false);
     }).catch(() => {
@@ -508,6 +513,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     setIsRestoringHistory(true);
     void api.getSessionHistory(id).then((result) => {
       if (result.success) setMessages(result.data.messages);
+      if (result.success && result.data.persona) setPersona(result.data.persona);
       setIsRestoringHistory(false);
     }).catch(() => {
       setIsRestoringHistory(false);
@@ -556,6 +562,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     mutationFn: (message: string) =>
       api.chat({
         message,
+        persona,
         ...(sessionId !== null && { sessionId }),
       }),
     onSuccess: (result) => {
@@ -681,11 +688,48 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
+    setPersona('general');
     try {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
     } catch {
       // Non-fatal — worst case the old session ID lingers until overwritten by a new one.
     }
+  }
+
+  /** Switches persona for the current chat. Persists to the session immediately (if one exists) so the next turn — and a reload — picks it up. */
+  function handlePersonaChange(next: AthenaPersona): void {
+    if (next === persona) return;
+    setPersona(next);
+    if (sessionId !== null) {
+      void api.setSessionPersona(sessionId, next).catch(() => {
+        // Non-fatal — the next chat() call also carries the persona, so it still takes effect.
+      });
+    }
+  }
+
+  const exportMutation = useMutation({
+    mutationFn: () => {
+      if (sessionId === null) throw new Error('No active session to export');
+      return api.exportSessionToThink(sessionId);
+    },
+    onMutate: () => setIsExporting(true),
+    onSettled: () => setIsExporting(false),
+    onSuccess: (result) => {
+      if (!result.success) {
+        appendMessage('assistant', `⚠️ Couldn't export to Think: ${result.error.message}`);
+        return;
+      }
+      appendMessage('assistant', `📓 Saved to Think: **${result.data.title}**\n\n[Open note](${result.data.url})`);
+      void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+    },
+    onError: () => {
+      appendMessage('assistant', "⚠️ Couldn't export this chat to Think. Please try again.");
+    },
+  });
+
+  function handleExportToThink(): void {
+    if (sessionId === null || messages.length === 0 || isExporting) return;
+    exportMutation.mutate();
   }
 
   async function startRecording(): Promise<void> {
@@ -780,6 +824,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
 
   const actionButtons = (
     <>
+      {messages.length > 0 && sessionId !== null && (
+        <Button
+          size="sm"
+          kind="ghost"
+          hasIconOnly
+          renderIcon={Export}
+          iconDescription={isExporting ? 'Saving to Think…' : 'Export chat to Think'}
+          tooltipPosition="bottom"
+          onClick={handleExportToThink}
+          disabled={isExporting || chatMutation.isPending}
+        />
+      )}
       {messages.length > 0 && (
         <Button
           size="sm"
@@ -850,6 +906,26 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               New chat
             </button>
           </nav>
+          <div className="kh-persona-switch" role="group" aria-label="Athena persona">
+            <button
+              type="button"
+              className={`kh-persona-switch__btn${persona === 'general' ? ' kh-persona-switch__btn--active' : ''}`}
+              onClick={() => handlePersonaChange('general')}
+              title="General assistant"
+            >
+              <Notebook className="kh-persona-switch__icon" />
+              General
+            </button>
+            <button
+              type="button"
+              className={`kh-persona-switch__btn${persona === 'brainstorming' ? ' kh-persona-switch__btn--active' : ''}`}
+              onClick={() => handlePersonaChange('brainstorming')}
+              title="Ideas sounding board — stress-tests and sharpens early-stage thinking"
+            >
+              <Idea className="kh-persona-switch__icon" />
+              Brainstorm
+            </button>
+          </div>
           {isSidebarSearchOpen && (
             <div className="kh-chat-sidebar__search">
               <Search className="kh-chat-sidebar__search-icon" />

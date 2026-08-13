@@ -17,10 +17,12 @@ export type {
 
 export type {
   AiModel,
+  AthenaPersona,
   ChatRequest,
   ChatMessage,
   ChatResponse,
   ChatSessionSummary,
+  ExportToThinkResponse,
   WriteActionType,
   WriteActionProposal,
 } from './ai';

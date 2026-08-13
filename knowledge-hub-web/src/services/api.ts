@@ -12,6 +12,8 @@ import type {
   ChatResponse,
   ChatMessage,
   ChatSessionSummary,
+  AthenaPersona,
+  ExportToThinkResponse,
   CreateTaskInput,
   CreateNoteInput,
   Note,
@@ -410,8 +412,8 @@ export class KnowledgeHubApi {
   /** Fetches (and lazily creates) a session's persisted message history, so a reload/reopen can restore it. */
   async getSessionHistory(
     sessionId: string,
-  ): Promise<ApiResponse<{ sessionId: string; messages: ChatMessage[] }>> {
-    const r = await this.client.get<ApiResponse<{ sessionId: string; messages: ChatMessage[] }>>(
+  ): Promise<ApiResponse<{ sessionId: string; messages: ChatMessage[]; persona?: AthenaPersona }>> {
+    const r = await this.client.get<ApiResponse<{ sessionId: string; messages: ChatMessage[]; persona?: AthenaPersona }>>(
       `/api/ai/session/${sessionId}/history`,
     );
     return r.data;
@@ -426,6 +428,28 @@ export class KnowledgeHubApi {
   /** Deletes a chat session and its messages. */
   async deleteChatSession(sessionId: string): Promise<ApiResponse<{ deleted: true }>> {
     const r = await this.client.delete<ApiResponse<{ deleted: true }>>(`/api/ai/session/${sessionId}`);
+    return r.data;
+  }
+
+  /** Switches a session's persona (e.g. "general" <-> "brainstorming"). */
+  async setSessionPersona(
+    sessionId: string,
+    persona: AthenaPersona,
+  ): Promise<ApiResponse<{ sessionId: string; persona: AthenaPersona }>> {
+    const r = await this.client.patch<ApiResponse<{ sessionId: string; persona: AthenaPersona }>>(
+      `/api/ai/session/${sessionId}/persona`,
+      { persona },
+    );
+    return r.data;
+  }
+
+  /** Formats a session's conversation into a note and saves it to Think, returning a deep link. */
+  async exportSessionToThink(sessionId: string): Promise<ApiResponse<ExportToThinkResponse>> {
+    const r = await this.client.post<ApiResponse<ExportToThinkResponse>>(
+      `/api/ai/session/${sessionId}/export-to-think`,
+      {},
+      { timeout: CHAT_TIMEOUT_MS },
+    );
     return r.data;
   }
 

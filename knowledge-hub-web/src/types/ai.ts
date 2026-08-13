@@ -4,10 +4,13 @@
 
 export type AiModel = 'gpt-4o' | 'gpt-4o-mini';
 
+export type AthenaPersona = 'general' | 'brainstorming';
+
 export interface ChatRequest {
   message: string;
   sessionId?: string;
   model?: AiModel;
+  persona?: AthenaPersona;
 }
 
 export interface ChatMessage {
@@ -36,6 +39,7 @@ export interface WriteActionProposal {
 export interface ChatResponse {
   reply: string;
   sessionId: string;
+  persona?: AthenaPersona;
   pendingActions: WriteActionProposal[];
 }
 
@@ -45,4 +49,11 @@ export interface ChatSessionSummary {
   startedAt: string;
   updatedAt: string;
   preview: string;
+  persona?: AthenaPersona;
+}
+
+export interface ExportToThinkResponse {
+  noteId: string;
+  title: string;
+  url: string;
 }

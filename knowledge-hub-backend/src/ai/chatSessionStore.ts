@@ -36,6 +36,7 @@ export interface SessionListItem {
   startedAt: string;
   updatedAt: string;
   preview: string;
+  persona: string;
 }
 
 /** Ensures a session row exists, then returns its current message history. */
@@ -45,6 +46,24 @@ export async function getOrCreateSessionHistory(db: Pool, sessionId: string): Pr
     [sessionId],
   );
   return getSessionHistory(db, sessionId);
+}
+
+/** Reads a session's current persona ("general" by default). */
+export async function getSessionPersona(db: Pool, sessionId: string): Promise<string> {
+  const { rows } = await db.query<{ persona: string }>(
+    `SELECT persona FROM ai_chat_sessions WHERE id = $1`,
+    [sessionId],
+  );
+  return rows[0]?.persona ?? 'general';
+}
+
+/** Sets a session's persona — an explicit user action (e.g. switching to "brainstorming"), never inferred. */
+export async function setSessionPersona(db: Pool, sessionId: string, persona: string): Promise<void> {
+  await db.query(
+    `INSERT INTO ai_chat_sessions (id, persona) VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET persona = EXCLUDED.persona`,
+    [sessionId, persona],
+  );
 }
 
 /** Reads a session's full message history in chronological order — used for display, not for the model call. */
@@ -99,8 +118,9 @@ export async function listSessions(db: Pool, limit = 50): Promise<SessionListIte
     started_at: string;
     updated_at: string;
     preview: string | null;
+    persona: string;
   }>(
-    `SELECT s.id, s.title, s.started_at, s.updated_at,
+    `SELECT s.id, s.title, s.started_at, s.updated_at, s.persona,
             (SELECT content FROM ai_chat_messages m WHERE m.session_id = s.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS preview
        FROM ai_chat_sessions s
       WHERE EXISTS (SELECT 1 FROM ai_chat_messages m WHERE m.session_id = s.id)
@@ -114,6 +134,7 @@ export async function listSessions(db: Pool, limit = 50): Promise<SessionListIte
     startedAt: r.started_at,
     updatedAt: r.updated_at,
     preview: (r.preview ?? '').slice(0, 140),
+    persona: r.persona,
   }));
 }
 

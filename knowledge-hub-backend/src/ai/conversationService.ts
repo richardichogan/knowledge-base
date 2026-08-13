@@ -21,9 +21,10 @@ export async function handleConversationTurn(
   history: ConversationMessage[],
   userMessage: string,
   model: AiModel = 'gpt-4o',
+  persona?: string,
 ): Promise<string> {
   const context = await buildAiContext(db, userMessage);
-  const baseMessages = assembleMessages(context, history, userMessage);
+  const baseMessages = assembleMessages(context, history, userMessage, persona);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
   const client = getFoundryClient();
@@ -115,4 +116,50 @@ export async function rollUpConversationSummary(
   ];
 
   return client.chat('gpt-4o-mini', messages, 400);
+}
+
+/**
+ * Formats a full Athena conversation into a Think note: a short title plus a
+ * cleaned-up markdown body (headings for key points/decisions/open questions,
+ * not just a raw transcript dump). Used by "Export to Think". Persona is
+ * passed through so a brainstorming session is framed as "ideas explored"
+ * rather than "tasks discussed".
+ */
+export async function formatSessionForThink(
+  history: ConversationMessage[],
+  persona?: string,
+): Promise<{ title: string; bodyMarkdown: string }> {
+  const client = getFoundryClient();
+  const framing =
+    persona === 'brainstorming'
+      ? 'This was a brainstorming/sounding-board session — organise the note around the idea explored, the load-bearing question(s) raised, and where the thinking landed, not as a task log.'
+      : 'This was a general working session — organise the note around what was discussed, decided, and any follow-ups.';
+
+  const messages: ConversationMessage[] = [
+    {
+      role: 'system',
+      content: [
+        'You turn an Athena chat transcript into a well-formatted note for the Knowledge Hub "Think" library.',
+        framing,
+        'Respond in EXACTLY this format, nothing else:',
+        'TITLE: <a short, specific title, no quotes>',
+        '---',
+        '<markdown body using ## headings, short paragraphs and bullet points where useful>',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: `Format this conversation:\n\n${history.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')}`,
+    },
+  ];
+
+  const raw = await client.chat('gpt-4o-mini', messages, 1_500);
+  const separatorIndex = raw.indexOf('---');
+  const titleLine = separatorIndex === -1 ? raw.split('\n')[0] ?? 'Athena export' : raw.slice(0, separatorIndex);
+  const body = separatorIndex === -1 ? raw : raw.slice(separatorIndex + 3);
+
+  const title = titleLine.replace(/^TITLE:\s*/i, '').trim() || 'Athena export';
+  const bodyMarkdown = body.trim() || raw.trim();
+
+  return { title, bodyMarkdown };
 }
