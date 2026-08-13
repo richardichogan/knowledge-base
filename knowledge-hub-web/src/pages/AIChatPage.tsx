@@ -822,6 +822,29 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     ? chatSessions
     : chatSessions.filter((s) => s.title.toLowerCase().includes(sidebarSearchQuery.trim().toLowerCase()));
 
+  const personaSwitch = (
+    <div className="kh-persona-switch" role="group" aria-label="Athena persona">
+      <button
+        type="button"
+        className={`kh-persona-switch__btn${persona === 'general' ? ' kh-persona-switch__btn--active' : ''}`}
+        onClick={() => handlePersonaChange('general')}
+        title="General assistant"
+      >
+        <Notebook className="kh-persona-switch__icon" />
+        General
+      </button>
+      <button
+        type="button"
+        className={`kh-persona-switch__btn${persona === 'brainstorming' ? ' kh-persona-switch__btn--active' : ''}`}
+        onClick={() => handlePersonaChange('brainstorming')}
+        title="Ideas sounding board — stress-tests and sharpens early-stage thinking"
+      >
+        <Idea className="kh-persona-switch__icon" />
+        Brainstorm
+      </button>
+    </div>
+  );
+
   const actionButtons = (
     <>
       {messages.length > 0 && sessionId !== null && (
@@ -906,26 +929,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               New chat
             </button>
           </nav>
-          <div className="kh-persona-switch" role="group" aria-label="Athena persona">
-            <button
-              type="button"
-              className={`kh-persona-switch__btn${persona === 'general' ? ' kh-persona-switch__btn--active' : ''}`}
-              onClick={() => handlePersonaChange('general')}
-              title="General assistant"
-            >
-              <Notebook className="kh-persona-switch__icon" />
-              General
-            </button>
-            <button
-              type="button"
-              className={`kh-persona-switch__btn${persona === 'brainstorming' ? ' kh-persona-switch__btn--active' : ''}`}
-              onClick={() => handlePersonaChange('brainstorming')}
-              title="Ideas sounding board — stress-tests and sharpens early-stage thinking"
-            >
-              <Idea className="kh-persona-switch__icon" />
-              Brainstorm
-            </button>
-          </div>
+          {personaSwitch}
           {isSidebarSearchOpen && (
             <div className="kh-chat-sidebar__search">
               <Search className="kh-chat-sidebar__search-icon" />
@@ -1012,8 +1016,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         </div>
       )}
       {!standalone && (
-        <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact' : 'ai-new-chat-row'}>
-          {actionButtons}
+        <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact ai-new-chat-row--with-persona' : 'ai-new-chat-row ai-new-chat-row--with-persona'}>
+          {personaSwitch}
+          <div className="ai-new-chat-row__actions">
+            {actionButtons}
+          </div>
         </div>
       )}
       <div className={standalone ? 'ai-chat-standalone__body' : compact ? 'ai-chat-compact__body' : ''}>
