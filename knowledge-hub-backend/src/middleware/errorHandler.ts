@@ -15,6 +15,12 @@ export function errorHandler(
   _next: NextFunction,
 ): void {
   if (err instanceof KnowledgeHubError) {
+    // 5xx KnowledgeHubErrors (AiError, IntegrationError, BlobStorageError, ...) represent
+    // an upstream/dependency failure, not a normal client-facing rejection — log the
+    // message so the cause is visible in logs instead of silently returning e.g. a 502.
+    if (err.statusCode >= 500) {
+      console.error(`[${err.code}]`, err.message);
+    }
     const body: ApiError = {
       success: false,
       error: {

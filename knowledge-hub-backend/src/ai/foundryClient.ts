@@ -102,6 +102,16 @@ export class FoundryClient {
     return { content: message.content ?? null, toolCalls: message.tool_calls ?? [] };
   }
 
+  /**
+   * Reasoning-family models (currently gpt-5.5) reject any `temperature`
+   * value other than the API default of 1 — Azure returns a 400
+   * "Unsupported value" error if we send 0.7 like we do for gpt-4o/gpt-4o
+   * mini. Omit the field entirely for those models instead of sending it.
+   */
+  private supportsCustomTemperature(model: AiModel): boolean {
+    return model !== 'gpt-5.5';
+  }
+
   private async request(
     model: AiModel,
     messages: ConversationMessage[] | LlmMessage[],
@@ -121,7 +131,7 @@ export class FoundryClient {
       body: JSON.stringify({
         messages,
         max_completion_tokens: maxTokens,
-        temperature: 0.7,
+        ...(this.supportsCustomTemperature(model) && { temperature: 0.7 }),
         ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: 'auto' }),
       }),
       // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.
