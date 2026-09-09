@@ -123,9 +123,14 @@ const TOOL_CAPABILITIES_BLURB = [
     '`publishedAt` is fixed at creation time, so a PR opened last week but pushed to again this morning still ' +
     'shows an old publishedAt; `lastActivityAt` reflects when it was actually last touched and is what tells ' +
     'you whether there has been fresh activity.',
-  '- `search_library`: call this for questions about formal documentation, specs, READMEs, or architecture ' +
-    'docs for a project — search_knowledge_base does not cover these files. Pass projectId to scope to one ' +
-    'project (e.g. "imagine").',
+  '- `search_library`: covers ONLY formal documentation, specs, READMEs, or architecture docs stored in a ' +
+    'project\'s GitHub repos — it has no knowledge of notes, discovered articles, tasks, or anything else in ' +
+    'search_knowledge_base. Never call this alone for a project/brainstorming question and treat its results ' +
+    'as the whole picture — it will only ever hand back GitHub repo files. For any question about a specific ' +
+    'project (e.g. "what does X look like for IMAGINE?"), always call search_knowledge_base with the project ' +
+    'name first so notes and the discovery feed are represented, and use search_library in addition when the ' +
+    'question is specifically about formal docs/specs/READMEs. Pass projectId to scope to one project (e.g. ' +
+    '"imagine").',
   '- `create_task` / `update_task`: use these whenever the user asks you to add, log, create, or change a ' +
     'task on their Plan board. Just do it — don\'t ask for permission first. update_task does fuzzy ' +
     'matching on matchTitle, so a paraphrase like "the Kyle Thompson meeting task" can still find "Speak to ' +

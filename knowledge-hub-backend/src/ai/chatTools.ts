@@ -93,10 +93,12 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       function: {
         name: 'search_library',
         description:
-          "Searches the Library section — formal markdown documents (specs, READMEs, docs/ folders) stored " +
-          "in the user's GitHub repos, organised by project. Use this for questions about project " +
-          'documentation, specs, architecture docs, or README content — search_knowledge_base does not cover ' +
-          'these files.',
+          "Searches ONLY the Library section — formal markdown documents (specs, READMEs, docs/ folders) " +
+          "stored in the user's GitHub repos. It does NOT cover notes, the discovery feed, tasks, emails, " +
+          "or anything else — those are search_knowledge_base only. Never use this as a substitute for " +
+          "search_knowledge_base on a project question; call search_knowledge_base first (or alongside) so " +
+          "notes and discovered articles are represented, and use this in addition when the question is " +
+          "specifically about formal docs/specs/READMEs.",
         parameters: {
           type: 'object',
           properties: {
