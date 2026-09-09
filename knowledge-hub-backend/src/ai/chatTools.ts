@@ -68,6 +68,27 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'search_knowledge_graph',
+        description:
+          'Searches the knowledge graph — explicit, typed connections between items (notes, discovered ' +
+          'articles, documents, tasks, commits, sparks, canvases, CFP items), each with a confidence score. ' +
+          'This answers "what is X actually linked to?" in a way full-text search cannot, since two items ' +
+          'can be explicitly connected without sharing any matching words. Use it whenever the user asks how ' +
+          'things relate/connect, or after finding something relevant via search_knowledge_base and you want ' +
+          "to check what else it's explicitly linked to. Matches node titles by substring (case-insensitive).",
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Text to match against graph node titles (e.g. a project or note name).' },
+            limit: { type: 'integer', description: `Max matching nodes to seed from (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
+          },
+          required: ['query'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'list_tasks',
         description:
           "Lists real tasks from the user's Plan board (Kanban) — the source of truth for outstanding/due/" +
@@ -217,6 +238,7 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string):
 
   switch (name) {
     case 'search_knowledge_base': return searchKnowledgeBase(db, args);
+    case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
     case 'list_tasks':            return listTasks(db, args);
     case 'search_library':        return searchLibrary(db, args);
     case 'create_task':           return createTask(db, args);
@@ -259,6 +281,66 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
     lastActivityAt: (item.metadata as { updatedAt?: string } | null)?.updatedAt ?? item.publishedAt,
     url: item.url ?? null,
   })));
+
+  return { resultCount: results.length, results };
+}
+
+// ── search_knowledge_graph ───────────────────────────────────────────────────
+
+async function searchKnowledgeGraph(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
+  if (query === '') return { error: 'query is required' };
+  const rawLimit = Number(args['limit']);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(Math.trunc(rawLimit), AI_TOOL_SEARCH_MAX_LIMIT)
+    : AI_TOOL_SEARCH_DEFAULT_LIMIT;
+
+  const seedRows = await db.query<{ id: string; ref_type: string; title: string; tags: string[] }>(
+    `SELECT id, ref_type, title, tags FROM nodes WHERE title ILIKE $1 ORDER BY updated_at DESC LIMIT $2`,
+    [`%${query}%`, limit],
+  );
+  if (seedRows.rows.length === 0) {
+    return { resultCount: 0, results: [], message: 'No knowledge graph nodes matched that title — try a shorter/broader term.' };
+  }
+
+  const seedIds = seedRows.rows.map((r) => r.id);
+  const edgeRows = await db.query<{
+    source_node_id: string; target_node_id: string; edge_type: string; confidence: string;
+  }>(
+    `SELECT source_node_id, target_node_id, edge_type, confidence FROM edges
+     WHERE source_node_id = ANY($1) OR target_node_id = ANY($1)`,
+    [seedIds],
+  );
+
+  const neighbourIds = new Set<string>();
+  for (const e of edgeRows.rows) {
+    neighbourIds.add(e.source_node_id);
+    neighbourIds.add(e.target_node_id);
+  }
+
+  const neighbourRows = neighbourIds.size > 0
+    ? await db.query<{ id: string; ref_type: string; title: string }>(
+        `SELECT id, ref_type, title FROM nodes WHERE id = ANY($1)`,
+        [Array.from(neighbourIds)],
+      )
+    : { rows: [] as Array<{ id: string; ref_type: string; title: string }> };
+  const neighbourMap = new Map(neighbourRows.rows.map((n) => [n.id, n]));
+
+  const results = seedRows.rows.map((seed) => {
+    const connections = edgeRows.rows
+      .filter((e) => e.source_node_id === seed.id || e.target_node_id === seed.id)
+      .map((e) => {
+        const otherId = e.source_node_id === seed.id ? e.target_node_id : e.source_node_id;
+        const other = neighbourMap.get(otherId);
+        return {
+          title: other?.title ?? 'Unknown',
+          type: other?.ref_type ?? 'unknown',
+          edgeType: e.edge_type,
+          confidence: Number(e.confidence),
+        };
+      });
+    return { title: seed.title, type: seed.ref_type, tags: seed.tags, connections };
+  });
 
   return { resultCount: results.length, results };
 }

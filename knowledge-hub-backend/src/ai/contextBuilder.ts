@@ -123,6 +123,11 @@ const TOOL_CAPABILITIES_BLURB = [
     '`publishedAt` is fixed at creation time, so a PR opened last week but pushed to again this morning still ' +
     'shows an old publishedAt; `lastActivityAt` reflects when it was actually last touched and is what tells ' +
     'you whether there has been fresh activity.',
+  '- `search_knowledge_graph`: covers explicit, typed connections between items (e.g. "this note is linked ' +
+    'to that PR/discovered article/task"), each with a confidence score — this is different from ' +
+    'search_knowledge_base\'s text matching, since two items can be genuinely connected without sharing any ' +
+    'words. Call it whenever the user asks how things relate/connect to each other, or to check what else a ' +
+    'relevant note/document/task is explicitly linked to after finding it via search_knowledge_base.',
   '- `search_library`: covers ONLY formal documentation, specs, READMEs, or architecture docs stored in a ' +
     'project\'s GitHub repos — it has no knowledge of notes, discovered articles, tasks, or anything else in ' +
     'search_knowledge_base. Never call this alone for a project/brainstorming question and treat its results ' +
