@@ -969,6 +969,26 @@ input, textarea {
     flex: 1;
     min-width: 0;
   }
+
+  .ai-input-textarea {
+    flex: 1;
+    min-width: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    resize: none;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    font: inherit;
+    color: inherit;
+    padding: 0.6875rem 0;
+    line-height: 1.25rem;
+
+    &::placeholder {
+      color: var(--cds-text-placeholder);
+    }
+  }
 }
 
 .ai-file-input-hidden {

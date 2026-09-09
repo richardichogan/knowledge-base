@@ -9,7 +9,6 @@ import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
-  TextInput,
   Tile,
   InlineLoading,
 } from '@carbon/react';
@@ -409,6 +408,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const pcmChunksRef = useRef<Float32Array[]>([]);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the message textarea up to a max height, then let it scroll —
+  // recalculated whenever the input text changes.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const maxHeight = 200;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, [input]);
   /** Prevents the Android Share auto-send from firing more than once per page load. */
   const shareProcessedRef = useRef(false);
   /** Tracks the last pageContext title we've already injected into a message, so
@@ -626,6 +636,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
 
   function handleSend(e: React.FormEvent): void {
     e.preventDefault();
+    submitMessage();
+  }
+
+  /** Shift+Enter submits from the textarea — Enter and Ctrl+Enter just insert a newline (native textarea behaviour). */
+  function handleInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      submitMessage();
+    }
+  }
+
+  function submitMessage(): void {
     const text = input.trim();
     if (text === '') return;
     appendMessage('user', text);
@@ -1129,13 +1151,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               onClick={handleAttachClick}
               disabled={chatMutation.isPending}
             />
-            <TextInput
+            <textarea
+              ref={textareaRef}
               id="ai-chat-input"
-              labelText=""
-              hideLabel
+              className="ai-input-textarea"
+              rows={1}
               placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : 'Ask your knowledge hub…'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleInputKeyDown}
               disabled={chatMutation.isPending}
               autoFocus
             />
