@@ -122,26 +122,41 @@ export class FoundryClient {
     const { endpoint, apiKey } = this.getConnection(model);
     const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey !== undefined && { 'api-key': apiKey }),
-      } as Record<string, string>,
-      body: JSON.stringify({
-        messages,
-        max_completion_tokens: maxTokens,
-        ...(this.supportsCustomTemperature(model) && { temperature: 0.7 }),
-        ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: 'auto' }),
-      }),
-      // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.
-      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey !== undefined && { 'api-key': apiKey }),
+        } as Record<string, string>,
+        body: JSON.stringify({
+          messages,
+          max_completion_tokens: maxTokens,
+          ...(this.supportsCustomTemperature(model) && { temperature: 0.7 }),
+          ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: 'auto' }),
+        }),
+        // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.
+        signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      // AbortSignal.timeout() rejects with a raw DOMException, not an
+      // AiError — left unwrapped it skipped our typed-error handling
+      // entirely and only showed up in logs as "[Unhandled error]" with no
+      // indication it was an AI timeout.
+      const isTimeout = err instanceof Error && err.name === 'TimeoutError';
+      throw new AiError(
+        isTimeout
+          ? `Request to ${model} timed out after ${AI_REQUEST_TIMEOUT_MS}ms`
+          : `Request to ${model} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
 
     if (!response.ok) {
       const text = await response.text();
       throw new AiError(`${response.status} ${response.statusText}: ${text}`);
     }
+
 
     return response.json() as Promise<ChatCompletionResponse>;
   }

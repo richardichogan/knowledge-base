@@ -108,7 +108,12 @@ export const JOB_DB_CONCURRENCY = 4;
 
 // AI calls must time out — an unreachable/slow Foundry endpoint (e.g. mid
 // repoint) was hanging sync jobs forever, never releasing their work.
-export const AI_REQUEST_TIMEOUT_MS = 30_000;
+// 30s was too tight for legitimately slow agentic/tool-calling chat replies
+// (observed ~21-40s for normal generation) and was causing real requests to
+// fail with a timeout even though Foundry was still working. The frontend
+// chat client already allows 90s (see CHAT_TIMEOUT_MS in api.ts), so give
+// the backend->Foundry call headroom to match instead of cutting it off first.
+export const AI_REQUEST_TIMEOUT_MS = 60_000;
 // External HTTP fetches (blog admin API) must also time out.
 export const EXTERNAL_FETCH_TIMEOUT_MS = 20_000;
 
