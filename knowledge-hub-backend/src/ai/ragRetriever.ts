@@ -66,7 +66,9 @@ export function formatRagContext(items: ContentItem[]): string {
     '## Auto-retrieved background context (system-generated, NOT written or pasted by the user)',
     'This is a best-effort full-text search match against the knowledge hub, run automatically for every ' +
       'message. It may be irrelevant to what the user actually said below — use it only if it genuinely ' +
-      'helps answer their message, and never claim the user provided, pasted, or attached this content.',
+      'helps answer their message. Never claim the user provided, pasted, or attached this content, and ' +
+      'never refer to it in your reply as "snippets", "background context", or similar meta-language — ' +
+      'synthesize it into your actual answer as if you simply knew it.',
     '',
     lines.join('\n\n---\n\n'),
   ].join('\n');

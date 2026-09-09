@@ -109,11 +109,16 @@ const TOOL_CAPABILITIES_BLURB = [
     'or outstanding. This is the real Plan board — always use it for task questions instead of ' +
     'search_knowledge_base, which only covers indexed documents/commits/notes, not the task board.',
   '- `search_knowledge_base`: call this before answering any other question about the user\'s own projects, ' +
-    'activity, or existing content (commits, PRs, issues, notes, emails, calendar). Do not rely on memory or ' +
-    'the RAG snippets alone if the question needs more detail — search again with more specific terms. If a ' +
-    'multi-word query returns nothing, retry with just the core keyword (e.g. "imagine" not "project imagine").' +
-    ' Every project has real, extensive activity indexed here — a "not found" result almost always means the ' +
-    'query was too narrow, not that the content doesn\'t exist. For "what\'s new"/"recent activity" questions ' +
+    'activity, or existing content (commits, PRs, issues, notes, emails, calendar). Never call this tool ' +
+    'with the current message alone if it references an established topic without naming it (e.g. a ' +
+    'follow-up like "what would that look like?") — reuse the actual project/subject name from earlier in ' +
+    'this conversation as the search term. Do not rely on the auto-retrieved background context alone if ' +
+    'the question needs more detail, and never describe that context to the user as "snippets" or generic ' +
+    'search results — synthesize it into a real answer. Search again with more specific terms if needed. If ' +
+    'a multi-word query returns nothing, retry with just the core keyword (e.g. "imagine" not "project ' +
+    'imagine"). Every project has real, extensive activity indexed here — a "not found" result almost ' +
+    'always means the query was too narrow, not that the content doesn\'t exist. For "what\'s new"/"recent ' +
+    'activity" questions ' +
     'about PRs, issues, or merge requests, judge recency by `lastActivityAt`, not `publishedAt` — ' +
     '`publishedAt` is fixed at creation time, so a PR opened last week but pushed to again this morning still ' +
     'shows an old publishedAt; `lastActivityAt` reflects when it was actually last touched and is what tells ' +
@@ -393,14 +398,36 @@ function resolvePersonaPrompt(persona: string | undefined): string {
  * Layer 3 — Dynamic RAG context: top-N relevant items from PostgreSQL FTS
  *            retrieved per turn based on the user query.
  */
-export async function buildAiContext(db: Pool, userQuery: string): Promise<AiContext> {
+export async function buildAiContext(
+  db: Pool,
+  userQuery: string,
+  history: ConversationMessage[] = [],
+): Promise<AiContext> {
   const [staticContext, projectContext, ragItems] = await Promise.all([
     loadBlobText(STATIC_CONTEXT_BLOB),
     loadBlobText(PROJECT_CONTEXT_BLOB),
-    retrieveRagItems(db, userQuery),
+    retrieveRagItems(db, buildRagQuery(userQuery, history)),
   ]);
 
   return { staticContext, projectContext, ragItems };
+}
+
+/**
+ * Builds the text used for auto-RAG retrieval. Using only the latest message
+ * misses topic-continuation follow-ups that never repeat the subject by name
+ * (e.g. "what does an agentic BPO solution look like?" after an earlier
+ * message established "IMAGINE" as the project) — full-text search on that
+ * message alone has no way to know to look for IMAGINE content, and falls
+ * back to a generic OR-match across unrelated terms. Folding in the user's
+ * own last couple of prior messages keeps the established topic in the
+ * search query even when the current message doesn't restate it.
+ */
+function buildRagQuery(userQuery: string, history: ConversationMessage[]): string {
+  const priorUserMessages = history
+    .filter((message) => message.role === 'user')
+    .slice(-2)
+    .map((message) => message.content);
+  return [...priorUserMessages, userQuery].join(' ');
 }
 
 /**
