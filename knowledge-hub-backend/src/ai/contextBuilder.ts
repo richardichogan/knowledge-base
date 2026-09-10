@@ -96,6 +96,32 @@ const EVIDENCE_CALIBRATION_BLURB = [
 ].join('\n');
 
 /**
+ * The user flagged that replies read as flat, unformatted prose — no bold,
+ * italics, or lists even where they would help. The chat UI already
+ * renders full markdown (bold/italic/headings/blockquotes/bullet+numbered
+ * lists/fenced code — see knowledge-hub-web/src/utils/markdown.ts), so the
+ * gap was purely the model not using it. This is deliberately separate
+ * from RESPONSE_REGISTER_BLURB's "prose not bullets" guidance — that
+ * still governs when to enumerate vs. narrate; this governs using
+ * emphasis/structure within whichever shape is chosen.
+ */
+const FORMATTING_BLURB = [
+  '## Formatting your responses',
+  'Your replies are rendered through a markdown renderer that supports **bold**, *italics*, `inline code`, ' +
+    'fenced code blocks, ## headings, > blockquotes, horizontal rules, bullet lists, and numbered lists ' +
+    '(`1.`, `2.`) — use them where they help. Long, flat, unformatted paragraphs are not the default for an ' +
+    'answer that has any internal structure.',
+  '- Bold key terms, conclusions, names, and file/entity references so the point survives a skim.',
+  '- Use *italics* sparingly for an aside, caveat, or something intentionally understated.',
+  '- Use bullet or numbered lists when content is genuinely enumerable (steps, options, a set of items, ' +
+    'trade-offs) — this does not override the existing preference for prose over lists in ordinary technical ' +
+    'explanations, it just means an enumerable list should actually look like one.',
+  '- Use a `##` heading to break a long, multi-part answer into sections; skip headings on short replies.',
+  '- Always put code, commands, file paths, and config in a fenced or inline code block, never as plain text.',
+  'This does not relax brevity — format only where it makes the answer easier to parse, not decoratively.',
+].join('\n');
+
+/**
  * Adjusts response shape based on what kind of message this actually is —
  * brainstorming/thinking-out-loud vs. task/activity execution vs. a plain
  * factual question. This replaces a manual mode switch: the model infers
@@ -512,6 +538,8 @@ export function assembleMessages(
     USER_PROFILE_BLURB,
     '---',
     EVIDENCE_CALIBRATION_BLURB,
+    '---',
+    FORMATTING_BLURB,
     '---',
     resolvePersonaPrompt(persona),
     '---',

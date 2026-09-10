@@ -29,43 +29,54 @@ export function renderMarkdown(md: string): string {
   const lines = md.split('\n');
   const html: string[] = [];
   let inCode = false;
-  let inList = false;
+  // Tracks which list type (if any) is currently open, so switching between
+  // a bullet list and a numbered list (or ending either) closes the right tag.
+  let listType: 'ul' | 'ol' | null = null;
+
+  const closeList = () => {
+    if (listType) { html.push(`</${listType}>`); listType = null; }
+  };
 
   for (const line of lines) {
     if (line.startsWith('```')) {
-      if (inList) { html.push('</ul>'); inList = false; }
+      closeList();
       if (inCode) { html.push('</code></pre></div>'); inCode = false; }
       else { html.push(`<div class="kh-code-block"><button type="button" class="kh-code-copy-btn" data-copy-code>Copy</button><pre><code class="language-${escapeHtml(line.slice(3).trim())}">`); inCode = true; }
       continue;
     }
     if (inCode) { html.push(escapeHtml(line)); continue; }
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-      if (inList) { html.push('</ul>'); inList = false; }
+      closeList();
       html.push('<hr />'); continue;
     }
     const hm = line.match(/^(#{1,6})\s+(.+)/);
     if (hm) {
-      if (inList) { html.push('</ul>'); inList = false; }
+      closeList();
       html.push(`<h${hm[1]!.length}>${inlineMarkdown(hm[2] ?? '')}</h${hm[1]!.length}>`); continue;
     }
     if (line.startsWith('> ')) {
-      if (inList) { html.push('</ul>'); inList = false; }
+      closeList();
       html.push(`<blockquote>${inlineMarkdown(line.slice(2))}</blockquote>`); continue;
+    }
+    const oli = line.match(/^\s*\d+[.)]\s+(.+)/);
+    if (oli) {
+      if (listType !== 'ol') { closeList(); html.push('<ol>'); listType = 'ol'; }
+      html.push(`<li>${inlineMarkdown(oli[1] ?? '')}</li>`); continue;
     }
     const li = line.match(/^\s*[-*+]\s+(.+)/);
     if (li) {
-      if (!inList) { html.push('<ul>'); inList = true; }
+      if (listType !== 'ul') { closeList(); html.push('<ul>'); listType = 'ul'; }
       html.push(`<li>${inlineMarkdown(li[1] ?? '')}</li>`); continue;
     }
     if (line.trim() === '') {
-      if (inList) { html.push('</ul>'); inList = false; }
+      closeList();
       continue;
     }
-    if (inList) { html.push('</ul>'); inList = false; }
+    closeList();
     html.push(`<p>${inlineMarkdown(line)}</p>`);
   }
 
-  if (inList) html.push('</ul>');
+  closeList();
   if (inCode) html.push('</code></pre></div>');
   return html.join('\n');
 }
