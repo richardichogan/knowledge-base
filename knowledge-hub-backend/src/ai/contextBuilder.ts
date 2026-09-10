@@ -192,7 +192,14 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'about PRs, issues, or merge requests, judge recency by `lastActivityAt`, not `publishedAt` — ' +
     '`publishedAt` is fixed at creation time, so a PR opened last week but pushed to again this morning still ' +
     'shows an old publishedAt; `lastActivityAt` reflects when it was actually last touched and is what tells ' +
-    'you whether there has been fresh activity.',
+    'you whether there has been fresh activity. Results include a `source` field — when it is ' +
+    '`ica-document`, the `content` you receive IS the actual extracted plain-text of a real file from the ' +
+    'user\'s private IBM ICA document collection (e.g. Project Imagine strategy decks/capability mappings) — ' +
+    'treat it as primary source material you can quote and cite directly, not as evidence of a feature. ' +
+    'Do not confuse this with `github-pr`/`github-commit` results that merely mention "document collection" ' +
+    'as a topic (e.g. a commit enabling that feature in some other codebase) — those describe infrastructure ' +
+    'work, not the document\'s actual content. If asked whether you can see a document collection\'s ' +
+    'contents, check specifically for `ica-document` results before answering either way.',
   '- `search_knowledge_graph`: covers explicit, typed connections between items (e.g. "this note is linked ' +
     'to that PR/discovered article/task"), each with a confidence score — this is different from ' +
     'search_knowledge_base\'s text matching, since two items can be genuinely connected without sharing any ' +

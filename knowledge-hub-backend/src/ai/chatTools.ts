@@ -317,6 +317,12 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
     // "Supply Chain Demo" exists but has no way to say what its diagram
     // actually shows.
     ...(item.source === 'note' && { content: await buildNoteContentForAI(db, item.body) }),
+    // For ica-document items, item.body IS the actual extracted plain-text
+    // content of the real file (ICA pre-parses PPTX/XLSX server-side) — not
+    // just evidence that a document exists. Without this the model only saw
+    // a 300-char summary and had no way to distinguish "I have the real
+    // document content" from "I found a repo commit that mentions documents".
+    ...(item.source === 'ica-document' && { content: item.body }),
     publishedAt: item.publishedAt,
     // For PRs/issues/MRs/pipelines/deployments this is when the item was
     // created, not when it was last worked on — metadata.updatedAt (surfaced
