@@ -5,9 +5,16 @@
  * Used by contentStoreSync to index document files as content items.
  */
 
-const pdfParse = require('pdf-parse');
+import { createRequire } from 'module';
 import * as mammoth from 'mammoth';
 import JSZip from 'jszip';
+
+// pdf-parse is CommonJS-only; this package runs under "type": "module", so a
+// bare top-level `require` throws at real ESM runtime (tsx's dev loader
+// tolerates it, which is why this went unnoticed until a route actually
+// imported this module in production).
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 export interface ExtractionResult {
   text: string;
