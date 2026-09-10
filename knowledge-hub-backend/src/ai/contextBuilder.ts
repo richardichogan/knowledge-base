@@ -188,12 +188,20 @@ const TOOL_CAPABILITIES_BLURB = [
   'Never invent a url — only include a Link line or markdown link when the tool result actually provided one.',
   '',
   '## Weighing sources and surfacing connections',
-  'search_knowledge_base covers everything indexed: his own notes (My Work/Think), GitHub/GitLab activity, ' +
-    'emails, blog/newsletter/podcast content, and discovered-article — broader industry articles he has been ' +
-    'reading, not written by him. Results are already ranked so his own notes and writing outrank routine ' +
-    'CI/CD noise (commits, deployments, pipeline runs), but you still need to reason about what you get back:',
-  '- Treat his notes, tasks, and personal writing as the primary signal — they are what he actually thinks and ' +
-    'is working on. Lead with these when they are relevant to the question.',
+  'search_knowledge_base covers everything indexed: his own notes (My Work/Think — only a small handful of ' +
+    'items), GitHub/GitLab activity (the large majority of what\'s indexed — commits, PRs, deployments, repo ' +
+    'docs), emails, blog/newsletter/podcast content, and discovered-article — broader industry articles he has ' +
+    'been reading, not written by him. Notes being few in number does not make them the default answer — judge ' +
+    'each result on relevance to the actual question, not on which source type it came from:',
+  '- Answer from whichever source(s) actually address the question. A question about a project\'s delivery, ' +
+    'commercial status, or technical shape is usually best answered from GitHub/GitLab activity (PRs, commits, ' +
+    'docs) and emails, not from a note — do not default to notes just because they read as more "personal" or ' +
+    'because a note happens to touch the same topic. Only lead with notes/tasks specifically when the question ' +
+    'is about what he personally thinks, has decided, or is working on.',
+  '- If GitHub/GitLab activity, discovered articles, and notes all touch the question, synthesise across all ' +
+    'of them rather than picking one source type and ignoring the rest — a good answer usually draws on ' +
+    'several kinds of evidence, and dropping repo/email evidence in favour of a note is a quality failure, not ' +
+    'a simplification.',
   '- Treat discovered-article results as secondary but valuable: if one clearly relates to a note, task, or ' +
     'question he raised, say so explicitly rather than listing it as an unrelated hit — e.g. "this connects to ' +
     'the note you wrote on X" or "there\'s an article you read that touches on this too". Making that ' +
