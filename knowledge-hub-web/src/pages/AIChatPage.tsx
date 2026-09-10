@@ -633,6 +633,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       ...prev,
       { role, content, timestamp: new Date().toISOString() },
     ]);
+    if (role === 'user') {
+      // Scroll immediately so the user's own message (and the "thinking"
+      // indicator) is visible right away, rather than only once the reply
+      // arrives — a reply can take 10-60s, during which the view previously
+      // stayed scrolled to wherever it was before sending.
+      setTimeout(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 50);
+    }
   }
 
   function handleSend(e: React.FormEvent): void {
