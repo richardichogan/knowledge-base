@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { downloadBlobAsText } from '../integrations/cms/blobClient.js';
 import { env } from '../config/env.js';
 import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
+import { isIcaEnabled } from './icaClient.js';
 import type { AiContext, ConversationMessage } from '../types/aiContext.js';
 
 const STATIC_CONTEXT_BLOB = 'config/static-context.md';
@@ -127,7 +128,25 @@ const RESPONSE_REGISTER_BLURB = [
  * capability sits unused — the model has no reason to believe it can create
  * tasks/notes or search the knowledge base rather than just chatting.
  */
-const TOOL_CAPABILITIES_BLURB = [
+const ICA_CAPABILITY_BULLET =
+  '- `search_ica`: covers IBM-internal, ibm.com-domain work context (e.g. IBM consulting/delivery ' +
+    'projects like IMAGINE, ATOM, ACRE) that cannot flow into search_knowledge_base because it lives outside ' +
+    'the Alliance tenant integration. search_ica is NOT an alternative to search_knowledge_base — the two ' +
+    'cover disjoint content. For any question that could touch IBM-internal work, call BOTH tools and ' +
+    'synthesize the combined result into one answer; never present them as two separate lookups or mention ' +
+    'which tool/system a fact came from — that is the same "narrating retrieval mechanics" failure called ' +
+    'out above for search_knowledge_base.';
+
+function buildToolCapabilitiesBlurb(): string {
+  const lines = [...TOOL_CAPABILITIES_BLURB_LINES];
+  if (isIcaEnabled()) {
+    const insertAfter = lines.findIndex((line) => line.startsWith('- `search_knowledge_base`'));
+    lines.splice(insertAfter + 1, 0, ICA_CAPABILITY_BULLET);
+  }
+  return lines.join('\n');
+}
+
+const TOOL_CAPABILITIES_BLURB_LINES = [
   '## Capabilities',
   'You have tools available — use them proactively, don\'t just describe what you would do:',
   '- `list_tasks`: call this whenever the user asks what tasks/to-dos/work they have, what\'s due, overdue, ' +
@@ -232,7 +251,7 @@ const TOOL_CAPABILITIES_BLURB = [
   '- Write like you are talking to him, not producing a report: direct sentences, no filler, no restating the ' +
     'question back before answering. Skip the search results entirely in your answer when they don\'t add ' +
     'anything — a good answer can be a single sentence.',
-].join('\n');
+];
 
 /**
  * Instructs the model how to handle ambiguous or creative user responses,
@@ -500,7 +519,7 @@ export function assembleMessages(
     '---',
     context.projectContext,
     '---',
-    TOOL_CAPABILITIES_BLURB,
+    buildToolCapabilitiesBlurb(),
   ].join('\n\n');
 
   const ragBlock = formatRagContext(context.ragItems);

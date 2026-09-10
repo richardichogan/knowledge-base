@@ -131,6 +131,15 @@ export const env = {
   FOUNDRY_IQ_SEARCH_ADMIN_KEY: optional('FOUNDRY_IQ_SEARCH_ADMIN_KEY'),
   FOUNDRY_IQ_KNOWLEDGE_BASE: optionalWithDefault('FOUNDRY_IQ_KNOWLEDGE_BASE', 'kh-knowledge-base'),
 
+  // ICA (IBM's internal Gen AI gateway — watsonx/Claude/GPT models over an
+  // OpenAI-compatible API, static bearer key, no IAM exchange). Used for the
+  // search_ica tool, which reaches IBM ibm.com-domain work context that the
+  // Alliance-tenant M365 integration cannot see. Optional: if unset,
+  // search_ica is not registered as a tool.
+  ICA_API_KEY: optional('ICA_API_KEY'),
+  ICA_ENDPOINT: optionalWithDefault('ICA_ENDPOINT', 'https://api.nextgen-beta.ica.ibm.com/ica/v1'),
+  ICA_MODEL_ID: optionalWithDefault('ICA_MODEL_ID', 'claude-opus-4-6'),
+
   // Admin / CRON
   ADMIN_PASSWORD: optional('ADMIN_PASSWORD'),
   CRON_SECRET: optional('CRON_SECRET'),

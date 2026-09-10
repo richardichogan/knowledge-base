@@ -24,6 +24,7 @@ import { buildLibrary, CONTENT_STORE } from '../routes/documents.js';
 import { GitHubClient } from '../integrations/github/githubClient.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
 import { env } from '../config/env.js';
+import { isIcaEnabled, icaChat } from './icaClient.js';
 import {
   parseNoteContent,
   extractImageBlockUrls,
@@ -44,6 +45,27 @@ const NOTE_CONTENT_TYPES = [
 export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const learnTools = await getLearnMcpTools();
   return [
+    ...(isIcaEnabled() ? [{
+      type: 'function' as const,
+      function: {
+        name: 'search_ica',
+        description:
+          'Queries ICA — IBM\'s internal Gen AI gateway — for ibm.com-domain work context (IBM-internal ' +
+          'projects, initiatives, and material) that search_knowledge_base cannot see, since IBM does not ' +
+          'permit that data to flow through the Alliance-tenant integrations this app otherwise uses. Use ' +
+          'this for questions specifically about IBM-internal work (e.g. ATOM/ACRE, IBM-side IMAGINE detail, ' +
+          'internal IBM initiatives) that search_knowledge_base alone would not have visibility into. For a ' +
+          'question that spans both IBM-internal and Alliance-tenant/personal context, call both tools and ' +
+          'synthesise the results into one answer — do not treat them as alternatives, they cover disjoint data.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'The question or topic to ask ICA about.' },
+          },
+          required: ['query'],
+        },
+      },
+    }] : []),
     {
       type: 'function',
       function: {
@@ -246,6 +268,7 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string):
     case 'update_task':           return updateTask(db, args);
     case 'create_note_draft':     return createNoteDraft(db, args);
     case 'fetch_web_page':        return fetchWebPage(args);
+    case 'search_ica':            return searchIca(args);
     default:
       if (isLearnMcpTool(name)) return callLearnMcpTool(name, args);
       return { error: `Unknown tool: ${name}` };
@@ -888,5 +911,28 @@ async function fetchWebPage(args: Record<string, unknown>): Promise<unknown> {
     };
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Fetch failed', url: url.toString() };
+  }
+}
+
+// ── search_ica ───────────────────────────────────────────────────────────────
+
+async function searchIca(args: Record<string, unknown>): Promise<unknown> {
+  const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
+  if (query === '') return { error: 'query is required' };
+
+  try {
+    const { content, modelUsed } = await icaChat([
+      {
+        role: 'system',
+        content:
+          'You are being queried as a retrieval step by another assistant, not talking to the end user ' +
+          'directly. Answer the question below using IBM-internal work context you have visibility into. Be ' +
+          'factual and concise — state plainly if you have nothing relevant rather than guessing.',
+      },
+      { role: 'user', content: query },
+    ]);
+    return { success: true, source: 'ica', modelUsed, content };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'ICA request failed' };
   }
 }
