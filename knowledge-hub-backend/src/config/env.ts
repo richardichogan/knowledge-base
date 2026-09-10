@@ -137,6 +137,7 @@ export const env = {
   // Alliance-tenant M365 integration cannot see. Optional: if unset,
   // search_ica is not registered as a tool.
   ICA_API_KEY: optional('ICA_API_KEY'),
+  ICA_CONSULTING_KEY: optional('ICA_CONSULTING_KEY'),
   ICA_ENDPOINT: optionalWithDefault('ICA_ENDPOINT', 'https://api.nextgen-beta.ica.ibm.com/ica/v1'),
   ICA_MODEL_ID: optionalWithDefault('ICA_MODEL_ID', 'claude-opus-4-6'),
 

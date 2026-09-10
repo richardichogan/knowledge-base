@@ -29,6 +29,17 @@ export function isIcaEnabled(): boolean {
   return Boolean(env.ICA_API_KEY);
 }
 
+/**
+ * True when the ICA "consulting"/developer key is configured — this is a
+ * separate key from ICA_API_KEY, scoped to the OpenWebUI-native surface
+ * (/assistants, /document-collections, /files) rather than the LiteLLM-proxy
+ * /chat/completions route the coding-agent key uses. Required for
+ * syncCollectionFiles().
+ */
+export function isIcaConsultingEnabled(): boolean {
+  return Boolean(env.ICA_CONSULTING_KEY);
+}
+
 async function fetchWithRetry(url: string, apiKey: string, body: Record<string, unknown>): Promise<Response> {
   const doFetch = () =>
     fetch(url, {
@@ -89,3 +100,85 @@ export async function icaChat(
   const data = (await res.json()) as IcaChatCompletionResponse;
   return { content: data.choices?.[0]?.message?.content ?? '', modelUsed: data.model ?? modelId };
 }
+
+// ── Document collections ─────────────────────────────────────────────────────
+// These use the separate "consulting"/developer key against the
+// OpenWebUI-native surface (not the LiteLLM /chat/completions proxy the
+// coding-agent key talks to) — confirmed working against the live gateway:
+// GET /document-collections/{id} lists a collection's files, and
+// GET /files/{id} returns each file's already-extracted plain-text content
+// (OCR'd/parsed server-side by ICA), so no separate parsing step is needed.
+
+export interface IcaCollectionFile {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  createdAt: number; // unix seconds
+  updatedAt: number; // unix seconds
+}
+
+export interface IcaFileContent {
+  id: string;
+  name: string;
+  content: string;
+  status: string;
+}
+
+async function icaConsultingGet(path: string): Promise<unknown> {
+  if (!isIcaConsultingEnabled()) throw new Error('ICA consulting key is not configured');
+
+  const doFetch = () =>
+    fetch(`${env.ICA_ENDPOINT}${path}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${env.ICA_CONSULTING_KEY!}` },
+      signal: AbortSignal.timeout(ICA_TIMEOUT_MS),
+    });
+
+  let res: Response;
+  try {
+    res = await doFetch();
+  } catch (err) {
+    throw new Error(`ICA network error: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  if (!res.ok && res.status >= 500) res = await doFetch(); // one retry on transient 5xx
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`ICA API error ${res.status}: ${text.slice(0, 500)}`);
+  }
+
+  return res.json();
+}
+
+/** Lists the files in an ICA document collection (by its collection/knowledge ID). */
+export async function listCollectionFiles(collectionId: string): Promise<IcaCollectionFile[]> {
+  const data = (await icaConsultingGet(`/document-collections/${collectionId}`)) as {
+    files?: { id: string; meta?: { name?: string; content_type?: string; size?: number }; created_at?: number; updated_at?: number }[];
+  };
+  return (data.files ?? []).map(f => ({
+    id: f.id,
+    name: f.meta?.name ?? f.id,
+    contentType: f.meta?.content_type ?? 'application/octet-stream',
+    size: f.meta?.size ?? 0,
+    createdAt: f.created_at ?? 0,
+    updatedAt: f.updated_at ?? 0,
+  }));
+}
+
+/** Fetches a single file's already-extracted text content from ICA. */
+export async function getFileContent(fileId: string): Promise<IcaFileContent> {
+  const data = (await icaConsultingGet(`/files/${fileId}`)) as {
+    id: string;
+    meta?: { name?: string };
+    data?: { status?: string; content?: string };
+  };
+  return {
+    id: data.id,
+    name: data.meta?.name ?? data.id,
+    content: data.data?.content ?? '',
+    status: data.data?.status ?? 'unknown',
+  };
+}
+

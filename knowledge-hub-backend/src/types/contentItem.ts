@@ -29,7 +29,8 @@ export type ContentSource =
   | 'gitlab-release'
   | 'gitlab-deployment'
   | 'note'
-  | 'discovered-article';
+  | 'discovered-article'
+  | 'ica-document';
 
 /**
  * Project context for timeline filtering.

@@ -17,6 +17,7 @@ import { syncGitLabDeployments } from '../integrations/gitlab/deploymentsSync.js
 import { syncCalendarEvents } from '../integrations/graph/calendarSync.js';
 import { syncTodoTasks } from '../integrations/graph/todoSync.js';
 import { syncGraphMail } from '../integrations/graph/graphMailSync.js';
+import { syncIcaCollections } from '../integrations/ica/icaCollectionSync.js';
 import { syncProjectDocs } from '../integrations/github/projectDocsSync.js';
 import { syncCfps } from '../services/cfpSyncService.js';
 import { syncAllNodes } from '../services/nodeService.js';
@@ -110,6 +111,7 @@ async function runTier1SyncInner(db: Pool): Promise<OrchestratorResult> {
     { name: 'graph-calendar',   sync: syncCalendarEvents },
     { name: 'graph-todo',       sync: syncTodoTasks },
     { name: 'graph-mail',       sync: syncGraphMail },
+    { name: 'ica-collections',  sync: syncIcaCollections },
     { name: 'project-docs',     sync: syncProjectDocs },
     { name: 'cfps',             sync: syncCfps },
   ];
