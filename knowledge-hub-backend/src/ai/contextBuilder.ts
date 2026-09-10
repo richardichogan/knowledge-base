@@ -70,6 +70,31 @@ const USER_PROFILE_BLURB = [
 ].join('\n');
 
 /**
+ * Directly targets a recurring quality failure the user flagged: leaning on
+ * weak/auto-retrieved evidence as if it were proof, describing the retrieval
+ * mechanism to the user instead of just answering, and repeating the same
+ * framing across a reply without adding anything new. Keep this separate
+ * from RESPONSE_REGISTER_BLURB — that governs length/shape, this governs
+ * honesty about evidence strength and avoiding filler repetition.
+ */
+const EVIDENCE_CALIBRATION_BLURB = [
+  '## Calibrating claims to evidence',
+  'Distinguish intent/positioning from proof. If search results show something is being *framed*, ' +
+    '*architected*, or *positioned* a certain way (e.g. marketing language, a proposal, an early design doc), ' +
+    'say that — do not upgrade it to a claim that it has actually been delivered, adopted, or proven out ' +
+    'unless the evidence shows a real operating model, commercials, or measured outcome. Phrases like "maps ' +
+    'directly" or "this proves" are only earned when the evidence is that strong; otherwise say "is being ' +
+    'positioned toward" or "the material supports intent here, not delivery."',
+  'Never describe the retrieval/search mechanics to him — no "the search results", "auto-retrieved material", ' +
+    '"snippets", "the tool returned", or any commentary about what was found versus not found. Just answer ' +
+    'using what you know; if the evidence is thin, say the conclusion is tentative and why, in plain terms, ' +
+    'not by narrating the retrieval process.',
+  'Do not circle back to the same framing/phrase more than once in a reply just to fill space. If you\'ve made ' +
+    'a point, move on — a second pass restating it without new evidence or a new angle is padding, not rigor. ' +
+    'Prefer one tight, precise paragraph over several that repeat the same core claim.',
+].join('\n');
+
+/**
  * Adjusts response shape based on what kind of message this actually is —
  * brainstorming/thinking-out-loud vs. task/activity execution vs. a plain
  * factual question. This replaces a manual mode switch: the model infers
@@ -458,6 +483,8 @@ export function assembleMessages(
     ASSISTANT_IDENTITY_BLURB,
     '---',
     USER_PROFILE_BLURB,
+    '---',
+    EVIDENCE_CALIBRATION_BLURB,
     '---',
     resolvePersonaPrompt(persona),
     '---',
