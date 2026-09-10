@@ -715,6 +715,23 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /**
+   * Extracts plain text from an uploaded Word/Excel/PowerPoint/PDF file.
+   * The file itself isn't persisted server-side — the caller (AIChatPage)
+   * forwards the returned text into the chat as message content, the same
+   * way an attached Markdown file's raw text is forwarded.
+   */
+  async extractDocumentText(file: File): Promise<ApiResponse<{ filename: string; text: string; truncated: boolean }>> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const r = await this.client.post<ApiResponse<{ filename: string; text: string; truncated: boolean }>>(
+      '/api/documents/extract',
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: IMAGE_UPLOAD_TIMEOUT_MS },
+    );
+    return r.data;
+  }
+
   // ─── Discover ─────────────────────────────────────────────────────────────
 
   async getDiscoverFeed(

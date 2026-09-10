@@ -700,30 +700,65 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-selecting the same file later
     if (!file) return;
-    if (!/\.(md|markdown)$/i.test(file.name)) {
-      appendMessage('assistant', '⚠️ Please attach a Markdown (.md) file — podcast notes, a newsletter draft, etc.');
+
+    if (/\.(md|markdown)$/i.test(file.name)) {
+      const text = (await file.text()).trim();
+      if (text === '') {
+        appendMessage('assistant', `⚠️ "${file.name}" looks empty — there's nothing to add.`);
+        return;
+      }
+      appendMessage('user', `📎 Uploaded ${file.name}`);
+      sendAttachedDocumentPrompt(file.name, text);
       return;
     }
-    const text = (await file.text()).trim();
-    if (text === '') {
-      appendMessage('assistant', `⚠️ "${file.name}" looks empty — there's nothing to add.`);
+
+    if (/\.(docx|xlsx|pptx|pdf)$/i.test(file.name)) {
+      appendMessage('user', `📎 Uploaded ${file.name}`);
+      try {
+        const res = await api.extractDocumentText(file);
+        if (!res.success) {
+          appendMessage('assistant', `⚠️ Couldn't read "${file.name}" — ${res.error?.message ?? 'extraction failed'}.`);
+          return;
+        }
+        const { text, truncated } = res.data;
+        sendAttachedDocumentPrompt(
+          file.name,
+          text,
+          truncated ? ' (the file is large — this is a truncated extract)' : '',
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        appendMessage('assistant', `⚠️ Couldn't read "${file.name}" — ${message}.`);
+      }
       return;
     }
-    appendMessage('user', `📎 Uploaded ${file.name}`);
-    // The AI's own create_note_draft / create_task tools do the real work here —
-    // no separate preview modal, this rides the same chat + tool-calling flow
-    // as every other message.
+
+    appendMessage(
+      'assistant',
+      '⚠️ Please attach a Markdown (.md), Word (.docx), Excel (.xlsx), PowerPoint (.pptx), or PDF file.',
+    );
+  }
+
+  /**
+   * Sends the extracted/raw text of an attached file to the AI as a chat
+   * message asking it to save the content as a note (and any implied tasks)
+   * — this rides the same chat + tool-calling flow as every other message,
+   * so Athena can also answer questions about the document immediately in
+   * this same turn without waiting for it to be indexed.
+   */
+  function sendAttachedDocumentPrompt(filename: string, text: string, extraNote = ''): void {
     const prompt = [
-      `I'm attaching a markdown file named "${file.name}" — likely podcast notes, a newsletter draft, or similar source material. Please:`,
+      `I'm attaching a file named "${filename}"${extraNote} — likely a document, spreadsheet, or slide deck. Please:`,
       '1. Save the full content to my Think library as a new note (use create_note_draft), choosing a sensible title and the best-fitting content type.',
       "2. If the content implies any concrete action items, create them as tasks (use create_task) — use your judgement, most notes won't need any.",
-      '3. Reply with a brief, conversational summary: what you titled/saved the note as, and any tasks you created (or say you created none). Do not repeat the raw file content back to me.',
+      '3. Reply with a brief, conversational summary: what you titled/saved the note as, and any tasks you created (or say you created none). Then answer any question I ask about it directly from the content below.',
       '',
-      `--- ${file.name} ---`,
+      `--- ${filename} ---`,
       text.slice(0, 12000),
     ].join('\n');
     chatMutation.mutate(prompt);
   }
+
 
   function handleNewChat(): void {
     setIsMobileSidebarOpen(false);
@@ -1169,7 +1204,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           <input
             ref={fileInputRef}
             type="file"
-            accept=".md,.markdown,text/markdown"
+            accept=".md,.markdown,text/markdown,.docx,.xlsx,.pptx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf"
             className="ai-file-input-hidden"
             onChange={(e) => { void handleFileSelected(e); }}
           />
@@ -1180,7 +1215,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               hasIconOnly
               size="sm"
               renderIcon={Attachment}
-              iconDescription="Attach a Markdown file"
+              iconDescription="Attach a document (Markdown, Word, Excel, PowerPoint, or PDF)"
               tooltipPosition="top"
               className="ai-attach-button ai-attach-button--inline"
               onClick={handleAttachClick}

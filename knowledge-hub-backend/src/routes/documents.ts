@@ -20,6 +20,7 @@ import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { loadConceptTags, invalidateConceptTagCache } from '../services/taxonomyService.js';
 import { FoundryClient } from '../ai/foundryClient.js';
+import { extractDocumentText } from '../integrations/github/documentExtractor.js';
 
 const router = Router();
 
@@ -617,6 +618,69 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
           path: filePath,
           title: title || filename.replace(/\.[^.]+$/, ''),
           message: `File uploaded to ${contentStoreRepo}/${filePath}. It will be indexed on the next sync.`,
+        },
+      };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+const EXTRACTED_TEXT_MAX_CHARS = 50_000;
+
+/**
+ * POST /api/documents/extract
+ * Body: multipart/form-data
+ *   file: Buffer (PDF, DOCX, PPTX, XLSX)
+ *
+ * Extracts plain text from an uploaded Word/Excel/PowerPoint/PDF file so the
+ * AI chat can reason over it directly in the same turn — the frontend
+ * forwards the returned text to the chat endpoint as message content, the
+ * same pattern already used for attached Markdown files. This does not
+ * persist the file itself; if the content is worth keeping, the chat
+ * prompt that follows asks Athena to save it via create_note_draft so it
+ * becomes a searchable note like any other.
+ */
+router.post('/extract', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const file = (req as any).file as { buffer: Buffer; originalname: string } | undefined;
+      if (!file || !file.buffer) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: { message: 'No file provided' },
+        });
+        return;
+      }
+
+      const filename = file.originalname || 'document';
+      const ext = filename.toLowerCase().split('.').pop() || '';
+
+      if (!['pdf', 'docx', 'pptx', 'xlsx'].includes(ext)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: { message: `Unsupported file type: .${ext}. Supported: PDF, DOCX, PPTX, XLSX` },
+        });
+        return;
+      }
+
+      const result = await extractDocumentText(file.buffer, filename);
+      if (!result.text.trim()) {
+        res.status(HTTP_STATUS.UNPROCESSABLE).json({
+          success: false,
+          error: { message: result.error || `Could not extract any text from "${filename}".` },
+        });
+        return;
+      }
+
+      const truncated = result.text.length > EXTRACTED_TEXT_MAX_CHARS;
+      const body: ApiSuccess<{ filename: string; text: string; truncated: boolean }> = {
+        success: true,
+        data: {
+          filename,
+          text: truncated ? result.text.slice(0, EXTRACTED_TEXT_MAX_CHARS) : result.text,
+          truncated,
         },
       };
       res.status(HTTP_STATUS.OK).json(body);
