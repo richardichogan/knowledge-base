@@ -11,7 +11,7 @@ import { getDb } from '../db/db.js';
 import { upsertContentItem } from '../db/queries.js';
 import { upsertTags } from '../db/tagHelpers.js';
 import { upsertNode } from '../services/nodeService.js';
-import { parseNoteContent } from '../utils/noteContent.js';
+import { parseNoteContent, blockContentSpans } from '../utils/noteContent.js';
 import { env } from '../config/env.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput } from '../types/index.js';
@@ -35,7 +35,7 @@ function extractNoteTitle(contentJson: string): string {
   for (const type of ['heading', 'paragraph']) {
     const block = blocks.find((b) => b.type === type);
     if (block) {
-      const text = (block.content ?? []).map((c) => c.text ?? '').join('').trim();
+      const text = blockContentSpans(block).map((c) => c.text ?? '').join('').trim();
       if (text) return text.slice(0, NOTE_TITLE_MAX_LENGTH);
     }
   }
@@ -45,7 +45,7 @@ function extractNoteTitle(contentJson: string): string {
 function extractNoteSummary(contentJson: string): string {
   const { blocks } = parseNoteContent(contentJson);
   return blocks
-    .flatMap((b) => b.content ?? [])
+    .flatMap((b) => blockContentSpans(b))
     .map((c) => c.text ?? '')
     .join(' ')
     .replace(/\s+/g, ' ')

@@ -10,8 +10,20 @@
 
 interface BlockContent { text?: string }
 interface BlockProps { url?: string }
-export interface Block { type?: string; content?: BlockContent[]; children?: Block[]; props?: BlockProps }
+export interface Block { type?: string; content?: BlockContent[] | unknown; children?: Block[]; props?: BlockProps }
 interface NoteContentWrapper { title?: string; contentType?: string; contentJson?: string }
+
+/**
+ * Most BlockNote blocks (paragraph, heading, list item, ...) store `content`
+ * as an array of inline text spans, but structural blocks (table, column
+ * list, etc.) store it as a non-array object instead — mapping over that
+ * unconditionally throws "content.map is not a function". Every caller that
+ * wants the inline text spans should go through this guard rather than
+ * assuming the array shape.
+ */
+export function blockContentSpans(block: Block): BlockContent[] {
+  return Array.isArray(block.content) ? (block.content as BlockContent[]) : [];
+}
 
 export function parseNoteContent(contentJson: string): { title: string | null; blocks: Block[] } {
   try {
@@ -78,7 +90,7 @@ export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<stri
         const analysis = visionByBlobId.get(blobIdFromUrl(block.props.url));
         lines.push(analysis ? `[Image: ${analysis}]` : '[Image: no analysis available]');
       } else {
-        const text = (block.content ?? []).map((c) => c.text ?? '').join('').trim();
+        const text = blockContentSpans(block).map((c) => c.text ?? '').join('').trim();
         if (text) lines.push(text);
       }
       if (Array.isArray(block.children)) walk(block.children);

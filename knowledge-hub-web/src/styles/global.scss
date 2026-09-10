@@ -3876,6 +3876,17 @@ input, textarea {
 .notes-export-anchor {
   position: relative;
   margin-right: auto;
+
+  // The export button sits at the far left of the top bar; the shared
+  // .kb-menu is right-aligned by default (fine for right-edge triggers like
+  // the card overflow menu), which here made the dropdown expand leftward
+  // and get clipped by notes-editor-centre's overflow: hidden — appearing
+  // to render behind the notes list panel. Left-align it instead so it
+  // opens within the editor panel's bounds.
+  .kb-menu {
+    left: 0;
+    right: auto;
+  }
 }
 
 .notes-export-link {
