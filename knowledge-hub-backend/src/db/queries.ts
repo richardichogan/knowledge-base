@@ -298,6 +298,26 @@ export async function getRagItems(
   return orResult.rows.map(rowToItem);
 }
 
+/**
+ * Fetches full content_items rows (including body) for a specific set of
+ * ids, in the given order — used by the Foundry IQ-backed RAG path, where
+ * Azure AI Search returns ranked document keys and we hydrate them from
+ * Postgres for the full text (needed for notes' embedded image analysis).
+ * Rows for ids that no longer exist are silently skipped.
+ */
+export async function getContentItemsByIds(db: Pool, ids: string[]): Promise<ContentItem[]> {
+  if (ids.length === 0) return [];
+  const result: QueryResult<ContentItemRow & { body: string }> = await db.query(
+    `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
+            url, project_context, metadata, tags
+     FROM content_items
+     WHERE id = ANY($1::uuid[])`,
+    [ids],
+  );
+  const byId = new Map(result.rows.map((row) => [row.id, rowToItem(row)]));
+  return ids.map((id) => byId.get(id)).filter((item): item is ContentItem => item !== undefined);
+}
+
 // ── Sync state ────────────────────────────────────────────────────────────────
 
 export async function getSyncState(

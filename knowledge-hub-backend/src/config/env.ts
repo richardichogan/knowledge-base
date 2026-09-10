@@ -123,6 +123,14 @@ export const env = {
   SMTP_PASS: optional('SMTP_PASS'),
   SMTP_FROM: optionalWithDefault('SMTP_FROM', 'newsletter@newsletter.themicrosoftcloudblog.com'),
 
+  // Foundry IQ (Azure AI Search agentic retrieval) — replaces Postgres FTS as
+  // the retrieval backend for search_knowledge_base. Optional: if unset,
+  // chatTools falls back to the Postgres full-text search path so local dev
+  // doesn't require a Search service.
+  FOUNDRY_IQ_SEARCH_ENDPOINT: optional('FOUNDRY_IQ_SEARCH_ENDPOINT'),
+  FOUNDRY_IQ_SEARCH_ADMIN_KEY: optional('FOUNDRY_IQ_SEARCH_ADMIN_KEY'),
+  FOUNDRY_IQ_KNOWLEDGE_BASE: optionalWithDefault('FOUNDRY_IQ_KNOWLEDGE_BASE', 'kh-knowledge-base'),
+
   // Admin / CRON
   ADMIN_PASSWORD: optional('ADMIN_PASSWORD'),
   CRON_SECRET: optional('CRON_SECRET'),

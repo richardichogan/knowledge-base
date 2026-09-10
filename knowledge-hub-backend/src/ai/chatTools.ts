@@ -16,7 +16,8 @@
 
 import type { Pool } from 'pg';
 import type { LlmToolDefinition } from './foundryClient.js';
-import { getRagItems } from '../db/queries.js';
+import { getRagItems, getContentItemsByIds } from '../db/queries.js';
+import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
 import { createNoteRecord } from '../routes/notes.js';
 import { rowToTask, type Task } from '../routes/tasks.js';
 import { buildLibrary, CONTENT_STORE } from '../routes/documents.js';
@@ -253,6 +254,26 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string):
 
 // ── search_knowledge_base ───────────────────────────────────────────────────
 
+/**
+ * Resolves the ranked item set for search_knowledge_base. Prefers Foundry IQ
+ * (Azure AI Search agentic retrieval — semantic/hybrid search, handles
+ * paraphrases the Postgres FTS path structurally cannot), falling back to
+ * the Postgres tsvector path (getRagItems) if Foundry IQ isn't configured or
+ * the request fails, so a Search outage degrades quality rather than
+ * breaking the tool outright.
+ */
+async function getKnowledgeBaseItems(db: Pool, query: string, limit: number) {
+  if (isFoundryIqEnabled()) {
+    try {
+      const ids = await retrieveContentItemIds(query, limit);
+      if (ids.length > 0) return getContentItemsByIds(db, ids);
+    } catch (err) {
+      console.error('Foundry IQ retrieval failed, falling back to Postgres FTS:', err);
+    }
+  }
+  return getRagItems(db, query, limit);
+}
+
 async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Promise<unknown> {
   const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
   if (query === '') return { error: 'query is required' };
@@ -261,7 +282,7 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
     ? Math.min(Math.trunc(rawLimit), AI_TOOL_SEARCH_MAX_LIMIT)
     : AI_TOOL_SEARCH_DEFAULT_LIMIT;
 
-  const items = await getRagItems(db, query, limit);
+  const items = await getKnowledgeBaseItems(db, query, limit);
   const results = await Promise.all(items.map(async (item) => ({
     source: item.source,
     title: item.title,
