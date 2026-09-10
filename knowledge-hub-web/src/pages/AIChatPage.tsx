@@ -12,7 +12,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
@@ -383,6 +383,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(() => {
     try {
       return window.localStorage.getItem(SESSION_STORAGE_KEY);
@@ -637,6 +638,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   function handleSend(e: React.FormEvent): void {
     e.preventDefault();
     submitMessage();
+  }
+
+  async function handleCopyMessage(content: string, index: number): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex((current) => (current === index ? null : current)), 1800);
+    } catch {
+      // Clipboard access denied/unavailable — silently ignore, nothing else we can do.
+    }
   }
 
   /** Shift+Enter submits from the textarea — Enter and Ctrl+Enter just insert a newline (native textarea behaviour). */
@@ -1119,7 +1130,22 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
                   dangerouslySetInnerHTML={{ __html: renderAssistantMessage(msg.content) }}
                 />
               )}
-              <div className="ai-bubble-time">{formatMessageTime(msg.timestamp)}</div>
+              <div className="ai-bubble-footer">
+                <div className="ai-bubble-time">{formatMessageTime(msg.timestamp)}</div>
+                {msg.role === 'assistant' && (
+                  <Button
+                    type="button"
+                    kind="ghost"
+                    hasIconOnly
+                    size="sm"
+                    renderIcon={copiedIndex === i ? Checkmark : Copy}
+                    iconDescription={copiedIndex === i ? 'Copied!' : 'Copy response'}
+                    tooltipPosition="top"
+                    className="ai-bubble-copy-button"
+                    onClick={() => { void handleCopyMessage(msg.content, i); }}
+                  />
+                )}
+              </div>
             </div>
           ))}
           {chatMutation.isPending && (

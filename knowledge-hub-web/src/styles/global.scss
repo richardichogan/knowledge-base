@@ -644,7 +644,25 @@ input, textarea {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.625rem;
   color: var(--cds-text-placeholder, #525252);
+}
+
+.ai-bubble-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   margin-top: 0.3rem;
+}
+
+.ai-bubble-copy-button.cds--btn.cds--btn--icon-only {
+  width: 1.5rem;
+  height: 1.5rem;
+  min-height: 1.5rem;
+
+  svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
 }
 
 .ai-bubble-text {
