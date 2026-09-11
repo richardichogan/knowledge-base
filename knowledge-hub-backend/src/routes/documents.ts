@@ -13,14 +13,27 @@
 
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'node:crypto';
+import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { GitHubClient } from '../integrations/github/githubClient.js';
 import { getDb } from '../db/db.js';
-import { HTTP_STATUS } from '../config/constants.js';
-import { ValidationError } from '../types/errors.js';
+import { env } from '../config/env.js';
+import { HTTP_STATUS, IMAGE_SAS_EXPIRY_YEARS, BLOB_UPLOAD_TIMEOUT_MS } from '../config/constants.js';
+import { ValidationError, BlobStorageError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { loadConceptTags, invalidateConceptTagCache } from '../services/taxonomyService.js';
 import { FoundryClient } from '../ai/foundryClient.js';
 import { extractDocumentText } from '../integrations/github/documentExtractor.js';
+import { upsertContentItem } from '../db/queries.js';
+import { indexContentItem } from '../ai/foundryIqIndexer.js';
+
+/** Blob container for uploaded user documents (docx/xlsx/pptx/pdf/md). */
+const KB_DOCUMENTS_CONTAINER = 'kb-documents';
+/** Sentinel `repo` value used for uploaded-document DocEntry rows so the
+ * existing repo/path-keyed library UI and /content endpoint can address them
+ * without a schema change — `path` holds the content_items.id instead of a
+ * GitHub path. */
+const UPLOAD_REPO_SENTINEL = 'kb-uploads';
 
 const router = Router();
 
@@ -241,7 +254,8 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
     try {
       const db = getDb();
       const result = await db.query<{
-        source: 'github-doc' | 'github-content-store';
+        id: string;
+        source: 'github-doc' | 'github-content-store' | 'user-upload';
         title: string;
         html_url: string | null;
         project_context: string | null;
@@ -249,6 +263,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
         body: string | null;
       }>(
         `SELECT
+           ci.id,
            ci.source,
            COALESCE(NULLIF(ci.title, ''), 'Untitled Document') AS title,
            ci.url AS html_url,
@@ -256,13 +271,33 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
            ci.metadata,
            ci.body
          FROM content_items ci
-         WHERE ci.source IN ('github-doc', 'github-content-store')
+         WHERE ci.source IN ('github-doc', 'github-content-store', 'user-upload')
          ORDER BY ci.updated_at DESC, ci.indexed_at DESC`,
       );
 
       const docsById = new Map<string, DocEntry>();
       for (const row of result.rows) {
         const metadata = row.metadata ?? {};
+
+        if (row.source === 'user-upload') {
+          const filename = typeof metadata['filename'] === 'string' ? metadata['filename'] : row.title;
+          const id = `${UPLOAD_REPO_SENTINEL}::${row.id}`;
+          if (docsById.has(id)) continue;
+          docsById.set(id, {
+            id,
+            title: row.title,
+            type: inferDocType(filename, false),
+            repo: UPLOAD_REPO_SENTINEL,
+            path: row.id,
+            sourceLabel: 'My Uploads',
+            htmlUrl: row.html_url ?? '',
+            size: Buffer.byteLength(row.body ?? '', 'utf8'),
+            tags: [],
+            taxonomyTagIds: [],
+          });
+          continue;
+        }
+
         const repo = typeof metadata['repo'] === 'string' ? metadata['repo'] : '';
         const path = typeof metadata['path'] === 'string' ? metadata['path'] : '';
         if (!repo || !path || !path.toLowerCase().endsWith('.md')) continue;
@@ -331,7 +366,36 @@ router.get('/content', (req: Request, res: Response, next: NextFunction): void =
       const repo = req.query['repo'] as string | undefined;
       const filePath = req.query['path'] as string | undefined;
 
-      if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo) || !filePath) {
+      if (!filePath) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: { message: 'Missing or invalid ?repo=owner/repo&path=file.md' },
+        });
+        return;
+      }
+
+      // Uploaded documents aren't GitHub-backed — content lives directly in
+      // content_items.body, keyed by content_items.id (see UPLOAD_REPO_SENTINEL).
+      if (repo === UPLOAD_REPO_SENTINEL) {
+        const db = getDb();
+        const result = await db.query<{ body: string | null; metadata: Record<string, unknown> | null }>(
+          `SELECT body, metadata FROM content_items WHERE id = $1 AND source = 'user-upload'`,
+          [filePath],
+        );
+        const row = result.rows[0];
+        if (!row) {
+          res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: { message: 'Uploaded document not found' } });
+          return;
+        }
+        const body: ApiSuccess<DocumentContent> = {
+          success: true,
+          data: { path: filePath, content: row.body ?? '', sha: filePath },
+        };
+        res.status(HTTP_STATUS.OK).json(body);
+        return;
+      }
+
+      if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({
           success: false,
           error: { message: 'Missing or invalid ?repo=owner/repo&path=file.md' },
@@ -556,21 +620,29 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
   })();
 });
 
+const EXTRACTED_TEXT_MAX_CHARS = 50_000;
+const UPLOAD_ALLOWED_EXTS = ['pdf', 'docx', 'pptx', 'xlsx', 'md', 'markdown', 'txt'];
+
 /**
  * POST /api/documents/upload
  * Body: multipart/form-data
- *   file: Buffer (PDF, DOCX, PPTX)
- *   title?: string (optional, defaults to filename stem)
+ *   file: Buffer (PDF, DOCX, PPTX, XLSX, MD, TXT)
  *
- * Commits the uploaded file to richardichogan/content-store via GitHub API.
- * Returns the file path and metadata.
+ * Extracts plain text, uploads the original file to the kb-documents blob
+ * container, and persists it as a `user-upload` content_items row so it's
+ * immediately visible in the Documents library and searchable via
+ * search_knowledge_base — going forward, not just for the current chat turn.
+ * Also best-effort pushes it straight to the Foundry IQ Search index so it's
+ * retrievable without waiting for the next backfill.
+ *
+ * This endpoint only stores and extracts — it never invokes the AI or any
+ * note/task-creation tool. Callers that want Athena to comment on the
+ * upload should send the extracted text as chat context separately.
  */
 router.post('/upload', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const file = (req as any).file as { buffer: Buffer; originalname: string } | undefined;
-      const title = (req.body as any)?.title as string | undefined;
-
+      const file = (req as any).file as { buffer: Buffer; originalname: string; mimetype?: string } | undefined;
       if (!file || !file.buffer) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({
           success: false,
@@ -582,106 +654,90 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
       const filename = file.originalname || 'document';
       const ext = filename.toLowerCase().split('.').pop() || '';
 
-      // Validate file type
-      if (!['pdf', 'docx', 'pptx'].includes(ext)) {
+      if (!UPLOAD_ALLOWED_EXTS.includes(ext)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({
           success: false,
-          error: { message: `Unsupported file type: .${ext}. Supported: PDF, DOCX, PPTX` },
+          error: { message: `Unsupported file type: .${ext}. Supported: PDF, DOCX, PPTX, XLSX, MD, TXT` },
         });
         return;
       }
 
-      const gh = new GitHubClient();
-      const contentStoreRepo = 'richardichogan/content-store';
-
-      // Generate path: documents/ + sanitized filename
-      const sanitized = filename.replace(/[^a-z0-9.-]/gi, '_').toLowerCase();
-      const filePath = `documents/${sanitized}`;
-
-      // Encode file as base64 for GitHub API
-      const base64Content = file.buffer.toString('base64');
-
-      // Commit via GitHub API (put contents)
-      const commitMessage = title
-        ? `Upload: ${title}`
-        : `Upload: ${sanitized}`;
-
-      await gh.put(`/repos/${contentStoreRepo}/contents/${filePath}`, {
-        message: commitMessage,
-        content: base64Content,
-        branch: 'main',
-      });
-
-      const body: ApiSuccess<{ path: string; title: string; message: string }> = {
-        success: true,
-        data: {
-          path: filePath,
-          title: title || filename.replace(/\.[^.]+$/, ''),
-          message: `File uploaded to ${contentStoreRepo}/${filePath}. It will be indexed on the next sync.`,
-        },
-      };
-      res.status(HTTP_STATUS.OK).json(body);
-    } catch (err) {
-      next(err);
-    }
-  })();
-});
-
-const EXTRACTED_TEXT_MAX_CHARS = 50_000;
-
-/**
- * POST /api/documents/extract
- * Body: multipart/form-data
- *   file: Buffer (PDF, DOCX, PPTX, XLSX)
- *
- * Extracts plain text from an uploaded Word/Excel/PowerPoint/PDF file so the
- * AI chat can reason over it directly in the same turn — the frontend
- * forwards the returned text to the chat endpoint as message content, the
- * same pattern already used for attached Markdown files. This does not
- * persist the file itself; if the content is worth keeping, the chat
- * prompt that follows asks Athena to save it via create_note_draft so it
- * becomes a searchable note like any other.
- */
-router.post('/extract', (req: Request, res: Response, next: NextFunction): void => {
-  void (async (): Promise<void> => {
-    try {
-      const file = (req as any).file as { buffer: Buffer; originalname: string } | undefined;
-      if (!file || !file.buffer) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({
-          success: false,
-          error: { message: 'No file provided' },
-        });
-        return;
-      }
-
-      const filename = file.originalname || 'document';
-      const ext = filename.toLowerCase().split('.').pop() || '';
-
-      if (!['pdf', 'docx', 'pptx', 'xlsx'].includes(ext)) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({
-          success: false,
-          error: { message: `Unsupported file type: .${ext}. Supported: PDF, DOCX, PPTX, XLSX` },
-        });
-        return;
-      }
-
-      const result = await extractDocumentText(file.buffer, filename);
-      if (!result.text.trim()) {
+      const extraction = await extractDocumentText(file.buffer, filename);
+      if (!extraction.text.trim()) {
         res.status(HTTP_STATUS.UNPROCESSABLE).json({
           success: false,
-          error: { message: result.error || `Could not extract any text from "${filename}".` },
+          error: { message: extraction.error || `Could not extract any text from "${filename}".` },
         });
         return;
       }
+      const truncated = extraction.text.length > EXTRACTED_TEXT_MAX_CHARS;
+      const text = truncated ? extraction.text.slice(0, EXTRACTED_TEXT_MAX_CHARS) : extraction.text;
 
-      const truncated = result.text.length > EXTRACTED_TEXT_MAX_CHARS;
-      const body: ApiSuccess<{ filename: string; text: string; truncated: boolean }> = {
+      // Upload the original file to blob storage (same pattern as images.ts).
+      const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
+      const accountKey = env.AZURE_STORAGE_ACCOUNT_KEY;
+      if (accountName === undefined || accountKey === undefined) {
+        throw new BlobStorageError('config', 'AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY must be set');
+      }
+      const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
+      const service = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, sharedKeyCredential);
+      const container = service.getContainerClient(KB_DOCUMENTS_CONTAINER);
+      await container.createIfNotExists();
+
+      const blobId = randomUUID();
+      const blobName = `${blobId}-${filename.replace(/[^a-z0-9.-]/gi, '_')}`;
+      const blockBlob = container.getBlockBlobClient(blobName);
+      const uploadAbort = AbortSignal.timeout(BLOB_UPLOAD_TIMEOUT_MS);
+      await blockBlob.uploadData(file.buffer, {
+        blobHTTPHeaders: { blobContentType: file.mimetype || 'application/octet-stream' },
+        abortSignal: uploadAbort,
+      });
+
+      const expiresOn = new Date();
+      expiresOn.setFullYear(expiresOn.getFullYear() + IMAGE_SAS_EXPIRY_YEARS);
+      const sasToken = generateBlobSASQueryParameters(
+        { containerName: KB_DOCUMENTS_CONTAINER, blobName, permissions: BlobSASPermissions.parse('r'), expiresOn },
+        sharedKeyCredential,
+      ).toString();
+      const blobUrl = `${blockBlob.url}?${sasToken}`;
+
+      const title = filename.replace(/\.[^.]+$/, '');
+      const db = getDb();
+      const { id: contentItemId } = await upsertContentItem(db, {
+        source: 'user-upload',
+        sourceId: blobId,
+        title,
+        summary: text.slice(0, 500),
+        body: text,
+        publishedAt: new Date().toISOString(),
+        url: blobUrl,
+        projectContext: 'personal',
+        metadata: { filename, blobPath: blobName, contentType: file.mimetype ?? '', sizeBytes: file.buffer.length },
+        tags: [],
+      });
+
+      // Best-effort: push straight into the Foundry IQ Search index so this
+      // is searchable immediately rather than waiting on the next backfill.
+      void indexContentItem({
+        id: contentItemId,
+        source: 'user-upload',
+        sourceId: blobId,
+        title,
+        summary: text.slice(0, 500),
+        body: text,
+        publishedAt: new Date().toISOString(),
+        indexedAt: new Date().toISOString(),
+        url: blobUrl,
+        projectContext: 'personal',
+        metadata: {},
+        tags: [],
+      }).catch((err: unknown) => {
+        console.error('[documents] Foundry IQ index push failed for upload', err instanceof Error ? err.message : err);
+      });
+
+      const body: ApiSuccess<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string }> = {
         success: true,
-        data: {
-          filename,
-          text: truncated ? result.text.slice(0, EXTRACTED_TEXT_MAX_CHARS) : result.text,
-          truncated,
-        },
+        data: { contentItemId, filename, text, truncated, blobUrl },
       };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {

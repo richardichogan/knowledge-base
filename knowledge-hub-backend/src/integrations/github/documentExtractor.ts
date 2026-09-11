@@ -217,6 +217,10 @@ export async function extractDocumentText(
       return extractPptxText(buffer);
     case 'xlsx':
       return extractXlsxText(buffer);
+    case 'md':
+    case 'markdown':
+    case 'txt':
+      return { text: buffer.toString('utf8'), error: undefined };
     default:
       return {
         text: '',

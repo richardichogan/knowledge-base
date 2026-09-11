@@ -30,7 +30,8 @@ export type ContentSource =
   | 'gitlab-deployment'
   | 'note'
   | 'discovered-article'
-  | 'ica-document';
+  | 'ica-document'
+  | 'user-upload';
 
 /**
  * Project context for timeline filtering.

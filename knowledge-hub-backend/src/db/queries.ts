@@ -20,6 +20,7 @@ const TAG_SUMMARY_CHARS = 2000;
 const SOURCE_RANK_WEIGHT_SQL = `
   CASE source
     WHEN 'note' THEN 3.0
+    WHEN 'user-upload' THEN 3.0
     WHEN 'cms-blog' THEN 2.5
     WHEN 'cms-newsletter' THEN 2.5
     WHEN 'cms-podcast-show-notes' THEN 2.5

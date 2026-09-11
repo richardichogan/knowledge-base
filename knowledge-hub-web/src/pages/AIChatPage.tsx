@@ -399,6 +399,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const [persona, setPersona] = useState<AthenaPersona>('general');
   const [isExporting, setIsExporting] = useState(false);
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{ filename: string; percent: number } | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceOutputOn, setVoiceOutputOn] = useState(false);
@@ -701,57 +702,47 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     e.target.value = ''; // allow re-selecting the same file later
     if (!file) return;
 
-    if (/\.(md|markdown)$/i.test(file.name)) {
-      const text = (await file.text()).trim();
-      if (text === '') {
-        appendMessage('assistant', `⚠️ "${file.name}" looks empty — there's nothing to add.`);
+    if (!/\.(md|markdown|txt|docx|xlsx|pptx|pdf)$/i.test(file.name)) {
+      appendMessage(
+        'assistant',
+        '⚠️ Please attach a Markdown (.md), text (.txt), Word (.docx), Excel (.xlsx), PowerPoint (.pptx), or PDF file.',
+      );
+      return;
+    }
+
+    setUploadProgress({ filename: file.name, percent: 0 });
+    try {
+      const res = await api.uploadDocument(file, (percent) => {
+        setUploadProgress({ filename: file.name, percent });
+      });
+      if (!res.success) {
+        appendMessage('assistant', `⚠️ Couldn't upload "${file.name}" — ${res.error?.message ?? 'upload failed'}.`);
         return;
       }
-      appendMessage('user', `📎 Uploaded ${file.name}`);
-      sendAttachedDocumentPrompt(file.name, text);
-      return;
+      const { text, truncated } = res.data;
+      appendMessage('user', `📎 Uploaded ${file.name} — stored in your Documents library.`);
+      sendAttachedDocumentPrompt(file.name, text, truncated ? ' (the file is large — this is a truncated extract)' : '');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      appendMessage('assistant', `⚠️ Couldn't upload "${file.name}" — ${message}.`);
+    } finally {
+      setUploadProgress(null);
     }
-
-    if (/\.(docx|xlsx|pptx|pdf)$/i.test(file.name)) {
-      appendMessage('user', `📎 Uploaded ${file.name}`);
-      try {
-        const res = await api.extractDocumentText(file);
-        if (!res.success) {
-          appendMessage('assistant', `⚠️ Couldn't read "${file.name}" — ${res.error?.message ?? 'extraction failed'}.`);
-          return;
-        }
-        const { text, truncated } = res.data;
-        sendAttachedDocumentPrompt(
-          file.name,
-          text,
-          truncated ? ' (the file is large — this is a truncated extract)' : '',
-        );
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        appendMessage('assistant', `⚠️ Couldn't read "${file.name}" — ${message}.`);
-      }
-      return;
-    }
-
-    appendMessage(
-      'assistant',
-      '⚠️ Please attach a Markdown (.md), Word (.docx), Excel (.xlsx), PowerPoint (.pptx), or PDF file.',
-    );
   }
 
   /**
-   * Sends the extracted/raw text of an attached file to the AI as a chat
-   * message asking it to save the content as a note (and any implied tasks)
-   * — this rides the same chat + tool-calling flow as every other message,
-   * so Athena can also answer questions about the document immediately in
-   * this same turn without waiting for it to be indexed.
+   * Adds the extracted text of an uploaded (and now persisted) file as
+   * immediate chat context and asks Athena for a brief overview only —
+   * per explicit instruction, Athena must NOT create notes or tasks from an
+   * upload unless the user separately, explicitly asks it to. The document
+   * is already stored/searchable server-side, so no "save this" step is
+   * needed here at all.
    */
   function sendAttachedDocumentPrompt(filename: string, text: string, extraNote = ''): void {
     const prompt = [
-      `I'm attaching a file named "${filename}"${extraNote} — likely a document, spreadsheet, or slide deck. Please:`,
-      '1. Save the full content to my Think library as a new note (use create_note_draft), choosing a sensible title and the best-fitting content type.',
-      "2. If the content implies any concrete action items, create them as tasks (use create_task) — use your judgement, most notes won't need any.",
-      '3. Reply with a brief, conversational summary: what you titled/saved the note as, and any tasks you created (or say you created none). Then answer any question I ask about it directly from the content below.',
+      `I've uploaded a file named "${filename}"${extraNote}. It's already been stored in my Documents library — you don't need to save or file it anywhere.`,
+      "Just give me a brief overview of what's in it, then answer any question I ask about it directly from the content below.",
+      'Do not create a note or a task from this unless I explicitly ask you to.',
       '',
       `--- ${filename} ---`,
       text.slice(0, 12000),
@@ -1200,11 +1191,22 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           <div ref={bottomRef} />
         </div>
 
+        {uploadProgress && (
+          <div className="ai-upload-progress" role="status">
+            <div className="ai-upload-progress-label">
+              Uploading {uploadProgress.filename}… {uploadProgress.percent}%
+            </div>
+            <div className="ai-upload-progress-track">
+              <div className="ai-upload-progress-fill" style={{ width: `${uploadProgress.percent}%` }} />
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSend} className="ai-input-row">
           <input
             ref={fileInputRef}
             type="file"
-            accept=".md,.markdown,text/markdown,.docx,.xlsx,.pptx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf"
+            accept=".md,.markdown,.txt,text/markdown,text/plain,.docx,.xlsx,.pptx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf"
             className="ai-file-input-hidden"
             onChange={(e) => { void handleFileSelected(e); }}
           />

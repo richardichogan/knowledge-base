@@ -323,6 +323,10 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
     // a 300-char summary and had no way to distinguish "I have the real
     // document content" from "I found a repo commit that mentions documents".
     ...(item.source === 'ica-document' && { content: item.body }),
+    // For user-upload items, item.body is the extracted plain-text content
+    // of the file the user attached in chat (docx/xlsx/pptx/pdf/md) — hand
+    // over the real content, not just a truncated summary.
+    ...(item.source === 'user-upload' && { content: item.body }),
     publishedAt: item.publishedAt,
     // For PRs/issues/MRs/pipelines/deployments this is when the item was
     // created, not when it was last worked on — metadata.updatedAt (surfaced

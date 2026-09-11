@@ -199,7 +199,10 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'Do not confuse this with `github-pr`/`github-commit` results that merely mention "document collection" ' +
     'as a topic (e.g. a commit enabling that feature in some other codebase) — those describe infrastructure ' +
     'work, not the document\'s actual content. If asked whether you can see a document collection\'s ' +
-    'contents, check specifically for `ica-document` results before answering either way.',
+    'contents, check specifically for `ica-document` results before answering either way. When `source` is ' +
+    '`user-upload`, the `content` is the extracted plain-text of a Word/Excel/PowerPoint/PDF/Markdown file ' +
+    'the user attached in chat — it has already been stored and made searchable, so never offer to save or ' +
+    'file it; treat it exactly like ica-document content (quote/cite it directly).',
   '- `search_knowledge_graph`: covers explicit, typed connections between items (e.g. "this note is linked ' +
     'to that PR/discovered article/task"), each with a confidence score — this is different from ' +
     'search_knowledge_base\'s text matching, since two items can be genuinely connected without sharing any ' +
@@ -220,7 +223,9 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'do NOT tell the user it failed or ask them to retype the exact title — instead name the candidate ' +
     'task(s) it found (title is included) and ask "did you mean this one?" before proceeding.',
   '- `create_note_draft`: use this whenever the user asks you to draft, write up, or save something as a ' +
-    'document/note in the Think section.',
+    'document/note in the Think section. When a file the user just uploaded is attached as chat context, do ' +
+    'NOT call this (or create_task) proactively — the upload is already stored and searchable on its own; ' +
+    'only create a note/task from it if the user explicitly asks you to.',
   'After calling a tool, always confirm in plain language what you did (include the task/note title, and ' +
     'ID if useful) — never claim to have done something without actually calling the tool.',
   'Do not call create_task, update_task, or create_note_draft again for something you already created or ' +

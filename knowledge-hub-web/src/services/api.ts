@@ -716,19 +716,28 @@ export class KnowledgeHubApi {
   }
 
   /**
-   * Extracts plain text from an uploaded Word/Excel/PowerPoint/PDF file.
-   * The file itself isn't persisted server-side — the caller (AIChatPage)
-   * forwards the returned text into the chat as message content, the same
-   * way an attached Markdown file's raw text is forwarded.
+   * Uploads a Word/Excel/PowerPoint/PDF/Markdown/text file: extracts plain
+   * text, stores the original file in Azure Blob Storage, and persists it as
+   * a searchable `user-upload` content item (visible in the Documents
+   * library). Returns the extracted text too, so the caller can inject it as
+   * immediate chat context without a second round trip.
    */
-  async extractDocumentText(file: File): Promise<ApiResponse<{ filename: string; text: string; truncated: boolean }>> {
+  async uploadDocument(
+    file: File,
+    onProgress?: (percent: number) => void,
+  ): Promise<ApiResponse<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string }>> {
     const formData = new FormData();
     formData.append('file', file);
-    const r = await this.client.post<ApiResponse<{ filename: string; text: string; truncated: boolean }>>(
-      '/api/documents/extract',
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: IMAGE_UPLOAD_TIMEOUT_MS },
-    );
+    const r = await this.client.post<
+      ApiResponse<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string }>
+    >('/api/documents/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: IMAGE_UPLOAD_TIMEOUT_MS,
+      onUploadProgress: (evt) => {
+        if (!onProgress || !evt.total) return;
+        onProgress(Math.round((evt.loaded / evt.total) * 100));
+      },
+    });
     return r.data;
   }
 

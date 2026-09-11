@@ -56,7 +56,6 @@ export function createApp(): express.Application {
   // Document uploads — multipart/form-data for PDF/DOCX/PPTX/XLSX
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
   app.use('/api/documents/upload', upload.single('file'));
-  app.use('/api/documents/extract', upload.single('file'));
   app.use(express.json({ limit: '1mb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
