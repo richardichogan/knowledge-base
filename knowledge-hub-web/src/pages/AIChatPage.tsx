@@ -15,6 +15,7 @@ import {
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
+import { createNote } from '../notes/noteStorage';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
@@ -74,6 +75,35 @@ function blobToBase64(blob: Blob): Promise<string> {
     };
     reader.onerror = () => reject(reader.error as Error);
     reader.readAsDataURL(blob);
+  });
+}
+
+interface NoteBlock {
+  type: 'heading' | 'paragraph';
+  props?: { level: number };
+  content: Array<{ type: 'text'; text: string; styles: Record<string, never> }>;
+}
+
+/**
+ * Splits raw markdown text into simple BlockNote paragraph/heading blocks —
+ * good enough for an imported document (not a full markdown renderer).
+ * Mirrors the backend's textToBlocks() used by create_note_draft, so
+ * uploaded .md files land in the Think editor exactly like an AI-drafted
+ * note would.
+ */
+function markdownToNoteBlocks(text: string): NoteBlock[] {
+  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p !== '');
+  return paragraphs.map((p) => {
+    const headingMatch = /^(#{1,3})\s+(.*)$/.exec(p);
+    if (headingMatch) {
+      const hashes = headingMatch[1] ?? '#';
+      return {
+        type: 'heading' as const,
+        props: { level: hashes.length },
+        content: [{ type: 'text' as const, text: headingMatch[2] ?? '', styles: {} }],
+      };
+    }
+    return { type: 'paragraph' as const, content: [{ type: 'text' as const, text: p, styles: {} }] };
   });
 }
 
@@ -702,7 +732,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     e.target.value = ''; // allow re-selecting the same file later
     if (!file) return;
 
-    if (!/\.(md|markdown|txt|docx|xlsx|pptx|pdf)$/i.test(file.name)) {
+    if (/\.(md|markdown)$/i.test(file.name)) {
+      await handleMarkdownUpload(file);
+      return;
+    }
+
+    if (!/\.(txt|docx|xlsx|pptx|pdf)$/i.test(file.name)) {
       appendMessage(
         'assistant',
         '⚠️ Please attach a Markdown (.md), text (.txt), Word (.docx), Excel (.xlsx), PowerPoint (.pptx), or PDF file.',
@@ -721,7 +756,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       }
       const { text, truncated } = res.data;
       appendMessage('user', `📎 Uploaded ${file.name} — stored in your Documents library.`);
-      sendAttachedDocumentPrompt(file.name, text, truncated ? ' (the file is large — this is a truncated extract)' : '');
+      sendAttachedDocumentPrompt(
+        file.name,
+        text,
+        'Documents library',
+        truncated ? ' (the file is large — this is a truncated extract)' : '',
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       appendMessage('assistant', `⚠️ Couldn't upload "${file.name}" — ${message}.`);
@@ -731,16 +771,51 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   }
 
   /**
-   * Adds the extracted text of an uploaded (and now persisted) file as
-   * immediate chat context and asks Athena for a brief overview only —
-   * per explicit instruction, Athena must NOT create notes or tasks from an
-   * upload unless the user separately, explicitly asks it to. The document
-   * is already stored/searchable server-side, so no "save this" step is
-   * needed here at all.
+   * Markdown files go to Think (as a note), not the Documents library — Think
+   * is a genuinely good fit for markdown (it's already the note format), and
+   * this is a deterministic, filetype-based routing rule the user asked for
+   * explicitly, not a judgement call Athena makes per upload.
    */
-  function sendAttachedDocumentPrompt(filename: string, text: string, extraNote = ''): void {
+  async function handleMarkdownUpload(file: File): Promise<void> {
+    setUploadProgress({ filename: file.name, percent: 0 });
+    try {
+      const text = (await file.text()).trim();
+      if (text === '') {
+        appendMessage('assistant', `⚠️ "${file.name}" looks empty — there's nothing to add.`);
+        return;
+      }
+      setUploadProgress({ filename: file.name, percent: 60 });
+      const title = file.name.replace(/\.(md|markdown)$/i, '');
+      const note = await createNote({
+        title,
+        contentType: 'note',
+        contentJson: JSON.stringify(markdownToNoteBlocks(text)),
+      });
+      setUploadProgress({ filename: file.name, percent: 100 });
+      if (!note) {
+        appendMessage('assistant', `⚠️ Couldn't save "${file.name}" to Think.`);
+        return;
+      }
+      appendMessage('user', `📎 Uploaded ${file.name} — saved to Think as a note.`);
+      sendAttachedDocumentPrompt(file.name, text, 'Think');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      appendMessage('assistant', `⚠️ Couldn't save "${file.name}" to Think — ${message}.`);
+    } finally {
+      setUploadProgress(null);
+    }
+  }
+
+  /**
+   * Adds the (now persisted) content of an uploaded file as immediate chat
+   * context and asks Athena for a brief overview only — per explicit
+   * instruction, Athena must NOT create notes or tasks from an upload unless
+   * the user separately, explicitly asks it to. The file is already
+   * stored/searchable server-side, so no "save this" step is needed here.
+   */
+  function sendAttachedDocumentPrompt(filename: string, text: string, storedIn: string, extraNote = ''): void {
     const prompt = [
-      `I've uploaded a file named "${filename}"${extraNote}. It's already been stored in my Documents library — you don't need to save or file it anywhere.`,
+      `I've uploaded a file named "${filename}"${extraNote}. It's already been stored in ${storedIn} — you don't need to save or file it anywhere.`,
       "Just give me a brief overview of what's in it, then answer any question I ask about it directly from the content below.",
       'Do not create a note or a task from this unless I explicitly ask you to.',
       '',
