@@ -28,6 +28,7 @@ import {
   Portfolio,
   Idea,
   Book,
+  Blog,
   Tag,
   Folder,
   Flash,
@@ -57,6 +58,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/my-work',  label: 'My Work',  icon: Portfolio },
   { path: '/think',    label: 'Think',    icon: Idea },
   { path: '/library',  label: 'Library',  icon: Book },
+  { path: '/blog-post', label: 'Blog Post', icon: Blog },
 ];
 
 export const AppShell: React.FC = () => {

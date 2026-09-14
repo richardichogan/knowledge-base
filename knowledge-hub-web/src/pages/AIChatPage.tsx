@@ -12,7 +12,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy, Blog } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { renderMarkdown } from '../utils/markdown';
 import { createNote } from '../notes/noteStorage';
@@ -31,6 +31,15 @@ interface AIChatPageProps {
    * "what is this?" or "summarise this" make sense without re-explaining.
    */
   pageContext?: AthenaPageContext | undefined;
+  /**
+   * Persona this page opens into by default (and resets to on "New chat"),
+   * instead of "general". Used by dedicated persona pages like /blog-post.
+   * The user can still switch personas via the switcher — this only sets
+   * the starting point and its own separate chat history.
+   */
+  initialPersona?: AthenaPersona;
+  /** Overrides the "Athena" page-header title (page-root layout only). */
+  title?: string;
 }
 
 // Azure Speech STT reliably handles PCM WAV only, so we capture raw 16kHz mono
@@ -389,6 +398,7 @@ function handleCodeCopyClick(e: React.MouseEvent<HTMLElement>): void {
 // own storage key so they no longer show the same conversation.
 const SESSION_STORAGE_KEY_STANDALONE = 'kh-athena-session-id-standalone';
 const SESSION_STORAGE_KEY_WIDGET = 'kh-athena-session-id-widget';
+const SESSION_STORAGE_KEY_PAGE = 'kh-athena-session-id-page';
 
 // Mobile breakpoint shared with the CSS in global.scss (.kh-chat-sidebar,
 // .ai-float-panel mobile rules) — keep these in sync.
@@ -407,8 +417,12 @@ function useIsMobile(): boolean {
   return isMobile;
 }
 
-export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false, pageContext }) => {
-  const SESSION_STORAGE_KEY = standalone ? SESSION_STORAGE_KEY_STANDALONE : SESSION_STORAGE_KEY_WIDGET;
+export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false, pageContext, initialPersona, title }) => {
+  const SESSION_STORAGE_KEY = standalone
+    ? SESSION_STORAGE_KEY_STANDALONE
+    : compact
+      ? SESSION_STORAGE_KEY_WIDGET
+      : `${SESSION_STORAGE_KEY_PAGE}-${initialPersona ?? 'general'}`;
   const isMobile = useIsMobile();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
@@ -426,7 +440,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
   const [input, setInput] = useState('');
-  const [persona, setPersona] = useState<AthenaPersona>('general');
+  const [persona, setPersona] = useState<AthenaPersona>(initialPersona ?? 'general');
   const [isExporting, setIsExporting] = useState(false);
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
   const [uploadProgress, setUploadProgress] = useState<{ filename: string; percent: number } | null>(null);
@@ -831,7 +845,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
-    setPersona('general');
+    setPersona(initialPersona ?? 'general');
     try {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
     } catch {
@@ -994,6 +1008,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         <Compass className="kh-persona-switch__icon" />
         <span className="kh-persona-switch__label">Copilot Coach</span>
       </button>
+      <button
+        type="button"
+        className={`kh-persona-switch__btn${persona === 'blog_post' ? ' kh-persona-switch__btn--active' : ''}`}
+        onClick={() => handlePersonaChange('blog_post')}
+        title="Blog Post — produces a full CMS-ready package for The Microsoft Cloud Blog"
+      >
+        <Blog className="kh-persona-switch__icon" />
+        <span className="kh-persona-switch__label">Blog Post</span>
+      </button>
     </div>
   );
 
@@ -1146,7 +1169,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
-            <h1 className="page-title">Athena</h1>
+            <h1 className="page-title">{title ?? 'Athena'}</h1>
           </div>
         </div>
       )}
