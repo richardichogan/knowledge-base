@@ -667,14 +667,14 @@ input, textarea {
 
 .ai-bubble-text {
   white-space: pre-wrap;
-  font-size: 0.9375rem;
+  font-size: 1.0625rem;
 }
 
 // Markdown formatting inside AI assistant replies — compact variant of
 // .docs-viewer__content, tuned for narrow chat bubbles instead of full pages.
 .ai-bubble-text--md {
   white-space: normal;
-  font-size: 0.9375rem;
+  font-size: 1.0625rem;
   line-height: 1.55;
 
   > *:first-child { margin-top: 0; }
