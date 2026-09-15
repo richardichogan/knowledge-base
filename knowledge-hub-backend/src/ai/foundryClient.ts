@@ -91,7 +91,7 @@ export class FoundryClient {
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
     maxTokens = AI_DEFAULT_MAX_TOKENS,
-  ): Promise<{ content: string | null; toolCalls: LlmToolCall[] }> {
+  ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
     const data = await this.request(model, messages, tools, maxTokens);
     const message = data.choices[0]?.message;
 
@@ -99,7 +99,11 @@ export class FoundryClient {
       throw new AiError('Empty response from AI model');
     }
 
-    return { content: message.content ?? null, toolCalls: message.tool_calls ?? [] };
+    return {
+      content: message.content ?? null,
+      toolCalls: message.tool_calls ?? [],
+      finishReason: data.choices[0]?.finish_reason,
+    };
   }
 
   /**

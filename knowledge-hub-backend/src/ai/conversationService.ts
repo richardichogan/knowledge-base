@@ -3,7 +3,7 @@ import { getFoundryClient } from './foundryClient.js';
 import type { LlmMessage } from './foundryClient.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
-import { AI_MAX_TOOL_ITERATIONS } from '../config/constants.js';
+import { AI_MAX_TOOL_ITERATIONS, AI_DEFAULT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel } from '../types/aiContext.js';
 
@@ -29,12 +29,24 @@ export async function handleConversationTurn(
 
   const client = getFoundryClient();
   const tools = await getToolDefinitions();
+  const maxTokens = model === 'gpt-5.5' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
 
   for (let i = 0; i < AI_MAX_TOOL_ITERATIONS; i++) {
-    const response = await client.chatWithTools(model, messages, tools);
+    const response = await client.chatWithTools(model, messages, tools, maxTokens);
 
     if (response.toolCalls.length === 0) {
-      return response.content ?? '';
+      if (response.content && response.content.trim() !== '') {
+        return response.content;
+      }
+      // A reasoning model (or a content filter) can return an empty visible
+      // reply — surfacing that as a blank chat bubble looks like the app is
+      // broken. Tell the user something concrete instead, and log why.
+      console.warn(
+        `[ai] Empty completion content from ${model} (finish_reason=${response.finishReason ?? 'unknown'})`,
+      );
+      return response.finishReason === 'length'
+        ? "That response got cut off before it produced any visible text — could you try a shorter or more focused request?"
+        : "I didn't get a usable response back from the AI model that time — could you try again?";
     }
 
     messages.push({ role: 'assistant', content: response.content, tool_calls: response.toolCalls });

@@ -155,6 +155,15 @@ export const BLOB_UPLOAD_TIMEOUT_MS = 30_000;
 
 /** Default max tokens for AI completion requests. */
 export const AI_DEFAULT_MAX_TOKENS = 2_000;
+/**
+ * Max tokens for reasoning-family models (gpt-5.5). These models spend part of
+ * the completion-token budget on hidden reasoning tokens before producing any
+ * visible content, so the plain AI_DEFAULT_MAX_TOKENS budget can be exhausted
+ * entirely by reasoning on a long/complex turn (e.g. drafting several answers
+ * against a large uploaded document), leaving an empty visible reply with
+ * finish_reason "length" — this gives it enough headroom for both.
+ */
+export const AI_REASONING_MODEL_MAX_TOKENS = 8_000;
 /** Max round-trips of tool calls per chat turn before giving up (prevents infinite loops). */
 export const AI_MAX_TOOL_ITERATIONS = 6;
 /** Max search_knowledge_base results the AI chat tool can request in one call. */
