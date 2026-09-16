@@ -4,6 +4,19 @@ import { getDb } from '../db/db.js';
 import { HTTP_STATUS, DISCOVER_RECENCY_HALF_LIFE_DAYS } from '../config/constants.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
+import { SOURCE_AUTHORITY_WEIGHTS, ARTICLE_TYPE_WEIGHTS } from '../integrations/cms/articleScoringPrompt.js';
+
+/**
+ * Builds a SQL CASE expression mapping a metadata text column's value to its weight, generated
+ * directly from the same TS weight map used elsewhere — so tuning a weight constant takes effect
+ * immediately in ranking, with no backfill/rescore step required to keep SQL and TS in sync.
+ */
+function buildWeightCaseExpr(column: string, weights: Record<string, number>, fallback = 1): string {
+  const whens = Object.entries(weights)
+    .map(([key, value]) => `WHEN '${key.replace(/'/g, "''")}' THEN ${value}`)
+    .join(' ');
+  return `CASE ${column} ${whens} ELSE ${fallback} END`;
+}
 
 export const discoverRouter = Router();
 
@@ -83,13 +96,18 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       // DISCOVER_RECENCY_HALF_LIFE_DAYS) x source authority weight x article type weight,
       // all multiplied onto the editorial relevance_score. Deliberately applied here rather
       // than baked into relevance_score, so the stored/displayed quality percentage never
-      // gets distorted or clamp-flattened by ranking-only factors.
+      // gets distorted or clamp-flattened by ranking-only factors. Weights are computed live
+      // from the stored tier/type STRING (via CASE, built from the same TS weight maps) rather
+      // than from a stored weight NUMBER, so tuning SOURCE_AUTHORITY_WEIGHTS/ARTICLE_TYPE_WEIGHTS
+      // takes effect immediately for every row, with no backfill ever required again.
       const halfLifeParamIndex = p++;
       params.push(DISCOVER_RECENCY_HALF_LIFE_DAYS);
+      const authorityWeightExpr = buildWeightCaseExpr(`ci.metadata->>'sourceAuthorityTier'`, SOURCE_AUTHORITY_WEIGHTS, 1);
+      const typeWeightExpr = buildWeightCaseExpr(`ci.metadata->>'articleType'`, ARTICLE_TYPE_WEIGHTS, 1);
       const rankScoreExpr = `COALESCE(ci.relevance_score, 0)
            * EXP(- EXTRACT(EPOCH FROM (NOW() - ci.published_at)) / 86400.0 / $${halfLifeParamIndex} * LN(2))
-           * COALESCE((ci.metadata->>'sourceAuthorityWeight')::numeric, 1)
-           * COALESCE((ci.metadata->>'articleTypeWeight')::numeric, 1)`;
+           * (${authorityWeightExpr})
+           * (${typeWeightExpr})`;
 
       const [countResult, dataResult] = await Promise.all([
         db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ${where}`, params.slice(0, halfLifeParamIndex - 1)),

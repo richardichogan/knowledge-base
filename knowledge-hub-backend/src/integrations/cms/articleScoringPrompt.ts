@@ -79,10 +79,10 @@ export type SourceAuthorityTier = 'Microsoft/GitHub Official' | 'Analyst/Consult
 
 /** Weight applied per source authority tier on top of the editorial composite score. */
 export const SOURCE_AUTHORITY_WEIGHTS: Record<SourceAuthorityTier, number> = {
-  'Microsoft/GitHub Official': 1.3,
+  'Microsoft/GitHub Official': 1.4,
   'Analyst/Consultancy': 1.15,
   Formal: 1.0,
-  Community: 0.8,
+  Community: 0.75,
   Unknown: 0.9,
 };
 

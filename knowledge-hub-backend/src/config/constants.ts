@@ -176,7 +176,7 @@ export const AI_TOOL_SEARCH_DEFAULT_LIMIT = 10;
  * days, so it fades from the top of Discover over time instead of
  * permanently outranking fresher content once scored.
  */
-export const DISCOVER_RECENCY_HALF_LIFE_DAYS = 14;
+export const DISCOVER_RECENCY_HALF_LIFE_DAYS = 30;
 /** Once a session has more than this many unsummarized messages, fold the oldest ones into a rolling summary. */
 export const AI_ROLLING_SUMMARY_TRIGGER_MESSAGES = 24;
 /** How many of the most recent messages to always keep verbatim (never folded into the summary). */
