@@ -340,13 +340,16 @@ export function enforceScoreCaps(
  * 3. Apply platform multiplier (Full Blog = 1.5x, Archive = 0.5x)
  * 4. Apply source type bonus/penalty (Formal +10%, Advertorial -50%)
  * 5. Apply spark bonus (+15% if has citeable material)
- * 6. Apply source authority weight (Microsoft/GitHub Official 1.3x .. Unknown 0.9x) and article
- *    type weight (Security Disclosure 1.2x .. News or Roundup 0.8x) — see SOURCE_AUTHORITY_WEIGHTS
- *    and ARTICLE_TYPE_WEIGHTS. Recency decay is deliberately NOT applied here — it's computed live
- *    in the Discover SQL query so ranking keeps shifting as articles age, without needing a rescore.
- * 7. Clamp final result to 0-1 range
+ * 6. Clamp final result to 0-1 range
+ *
+ * NOTE: source authority weight, article type weight, and recency decay are deliberately NOT
+ * applied here. This score is shown to editors as an absolute "editorial quality" percentage
+ * (the Discover UI badge), so it must stay comparable across articles and not get flattened by
+ * the 0.95 clamp. Those three ranking factors are applied ONLY as a live multiplier in the
+ * Discover SQL query's ORDER BY (see routes/discover.ts) — they affect sort order but never
+ * distort the displayed quality score.
  */
-export function calculateWeightedRelevance(result: ScoringResult, sourceAuthorityWeight = 1): number {
+export function calculateWeightedRelevance(result: ScoringResult): number {
   const MAX_AUDIENCE_FIT = 3;
   const MAX_NOVELTY = 3;
   const MAX_STRATEGIC = 2;
@@ -378,10 +381,6 @@ export function calculateWeightedRelevance(result: ScoringResult, sourceAuthorit
     score = score * (1 + SCORING_WEIGHTS.sparkBonus);
   }
 
-  // Step 6: Apply source authority weight and article type weight
-  const articleTypeWeight = ARTICLE_TYPE_WEIGHTS[result.articleType] ?? 1.0;
-  score = score * sourceAuthorityWeight * articleTypeWeight;
-
-  // Step 7: Clamp to 0-0.95 range (nothing should ever be 100% relevant)
+  // Step 6: Clamp to 0-0.95 range (nothing should ever be 100% relevant)
   return Math.max(0, Math.min(0.95, score));
 }

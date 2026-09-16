@@ -79,13 +79,17 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       }
 
       const where = `WHERE ${conditions.join(' AND ')}`;
-      // Recency decay: rank_score halves every DISCOVER_RECENCY_HALF_LIFE_DAYS, computed live
-      // (not stored) so ranking keeps shifting as articles age without needing a rescore job.
+      // Live rank score (never stored, always recomputed): recency decay (halves every
+      // DISCOVER_RECENCY_HALF_LIFE_DAYS) x source authority weight x article type weight,
+      // all multiplied onto the editorial relevance_score. Deliberately applied here rather
+      // than baked into relevance_score, so the stored/displayed quality percentage never
+      // gets distorted or clamp-flattened by ranking-only factors.
       const halfLifeParamIndex = p++;
       params.push(DISCOVER_RECENCY_HALF_LIFE_DAYS);
-      const rankScoreExpr = `COALESCE(ci.relevance_score, 0) * EXP(
-             - EXTRACT(EPOCH FROM (NOW() - ci.published_at)) / 86400.0 / $${halfLifeParamIndex} * LN(2)
-           )`;
+      const rankScoreExpr = `COALESCE(ci.relevance_score, 0)
+           * EXP(- EXTRACT(EPOCH FROM (NOW() - ci.published_at)) / 86400.0 / $${halfLifeParamIndex} * LN(2))
+           * COALESCE((ci.metadata->>'sourceAuthorityWeight')::numeric, 1)
+           * COALESCE((ci.metadata->>'articleTypeWeight')::numeric, 1)`;
 
       const [countResult, dataResult] = await Promise.all([
         db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ${where}`, params.slice(0, halfLifeParamIndex - 1)),

@@ -200,13 +200,13 @@ export async function scoreUnscored(db: Pool): Promise<void> {
 
       // Fine-grained source authority tier (Microsoft/GitHub Official > Analyst/Consultancy >
       // Community > Unknown) — distinct from the coarser sourceType used for platform routing.
+      // Stored as metadata only and applied live in the Discover SQL ranking query — NOT folded
+      // into relevance_score, which stays a pure editorial-quality percentage shown in the UI.
       const authorityTier = classifySourceAuthority(sourceUrl, (row.metadata['sourceUrl'] as string) || sourceTitle);
       const authorityWeight = SOURCE_AUTHORITY_WEIGHTS[authorityTier];
 
-      // Calculate sophisticated weighted relevance score (0-1)
-      // This uses dimension weights, platform multipliers, source type adjustments, spark
-      // bonus, source authority weight, and article type weight.
-      const relevanceScore = calculateWeightedRelevance(capped, authorityWeight);
+      // Calculate weighted relevance score (0-1) — editorial quality only, no ranking multipliers.
+      const relevanceScore = calculateWeightedRelevance(capped);
 
       await db.query(
         `UPDATE content_items

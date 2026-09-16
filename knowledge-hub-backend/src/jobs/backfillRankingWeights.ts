@@ -1,17 +1,26 @@
 /**
  * backfillRankingWeights.ts
  *
- * One-off backfill for the multi-criteria Discover ranking redesign:
+ * One-off backfill for the multi-criteria Discover ranking redesign, AND a corrective
+ * pass fixing a bug from the first version of this script: it multiplied
+ * sourceAuthorityWeight/articleTypeWeight directly into the stored relevance_score,
+ * which is shown to editors as an absolute quality percentage and clamped to 0.95 —
+ * many already-strong articles got pushed over the clamp and became indistinguishable
+ * at 95%, masking the ranking signal instead of improving it.
  *
- * 1. Source authority tier/weight: computed deterministically from the article/source
- *    URL (no LLM call needed) — backfilled for EVERY already-scored discovered-article
- *    row (any workflow_state), and folded back into relevance_score so it affects
- *    ranking immediately without waiting for a future rescore.
- * 2. Article type/weight: requires a lightweight LLM classification since it wasn't
- *    part of the original scoring prompt. Only backfilled for 'to-review' rows (the
- *    active queue) to keep this cheap and bounded — archived/published rows are left
- *    with articleType defaulted to 'News or Roundup' (weight 1.0, neutral) by the
- *    COALESCE fallback already built into the Discover query and enforceScoreCaps.
+ * This version:
+ * 1. Computes source authority tier/weight deterministically from the article/source
+ *    URL (no LLM call) and article type via a lightweight gpt-4o-mini classification
+ *    (only for rows missing it) — stored in metadata ONLY.
+ * 2. Recomputes relevance_score using the PURE calculateWeightedRelevance(reconstructed)
+ *    (no weight args) from the stored per-dimension scores, restoring it to a pure
+ *    editorial-quality signal for every already-scored row — correcting any prior
+ *    poisoning from the first run of this script.
+ * 3. Leaves the actual ranking weighting to the Discover SQL query's live ORDER BY,
+ *    which multiplies relevance_score * recency decay * sourceAuthorityWeight *
+ *    articleTypeWeight at read time (see routes/discover.ts).
+ *
+ * Safe to re-run — fully idempotent.
  *
  * Run with: npx tsx src/jobs/backfillRankingWeights.ts
  */
@@ -31,6 +40,7 @@ interface Row {
   id: string;
   url: string;
   title: string;
+  body: string;
   relevance_score: number | null;
   workflow_state: string;
   metadata: Record<string, unknown>;
@@ -62,130 +72,115 @@ async function classifyArticleType(client: FoundryClient, title: string, descrip
   return 'News or Roundup';
 }
 
+function reconstructScoringResult(meta: Record<string, unknown>, articleType: ArticleType): ScoringResult | null {
+  const audienceFit = meta['audienceFit'];
+  const novelty = meta['novelty'];
+  const strategicSignificance = meta['strategicSignificance'];
+  const analyticalDepth = meta['analyticalDepth'];
+  if (
+    typeof audienceFit !== 'number'
+    || typeof novelty !== 'number'
+    || typeof strategicSignificance !== 'number'
+    || typeof analyticalDepth !== 'number'
+  ) {
+    return null;
+  }
+  return {
+    audienceFit,
+    novelty,
+    strategicSignificance,
+    analyticalDepth,
+    composite: (meta['compositeScore'] as number) || 0,
+    sourceType: (meta['sourceType'] as ScoringResult['sourceType']) || 'Community',
+    platform: (meta['platform'] as ScoringResult['platform']) || 'Archive',
+    spark: Boolean(meta['spark']),
+    sparkReason: (meta['sparkReason'] as string) || '',
+    explanation: '',
+    articleType,
+  };
+}
+
 async function run(): Promise<void> {
   const db = getDb();
   const client = new FoundryClient();
 
-  // ── Step 1: source authority backfill (all scored rows, free) ──────────────
   const scored = await db.query<Row>(
-    `SELECT id, url, title, relevance_score, workflow_state, metadata FROM content_items
+    `SELECT id, url, title, body, relevance_score, workflow_state, metadata FROM content_items
      WHERE source = 'discovered-article' AND relevance_explanation IS NOT NULL`,
   );
-  console.log(`Found ${scored.rows.length} scored discovered-article rows for source-authority backfill.`);
+  console.log(`Found ${scored.rows.length} scored discovered-article rows.`);
 
-  let authorityUpdated = 0;
+  let metadataUpdated = 0;
+  let typeClassified = 0;
+  let relevanceFixed = 0;
+  let skipped = 0;
+
   for (const row of scored.rows) {
     const meta = row.metadata || {};
+
+    // Source authority tier/weight — deterministic, always recomputed (idempotent, free).
     const sourceUrl = (meta['sourceUrl'] as string) || (meta['sourceTitle'] as string) || '';
     const authorityTier = classifySourceAuthority(row.url, sourceUrl);
     const authorityWeight = SOURCE_AUTHORITY_WEIGHTS[authorityTier];
 
-    const audienceFit = meta['audienceFit'];
-    const novelty = meta['novelty'];
-    const strategicSignificance = meta['strategicSignificance'];
-    const analyticalDepth = meta['analyticalDepth'];
-    if (
-      typeof audienceFit !== 'number'
-      || typeof novelty !== 'number'
-      || typeof strategicSignificance !== 'number'
-      || typeof analyticalDepth !== 'number'
-    ) {
-      console.log(`  SKIP ${row.id} (${row.title}) — missing stored dimension scores, cannot recompute relevance_score`);
+    // Article type — only classify via LLM if not already present.
+    let articleType = meta['articleType'] as ArticleType | undefined;
+    if (!articleType || !(articleType in ARTICLE_TYPE_WEIGHTS)) {
+      try {
+        articleType = await classifyArticleType(client, row.title, row.body || '');
+        typeClassified += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`  Article type classification failed for ${row.id} (${row.title}): ${message}`);
+        articleType = 'News or Roundup';
+      }
+    }
+    const articleTypeWeight = ARTICLE_TYPE_WEIGHTS[articleType];
+
+    // Recompute relevance_score as a PURE editorial-quality signal (no weight multipliers) —
+    // corrects any poisoning from a prior buggy run of this script.
+    const reconstructed = reconstructScoringResult(meta, articleType);
+    if (!reconstructed) {
+      console.log(`  SKIP relevance_score fix for ${row.id} (${row.title}) — missing stored dimension scores`);
+      skipped += 1;
+      await db.query(
+        `UPDATE content_items
+         SET metadata = metadata || jsonb_build_object(
+               'sourceAuthorityTier', $1::text,
+               'sourceAuthorityWeight', $2::numeric,
+               'articleType', $3::text,
+               'articleTypeWeight', $4::numeric
+             )
+         WHERE id = $5`,
+        [authorityTier, authorityWeight, articleType, articleTypeWeight, row.id],
+      );
+      metadataUpdated += 1;
       continue;
     }
 
-    const reconstructed: ScoringResult = {
-      audienceFit,
-      novelty,
-      strategicSignificance,
-      analyticalDepth,
-      composite: (meta['compositeScore'] as number) || 0,
-      sourceType: (meta['sourceType'] as ScoringResult['sourceType']) || 'Community',
-      platform: (meta['platform'] as ScoringResult['platform']) || 'Archive',
-      spark: Boolean(meta['spark']),
-      sparkReason: (meta['sparkReason'] as string) || '',
-      explanation: '',
-      articleType: (meta['articleType'] as ArticleType) || 'News or Roundup',
-    };
-
-    const relevanceScore = calculateWeightedRelevance(reconstructed, authorityWeight);
+    const relevanceScore = calculateWeightedRelevance(reconstructed);
+    if (row.relevance_score !== null && Math.abs(relevanceScore - row.relevance_score) > 0.0001) {
+      relevanceFixed += 1;
+    }
 
     await db.query(
       `UPDATE content_items
        SET relevance_score = $1,
            metadata = metadata || jsonb_build_object(
              'sourceAuthorityTier', $2::text,
-             'sourceAuthorityWeight', $3::numeric
+             'sourceAuthorityWeight', $3::numeric,
+             'articleType', $4::text,
+             'articleTypeWeight', $5::numeric
            )
-       WHERE id = $4`,
-      [relevanceScore, authorityTier, authorityWeight, row.id],
+       WHERE id = $6`,
+      [relevanceScore, authorityTier, authorityWeight, articleType, articleTypeWeight, row.id],
     );
-    authorityUpdated += 1;
+    metadataUpdated += 1;
   }
-  console.log(`Source authority backfilled for ${authorityUpdated} rows.`);
 
-  // ── Step 2: article type backfill (to-review rows only, LLM classification) ─
-  const toReview = await db.query<Row & { body: string }>(
-    `SELECT id, url, title, relevance_score, workflow_state, metadata, body FROM content_items
-     WHERE source = 'discovered-article' AND relevance_explanation IS NOT NULL
-       AND workflow_state = 'to-review'
-       AND (metadata->>'articleType') IS NULL`,
-  );
-  console.log(`Found ${toReview.rows.length} to-review rows missing articleType.`);
-
-  let typeUpdated = 0;
-  for (const row of toReview.rows) {
-    try {
-      const articleType = await classifyArticleType(client, row.title, row.body || '');
-      const articleTypeWeight = ARTICLE_TYPE_WEIGHTS[articleType];
-      const authorityWeight = (row.metadata['sourceAuthorityWeight'] as number) ?? 1;
-
-      const meta = row.metadata || {};
-      const audienceFit = meta['audienceFit'];
-      const novelty = meta['novelty'];
-      const strategicSignificance = meta['strategicSignificance'];
-      const analyticalDepth = meta['analyticalDepth'];
-      let relevanceScore = row.relevance_score ?? 0;
-      if (
-        typeof audienceFit === 'number'
-        && typeof novelty === 'number'
-        && typeof strategicSignificance === 'number'
-        && typeof analyticalDepth === 'number'
-      ) {
-        const reconstructed: ScoringResult = {
-          audienceFit,
-          novelty,
-          strategicSignificance,
-          analyticalDepth,
-          composite: (meta['compositeScore'] as number) || 0,
-          sourceType: (meta['sourceType'] as ScoringResult['sourceType']) || 'Community',
-          platform: (meta['platform'] as ScoringResult['platform']) || 'Archive',
-          spark: Boolean(meta['spark']),
-          sparkReason: (meta['sparkReason'] as string) || '',
-          explanation: '',
-          articleType,
-        };
-        relevanceScore = calculateWeightedRelevance(reconstructed, authorityWeight);
-      }
-
-      await db.query(
-        `UPDATE content_items
-         SET relevance_score = $1,
-             metadata = metadata || jsonb_build_object(
-               'articleType', $2::text,
-               'articleTypeWeight', $3::numeric
-             )
-         WHERE id = $4`,
-        [relevanceScore, articleType, articleTypeWeight, row.id],
-      );
-      typeUpdated += 1;
-      console.log(`  UPDATED ${row.id} (${row.title}) — articleType: ${articleType}`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`  FAILED ${row.id} (${row.title}): ${message}`);
-    }
-  }
-  console.log(`Article type backfilled for ${typeUpdated} rows.`);
+  console.log(`Metadata backfilled for ${metadataUpdated} rows (skipped ${skipped} with missing dimension data).`);
+  console.log(`Article type newly classified via LLM for ${typeClassified} rows.`);
+  console.log(`relevance_score corrected (was poisoned by weight multiplication) for ${relevanceFixed} rows.`);
 
   process.exit(0);
 }
