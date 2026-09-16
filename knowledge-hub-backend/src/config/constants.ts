@@ -27,6 +27,15 @@ export const RAG_ITEMS_LIMIT = 10;
 /** Max token estimate for RAG context injection. */
 export const RAG_MAX_TOKENS = 4_000;
 
+/**
+ * Max number of DIFFERENT past chat sessions to pull a relevant snippet from
+ * per turn, for cross-session memory recall. One snippet per session (not
+ * per message) so a single verbose old thread can't crowd out recall from
+ * several other relevant conversations.
+ */
+export const MEMORY_ITEMS_LIMIT = 5;
+
+
 // ── Pagination ────────────────────────────────────────────────────────────────
 
 export const DEFAULT_PAGE_SIZE = 20;

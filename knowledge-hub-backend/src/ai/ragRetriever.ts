@@ -18,7 +18,7 @@ const LOW_SIGNAL_MESSAGES = new Set([
 ]);
 
 /** A message is low-signal if it's on the stoplist, or just too short (<=2 words) to carry search intent. */
-function isLowSignalMessage(query: string): boolean {
+export function isLowSignalMessage(query: string): boolean {
   const normalised = query.trim().toLowerCase();
   if (normalised === '') return true;
   if (LOW_SIGNAL_MESSAGES.has(normalised)) return true;

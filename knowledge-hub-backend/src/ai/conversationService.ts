@@ -22,8 +22,9 @@ export async function handleConversationTurn(
   userMessage: string,
   model: AiModel = 'gpt-4o',
   persona?: string,
+  sessionId?: string,
 ): Promise<string> {
-  const context = await buildAiContext(db, userMessage, history);
+  const context = await buildAiContext(db, userMessage, history, sessionId);
   const baseMessages = assembleMessages(context, history, userMessage, persona);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 

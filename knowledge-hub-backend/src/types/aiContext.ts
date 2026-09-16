@@ -3,6 +3,7 @@
  */
 
 import type { ContentItem } from './contentItem.js';
+import type { MemoryItem } from '../ai/memoryRetriever.js';
 
 // 'gpt-5.5' is served from a separate Azure AI Foundry resource (a different
 // subscription/project) than 'gpt-4o' / 'gpt-4o-mini' — see foundryClient.ts.
@@ -41,6 +42,12 @@ export interface AiContext {
    * PostgreSQL FTS for the current user query.
    */
   ragItems: ContentItem[];
+  /**
+   * Cross-session memory — top relevant snippets pulled from OTHER chat
+   * sessions (not the current one), so Athena can recall and cross-reference
+   * earlier, separate conversations, not just the official KB library.
+   */
+  memoryItems: MemoryItem[];
 }
 
 /** A single conversation session stored in PostgreSQL. */

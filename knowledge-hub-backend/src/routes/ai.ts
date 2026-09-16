@@ -60,7 +60,7 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       // specific model.
       const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' ? 'gpt-5.5' : 'gpt-4o');
 
-      const reply = await handleConversationTurn(db, modelHistory, message, effectiveModel, persona);
+      const reply = await handleConversationTurn(db, modelHistory, message, effectiveModel, persona, effectiveSessionId);
 
       await appendTurn(db, effectiveSessionId, message, reply);
       if (isFirstMessage) await setSessionTitleIfMissing(db, effectiveSessionId, message);

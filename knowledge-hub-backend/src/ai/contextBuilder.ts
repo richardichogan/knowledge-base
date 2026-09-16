@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { downloadBlobAsText } from '../integrations/cms/blobClient.js';
 import { env } from '../config/env.js';
 import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
+import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import type { AiContext, ConversationMessage } from '../types/aiContext.js';
 
@@ -609,14 +610,18 @@ export async function buildAiContext(
   db: Pool,
   userQuery: string,
   history: ConversationMessage[] = [],
+  currentSessionId?: string,
 ): Promise<AiContext> {
-  const [staticContext, projectContext, ragItems] = await Promise.all([
+  const [staticContext, projectContext, ragItems, memoryItems] = await Promise.all([
     loadBlobText(STATIC_CONTEXT_BLOB),
     loadBlobText(PROJECT_CONTEXT_BLOB),
     retrieveRagItems(db, buildRagQuery(userQuery, history)),
+    currentSessionId
+      ? retrieveCrossSessionMemory(db, buildRagQuery(userQuery, history), currentSessionId)
+      : Promise.resolve([]),
   ]);
 
-  return { staticContext, projectContext, ragItems };
+  return { staticContext, projectContext, ragItems, memoryItems };
 }
 
 /**
@@ -670,12 +675,14 @@ export function assembleMessages(
   ].join('\n\n');
 
   const ragBlock = formatRagContext(context.ragItems);
-  const userMessageWithRag = ragBlock === '' ? userMessage : `${ragBlock}\n\n---\n\n${userMessage}`;
+  const memoryBlock = formatMemoryContext(context.memoryItems);
+  const dynamicBlocks = [ragBlock, memoryBlock].filter((b) => b !== '').join('\n\n---\n\n');
+  const userMessageWithContext = dynamicBlocks === '' ? userMessage : `${dynamicBlocks}\n\n---\n\n${userMessage}`;
 
   return [
     { role: 'system', content: systemPrompt },
     ...history,
-    { role: 'user', content: userMessageWithRag },
+    { role: 'user', content: userMessageWithContext },
   ];
 }
 
