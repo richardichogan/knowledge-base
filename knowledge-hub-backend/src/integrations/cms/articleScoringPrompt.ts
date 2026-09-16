@@ -53,6 +53,69 @@ export type Platform =
   | 'LinkedIn Standalone'
   | 'Archive';
 
+/** Coarse content-type classification, used as a ranking multiplier alongside editorial quality. */
+export type ArticleType =
+  | 'Security Disclosure'
+  | 'Product Announcement'
+  | 'Research Report'
+  | 'Opinion or Analysis'
+  | 'Press Release'
+  | 'Tutorial or How-To'
+  | 'News or Roundup';
+
+/** Weight applied per article type on top of the editorial composite score. */
+export const ARTICLE_TYPE_WEIGHTS: Record<ArticleType, number> = {
+  'Security Disclosure': 1.2,
+  'Product Announcement': 1.1,
+  'Research Report': 1.1,
+  'Opinion or Analysis': 1.0,
+  'Tutorial or How-To': 0.9,
+  'Press Release': 0.85,
+  'News or Roundup': 0.8,
+};
+
+/** Fine-grained source authority tier, distinct from the coarser SourceType used for platform routing/caps. */
+export type SourceAuthorityTier = 'Microsoft/GitHub Official' | 'Analyst/Consultancy' | 'Formal' | 'Community' | 'Unknown';
+
+/** Weight applied per source authority tier on top of the editorial composite score. */
+export const SOURCE_AUTHORITY_WEIGHTS: Record<SourceAuthorityTier, number> = {
+  'Microsoft/GitHub Official': 1.3,
+  'Analyst/Consultancy': 1.15,
+  Formal: 1.0,
+  Community: 0.8,
+  Unknown: 0.9,
+};
+
+/** Microsoft/GitHub's own official channels — the highest-authority tier. Same domain list as FORMAL_DOMAINS below. */
+
+/** Major analyst/consultancy firms — independent strategic research, one tier below Microsoft/GitHub's own word. */
+const ANALYST_CONSULTANCY_DOMAINS = [
+  'mckinsey.com',
+  'gartner.com',
+  'forrester.com',
+  'bcg.com',
+  'deloitte.com',
+  'idc.com',
+  'bain.com',
+];
+
+/** Classifies a URL into a fine-grained source authority tier for ranking (distinct from classifySourceByUrl's coarser SourceType). */
+export function classifySourceAuthority(articleUrl: string | null, sourceUrl: string | null): SourceAuthorityTier {
+  const candidates = [articleUrl, sourceUrl].filter((u): u is string => Boolean(u)).map((u) => u.toLowerCase());
+  // FORMAL_DOMAINS (defined below) is entirely Microsoft/GitHub's own channels today —
+  // reuse it rather than duplicating the domain list.
+  for (const u of candidates) {
+    if (FORMAL_DOMAINS.some((d) => u.includes(d))) return 'Microsoft/GitHub Official';
+  }
+  for (const u of candidates) {
+    if (ANALYST_CONSULTANCY_DOMAINS.some((d) => u.includes(d))) return 'Analyst/Consultancy';
+  }
+  for (const u of candidates) {
+    if (COMMUNITY_DOMAINS.some((d) => u.includes(d))) return 'Community';
+  }
+  return 'Unknown';
+}
+
 export interface ScoringResult {
   audienceFit: number;
   novelty: number;
@@ -64,6 +127,7 @@ export interface ScoringResult {
   spark: boolean;
   sparkReason: string;
   explanation: string;
+  articleType: ArticleType;
 }
 
 // ── URL-based source type detection ───────────────────────────────────────────
@@ -195,10 +259,14 @@ Apply the FIRST matching rule:
 
 Default is FALSE. Only true when the article contains a SPECIFIC data point, statistic, customer example, or counterargument that could be cited verbatim in future content. Vague "useful background" is NOT a spark. Expect ~25% of articles to have sparks, not 95%.
 
+## Article Type
+
+Classify the piece into exactly one of: Security Disclosure, Product Announcement, Research Report, Opinion or Analysis, Press Release, Tutorial or How-To, News or Roundup. Use "Press Release" for vendor announcements written in marketing voice with no independent analysis; use "Product Announcement" for genuine GA/feature launches covered on their own technical merits (including by Microsoft/GitHub themselves); use "Research Report" for analyst/consultancy studies; use "News or Roundup" for aggregated link-round-up style pieces.
+
 ## Output
 
 ONLY valid JSON, no fences:
-{"audienceFit":<0-3>,"novelty":<0-3>,"strategicSignificance":<0-2>,"analyticalDepth":<0-2>,"composite":<0-10>,"sourceType":"<as provided>","platform":"<Full Blog Post|Newsletter Candidate|Podcast Topic|LinkedIn Standalone|Archive>","spark":<true|false>,"sparkReason":"<specific cited material or empty string>","explanation":"<one sentence>"}`;
+{"audienceFit":<0-3>,"novelty":<0-3>,"strategicSignificance":<0-2>,"analyticalDepth":<0-2>,"composite":<0-10>,"sourceType":"<as provided>","platform":"<Full Blog Post|Newsletter Candidate|Podcast Topic|LinkedIn Standalone|Archive>","spark":<true|false>,"sparkReason":"<specific cited material or empty string>","explanation":"<one sentence>","articleType":"<Security Disclosure|Product Announcement|Research Report|Opinion or Analysis|Press Release|Tutorial or How-To|News or Roundup>"}`;
 /* eslint-enable max-len */
 
 /** Server-side enforcement of scoring rules on top of model output. */
@@ -209,6 +277,11 @@ export function enforceScoreCaps(
   // Server-side source type override from URL
   if (urlSourceType !== null) {
     parsed.sourceType = urlSourceType;
+  }
+
+  // Guard against a missing/invalid articleType from a model that ignores the new field.
+  if (!(parsed.articleType in ARTICLE_TYPE_WEIGHTS)) {
+    parsed.articleType = 'News or Roundup';
   }
 
   // Recalculate composite — never trust the model's arithmetic
@@ -267,9 +340,13 @@ export function enforceScoreCaps(
  * 3. Apply platform multiplier (Full Blog = 1.5x, Archive = 0.5x)
  * 4. Apply source type bonus/penalty (Formal +10%, Advertorial -50%)
  * 5. Apply spark bonus (+15% if has citeable material)
- * 6. Clamp final result to 0-1 range
+ * 6. Apply source authority weight (Microsoft/GitHub Official 1.3x .. Unknown 0.9x) and article
+ *    type weight (Security Disclosure 1.2x .. News or Roundup 0.8x) — see SOURCE_AUTHORITY_WEIGHTS
+ *    and ARTICLE_TYPE_WEIGHTS. Recency decay is deliberately NOT applied here — it's computed live
+ *    in the Discover SQL query so ranking keeps shifting as articles age, without needing a rescore.
+ * 7. Clamp final result to 0-1 range
  */
-export function calculateWeightedRelevance(result: ScoringResult): number {
+export function calculateWeightedRelevance(result: ScoringResult, sourceAuthorityWeight = 1): number {
   const MAX_AUDIENCE_FIT = 3;
   const MAX_NOVELTY = 3;
   const MAX_STRATEGIC = 2;
@@ -300,7 +377,11 @@ export function calculateWeightedRelevance(result: ScoringResult): number {
   if (result.spark) {
     score = score * (1 + SCORING_WEIGHTS.sparkBonus);
   }
-  
-  // Step 6: Clamp to 0-0.95 range (nothing should ever be 100% relevant)
+
+  // Step 6: Apply source authority weight and article type weight
+  const articleTypeWeight = ARTICLE_TYPE_WEIGHTS[result.articleType] ?? 1.0;
+  score = score * sourceAuthorityWeight * articleTypeWeight;
+
+  // Step 7: Clamp to 0-0.95 range (nothing should ever be 100% relevant)
   return Math.max(0, Math.min(0.95, score));
 }

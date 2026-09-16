@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
-import { HTTP_STATUS } from '../config/constants.js';
+import { HTTP_STATUS, DISCOVER_RECENCY_HALF_LIFE_DAYS } from '../config/constants.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 
@@ -36,6 +36,10 @@ export interface DiscoverItem {
   sparkReason: string | null;
   /** Composite relevance score 0-10 */
   compositeScore: number | null;
+  /** Fine-grained source authority tier used in ranking (e.g. "Microsoft/GitHub Official") */
+  sourceAuthorityTier: string | null;
+  /** Live-computed rank score actually used for ordering (relevance_score with recency decay applied) */
+  rankScore: number | null;
 }
 
 const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived', 'published'];
@@ -75,9 +79,16 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       }
 
       const where = `WHERE ${conditions.join(' AND ')}`;
+      // Recency decay: rank_score halves every DISCOVER_RECENCY_HALF_LIFE_DAYS, computed live
+      // (not stored) so ranking keeps shifting as articles age without needing a rescore job.
+      const halfLifeParamIndex = p++;
+      params.push(DISCOVER_RECENCY_HALF_LIFE_DAYS);
+      const rankScoreExpr = `COALESCE(ci.relevance_score, 0) * EXP(
+             - EXTRACT(EPOCH FROM (NOW() - ci.published_at)) / 86400.0 / $${halfLifeParamIndex} * LN(2)
+           )`;
 
       const [countResult, dataResult] = await Promise.all([
-        db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ${where}`, params),
+        db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ${where}`, params.slice(0, halfLifeParamIndex - 1)),
         db.query<{
           id: string;
           source_id: string;
@@ -91,16 +102,18 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
           relevance_score: number | null;
           relevance_explanation: string | null;
           taxonomy_tag_ids: string[] | null;
+          rank_score: number | null;
         }>(
           `SELECT ci.id, ci.source_id, ci.title, ci.url, ci.body, ci.published_at, ci.indexed_at,
                   ci.metadata, ci.workflow_state, ci.relevance_score, ci.relevance_explanation,
-                  array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids
+                  array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids,
+                  ${rankScoreExpr} AS rank_score
            FROM content_items ci
            LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
            ${where}
            GROUP BY ci.id
            ORDER BY
-             COALESCE(ci.relevance_score, 0) DESC,
+             rank_score DESC,
              ci.published_at DESC
            LIMIT $${p++} OFFSET $${p}`,
           [...params, pageSize, offset],
@@ -128,6 +141,8 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         spark: typeof row.metadata['spark'] === 'boolean' ? row.metadata['spark'] : null,
         sparkReason: typeof row.metadata['sparkReason'] === 'string' ? row.metadata['sparkReason'] : null,
         compositeScore: typeof row.metadata['compositeScore'] === 'number' ? row.metadata['compositeScore'] : null,
+        sourceAuthorityTier: typeof row.metadata['sourceAuthorityTier'] === 'string' ? row.metadata['sourceAuthorityTier'] : null,
+        rankScore: row.rank_score,
       }));
 
       const response: ApiSuccess<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }> = {

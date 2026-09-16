@@ -24,7 +24,10 @@ import {
   SCORE_BATCH_SIZE,
   enforceScoreCaps,
   classifySourceByUrl,
+  classifySourceAuthority,
   calculateWeightedRelevance,
+  SOURCE_AUTHORITY_WEIGHTS,
+  ARTICLE_TYPE_WEIGHTS,
   PERCENTAGE_MULTIPLIER,
 } from './articleScoringPrompt.js';
 
@@ -195,9 +198,15 @@ export async function scoreUnscored(db: Pool): Promise<void> {
       const detectedSourceType = classifySourceByUrl(sourceUrl, `${sourceTitle} ${row.title}`);
       const capped = enforceScoreCaps(parsed, detectedSourceType);
 
+      // Fine-grained source authority tier (Microsoft/GitHub Official > Analyst/Consultancy >
+      // Community > Unknown) — distinct from the coarser sourceType used for platform routing.
+      const authorityTier = classifySourceAuthority(sourceUrl, (row.metadata['sourceUrl'] as string) || sourceTitle);
+      const authorityWeight = SOURCE_AUTHORITY_WEIGHTS[authorityTier];
+
       // Calculate sophisticated weighted relevance score (0-1)
-      // This uses dimension weights, platform multipliers, source type adjustments, and spark bonus
-      const relevanceScore = calculateWeightedRelevance(capped);
+      // This uses dimension weights, platform multipliers, source type adjustments, spark
+      // bonus, source authority weight, and article type weight.
+      const relevanceScore = calculateWeightedRelevance(capped, authorityWeight);
 
       await db.query(
         `UPDATE content_items
@@ -211,9 +220,13 @@ export async function scoreUnscored(db: Pool): Promise<void> {
                'analyticalDepth', $8::int,
                'compositeScore', $9::int,
                'spark', $10::boolean,
-               'sparkReason', $11::text
+               'sparkReason', $11::text,
+               'articleType', $12::text,
+               'articleTypeWeight', $13::numeric,
+               'sourceAuthorityTier', $14::text,
+               'sourceAuthorityWeight', $15::numeric
              )
-         WHERE id = $12`,
+         WHERE id = $16`,
         [
           relevanceScore,
           capped.explanation,
@@ -226,11 +239,15 @@ export async function scoreUnscored(db: Pool): Promise<void> {
           capped.composite,
           capped.spark,
           capped.sparkReason,
+          capped.articleType,
+          ARTICLE_TYPE_WEIGHTS[capped.articleType],
+          authorityTier,
+          authorityWeight,
           row.id,
         ],
       );
       const percentScore = (relevanceScore * PERCENTAGE_MULTIPLIER).toFixed(0);
-      console.warn(`[DiscoveredArticles] Scored ${row.id}: composite=${capped.composite}/10, weighted=${percentScore}%, platform=${capped.platform}`);
+      console.warn(`[DiscoveredArticles] Scored ${row.id}: composite=${capped.composite}/10, weighted=${percentScore}%, platform=${capped.platform}, articleType=${capped.articleType}, authorityTier=${authorityTier}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[DiscoveredArticles] Scoring failed for ${row.id}: ${message}`);

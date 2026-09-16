@@ -53,6 +53,7 @@ async function run(): Promise<void> {
     const sparkReason = meta['sparkReason'];
     const explanation = meta['explanation'];
     const platform = meta['platform'];
+    const articleType = meta['articleType'];
 
     if (
       typeof audienceFit !== 'number'
@@ -78,6 +79,7 @@ async function run(): Promise<void> {
       spark: Boolean(spark),
       sparkReason: (sparkReason as string) || '',
       explanation: (explanation as string) || '',
+      articleType: (articleType as ScoringResult['articleType']) || 'News or Roundup',
     };
 
     const capped = enforceScoreCaps(reconstructed, detectedSourceType);

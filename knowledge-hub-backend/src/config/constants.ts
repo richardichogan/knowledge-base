@@ -170,6 +170,13 @@ export const AI_MAX_TOOL_ITERATIONS = 6;
 export const AI_TOOL_SEARCH_MAX_LIMIT = 20;
 /** Default search_knowledge_base result count when the AI doesn't specify one. */
 export const AI_TOOL_SEARCH_DEFAULT_LIMIT = 10;
+/**
+ * Half-life (in days) for the recency-decay factor applied to discovered
+ * article ranking — a strong article's rank score halves every this-many
+ * days, so it fades from the top of Discover over time instead of
+ * permanently outranking fresher content once scored.
+ */
+export const DISCOVER_RECENCY_HALF_LIFE_DAYS = 14;
 /** Once a session has more than this many unsummarized messages, fold the oldest ones into a rolling summary. */
 export const AI_ROLLING_SUMMARY_TRIGGER_MESSAGES = 24;
 /** How many of the most recent messages to always keep verbatim (never folded into the summary). */
