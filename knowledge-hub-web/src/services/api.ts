@@ -757,8 +757,10 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async getDiscoverSources(): Promise<ApiResponse<Array<{ title: string; count: number }>>> {
-    const r = await this.client.get<ApiResponse<Array<{ title: string; count: number }>>>('/api/discover/sources');
+  async getDiscoverSources(state?: string): Promise<ApiResponse<Array<{ title: string; count: number }>>> {
+    const r = await this.client.get<ApiResponse<Array<{ title: string; count: number }>>>('/api/discover/sources', {
+      params: state ? { state } : undefined,
+    });
     return r.data;
   }
 

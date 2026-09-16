@@ -489,9 +489,10 @@ export const DiscoverPage: React.FC = () => {
   });
 
   const sourcesQuery = useQuery({
-    queryKey: ['discover-sources'],
-    queryFn: () => api.getDiscoverSources(),
+    queryKey: ['discover-sources', workflowState],
+    queryFn: () => api.getDiscoverSources(workflowState),
     staleTime: 60_000,
+    enabled: !isInbox && !isCfps,
   });
 
   const workflowMutation = useMutation({

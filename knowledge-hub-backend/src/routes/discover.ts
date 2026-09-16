@@ -179,16 +179,28 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
 });
 
 // ── GET /api/discover/sources ─────────────────────────────────────────────────
-discoverRouter.get('/sources', (_req: Request, res: Response, next: NextFunction): void => {
+discoverRouter.get('/sources', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const db = getDb();
+      const state = req.query['state'] as string | undefined;
+      const conditions = [`source = 'discovered-article'`];
+      const params: unknown[] = [];
+      // Scope counts to the currently active tab (e.g. "to-review") by default, so the
+      // dropdown reflects what's actually visible there — not a stale grand total across
+      // every workflow state including archived items, which is what caused the "1137"
+      // count to look wrong right after a bulk archive.
+      if (state && VALID_STATES.includes(state as WorkflowState)) {
+        conditions.push(`workflow_state = $1`);
+        params.push(state);
+      }
       const result = await db.query<{ source_title: string; count: string }>(
         `SELECT metadata->>'sourceTitle' AS source_title, COUNT(*) AS count
          FROM content_items
-         WHERE source = 'discovered-article'
+         WHERE ${conditions.join(' AND ')}
          GROUP BY metadata->>'sourceTitle'
          ORDER BY count DESC`,
+        params,
       );
       const sources = result.rows.map((r) => ({ title: r.source_title, count: parseInt(r.count, 10) }));
       const response: ApiSuccess<typeof sources> = { success: true, data: sources };
