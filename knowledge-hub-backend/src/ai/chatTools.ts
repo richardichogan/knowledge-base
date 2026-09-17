@@ -82,6 +82,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Search terms describing what to look up.' },
+            projectId: { type: 'string', description: 'Optional project id to scope the search across notes, uploads, discovered articles, commits, and other indexed content (e.g. "imagine").' },
             limit: { type: 'integer', description: `Max results to return (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: ['query'],
@@ -138,7 +139,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
         name: 'search_library',
         description:
           "Searches ONLY the Library section — formal markdown documents (specs, READMEs, docs/ folders) " +
-          "stored in the user's GitHub repos. It does NOT cover notes, the discovery feed, tasks, emails, " +
+          "stored in the user's GitHub repos plus uploaded Library files (DOCX/XLSX/PPTX/PDF extracted text). It does NOT cover notes, the discovery feed, tasks, emails, " +
           "or anything else — those are search_knowledge_base only. Never use this as a substitute for " +
           "search_knowledge_base on a project question; call search_knowledge_base first (or alongside) so " +
           "notes and discovered articles are represented, and use this in addition when the question is " +
@@ -285,16 +286,19 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string):
  * the request fails, so a Search outage degrades quality rather than
  * breaking the tool outright.
  */
-async function getKnowledgeBaseItems(db: Pool, query: string, limit: number) {
+async function getKnowledgeBaseItems(db: Pool, query: string, limit: number, projectId = '') {
   if (isFoundryIqEnabled()) {
     try {
       const ids = await retrieveContentItemIds(query, limit);
-      if (ids.length > 0) return getContentItemsByIds(db, ids);
+      if (ids.length > 0) {
+        const items = await getContentItemsByIds(db, ids);
+        return projectId === '' ? items : items.filter((item) => item.projectContext === projectId);
+      }
     } catch (err) {
       console.error('Foundry IQ retrieval failed, falling back to Postgres FTS:', err);
     }
   }
-  return getRagItems(db, query, limit);
+  return getRagItems(db, query, limit, projectId === '' ? undefined : projectId);
 }
 
 async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Promise<unknown> {
@@ -304,12 +308,14 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
   const limit = Number.isFinite(rawLimit) && rawLimit > 0
     ? Math.min(Math.trunc(rawLimit), AI_TOOL_SEARCH_MAX_LIMIT)
     : AI_TOOL_SEARCH_DEFAULT_LIMIT;
+  const projectId = typeof args['projectId'] === 'string' ? args['projectId'].trim() : '';
 
-  const items = await getKnowledgeBaseItems(db, query, limit);
+  const items = await getKnowledgeBaseItems(db, query, limit, projectId);
   const results = await Promise.all(items.map(async (item) => ({
     source: item.source,
     title: item.title,
     summary: item.summary,
+    projectId: item.projectContext,
     // For notes, hand the model the actual note text — including any
     // embedded diagrams/screenshots described via their stored GPT-4V vision
     // analysis — not just the plain-text summary, which silently drops
@@ -506,14 +512,50 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>): Promise<u
 
   const gh = new GitHubClient();
   const docs = await buildLibrary(gh, repos, labelMap);
+  const uploadParams: unknown[] = [];
+  const uploadConditions = [`source = 'user-upload'`];
+  if (projectId !== '') {
+    uploadParams.push(projectId);
+    uploadConditions.push(`project_context = $${uploadParams.length}`);
+  }
+  const uploadRows = await db.query<{
+    title: string;
+    url: string | null;
+    project_context: string;
+    project_name: string | null;
+    metadata: Record<string, unknown> | null;
+    body: string;
+  }>(
+    `SELECT ci.title, ci.url, ci.project_context, p.name AS project_name, ci.metadata, ci.body
+     FROM content_items ci
+     LEFT JOIN projects p ON p.id = ci.project_context
+     WHERE ${uploadConditions.join(' AND ')}
+     ORDER BY ci.updated_at DESC
+     LIMIT $${uploadParams.length + 1}`,
+    [...uploadParams, limit],
+  );
+  const uploadDocs = uploadRows.rows.map((row) => {
+    const filename = typeof row.metadata?.['filename'] === 'string' ? row.metadata['filename'] : row.title;
+    const sourceLabel = row.project_name ?? row.project_context;
+    return {
+      title: row.title,
+      repo: 'Uploaded Library',
+      path: filename,
+      sourceLabel,
+      htmlUrl: row.url ?? '',
+      body: row.body,
+    };
+  });
+  const allDocs = [...docs, ...uploadDocs];
 
   const filtered = query === ''
-    ? docs
-    : docs.filter((d) =>
+    ? allDocs
+    : allDocs.filter((d) =>
         d.title.toLowerCase().includes(query) ||
         d.path.toLowerCase().includes(query) ||
         d.sourceLabel.toLowerCase().includes(query) ||
-        d.repo.toLowerCase().includes(query),
+        d.repo.toLowerCase().includes(query) ||
+        ('body' in d && typeof d.body === 'string' && d.body.toLowerCase().includes(query)),
       );
 
   const results = filtered.slice(0, limit).map((d) => ({
@@ -522,9 +564,10 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>): Promise<u
     path: d.path,
     sourceLabel: d.sourceLabel,
     url: d.htmlUrl,
+    ...('body' in d && typeof d.body === 'string' ? { content: d.body.slice(0, 12000) } : {}),
   }));
 
-  return { resultCount: results.length, totalScanned: docs.length, documents: results };
+  return { resultCount: results.length, totalScanned: allDocs.length, documents: results };
 }
 
 // ── create_task / update_task ────────────────────────────────────────────────

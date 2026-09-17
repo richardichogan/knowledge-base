@@ -63,9 +63,9 @@ async function syncNoteToTimeline(db: ReturnType<typeof getDb>, note: Note): Pro
     body: note.content,
     publishedAt: note.updatedAt,
     url: `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`,
-    projectContext: 'personal',
+    projectContext: note.projectId ?? 'personal',
     metadata: { noteId: note.id, tags: note.tags },
-    tags: note.tags,
+    tags: [...new Set([...(note.projectId ? [note.projectId] : []), ...note.tags])],
   });
 }
 

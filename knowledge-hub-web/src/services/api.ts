@@ -76,6 +76,7 @@ export interface DocEntry {
   repo: string;
   path: string;
   sourceLabel: string;
+  projectId: string;
   htmlUrl: string;
   size: number;
   tags: string[];
@@ -724,12 +725,18 @@ export class KnowledgeHubApi {
    */
   async uploadDocument(
     file: File,
+    projectId = 'personal',
+    title?: string,
+    projectName?: string,
     onProgress?: (percent: number) => void,
-  ): Promise<ApiResponse<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string }>> {
+  ): Promise<ApiResponse<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string; projectId: string; projectName: string }>> {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('projectId', projectId);
+    if (projectName !== undefined && projectName.trim() !== '') formData.append('projectName', projectName.trim());
+    if (title !== undefined && title.trim() !== '') formData.append('title', title.trim());
     const r = await this.client.post<
-      ApiResponse<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string }>
+      ApiResponse<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string; projectId: string; projectName: string }>
     >('/api/documents/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: IMAGE_UPLOAD_TIMEOUT_MS,

@@ -6,7 +6,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
   Button,
@@ -15,6 +15,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy, Blog } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { PROJECTS } from '../config/projects';
 import { renderMarkdown } from '../utils/markdown';
 import { createNote } from '../notes/noteStorage';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
@@ -445,6 +446,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const [isExporting, setIsExporting] = useState(false);
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
   const [uploadProgress, setUploadProgress] = useState<{ filename: string; percent: number } | null>(null);
+  const [uploadProjectId, setUploadProjectId] = useState('personal');
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceOutputOn, setVoiceOutputOn] = useState(false);
@@ -457,6 +459,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatAbortControllerRef = useRef<AbortController | null>(null);
+
+  const projectsQuery = useQuery({
+    queryKey: ['projects', 'athena-upload'],
+    queryFn: async () => {
+      const res = await api.getProjects();
+      return res.success && res.data.length > 0 ? res.data : PROJECTS;
+    },
+    staleTime: 30_000,
+  });
+  const uploadProjectOptions = projectsQuery.data && projectsQuery.data.length > 0 ? projectsQuery.data : PROJECTS;
+  const uploadProjectName = uploadProjectOptions.find((p) => p.id === uploadProjectId)?.name ?? uploadProjectId;
 
   // Auto-grow the message textarea up to a max height, then let it scroll —
   // recalculated whenever the input text changes.
@@ -782,7 +795,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
 
     setUploadProgress({ filename: file.name, percent: 0 });
     try {
-      const res = await api.uploadDocument(file, (percent) => {
+      const res = await api.uploadDocument(file, uploadProjectId, undefined, uploadProjectName, (percent) => {
         setUploadProgress({ filename: file.name, percent });
       });
       if (!res.success) {
@@ -790,11 +803,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         return;
       }
       const { text, truncated } = res.data;
-      appendMessage('user', `📎 Uploaded ${file.name} — stored in your Documents library.`);
+      appendMessage('user', `📎 Uploaded ${file.name} — stored in your Documents library under ${res.data.projectName}.`);
       sendAttachedDocumentPrompt(
         file.name,
         text,
-        'Documents library',
+        `Documents library under ${res.data.projectName}`,
         truncated ? ' (the file is large — this is a truncated extract)' : '',
       );
     } catch (err) {
@@ -825,14 +838,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         title,
         contentType: 'note',
         contentJson: JSON.stringify(markdownToNoteBlocks(text)),
-      });
+      }, uploadProjectId);
       setUploadProgress({ filename: file.name, percent: 100 });
       if (!note) {
         appendMessage('assistant', `⚠️ Couldn't save "${file.name}" to Think.`);
         return;
       }
-      appendMessage('user', `📎 Uploaded ${file.name} — saved to Think as a note.`);
-      sendAttachedDocumentPrompt(file.name, text, 'Think');
+      appendMessage('user', `📎 Uploaded ${file.name} — saved to Think under ${uploadProjectName}.`);
+      sendAttachedDocumentPrompt(file.name, text, `Think under ${uploadProjectName}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       appendMessage('assistant', `⚠️ Couldn't save "${file.name}" to Think — ${message}.`);
@@ -1339,6 +1352,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             className="ai-file-input-hidden"
             onChange={(e) => { void handleFileSelected(e); }}
           />
+          <label className="ai-upload-project-picker">
+            <span className="ai-upload-project-picker__label">Project</span>
+            <select
+              className="ai-upload-project-picker__select"
+              value={uploadProjectId}
+              onChange={(e) => { setUploadProjectId(e.target.value); }}
+              disabled={chatMutation.isPending || uploadProgress !== null}
+              aria-label="Project for uploaded files"
+            >
+              {uploadProjectOptions.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+          </label>
           <div className="ai-input-field">
             <Button
               type="button"

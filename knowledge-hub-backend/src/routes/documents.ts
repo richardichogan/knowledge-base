@@ -37,6 +37,23 @@ const UPLOAD_REPO_SENTINEL = 'kb-uploads';
 
 const router = Router();
 
+async function resolveProject(
+  db: ReturnType<typeof getDb>,
+  projectId: unknown,
+  fallbackName: unknown,
+): Promise<{ id: string; name: string }> {
+  const id = typeof projectId === 'string' && projectId.trim() !== '' ? projectId.trim() : 'personal';
+  const result = await db.query<{ id: string; name: string }>(
+    `SELECT id, name FROM projects WHERE id = $1`,
+    [id],
+  );
+  const row = result.rows[0];
+  if (row !== undefined) return row;
+  if (typeof fallbackName === 'string' && fallbackName.trim() !== '') return { id, name: fallbackName.trim() };
+  if (id === 'personal') return { id: 'personal', name: 'Personal' };
+  return { id, name: id };
+}
+
 // ── Shared types ──────────────────────────────────────────────────────────────
 
 export type DocType = 'blog-draft' | 'spec' | 'newsletter' | 'readme' | 'doc';
@@ -52,6 +69,8 @@ export interface DocEntry {
   path: string;
   /** Human-readable source label, e.g. "Content Store" or project name */
   sourceLabel: string;
+  /** Project context id used to group Library content across source types. */
+  projectId: string;
   /** GitHub web URL */
   htmlUrl: string;
   size: number;
@@ -200,6 +219,7 @@ export async function buildLibrary(gh: GitHubClient, extraRepos: string[], label
         repo: CONTENT_STORE,
         path: item.path,
         sourceLabel: 'Content Store',
+        projectId: 'personal',
         htmlUrl: `https://github.com/${CONTENT_STORE}/blob/main/${item.path}`,
         size: item.size ?? 0,
         tags: inferTags(item.path, 'Content Store', true),
@@ -226,6 +246,7 @@ export async function buildLibrary(gh: GitHubClient, extraRepos: string[], label
             repo,
             path: item.path,
             sourceLabel: label,
+            projectId: 'personal',
             htmlUrl: `https://github.com/${repo}/blob/main/${item.path}`,
             size: item.size ?? 0,
             tags: inferTags(item.path, label, false),
@@ -259,6 +280,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
         title: string;
         html_url: string | null;
         project_context: string | null;
+        project_name: string | null;
         metadata: Record<string, unknown> | null;
         body: string | null;
       }>(
@@ -268,9 +290,11 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
            COALESCE(NULLIF(ci.title, ''), 'Untitled Document') AS title,
            ci.url AS html_url,
            ci.project_context,
+           p.name AS project_name,
            ci.metadata,
            ci.body
          FROM content_items ci
+         LEFT JOIN projects p ON p.id = ci.project_context
          WHERE ci.source IN ('github-doc', 'github-content-store', 'user-upload')
          ORDER BY ci.updated_at DESC, ci.indexed_at DESC`,
       );
@@ -289,10 +313,11 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
             type: inferDocType(filename, false),
             repo: UPLOAD_REPO_SENTINEL,
             path: row.id,
-            sourceLabel: 'My Uploads',
+            sourceLabel: row.project_name ?? row.project_context ?? 'My Uploads',
+            projectId: row.project_context ?? 'personal',
             htmlUrl: row.html_url ?? '',
             size: Buffer.byteLength(row.body ?? '', 'utf8'),
-            tags: [],
+            tags: row.project_context ? [row.project_context] : [],
             taxonomyTagIds: [],
           });
           continue;
@@ -307,7 +332,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
             ? metadata['sourceLabel']
             : row.source === 'github-content-store'
               ? 'Content Store'
-              : row.project_context ?? repo;
+              : row.project_name ?? row.project_context ?? repo;
 
         const id = `${repo}::${path}`;
         if (docsById.has(id)) continue;
@@ -319,6 +344,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
           repo,
           path,
           sourceLabel,
+          projectId: row.project_context ?? 'personal',
           htmlUrl: row.html_url ?? `https://github.com/${repo}/blob/main/${path}`,
           size: Buffer.byteLength(row.body ?? '', 'utf8'),
           tags: inferTags(path, sourceLabel, row.source === 'github-content-store'),
@@ -653,6 +679,7 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
 
       const filename = file.originalname || 'document';
       const ext = filename.toLowerCase().split('.').pop() || '';
+      const requestedTitle = typeof req.body['title'] === 'string' ? req.body['title'].trim() : '';
 
       if (!UPLOAD_ALLOWED_EXTS.includes(ext)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({
@@ -672,6 +699,8 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
       }
       const truncated = extraction.text.length > EXTRACTED_TEXT_MAX_CHARS;
       const text = truncated ? extraction.text.slice(0, EXTRACTED_TEXT_MAX_CHARS) : extraction.text;
+      const db = getDb();
+      const project = await resolveProject(db, req.body['projectId'], req.body['projectName']);
 
       // Upload the original file to blob storage (same pattern as images.ts).
       const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
@@ -701,8 +730,7 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
       ).toString();
       const blobUrl = `${blockBlob.url}?${sasToken}`;
 
-      const title = filename.replace(/\.[^.]+$/, '');
-      const db = getDb();
+      const title = requestedTitle || filename.replace(/\.[^.]+$/, '');
       const { id: contentItemId } = await upsertContentItem(db, {
         source: 'user-upload',
         sourceId: blobId,
@@ -711,9 +739,15 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
         body: text,
         publishedAt: new Date().toISOString(),
         url: blobUrl,
-        projectContext: 'personal',
-        metadata: { filename, blobPath: blobName, contentType: file.mimetype ?? '', sizeBytes: file.buffer.length },
-        tags: [],
+        projectContext: project.id,
+        metadata: {
+          filename,
+          blobPath: blobName,
+          contentType: file.mimetype ?? '',
+          sizeBytes: file.buffer.length,
+          projectName: project.name,
+        },
+        tags: [project.id],
       });
 
       // Best-effort: push straight into the Foundry IQ Search index so this
@@ -728,16 +762,16 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
         publishedAt: new Date().toISOString(),
         indexedAt: new Date().toISOString(),
         url: blobUrl,
-        projectContext: 'personal',
-        metadata: {},
-        tags: [],
+        projectContext: project.id,
+        metadata: { projectName: project.name },
+        tags: [project.id],
       }).catch((err: unknown) => {
         console.error('[documents] Foundry IQ index push failed for upload', err instanceof Error ? err.message : err);
       });
 
-      const body: ApiSuccess<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string }> = {
+      const body: ApiSuccess<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string; projectId: string; projectName: string }> = {
         success: true,
-        data: { contentItemId, filename, text, truncated, blobUrl },
+        data: { contentItemId, filename, text, truncated, blobUrl, projectId: project.id, projectName: project.name },
       };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {

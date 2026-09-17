@@ -6,6 +6,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import type { Project } from '../services/api';
+import { PROJECTS as STATIC_PROJECTS } from '../config/projects';
 
 export const PROJECTS_KEY = ['projects'] as const;
 
@@ -14,7 +15,20 @@ export function useProjects() {
     queryKey: PROJECTS_KEY,
     queryFn: async () => {
       const res = await api.getProjects();
-      return res.success ? res.data : [];
+      return res.success && res.data.length > 0 ? res.data : STATIC_PROJECTS.map((project) => ({
+        id: project.id,
+        name: project.name,
+        colour: project.colour,
+        category: 'work' as const,
+        priority: 'medium' as const,
+        description: project.description ?? '',
+        gitlabPaths: project.gitlabPaths ?? [],
+        githubRepos: project.githubRepos ?? [],
+        links: project.links ?? [],
+        tags: project.tags ?? [],
+        createdAt: '',
+        updatedAt: '',
+      }));
     },
     staleTime: 30_000,
   });

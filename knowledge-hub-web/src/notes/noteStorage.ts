@@ -112,8 +112,9 @@ export async function fetchNote(id: string): Promise<NoteDocument | null> {
 
 export async function createNote(
   doc: Pick<NoteDocument, 'title' | 'contentType' | 'contentJson'>,
+  projectId?: string,
 ): Promise<NoteDocument | null> {
-  const result = await api.createNote({ content: serialise(doc), tags: [] });
+  const result = await api.createNote({ content: serialise(doc), tags: [], ...(projectId !== undefined && { projectId }) });
   if (!result.success) return null;
   return deserialise(result.data.content, result.data.id, result.data.createdAt, result.data.updatedAt);
 }

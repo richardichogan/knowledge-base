@@ -8,6 +8,7 @@ import { TextInput } from '@carbon/react';
 import { TrashCan } from '@carbon/icons-react';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
+import { PROJECT_MAP } from '../config/projects';
 
 interface NoteListProps {
   notes: NoteListItem[];
@@ -67,16 +68,17 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
     return (n.tagIds ?? []).some((id) => matchIds.has(id));
   });
 
-  // Group by the first child taxonomy tag found on the note (its "project tag").
-  // Notes with no child tag go under "General".
+  // Group by the explicit project first, falling back to older taxonomy-only
+  // notes that predate first-class project assignment.
   const groups = new Map<string, { label: string; notes: NoteListItem[] }>();
   for (const note of filteredNotes) {
     const noteTagIds = note.tagIds ?? [];
-    // Find the first tag that is a child tag (has a parent)
     const projectTagId = noteTagIds.find((id) => tagParentMap.has(id));
-    const key = projectTagId ?? '__none__';
+    const key = note.projectId ?? projectTagId ?? '__none__';
     if (!groups.has(key)) {
-      const label = projectTagId ? (tagNameMap.get(projectTagId) ?? 'General') : 'General';
+      const label = note.projectId !== undefined
+        ? (PROJECT_MAP.get(note.projectId)?.name ?? note.projectId)
+        : projectTagId ? (tagNameMap.get(projectTagId) ?? 'General') : 'General';
       groups.set(key, { label, notes: [] });
     }
     groups.get(key)!.notes.push(note);

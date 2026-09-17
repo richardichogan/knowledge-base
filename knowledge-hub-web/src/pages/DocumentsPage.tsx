@@ -20,6 +20,7 @@ import type { DocEntry, DocType } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { TagPicker } from '../components/TagPicker';
 import { useFlatTags, useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
+import { useProjects } from '../hooks/useProjects';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { useAthenaContext } from '../context/AthenaContext';
 import { renderMarkdown } from '../utils/markdown';
@@ -69,16 +70,20 @@ function formatBytes(bytes: number): string {
 export const DocumentsPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTagIds, setActiveTagIds] = useState<Set<string>>(new Set());
+  const [activeProjectId, setActiveProjectId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
   // Optimistic overrides: docId → tagIds (updated immediately on change before refetch)
   const [tagOverrides, setTagOverrides] = useState<Map<string, string[]>>(new Map());
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadProjectId, setUploadProjectId] = useState('personal');
   const [uploadLoading, setUploadLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
   const { setAthenaContext } = useAthenaContext();
+  const { data: projectRecords = [] } = useProjects();
+  const projectOptions = projectRecords.length > 0 ? projectRecords : PROJECTS;
 
   // ── Fetch unified library ──────────────────────────────────────────────────
   const { data: libraryData, isPending: libraryPending } = useQuery({
@@ -99,9 +104,12 @@ export const DocumentsPage: React.FC = () => {
 
   // Filter by active taxonomy tag IDs + search query
   const visibleDocs = useMemo(() => {
-    let docs = activeTagIds.size === 0
+    let docs = activeProjectId === ''
       ? allDocs
-      : allDocs.filter((doc) => {
+      : allDocs.filter((doc) => doc.projectId === activeProjectId);
+    docs = activeTagIds.size === 0
+      ? docs
+      : docs.filter((doc) => {
           const docTagIds = doc.taxonomyTagIds ?? [];
           // For each selected tag, expand to include its children
           return [...activeTagIds].some((selectedId) => {
@@ -118,7 +126,7 @@ export const DocumentsPage: React.FC = () => {
       );
     }
     return docs;
-  }, [allDocs, activeTagIds, searchQuery, taxonomyTree]);
+  }, [allDocs, activeProjectId, activeTagIds, searchQuery, taxonomyTree]);
 
   function toggleTagId(id: string): void {
     setActiveTagIds((prev) => {
@@ -129,6 +137,7 @@ export const DocumentsPage: React.FC = () => {
   }
 
   const selectedDoc = allDocs.find((d) => d.id === selectedId) ?? null;
+  const selectedDocIsUpload = selectedDoc?.repo === 'kb-uploads';
 
   // ── Tag save handler ───────────────────────────────────────────────────────
   const handleDocTagChange = useCallback(async (ids: string[]) => {
@@ -168,7 +177,7 @@ export const DocumentsPage: React.FC = () => {
       type: 'document',
       title: selectedDoc.title,
       detail: [
-        `Source: ${selectedDoc.sourceLabel}`,
+        `Project: ${selectedDoc.sourceLabel}`,
         `Repo: ${selectedDoc.repo}`,
         `Path: ${selectedDoc.path}`,
         `Type: ${TYPE_LABEL[selectedDoc.type]}`,
@@ -178,53 +187,41 @@ export const DocumentsPage: React.FC = () => {
   }, [selectedDoc, setAthenaContext]);
 
   // ── Upload handler ─────────────────────────────────────────────────────────
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const ext = file.name.toLowerCase().split('.').pop() || '';
-    if (!['pdf', 'docx', 'pptx'].includes(ext)) {
-      alert(`Unsupported file type: .${ext}\n\nSupported: PDF, DOCX, PPTX`);
-      return;
-    }
-
-    handleUpload(file);
-  }, []);
-
   const handleUpload = useCallback(async (file: File) => {
     setUploadLoading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      if (uploadTitle.trim()) {
-        formData.append('title', uploadTitle.trim());
-      }
-
-      const response = await fetch('/api/documents/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData?.error?.message || 'Upload failed');
-      }
-
-      const data = await response.json();
+      const uploadProjectName = projectOptions.find((project) => project.id === uploadProjectId)?.name;
+      const data = await api.uploadDocument(file, uploadProjectId, uploadTitle, uploadProjectName);
       if (data.success) {
-        alert(`✓ ${data.data.message}`);
+        alert(`✓ Uploaded "${data.data.filename}" to ${data.data.projectName}`);
         setUploadDialogOpen(false);
         setUploadTitle('');
         if (fileInputRef.current) fileInputRef.current.value = '';
+        setActiveProjectId(data.data.projectId);
         // Refetch library
         void qc.invalidateQueries({ queryKey: ['documents-library'] });
+      } else {
+        throw new Error(data.error?.message ?? 'Upload failed');
       }
     } catch (err) {
       alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setUploadLoading(false);
     }
-  }, [uploadTitle, qc]);
+  }, [projectOptions, uploadProjectId, uploadTitle, qc]);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.toLowerCase().split('.').pop() || '';
+    if (!['pdf', 'docx', 'xlsx', 'pptx'].includes(ext)) {
+      alert(`Unsupported file type: .${ext}\n\nSupported: PDF, DOCX, XLSX, PPTX`);
+      return;
+    }
+
+    void handleUpload(file);
+  }, [handleUpload]);
 
   return (
     <div className="docs-page">
@@ -235,14 +232,14 @@ export const DocumentsPage: React.FC = () => {
           {allDocs.length > 0 && (
             <p className="page-subtitle">
               {allDocs.length} document{allDocs.length !== 1 ? 's' : ''}
-              {(activeTagIds.size > 0 || searchQuery.trim() !== '') && ` · ${visibleDocs.length} shown`}
+              {(activeProjectId !== '' || activeTagIds.size > 0 || searchQuery.trim() !== '') && ` · ${visibleDocs.length} shown`}
             </p>
           )}
         </div>
         <button
           className="docs-upload-btn"
           onClick={() => setUploadDialogOpen(true)}
-          title="Upload PDF, DOCX, or PPTX"
+          title="Upload PDF, DOCX, XLSX, or PPTX"
         >
           <DocumentAdd size={20} />
           Upload Document
@@ -264,6 +261,21 @@ export const DocumentsPage: React.FC = () => {
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); }}
             />
+          </div>
+
+          <div className="docs-project-filter">
+            <label className="docs-project-filter__label" htmlFor="docs-project-filter">Project</label>
+            <select
+              id="docs-project-filter"
+              className="docs-project-filter__select"
+              value={activeProjectId}
+              onChange={(e) => { setActiveProjectId(e.target.value); }}
+            >
+              <option value="">All projects</option>
+              {projectOptions.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
           </div>
 
           {/* Collapsible tag filter */}
@@ -375,7 +387,7 @@ export const DocumentsPage: React.FC = () => {
                   className="docs-viewer__gh-link"
                 >
                   <Launch size={14} />
-                  View on GitHub
+                  {selectedDocIsUpload ? 'Open original' : 'View on GitHub'}
                 </a>
               </div>
               <div
@@ -411,18 +423,20 @@ export const DocumentsPage: React.FC = () => {
               <p className="docs-info-panel__value">{selectedDoc.sourceLabel}</p>
             </div>
 
-            <div className="docs-info-panel__section">
-              <p className="docs-info-panel__label">Repository</p>
-              <a
-                href={`https://github.com/${selectedDoc.repo}`}
-                target="_blank"
-                rel="noreferrer"
-                className="docs-info-panel__link"
-              >
-                {selectedDoc.repo}
-                <Launch size={12} />
-              </a>
-            </div>
+            {!selectedDocIsUpload && (
+              <div className="docs-info-panel__section">
+                <p className="docs-info-panel__label">Repository</p>
+                <a
+                  href={`https://github.com/${selectedDoc.repo}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="docs-info-panel__link"
+                >
+                  {selectedDoc.repo}
+                  <Launch size={12} />
+                </a>
+              </div>
+            )}
 
             <div className="docs-info-panel__section">
               <p className="docs-info-panel__label">Path</p>
@@ -472,7 +486,7 @@ export const DocumentsPage: React.FC = () => {
         <div className="docs-upload-dialog-overlay">
           <div className="docs-upload-dialog">
             <h2 className="docs-upload-dialog__title">Upload Document</h2>
-            <p className="docs-upload-dialog__subtitle">PDF, DOCX, or PPTX files will be added to the content-store and indexed automatically.</p>
+            <p className="docs-upload-dialog__subtitle">PDF, DOCX, XLSX, or PPTX files will be stored in the Library under the selected project and indexed automatically.</p>
 
             {/* File input */}
             <div className="docs-upload-dialog__section">
@@ -480,7 +494,7 @@ export const DocumentsPage: React.FC = () => {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.docx,.pptx"
+                accept=".pdf,.docx,.xlsx,.pptx"
                 onChange={handleFileSelect}
                 disabled={uploadLoading}
                 style={{ display: 'none' }}
@@ -505,6 +519,21 @@ export const DocumentsPage: React.FC = () => {
                 onChange={(e) => setUploadTitle(e.target.value)}
                 disabled={uploadLoading}
               />
+            </div>
+
+            <div className="docs-upload-dialog__section">
+              <label className="docs-upload-dialog__label" htmlFor="docs-upload-project">Project</label>
+              <select
+                id="docs-upload-project"
+                className="docs-upload-dialog__select"
+                value={uploadProjectId}
+                onChange={(e) => { setUploadProjectId(e.target.value); }}
+                disabled={uploadLoading}
+              >
+                {projectOptions.map((project) => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </select>
             </div>
 
             {/* Actions */}

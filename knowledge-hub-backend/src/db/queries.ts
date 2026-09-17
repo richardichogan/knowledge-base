@@ -251,16 +251,20 @@ export async function getRagItems(
   db: Pool,
   query: string,
   limit: number,
+  projectContext?: string,
 ): Promise<ContentItem[]> {
+  const projectFilter = projectContext !== undefined && projectContext.trim() !== '';
+  const projectWhere = projectFilter ? ' AND project_context = $3' : '';
+  const params = projectFilter ? [query, limit, projectContext] : [query, limit];
   const andResult: QueryResult<ContentItemRow & { body: string }> = await db.query(
     `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
             url, project_context, metadata, tags,
             ts_rank(search_vector, plainto_tsquery('english', $1)) * ${SOURCE_RANK_WEIGHT_SQL} AS rank
      FROM content_items
-     WHERE search_vector @@ plainto_tsquery('english', $1)
+     WHERE search_vector @@ plainto_tsquery('english', $1)${projectWhere}
      ORDER BY rank DESC, ${ACTIVITY_AT_SQL} DESC
      LIMIT $2`,
-    [query, limit],
+    params,
   );
   if (andResult.rows.length > 0) return andResult.rows.map(rowToItem);
 
@@ -291,10 +295,10 @@ export async function getRagItems(
             url, project_context, metadata, tags,
             ts_rank(search_vector, to_tsquery('english', $1)) * ${SOURCE_RANK_WEIGHT_SQL} AS rank
      FROM content_items
-     WHERE search_vector @@ to_tsquery('english', $1)
+     WHERE search_vector @@ to_tsquery('english', $1)${projectWhere}
      ORDER BY rank DESC, ${ACTIVITY_AT_SQL} DESC
      LIMIT $2`,
-    [orQuery, limit],
+    projectFilter ? [orQuery, limit, projectContext] : [orQuery, limit],
   );
   return orResult.rows.map(rowToItem);
 }
