@@ -7,6 +7,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import {
   Button,
   Tile,
@@ -455,6 +456,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatAbortControllerRef = useRef<AbortController | null>(null);
 
   // Auto-grow the message textarea up to a max height, then let it scroll —
   // recalculated whenever the input text changes.
@@ -615,12 +617,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   }
 
   const chatMutation = useMutation({
+    onMutate: () => {
+      // Fresh controller per turn — Stop only ever aborts the request that's actually in flight.
+      chatAbortControllerRef.current = new AbortController();
+    },
     mutationFn: (message: string) =>
-      api.chat({
-        message,
-        persona,
-        ...(sessionId !== null && { sessionId }),
-      }),
+      api.chat(
+        {
+          message,
+          persona,
+          ...(sessionId !== null && { sessionId }),
+        },
+        chatAbortControllerRef.current?.signal,
+      ),
     onSuccess: (result) => {
       if (!result.success) {
         appendMessage('assistant', `Error: ${result.error.message}`);
@@ -642,6 +651,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       }, 50);
     },
     onError: (err: unknown) => {
+      // User pressed Stop — the request was deliberately aborted client-side. Not a real
+      // failure, but confirm it visibly so it's clear Stop actually did something. The reply
+      // (if the backend finishes generating it anyway) is simply discarded from here on.
+      if (axios.isCancel(err) || (err instanceof Error && err.name === 'CanceledError')) {
+        appendMessage('assistant', '⏹️ Stopped.');
+        return;
+      }
       const isTimeout =
         typeof err === 'object' &&
         err !== null &&
@@ -655,6 +671,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       );
     },
   });
+
+  /** Aborts the in-flight chat request. The backend keeps running to completion, but the UI stops waiting and discards whatever comes back. */
+  function handleStopGenerating(): void {
+    chatAbortControllerRef.current?.abort();
+  }
 
   const confirmMutation = useMutation({
     mutationFn: (id: string) => api.confirmAction(id),
@@ -1282,8 +1303,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             </div>
           ))}
           {chatMutation.isPending && (
-            <div className="ai-bubble ai-bubble--ai">
+            <div className="ai-bubble ai-bubble--ai ai-bubble--thinking">
               <InlineLoading description="Athena is thinking…" />
+              <Button
+                type="button"
+                kind="danger--ghost"
+                size="sm"
+                renderIcon={StopFilled}
+                className="ai-stop-generating-button"
+                onClick={handleStopGenerating}
+              >
+                Stop
+              </Button>
             </div>
           )}
           <div ref={bottomRef} />

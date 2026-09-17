@@ -974,6 +974,22 @@ input, textarea {
   transition: width 0.15s ease-out;
 }
 
+.ai-bubble--thinking {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.ai-stop-generating-button {
+  flex-shrink: 0;
+  color: var(--cds-support-error, #da1e28);
+
+  &:hover {
+    background: var(--cds-button-danger-secondary-hover, rgba(218, 30, 40, 0.1));
+  }
+}
+
 .ai-input-row {
   display: flex;
   gap: 0.5rem;

@@ -371,11 +371,11 @@ export class KnowledgeHubApi {
 
   // ─── AI Chat ──────────────────────────────────────────────────────────────
 
-  async chat(request: ChatRequest): Promise<ApiResponse<ChatResponse>> {
+  async chat(request: ChatRequest, signal?: AbortSignal): Promise<ApiResponse<ChatResponse>> {
     const r = await this.client.post<ApiResponse<ChatResponse>>(
       '/api/ai/chat',
       request,
-      { timeout: CHAT_TIMEOUT_MS },
+      { timeout: CHAT_TIMEOUT_MS, ...(signal && { signal }) },
     );
     return r.data;
   }
