@@ -34,6 +34,7 @@ import { AthenaContextProvider } from './context/AthenaContext';
 import { AIChatPage } from './pages/AIChatPage';
 import { HomePage } from './pages/HomePage';
 import { RepoProjectMappingsPage } from './pages/RepoProjectMappingsPage';
+import { ProjectsPage } from './pages/ProjectsPage';
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -66,7 +67,7 @@ const App: React.FC = () => {
                 <Route path="tasks"     element={<Navigate to="/plan" replace />} />
                 <Route path="calendar"  element={<Navigate to="/plan" replace />} />
                 <Route path="notes"     element={<Navigate to="/think" replace />} />
-                <Route path="projects"  element={<Navigate to="/discover" replace />} />
+                <Route path="projects"  element={<ProjectsPage />} />
                 <Route path="documents" element={<Navigate to="/library" replace />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Route>

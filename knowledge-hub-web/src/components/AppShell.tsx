@@ -59,6 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/think',    label: 'Think',    icon: Idea },
   { path: '/library',  label: 'Library',  icon: Book },
   { path: '/blog-post', label: 'Blog Post', icon: Blog },
+  { path: '/projects', label: 'Projects', icon: Portfolio },
 ];
 
 export const AppShell: React.FC = () => {
@@ -103,7 +104,7 @@ export const AppShell: React.FC = () => {
         </HeaderName>
         <HeaderGlobalBar>
           <HeaderGlobalAction
-            aria-label="Projects"
+            aria-label="Repo → Tag Mappings"
             isActive={projectsOpen}
             onClick={() => { setProjectsOpen((v) => !v); setTagPanelOpen(false); }}
           >
