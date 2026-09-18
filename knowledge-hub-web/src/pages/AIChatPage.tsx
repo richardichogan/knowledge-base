@@ -1404,6 +1404,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             className="ai-file-input-hidden"
             onChange={handleFileSelected}
           />
+          {conversationProjectPicker}
           <div className="ai-input-field">
             <Button
               type="button"
@@ -1442,7 +1443,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               disabled={chatMutation.isPending || isTranscribing}
             />
           </div>
-          {conversationProjectPicker}
           {chatMutation.isPending ? (
             <Button
               type="button"
