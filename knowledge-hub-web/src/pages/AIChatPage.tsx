@@ -1384,6 +1384,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             <Attachment size={16} className="ai-pending-file__icon" />
             <span className="ai-pending-file__name">{pendingFile.name}</span>
             <span className="ai-pending-file__hint">Ready — type your question, then send</span>
+            <label className="ai-pending-file__project">
+              <span className="ai-pending-file__project-label">Save to</span>
+              <select
+                className="ai-pending-file__project-select"
+                value={uploadProjectId}
+                onChange={(e) => { setUploadProjectId(e.target.value); }}
+                aria-label="Project for attached file"
+              >
+                {uploadProjectOptions.map((project) => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
               className="ai-pending-file__remove"
@@ -1403,20 +1416,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             className="ai-file-input-hidden"
             onChange={handleFileSelected}
           />
-          <label className="ai-upload-project-picker">
-            <span className="ai-upload-project-picker__label">File project</span>
-            <select
-              className="ai-upload-project-picker__select"
-              value={uploadProjectId}
-              onChange={(e) => { setUploadProjectId(e.target.value); }}
-              disabled={chatMutation.isPending || uploadProgress !== null}
-              aria-label="Project for uploaded files"
-            >
-              {uploadProjectOptions.map((project) => (
-                <option key={project.id} value={project.id}>{project.name}</option>
-              ))}
-            </select>
-          </label>
           <div className="ai-input-field">
             <Button
               type="button"
