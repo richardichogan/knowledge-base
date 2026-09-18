@@ -58,7 +58,7 @@ const App: React.FC = () => {
                 <Route path="my-work"  element={<MyWorkPage />} />
                 <Route path="think"    element={<ThinkPage />} />
                 <Route path="library"  element={<DocumentsPage />} />
-                <Route path="blog-post" element={<AIChatPage initialPersona="blog_post" title="Blog Post" />} />
+                <Route path="blog-post" element={<Navigate to="/chat" replace />} />
                 <Route path="graph"    element={<GraphPage />} />
                 <Route path="settings/repo-mappings" element={<RepoProjectMappingsPage />} />
                 <Route path="timeline"  element={<Navigate to="/discover" replace />} />
