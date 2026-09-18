@@ -13,6 +13,7 @@ export interface ChatRequest {
   sessionId?: string;
   model?: AiModel;
   persona?: AthenaPersona;
+  projectId?: string | null;
 }
 
 export interface ChatMessage {
@@ -52,6 +53,7 @@ export interface ChatSessionSummary {
   updatedAt: string;
   preview: string;
   persona?: AthenaPersona;
+  projectId: string | null;
 }
 
 export interface ExportToThinkResponse {

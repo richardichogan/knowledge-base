@@ -26,6 +26,7 @@ import type { ContentType } from './constants';
 import type { NoteDocument } from './types';
 import { useNoteTags, useSetNoteTags, useFlatTags } from '../hooks/useTaxonomy';
 import { MetadataPanel } from './MetadataPanel';
+import { useProjects } from '../hooks/useProjects';
 
 interface NoteEditorProps {
   doc: NoteDocument;
@@ -114,6 +115,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
+  const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -125,15 +127,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
   const setNoteTagsMutation = useSetNoteTags(doc.id);
   const taxonomyTagIds = noteTagObjects.map((t) => t.id);
   const flatTags = useFlatTags();
+  const { data: projects = [] } = useProjects();
   const [notification, setNotification] = useState<{ kind: 'success' | 'error'; msg: string } | null>(null);
   const [githubPath, setGithubPath] = useState<string | undefined>(doc.githubPath);
 
   const savedDocRef = useRef<NoteDocument>(doc);
   const contentTypeRef = useRef<ContentType>(doc.contentType);
+  const projectIdRef = useRef(doc.projectId ?? '');
   const githubPathRef = useRef<string | undefined>(doc.githubPath);
   const onSavedRef = useRef<(updated: NoteDocument) => void>(onSaved);
 
   useEffect(() => { contentTypeRef.current = contentType; }, [contentType]);
+  useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
   useEffect(() => { githubPathRef.current = githubPath; }, [githubPath]);
   useEffect(() => { onSavedRef.current = onSaved; }, [onSaved]);
 
@@ -282,10 +287,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
     const title = extractTitle(blocks);
     const contentJson = JSON.stringify(currentEditor.document);
     const updated: NoteDocument = {
-      ...savedDocRef.current,
+      id: savedDocRef.current.id,
+      createdAt: savedDocRef.current.createdAt,
+      updatedAt: savedDocRef.current.updatedAt,
       title,
       contentType: contentTypeRef.current,
       contentJson,
+      ...(projectIdRef.current !== '' && { projectId: projectIdRef.current }),
       ...(githubPathRef.current !== undefined && { githubPath: githubPathRef.current }),
     };
     const ok = await saveNote(updated).catch((err: unknown) => {
@@ -591,6 +599,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
         doc={doc}
         contentType={contentType}
         onContentTypeChange={(value) => { setContentType(value); isDirtyRef.current = true; }}
+        projectId={projectId}
+        projects={projects}
+        onProjectChange={(value) => {
+          setProjectId(value);
+          projectIdRef.current = value;
+          isDirtyRef.current = true;
+          void doSave();
+        }}
         taxonomyTagIds={taxonomyTagIds}
         appliedTags={appliedTags}
         onTagIdsChange={(ids) => { void setNoteTagsMutation.mutate(ids); }}

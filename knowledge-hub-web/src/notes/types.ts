@@ -13,6 +13,8 @@ export interface NoteDocument {
   contentJson: string;
   /** Path in GitHub content repo once synced; null until first push */
   githubPath?: string;
+  /** Project this Think item belongs to, if assigned. */
+  projectId?: string;
   createdAt: string;
   updatedAt: string;
 }

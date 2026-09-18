@@ -37,6 +37,7 @@ export interface SessionListItem {
   updatedAt: string;
   preview: string;
   persona: string;
+  projectId: string | null;
 }
 
 /** Ensures a session row exists, then returns its current message history. */
@@ -63,6 +64,24 @@ export async function setSessionPersona(db: Pool, sessionId: string, persona: st
     `INSERT INTO ai_chat_sessions (id, persona) VALUES ($1, $2)
        ON CONFLICT (id) DO UPDATE SET persona = EXCLUDED.persona`,
     [sessionId, persona],
+  );
+}
+
+/** Reads the project associated with a session, if one has been assigned. */
+export async function getSessionProjectId(db: Pool, sessionId: string): Promise<string | null> {
+  const { rows } = await db.query<{ project_id: string | null }>(
+    `SELECT project_id FROM ai_chat_sessions WHERE id = $1`,
+    [sessionId],
+  );
+  return rows[0]?.project_id ?? null;
+}
+
+/** Assigns or clears a session's project. */
+export async function setSessionProjectId(db: Pool, sessionId: string, projectId: string | null): Promise<void> {
+  await db.query(
+    `INSERT INTO ai_chat_sessions (id, project_id) VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET project_id = EXCLUDED.project_id`,
+    [sessionId, projectId],
   );
 }
 
@@ -119,8 +138,9 @@ export async function listSessions(db: Pool, limit = 50): Promise<SessionListIte
     updated_at: string;
     preview: string | null;
     persona: string;
+    project_id: string | null;
   }>(
-    `SELECT s.id, s.title, s.started_at, s.updated_at, s.persona,
+    `SELECT s.id, s.title, s.started_at, s.updated_at, s.persona, s.project_id,
             (SELECT content FROM ai_chat_messages m WHERE m.session_id = s.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS preview
        FROM ai_chat_sessions s
       WHERE EXISTS (SELECT 1 FROM ai_chat_messages m WHERE m.session_id = s.id)
@@ -135,6 +155,7 @@ export async function listSessions(db: Pool, limit = 50): Promise<SessionListIte
     updatedAt: r.updated_at,
     preview: (r.preview ?? '').slice(0, 140),
     persona: r.persona,
+    projectId: r.project_id,
   }));
 }
 

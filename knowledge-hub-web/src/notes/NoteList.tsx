@@ -8,7 +8,7 @@ import { TextInput } from '@carbon/react';
 import { TrashCan } from '@carbon/icons-react';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
-import { PROJECT_MAP } from '../config/projects';
+import { useProjects } from '../hooks/useProjects';
 
 interface NoteListProps {
   notes: NoteListItem[];
@@ -42,6 +42,8 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
   const [tagFilterOpen,  setTagFilterOpen]  = useState(false);
 
   const { data: parents = [] } = useTaxonomy();
+  const { data: projects = [] } = useProjects();
+  const projectNameMap = new Map(projects.map((project) => [project.id, project.name]));
 
   // Build a flat map of tagId → tag name, and a set of all "project child" tag IDs.
   // A project child is any tag whose parent is a top-level project group tag.
@@ -77,7 +79,7 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
     const key = note.projectId ?? projectTagId ?? '__none__';
     if (!groups.has(key)) {
       const label = note.projectId !== undefined
-        ? (PROJECT_MAP.get(note.projectId)?.name ?? note.projectId)
+        ? (projectNameMap.get(note.projectId) ?? note.projectId)
         : projectTagId ? (tagNameMap.get(projectTagId) ?? 'General') : 'General';
       groups.set(key, { label, notes: [] });
     }

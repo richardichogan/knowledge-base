@@ -443,8 +443,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
   const [input, setInput] = useState('');
   const [persona, setPersona] = useState<AthenaPersona>(initialPersona ?? 'general');
+  const [activeProjectId, setActiveProjectId] = useState('');
+  const [projectError, setProjectError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ filename: string; percent: number } | null>(null);
   const [uploadProjectId, setUploadProjectId] = useState('personal');
   const [isRecording, setIsRecording] = useState(false);
@@ -503,6 +506,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       if (result.success && result.data.persona) {
         setPersona(result.data.persona);
       }
+      if (result.success) setActiveProjectId(result.data.projectId ?? '');
       setIsRestoringHistory(false);
     }).catch(() => {
       if (!cancelled) setIsRestoringHistory(false);
@@ -585,6 +589,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     void api.getSessionHistory(id).then((result) => {
       if (result.success) setMessages(result.data.messages);
       if (result.success && result.data.persona) setPersona(result.data.persona);
+      if (result.success) setActiveProjectId(result.data.projectId ?? '');
       setIsRestoringHistory(false);
     }).catch(() => {
       setIsRestoringHistory(false);
@@ -639,6 +644,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         {
           message,
           persona,
+          projectId: activeProjectId !== '' ? activeProjectId : null,
           ...(sessionId !== null && { sessionId }),
         },
         chatAbortControllerRef.current?.signal,
@@ -725,7 +731,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
 
   function handleSend(e: React.FormEvent): void {
     e.preventDefault();
-    submitMessage();
+    void submitMessage();
   }
 
   async function handleCopyMessage(content: string, index: number): Promise<void> {
@@ -742,13 +748,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
-      submitMessage();
+      void submitMessage();
     }
   }
 
-  function submitMessage(): void {
+  async function submitMessage(): Promise<void> {
     const text = input.trim();
     if (text === '') return;
+
+    if (pendingFile !== null) {
+      await uploadAttachedFile(pendingFile, text);
+      return;
+    }
+
     appendMessage('user', text);
     setInput('');
     // Prepend page context on the first message of a session, or whenever the
@@ -775,17 +787,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     fileInputRef.current?.click();
   }
 
-  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+  function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>): void {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-selecting the same file later
     if (!file) return;
 
-    if (/\.(md|markdown)$/i.test(file.name)) {
-      await handleMarkdownUpload(file);
-      return;
-    }
-
-    if (!/\.(txt|docx|xlsx|pptx|pdf)$/i.test(file.name)) {
+    if (!/\.(md|markdown|txt|docx|xlsx|pptx|pdf)$/i.test(file.name)) {
       appendMessage(
         'assistant',
         '⚠️ Please attach a Markdown (.md), text (.txt), Word (.docx), Excel (.xlsx), PowerPoint (.pptx), or PDF file.',
@@ -793,84 +800,57 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       return;
     }
 
+    setPendingFile(file);
+    textareaRef.current?.focus();
+  }
+
+  async function uploadAttachedFile(file: File, question: string): Promise<void> {
     setUploadProgress({ filename: file.name, percent: 0 });
     try {
-      const res = await api.uploadDocument(file, uploadProjectId, undefined, uploadProjectName, (percent) => {
-        setUploadProgress({ filename: file.name, percent });
-      });
-      if (!res.success) {
-        appendMessage('assistant', `⚠️ Couldn't upload "${file.name}" — ${res.error?.message ?? 'upload failed'}.`);
-        return;
+      let fileText: string;
+      let storedIn: string;
+      let extraNote = '';
+
+      if (/\.(md|markdown)$/i.test(file.name)) {
+        fileText = (await file.text()).trim();
+        if (fileText === '') throw new Error('the file is empty');
+        setUploadProgress({ filename: file.name, percent: 60 });
+        const title = file.name.replace(/\.(md|markdown)$/i, '');
+        const note = await createNote({
+          title,
+          contentType: 'note',
+          contentJson: JSON.stringify(markdownToNoteBlocks(fileText)),
+        }, uploadProjectId);
+        if (!note) throw new Error('could not save the file to Think');
+        storedIn = `Think under ${uploadProjectName}`;
+      } else {
+        const res = await api.uploadDocument(file, uploadProjectId, undefined, uploadProjectName, (percent) => {
+          setUploadProgress({ filename: file.name, percent });
+        });
+        if (!res.success) throw new Error(res.error?.message ?? 'upload failed');
+        fileText = res.data.text;
+        storedIn = `the Documents library under ${res.data.projectName}`;
+        if (res.data.truncated) extraNote = ' The extract below is truncated because the file is large.';
       }
-      const { text, truncated } = res.data;
-      appendMessage('user', `📎 Uploaded ${file.name} — stored in your Documents library under ${res.data.projectName}.`);
-      sendAttachedDocumentPrompt(
-        file.name,
-        text,
-        `Documents library under ${res.data.projectName}`,
-        truncated ? ' (the file is large — this is a truncated extract)' : '',
-      );
+
+      setUploadProgress({ filename: file.name, percent: 100 });
+      setPendingFile(null);
+      setInput('');
+      appendMessage('user', `${question}\n\n📎 ${file.name}`);
+      chatMutation.mutate([
+        `The user attached "${file.name}", which has now been stored in ${storedIn}.${extraNote}`,
+        `Their question is: ${question}`,
+        'Answer that question directly from the attached content. Do not create a note or task unless explicitly asked.',
+        '',
+        `--- ${file.name} ---`,
+        fileText.slice(0, 12000),
+      ].join('\n'));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       appendMessage('assistant', `⚠️ Couldn't upload "${file.name}" — ${message}.`);
     } finally {
       setUploadProgress(null);
     }
-  }
-
-  /**
-   * Markdown files go to Think (as a note), not the Documents library — Think
-   * is a genuinely good fit for markdown (it's already the note format), and
-   * this is a deterministic, filetype-based routing rule the user asked for
-   * explicitly, not a judgement call Athena makes per upload.
-   */
-  async function handleMarkdownUpload(file: File): Promise<void> {
-    setUploadProgress({ filename: file.name, percent: 0 });
-    try {
-      const text = (await file.text()).trim();
-      if (text === '') {
-        appendMessage('assistant', `⚠️ "${file.name}" looks empty — there's nothing to add.`);
-        return;
-      }
-      setUploadProgress({ filename: file.name, percent: 60 });
-      const title = file.name.replace(/\.(md|markdown)$/i, '');
-      const note = await createNote({
-        title,
-        contentType: 'note',
-        contentJson: JSON.stringify(markdownToNoteBlocks(text)),
-      }, uploadProjectId);
-      setUploadProgress({ filename: file.name, percent: 100 });
-      if (!note) {
-        appendMessage('assistant', `⚠️ Couldn't save "${file.name}" to Think.`);
-        return;
-      }
-      appendMessage('user', `📎 Uploaded ${file.name} — saved to Think under ${uploadProjectName}.`);
-      sendAttachedDocumentPrompt(file.name, text, `Think under ${uploadProjectName}`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      appendMessage('assistant', `⚠️ Couldn't save "${file.name}" to Think — ${message}.`);
-    } finally {
-      setUploadProgress(null);
-    }
-  }
-
-  /**
-   * Adds the (now persisted) content of an uploaded file as immediate chat
-   * context and asks Athena for a brief overview only — per explicit
-   * instruction, Athena must NOT create notes or tasks from an upload unless
-   * the user separately, explicitly asks it to. The file is already
-   * stored/searchable server-side, so no "save this" step is needed here.
-   */
-  function sendAttachedDocumentPrompt(filename: string, text: string, storedIn: string, extraNote = ''): void {
-    const prompt = [
-      `I've uploaded a file named "${filename}"${extraNote}. It's already been stored in ${storedIn} — you don't need to save or file it anywhere.`,
-      "Just give me a brief overview of what's in it, then answer any question I ask about it directly from the content below.",
-      'Do not create a note or a task from this unless I explicitly ask you to.',
-      '',
-      `--- ${filename} ---`,
-      text.slice(0, 12000),
-    ].join('\n');
-    chatMutation.mutate(prompt);
   }
 
 
@@ -880,10 +860,33 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     setSessionId(null);
     setPendingActions([]);
     setPersona(initialPersona ?? 'general');
+    setActiveProjectId('');
+    setProjectError(null);
+    setPendingFile(null);
     try {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
     } catch {
       // Non-fatal — worst case the old session ID lingers until overwritten by a new one.
+    }
+  }
+
+  async function handleProjectChange(nextProjectId: string): Promise<void> {
+    const previousProjectId = activeProjectId;
+    setActiveProjectId(nextProjectId);
+    setProjectError(null);
+    if (sessionId === null) return;
+
+    try {
+      const result = await api.setSessionProject(sessionId, nextProjectId !== '' ? nextProjectId : null);
+      if (!result.success) throw new Error(result.error.message);
+      setChatSessions((current) => current.map((session) =>
+        session.id === sessionId
+          ? { ...session, projectId: result.data.projectId }
+          : session,
+      ));
+    } catch (error) {
+      setActiveProjectId(previousProjectId);
+      setProjectError(error instanceof Error ? error.message : 'Could not update the conversation project');
     }
   }
 
@@ -1009,9 +1012,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     }
   }
 
+  const projectNameById = new Map(uploadProjectOptions.map((project) => [project.id, project.name]));
   const filteredSidebarSessions = sidebarSearchQuery.trim() === ''
     ? chatSessions
-    : chatSessions.filter((s) => s.title.toLowerCase().includes(sidebarSearchQuery.trim().toLowerCase()));
+    : chatSessions.filter((s) => {
+        const query = sidebarSearchQuery.trim().toLowerCase();
+        const projectName = s.projectId !== null ? projectNameById.get(s.projectId) ?? '' : '';
+        return s.title.toLowerCase().includes(query) || projectName.toLowerCase().includes(query);
+      });
 
   const personaSwitch = (
     <div className="kh-persona-switch" role="group" aria-label="Athena persona">
@@ -1175,7 +1183,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               >
                 <div className="kh-chat-sidebar__item-main">
                   <div className="kh-chat-sidebar__item-title">{s.title}</div>
-                  <div className="kh-chat-sidebar__item-time">{formatSessionTime(s.updatedAt)}</div>
+                  <div className="kh-chat-sidebar__item-meta">
+                    {s.projectId !== null && (
+                      <span className="kh-chat-sidebar__project">
+                        {projectNameById.get(s.projectId) ?? s.projectId}
+                      </span>
+                    )}
+                    <span className="kh-chat-sidebar__item-time">{formatSessionTime(s.updatedAt)}</span>
+                  </div>
                 </div>
                 <Button
                   size="sm"
@@ -1232,6 +1247,26 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           </div>
         </div>
       )}
+      <div className={`ai-chat-project${compact ? ' ai-chat-project--compact' : ''}`}>
+        <label
+          className="ai-chat-project__label"
+          htmlFor={`ai-chat-project-${standalone ? 'standalone' : compact ? 'compact' : 'page'}`}
+        >
+          Conversation project
+        </label>
+        <select
+          id={`ai-chat-project-${standalone ? 'standalone' : compact ? 'compact' : 'page'}`}
+          className="ai-chat-project__select"
+          value={activeProjectId}
+          onChange={(event) => { void handleProjectChange(event.target.value); }}
+        >
+          <option value="">No project</option>
+          {uploadProjectOptions.map((project) => (
+            <option key={project.id} value={project.id}>{project.name}</option>
+          ))}
+        </select>
+        {projectError !== null && <span className="ai-chat-project__error" role="alert">{projectError}</span>}
+      </div>
       <div className={standalone ? 'ai-chat-standalone__body' : compact ? 'ai-chat-compact__body' : ''}>
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
@@ -1344,16 +1379,32 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           </div>
         )}
 
+        {pendingFile !== null && uploadProgress === null && (
+          <div className="ai-pending-file" role="status">
+            <Attachment size={16} className="ai-pending-file__icon" />
+            <span className="ai-pending-file__name">{pendingFile.name}</span>
+            <span className="ai-pending-file__hint">Ready — type your question, then send</span>
+            <button
+              type="button"
+              className="ai-pending-file__remove"
+              aria-label={`Remove ${pendingFile.name}`}
+              onClick={() => { setPendingFile(null); }}
+            >
+              <Close size={14} />
+            </button>
+          </div>
+        )}
+
         <form onSubmit={handleSend} className="ai-input-row">
           <input
             ref={fileInputRef}
             type="file"
             accept=".md,.markdown,.txt,text/markdown,text/plain,.docx,.xlsx,.pptx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf"
             className="ai-file-input-hidden"
-            onChange={(e) => { void handleFileSelected(e); }}
+            onChange={handleFileSelected}
           />
           <label className="ai-upload-project-picker">
-            <span className="ai-upload-project-picker__label">Project</span>
+            <span className="ai-upload-project-picker__label">File project</span>
             <select
               className="ai-upload-project-picker__select"
               value={uploadProjectId}
@@ -1384,7 +1435,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               id="ai-chat-input"
               className="ai-input-textarea"
               rows={1}
-              placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : 'Ask your knowledge hub…'}
+              placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : pendingFile !== null ? 'Ask a question about the attached file…' : 'Ask your knowledge hub…'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleInputKeyDown}
@@ -1411,7 +1462,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             iconDescription="Send"
             tooltipPosition="top"
             className="ai-send-button"
-            disabled={chatMutation.isPending || input.trim() === ''}
+            disabled={chatMutation.isPending || uploadProgress !== null || input.trim() === ''}
           />
         </form>
       </div>

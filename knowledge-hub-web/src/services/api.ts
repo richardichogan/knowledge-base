@@ -328,7 +328,7 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async patchNote(id: string, content: string, tags: string[], projectId?: string): Promise<ApiResponse<Note>> {
+  async patchNote(id: string, content: string, tags: string[], projectId?: string | null): Promise<ApiResponse<Note>> {
     const body: Record<string, unknown> = { content, tags };
     if (projectId !== undefined) body['projectId'] = projectId;
     const r = await this.client.patch<ApiResponse<Note>>(`/api/notes/${id}`, body);
@@ -418,8 +418,8 @@ export class KnowledgeHubApi {
   /** Fetches (and lazily creates) a session's persisted message history, so a reload/reopen can restore it. */
   async getSessionHistory(
     sessionId: string,
-  ): Promise<ApiResponse<{ sessionId: string; messages: ChatMessage[]; persona?: AthenaPersona }>> {
-    const r = await this.client.get<ApiResponse<{ sessionId: string; messages: ChatMessage[]; persona?: AthenaPersona }>>(
+  ): Promise<ApiResponse<{ sessionId: string; messages: ChatMessage[]; persona?: AthenaPersona; projectId: string | null }>> {
+    const r = await this.client.get<ApiResponse<{ sessionId: string; messages: ChatMessage[]; persona?: AthenaPersona; projectId: string | null }>>(
       `/api/ai/session/${sessionId}/history`,
     );
     return r.data;
@@ -445,6 +445,18 @@ export class KnowledgeHubApi {
     const r = await this.client.patch<ApiResponse<{ sessionId: string; persona: AthenaPersona }>>(
       `/api/ai/session/${sessionId}/persona`,
       { persona },
+    );
+    return r.data;
+  }
+
+  /** Assigns or clears the project associated with a chat session. */
+  async setSessionProject(
+    sessionId: string,
+    projectId: string | null,
+  ): Promise<ApiResponse<{ sessionId: string; projectId: string | null }>> {
+    const r = await this.client.patch<ApiResponse<{ sessionId: string; projectId: string | null }>>(
+      `/api/ai/session/${sessionId}/project`,
+      { projectId },
     );
     return r.data;
   }

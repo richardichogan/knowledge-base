@@ -105,7 +105,9 @@ export const NotesPage: React.FC = () => {
 
   function handleNoteSaved(updated: NoteDocument): void {
     setOpenDoc((prev) => {
-      if (prev?.title !== updated.title) void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+      if (prev?.title !== updated.title || prev?.projectId !== updated.projectId) {
+        void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+      }
       return updated;
     });
   }

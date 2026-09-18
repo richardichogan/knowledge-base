@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { handleConversationTurn, summariseSession, rollUpConversationSummary, formatSessionForThink } from '../ai/conversationService.js';
-import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona } from '../ai/chatSessionStore.js';
+import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
@@ -29,11 +29,12 @@ const router = Router();
 router.post('/chat', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
     try {
-      const { sessionId: providedSessionId, message, model, persona: requestedPersona } = req.body as {
+      const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId } = req.body as {
         sessionId?: string;
         message?: string;
         model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
         persona?: string;
+        projectId?: string | null;
       };
 
       if (!message) throw new ValidationError('message required', { message: 'required' });
@@ -43,6 +44,14 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       const fullHistory = await getOrCreateSessionHistory(db, effectiveSessionId);
       const isFirstMessage = fullHistory.length === 0;
       const modelHistory = await getModelHistory(db, effectiveSessionId);
+
+      if ('projectId' in req.body) {
+        await setSessionProjectId(
+          db,
+          effectiveSessionId,
+          typeof projectId === 'string' && projectId.trim() !== '' ? projectId.trim() : null,
+        );
+      }
 
       // Persona is per-session, set explicitly (e.g. from the persona picker on
       // a new chat) rather than inferred per-message. If the caller passes one,
@@ -112,6 +121,35 @@ router.patch('/session/:sessionId/persona', (req: Request, res: Response, next: 
 });
 
 /**
+ * PATCH /api/ai/session/:sessionId/project
+ * Assigns or clears a project for a conversation.
+ * Body: { projectId: string | null }
+ */
+router.patch('/session/:sessionId/project', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { sessionId } = req.params as { sessionId: string };
+      const { projectId } = req.body as { projectId?: string | null };
+      if (!('projectId' in req.body)) {
+        throw new ValidationError('projectId required', { projectId: 'required; use null to clear' });
+      }
+
+      const normalizedProjectId =
+        typeof projectId === 'string' && projectId.trim() !== '' ? projectId.trim() : null;
+      const db = getDb();
+      await setSessionProjectId(db, sessionId, normalizedProjectId);
+      const body: ApiSuccess<{ sessionId: string; projectId: string | null }> = {
+        success: true,
+        data: { sessionId, projectId: normalizedProjectId },
+      };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
  * GET /api/ai/sessions
  * Lists past chat sessions for the sidebar, most recently active first.
  */
@@ -159,9 +197,10 @@ router.get('/session/:sessionId/history', (req: Request, res: Response, next: Ne
       const db = getDb();
       const history = await getOrCreateSessionHistory(db, sessionId);
       const persona = await getSessionPersona(db, sessionId);
-      const body: ApiSuccess<{ sessionId: string; messages: typeof history; persona: string }> = {
+      const projectId = await getSessionProjectId(db, sessionId);
+      const body: ApiSuccess<{ sessionId: string; messages: typeof history; persona: string; projectId: string | null }> = {
         success: true,
-        data: { sessionId, messages: history, persona },
+        data: { sessionId, messages: history, persona, projectId },
       };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
@@ -190,11 +229,16 @@ router.post('/session/:sessionId/export-to-think', (req: Request, res: Response,
       }
 
       const persona = await getSessionPersona(db, sessionId);
+      const projectId = await getSessionProjectId(db, sessionId);
       const { title, bodyMarkdown } = await formatSessionForThink(toConversationMessages(history), persona);
 
       const blocks = textToBlocks(bodyMarkdown);
       const wrapper = { title, contentType: 'note', contentJson: JSON.stringify(blocks) };
-      const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), tags: ['athena-export'] });
+      const note = await createNoteRecord(db, {
+        content: JSON.stringify(wrapper),
+        tags: ['athena-export'],
+        ...(projectId !== null && { projectId }),
+      });
 
       const body: ApiSuccess<{ noteId: string; title: string; url: string }> = {
         success: true,

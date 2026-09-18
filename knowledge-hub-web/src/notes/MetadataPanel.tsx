@@ -12,6 +12,7 @@ import type { NoteDocument } from './types';
 import { TagPicker } from '../components/TagPicker';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import type { Project } from '../services/api';
 
 interface AppliedTag {
   id: string;
@@ -22,6 +23,9 @@ interface MetadataPanelProps {
   doc: NoteDocument;
   contentType: ContentType;
   onContentTypeChange: (value: ContentType) => void;
+  projectId: string;
+  projects: Project[];
+  onProjectChange: (projectId: string) => void;
   taxonomyTagIds: string[];
   appliedTags: AppliedTag[];
   onTagIdsChange: (ids: string[]) => void;
@@ -45,6 +49,9 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   doc,
   contentType,
   onContentTypeChange,
+  projectId,
+  projects,
+  onProjectChange,
   taxonomyTagIds,
   appliedTags,
   onTagIdsChange,
@@ -85,6 +92,20 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
       </CollapsibleSection>
 
       <CollapsibleSection label="Organisation">
+        <div className="notes-meta-section">
+          <p className="notes-meta-section-label">Project</p>
+          <select
+            title="Project"
+            className="notes-meta-type-select"
+            value={projectId}
+            onChange={(e) => { onProjectChange(e.target.value); }}
+          >
+            <option value="">No project</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>{project.name}</option>
+            ))}
+          </select>
+        </div>
         <div className="notes-meta-section">
           <p className="notes-meta-section-label">Content type</p>
           <select

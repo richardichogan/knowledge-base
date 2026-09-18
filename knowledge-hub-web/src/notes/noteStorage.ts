@@ -30,7 +30,7 @@ function serialise(doc: Pick<NoteDocument, 'title' | 'contentType' | 'contentJso
   return JSON.stringify(payload);
 }
 
-function deserialise(raw: string, id: string, createdAt: string, updatedAt: string): NoteDocument {
+function deserialise(raw: string, id: string, createdAt: string, updatedAt: string, projectId?: string): NoteDocument {
   try {
     const payload = JSON.parse(raw) as Partial<StoredPayload>;
     return {
@@ -41,6 +41,7 @@ function deserialise(raw: string, id: string, createdAt: string, updatedAt: stri
       createdAt,
       updatedAt,
       ...(payload.githubPath !== undefined && { githubPath: payload.githubPath }),
+      ...(projectId !== undefined && { projectId }),
     };
   } catch {
     return {
@@ -50,6 +51,7 @@ function deserialise(raw: string, id: string, createdAt: string, updatedAt: stri
       contentJson: '[]',
       createdAt,
       updatedAt,
+      ...(projectId !== undefined && { projectId }),
     };
   }
 }
@@ -88,7 +90,7 @@ export async function fetchNotes(): Promise<NoteListItem[]> {
   const result = await api.getNotes(1, 100);
   if (!result.success) return [];
   return result.data.items.map((n) => {
-    const doc = deserialise(n.content, n.id, n.createdAt, n.updatedAt);
+    const doc = deserialise(n.content, n.id, n.createdAt, n.updatedAt, n.projectId ?? undefined);
     const body = buildPreview(doc.contentJson);
     return {
       id: n.id,
@@ -107,7 +109,7 @@ export async function fetchNote(id: string): Promise<NoteDocument | null> {
   if (!result.success) return null;
   const note = result.data.items.find((n) => n.id === id);
   if (note === undefined) return null;
-  return deserialise(note.content, note.id, note.createdAt, note.updatedAt);
+  return deserialise(note.content, note.id, note.createdAt, note.updatedAt, note.projectId ?? undefined);
 }
 
 export async function createNote(
@@ -116,11 +118,17 @@ export async function createNote(
 ): Promise<NoteDocument | null> {
   const result = await api.createNote({ content: serialise(doc), tags: [], ...(projectId !== undefined && { projectId }) });
   if (!result.success) return null;
-  return deserialise(result.data.content, result.data.id, result.data.createdAt, result.data.updatedAt);
+  return deserialise(
+    result.data.content,
+    result.data.id,
+    result.data.createdAt,
+    result.data.updatedAt,
+    result.data.projectId ?? undefined,
+  );
 }
 
 export async function saveNote(doc: NoteDocument): Promise<boolean> {
-  const result = await api.patchNote(doc.id, serialise(doc), [], undefined);
+  const result = await api.patchNote(doc.id, serialise(doc), [], doc.projectId ?? null);
   return result.success;
 }
 
