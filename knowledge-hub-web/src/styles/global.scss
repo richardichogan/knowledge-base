@@ -719,10 +719,28 @@ input, textarea {
   margin-top: 0.3rem;
 }
 
-.ai-bubble-copy-button.cds--btn.cds--btn--icon-only {
+.ai-bubble-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  flex-shrink: 0;
+}
+
+.ai-bubble-action-button.cds--btn.cds--btn--icon-only {
   width: 1.5rem;
   height: 1.5rem;
   min-height: 1.5rem;
+  color: var(--cds-text-secondary);
+
+  &:hover:not(:disabled) {
+    color: var(--cds-text-primary);
+    background: var(--cds-layer-hover-01);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
 
   svg {
     width: 0.875rem;

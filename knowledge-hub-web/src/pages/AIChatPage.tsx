@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
@@ -371,6 +371,28 @@ function formatSessionTime(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function stripMarkdownForTitle(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/[*_~>#-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function deriveThinkTitle(response: string, projectName?: string): string {
+  const heading = response
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => /^#{1,3}\s+\S/.test(line));
+  const source = stripMarkdownForTitle(heading ?? response).split(/[.!?\n]/)[0]?.trim() ?? '';
+  const title = source === '' ? 'Athena response' : source.slice(0, 90);
+  return projectName && projectName !== 'personal' ? `${projectName}: ${title}` : title;
+}
+
 // Delegated click handler for the "Copy" button injected into fenced code
 // blocks by renderMarkdown() — avoids attaching a listener per code block
 // inside dangerouslySetInnerHTML content.
@@ -430,6 +452,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [savingResponseIndex, setSavingResponseIndex] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(() => {
     try {
       return window.localStorage.getItem(SESSION_STORAGE_KEY);
@@ -490,6 +513,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
    *  of only ever doing it once for a brand new session. */
   const lastInjectedContextTitleRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Restore persisted history for a stored session ID once on mount, so a
@@ -926,6 +950,52 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     exportMutation.mutate();
   }
 
+  function getPreviousUserPrompt(messageIndex: number): string {
+    for (let i = messageIndex - 1; i >= 0; i -= 1) {
+      const candidate = messages[i];
+      if (candidate?.role === 'user') return candidate.content;
+    }
+    return '';
+  }
+
+  async function handleSaveResponseToThink(response: ChatMessage, messageIndex: number): Promise<void> {
+    if (response.role !== 'assistant' || savingResponseIndex !== null) return;
+    setSavingResponseIndex(messageIndex);
+    try {
+      const projectId = activeProjectId !== '' ? activeProjectId : undefined;
+      const projectName = projectId !== undefined ? projectNameById.get(projectId) ?? projectId : undefined;
+      const title = deriveThinkTitle(response.content, projectName);
+      const prompt = getPreviousUserPrompt(messageIndex);
+      const contextLines = [
+        'Source: Athena response',
+        `Captured: ${new Date().toLocaleString()}`,
+        `Persona: ${persona.replace(/_/g, ' ')}`,
+        projectName !== undefined ? `Project: ${projectName}` : 'Project: General chat',
+        pageContext ? `Page context: ${pageContext.title}` : '',
+      ].filter((line) => line !== '');
+      const noteMarkdown = [
+        `# ${title}`,
+        contextLines.join('\n'),
+        prompt !== '' ? `## User question\n\n${prompt}` : '',
+        `## Athena response\n\n${response.content}`,
+      ].filter((block) => block !== '').join('\n\n');
+
+      const note = await createNote({
+        title,
+        contentType: 'note',
+        contentJson: JSON.stringify(markdownToNoteBlocks(noteMarkdown)),
+      }, projectId);
+      if (note === null) throw new Error('Could not save response to Think');
+      await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+      navigate(`/think?noteId=${encodeURIComponent(note.id)}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save response to Think';
+      appendMessage('assistant', `⚠️ ${message}`);
+    } finally {
+      setSavingResponseIndex(null);
+    }
+  }
+
   async function startRecording(): Promise<void> {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1333,17 +1403,31 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               <div className="ai-bubble-footer">
                 <div className="ai-bubble-time">{formatMessageTime(msg.timestamp)}</div>
                 {msg.role === 'assistant' && (
-                  <Button
-                    type="button"
-                    kind="ghost"
-                    hasIconOnly
-                    size="sm"
-                    renderIcon={copiedIndex === i ? Checkmark : Copy}
-                    iconDescription={copiedIndex === i ? 'Copied!' : 'Copy response'}
-                    tooltipPosition="top"
-                    className="ai-bubble-copy-button"
-                    onClick={() => { void handleCopyMessage(msg.content, i); }}
-                  />
+                  <div className="ai-bubble-actions">
+                    <Button
+                      type="button"
+                      kind="ghost"
+                      hasIconOnly
+                      size="sm"
+                      renderIcon={savingResponseIndex === i ? Checkmark : Notebook}
+                      iconDescription={savingResponseIndex === i ? 'Saving to Think…' : 'Save response to Think'}
+                      tooltipPosition="top"
+                      className="ai-bubble-action-button"
+                      disabled={savingResponseIndex !== null}
+                      onClick={() => { void handleSaveResponseToThink(msg, i); }}
+                    />
+                    <Button
+                      type="button"
+                      kind="ghost"
+                      hasIconOnly
+                      size="sm"
+                      renderIcon={copiedIndex === i ? Checkmark : Copy}
+                      iconDescription={copiedIndex === i ? 'Copied!' : 'Copy response'}
+                      tooltipPosition="top"
+                      className="ai-bubble-action-button ai-bubble-copy-button"
+                      onClick={() => { void handleCopyMessage(msg.content, i); }}
+                    />
+                  </div>
                 )}
               </div>
             </div>
