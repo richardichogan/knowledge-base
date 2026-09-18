@@ -1213,6 +1213,15 @@ input, textarea {
   justify-content: center;
 }
 
+.ai-send-button--stop.cds--btn.cds--btn--icon-only {
+  background: var(--cds-support-error, #da1e28);
+  color: #fff;
+
+  &:hover {
+    background: var(--cds-button-danger-hover, #b81921);
+  }
+}
+
 @keyframes ai-mic-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(218, 30, 40, 0.55); }
   50% { box-shadow: 0 0 0 6px rgba(218, 30, 40, 0); }

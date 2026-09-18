@@ -1455,15 +1455,28 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               disabled={chatMutation.isPending || isTranscribing}
             />
           </div>
-          <Button
-            type="submit"
-            hasIconOnly
-            renderIcon={Send}
-            iconDescription="Send"
-            tooltipPosition="top"
-            className="ai-send-button"
-            disabled={chatMutation.isPending || uploadProgress !== null || input.trim() === ''}
-          />
+          {chatMutation.isPending ? (
+            <Button
+              type="button"
+              hasIconOnly
+              kind="danger"
+              renderIcon={StopFilled}
+              iconDescription="Stop"
+              tooltipPosition="top"
+              className="ai-send-button ai-send-button--stop"
+              onClick={handleStopGenerating}
+            />
+          ) : (
+            <Button
+              type="submit"
+              hasIconOnly
+              renderIcon={Send}
+              iconDescription="Send"
+              tooltipPosition="top"
+              className="ai-send-button"
+              disabled={uploadProgress !== null || input.trim() === ''}
+            />
+          )}
         </form>
       </div>
       </div>
