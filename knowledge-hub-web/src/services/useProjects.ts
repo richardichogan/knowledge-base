@@ -14,6 +14,7 @@ export type ProjectColour =
 
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
+export type ProjectType = 'standard' | 'formal-client';
 
 export interface ProjectLink {
   label: string;
@@ -26,9 +27,13 @@ export interface ProjectRecord {
   colour: ProjectColour;
   category: ProjectCategory;
   priority: ProjectPriority;
+  projectType: ProjectType;
   description: string;
   gitlabPaths: string[];
   githubRepos: string[];
+  hasIcaDocumentCollection: boolean;
+  icaDocumentCollectionName: string;
+  icaDocumentCollectionId: string;
   links: ProjectLink[];
   tags: string[];
   createdAt: string;
@@ -46,9 +51,13 @@ function configToRecord(p: typeof PROJECTS[0]): ProjectRecord {
     colour: p.colour as ProjectColour,
     category: 'work',
     priority: 'medium' as ProjectPriority,
+    projectType: p.projectType ?? 'standard',
     description: p.description ?? '',
     gitlabPaths: p.gitlabPaths ?? [],
     githubRepos: p.githubRepos ?? [],
+    hasIcaDocumentCollection: p.hasIcaDocumentCollection ?? false,
+    icaDocumentCollectionName: p.icaDocumentCollectionName ?? '',
+    icaDocumentCollectionId: p.icaDocumentCollectionId ?? '',
     links: (p.links ?? []) as ProjectLink[],
     tags: p.tags ?? [],
     createdAt: '',
@@ -66,10 +75,10 @@ export function useProjects() {
     setError(null);
     try {
       const res = await api.getProjects();
-      if (res.success) {
+      if (res.success && res.data.length > 0) {
         setProjects(res.data as ProjectRecord[]);
       } else {
-        throw new Error('API error');
+        setProjects(PROJECTS.map(configToRecord));
       }
     } catch {
       // Fallback to static config

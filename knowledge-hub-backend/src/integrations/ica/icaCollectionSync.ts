@@ -12,9 +12,9 @@
  * Both calls require the separate ICA "consulting"/developer key, not the
  * coding-agent key used for chat.
  *
- * Static config below (collection ID -> KH project) mirrors the MAILBOXES
- * pattern in graphMailSync.ts — add a new entry here when another ICA
- * collection needs to be synced.
+ * Collections are primarily configured on KH projects. A small fallback keeps
+ * the original Imagine collection alive for environments where the projects
+ * table has not yet been populated with ICA metadata.
  */
 
 import type { Pool } from 'pg';
@@ -33,13 +33,40 @@ interface CollectionConfig {
   projectContext: string;
 }
 
-const COLLECTIONS: CollectionConfig[] = [
+const FALLBACK_COLLECTIONS: CollectionConfig[] = [
   {
     collectionId: '7191f616-dffd-42eb-b2f1-c3eba4291c9e',
     label: 'Project Imagine',
     projectContext: 'imagine',
   },
 ];
+
+async function loadConfiguredCollections(db: Pool): Promise<CollectionConfig[]> {
+  const result = await db.query<{
+    id: string;
+    name: string;
+    ica_document_collection_name: string;
+    ica_document_collection_id: string;
+  }>(
+    `SELECT id, name, ica_document_collection_name, ica_document_collection_id
+     FROM projects
+     WHERE has_ica_document_collection = TRUE`,
+  );
+
+  const configured = result.rows
+    .map((row) => {
+      const collectionId = row.ica_document_collection_id.trim() || row.ica_document_collection_name.trim();
+      if (collectionId === '') return null;
+      return {
+        collectionId,
+        label: row.ica_document_collection_name.trim() || row.name,
+        projectContext: row.id,
+      };
+    })
+    .filter((collection): collection is CollectionConfig => collection !== null);
+
+  return configured.length > 0 ? configured : FALLBACK_COLLECTIONS;
+}
 
 /** Syncs all configured ICA document collections into content_items. */
 export async function syncIcaCollections(
@@ -52,7 +79,9 @@ export async function syncIcaCollections(
   let indexed = 0;
   let errors = 0;
 
-  for (const collection of COLLECTIONS) {
+  const collections = await loadConfiguredCollections(db);
+
+  for (const collection of collections) {
     try {
       const files = await listCollectionFiles(collection.collectionId);
       console.warn(`[ICA] ${collection.label}: ${String(files.length)} files in collection`);

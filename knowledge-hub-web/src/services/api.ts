@@ -116,6 +116,7 @@ export interface CfpItem {
 export type ProjectColour = 'blue' | 'cyan' | 'teal' | 'purple' | 'green' | 'magenta' | 'warm-gray' | 'gray' | 'red';
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
+export type ProjectType = 'standard' | 'formal-client';
 
 export interface ProjectLink { label: string; url: string; }
 
@@ -125,9 +126,13 @@ export interface Project {
   colour: ProjectColour;
   category: ProjectCategory;
   priority: ProjectPriority;
+  projectType: ProjectType;
   description: string;
   gitlabPaths: string[];
   githubRepos: string[];
+  hasIcaDocumentCollection: boolean;
+  icaDocumentCollectionName: string;
+  icaDocumentCollectionId: string;
   links: ProjectLink[];
   tags: string[];
   createdAt: string;

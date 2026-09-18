@@ -23,6 +23,7 @@ export type ProjectColour =
 
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
+export type ProjectType = 'standard' | 'formal-client';
 
 export interface ProjectLink {
   label: string;
@@ -35,9 +36,13 @@ export interface Project {
   colour: ProjectColour;
   category: ProjectCategory;
   priority: ProjectPriority;
+  projectType: ProjectType;
   description: string;
   gitlabPaths: string[];
   githubRepos: string[];
+  hasIcaDocumentCollection: boolean;
+  icaDocumentCollectionName: string;
+  icaDocumentCollectionId: string;
   links: ProjectLink[];
   tags: string[];
   createdAt: string;
@@ -53,9 +58,13 @@ function rowToProject(row: Record<string, unknown>): Project {
     colour:       row['colour'] as ProjectColour,
     category:     row['category'] as ProjectCategory,
     priority:     row['priority'] as ProjectPriority,
+    projectType:  (row['project_type'] as ProjectType | undefined) ?? 'standard',
     description:  row['description'] as string,
     gitlabPaths:  row['gitlab_paths'] as string[],
     githubRepos:  row['github_repos'] as string[],
+    hasIcaDocumentCollection: Boolean(row['has_ica_document_collection']),
+    icaDocumentCollectionName: String(row['ica_document_collection_name'] ?? ''),
+    icaDocumentCollectionId: String(row['ica_document_collection_id'] ?? ''),
     links:        row['links'] as ProjectLink[],
     tags:         row['tags'] as string[],
     createdAt:    String(row['created_at']),
@@ -68,6 +77,7 @@ function rowToProject(row: Record<string, unknown>): Project {
 const COLOURS: ProjectColour[] = ['blue','cyan','teal','purple','green','magenta','warm-gray','gray','red'];
 const CATEGORIES: ProjectCategory[] = ['work', 'personal', 'side-hustle'];
 const PRIORITIES: ProjectPriority[] = ['low', 'medium', 'high'];
+const PROJECT_TYPES: ProjectType[] = ['standard', 'formal-client'];
 
 function validateInput(input: Record<string, unknown>, requireName: boolean): void {
   if (requireName && !String(input['name'] ?? '').trim()) {
@@ -81,6 +91,9 @@ function validateInput(input: Record<string, unknown>, requireName: boolean): vo
   }
   if (input['priority'] !== undefined && !PRIORITIES.includes(input['priority'] as ProjectPriority)) {
     throw new ValidationError(`priority must be one of: ${PRIORITIES.join(', ')}`, { priority: 'invalid' });
+  }
+  if (input['projectType'] !== undefined && !PROJECT_TYPES.includes(input['projectType'] as ProjectType)) {
+    throw new ValidationError(`projectType must be one of: ${PROJECT_TYPES.join(', ')}`, { projectType: 'invalid' });
   }
 }
 
@@ -121,8 +134,8 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       const id = String(input['id'] ?? '').trim() || randomUUID();
       const tags = Array.isArray(input['tags']) ? (input['tags'] as string[]).filter(Boolean) : [];
       const result = await db.query<Record<string, unknown>>(
-        `INSERT INTO projects (id, name, colour, category, priority, description, gitlab_paths, github_repos, links, tags)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        `INSERT INTO projects (id, name, colour, category, priority, project_type, description, gitlab_paths, github_repos, has_ica_document_collection, ica_document_collection_name, ica_document_collection_id, links, tags)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          RETURNING *`,
         [
           id,
@@ -130,9 +143,13 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
           (input['colour'] as string | undefined) ?? 'gray',
           (input['category'] as string | undefined) ?? 'work',
           (input['priority'] as string | undefined) ?? 'medium',
+          (input['projectType'] as string | undefined) ?? 'standard',
           String(input['description'] ?? '').trim(),
           Array.isArray(input['gitlabPaths']) ? (input['gitlabPaths'] as string[]).filter(Boolean) : [],
           Array.isArray(input['githubRepos']) ? (input['githubRepos'] as string[]).filter(Boolean) : [],
+          input['hasIcaDocumentCollection'] === true,
+          String(input['icaDocumentCollectionName'] ?? '').trim(),
+          String(input['icaDocumentCollectionId'] ?? '').trim(),
           JSON.stringify(Array.isArray(input['links']) ? input['links'] : []),
           tags,
         ],
@@ -164,9 +181,13 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (input['colour'] !== undefined)      add('colour',       input['colour']);
       if (input['category'] !== undefined)    add('category',     input['category']);
       if (input['priority'] !== undefined)    add('priority',     input['priority']);
+      if (input['projectType'] !== undefined) add('project_type', input['projectType']);
       if (input['description'] !== undefined) add('description',  String(input['description']).trim());
       if (Array.isArray(input['gitlabPaths'])) add('gitlab_paths', (input['gitlabPaths'] as string[]).filter(Boolean));
       if (Array.isArray(input['githubRepos'])) add('github_repos', (input['githubRepos'] as string[]).filter(Boolean));
+      if (input['hasIcaDocumentCollection'] !== undefined) add('has_ica_document_collection', input['hasIcaDocumentCollection'] === true);
+      if (input['icaDocumentCollectionName'] !== undefined) add('ica_document_collection_name', String(input['icaDocumentCollectionName']).trim());
+      if (input['icaDocumentCollectionId'] !== undefined) add('ica_document_collection_id', String(input['icaDocumentCollectionId']).trim());
       if (Array.isArray(input['links']))       add('links',        JSON.stringify(input['links']));
       if (Array.isArray(input['tags']))        add('tags',         (input['tags'] as string[]).filter(Boolean));
 
@@ -206,4 +227,3 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction): void =>
 
 export { router as projectsRouter };
 export type { Project as ProjectRecord };
-

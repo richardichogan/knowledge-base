@@ -19,11 +19,15 @@ export interface Project {
   name: string;
   /** Carbon tag colour for this project */
   colour: 'blue' | 'cyan' | 'teal' | 'purple' | 'green' | 'magenta' | 'warm-gray' | 'gray' | 'red';
+  projectType?: 'standard' | 'formal-client';
   description?: string;
   /** GitLab project paths that belong to this project, e.g. "structara-group/Structara-AI" */
   gitlabPaths?: string[];
   /** GitHub repos that belong to this project, e.g. "richardichogan/BlogSite" */
   githubRepos?: string[];
+  hasIcaDocumentCollection?: boolean;
+  icaDocumentCollectionName?: string;
+  icaDocumentCollectionId?: string;
   /** External links — Claude AI project, website, etc. */
   links?: ProjectLink[];
   tags?: string[];
@@ -78,6 +82,7 @@ export const PROJECTS: Project[] = [
     id: 'imagine',
     name: 'IMAGINE',
     colour: 'gray',
+    projectType: 'formal-client',
     description: 'IBM Project IMAGINE MVP demo',
     githubRepos: [
       'IBM-Project-Imagine/architecture',
@@ -94,6 +99,9 @@ export const PROJECTS: Project[] = [
       'IBM-Project-Imagine/mvp-demo',
       'IBM-Project-Imagine/rh-diagram-assistant',
     ],
+    hasIcaDocumentCollection: true,
+    icaDocumentCollectionName: 'Project Imagine',
+    icaDocumentCollectionId: '7191f616-dffd-42eb-b2f1-c3eba4291c9e',
     links: [],
     tags: [],
   },

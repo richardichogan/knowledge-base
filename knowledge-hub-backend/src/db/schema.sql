@@ -209,9 +209,14 @@ CREATE TABLE IF NOT EXISTS projects (
                    CHECK (category IN ('work','personal','side-hustle')),
   priority         TEXT NOT NULL DEFAULT 'medium'
                    CHECK (priority IN ('low','medium','high')),
+  project_type     TEXT NOT NULL DEFAULT 'standard'
+                   CHECK (project_type IN ('standard','formal-client')),
   description      TEXT NOT NULL DEFAULT '',
   gitlab_paths     TEXT[] NOT NULL DEFAULT '{}',
   github_repos     TEXT[] NOT NULL DEFAULT '{}',
+  has_ica_document_collection BOOLEAN NOT NULL DEFAULT FALSE,
+  ica_document_collection_name TEXT NOT NULL DEFAULT '',
+  ica_document_collection_id   TEXT NOT NULL DEFAULT '',
   links            JSONB NOT NULL DEFAULT '[]',
   tags             TEXT[] NOT NULL DEFAULT '{}',
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -316,4 +321,3 @@ CREATE TABLE IF NOT EXISTS cert_practice_scores (
 
 CREATE INDEX IF NOT EXISTS idx_cert_scores_code ON cert_practice_scores (cert_code);
 CREATE INDEX IF NOT EXISTS idx_cert_scores_time ON cert_practice_scores (taken_at DESC);
-

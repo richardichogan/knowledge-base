@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Button, TextInput, TextArea, Modal,
-  Select, SelectItem, InlineNotification, ComboBox, Tag,
+  Select, SelectItem, InlineNotification, ComboBox, Tag, Checkbox,
 } from '@carbon/react';
 import { Add, Edit, TrashCan, LogoGithub, Launch } from '@carbon/icons-react';
 import {
@@ -15,6 +15,7 @@ import {
   type ProjectColour,
   type ProjectCategory,
   type ProjectPriority,
+  type ProjectType,
   type CreateProjectInput,
   type UpdateProjectInput,
 } from '../services/useProjects';
@@ -40,6 +41,10 @@ const PRIORITIES: { value: ProjectPriority; label: string }[] = [
   { value: 'high',   label: '🔴 High' },
   { value: 'medium', label: '🟡 Medium' },
   { value: 'low',    label: '🟢 Low' },
+];
+const PROJECT_TYPES: { value: ProjectType; label: string }[] = [
+  { value: 'standard',      label: 'Standard project' },
+  { value: 'formal-client', label: 'Formal client project' },
 ];
 const CATEGORY_BADGE: Record<ProjectCategory, { label: string; cls: string }> = {
   work:         { label: 'Work',        cls: 'proj-cat--work' },
@@ -79,6 +84,10 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
   const [colour, setColour]         = useState<ProjectColour>(initial?.colour ?? 'gray');
   const [category, setCategory]     = useState<ProjectCategory>(initial?.category ?? 'work');
   const [priority, setPriority]     = useState<ProjectPriority>(initial?.priority ?? 'medium');
+  const [projectType, setProjectType] = useState<ProjectType>(initial?.projectType ?? 'standard');
+  const [hasIcaCollection, setHasIcaCollection] = useState(initial?.hasIcaDocumentCollection ?? false);
+  const [icaCollectionName, setIcaCollectionName] = useState(initial?.icaDocumentCollectionName ?? '');
+  const [icaCollectionId, setIcaCollectionId] = useState(initial?.icaDocumentCollectionId ?? '');
   const [gitlabRaw, setGitlabRaw]   = useState((initial?.gitlabPaths ?? []).join('\n'));
   const [githubRaw, setGithubRaw]   = useState((initial?.githubRepos ?? []).join('\n'));
   const [tags, setTags]             = useState<string[]>(initial?.tags ?? []);
@@ -92,6 +101,10 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
       setColour(initial?.colour ?? 'gray');
       setCategory(initial?.category ?? 'work');
       setPriority(initial?.priority ?? 'medium');
+      setProjectType(initial?.projectType ?? 'standard');
+      setHasIcaCollection(initial?.hasIcaDocumentCollection ?? false);
+      setIcaCollectionName(initial?.icaDocumentCollectionName ?? '');
+      setIcaCollectionId(initial?.icaDocumentCollectionId ?? '');
       setGitlabRaw((initial?.gitlabPaths ?? []).join('\n'));
       setGithubRaw((initial?.githubRepos ?? []).join('\n'));
       setTags(initial?.tags ?? []);
@@ -101,6 +114,10 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
 
   const handleSave = async (): Promise<void> => {
     if (!name.trim()) { setErr('Name is required'); return; }
+    if (hasIcaCollection && !icaCollectionName.trim() && !icaCollectionId.trim()) {
+      setErr('Enter the ICA document collection name or ID.');
+      return;
+    }
     setErr(null);
     try {
       await onSave({
@@ -110,8 +127,12 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
         colour,
         category,
         priority,
+        projectType,
         gitlabPaths: gitlabRaw.split('\n').map((s) => s.trim()).filter(Boolean),
         githubRepos: githubRaw.split('\n').map((s) => s.trim()).filter(Boolean),
+        hasIcaDocumentCollection: hasIcaCollection,
+        icaDocumentCollectionName: hasIcaCollection ? icaCollectionName.trim() : '',
+        icaDocumentCollectionId: hasIcaCollection ? icaCollectionId.trim() : '',
         tags,
         links: initial?.links ?? [],
       });
@@ -165,6 +186,37 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
           <Select id="pm-priority" labelText="Priority" value={priority} onChange={(e) => setPriority(e.target.value as ProjectPriority)}>
             {PRIORITIES.map((p) => <SelectItem key={p.value} value={p.value} text={p.label} />)}
           </Select>
+        </div>
+
+        <Select id="pm-project-type" labelText="Project type" value={projectType} onChange={(e) => setProjectType(e.target.value as ProjectType)}>
+          {PROJECT_TYPES.map((p) => <SelectItem key={p.value} value={p.value} text={p.label} />)}
+        </Select>
+
+        <div className="proj-ica-panel">
+          <Checkbox
+            id="pm-has-ica"
+            labelText="This project has an ICA document collection"
+            checked={hasIcaCollection}
+            onChange={(_, data) => { setHasIcaCollection(data.checked); }}
+          />
+          {hasIcaCollection && (
+            <div className="proj-ica-panel__fields">
+              <TextInput
+                id="pm-ica-name"
+                labelText="ICA document collection name"
+                helperText="Human-readable collection label shown in Knowledge Hub."
+                value={icaCollectionName}
+                onChange={(e) => setIcaCollectionName(e.target.value)}
+              />
+              <TextInput
+                id="pm-ica-id"
+                labelText="ICA document collection ID"
+                helperText="Required for automatic sync when the ICA API address is ID-based."
+                value={icaCollectionId}
+                onChange={(e) => setIcaCollectionId(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         <Select id="pm-colour" labelText="Colour" value={colour} onChange={(e) => setColour(e.target.value as ProjectColour)}>
@@ -348,6 +400,14 @@ export const ProjectsPage: React.FC = () => {
                   <div className="proj-card-badges">
                     <span className={`proj-cat-badge ${cat.cls}`}>{cat.label}</span>
                     <span className={`proj-pri-badge ${pri.cls}`}>{pri.label}</span>
+                    {project.projectType === 'formal-client' && (
+                      <span className="proj-client-badge">Formal client</span>
+                    )}
+                    {project.hasIcaDocumentCollection && (
+                      <span className="proj-ica-badge" title={project.icaDocumentCollectionName || project.icaDocumentCollectionId}>
+                        ICA docs
+                      </span>
+                    )}
                   </div>
 
                   {/* Description */}

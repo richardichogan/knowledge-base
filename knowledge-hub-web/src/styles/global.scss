@@ -4610,6 +4610,30 @@ input, textarea {
   &.proj-pri--low    { background: rgba(25, 128, 56, 0.12); color: #42be65; border: 1px solid rgba(25, 128, 56, 0.3); }
 }
 
+.proj-client-badge,
+.proj-ica-badge {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 2px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.5;
+}
+
+.proj-client-badge {
+  background: rgba(69, 137, 255, 0.14);
+  color: #78a9ff;
+  border: 1px solid rgba(69, 137, 255, 0.32);
+}
+
+.proj-ica-badge {
+  background: rgba(61, 219, 217, 0.12);
+  color: #3ddbd9;
+  border: 1px solid rgba(61, 219, 217, 0.3);
+}
+
 // Edit / delete icon buttons on card
 .proj-icon-btn {
   display: flex;
@@ -4667,6 +4691,23 @@ input, textarea {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+.proj-ica-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 4px;
+}
+
+.proj-ica-panel__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
 }
 
 // Tag pills inside the edit modal
