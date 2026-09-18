@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { getRagItems } from '../db/queries.js';
+import { getProjectContextItems, getRagItems } from '../db/queries.js';
 import { RAG_ITEMS_LIMIT } from '../config/constants.js';
 import type { ContentItem } from '../types/contentItem.js';
 
@@ -30,11 +30,23 @@ export function isLowSignalMessage(query: string): boolean {
  * Retrieves the most relevant indexed content items for a given query
  * using PostgreSQL full-text search. Used to build RAG context per turn.
  */
-export async function retrieveRagItems(db: Pool, query: string): Promise<ContentItem[]> {
+export async function retrieveRagItems(db: Pool, query: string, projectContext?: string): Promise<ContentItem[]> {
+  const projectId = projectContext?.trim() ?? '';
   if (!query.trim() || isLowSignalMessage(query)) {
-    return [];
+    return projectId !== '' ? getProjectContextItems(db, projectId, RAG_ITEMS_LIMIT) : [];
   }
-  return getRagItems(db, query, RAG_ITEMS_LIMIT);
+
+  const directMatches = await getRagItems(db, query, RAG_ITEMS_LIMIT, projectId !== '' ? projectId : undefined);
+  if (projectId === '' || directMatches.length >= Math.min(3, RAG_ITEMS_LIMIT)) {
+    return directMatches;
+  }
+
+  const overviewItems = await getProjectContextItems(db, projectId, RAG_ITEMS_LIMIT);
+  const seen = new Set(directMatches.map((item) => item.id));
+  return [
+    ...directMatches,
+    ...overviewItems.filter((item) => !seen.has(item.id)),
+  ].slice(0, RAG_ITEMS_LIMIT);
 }
 
 /**

@@ -1062,6 +1062,24 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     </div>
   );
 
+  const conversationProjectPicker = (
+    <label className={`ai-chat-project${compact ? ' ai-chat-project--compact' : ''}`}>
+      <span className="ai-chat-project__label">Project</span>
+      <select
+        className="ai-chat-project__select"
+        value={activeProjectId}
+        onChange={(event) => { void handleProjectChange(event.target.value); }}
+        aria-label="Conversation project"
+      >
+        <option value="">General chat</option>
+        {uploadProjectOptions.map((project) => (
+          <option key={project.id} value={project.id}>{project.name}</option>
+        ))}
+      </select>
+      {projectError !== null && <span className="ai-chat-project__error" role="alert">{projectError}</span>}
+    </label>
+  );
+
   const actionButtons = (
     <>
       {messages.length > 0 && sessionId !== null && (
@@ -1247,26 +1265,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           </div>
         </div>
       )}
-      <div className={`ai-chat-project${compact ? ' ai-chat-project--compact' : ''}`}>
-        <label
-          className="ai-chat-project__label"
-          htmlFor={`ai-chat-project-${standalone ? 'standalone' : compact ? 'compact' : 'page'}`}
-        >
-          Conversation project
-        </label>
-        <select
-          id={`ai-chat-project-${standalone ? 'standalone' : compact ? 'compact' : 'page'}`}
-          className="ai-chat-project__select"
-          value={activeProjectId}
-          onChange={(event) => { void handleProjectChange(event.target.value); }}
-        >
-          <option value="">No project</option>
-          {uploadProjectOptions.map((project) => (
-            <option key={project.id} value={project.id}>{project.name}</option>
-          ))}
-        </select>
-        {projectError !== null && <span className="ai-chat-project__error" role="alert">{projectError}</span>}
-      </div>
       <div className={standalone ? 'ai-chat-standalone__body' : compact ? 'ai-chat-compact__body' : ''}>
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
@@ -1353,16 +1351,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
           {chatMutation.isPending && (
             <div className="ai-bubble ai-bubble--ai ai-bubble--thinking">
               <InlineLoading description="Athena is thinking…" />
-              <Button
-                type="button"
-                kind="danger--ghost"
-                size="sm"
-                renderIcon={StopFilled}
-                className="ai-stop-generating-button"
-                onClick={handleStopGenerating}
-              >
-                Stop
-              </Button>
             </div>
           )}
           <div ref={bottomRef} />
@@ -1454,6 +1442,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
               disabled={chatMutation.isPending || isTranscribing}
             />
           </div>
+          {conversationProjectPicker}
           {chatMutation.isPending ? (
             <Button
               type="button"

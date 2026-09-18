@@ -6,6 +6,7 @@ import { getToolDefinitions, executeToolCall } from './chatTools.js';
 import { AI_MAX_TOOL_ITERATIONS, AI_DEFAULT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel } from '../types/aiContext.js';
+import { getSessionProjectId } from './chatSessionStore.js';
 
 /**
  * Handles a single conversation turn.
@@ -25,6 +26,7 @@ export async function handleConversationTurn(
   sessionId?: string,
 ): Promise<string> {
   const context = await buildAiContext(db, userMessage, history, sessionId);
+  const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
   const baseMessages = assembleMessages(context, history, userMessage, persona);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
@@ -55,7 +57,7 @@ export async function handleConversationTurn(
     for (const call of response.toolCalls) {
       let result: unknown;
       try {
-        result = await executeToolCall(db, call.function.name, call.function.arguments);
+        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined);
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }

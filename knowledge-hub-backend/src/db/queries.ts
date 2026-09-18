@@ -304,6 +304,48 @@ export async function getRagItems(
 }
 
 /**
+ * Returns the most useful recent items for a project even when the user's
+ * question is too generic for keyword search ("what can you tell me about
+ * this project?"). This keeps explicit project context from degrading into a
+ * global search that misses the document library.
+ */
+export async function getProjectContextItems(
+  db: Pool,
+  projectContext: string,
+  limit: number,
+): Promise<ContentItem[]> {
+  const result: QueryResult<ContentItemRow & { body: string }> = await db.query(
+    `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
+            url, project_context, metadata, tags
+       FROM content_items
+      WHERE project_context = $1
+        AND source IN (
+          'user-upload',
+          'ica-document',
+          'note',
+          'cms-blog',
+          'cms-newsletter',
+          'cms-podcast-show-notes',
+          'discovered-article'
+        )
+      ORDER BY
+        CASE source
+          WHEN 'user-upload' THEN 1
+          WHEN 'ica-document' THEN 2
+          WHEN 'note' THEN 3
+          WHEN 'cms-blog' THEN 4
+          WHEN 'cms-newsletter' THEN 5
+          WHEN 'cms-podcast-show-notes' THEN 6
+          ELSE 7
+        END,
+        ${ACTIVITY_AT_SQL} DESC
+      LIMIT $2`,
+    [projectContext, limit],
+  );
+  return result.rows.map(rowToItem);
+}
+
+/**
  * Fetches full content_items rows (including body) for a specific set of
  * ids, in the given order — used by the Foundry IQ-backed RAG path, where
  * Azure AI Search returns ranked document keys and we hydrate them from

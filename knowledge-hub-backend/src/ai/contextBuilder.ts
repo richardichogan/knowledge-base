@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
 import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
+import { getSessionProjectId } from './chatSessionStore.js';
 import type { AiContext, ConversationMessage } from '../types/aiContext.js';
 
 const STATIC_CONTEXT_BLOB = 'config/static-context.md';
@@ -612,16 +613,44 @@ export async function buildAiContext(
   history: ConversationMessage[] = [],
   currentSessionId?: string,
 ): Promise<AiContext> {
-  const [staticContext, projectContext, ragItems, memoryItems] = await Promise.all([
+  const ragQuery = buildRagQuery(userQuery, history);
+  const activeProject = currentSessionId !== undefined
+    ? await loadActiveSessionProject(db, currentSessionId)
+    : null;
+
+  const [staticContext, storedProjectContext, ragItems, memoryItems] = await Promise.all([
     loadBlobText(STATIC_CONTEXT_BLOB),
     loadBlobText(PROJECT_CONTEXT_BLOB),
-    retrieveRagItems(db, buildRagQuery(userQuery, history)),
+    retrieveRagItems(db, ragQuery, activeProject?.id),
     currentSessionId
-      ? retrieveCrossSessionMemory(db, buildRagQuery(userQuery, history), currentSessionId)
+      ? retrieveCrossSessionMemory(db, ragQuery, currentSessionId)
       : Promise.resolve([]),
   ]);
 
+  const activeProjectContext = activeProject === null
+    ? ''
+    : [
+        '## Active conversation project',
+        `The user has assigned this Athena conversation to project "${activeProject.name}" (id: ${activeProject.id}).`,
+        'Treat that project as the default scope for ambiguous project questions. When using tools that accept projectId, use this id unless the user explicitly asks for a different project.',
+      ].join('\n');
+  const projectContext = [activeProjectContext, storedProjectContext].filter((block) => block !== '').join('\n\n');
+
   return { staticContext, projectContext, ragItems, memoryItems };
+}
+
+async function loadActiveSessionProject(
+  db: Pool,
+  sessionId: string,
+): Promise<{ id: string; name: string } | null> {
+  const projectId = await getSessionProjectId(db, sessionId);
+  if (projectId === null) return null;
+
+  const { rows } = await db.query<{ id: string; name: string }>(
+    `SELECT id, name FROM projects WHERE id = $1`,
+    [projectId],
+  );
+  return rows[0] ?? { id: projectId, name: projectId };
 }
 
 /**

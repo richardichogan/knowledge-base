@@ -16,7 +16,7 @@
 
 import type { Pool } from 'pg';
 import type { LlmToolDefinition } from './foundryClient.js';
-import { getRagItems, getContentItemsByIds } from '../db/queries.js';
+import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db/queries.js';
 import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
 import { createNoteRecord } from '../routes/notes.js';
 import { rowToTask, type Task } from '../routes/tasks.js';
@@ -252,19 +252,25 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
 }
 
 /** Dispatches a single tool call by name, returning a JSON-serialisable result. */
-export async function executeToolCall(db: Pool, name: string, argsJson: string): Promise<unknown> {
+export async function executeToolCall(db: Pool, name: string, argsJson: string, activeProjectId?: string): Promise<unknown> {
   let args: Record<string, unknown> = {};
   try {
     args = JSON.parse(argsJson || '{}') as Record<string, unknown>;
   } catch {
     return { error: 'Malformed tool arguments — could not parse JSON.' };
   }
+  const contextualArgs =
+    activeProjectId !== undefined &&
+    activeProjectId.trim() !== '' &&
+    (typeof args['projectId'] !== 'string' || args['projectId'].trim() === '')
+      ? { ...args, projectId: activeProjectId }
+      : args;
 
   switch (name) {
-    case 'search_knowledge_base': return searchKnowledgeBase(db, args);
+    case 'search_knowledge_base': return searchKnowledgeBase(db, contextualArgs);
     case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
     case 'list_tasks':            return listTasks(db, args);
-    case 'search_library':        return searchLibrary(db, args);
+    case 'search_library':        return searchLibrary(db, contextualArgs);
     case 'create_task':           return createTask(db, args);
     case 'update_task':           return updateTask(db, args);
     case 'create_note_draft':     return createNoteDraft(db, args);
@@ -289,16 +295,25 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string):
 async function getKnowledgeBaseItems(db: Pool, query: string, limit: number, projectId = '') {
   if (isFoundryIqEnabled()) {
     try {
-      const ids = await retrieveContentItemIds(query, limit);
+      const ids = await retrieveContentItemIds(query, projectId === '' ? limit : Math.max(limit * 5, 40));
       if (ids.length > 0) {
         const items = await getContentItemsByIds(db, ids);
-        return projectId === '' ? items : items.filter((item) => item.projectContext === projectId);
+        const filtered = projectId === '' ? items : items.filter((item) => item.projectContext === projectId);
+        if (filtered.length > 0) return filtered.slice(0, limit);
       }
     } catch (err) {
       console.error('Foundry IQ retrieval failed, falling back to Postgres FTS:', err);
     }
   }
-  return getRagItems(db, query, limit, projectId === '' ? undefined : projectId);
+  const directMatches = await getRagItems(db, query, limit, projectId === '' ? undefined : projectId);
+  if (projectId === '' || directMatches.length >= Math.min(3, limit)) return directMatches;
+
+  const overviewItems = await getProjectContextItems(db, projectId, limit);
+  const seen = new Set(directMatches.map((item) => item.id));
+  return [
+    ...directMatches,
+    ...overviewItems.filter((item) => !seen.has(item.id)),
+  ].slice(0, limit);
 }
 
 async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Promise<unknown> {
