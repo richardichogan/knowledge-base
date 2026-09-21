@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
+import { ImportNoteModal } from './ImportNoteModal';
 import { fetchNotes, fetchNote, createNote, deleteNote } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
@@ -27,6 +28,7 @@ export const NotesPage: React.FC = () => {
   const [mode,             setMode]             = useState<ViewMode>('notes');
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
+  const [importModalOpen,  setImportModalOpen]  = useState(false);
   const { setAthenaContext } = useAthenaContext();
 
   const { data: notes = [], isLoading, isError, refetch } = useQuery<NoteListItem[]>({
@@ -72,6 +74,13 @@ export const NotesPage: React.FC = () => {
       setSelectedId(doc.id);
       setOpenDoc(doc);
     }
+  }
+
+  async function handleImported(doc: NoteDocument): Promise<void> {
+    setImportModalOpen(false);
+    await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+    setSelectedId(doc.id);
+    setOpenDoc(doc);
   }
 
   async function handleDeleteNote(id: string): Promise<void> {
@@ -249,6 +258,7 @@ export const NotesPage: React.FC = () => {
               />
               <div className="notes-list-footer">
                 <button className="kh-btn-accent" onClick={() => { void handleCreateNote(); }}>+ New note</button>
+                <button className="kh-btn-ghost" onClick={() => { setImportModalOpen(true); }}>Import</button>
               </div>
             </>
           )}
@@ -311,6 +321,12 @@ export const NotesPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      <ImportNoteModal
+        open={importModalOpen}
+        onClose={() => { setImportModalOpen(false); }}
+        onImported={(doc) => { void handleImported(doc); }}
+      />
     </div>
   );
 };

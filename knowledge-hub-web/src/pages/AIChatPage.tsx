@@ -18,6 +18,7 @@ import { api } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { renderMarkdown } from '../utils/markdown';
 import { createNote } from '../notes/noteStorage';
+import { markdownToNoteBlocks } from '../notes/markdownToBlocks';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
@@ -86,35 +87,6 @@ function blobToBase64(blob: Blob): Promise<string> {
     };
     reader.onerror = () => reject(reader.error as Error);
     reader.readAsDataURL(blob);
-  });
-}
-
-interface NoteBlock {
-  type: 'heading' | 'paragraph';
-  props?: { level: number };
-  content: Array<{ type: 'text'; text: string; styles: Record<string, never> }>;
-}
-
-/**
- * Splits raw markdown text into simple BlockNote paragraph/heading blocks —
- * good enough for an imported document (not a full markdown renderer).
- * Mirrors the backend's textToBlocks() used by create_note_draft, so
- * uploaded .md files land in the Think editor exactly like an AI-drafted
- * note would.
- */
-function markdownToNoteBlocks(text: string): NoteBlock[] {
-  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p !== '');
-  return paragraphs.map((p) => {
-    const headingMatch = /^(#{1,3})\s+(.*)$/.exec(p);
-    if (headingMatch) {
-      const hashes = headingMatch[1] ?? '#';
-      return {
-        type: 'heading' as const,
-        props: { level: hashes.length },
-        content: [{ type: 'text' as const, text: headingMatch[2] ?? '', styles: {} }],
-      };
-    }
-    return { type: 'paragraph' as const, content: [{ type: 'text' as const, text: p, styles: {} }] };
   });
 }
 
