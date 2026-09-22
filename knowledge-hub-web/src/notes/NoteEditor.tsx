@@ -21,6 +21,7 @@ import {
   SAVED_BANNER_DURATION_MS,
   BLOCKNOTE_G100_THEME,
   UNTITLED_DOCUMENT,
+  USE_CASE_TEMPLATE_HEADINGS,
 } from './constants';
 import type { ContentType } from './constants';
 import type { NoteDocument } from './types';
@@ -204,6 +205,31 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
 
   const editorRef = useRef(editor);
   useEffect(() => { editorRef.current = editor; }, [editor]);
+
+  /**
+   * Seeds the use-case heading skeleton when the note is switched to the
+   * "Use case" type. Only fires on an effectively empty note so switching the
+   * type on existing prose never clobbers what's already written.
+   */
+  const applyUseCaseTemplate = useCallback((): void => {
+    const blocks = editor.document;
+    const hasContent = blocks.some((b) => {
+      const content = (b as { content?: unknown }).content;
+      if (!Array.isArray(content)) return true;
+      return content.some((span) => typeof (span as { text?: unknown }).text === 'string' && (span as { text: string }).text.trim() !== '');
+    });
+    if (hasContent) return;
+
+    const template = USE_CASE_TEMPLATE_HEADINGS.flatMap((heading) => ([
+      { type: 'heading' as const, props: { level: 2 as const }, content: heading },
+      { type: 'paragraph' as const, content: '' },
+    ]));
+    const last = blocks[blocks.length - 1];
+    if (last === undefined) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    editor.insertBlocks(template as any, last, 'before');
+    isDirtyRef.current = true;
+  }, [editor]);
 
   // Register as the "active" BlockNote editor so the global right-click menu
   // can read table/text selections directly from the editor (native
@@ -598,7 +624,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
       <MetadataPanel
         doc={doc}
         contentType={contentType}
-        onContentTypeChange={(value) => { setContentType(value); isDirtyRef.current = true; }}
+        onContentTypeChange={(value) => {
+          setContentType(value);
+          isDirtyRef.current = true;
+          if (value === 'use-case') applyUseCaseTemplate();
+        }}
         projectId={projectId}
         projects={projects}
         onProjectChange={(value) => {

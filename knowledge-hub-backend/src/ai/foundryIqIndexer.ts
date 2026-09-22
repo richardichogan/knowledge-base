@@ -17,7 +17,14 @@ import { embed } from './embeddings.js';
 
 const SEARCH_API_VERSION = '2024-07-01';
 const INDEX_NAME = 'kh-content-items';
-const BODY_CHARS_FOR_EMBEDDING = 2000;
+/**
+ * How much of the body feeds the embedding and the stored index document.
+ * text-embedding-3-small accepts 8191 tokens, so ~8000 characters stays
+ * comfortably inside a single embedding call while covering the bulk of a
+ * typical note or transcript. The previous 2000 was set when note bodies were
+ * raw BlockNote JSON and truncated most real prose out of the vector.
+ */
+const BODY_CHARS_FOR_EMBEDDING = 8000;
 
 
 /** True when both Foundry IQ Search and the embedding model are configured. */

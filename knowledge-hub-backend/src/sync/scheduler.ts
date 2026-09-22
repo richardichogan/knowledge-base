@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { runTier1Sync, isSyncInProgress } from './syncOrchestrator.js';
 import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
+import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
 
 /**
  * Scheduler for sync jobs.
@@ -53,6 +54,16 @@ export function startSyncScheduler(): void {
   console.warn('[Scheduler] Starting sync scheduler (08:00, 14:00, 20:00 — no overnight)...');
 
   const db = getDb();
+
+  // Rebuild any note bodies still stored as raw BlockNote JSON in
+  // content_items. Idempotent and a no-op once every note is plain text, so
+  // it's safe to run on every boot. Must run before the hourly Foundry IQ
+  // sweep gets a chance to re-embed, and deliberately runs independently of
+  // working hours because a note indexed as raw JSON is effectively invisible
+  // to search until it's fixed.
+  void runNoteReindexJob(db).catch((err: unknown) => {
+    console.error('[Scheduler] Note re-index job failed:', err instanceof Error ? err.message : String(err));
+  });
 
   // Initial sync on startup (if within working hours)
   setTimeout(() => {

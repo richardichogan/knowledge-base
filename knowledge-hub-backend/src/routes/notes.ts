@@ -12,10 +12,11 @@ import { upsertContentItem } from '../db/queries.js';
 import { upsertTags } from '../db/tagHelpers.js';
 import { upsertNode } from '../services/nodeService.js';
 import { parseNoteContent, blockContentSpans } from '../utils/noteContent.js';
+import { renderNoteAsText } from '../services/noteTextService.js';
 import { env } from '../config/env.js';
 import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
-import type { ApiSuccess, PaginatedList, Note, CreateNoteInput } from '../types/index.js';
+import type { ApiSuccess, PaginatedList, Note, CreateNoteInput, ContentItem } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
 
 const router = Router();
@@ -54,6 +55,62 @@ function extractNoteSummary(contentJson: string): string {
     .slice(0, NOTE_SUMMARY_MAX_LENGTH);
 }
 
+/** Turns a stored content type id into a readable label for the indexed text. */
+function contentTypeLabel(contentType: string | null): string {
+  if (contentType === null || contentType === 'note') return 'Note';
+  return contentType
+    .split('-')
+    .map((part) => (part.length > 0 ? part[0]?.toUpperCase() + part.slice(1) : part))
+    .join(' ');
+}
+
+/** The subset of a note needed to build its content_items mirror. */
+export interface IndexableNote {
+  id: string;
+  content: string;
+  projectId?: string | null;
+  tags: string[];
+  updatedAt: string;
+}
+
+/**
+ * Builds the content_items payload for a note.
+ *
+ * The indexed body is rendered plain text, NOT the raw BlockNote wrapper
+ * JSON. Indexing the raw JSON meant the FTS tsvector and the Foundry IQ
+ * embedding were built almost entirely from structural boilerplate
+ * ({"type":"paragraph","props":{...}}) that is identical across every note,
+ * which is why notes kept failing to surface for questions their prose
+ * clearly answered.
+ *
+ * The content type is prefixed onto the indexed text and carried in metadata
+ * so Athena can tell a use case from a meeting note, and answer questions
+ * like "what use cases do we have for Imagine?".
+ */
+export async function buildNoteIndexPayload(
+  db: ReturnType<typeof getDb>,
+  note: IndexableNote,
+): Promise<Omit<ContentItem, 'id' | 'indexedAt'>> {
+  const title = extractNoteTitle(note.content);
+  const { contentType } = parseNoteContent(note.content);
+  const typeLabel = contentTypeLabel(contentType);
+  const rawSummary = extractNoteSummary(note.content);
+  const noteText = await renderNoteAsText(db, note.content);
+
+  return {
+    source: 'note',
+    sourceId: note.id,
+    title,
+    summary: `${typeLabel}: ${rawSummary}`.slice(0, NOTE_SUMMARY_MAX_LENGTH),
+    body: `${typeLabel}: ${title}\n\n${noteText}`,
+    publishedAt: note.updatedAt,
+    url: `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`,
+    projectContext: note.projectId ?? 'personal',
+    metadata: { noteId: note.id, contentType: contentType ?? 'note', tags: note.tags },
+    tags: [...new Set([...(note.projectId ? [note.projectId] : []), ...note.tags])],
+  };
+}
+
 /**
  * Syncs a saved note into content_items so it appears in the timeline, and
  * best-effort pushes it into the Foundry IQ Search index so it's
@@ -62,39 +119,14 @@ function extractNoteSummary(contentJson: string): string {
  * question (e.g. "approved LLM list" vs. a note phrased as "model
  * governance constraints") could never surface it.
  */
-async function syncNoteToTimeline(db: ReturnType<typeof getDb>, note: Note): Promise<void> {
-  const title = extractNoteTitle(note.content);
-  const summary = extractNoteSummary(note.content);
-  const projectContext = note.projectId ?? 'personal';
-  const tags = [...new Set([...(note.projectId ? [note.projectId] : []), ...note.tags])];
-  const url = `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`;
-
-  const { id: contentItemId } = await upsertContentItem(db, {
-    source: 'note',
-    sourceId: note.id,
-    title,
-    summary,
-    body: note.content,
-    publishedAt: note.updatedAt,
-    url,
-    projectContext,
-    metadata: { noteId: note.id, tags: note.tags },
-    tags,
-  });
+export async function syncNoteToTimeline(db: ReturnType<typeof getDb>, note: IndexableNote): Promise<void> {
+  const payload = await buildNoteIndexPayload(db, note);
+  const { id: contentItemId } = await upsertContentItem(db, payload);
 
   void indexContentItem({
+    ...payload,
     id: contentItemId,
-    source: 'note',
-    sourceId: note.id,
-    title,
-    summary,
-    body: note.content,
-    publishedAt: note.updatedAt,
     indexedAt: new Date().toISOString(),
-    url,
-    projectContext,
-    metadata: { noteId: note.id },
-    tags,
   }).catch((err: unknown) => {
     console.error('[notes] Foundry IQ index push failed:', err instanceof Error ? err.message : err);
   });

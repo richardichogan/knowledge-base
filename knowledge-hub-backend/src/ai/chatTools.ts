@@ -25,21 +25,15 @@ import { GitHubClient } from '../integrations/github/githubClient.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
 import { env } from '../config/env.js';
 import { isIcaEnabled, icaChat } from './icaClient.js';
-import {
-  parseNoteContent,
-  extractImageBlockUrls,
-  blocksToTextWithImages,
-  blobIdFromUrl,
-} from '../utils/noteContent.js';
+import { renderNoteAsText } from '../services/noteTextService.js';
 import { getLearnMcpTools, isLearnMcpTool, callLearnMcpTool } from './learnMcpClient.js';
-
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
 const TASK_STATUSES = ['backlog', 'in-progress', 'blocked', 'awaiting-feedback', 'completed'] as const;
 const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 const NOTE_CONTENT_TYPES = [
-  'blog', 'podcast', 'podcast-show-notes', 'newsletter', 'project', 'note', 'script', 'architecture', 'meeting', 'research', 'spec',
+  'blog', 'podcast', 'podcast-show-notes', 'newsletter', 'project', 'note', 'script', 'architecture', 'meeting', 'research', 'spec', 'use-case',
 ] as const;
 
 export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
@@ -437,30 +431,16 @@ async function searchKnowledgeGraph(db: Pool, args: Record<string, unknown>): Pr
 }
 
 /**
- * Renders a note's raw stored content (the `{ title, contentType, contentJson }`
- * wrapper written by the notes editor) as plain text for the model, replacing
- * each embedded image block with its stored GPT-4V vision analysis so
- * Athena actually knows what a pasted diagram/screenshot shows.
+ * Renders a note's stored content as plain text for the model, replacing each
+ * embedded image block with its stored GPT-4V vision analysis so Athena
+ * actually knows what a pasted diagram/screenshot shows.
+ *
+ * Note that `content_items.body` for notes now holds already-rendered text
+ * rather than the original wrapper JSON, which `renderNoteAsText` passes
+ * through unchanged.
  */
 async function buildNoteContentForAI(db: Pool, rawContentJson: string): Promise<string> {
-  const { blocks } = parseNoteContent(rawContentJson);
-  const imageUrls = extractImageBlockUrls(blocks);
-
-  const visionByBlobId = new Map<string, string>();
-  if (imageUrls.length > 0) {
-    const ids = imageUrls.map(blobIdFromUrl).filter((id) => id !== '');
-    if (ids.length > 0) {
-      const result = await db.query<{ id: string; vision_analysis: string }>(
-        `SELECT id, vision_analysis FROM kb_images WHERE id = ANY($1)`,
-        [ids],
-      );
-      for (const row of result.rows) {
-        if (row.vision_analysis !== '') visionByBlobId.set(row.id, row.vision_analysis);
-      }
-    }
-  }
-
-  const text = blocksToTextWithImages(blocks, visionByBlobId);
+  const text = await renderNoteAsText(db, rawContentJson);
   return text.length > NOTE_CONTENT_MAX_CHARS ? `${text.slice(0, NOTE_CONTENT_MAX_CHARS)}…` : text;
 }
 

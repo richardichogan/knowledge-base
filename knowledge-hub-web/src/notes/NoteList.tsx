@@ -34,6 +34,7 @@ const TYPE_STYLE: Record<string, { color: string; bg: string; border: string }> 
   meeting:      { color: '#ff832b', bg: 'rgba(255,131,43,0.1)',  border: 'rgba(255,131,43,0.2)' },
   research:     { color: '#1192e8', bg: 'rgba(17,146,232,0.1)',  border: 'rgba(17,146,232,0.2)' },
   spec:         { color: '#ee5396', bg: 'rgba(238,83,150,0.1)',  border: 'rgba(238,83,150,0.2)' },
+  'use-case':   { color: '#08bdba', bg: 'rgba(8,189,186,0.1)',   border: 'rgba(8,189,186,0.2)' },
 };
 
 export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect, onDelete, deletingId = null }) => {

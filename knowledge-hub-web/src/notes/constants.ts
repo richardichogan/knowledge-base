@@ -20,7 +20,8 @@ export type ContentType =
   | 'architecture'
   | 'meeting'
   | 'research'
-  | 'spec';
+  | 'spec'
+  | 'use-case';
 
 export interface ContentTypeOption {
   id: ContentType;
@@ -39,6 +40,7 @@ export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
   { id: 'meeting',              label: 'Meeting notes / transcript' },
   { id: 'research',             label: 'Research brief' },
   { id: 'spec',                 label: 'Technical spec' },
+  { id: 'use-case',             label: 'Use case' },
 ];
 
 // ── Tag type per content type ─────────────────────────────────────────────────
@@ -55,7 +57,35 @@ export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' |
   meeting:             'orange',
   research:            'cyan',
   spec:                'magenta',
+  'use-case':          'teal',
 };
+
+// ── Use case template ─────────────────────────────────────────────────────────
+
+/**
+ * Skeleton inserted when an empty note is switched to the "Use case" content
+ * type. Use cases are captured as free-form prose under a fixed set of
+ * headings rather than structured fields, so the whole note stays searchable
+ * and Athena can compare across the library without a bespoke schema. The
+ * headings exist to make the comparison possible — they're the questions a
+ * client actually asks (commercial shape, document dependencies, deployment)
+ * as much as the narrative itself.
+ */
+export const USE_CASE_TEMPLATE_HEADINGS: string[] = [
+  'Summary',
+  'Client & vertical context',
+  'Personas',
+  'Trigger & problem',
+  'Narrative walkthrough',
+  'Agents & orchestration',
+  'Guardrails and human-in-the-loop',
+  'Data & document dependencies (native vs converted)',
+  'Value & measurement (forecast vs booked)',
+  'Deployment considerations',
+  'Commercial shape',
+  'Open questions & risks',
+  'Related assets',
+];
 
 // ── BlockNote g100 theme override ─────────────────────────────────────────────
 

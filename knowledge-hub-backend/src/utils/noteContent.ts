@@ -25,7 +25,7 @@ export function blockContentSpans(block: Block): BlockContent[] {
   return Array.isArray(block.content) ? (block.content as BlockContent[]) : [];
 }
 
-export function parseNoteContent(contentJson: string): { title: string | null; blocks: Block[] } {
+export function parseNoteContent(contentJson: string): { title: string | null; contentType: string | null; blocks: Block[] } {
   try {
     const outer = JSON.parse(contentJson) as unknown;
     // Wrapped format: { title, contentType, contentJson }
@@ -34,6 +34,9 @@ export function parseNoteContent(contentJson: string): { title: string | null; b
       const title = typeof wrapper.title === 'string' && wrapper.title.trim() !== '' && wrapper.title !== 'Untitled'
         ? wrapper.title.trim()
         : null;
+      const contentType = typeof wrapper.contentType === 'string' && wrapper.contentType.trim() !== ''
+        ? wrapper.contentType.trim()
+        : null;
       let blocks: Block[] = [];
       if (typeof wrapper.contentJson === 'string') {
         try {
@@ -41,13 +44,13 @@ export function parseNoteContent(contentJson: string): { title: string | null; b
           blocks = Array.isArray(inner) ? (inner as Block[]) : [];
         } catch { /* ignore */ }
       }
-      return { title, blocks };
+      return { title, contentType, blocks };
     }
     // Raw array format (legacy)
     const blocks = Array.isArray(outer) ? (outer as Block[]) : [];
-    return { title: null, blocks };
+    return { title: null, contentType: null, blocks };
   } catch {
-    return { title: null, blocks: [] };
+    return { title: null, contentType: null, blocks: [] };
   }
 }
 
