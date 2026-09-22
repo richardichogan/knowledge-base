@@ -8,6 +8,8 @@ import { ValidationError, NotFoundError } from '../types/errors.js';
 import type { ApiSuccess, PaginatedList } from '../types/apiResponse.js';
 import { FoundryClient } from '../ai/foundryClient.js';
 import { env } from '../config/env.js';
+import { upsertContentItem } from '../db/queries.js';
+import { indexContentItem } from '../ai/foundryIqIndexer.js';
 
 const router = Router();
 
@@ -53,6 +55,54 @@ export function rowToTask(row: Record<string, unknown>): Task {
     createdAt: String(row['created_at']),
     updatedAt: String(row['updated_at']),
   };
+}
+
+/**
+ * Mirrors a task into content_items (FTS) and best-effort pushes it into
+ * Foundry IQ (semantic search) so it's queryable via search_knowledge_base —
+ * previously tasks lived only in the `tasks` table with their own dedicated
+ * structured tool, invisible to Athena's general knowledge-base search.
+ */
+function syncTaskToTimeline(db: ReturnType<typeof getDb>, task: Task): void {
+  void (async (): Promise<void> => {
+    try {
+      const summary = task.body ? task.body.slice(0, 500) : `Status: ${task.status}`;
+      const body = [task.title, task.body].filter(Boolean).join('\n\n');
+      const projectContext = task.projectId || 'personal';
+      const url = `${env.FRONTEND_BASE_URL}/plan?taskId=${task.id}`;
+      const { id: contentItemId } = await upsertContentItem(db, {
+        source: 'task',
+        sourceId: task.id,
+        title: task.title,
+        summary,
+        body,
+        publishedAt: task.updatedAt,
+        url,
+        projectContext,
+        metadata: { taskId: task.id, status: task.status, priority: task.priority, dueDate: task.dueDate },
+        tags: task.tags,
+      });
+
+      void indexContentItem({
+        id: contentItemId,
+        source: 'task',
+        sourceId: task.id,
+        title: task.title,
+        summary,
+        body,
+        publishedAt: task.updatedAt,
+        indexedAt: new Date().toISOString(),
+        url,
+        projectContext,
+        metadata: { taskId: task.id, status: task.status },
+        tags: task.tags,
+      }).catch((err: unknown) => {
+        console.error('[tasks] Foundry IQ index push failed:', err instanceof Error ? err.message : err);
+      });
+    } catch (err) {
+      console.error('[tasks] Failed to sync task to content_items:', err instanceof Error ? err.message : err);
+    }
+  })();
 }
 
 router.get('/', (req: Request, res: Response, next: NextFunction): void => {
@@ -118,6 +168,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       }
       const body: ApiSuccess<Task> = { success: true, data: task };
       res.status(HTTP_STATUS.CREATED).json(body);
+      syncTaskToTimeline(db, task);
     } catch (err) { next(err); }
   })();
 });
@@ -197,11 +248,13 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
             const vals = task.taxonomyTagIds.map((_, i) => `($1, $${i + tagOffset})`).join(', ');
             await db.query(`INSERT INTO task_tags (task_id, tag_id) VALUES ${vals}`, [spawned.id, ...task.taxonomyTagIds]);
           }
+          syncTaskToTimeline(db, spawned);
         }
       }
 
       const body: ApiSuccess<Task> = { success: true, data: task };
       res.status(HTTP_STATUS.OK).json(body);
+      syncTaskToTimeline(db, task);
     } catch (err) { next(err); }
   })();
 });
@@ -216,8 +269,10 @@ router.post('/:id/archive', (req: Request, res: Response, next: NextFunction): v
         [id],
       );
       if (result.rows.length === 0) throw new NotFoundError(`Task ${id} not found`);
-      const body: ApiSuccess<Task> = { success: true, data: rowToTask(result.rows[0] as Record<string, unknown>) };
+      const task = rowToTask(result.rows[0] as Record<string, unknown>);
+      const body: ApiSuccess<Task> = { success: true, data: task };
       res.status(HTTP_STATUS.OK).json(body);
+      syncTaskToTimeline(db, task);
     } catch (err) { next(err); }
   })();
 });

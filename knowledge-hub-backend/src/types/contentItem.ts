@@ -29,6 +29,7 @@ export type ContentSource =
   | 'gitlab-release'
   | 'gitlab-deployment'
   | 'note'
+  | 'task'
   | 'discovered-article'
   | 'ica-document'
   | 'user-upload';
