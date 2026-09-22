@@ -28,7 +28,7 @@ export async function handleConversationTurn(
 ): Promise<string> {
   const context = await buildAiContext(db, userMessage, history, sessionId);
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
-  const baseMessages = assembleMessages(context, history, userMessage, persona, pageContext);
+  const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
   const client = getFoundryClient();

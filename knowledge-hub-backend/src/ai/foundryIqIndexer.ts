@@ -13,27 +13,12 @@
 
 import { env } from '../config/env.js';
 import type { ContentItem } from '../types/index.js';
+import { embed } from './embeddings.js';
 
 const SEARCH_API_VERSION = '2024-07-01';
 const INDEX_NAME = 'kh-content-items';
-const EMBEDDING_DEPLOYMENT = 'text-embedding-3-small';
 const BODY_CHARS_FOR_EMBEDDING = 2000;
 
-async function embed(text: string): Promise<number[]> {
-  const res = await fetch(
-    `${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${EMBEDDING_DEPLOYMENT}/embeddings?api-version=2024-06-01`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'api-key': env.AZURE_OPENAI_API_KEY ?? '' },
-      body: JSON.stringify({ input: [text] }),
-    },
-  );
-  if (!res.ok) throw new Error(`Embedding request failed: ${res.status} ${await res.text()}`);
-  const data = (await res.json()) as { data: { embedding: number[] }[] };
-  const embedding = data.data[0]?.embedding;
-  if (!embedding) throw new Error('Embedding response contained no vector');
-  return embedding;
-}
 
 /** True when both Foundry IQ Search and the embedding model are configured. */
 export function canIndexToFoundryIq(): boolean {

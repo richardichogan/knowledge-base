@@ -5,6 +5,7 @@ import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
 import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
+import { embedBatch, cosineSimilarity, isEmbeddingConfigured } from './embeddings.js';
 import type { AiContext, ConversationMessage, ChatPageContext } from '../types/aiContext.js';
 
 const STATIC_CONTEXT_BLOB = 'config/static-context.md';
@@ -701,11 +702,28 @@ function buildRagQuery(userQuery: string, history: ConversationMessage[]): strin
  * Small notes/snippets are cheap and unambiguous to send whole, so there's
  * no benefit to excerpting them.
  */
-const FULL_DOCUMENT_CHAR_THRESHOLD = 8000;
-/** Target size of each chunk when splitting a long document for excerpting. */
+/**
+ * Documents at or below this size are always sent to the model in full — no
+ * excerpting, no lossy selection. This is intentionally generous: the chat
+ * model (gpt-4o deployment) has a large context window, and a meeting
+ * transcript, note, or attached document is nearly always well under this
+ * size. The previous version of this logic used an 8,000-char threshold,
+ * which meant almost every real document (a ~52,000-char transcript, for
+ * example) got excerpted down to ~9 small chunks — discarding roughly 75%
+ * of the document, including entire sections (e.g. the Q&A at the end),
+ * and causing Athena to answer as if content simply wasn't there. Only
+ * genuinely oversized documents should ever hit the excerpting path below.
+ */
+const FULL_DOCUMENT_CHAR_THRESHOLD = 150000;
+/** Target size of each chunk when splitting an oversized document for retrieval. */
 const CHUNK_TARGET_CHARS = 1400;
-/** Max number of chunks selected into the final excerpt (bounds prompt size/cost). */
-const MAX_SELECTED_CHUNKS = 9;
+/**
+ * Char budget for the selected excerpt when a document exceeds the full-send
+ * threshold. Generous on purpose — the goal of excerpting is to bound
+ * genuinely huge documents (hours-long transcripts, whole reports), not to
+ * aggressively shrink anything past a small fixed chunk count.
+ */
+const EXCERPT_CHAR_BUDGET = 60000;
 
 const STOPWORDS = new Set([
   'the', 'and', 'for', 'are', 'was', 'were', 'this', 'that', 'with', 'from', 'have', 'has', 'had',
@@ -737,7 +755,7 @@ function splitIntoChunks(text: string): string[] {
   return chunks;
 }
 
-/** Extracts meaningful (non-stopword, length>=3) lowercase query terms for relevance scoring. */
+/** Extracts meaningful (non-stopword, length>=3) lowercase query terms for keyword-based fallback scoring. */
 function extractQueryTerms(query: string): string[] {
   return Array.from(new Set(
     query.toLowerCase().match(/[a-z0-9']+/g)?.filter((w) => w.length >= 3 && !STOPWORDS.has(w)) ?? [],
@@ -745,56 +763,95 @@ function extractQueryTerms(query: string): string[] {
 }
 
 /**
- * Selects the most relevant excerpt(s) of a long document for the current
- * question, instead of sending the entire document to the model on every
- * turn. This is a lightweight, in-request form of retrieval (keyword/term
- * overlap scoring against chunks of the document currently in view) — it
+ * Keyword-overlap fallback selection, used only when embeddings are
+ * unavailable or fail. Much less accurate than semantic search (e.g. it
+ * won't match "commercialisation" against "pricing" or "buy"), but is
+ * better than nothing if Azure OpenAI embeddings are unreachable.
+ */
+function selectExcerptByKeywords(chunks: string[], query: string, maxChunks: number): number[] {
+  const terms = extractQueryTerms(query);
+  if (terms.length === 0) {
+    const step = (chunks.length - 1) / (maxChunks - 1);
+    return Array.from({ length: maxChunks }, (_, i) => Math.round(i * step));
+  }
+  const scored = chunks.map((chunk, i) => {
+    const lower = chunk.toLowerCase();
+    const score = terms.reduce((sum, term) => sum + (lower.split(term).length - 1), 0);
+    return { i, score };
+  });
+  const topByScore = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score).slice(0, maxChunks - 1);
+  const selected = Array.from(new Set([0, ...topByScore.map((s) => s.i)]));
+  if (selected.length < Math.min(maxChunks, chunks.length)) {
+    const step = (chunks.length - 1) / (maxChunks - 1);
+    for (let i = 0; i < maxChunks && selected.length < maxChunks; i++) {
+      const idx = Math.round(i * step);
+      if (!selected.includes(idx)) selected.push(idx);
+    }
+  }
+  return selected;
+}
+
+/**
+ * Semantic (embedding-based) selection — embeds every chunk plus the user's
+ * question in one batched call, ranks chunks by cosine similarity to the
+ * question, and selects as many top-ranked chunks as fit EXCERPT_CHAR_BUDGET.
+ * This replaces literal keyword counting so that a question about
+ * "commercialisation" can still match a chunk about "pricing" or "how a
+ * client would buy this" even without exact word overlap.
+ */
+async function selectExcerptBySemanticSearch(chunks: string[], query: string): Promise<number[]> {
+  const vectors = await embedBatch([query, ...chunks]);
+  const queryVector = vectors[0]!;
+  const chunkVectors = vectors.slice(1);
+  const scored = chunkVectors.map((v, i) => ({ i, score: cosineSimilarity(queryVector, v) }));
+  scored.sort((a, b) => b.score - a.score);
+
+  const selected: number[] = [0]; // always include the opening chunk for orientation
+  let usedChars = chunks[0]!.length;
+  for (const { i } of scored) {
+    if (selected.includes(i)) continue;
+    if (usedChars + chunks[i]!.length > EXCERPT_CHAR_BUDGET) continue;
+    selected.push(i);
+    usedChars += chunks[i]!.length;
+  }
+  return selected;
+}
+
+/**
+ * Selects the most relevant excerpt(s) of an oversized document for the
+ * current question, instead of sending the entire document to the model on
+ * every turn. Only engages above FULL_DOCUMENT_CHAR_THRESHOLD — this is a
+ * bound on genuinely huge documents, not a routine downsizing step. This
  * does not replace or narrow the separate auto-RAG search across the wider
  * knowledge base (which still runs independently and is included as
- * supporting context), it only bounds how much of THIS specific document
+ * supporting context) — it only bounds how much of THIS specific document
  * gets sent.
  *
- * If the question doesn't give us useful search terms (e.g. "summarise
- * this"), falls back to sampling evenly across the whole document so the
- * excerpt still covers the beginning, middle, and end rather than just the
- * first N characters.
+ * Uses real semantic similarity (Azure OpenAI embeddings) so relevance isn't
+ * limited to literal keyword overlap; falls back to keyword-overlap scoring
+ * only if the embedding call fails (e.g. embeddings misconfigured/down).
  */
-function selectRelevantExcerpt(text: string, query: string): { excerpt: string; wasExcerpted: boolean } {
+async function selectRelevantExcerpt(text: string, query: string): Promise<{ excerpt: string; wasExcerpted: boolean }> {
   if (text.length <= FULL_DOCUMENT_CHAR_THRESHOLD) {
     return { excerpt: text, wasExcerpted: false };
   }
 
   const chunks = splitIntoChunks(text);
-  if (chunks.length <= MAX_SELECTED_CHUNKS) {
+  const maxChunksByBudget = Math.max(1, Math.floor(EXCERPT_CHAR_BUDGET / CHUNK_TARGET_CHARS));
+  if (chunks.length <= maxChunksByBudget) {
     return { excerpt: text, wasExcerpted: false };
   }
 
-  const terms = extractQueryTerms(query);
   let selectedIndices: number[];
-
-  if (terms.length === 0) {
-    // Generic ask — sample evenly across the document (always include the
-    // very first chunk for title/intro orientation) so we cover the whole
-    // arc of a long transcript/document rather than just its opening.
-    const step = (chunks.length - 1) / (MAX_SELECTED_CHUNKS - 1);
-    selectedIndices = Array.from({ length: MAX_SELECTED_CHUNKS }, (_, i) => Math.round(i * step));
-  } else {
-    const scored = chunks.map((chunk, i) => {
-      const lower = chunk.toLowerCase();
-      const score = terms.reduce((sum, term) => sum + (lower.split(term).length - 1), 0);
-      return { i, score };
-    });
-    const topByScore = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score).slice(0, MAX_SELECTED_CHUNKS - 1);
-    selectedIndices = Array.from(new Set([0, ...topByScore.map((s) => s.i)]));
-    // Not enough keyword matches to fill the budget — top up with an even
-    // sample so we still return a reasonably representative excerpt.
-    if (selectedIndices.length < Math.min(MAX_SELECTED_CHUNKS, chunks.length)) {
-      const step = (chunks.length - 1) / (MAX_SELECTED_CHUNKS - 1);
-      for (let i = 0; i < MAX_SELECTED_CHUNKS && selectedIndices.length < MAX_SELECTED_CHUNKS; i++) {
-        const idx = Math.round(i * step);
-        if (!selectedIndices.includes(idx)) selectedIndices.push(idx);
-      }
+  if (isEmbeddingConfigured()) {
+    try {
+      selectedIndices = await selectExcerptBySemanticSearch(chunks, query);
+    } catch (err) {
+      console.error('[contextBuilder] Semantic excerpt selection failed, falling back to keyword search:', err);
+      selectedIndices = selectExcerptByKeywords(chunks, query, maxChunksByBudget);
     }
+  } else {
+    selectedIndices = selectExcerptByKeywords(chunks, query, maxChunksByBudget);
   }
 
   selectedIndices.sort((a, b) => a - b);
@@ -820,25 +877,25 @@ function selectRelevantExcerpt(text: string, query: string): { excerpt: string; 
  * would drag in unrelated matches (e.g. a different doc sharing keywords)
  * that then got blended into answers about the document in view.
  *
- * For long documents, only relevant excerpts are sent (see
- * selectRelevantExcerpt) rather than the entire text on every turn — this
- * document remains the primary source the answer must be grounded in, but
+ * Only genuinely oversized documents are excerpted (see
+ * selectRelevantExcerpt) — the vast majority of documents are sent in full.
+ * This document remains the primary source the answer must be grounded in;
  * the separate auto-RAG block below still supplies broader knowledge-base
  * context as supporting material, exactly as it does for any other message.
  */
-function formatPageContext(pageContext: ChatPageContext | undefined, userMessage: string): string {
+async function formatPageContext(pageContext: ChatPageContext | undefined, userMessage: string): Promise<string> {
   if (pageContext === undefined) return '';
   const { excerpt, wasExcerpted } = pageContext.detail
-    ? selectRelevantExcerpt(pageContext.detail, userMessage)
+    ? await selectRelevantExcerpt(pageContext.detail, userMessage)
     : { excerpt: '', wasExcerpted: false };
   return [
     `## Document in view (primary source — the user is asking about this specific ${pageContext.type})`,
     `Title: ${pageContext.title}`,
     excerpt ? `Content:\n${excerpt}` : '',
     wasExcerpted
-      ? 'Note: this document is long, so the excerpts above were selected as most relevant to the current ' +
-        'question rather than sending the full text. If they don\'t contain what you need to answer, say so ' +
-        'and ask the user to point you to the relevant section rather than guessing.'
+      ? 'Note: this document is very long, so the excerpts above were semantically selected as most relevant ' +
+        'to the current question rather than sending the full text. If they don\'t contain what you need to ' +
+        'answer, say so and ask the user to point you to the relevant section rather than guessing.'
       : '',
     'Ground any claim you attribute to this document in the text above. Anything under "Auto-retrieved ' +
       'background context" below is a separate, automatic search result — it is not part of this document ' +
@@ -847,13 +904,13 @@ function formatPageContext(pageContext: ChatPageContext | undefined, userMessage
   ].filter(Boolean).join('\n');
 }
 
-export function assembleMessages(
+export async function assembleMessages(
   context: AiContext,
   history: ConversationMessage[],
   userMessage: string,
   persona?: string,
   pageContext?: ChatPageContext,
-): ConversationMessage[] {
+): Promise<ConversationMessage[]> {
   const systemPrompt = [
     ASSISTANT_IDENTITY_BLURB,
     '---',
@@ -872,7 +929,7 @@ export function assembleMessages(
     buildToolCapabilitiesBlurb(),
   ].join('\n\n');
 
-  const pageContextBlock = formatPageContext(pageContext, userMessage);
+  const pageContextBlock = await formatPageContext(pageContext, userMessage);
   const ragBlock = formatRagContext(context.ragItems);
   const memoryBlock = formatMemoryContext(context.memoryItems);
   // Page context (what the user is actually looking at) comes first and is
