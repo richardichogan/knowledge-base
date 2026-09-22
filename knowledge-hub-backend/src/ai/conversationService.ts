@@ -70,6 +70,35 @@ export async function handleConversationTurn(
 }
 
 /**
+ * Generates a short on-demand summary of a note's content, shown as a
+ * "summary card" in the Think-embedded Athena panel when the user switches
+ * to a note that has no chat started yet — gives them something useful to
+ * look at instead of a blank composer.
+ */
+export async function summarizeNoteContent(title: string, content: string): Promise<string> {
+  const client = getFoundryClient();
+  const NOTE_SUMMARY_CONTENT_CHAR_LIMIT = 12_000;
+  const trimmed = content.length > NOTE_SUMMARY_CONTENT_CHAR_LIMIT
+    ? `${content.slice(0, NOTE_SUMMARY_CONTENT_CHAR_LIMIT)}\n\n[truncated]`
+    : content;
+  const messages: ConversationMessage[] = [
+    {
+      role: 'system',
+      content:
+        'You summarise a note from a personal knowledge hub so its owner can quickly see what it covers ' +
+        'before deciding what to ask about it. Write 3-5 tight sentences of plain prose covering what the ' +
+        'note is about, its key points, and any open questions or actions it implies. No headings, no bullet points.',
+    },
+    {
+      role: 'user',
+      content: `Title: ${title}\n\nContent:\n${trimmed.trim() !== '' ? trimmed : '(this note is empty)'}`,
+    },
+  ];
+
+  return client.chat('gpt-4o-mini', messages, 400);
+}
+
+/**
  * Generates a session summary by asking GPT-4o mini to summarise the
  * conversation. The summary is returned as markdown for blob storage.
  */

@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
-import { handleConversationTurn, summariseSession, rollUpConversationSummary, formatSessionForThink } from '../ai/conversationService.js';
-import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId } from '../ai/chatSessionStore.js';
+import { handleConversationTurn, summariseSession, rollUpConversationSummary, formatSessionForThink, summarizeNoteContent } from '../ai/conversationService.js';
+import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
@@ -29,13 +29,14 @@ const router = Router();
 router.post('/chat', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
     try {
-      const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext } = req.body as {
+      const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext, noteId } = req.body as {
         sessionId?: string;
         message?: string;
         model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
         persona?: string;
         projectId?: string | null;
         pageContext?: ChatPageContext;
+        noteId?: string;
       };
 
       if (!message) throw new ValidationError('message required', { message: 'required' });
@@ -45,6 +46,13 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       const fullHistory = await getOrCreateSessionHistory(db, effectiveSessionId);
       const isFirstMessage = fullHistory.length === 0;
       const modelHistory = await getModelHistory(db, effectiveSessionId);
+
+      // Remembers which Think note (if any) this chat belongs to, so the
+      // embedded Athena panel can restore it when the user switches back to
+      // this note later instead of always showing the globally-active chat.
+      if (typeof noteId === 'string' && noteId.trim() !== '') {
+        await linkSessionToNote(db, effectiveSessionId, noteId.trim());
+      }
 
       if ('projectId' in req.body) {
         await setSessionProjectId(
@@ -168,6 +176,47 @@ router.get('/sessions', (_req: Request, res: Response, next: NextFunction): void
       const db = getDb();
       const sessions = await listSessions(db);
       const body: ApiSuccess<{ sessions: typeof sessions }> = { success: true, data: { sessions } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * GET /api/ai/sessions/note/:noteId
+ * Looks up the chat session already linked to a Think note, if any — used
+ * by the embedded Athena panel to restore the right conversation when the
+ * user switches notes.
+ */
+router.get('/sessions/note/:noteId', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { noteId } = req.params as { noteId: string };
+      const db = getDb();
+      const sessionId = await getSessionIdForNote(db, noteId);
+      const body: ApiSuccess<{ sessionId: string | null }> = { success: true, data: { sessionId } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * POST /api/ai/summarize-note
+ * Generates an on-demand summary of a note's content, shown as a "summary
+ * card" in the Think-embedded Athena panel when a note has no chat started
+ * yet. Body: { title, content }
+ */
+router.post('/summarize-note', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { title, content } = req.body as { title?: string; content?: string };
+      if (!title) throw new ValidationError('title required', { title: 'required' });
+
+      const summary = await summarizeNoteContent(title, content ?? '');
+      const body: ApiSuccess<{ summary: string }> = { success: true, data: { summary } };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
       next(err);

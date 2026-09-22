@@ -178,6 +178,7 @@ export const NotesPage: React.FC = () => {
         type: 'note',
         title: openDoc.title,
         detail: `Content type: ${openDoc.contentType}${bodyBlock}`,
+        id: openDoc.id,
       });
 
       if (lastLookupKeyRef.current === lookupKey) {
@@ -215,6 +216,7 @@ export const NotesPage: React.FC = () => {
           type: 'note',
           title: openDoc.title,
           detail: `Content type: ${openDoc.contentType}. Contains ${imageUrls.length.toString()} embedded image(s):\n${descriptions.join('\n')}${bodyBlock}`,
+          id: openDoc.id,
         });
       })();
 

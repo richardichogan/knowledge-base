@@ -165,6 +165,36 @@ export async function deleteSession(db: Pool, sessionId: string): Promise<void> 
 }
 
 /**
+ * Finds the chat session already linked to a note, if any. Used by the
+ * Think-embedded Athena panel to restore the right conversation when the
+ * user switches notes, instead of always showing whatever session happens
+ * to be globally active.
+ */
+export async function getSessionIdForNote(db: Pool, noteId: string): Promise<string | null> {
+  const { rows } = await db.query<{ id: string }>(
+    `SELECT id FROM ai_chat_sessions WHERE note_id = $1`,
+    [noteId],
+  );
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Links a session to a note. A note has at most one linked session at a
+ * time, so any prior session linked to this note is unlinked first — this
+ * is what makes "start a new chat while viewing this note" replace the
+ * note's remembered conversation rather than conflicting with the unique
+ * index on note_id.
+ */
+export async function linkSessionToNote(db: Pool, sessionId: string, noteId: string): Promise<void> {
+  await db.query(`UPDATE ai_chat_sessions SET note_id = NULL WHERE note_id = $1 AND id != $2`, [noteId, sessionId]);
+  await db.query(
+    `INSERT INTO ai_chat_sessions (id, note_id) VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET note_id = EXCLUDED.note_id`,
+    [sessionId, noteId],
+  );
+}
+
+/**
  * Builds the conversation history to send to the model: the rolling summary
  * (if one exists) as a leading system-role message, followed by every
  * message since the last summarisation point, verbatim. This is what keeps

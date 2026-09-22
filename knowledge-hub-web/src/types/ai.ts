@@ -31,6 +31,12 @@ export interface ChatRequest {
    * get blended into answers about the document in view.
    */
   pageContext?: ChatPageContext;
+  /**
+   * The Think note this chat belongs to, if any. When present, the backend
+   * links the session to this note so the Think-embedded Athena panel can
+   * restore the right conversation when the user switches back to it later.
+   */
+  noteId?: string;
 }
 
 export interface ChatMessage {

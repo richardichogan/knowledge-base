@@ -437,6 +437,24 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /** Looks up the chat session already linked to a Think note, if any — used by the embedded Athena panel to restore the right conversation when the user switches notes. */
+  async getSessionIdForNote(noteId: string): Promise<ApiResponse<{ sessionId: string | null }>> {
+    const r = await this.client.get<ApiResponse<{ sessionId: string | null }>>(
+      `/api/ai/sessions/note/${encodeURIComponent(noteId)}`,
+    );
+    return r.data;
+  }
+
+  /** Generates an on-demand summary of a note's content, shown when a note has no chat started yet. */
+  async summarizeNote(title: string, content: string): Promise<ApiResponse<{ summary: string }>> {
+    const r = await this.client.post<ApiResponse<{ summary: string }>>(
+      '/api/ai/summarize-note',
+      { title, content },
+      { timeout: CHAT_TIMEOUT_MS },
+    );
+    return r.data;
+  }
+
   /** Switches a session's persona (e.g. "general" <-> "brainstorming"). */
   async setSessionPersona(
     sessionId: string,

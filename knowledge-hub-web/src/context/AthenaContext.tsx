@@ -19,6 +19,12 @@ export interface AthenaPageContext {
   title: string;
   /** Optional snippet of summary/body/detail for the AI */
   detail?: string;
+  /**
+   * Stable id of the underlying item (e.g. the note id), when known. Used by
+   * the Think-embedded Athena panel to remember which chat belongs to which
+   * note — not sent to the backend as part of the LLM-facing context.
+   */
+  id?: string;
 }
 
 interface AthenaContextValue {

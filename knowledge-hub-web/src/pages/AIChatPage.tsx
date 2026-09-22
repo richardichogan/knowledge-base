@@ -437,11 +437,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   title,
   onBusyChange,
 }) => {
+  // The Think-embedded panel manages its own per-note session (see the
+  // note-linking effect below) instead of sharing localStorage-persisted
+  // session state with the floating widget / full-page chat.
+  const isNoteLinkedPanel = compact && compactVariant === 'narrow';
+  const currentNoteId = isNoteLinkedPanel && pageContext?.type === 'note' ? pageContext.id : undefined;
   const SESSION_STORAGE_KEY = standalone
     ? SESSION_STORAGE_KEY_STANDALONE
-    : compact
-      ? SESSION_STORAGE_KEY_WIDGET
-      : `${SESSION_STORAGE_KEY_PAGE}-${initialPersona ?? 'general'}`;
+    : isNoteLinkedPanel
+      ? '' // no shared localStorage session for the Think-embedded panel — its session is driven entirely by the note-linking effect below.
+      : compact
+        ? SESSION_STORAGE_KEY_WIDGET
+        : `${SESSION_STORAGE_KEY_PAGE}-${initialPersona ?? 'general'}`;
   const isMobile = useIsMobile();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
@@ -449,6 +456,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [savingResponseIndex, setSavingResponseIndex] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(() => {
+    if (isNoteLinkedPanel) return null;
     try {
       return window.localStorage.getItem(SESSION_STORAGE_KEY);
     } catch {
@@ -456,6 +464,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     }
   });
   const [isRestoringHistory, setIsRestoringHistory] = useState(sessionId !== null);
+  const [noteSummary, setNoteSummary] = useState<string | null>(null);
+  const [isNoteSummaryLoading, setIsNoteSummaryLoading] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
@@ -513,8 +523,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   // Restore persisted history for a stored session ID once on mount, so a
   // reload or reopening the standalone Athena window continues the same
-  // conversation instead of starting blank.
+  // conversation instead of starting blank. The Think-embedded panel skips
+  // this entirely — its session/history is restored per-note by the
+  // note-linking effect further down instead.
   useEffect(() => {
+    if (isNoteLinkedPanel) return;
     if (sessionId === null) return;
     let cancelled = false;
     void api.getSessionHistory(sessionId).then((result) => {
@@ -534,8 +547,65 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Generates (or regenerates) the on-demand note summary card shown when
+   * the currently-linked note has no chat started yet.
+   */
+  async function loadNoteSummary(noteTitle: string, noteDetail: string): Promise<void> {
+    setNoteSummary(null);
+    setIsNoteSummaryLoading(true);
+    const result = await api.summarizeNote(noteTitle, noteDetail);
+    setNoteSummary(result.success ? result.data.summary : null);
+    setIsNoteSummaryLoading(false);
+  }
+
+  /** Tracks the note id the panel is currently showing a chat/summary for, so switching notes is only handled once per note. */
+  const noteSwitchTrackingRef = useRef<string | null>(null);
+
+  // Think-embedded panel only: whenever the user switches to a different
+  // note, load that note's existing chat if one was already started, or
+  // clear to a fresh chat and show an on-demand summary card if not —
+  // instead of always showing whatever chat happened to be open before.
+  useEffect(() => {
+    if (!isNoteLinkedPanel || currentNoteId === undefined) return;
+    if (noteSwitchTrackingRef.current === currentNoteId) return;
+    noteSwitchTrackingRef.current = currentNoteId;
+
+    let cancelled = false;
+    setMessages([]);
+    setSessionId(null);
+    setPendingActions([]);
+    setNoteSummary(null);
+    setIsRestoringHistory(true);
+
+    void api.getSessionIdForNote(currentNoteId).then(async (result) => {
+      if (cancelled) return;
+      const linkedSessionId = result.success ? result.data.sessionId : null;
+      if (linkedSessionId !== null) {
+        setSessionId(linkedSessionId);
+        const history = await api.getSessionHistory(linkedSessionId);
+        if (cancelled) return;
+        if (history.success) {
+          setMessages(history.data.messages);
+          if (history.data.persona) setPersona(history.data.persona);
+          setActiveProjectId(history.data.projectId ?? '');
+        }
+        setIsRestoringHistory(false);
+      } else {
+        setIsRestoringHistory(false);
+        await loadNoteSummary(pageContext?.title ?? 'Untitled', pageContext?.detail ?? '');
+      }
+    }).catch(() => {
+      if (!cancelled) setIsRestoringHistory(false);
+    });
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentNoteId]);
+
   function persistSessionId(id: string): void {
     setSessionId(id);
+    if (SESSION_STORAGE_KEY === '') return; // Think-embedded panel — session tracked via note-linking, not localStorage.
     try {
       window.localStorage.setItem(SESSION_STORAGE_KEY, id);
     } catch {
@@ -666,6 +736,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           projectId: activeProjectId !== '' ? activeProjectId : null,
           ...(sessionId !== null && { sessionId }),
           ...(ctx && { pageContext: ctx }),
+          ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
         },
         chatAbortControllerRef.current?.signal,
       ),
@@ -893,10 +964,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setActiveProjectId('');
     setProjectError(null);
     setPendingFile(null);
-    try {
-      window.localStorage.removeItem(SESSION_STORAGE_KEY);
-    } catch {
-      // Non-fatal — worst case the old session ID lingers until overwritten by a new one.
+    if (SESSION_STORAGE_KEY !== '') {
+      try {
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      } catch {
+        // Non-fatal — worst case the old session ID lingers until overwritten by a new one.
+      }
+    }
+    // Starting a new chat for a note that already has one abandons the old
+    // note→session link (the next message re-links to a fresh session) — so
+    // show a freshly-regenerated summary card again instead of an empty state.
+    if (isNoteLinkedPanel && currentNoteId !== undefined) {
+      void loadNoteSummary(pageContext?.title ?? 'Untitled', pageContext?.detail ?? '');
     }
   }
 
@@ -1376,7 +1455,21 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               <InlineLoading description="Restoring conversation…" />
             </div>
           )}
-          {messages.length === 0 && !isRestoringHistory && (
+          {messages.length === 0 && !isRestoringHistory && isNoteLinkedPanel && currentNoteId !== undefined && (
+            <div className="ai-note-summary-card">
+              <p className="ai-note-summary-card__label">Summary</p>
+              {isNoteSummaryLoading ? (
+                <InlineLoading description="Summarising this note…" />
+              ) : noteSummary !== null ? (
+                <p className="ai-note-summary-card__text">{noteSummary}</p>
+              ) : (
+                <p className="ai-note-summary-card__text ai-note-summary-card__text--muted">
+                  Ask Athena anything about this note below.
+                </p>
+              )}
+            </div>
+          )}
+          {messages.length === 0 && !isRestoringHistory && !(isNoteLinkedPanel && currentNoteId !== undefined) && (
             <div className="ai-empty">
               <ChatLaunch size={28} className="ai-empty__icon" />
               <p className="ai-empty__title">Athena</p>
