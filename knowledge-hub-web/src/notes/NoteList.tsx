@@ -45,6 +45,9 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
   const { data: parents = [] } = useTaxonomy();
   const { data: projects = [] } = useProjects();
   const projectNameMap = new Map(projects.map((project) => [project.id, project.name]));
+  const projectIdByName = new Map(
+    projects.map((project) => [project.name.trim().toLocaleLowerCase(), project.id]),
+  );
 
   // Build a flat map of tagId → tag name, and a set of all "project child" tag IDs.
   // A project child is any tag whose parent is a top-level project group tag.
@@ -77,11 +80,19 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
   for (const note of filteredNotes) {
     const noteTagIds = note.tagIds ?? [];
     const projectTagId = noteTagIds.find((id) => tagParentMap.has(id));
-    const key = note.projectId ?? projectTagId ?? '__none__';
+    const projectTagName = projectTagId ? tagNameMap.get(projectTagId) : undefined;
+    // Legacy notes predate notes.project_id and were filed only with a
+    // taxonomy child such as "Imagine". Resolve a matching tag name to the
+    // canonical project id so legacy and first-class project notes share one
+    // menu block instead of rendering duplicate labels with different keys.
+    const legacyProjectId = projectTagName
+      ? projectIdByName.get(projectTagName.trim().toLocaleLowerCase())
+      : undefined;
+    const key = note.projectId ?? legacyProjectId ?? projectTagId ?? '__none__';
     if (!groups.has(key)) {
-      const label = note.projectId !== undefined
-        ? (projectNameMap.get(note.projectId) ?? note.projectId)
-        : projectTagId ? (tagNameMap.get(projectTagId) ?? 'General') : 'General';
+      const label = projectNameMap.get(key)
+        ?? projectTagName
+        ?? 'General';
       groups.set(key, { label, notes: [] });
     }
     groups.get(key)!.notes.push(note);
