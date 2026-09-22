@@ -18,7 +18,7 @@ import { createNote } from './noteStorage';
 import { markdownToNoteBlocks } from './markdownToBlocks';
 import type { NoteDocument } from './types';
 
-const ACCEPTED_EXTENSIONS = /\.(md|markdown|txt|docx|xlsx|pptx|pdf)$/i;
+const ACCEPTED_EXTENSIONS = /\.(md|markdown)$/i;
 
 interface ImportNoteModalProps {
   open: boolean;
@@ -60,7 +60,7 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
     if (!selected) return;
 
     if (!ACCEPTED_EXTENSIONS.test(selected.name)) {
-      setError('Please choose a Markdown (.md), text (.txt), Word (.docx), Excel (.xlsx), PowerPoint (.pptx), or PDF file.');
+      setError('Please choose a Markdown (.md) file.');
       return;
     }
 
@@ -69,15 +69,9 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
     setTitle(selected.name.replace(/\.[^.]+$/, ''));
     setExtracting(true);
     try {
-      if (/\.(md|markdown|txt)$/i.test(selected.name)) {
-        const text = (await selected.text()).trim();
-        if (text === '') throw new Error('the file is empty');
-        setExtractedText(text);
-      } else {
-        const res = await api.uploadDocument(selected, projectId || 'personal');
-        if (!res.success) throw new Error(res.error?.message ?? 'could not read the file');
-        setExtractedText(res.data.text);
-      }
+      const text = (await selected.text()).trim();
+      if (text === '') throw new Error('the file is empty');
+      setExtractedText(text);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setFile(null);
@@ -135,12 +129,12 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
       )}
 
       <label className="notes-import-file-label" htmlFor="import-note-file">
-        {file ? file.name : 'Choose a file to import'}
+        {file ? file.name : 'Choose a Markdown (.md) file to import'}
       </label>
       <input
         id="import-note-file"
         type="file"
-        accept=".md,.markdown,.txt,.docx,.xlsx,.pptx,.pdf"
+        accept=".md,.markdown"
         className="notes-import-file-input"
         onChange={(e) => { void handleFileSelected(e); }}
       />

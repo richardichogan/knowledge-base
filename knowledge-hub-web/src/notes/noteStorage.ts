@@ -58,10 +58,10 @@ function deserialise(raw: string, id: string, createdAt: string, updatedAt: stri
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 
-interface PreviewBlock { type?: string; content?: { text?: string }[]; children?: PreviewBlock[] }
+export interface NoteContentBlock { type?: string; content?: { text?: string }[]; children?: NoteContentBlock[] }
 
-/** Recursively joins block text content into a flat preview snippet, skipping non-text blocks (e.g. images). */
-function extractPreviewText(blocks: PreviewBlock[]): string {
+/** Recursively joins block text content into a flat text blob, skipping non-text blocks (e.g. images). */
+export function extractNoteBlockText(blocks: NoteContentBlock[]): string {
   const parts: string[] = [];
   for (const block of blocks) {
     if (Array.isArray(block.content)) {
@@ -69,18 +69,18 @@ function extractPreviewText(blocks: PreviewBlock[]): string {
       if (text.trim() !== '') parts.push(text.trim());
     }
     if (Array.isArray(block.children)) {
-      const childText = extractPreviewText(block.children);
+      const childText = extractNoteBlockText(block.children);
       if (childText !== '') parts.push(childText);
     }
   }
-  return parts.join(' ');
+  return parts.join('\n');
 }
 
 function buildPreview(contentJson: string): string {
   try {
     const blocks = JSON.parse(contentJson) as unknown;
     if (!Array.isArray(blocks)) return '';
-    return extractPreviewText(blocks as PreviewBlock[]).slice(0, 200);
+    return extractNoteBlockText(blocks as NoteContentBlock[]).slice(0, 200);
   } catch {
     return '';
   }

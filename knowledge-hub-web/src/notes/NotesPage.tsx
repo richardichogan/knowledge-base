@@ -10,7 +10,8 @@ import { InlineLoading } from '@carbon/react';
 import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
 import { ImportNoteModal } from './ImportNoteModal';
-import { fetchNotes, fetchNote, createNote, deleteNote } from './noteStorage';
+import { fetchNotes, fetchNote, createNote, deleteNote, extractNoteBlockText } from './noteStorage';
+import type { NoteContentBlock } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
 import { CanvasEditor } from '../features/canvas/CanvasEditor';
@@ -19,6 +20,11 @@ import { useAthenaContext } from '../context/AthenaContext';
 import type { CanvasSummaryApi } from '../services/api';
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
+
+// Cap on how much of a note's body text is sent to Athena as page context —
+// large enough for typical notes/transcripts to be answerable in full, but
+// bounded so a huge document doesn't blow the model's context window.
+const NOTE_CONTEXT_MAX_CHARS = 20_000;
 
 export const NotesPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -152,12 +158,24 @@ export const NotesPage: React.FC = () => {
     if (mode === 'notes' && openDoc !== null) {
       const lookupKey = `${openDoc.id}:${noteContentJson ?? ''}`;
 
+      // Give Athena the note's actual text, not just its title/type — otherwise
+      // it has nothing to answer questions about the content you're viewing
+      // and falls back to (possibly stale/unindexed) RAG search instead.
+      let bodyText = '';
+      try {
+        const blocks = JSON.parse(openDoc.contentJson) as unknown;
+        if (Array.isArray(blocks)) bodyText = extractNoteBlockText(blocks as NoteContentBlock[]).slice(0, NOTE_CONTEXT_MAX_CHARS);
+      } catch {
+        bodyText = '';
+      }
+      const bodyBlock = bodyText !== '' ? `\n\nContent:\n${bodyText}` : '';
+
       // Prime with basic context immediately, then upgrade it once any
       // embedded images' vision analysis has loaded (async, may take a beat).
       setAthenaContext({
         type: 'note',
         title: openDoc.title,
-        detail: `Content type: ${openDoc.contentType}`,
+        detail: `Content type: ${openDoc.contentType}${bodyBlock}`,
       });
 
       if (lastLookupKeyRef.current === lookupKey) {
@@ -194,7 +212,7 @@ export const NotesPage: React.FC = () => {
         setAthenaContext({
           type: 'note',
           title: openDoc.title,
-          detail: `Content type: ${openDoc.contentType}. Contains ${imageUrls.length.toString()} embedded image(s):\n${descriptions.join('\n')}`,
+          detail: `Content type: ${openDoc.contentType}. Contains ${imageUrls.length.toString()} embedded image(s):\n${descriptions.join('\n')}${bodyBlock}`,
         });
       })();
 
