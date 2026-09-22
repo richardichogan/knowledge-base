@@ -26,6 +26,17 @@ const INDEX_NAME = 'kh-content-items';
  */
 const BODY_CHARS_FOR_EMBEDDING = 8000;
 
+interface IndexingResult {
+  key?: string;
+  status?: boolean;
+  statusCode?: number;
+  errorMessage?: string | null;
+}
+
+interface IndexingResponse {
+  value?: IndexingResult[];
+}
+
 
 /** True when both Foundry IQ Search and the embedding model are configured. */
 export function canIndexToFoundryIq(): boolean {
@@ -67,5 +78,17 @@ export async function indexContentItem(item: ContentItem): Promise<void> {
   });
   if (!res.ok) {
     throw new Error(`Foundry IQ index push failed: ${res.status} ${await res.text()}`);
+  }
+
+  // Azure AI Search returns HTTP 200 for a batch request even when an
+  // individual document in that batch failed. Treat an absent or unsuccessful
+  // item result as an error so callers never mark a failed push as indexed.
+  const result = (await res.json()) as IndexingResponse;
+  const itemResult = result.value?.[0];
+  if (itemResult?.status !== true) {
+    const detail = itemResult?.errorMessage ?? 'missing item-level indexing result';
+    throw new Error(
+      `Foundry IQ index push failed for ${item.id}: ${itemResult?.statusCode ?? 'unknown'} ${detail}`,
+    );
   }
 }
