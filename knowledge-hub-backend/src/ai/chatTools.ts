@@ -288,33 +288,46 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string, 
 // ── search_knowledge_base ───────────────────────────────────────────────────
 
 /**
- * Resolves the ranked item set for search_knowledge_base. Prefers Foundry IQ
- * (Azure AI Search agentic retrieval — semantic/hybrid search, handles
- * paraphrases the Postgres FTS path structurally cannot), falling back to
- * the Postgres tsvector path (getRagItems) if Foundry IQ isn't configured or
- * the request fails, so a Search outage degrades quality rather than
- * breaking the tool outright.
+ * Resolves the ranked item set for search_knowledge_base. Combines two
+ * sources rather than preferring one exclusively:
+ *   - Postgres FTS (getRagItems) — covers everything in content_items,
+ *     including notes/tasks-adjacent content, which is NOT indexed into
+ *     Foundry IQ (only uploaded documents go through foundryIqIndexer.ts).
+ *   - Foundry IQ (Azure AI Search agentic/semantic retrieval) — catches
+ *     paraphrased/semantically-related documents that literal FTS keyword
+ *     matching structurally cannot (e.g. a question about "approved LLM
+ *     list" won't lexically match a note that says "model governance
+ *     constraints").
+ * Previously Foundry IQ results, when present, were returned exclusively —
+ * which silently dropped any FTS-only matches (i.e. all notes) whenever
+ * Foundry IQ found even one loosely-relevant document. Merging avoids that:
+ * FTS results are listed first (higher precision, direct term match), then
+ * topped up with any additional Foundry IQ matches not already present.
  */
-async function getKnowledgeBaseItems(db: Pool, query: string, limit: number, projectId = '') {
+export async function getKnowledgeBaseItems(db: Pool, query: string, limit: number, projectId = '') {
+  const directMatches = await getRagItems(db, query, limit, projectId === '' ? undefined : projectId);
+  let combined = directMatches;
+
   if (isFoundryIqEnabled()) {
     try {
       const ids = await retrieveContentItemIds(query, projectId === '' ? limit : Math.max(limit * 5, 40));
       if (ids.length > 0) {
         const items = await getContentItemsByIds(db, ids);
         const filtered = projectId === '' ? items : items.filter((item) => item.projectContext === projectId);
-        if (filtered.length > 0) return filtered.slice(0, limit);
+        const seen = new Set(combined.map((item) => item.id));
+        combined = [...combined, ...filtered.filter((item) => !seen.has(item.id))];
       }
     } catch (err) {
-      console.error('Foundry IQ retrieval failed, falling back to Postgres FTS:', err);
+      console.error('Foundry IQ retrieval failed, continuing with Postgres FTS results only:', err);
     }
   }
-  const directMatches = await getRagItems(db, query, limit, projectId === '' ? undefined : projectId);
-  if (projectId === '' || directMatches.length >= Math.min(3, limit)) return directMatches;
+
+  if (projectId === '' || combined.length >= Math.min(3, limit)) return combined.slice(0, limit);
 
   const overviewItems = await getProjectContextItems(db, projectId, limit);
-  const seen = new Set(directMatches.map((item) => item.id));
+  const seen = new Set(combined.map((item) => item.id));
   return [
-    ...directMatches,
+    ...combined,
     ...overviewItems.filter((item) => !seen.has(item.id)),
   ].slice(0, limit);
 }
