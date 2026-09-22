@@ -3,6 +3,7 @@ import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
 import { runTier1Sync, isSyncInProgress } from './syncOrchestrator.js';
 import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
+import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
 
 /**
  * Scheduler for sync jobs.
@@ -17,10 +18,12 @@ import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 const SYNC_HOURS = [8, 14, 20]; // Run at these hours only
 const SYNC_CHECK_INTERVAL = 5 * MS_PER_MINUTE; // Check every 5 min if it's time to run
 const EDGE_JOB_HOUR = 8; // Run inferred edges at 08:00 daily
+const FOUNDRY_BACKFILL_INTERVAL_MS = 60 * MS_PER_MINUTE; // Sweep for un-indexed content_items hourly
 
 const timers: ReturnType<typeof setInterval>[] = [];
 let lastSyncHour = -1; // Track the last hour we ran sync to avoid double-runs
 let lastEdgeDay = -1;  // Track the last day we ran inferred edges
+let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
 
 function isWithinWorkingHours(): boolean {
   const hour = new Date().getHours();
@@ -40,6 +43,10 @@ function shouldRunEdgeJob(): boolean {
   if (now.getHours() < EDGE_JOB_HOUR) return false;
   if (lastEdgeDay === now.getDate()) return false;
   return true;
+}
+
+function shouldRunFoundryBackfill(): boolean {
+  return Date.now() - lastFoundryBackfillAt >= FOUNDRY_BACKFILL_INTERVAL_MS;
 }
 
 export function startSyncScheduler(): void {
@@ -82,13 +89,28 @@ export function startSyncScheduler(): void {
           console.error('[Scheduler] Inferred edge job failed:', err instanceof Error ? err.message : String(err));
         });
       }
+
+      // Foundry IQ backfill — production only, sweeps content_items for rows
+      // never pushed (or since edited) into the semantic search index, so
+      // every source type (commits, PRs, issues, emails, calendar, GitLab
+      // items, etc.) is eventually queryable via search_knowledge_base, not
+      // just documents/notes which are indexed live on write. Runs hourly,
+      // bounded per run, deferred while a sync is in progress for the same
+      // pool-contention reason as the edge job.
+      if (!env.isDevelopment && shouldRunFoundryBackfill() && !isSyncInProgress()) {
+        lastFoundryBackfillAt = Date.now();
+        console.warn('[Scheduler] Running Foundry IQ backfill sweep...');
+        void runFoundryIqBackfillJob(db).catch((err: unknown) => {
+          console.error('[Scheduler] Foundry IQ backfill job failed:', err instanceof Error ? err.message : String(err));
+        });
+      }
     }, SYNC_CHECK_INTERVAL),
   );
 
   if (env.isDevelopment) {
-    console.warn('[Scheduler] Development mode — inferred edge job DISABLED.');
+    console.warn('[Scheduler] Development mode — inferred edge job and Foundry IQ backfill DISABLED.');
   } else {
-    console.warn('[Scheduler] Inferred edge job scheduled daily at 08:00.');
+    console.warn('[Scheduler] Inferred edge job scheduled daily at 08:00; Foundry IQ backfill sweep scheduled hourly.');
   }
 }
 

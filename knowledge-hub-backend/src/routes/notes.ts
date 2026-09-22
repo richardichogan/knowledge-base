@@ -13,6 +13,7 @@ import { upsertTags } from '../db/tagHelpers.js';
 import { upsertNode } from '../services/nodeService.js';
 import { parseNoteContent, blockContentSpans } from '../utils/noteContent.js';
 import { env } from '../config/env.js';
+import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
@@ -53,19 +54,49 @@ function extractNoteSummary(contentJson: string): string {
     .slice(0, NOTE_SUMMARY_MAX_LENGTH);
 }
 
-/** Syncs a saved note into content_items so it appears in the timeline. */
+/**
+ * Syncs a saved note into content_items so it appears in the timeline, and
+ * best-effort pushes it into the Foundry IQ Search index so it's
+ * semantically queryable via search_knowledge_base immediately — previously
+ * notes only ever reached Postgres full-text search, so a paraphrased
+ * question (e.g. "approved LLM list" vs. a note phrased as "model
+ * governance constraints") could never surface it.
+ */
 async function syncNoteToTimeline(db: ReturnType<typeof getDb>, note: Note): Promise<void> {
-  await upsertContentItem(db, {
+  const title = extractNoteTitle(note.content);
+  const summary = extractNoteSummary(note.content);
+  const projectContext = note.projectId ?? 'personal';
+  const tags = [...new Set([...(note.projectId ? [note.projectId] : []), ...note.tags])];
+  const url = `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`;
+
+  const { id: contentItemId } = await upsertContentItem(db, {
     source: 'note',
     sourceId: note.id,
-    title: extractNoteTitle(note.content),
-    summary: extractNoteSummary(note.content),
+    title,
+    summary,
     body: note.content,
     publishedAt: note.updatedAt,
-    url: `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`,
-    projectContext: note.projectId ?? 'personal',
+    url,
+    projectContext,
     metadata: { noteId: note.id, tags: note.tags },
-    tags: [...new Set([...(note.projectId ? [note.projectId] : []), ...note.tags])],
+    tags,
+  });
+
+  void indexContentItem({
+    id: contentItemId,
+    source: 'note',
+    sourceId: note.id,
+    title,
+    summary,
+    body: note.content,
+    publishedAt: note.updatedAt,
+    indexedAt: new Date().toISOString(),
+    url,
+    projectContext,
+    metadata: { noteId: note.id },
+    tags,
+  }).catch((err: unknown) => {
+    console.error('[notes] Foundry IQ index push failed:', err instanceof Error ? err.message : err);
   });
 }
 

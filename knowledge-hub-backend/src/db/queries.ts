@@ -365,6 +365,32 @@ export async function getContentItemsByIds(db: Pool, ids: string[]): Promise<Con
   return ids.map((id) => byId.get(id)).filter((item): item is ContentItem => item !== undefined);
 }
 
+/**
+ * Rows never pushed to Foundry IQ (foundry_indexed_at IS NULL), or pushed but
+ * since edited (foundry_indexed_at < updated_at) — used by the periodic
+ * Foundry IQ backfill job so every source type (commits, PRs, issues,
+ * emails, calendar, GitLab items, etc.), not just documents/notes indexed
+ * live on write, eventually becomes semantically queryable via
+ * search_knowledge_base, not just full-text-searchable.
+ */
+export async function getContentItemsPendingFoundryIndex(db: Pool, limit: number): Promise<ContentItem[]> {
+  const result: QueryResult<ContentItemRow & { body: string }> = await db.query(
+    `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
+            url, project_context, metadata, tags
+     FROM content_items
+     WHERE foundry_indexed_at IS NULL OR foundry_indexed_at < updated_at
+     ORDER BY foundry_indexed_at ASC NULLS FIRST, updated_at ASC
+     LIMIT $1`,
+    [limit],
+  );
+  return result.rows.map(rowToItem);
+}
+
+/** Marks a content_items row as freshly pushed to Foundry IQ. */
+export async function markContentItemFoundryIndexed(db: Pool, id: string): Promise<void> {
+  await db.query(`UPDATE content_items SET foundry_indexed_at = NOW() WHERE id = $1`, [id]);
+}
+
 // ── Sync state ────────────────────────────────────────────────────────────────
 
 export async function getSyncState(
