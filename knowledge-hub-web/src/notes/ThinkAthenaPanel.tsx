@@ -24,7 +24,7 @@ export const ThinkAthenaPanel: React.FC<ThinkAthenaPanelProps> = ({
       </div>
     )}
     <div className="think-athena-panel__body">
-      <AIChatPage compact pageContext={pageContext} />
+      <AIChatPage compact compactVariant="narrow" pageContext={pageContext} />
     </div>
   </aside>
 );

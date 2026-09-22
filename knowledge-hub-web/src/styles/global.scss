@@ -4159,14 +4159,18 @@ input, textarea {
 }
 
 .think-athena-panel--metadata {
-  width: 100%;
+  box-sizing: border-box;
+  width: auto;
+  max-width: 100%;
   min-width: 0;
   height: min(36rem, calc(100vh - 10rem));
   min-height: 28rem;
   border: 0;
 
   .think-athena-panel__body > .ai-chat-compact {
+    box-sizing: border-box;
     width: 100%;
+    max-width: 100%;
     min-width: 0;
     padding: 0;
   }
@@ -4221,13 +4225,6 @@ input, textarea {
     gap: 0.375rem;
   }
 
-  .ai-chat-compact__body .ai-upload-project-picker {
-    max-width: 6rem;
-  }
-
-  .ai-chat-compact__body .ai-upload-project-picker__select {
-    max-width: 5rem;
-  }
 }
 
 .notes-empty-state {

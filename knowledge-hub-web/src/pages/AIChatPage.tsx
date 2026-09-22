@@ -26,6 +26,8 @@ import type { AthenaPageContext } from '../context/AthenaContext';
 interface AIChatPageProps {
   /** Renders without the page header/wrapper padding, for use in a floating widget. */
   compact?: boolean;
+  /** Adapts compact controls for constrained embedded surfaces. */
+  compactVariant?: 'default' | 'narrow';
   /** Renders as a centered, full-height desktop layout, for use as an installed PWA (see /chat route). */
   standalone?: boolean;
   /**
@@ -419,7 +421,14 @@ function useIsMobile(): boolean {
   return isMobile;
 }
 
-export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standalone = false, pageContext, initialPersona, title }) => {
+export const AIChatPage: React.FC<AIChatPageProps> = ({
+  compact = false,
+  compactVariant = 'default',
+  standalone = false,
+  pageContext,
+  initialPersona,
+  title,
+}) => {
   const SESSION_STORAGE_KEY = standalone
     ? SESSION_STORAGE_KEY_STANDALONE
     : compact
@@ -1174,7 +1183,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
   );
 
   return (
-    <div className={standalone ? 'ai-chat-standalone' : compact ? 'ai-chat-compact' : 'page-root'}>
+    <div className={standalone ? 'ai-chat-standalone' : compact ? `ai-chat-compact ai-chat-compact--${compactVariant}` : 'page-root'}>
       {standalone && (
         <aside className={`kh-chat-sidebar${isMobile && isMobileSidebarOpen ? ' kh-chat-sidebar--open' : ''}${!isMobile && isDesktopSidebarCollapsed ? ' kh-chat-sidebar--collapsed' : ''}`}>
           <div className="kh-chat-sidebar__header">
@@ -1472,7 +1481,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
             className="ai-file-input-hidden"
             onChange={handleFileSelected}
           />
-          {conversationProjectPicker}
+          {(!compact || compactVariant !== 'narrow') && conversationProjectPicker}
           <div className="ai-input-field">
             <Button
               type="button"
