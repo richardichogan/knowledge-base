@@ -1296,6 +1296,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         />
       )}
       <div className={standalone ? 'ai-chat-standalone__main' : compact ? 'ai-chat-compact__wrap' : ''}>
+      {compact && compactVariant === 'narrow' && (
+        <div className="ai-chat-status-header">
+          <span className={`ai-chat-status-header__dot${chatMutation.isPending ? ' ai-chat-status-header__dot--busy' : ''}`} />
+          <span className="ai-chat-status-header__name">Athena</span>
+          <span className="ai-chat-status-header__state">
+            {chatMutation.isPending ? 'Thinking…' : 'Ready'}
+          </span>
+        </div>
+      )}
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
