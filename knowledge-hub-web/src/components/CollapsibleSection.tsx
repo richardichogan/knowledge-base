@@ -12,6 +12,8 @@ interface CollapsibleSectionProps {
   label: string;
   /** Whether the section starts expanded. Defaults to true. */
   defaultExpanded?: boolean;
+  /** Optional extra class on the outer wrapper, e.g. to let a section grow to fill available height. */
+  className?: string;
   children: React.ReactNode;
 }
 
@@ -19,12 +21,13 @@ interface CollapsibleSectionProps {
 export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   label,
   defaultExpanded = true,
+  className,
   children,
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
-    <div className="collapsible-section">
+    <div className={className ? `collapsible-section ${className}` : 'collapsible-section'}>
       <button
         type="button"
         className="collapsible-section__header"

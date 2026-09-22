@@ -4207,21 +4207,31 @@ input, textarea {
   width: auto;
   max-width: 100%;
   min-width: 0;
-  height: min(36rem, calc(100vh - 10rem));
-  min-height: 28rem;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 24rem;
   border: 0;
+  display: flex;
+  flex-direction: column;
+
+  .think-athena-panel__body {
+    flex: 1;
+    min-height: 0;
+  }
 
   .think-athena-panel__body > .ai-chat-compact {
     box-sizing: border-box;
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    height: 100%;
     padding: 0;
   }
 
   .ai-new-chat-row--compact {
-    display: grid;
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: space-between;
     align-items: center;
     gap: 0.375rem;
     padding-top: 0;
@@ -4319,23 +4329,25 @@ input, textarea {
     opacity: 1;
   }
 
-  // Composer — single rounded pill instead of a boxy multi-element row.
+  // Composer — a single flat-edged input frame consistent with the card
+  // aesthetic used for message cards elsewhere in this panel (not a pill).
   .ai-chat-compact__body .ai-input-row {
     gap: 0.375rem;
     padding: 0.125rem;
     background: var(--cds-field);
     border: 1px solid var(--cds-border-subtle-01);
-    border-radius: 1.5rem;
+    border-radius: 0.25rem;
   }
 
   .ai-chat-compact__body .ai-input-field {
     background: transparent;
     border: 0;
+    border-radius: 0;
     padding: 0 0.25rem;
   }
 
   .ai-chat-compact__body .ai-send-button.cds--btn.cds--btn--icon-only {
-    border-radius: 50%;
+    border-radius: 0.25rem;
     width: 2.25rem;
     min-width: 2.25rem;
     height: 2.25rem;
@@ -4631,6 +4643,27 @@ input, textarea {
   background: var(--cds-layer-01);
   overflow-y: auto;
   padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+// Lets the Athena section stretch to fill whatever vertical space the other
+// (collapsed-by-default) sections above it leave available, instead of
+// being capped to an arbitrary fixed height.
+.notes-meta-athena-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 22rem;
+
+  .collapsible-section__body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
 }
 
 .notes-meta-section {

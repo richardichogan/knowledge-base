@@ -166,6 +166,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
         <CollapsibleSection
           label="Athena"
           defaultExpanded
+          className="notes-meta-athena-section"
         >
           <ThinkAthenaPanel pageContext={pageContext ?? undefined} placement="metadata" />
         </CollapsibleSection>
