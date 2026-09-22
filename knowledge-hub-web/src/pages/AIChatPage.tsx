@@ -45,6 +45,13 @@ interface AIChatPageProps {
   initialPersona?: AthenaPersona;
   /** Overrides the "Athena" page-header title (page-root layout only). */
   title?: string;
+  /**
+   * Reports whether Athena is currently generating a reply. Used by embedded
+   * surfaces (e.g. the Think metadata sidebar) that want to show a live
+   * status indicator in their own outer header instead of duplicating one
+   * inside this component.
+   */
+  onBusyChange?: ((busy: boolean) => void) | undefined;
 }
 
 // Azure Speech STT reliably handles PCM WAV only, so we capture raw 16kHz mono
@@ -428,6 +435,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   pageContext,
   initialPersona,
   title,
+  onBusyChange,
 }) => {
   const SESSION_STORAGE_KEY = standalone
     ? SESSION_STORAGE_KEY_STANDALONE
@@ -707,6 +715,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   function handleStopGenerating(): void {
     chatAbortControllerRef.current?.abort();
   }
+
+  useEffect(() => {
+    onBusyChange?.(chatMutation.isPending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatMutation.isPending]);
 
   const confirmMutation = useMutation({
     mutationFn: (id: string) => api.confirmAction(id),
@@ -1296,15 +1309,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         />
       )}
       <div className={standalone ? 'ai-chat-standalone__main' : compact ? 'ai-chat-compact__wrap' : ''}>
-      {compact && compactVariant === 'narrow' && (
-        <div className="ai-chat-status-header">
-          <span className={`ai-chat-status-header__dot${chatMutation.isPending ? ' ai-chat-status-header__dot--busy' : ''}`} />
-          <span className="ai-chat-status-header__name">Athena</span>
-          <span className="ai-chat-status-header__state">
-            {chatMutation.isPending ? 'Thinking…' : 'Ready'}
-          </span>
-        </div>
-      )}
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">

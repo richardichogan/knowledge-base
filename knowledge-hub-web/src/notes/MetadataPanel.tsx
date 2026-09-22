@@ -67,6 +67,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 }) => {
   const { pageContext } = useAthenaContext();
   const showEmbeddedAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
+  const [athenaBusy, setAthenaBusy] = React.useState(false);
 
   return (
     <div className="notes-meta-panel">
@@ -167,8 +168,18 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
           label="Athena"
           defaultExpanded
           className="notes-meta-athena-section"
+          headerAdornment={
+            <span className="notes-meta-athena-status">
+              <span className={`notes-meta-athena-status__dot${athenaBusy ? ' notes-meta-athena-status__dot--busy' : ''}`} />
+              {athenaBusy ? 'Thinking…' : 'Ready'}
+            </span>
+          }
         >
-          <ThinkAthenaPanel pageContext={pageContext ?? undefined} placement="metadata" />
+          <ThinkAthenaPanel
+            pageContext={pageContext ?? undefined}
+            placement="metadata"
+            onBusyChange={setAthenaBusy}
+          />
         </CollapsibleSection>
       )}
     </div>
