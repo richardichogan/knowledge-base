@@ -9,6 +9,8 @@ import { TrashCan } from '@carbon/icons-react';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
+import { CONTENT_TYPE_OPTIONS } from './constants';
+import type { ContentType } from './constants';
 
 interface NoteListProps {
   notes: NoteListItem[];
@@ -38,9 +40,10 @@ const TYPE_STYLE: Record<string, { color: string; bg: string; border: string }> 
 };
 
 export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect, onDelete, deletingId = null }) => {
-  const [filter,         setFilter]         = useState('');
-  const [activeTagId,    setActiveTagId]    = useState<string | null>(null);
-  const [tagFilterOpen,  setTagFilterOpen]  = useState(false);
+  const [filter, setFilter] = useState('');
+  const [activeProjectId, setActiveProjectId] = useState('');
+  const [activeContentType, setActiveContentType] = useState<ContentType | ''>('');
+  const [activeTagId, setActiveTagId] = useState('');
 
   const { data: parents = [] } = useTaxonomy();
   const { data: projects = [] } = useProjects();
@@ -66,12 +69,50 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
     }
   }
 
+  const resolveNoteProjectId = (note: NoteListItem): string => {
+    if (note.projectId) return note.projectId;
+    const projectTagId = (note.tagIds ?? []).find((id) => tagParentMap.has(id));
+    const projectTagName = projectTagId ? tagNameMap.get(projectTagId) : undefined;
+    if (!projectTagName) return '__none__';
+    return projectIdByName.get(projectTagName.trim().toLocaleLowerCase()) ?? projectTagId ?? '__none__';
+  };
+
+  const activeFilterCount = [
+    activeProjectId !== '',
+    activeContentType !== '',
+    activeTagId !== '',
+  ].filter(Boolean).length;
+
+  const availableProjectIds = new Set(notes.map(resolveNoteProjectId));
+  const availableProjectOptions = [...availableProjectIds]
+    .map((id) => ({
+      id,
+      label: id === '__none__'
+        ? 'General / unassigned'
+        : (projectNameMap.get(id) ?? tagNameMap.get(id) ?? id),
+    }))
+    .sort((a, b) => {
+      if (a.id === '__none__') return 1;
+      if (b.id === '__none__') return -1;
+      return a.label.localeCompare(b.label);
+    });
+  const availableContentTypes = CONTENT_TYPE_OPTIONS.filter((option) =>
+    notes.some((note) => note.contentType === option.id),
+  );
+  const flatTags = parents.flatMap((parent) => [
+    { ...parent, depth: 0 },
+    ...(parent.children ?? []).map((child) => ({ ...child, depth: 1 })),
+  ]);
+
   const filteredNotes = notes.filter((n) => {
-    const textOk = n.title.toLowerCase().includes(filter.toLowerCase());
-    if (!textOk) return false;
-    if (!activeTagId) return true;
-    const matchIds = expandTagIds(activeTagId, parents);
-    return (n.tagIds ?? []).some((id) => matchIds.has(id));
+    if (!n.title.toLowerCase().includes(filter.toLowerCase())) return false;
+    if (activeProjectId !== '' && resolveNoteProjectId(n) !== activeProjectId) return false;
+    if (activeContentType !== '' && n.contentType !== activeContentType) return false;
+    if (activeTagId !== '') {
+      const matchIds = expandTagIds(activeTagId, parents);
+      if (!(n.tagIds ?? []).some((id) => matchIds.has(id))) return false;
+    }
+    return true;
   });
 
   // Group by the explicit project first, falling back to older taxonomy-only
@@ -85,10 +126,7 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
     // taxonomy child such as "Imagine". Resolve a matching tag name to the
     // canonical project id so legacy and first-class project notes share one
     // menu block instead of rendering duplicate labels with different keys.
-    const legacyProjectId = projectTagName
-      ? projectIdByName.get(projectTagName.trim().toLocaleLowerCase())
-      : undefined;
-    const key = note.projectId ?? legacyProjectId ?? projectTagId ?? '__none__';
+    const key = resolveNoteProjectId(note);
     if (!groups.has(key)) {
       const label = projectNameMap.get(key)
         ?? projectTagName
@@ -116,49 +154,70 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
         <TextInput id="notes-search" labelText="Search" hideLabel placeholder="Search…" value={filter} onChange={(e) => { setFilter(e.target.value); }} size="sm" />
       </div>
 
-      {/* Tag filter — collapsible, secondary */}
-      {parents.length > 0 && (
-        <div className="notes-tag-filter">
-          <button
-            className="notes-tag-filter__toggle"
-            onClick={() => { setTagFilterOpen((v) => !v); }}
-          >
-            Filter by tag {activeTagId !== null && '(1 active)'}
-            <span className={`notes-tag-filter__arrow${tagFilterOpen ? ' notes-tag-filter__arrow--open' : ''}`}>▾</span>
-          </button>
-          {tagFilterOpen && (
-            <div className="notes-tag-filter__chips">
-              <button
-                className={`notes-tag-chip${activeTagId === null ? ' notes-tag-chip--active' : ''}`}
-                onClick={() => { setActiveTagId(null); }}
-              >
-                All
-              </button>
-              {parents.map((parent) => (
-                <React.Fragment key={parent.id}>
-                  <button
-                    className={`notes-tag-chip${activeTagId === parent.id ? ' notes-tag-chip--active' : ''}`}
-                    onClick={() => { setActiveTagId(activeTagId === parent.id ? null : parent.id); }}
-                    ref={(el) => { if (el && parent.colour) el.style.setProperty('--chip-colour', parent.colour); }}
-                  >
-                    {parent.name}
-                  </button>
-                  {activeTagId === parent.id && (parent.children ?? []).map((child) => (
-                    <button
-                      key={child.id}
-                      className={`notes-tag-chip notes-tag-chip--child${activeTagId === child.id ? ' notes-tag-chip--active' : ''}`}
-                      onClick={() => { setActiveTagId(child.id); }}
-                      ref={(el) => { if (el && child.colour) el.style.setProperty('--chip-colour', child.colour); }}
-                    >
-                      {child.name}
-                    </button>
-                  ))}
-                </React.Fragment>
-              ))}
-            </div>
+      <div className="notes-list-filters" aria-label="Filter notes">
+        <div className="notes-list-filters__heading">
+          <span>Filters{activeFilterCount > 0 ? ` · ${activeFilterCount} active` : ''}</span>
+          <span className="notes-list-filters__result-count">
+            {filteredNotes.length} of {notes.length}
+          </span>
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              className="notes-list-filters__clear"
+              onClick={() => {
+                setActiveProjectId('');
+                setActiveContentType('');
+                setActiveTagId('');
+              }}
+            >
+              Clear
+            </button>
           )}
         </div>
-      )}
+        <div className="notes-list-filters__fields">
+          <label className="notes-list-filter">
+            <span className="notes-list-filter__label">Project</span>
+            <select
+              className="notes-list-filter__select"
+              value={activeProjectId}
+              onChange={(event) => { setActiveProjectId(event.target.value); }}
+            >
+              <option value="">All projects</option>
+              {availableProjectOptions.map((project) => (
+                <option key={project.id} value={project.id}>{project.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="notes-list-filter">
+            <span className="notes-list-filter__label">Content type</span>
+            <select
+              className="notes-list-filter__select"
+              value={activeContentType}
+              onChange={(event) => { setActiveContentType(event.target.value as ContentType | ''); }}
+            >
+              <option value="">All types</option>
+              {availableContentTypes.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="notes-list-filter notes-list-filter--wide">
+            <span className="notes-list-filter__label">Tag</span>
+            <select
+              className="notes-list-filter__select"
+              value={activeTagId}
+              onChange={(event) => { setActiveTagId(event.target.value); }}
+            >
+              <option value="">All tags</option>
+              {flatTags.map((tag) => (
+                <option key={tag.id} value={tag.id}>
+                  {tag.depth === 1 ? `— ${tag.name}` : tag.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
 
       {/* Notes grouped by project */}
       <div className="notes-list">
