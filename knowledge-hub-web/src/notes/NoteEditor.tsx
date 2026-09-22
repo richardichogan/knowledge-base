@@ -220,10 +220,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
     });
     if (hasContent) return;
 
-    const template = USE_CASE_TEMPLATE_HEADINGS.flatMap((heading) => ([
-      { type: 'heading' as const, props: { level: 2 as const }, content: heading },
+    const template = [
+      // The editor derives the note title from its first heading. Keep a
+      // dedicated H1 before the section skeleton; otherwise the first section
+      // ("Summary") silently becomes the note title on autosave.
+      { type: 'heading' as const, props: { level: 1 as const }, content: doc.title },
       { type: 'paragraph' as const, content: '' },
-    ]));
+      ...USE_CASE_TEMPLATE_HEADINGS.flatMap((heading) => ([
+        { type: 'heading' as const, props: { level: 2 as const }, content: heading },
+        { type: 'paragraph' as const, content: '' },
+      ])),
+    ];
     const last = blocks[blocks.length - 1];
     if (last === undefined) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
