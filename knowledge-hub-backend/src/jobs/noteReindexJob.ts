@@ -38,7 +38,7 @@ export async function runNoteReindexJob(db: Pool): Promise<void> {
     const { rows } = await db.query<NoteReindexRow>(
       `SELECT n.id, n.content, n.project_id, n.tags, n.updated_at, ci.body AS indexed_body
          FROM notes n
-         LEFT JOIN content_items ci ON ci.source = 'note' AND ci.source_id = n.id
+         LEFT JOIN content_items ci ON ci.source = 'note' AND ci.source_id = n.id::text
         WHERE n.status = 'active'`,
     );
 
