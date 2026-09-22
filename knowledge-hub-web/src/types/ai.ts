@@ -8,12 +8,29 @@ export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
 
 export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post';
 
+export interface ChatPageContext {
+  /** e.g. "content-item", "task", "note", "spark", "document" */
+  type: string;
+  title: string;
+  detail?: string;
+}
+
 export interface ChatRequest {
   message: string;
   sessionId?: string;
   model?: AiModel;
   persona?: AthenaPersona;
   projectId?: string | null;
+  /**
+   * What the user is currently viewing (e.g. the note open alongside this
+   * chat). Sent as a separate field — NOT glued into `message` — so the
+   * backend can inject it as a clearly-labeled, high-priority source while
+   * keeping the auto-RAG search query limited to what the user actually
+   * typed. Gluing a large document body into the search query used to cause
+   * unrelated same-project documents to surface as "background context" and
+   * get blended into answers about the document in view.
+   */
+  pageContext?: ChatPageContext;
 }
 
 export interface ChatMessage {

@@ -5,7 +5,7 @@ import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
 import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
-import type { AiContext, ConversationMessage } from '../types/aiContext.js';
+import type { AiContext, ConversationMessage, ChatPageContext } from '../types/aiContext.js';
 
 const STATIC_CONTEXT_BLOB = 'config/static-context.md';
 const PROJECT_CONTEXT_BLOB = 'config/project-context.md';
@@ -82,6 +82,17 @@ const USER_PROFILE_BLURB = [
  */
 const EVIDENCE_CALIBRATION_BLURB = [
   '## Calibrating claims to evidence',
+  '### Hard rule: per-source attribution',
+  'When you attribute a specific claim to a specific source — a named meeting transcript, note, or document ' +
+    '("the transcript shows...", "in that meeting...", "Nestlé said...") — that claim must be directly ' +
+    'traceable to actual text in *that specific source*, not inferred, extrapolated, or blended in from a ' +
+    'different document (e.g. a proposition doc, capability mapping, or another project\'s material) that ' +
+    'happens to be in context alongside it. If you are inferring or reasoning forward from a separate ' +
+    'document rather than quoting/paraphrasing the named source itself, say so explicitly and name which ' +
+    'document the inference actually rests on — do not present it as if the named source said it. Before ' +
+    'making an attributed claim, silently check: could I point to the actual sentence(s) in this specific ' +
+    'source that support this? If not, do not phrase it as a claim about that source — phrase it as your own ' +
+    'inference, and flag the gap yourself rather than waiting to be challenged on it.',
   'Distinguish intent/positioning from proof. If search results show something is being *framed*, ' +
     '*architected*, or *positioned* a certain way (e.g. marketing language, a proposal, an early design doc), ' +
     'say that — do not upgrade it to a claim that it has actually been delivered, adopted, or proven out ' +
@@ -630,9 +641,14 @@ export async function buildAiContext(
   const activeProjectContext = activeProject === null
     ? ''
     : [
-        '## Active conversation project',
+        '## Active conversation project — hard scope',
         `The user has assigned this Athena conversation to project "${activeProject.name}" (id: ${activeProject.id}).`,
-        'Treat that project as the default scope for ambiguous project questions. When using tools that accept projectId, use this id unless the user explicitly asks for a different project.',
+        'This is a hard restriction, not a soft default: every search_knowledge_base, search_library, and ' +
+          'list_tasks call this turn must stay scoped to this project. Either omit projectId (it defaults to ' +
+          `"${activeProject.id}" automatically) or pass "${activeProject.id}" explicitly. Do not pass a ` +
+          'different projectId, and do not pass an empty projectId to broaden the search across all projects, ' +
+          'even if you think it would surface more relevant material — unless the user\'s message explicitly ' +
+          'asks you to look outside this project (e.g. "check other projects too", "search everything").',
       ].join('\n');
   const projectContext = [activeProjectContext, storedProjectContext].filter((block) => block !== '').join('\n\n');
 
@@ -679,11 +695,164 @@ function buildRagQuery(userQuery: string, history: ConversationMessage[]): strin
  * resolves to exactly that pairing, so default behaviour is unchanged.
  * User message includes RAG context prepended.
  */
+/**
+ * Above this size we stop sending a document's full text on every turn and
+ * switch to selecting relevant excerpts instead (see selectRelevantExcerpt).
+ * Small notes/snippets are cheap and unambiguous to send whole, so there's
+ * no benefit to excerpting them.
+ */
+const FULL_DOCUMENT_CHAR_THRESHOLD = 8000;
+/** Target size of each chunk when splitting a long document for excerpting. */
+const CHUNK_TARGET_CHARS = 1400;
+/** Max number of chunks selected into the final excerpt (bounds prompt size/cost). */
+const MAX_SELECTED_CHUNKS = 9;
+
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'are', 'was', 'were', 'this', 'that', 'with', 'from', 'have', 'has', 'had',
+  'what', 'which', 'who', 'whom', 'about', 'into', 'onto', 'over', 'you', 'your', 'they', 'them',
+  'their', 'its', 'our', 'not', 'but', 'can', 'could', 'would', 'should', 'will', 'shall', 'does',
+  'did', 'been', 'being', 'than', 'then', 'when', 'where', 'why', 'how', 'all', 'any', 'some',
+  'summarise', 'summarize', 'summary', 'tell', 'me', 'please',
+]);
+
+/** Splits text into roughly CHUNK_TARGET_CHARS-sized chunks on paragraph boundaries where possible. */
+function splitIntoChunks(text: string): string[] {
+  const paragraphs = text.split(/\n{2,}/);
+  const chunks: string[] = [];
+  let current = '';
+  for (const para of paragraphs) {
+    if (current !== '' && current.length + para.length + 2 > CHUNK_TARGET_CHARS) {
+      chunks.push(current);
+      current = para;
+    } else {
+      current = current === '' ? para : `${current}\n\n${para}`;
+    }
+    // A single paragraph longer than the target on its own — hard-split it.
+    while (current.length > CHUNK_TARGET_CHARS * 1.5) {
+      chunks.push(current.slice(0, CHUNK_TARGET_CHARS));
+      current = current.slice(CHUNK_TARGET_CHARS);
+    }
+  }
+  if (current !== '') chunks.push(current);
+  return chunks;
+}
+
+/** Extracts meaningful (non-stopword, length>=3) lowercase query terms for relevance scoring. */
+function extractQueryTerms(query: string): string[] {
+  return Array.from(new Set(
+    query.toLowerCase().match(/[a-z0-9']+/g)?.filter((w) => w.length >= 3 && !STOPWORDS.has(w)) ?? [],
+  ));
+}
+
+/**
+ * Selects the most relevant excerpt(s) of a long document for the current
+ * question, instead of sending the entire document to the model on every
+ * turn. This is a lightweight, in-request form of retrieval (keyword/term
+ * overlap scoring against chunks of the document currently in view) — it
+ * does not replace or narrow the separate auto-RAG search across the wider
+ * knowledge base (which still runs independently and is included as
+ * supporting context), it only bounds how much of THIS specific document
+ * gets sent.
+ *
+ * If the question doesn't give us useful search terms (e.g. "summarise
+ * this"), falls back to sampling evenly across the whole document so the
+ * excerpt still covers the beginning, middle, and end rather than just the
+ * first N characters.
+ */
+function selectRelevantExcerpt(text: string, query: string): { excerpt: string; wasExcerpted: boolean } {
+  if (text.length <= FULL_DOCUMENT_CHAR_THRESHOLD) {
+    return { excerpt: text, wasExcerpted: false };
+  }
+
+  const chunks = splitIntoChunks(text);
+  if (chunks.length <= MAX_SELECTED_CHUNKS) {
+    return { excerpt: text, wasExcerpted: false };
+  }
+
+  const terms = extractQueryTerms(query);
+  let selectedIndices: number[];
+
+  if (terms.length === 0) {
+    // Generic ask — sample evenly across the document (always include the
+    // very first chunk for title/intro orientation) so we cover the whole
+    // arc of a long transcript/document rather than just its opening.
+    const step = (chunks.length - 1) / (MAX_SELECTED_CHUNKS - 1);
+    selectedIndices = Array.from({ length: MAX_SELECTED_CHUNKS }, (_, i) => Math.round(i * step));
+  } else {
+    const scored = chunks.map((chunk, i) => {
+      const lower = chunk.toLowerCase();
+      const score = terms.reduce((sum, term) => sum + (lower.split(term).length - 1), 0);
+      return { i, score };
+    });
+    const topByScore = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score).slice(0, MAX_SELECTED_CHUNKS - 1);
+    selectedIndices = Array.from(new Set([0, ...topByScore.map((s) => s.i)]));
+    // Not enough keyword matches to fill the budget — top up with an even
+    // sample so we still return a reasonably representative excerpt.
+    if (selectedIndices.length < Math.min(MAX_SELECTED_CHUNKS, chunks.length)) {
+      const step = (chunks.length - 1) / (MAX_SELECTED_CHUNKS - 1);
+      for (let i = 0; i < MAX_SELECTED_CHUNKS && selectedIndices.length < MAX_SELECTED_CHUNKS; i++) {
+        const idx = Math.round(i * step);
+        if (!selectedIndices.includes(idx)) selectedIndices.push(idx);
+      }
+    }
+  }
+
+  selectedIndices.sort((a, b) => a - b);
+  const parts: string[] = [];
+  let prev = -2;
+  for (const idx of selectedIndices) {
+    if (idx !== prev + 1 && parts.length > 0) parts.push('[...]');
+    parts.push(chunks[idx]!);
+    prev = idx;
+  }
+  return { excerpt: parts.join('\n\n'), wasExcerpted: true };
+}
+
+/**
+ * Formats what the user is currently viewing (a note, canvas, attached
+ * document, etc.) as its own clearly-labeled, highest-priority block — kept
+ * entirely separate from the auto-RAG block so the model can distinguish
+ * "the specific thing being asked about" from "unrelated same-project
+ * material that happened to full-text-match". Previously this was glued
+ * directly into the user's message text, which had two problems: the model
+ * had no signal that it was a distinct source, and — because that combined
+ * text was also used as the RAG search query — a long document's own body
+ * would drag in unrelated matches (e.g. a different doc sharing keywords)
+ * that then got blended into answers about the document in view.
+ *
+ * For long documents, only relevant excerpts are sent (see
+ * selectRelevantExcerpt) rather than the entire text on every turn — this
+ * document remains the primary source the answer must be grounded in, but
+ * the separate auto-RAG block below still supplies broader knowledge-base
+ * context as supporting material, exactly as it does for any other message.
+ */
+function formatPageContext(pageContext: ChatPageContext | undefined, userMessage: string): string {
+  if (pageContext === undefined) return '';
+  const { excerpt, wasExcerpted } = pageContext.detail
+    ? selectRelevantExcerpt(pageContext.detail, userMessage)
+    : { excerpt: '', wasExcerpted: false };
+  return [
+    `## Document in view (primary source — the user is asking about this specific ${pageContext.type})`,
+    `Title: ${pageContext.title}`,
+    excerpt ? `Content:\n${excerpt}` : '',
+    wasExcerpted
+      ? 'Note: this document is long, so the excerpts above were selected as most relevant to the current ' +
+        'question rather than sending the full text. If they don\'t contain what you need to answer, say so ' +
+        'and ask the user to point you to the relevant section rather than guessing.'
+      : '',
+    'Ground any claim you attribute to this document in the text above. Anything under "Auto-retrieved ' +
+      'background context" below is a separate, automatic search result — it is not part of this document ' +
+      'and must not be blended into claims about it unless it is independently and clearly relevant, in ' +
+      'which case say explicitly that it comes from a different source.',
+  ].filter(Boolean).join('\n');
+}
+
 export function assembleMessages(
   context: AiContext,
   history: ConversationMessage[],
   userMessage: string,
   persona?: string,
+  pageContext?: ChatPageContext,
 ): ConversationMessage[] {
   const systemPrompt = [
     ASSISTANT_IDENTITY_BLURB,
@@ -703,9 +872,13 @@ export function assembleMessages(
     buildToolCapabilitiesBlurb(),
   ].join('\n\n');
 
+  const pageContextBlock = formatPageContext(pageContext, userMessage);
   const ragBlock = formatRagContext(context.ragItems);
   const memoryBlock = formatMemoryContext(context.memoryItems);
-  const dynamicBlocks = [ragBlock, memoryBlock].filter((b) => b !== '').join('\n\n---\n\n');
+  // Page context (what the user is actually looking at) comes first and is
+  // framed as the primary source; RAG/memory are separate, lower-priority
+  // background that must not be blended into claims about it.
+  const dynamicBlocks = [pageContextBlock, ragBlock, memoryBlock].filter((b) => b !== '').join('\n\n---\n\n');
   const userMessageWithContext = dynamicBlocks === '' ? userMessage : `${dynamicBlocks}\n\n---\n\n${userMessage}`;
 
   return [

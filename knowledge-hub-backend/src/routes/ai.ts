@@ -12,7 +12,7 @@ import { env } from '../config/env.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
-import type { WriteActionType, WriteActionPayload } from '../types/aiContext.js';
+import type { ChatPageContext, WriteActionType, WriteActionPayload } from '../types/aiContext.js';
 
 const router = Router();
 
@@ -29,12 +29,13 @@ const router = Router();
 router.post('/chat', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
     try {
-      const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId } = req.body as {
+      const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext } = req.body as {
         sessionId?: string;
         message?: string;
         model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
         persona?: string;
         projectId?: string | null;
+        pageContext?: ChatPageContext;
       };
 
       if (!message) throw new ValidationError('message required', { message: 'required' });
@@ -69,9 +70,17 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       // specific model.
       const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' ? 'gpt-5.5' : 'gpt-4o');
 
-      const reply = await handleConversationTurn(db, modelHistory, message, effectiveModel, persona, effectiveSessionId);
+      const reply = await handleConversationTurn(db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext);
 
-      await appendTurn(db, effectiveSessionId, message, reply);
+      // Store only a compact marker for the viewed document in history — not its
+      // full body — so a later turn's RAG query (which folds in recent prior user
+      // messages) doesn't get re-poisoned by re-injecting a huge document as a
+      // full-text search query. The model still sees the full pageContext detail
+      // for THIS turn via assembleMessages; it just isn't persisted verbatim.
+      const historyMessage = pageContext
+        ? `[Viewing ${pageContext.type}: "${pageContext.title}"]\n${message}`
+        : message;
+      await appendTurn(db, effectiveSessionId, historyMessage, reply);
       if (isFirstMessage) await setSessionTitleIfMissing(db, effectiveSessionId, message);
       // Fire-and-forget: fold older messages into the rolling summary once the
       // session grows past the trigger threshold. Never blocks the reply.

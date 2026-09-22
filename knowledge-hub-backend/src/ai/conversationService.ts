@@ -5,7 +5,7 @@ import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
 import { AI_MAX_TOOL_ITERATIONS, AI_DEFAULT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
-import type { AiModel } from '../types/aiContext.js';
+import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
 
 /**
@@ -24,10 +24,11 @@ export async function handleConversationTurn(
   model: AiModel = 'gpt-4o',
   persona?: string,
   sessionId?: string,
+  pageContext?: ChatPageContext,
 ): Promise<string> {
   const context = await buildAiContext(db, userMessage, history, sessionId);
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
-  const baseMessages = assembleMessages(context, history, userMessage, persona);
+  const baseMessages = assembleMessages(context, history, userMessage, persona, pageContext);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
   const client = getFoundryClient();

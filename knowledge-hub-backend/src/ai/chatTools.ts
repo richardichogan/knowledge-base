@@ -82,7 +82,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Search terms describing what to look up.' },
-            projectId: { type: 'string', description: 'Optional project id to scope the search across notes, uploads, discovered articles, commits, and other indexed content (e.g. "imagine").' },
+            projectId: { type: 'string', description: 'Project id to scope the search across notes, uploads, discovered articles, commits, and other indexed content (e.g. "imagine"). If this conversation has an active project, you MUST omit this (it defaults automatically) or pass that same project id — never pass a different one or broaden scope unless the user explicitly asked to search another project or "everything".' },
             limit: { type: 'integer', description: `Max results to return (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: ['query'],
@@ -125,7 +125,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             status: { type: 'string', enum: [...TASK_STATUSES], description: 'Filter to a single status. Omit for all non-completed statuses.' },
             dueOnOrBefore: { type: 'string', description: 'ISO date YYYY-MM-DD — only tasks due on or before this date (e.g. today, for "due today or overdue").' },
             overdueOnly: { type: 'boolean', description: 'If true, only tasks with a due date strictly before today that are not completed.' },
-            projectId: { type: 'string', description: 'Filter to a specific project id.' },
+            projectId: { type: 'string', description: 'Filter to a specific project id. If this conversation has an active project, omit this (it defaults automatically) or pass that same project id — do not broaden to another project unless the user explicitly asked to.' },
             includeCompleted: { type: 'boolean', description: 'If true, include completed tasks too. Defaults to false.' },
             limit: { type: 'integer', description: `Max results (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
@@ -148,7 +148,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Search terms to match against document titles/paths.' },
-            projectId: { type: 'string', description: 'Optional project id to scope the search to (e.g. "imagine"). Omit to search across all projects.' },
+            projectId: { type: 'string', description: 'Optional project id to scope the search to (e.g. "imagine"). If this conversation has an active project, omit this (it defaults automatically) or pass that same project id — do not broaden to all projects unless the user explicitly asked to.' },
             limit: { type: 'integer', description: `Max results (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: [],
@@ -259,10 +259,13 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string, 
   } catch {
     return { error: 'Malformed tool arguments — could not parse JSON.' };
   }
+  // When this conversation has an active project, that project is a hard scope, not a
+  // suggestion the model can override: force projectId to it for every project-scoped
+  // tool call regardless of what the model passed (a different id, or '' to broaden to
+  // "all projects"). This closes the gap where a prompt-only instruction could still be
+  // ignored — the only way to search outside the active project is to clear it in the UI.
   const contextualArgs =
-    activeProjectId !== undefined &&
-    activeProjectId.trim() !== '' &&
-    (typeof args['projectId'] !== 'string' || args['projectId'].trim() === '')
+    activeProjectId !== undefined && activeProjectId.trim() !== ''
       ? { ...args, projectId: activeProjectId }
       : args;
 

@@ -20,6 +20,20 @@ export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
  */
 export type AthenaPersona = 'general' | 'brainstorming';
 
+/**
+ * What the user is currently viewing in the Knowledge Hub UI (e.g. a note,
+ * canvas, or attached document), sent alongside a chat message. Kept as a
+ * SEPARATE field from the message text — never glued into it — so it can be
+ * injected into the prompt as a clearly-labeled, high-priority source while
+ * the auto-RAG search query stays limited to what the user actually typed.
+ */
+export interface ChatPageContext {
+  /** e.g. "note", "canvas", "document", "content-item" */
+  type: string;
+  title: string;
+  detail?: string;
+}
+
 export type MessageRole = 'system' | 'user' | 'assistant';
 
 export interface ConversationMessage {

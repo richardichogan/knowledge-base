@@ -50,6 +50,12 @@ interface AIChatPageProps {
 // client-demo FNOL/Steward voice components, ported for this app's Foundry
 // Speech instance.
 const STT_SAMPLE_RATE = 16000;
+// Cap on how much of an attached file's text we send as pageContext.detail.
+// Was 12,000 chars — far too small for meeting transcripts (a ~52KB transcript
+// got cut off before the Q&A section, so Athena answered as if no questions had
+// been asked at all). 100,000 chars (~25k tokens) comfortably covers most
+// documents/transcripts while staying well under the backend's 1mb JSON body limit.
+const ATTACHED_FILE_CONTEXT_CHAR_LIMIT = 100000;
 
 function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   const pcm = new Int16Array(samples.length);
@@ -554,7 +560,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
     ].join('\n');
 
     appendMessage('user', displayLabel);
-    chatMutation.mutate(athenaMessage);
+    chatMutation.mutate({ text: athenaMessage });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRestoringHistory]);
 
@@ -635,13 +641,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       // Fresh controller per turn — Stop only ever aborts the request that's actually in flight.
       chatAbortControllerRef.current = new AbortController();
     },
-    mutationFn: (message: string) =>
+    mutationFn: ({ text, pageContext: ctx }: { text: string; pageContext?: AthenaPageContext }) =>
       api.chat(
         {
-          message,
+          message: text,
           persona,
           projectId: activeProjectId !== '' ? activeProjectId : null,
           ...(sessionId !== null && { sessionId }),
+          ...(ctx && { pageContext: ctx }),
         },
         chatAbortControllerRef.current?.signal,
       ),
@@ -759,23 +766,21 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
 
     appendMessage('user', text);
     setInput('');
-    // Prepend page context on the first message of a session, or whenever the
-    // user has navigated to a different note/canvas/item since we last told
-    // Athena about one — otherwise it keeps answering with stale or no context.
+    // Tell Athena what the user is currently viewing on the first message of a
+    // session, or whenever they've navigated to a different note/canvas/item
+    // since we last told her about one — otherwise she keeps answering with
+    // stale or no context. Sent as a separate `pageContext` field (not glued
+    // into the message text) so the backend can search using only what the
+    // user actually typed, rather than running full-text search using an
+    // entire note's body as the query — which used to drag in unrelated
+    // same-project documents as "background context".
     const isFirstMessage = messages.length === 0 && sessionId === null;
     const contextChanged = pageContext !== undefined && lastInjectedContextTitleRef.current !== pageContext.title;
     if ((isFirstMessage || contextChanged) && pageContext) {
       lastInjectedContextTitleRef.current = pageContext.title;
-      const contextBlock = [
-        `[Context: The user is currently viewing a ${pageContext.type} in the Knowledge Hub]`,
-        `Title: ${pageContext.title}`,
-        pageContext.detail ? `Detail: ${pageContext.detail}` : '',
-        '',
-        text,
-      ].filter(Boolean).join('\n');
-      chatMutation.mutate(contextBlock);
+      chatMutation.mutate({ text, pageContext });
     } else {
-      chatMutation.mutate(text);
+      chatMutation.mutate({ text });
     }
   }
 
@@ -833,14 +838,21 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
       setPendingFile(null);
       setInput('');
       appendMessage('user', `${question}\n\n📎 ${file.name}`);
-      chatMutation.mutate([
-        `The user attached "${file.name}", which has now been stored in ${storedIn}.${extraNote}`,
-        `Their question is: ${question}`,
-        'Answer that question directly from the attached content. Do not create a note or task unless explicitly asked.',
-        '',
-        `--- ${file.name} ---`,
-        fileText.slice(0, 12000),
-      ].join('\n'));
+      // Send the attached file's content as pageContext (not glued into the message
+      // text) for the same reason as viewed-note context: gluing a large document
+      // into the message meant the auto-RAG search ran full-text search using the
+      // whole file as the query, dragging in unrelated matches.
+      if (fileText.length > ATTACHED_FILE_CONTEXT_CHAR_LIMIT) {
+        extraNote += ' The content below is truncated because the file is very large.';
+      }
+      chatMutation.mutate({
+        text: question,
+        pageContext: {
+          type: 'document',
+          title: file.name,
+          detail: `Stored in ${storedIn}.${extraNote} Full content:\n\n${fileText.slice(0, ATTACHED_FILE_CONTEXT_CHAR_LIMIT)}`,
+        },
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       appendMessage('assistant', `⚠️ Couldn't upload "${file.name}" — ${message}.`);
@@ -1037,7 +1049,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({ compact = false, standal
         // session, matching FNOL/Steward — typing doesn't opt you back in.
         setVoiceOutputOn(true);
         appendMessage('user', text);
-        chatMutation.mutate(text);
+        chatMutation.mutate({ text });
       }
     } catch {
       appendMessage('assistant', '⚠️ Could not transcribe that recording. Please try again or type your message.');

@@ -24,7 +24,9 @@ type ViewMode = 'notes' | 'sparks' | 'canvas';
 // Cap on how much of a note's body text is sent to Athena as page context —
 // large enough for typical notes/transcripts to be answerable in full, but
 // bounded so a huge document doesn't blow the model's context window.
-const NOTE_CONTEXT_MAX_CHARS = 20_000;
+// Was 20,000 — too small for full meeting transcripts, which caused Athena to
+// answer as if the back half of a note (e.g. the Q&A section) didn't exist.
+const NOTE_CONTEXT_MAX_CHARS = 100_000;
 
 export const NotesPage: React.FC = () => {
   const queryClient = useQueryClient();
