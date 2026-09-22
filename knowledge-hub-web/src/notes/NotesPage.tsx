@@ -18,6 +18,8 @@ import { CanvasEditor } from '../features/canvas/CanvasEditor';
 import { api } from '../services/api';
 import { useAthenaContext } from '../context/AthenaContext';
 import type { CanvasSummaryApi } from '../services/api';
+import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
+import { ThinkAthenaPanel } from './ThinkAthenaPanel';
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
 
@@ -37,7 +39,8 @@ export const NotesPage: React.FC = () => {
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
   const [importModalOpen,  setImportModalOpen]  = useState(false);
-  const { setAthenaContext } = useAthenaContext();
+  const { pageContext, setAthenaContext } = useAthenaContext();
+  const hasAthenaRail = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
 
   const { data: notes = [], isLoading, isError, refetch } = useQuery<NoteListItem[]>({
     queryKey: ['notes-list'],
@@ -339,6 +342,10 @@ export const NotesPage: React.FC = () => {
               <div className="notes-empty-state">Select a document or create a new one</div>
             )}
           </div>
+        )}
+
+        {hasAthenaRail && (
+          <ThinkAthenaPanel pageContext={pageContext ?? undefined} />
         )}
       </div>
 

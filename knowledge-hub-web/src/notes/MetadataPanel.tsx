@@ -1,8 +1,7 @@
 /**
  * notes/MetadataPanel.tsx — right-hand panel for the Think page editor.
  * Groups note metadata into collapsible Details/Organisation/GitHub
- * sections (GitHub pinned near the top since it's the most-used action),
- * with Connections kept as its own distinct block below them.
+ * sections (GitHub pinned near the top since it's the most-used action).
  */
 
 import React from 'react';
@@ -151,9 +150,11 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
         </div>
       </CollapsibleSection>
 
-      <div className="notes-meta-section notes-meta-section--connections">
-        <ConnectionsPanel refId={doc.id} refType="note" />
-      </div>
+      <CollapsibleSection label="Connections" defaultExpanded={false}>
+        <div className="notes-meta-section notes-meta-section--connections">
+          <ConnectionsPanel refId={doc.id} refType="note" headerless />
+        </div>
+      </CollapsibleSection>
     </div>
   );
 };

@@ -16,6 +16,8 @@ import type { ConnectionEdge } from '../../services/api';
 interface ConnectionsPanelProps {
   refId: string;
   refType: string;
+  /** Omits the panel's own disclosure header when hosted by another one. */
+  headerless?: boolean;
 }
 
 /** Edge type display order (top to bottom as per spec). */
@@ -36,7 +38,7 @@ function routeForNode(refType: string, refId: string): string {
   return `/my-work?highlight=${refId}`;
 }
 
-export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ refId, refType }) => {
+export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ refId, refType, headerless = false }) => {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
 
@@ -59,6 +61,27 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ refId, refTy
     void navigate(route);
   };
 
+  const body = (
+    <div className="conn-panel__body">
+      {isLoading && <p className="conn-panel__loading">Loading connections…</p>}
+
+      {!isLoading && totalCount === 0 && (
+        <p className="conn-panel__empty">No connections yet</p>
+      )}
+
+      {orderedKeys.map((key) => (
+        <ConnectionGroup
+          key={key}
+          edgeType={key}
+          edges={grouped[key] ?? []}
+          onItemClick={handleItemClick}
+        />
+      ))}
+    </div>
+  );
+
+  if (headerless) return <div className="conn-panel conn-panel--headerless">{body}</div>;
+
   return (
     <div className="conn-panel">
       <button
@@ -69,25 +92,7 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ refId, refTy
         <span className="conn-panel__title">CONNECTIONS{totalCount > 0 ? ` · ${totalCount}` : ''}</span>
         <span className="conn-panel__chevron">{collapsed ? '▸' : '▾'}</span>
       </button>
-
-      {!collapsed && (
-        <div className="conn-panel__body">
-          {isLoading && <p className="conn-panel__loading">Loading connections…</p>}
-
-          {!isLoading && totalCount === 0 && (
-            <p className="conn-panel__empty">No connections yet</p>
-          )}
-
-          {orderedKeys.map((key) => (
-            <ConnectionGroup
-              key={key}
-              edgeType={key}
-              edges={grouped[key] ?? []}
-              onItemClick={handleItemClick}
-            />
-          ))}
-        </div>
-      )}
+      {!collapsed && body}
     </div>
   );
 };

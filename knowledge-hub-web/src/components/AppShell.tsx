@@ -42,6 +42,7 @@ import { usePendingTags } from '../hooks/useTaxonomy';
 import { useGlobalShortcuts } from '../hooks/useGlobalShortcuts';
 import { useAthenaContext } from '../context/AthenaContext';
 import { api } from '../services/api';
+import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 
 interface NavItem {
   path: string;
@@ -63,6 +64,7 @@ const NAV_ITEMS: NavItem[] = [
 export const AppShell: React.FC = () => {
   const [tagPanelOpen, setTagPanelOpen]   = useState(false);
   const [projectsOpen, setProjectsOpen]   = useState(false);
+  const hasThinkAthenaRail = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
   const [paletteOpen, setPaletteOpen]     = useState(false);
   const [sparkModalOpen, setSparkModalOpen] = useState(false);
   const navigate  = useNavigate();
@@ -175,8 +177,12 @@ export const AppShell: React.FC = () => {
       {/* ── Projects slide-over ── */}
       <ProjectsModal open={projectsOpen} onClose={() => { setProjectsOpen(false); }} />
 
-      {/* ── AI Chat floating widget ── */}
-      <FloatingAIChat pageContext={pageContext ?? undefined} />
+      {/* Think owns a persistent Athena rail when there is enough horizontal
+          room; narrower Think layouts and every other page retain the
+          established floating launcher. */}
+      {!(location.pathname.startsWith('/think') && hasThinkAthenaRail) && (
+        <FloatingAIChat pageContext={pageContext ?? undefined} />
+      )}
 
       {/* ── Cmd+K command palette ── */}
       <CommandPalette open={paletteOpen} onClose={() => { setPaletteOpen(false); }} />

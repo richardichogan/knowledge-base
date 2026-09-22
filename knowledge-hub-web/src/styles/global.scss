@@ -4097,10 +4097,65 @@ input, textarea {
 
 .notes-editor-area {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--cds-background);
+}
+
+// Persistent Athena workspace on wide Think layouts. At narrower widths the
+// global floating launcher remains available instead, preserving editor space.
+.think-athena-panel {
+  width: 360px;
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--cds-background);
+  border-left: 1px solid var(--cds-border-subtle-01);
+}
+
+.think-athena-panel__header {
+  min-height: 39px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 1rem;
+  background: var(--cds-layer-01);
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.think-athena-panel__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--cds-text-primary);
+}
+
+.think-athena-panel__context {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--kh-accent);
+  font-size: 0.6875rem;
+  opacity: 0.85;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.think-athena-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+
+  > .ai-chat-compact {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 0.75rem;
+  }
 }
 
 .notes-empty-state {
@@ -8115,6 +8170,15 @@ $project-colour-map: (
 .conn-panel {
   border: 1px solid var(--cds-border-subtle-01);
   margin-top: 1rem;
+}
+
+.conn-panel--headerless {
+  border: none;
+  margin-top: 0;
+
+  .conn-panel__body {
+    padding: 0;
+  }
 }
 
 .conn-panel__header {
