@@ -4,7 +4,7 @@
  * sections (GitHub pinned near the top since it's the most-used action).
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { CONTENT_TYPE_OPTIONS } from './constants';
 import type { ContentType } from './constants';
 import type { NoteDocument } from './types';
@@ -67,9 +67,10 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 }) => {
   const { pageContext } = useAthenaContext();
   const showEmbeddedAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
+  const [athenaExpanded, setAthenaExpanded] = useState(false);
 
   return (
-    <div className="notes-meta-panel">
+    <div className={`notes-meta-panel${athenaExpanded ? ' notes-meta-panel--athena-expanded' : ''}`}>
       <CollapsibleSection label="Details">
         <div className="notes-meta-section">
           <p className="notes-meta-section-label">Created</p>
@@ -163,7 +164,13 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
       </CollapsibleSection>
 
       {showEmbeddedAthena && (
-        <ThinkAthenaPanel pageContext={pageContext ?? undefined} placement="metadata" />
+        <CollapsibleSection
+          label="Athena"
+          defaultExpanded={false}
+          onExpandedChange={setAthenaExpanded}
+        >
+          <ThinkAthenaPanel pageContext={pageContext ?? undefined} placement="metadata" />
+        </CollapsibleSection>
       )}
     </div>
   );

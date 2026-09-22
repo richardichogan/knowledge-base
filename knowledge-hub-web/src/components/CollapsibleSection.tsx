@@ -12,6 +12,8 @@ interface CollapsibleSectionProps {
   label: string;
   /** Whether the section starts expanded. Defaults to true. */
   defaultExpanded?: boolean;
+  /** Notifies a parent when the section opens or closes. */
+  onExpandedChange?: (expanded: boolean) => void;
   children: React.ReactNode;
 }
 
@@ -19,6 +21,7 @@ interface CollapsibleSectionProps {
 export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   label,
   defaultExpanded = true,
+  onExpandedChange,
   children,
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -28,7 +31,13 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       <button
         type="button"
         className="collapsible-section__header"
-        onClick={() => { setExpanded((v) => !v); }}
+        onClick={() => {
+          setExpanded((current) => {
+            const next = !current;
+            onExpandedChange?.(next);
+            return next;
+          });
+        }}
         aria-expanded={expanded}
       >
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}

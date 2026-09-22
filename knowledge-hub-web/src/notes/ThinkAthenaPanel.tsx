@@ -13,14 +13,16 @@ export const ThinkAthenaPanel: React.FC<ThinkAthenaPanelProps> = ({
   placement = 'rail',
 }) => (
   <aside className={`think-athena-panel think-athena-panel--${placement}`} aria-label="Athena">
-    <div className="think-athena-panel__header">
-      <span className="think-athena-panel__title">Athena</span>
-      {pageContext && (
-        <span className="think-athena-panel__context" title={pageContext.title}>
-          {pageContext.title}
-        </span>
-      )}
-    </div>
+    {placement !== 'metadata' && (
+      <div className="think-athena-panel__header">
+        <span className="think-athena-panel__title">Athena</span>
+        {pageContext && (
+          <span className="think-athena-panel__context" title={pageContext.title}>
+            {pageContext.title}
+          </span>
+        )}
+      </div>
+    )}
     <div className="think-athena-panel__body">
       <AIChatPage compact pageContext={pageContext} />
     </div>
