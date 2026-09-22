@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export const THINK_ATHENA_RAIL_QUERY = '(min-width: 1600px)';
+export const THINK_ATHENA_RAIL_QUERY = '(min-width: 1200px)';
 
 /** Keeps React rendering aligned with a CSS media query. */
 export function useMediaQuery(query: string): boolean {

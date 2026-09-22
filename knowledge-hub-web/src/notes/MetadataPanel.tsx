@@ -12,6 +12,9 @@ import { TagPicker } from '../components/TagPicker';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import type { Project } from '../services/api';
+import { useAthenaContext } from '../context/AthenaContext';
+import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
+import { ThinkAthenaPanel } from './ThinkAthenaPanel';
 
 interface AppliedTag {
   id: string;
@@ -62,6 +65,9 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   githubPath,
   onPushToGitHub,
 }) => {
+  const { pageContext } = useAthenaContext();
+  const showEmbeddedAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
+
   return (
     <div className="notes-meta-panel">
       <CollapsibleSection label="Details">
@@ -155,6 +161,10 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
           <ConnectionsPanel refId={doc.id} refType="note" headerless />
         </div>
       </CollapsibleSection>
+
+      {showEmbeddedAthena && (
+        <ThinkAthenaPanel pageContext={pageContext ?? undefined} placement="metadata" />
+      )}
     </div>
   );
 };

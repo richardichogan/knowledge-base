@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { TextInput } from '@carbon/react';
-import { TrashCan } from '@carbon/icons-react';
+import { ChevronDown, TrashCan } from '@carbon/icons-react';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
@@ -44,6 +44,7 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
   const [activeProjectId, setActiveProjectId] = useState('');
   const [activeContentType, setActiveContentType] = useState<ContentType | ''>('');
   const [activeTagId, setActiveTagId] = useState('');
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const { data: parents = [] } = useTaxonomy();
   const { data: projects = [] } = useProjects();
@@ -156,10 +157,22 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
 
       <div className="notes-list-filters" aria-label="Filter notes">
         <div className="notes-list-filters__heading">
-          <span>Filters{activeFilterCount > 0 ? ` · ${activeFilterCount} active` : ''}</span>
-          <span className="notes-list-filters__result-count">
-            {filteredNotes.length} of {notes.length}
-          </span>
+          <button
+            type="button"
+            className="notes-list-filters__toggle"
+            aria-expanded={filtersExpanded}
+            aria-controls="notes-list-filter-fields"
+            onClick={() => { setFiltersExpanded((expanded) => !expanded); }}
+          >
+            <ChevronDown
+              size={16}
+              className={`notes-list-filters__chevron${filtersExpanded ? ' notes-list-filters__chevron--expanded' : ''}`}
+            />
+            <span>Filters{activeFilterCount > 0 ? ` · ${activeFilterCount} active` : ''}</span>
+            <span className="notes-list-filters__result-count">
+              {filteredNotes.length} of {notes.length}
+            </span>
+          </button>
           {activeFilterCount > 0 && (
             <button
               type="button"
@@ -174,7 +187,11 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, selectedId, onSelect,
             </button>
           )}
         </div>
-        <div className="notes-list-filters__fields">
+        <div
+          id="notes-list-filter-fields"
+          className="notes-list-filters__fields"
+          hidden={!filtersExpanded}
+        >
           <label className="notes-list-filter">
             <span className="notes-list-filter__label">Project</span>
             <select
