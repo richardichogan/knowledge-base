@@ -67,11 +67,11 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 }) => {
   const { pageContext } = useAthenaContext();
   const showEmbeddedAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
-  const [athenaExpanded, setAthenaExpanded] = useState(false);
+  const [athenaExpanded, setAthenaExpanded] = useState(true);
 
   return (
     <div className={`notes-meta-panel${athenaExpanded ? ' notes-meta-panel--athena-expanded' : ''}`}>
-      <CollapsibleSection label="Details">
+      <CollapsibleSection label="Details" defaultExpanded={false}>
         <div className="notes-meta-section">
           <p className="notes-meta-section-label">Created</p>
           <p className="notes-meta-section-value">{formatDateTime(doc.createdAt)}</p>
@@ -97,7 +97,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection label="Organisation">
+      <CollapsibleSection label="Organisation" defaultExpanded={false}>
         <div className="notes-meta-section">
           <p className="notes-meta-section-label">Project</p>
           <select
@@ -140,7 +140,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection label="GitHub">
+      <CollapsibleSection label="GitHub" defaultExpanded={false}>
         <div className="notes-meta-section">
           <div className="notes-meta-gh-status">
             <div className="notes-meta-gh-dot" ref={(el) => { if (el) el.style.background = ghDotColor; }} />
@@ -166,7 +166,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
       {showEmbeddedAthena && (
         <CollapsibleSection
           label="Athena"
-          defaultExpanded={false}
+          defaultExpanded
           onExpandedChange={setAthenaExpanded}
         >
           <ThinkAthenaPanel pageContext={pageContext ?? undefined} placement="metadata" />
