@@ -4246,20 +4246,22 @@ input, textarea {
   }
 
   // Message cards — left accent-border cards with small-caps mono role
-  // labels instead of padded rounded chat bubbles.
+  // labels instead of padded rounded chat bubbles. Background kept
+  // transparent here (unlike other Athena surfaces) since the layer fill
+  // reads as a mismatched lighter box against this panel's dark chrome.
   .ai-bubble {
     max-width: 100%;
     min-width: 0;
     border-radius: 0.25rem;
     border: 1px solid var(--cds-border-subtle-01);
     border-left-width: 2px;
-    background: var(--cds-layer-01);
+    background: transparent;
     padding: 0.5rem 0.625rem;
   }
 
   .ai-bubble--user {
     border-left-color: var(--cds-border-strong-01, #8d8d8d);
-    background: var(--cds-layer-01);
+    background: transparent;
   }
 
   .ai-bubble--ai {
@@ -4274,7 +4276,7 @@ input, textarea {
     border: 1px solid var(--cds-border-subtle-01);
     border-left: 2px solid var(--kh-accent);
     border-radius: 0.25rem;
-    background: var(--cds-layer-01);
+    background: transparent;
     padding: 0.625rem 0.75rem;
     margin-bottom: 0.5rem;
   }
