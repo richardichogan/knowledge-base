@@ -4327,7 +4327,7 @@ input, textarea {
     opacity: 1;
   }
 
-  // Composer — borderless pill that blends into the panel instead of a
+  // Composer — borderless square field that blends into the panel instead of a
   // boxed field. A static 1px border + --cds-field fill read as a
   // mismatched lighter rectangle against this panel's dark chrome; a
   // subtle tinted fill plus an accent glow on focus reads as modern instead.
@@ -4336,7 +4336,7 @@ input, textarea {
     padding: 0.125rem;
     background: rgba(255, 255, 255, 0.04);
     border: 0;
-    border-radius: 1.5rem;
+    border-radius: 0;
     transition: box-shadow 0.15s ease;
 
     &:focus-within {
@@ -4356,7 +4356,7 @@ input, textarea {
   }
 
   .ai-chat-compact__body .ai-send-button.cds--btn.cds--btn--icon-only {
-    border-radius: 50%;
+    border-radius: 0;
     width: 2.25rem;
     min-width: 2.25rem;
     height: 2.25rem;
