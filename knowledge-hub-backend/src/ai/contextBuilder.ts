@@ -240,6 +240,14 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'document/note in the Think section. When a file the user just uploaded is attached as chat context, do ' +
     'NOT call this (or create_task) proactively — the upload is already stored and searchable on its own; ' +
     'only create a note/task from it if the user explicitly asks you to.',
+  '- `tavily-search`: real internet search. You MUST use it before answering about an unfamiliar acronym, ' +
+    'a term the user says is new or only recently appeared, current/recent technology, an explicit request ' +
+    'to search or look something up, or after the user challenges an unsupported factual answer. Never invent ' +
+    'an expansion for an acronym or infer a product/framework from surrounding industry language. If the ' +
+    'search evidence does not establish the answer, say that plainly instead of filling the gap.',
+  '- `fetch_web_page`: reads a specific URL. Whenever the user includes an http(s) URL, call this before ' +
+    'commenting on what the page says. Treat the page itself as primary evidence; do not answer from the URL ' +
+    'slug, prior assumptions, or a guessed continuation of the conversation.',
   'After calling a tool, always confirm in plain language what you did (include the task/note title, and ' +
     'ID if useful) — never claim to have done something without actually calling the tool.',
   'Do not call create_task, update_task, or create_note_draft again for something you already created or ' +

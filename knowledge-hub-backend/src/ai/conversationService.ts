@@ -7,6 +7,7 @@ import { AI_MAX_TOOL_ITERATIONS, AI_DEFAULT_MAX_TOKENS, AI_REASONING_MODEL_MAX_T
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
+import { selectRequiredToolChoice } from './toolRouting.js';
 
 /**
  * Handles a single conversation turn.
@@ -35,10 +36,17 @@ export async function handleConversationTurn(
 
   const client = getFoundryClient();
   const tools = await getToolDefinitions();
+  const requiredFirstTool = selectRequiredToolChoice(userMessage, tools);
   const maxTokens = model === 'gpt-5.5' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
 
   for (let i = 0; i < AI_MAX_TOOL_ITERATIONS; i++) {
-    const response = await client.chatWithTools(model, messages, tools, maxTokens);
+    const response = await client.chatWithTools(
+      model,
+      messages,
+      tools,
+      maxTokens,
+      i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto',
+    );
 
     if (response.toolCalls.length === 0) {
       if (response.content && response.content.trim() !== '') {

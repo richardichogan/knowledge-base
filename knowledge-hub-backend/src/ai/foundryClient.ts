@@ -20,6 +20,11 @@ export interface LlmToolDefinition {
   };
 }
 
+/** Tool-selection mode accepted by Azure OpenAI chat completions. */
+export type LlmToolChoice =
+  | 'auto'
+  | { type: 'function'; function: { name: string } };
+
 /**
  * Message shape used internally for tool-calling turns — a superset of
  * ConversationMessage that also allows assistant tool_calls and tool results.
@@ -91,8 +96,9 @@ export class FoundryClient {
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
     maxTokens = AI_DEFAULT_MAX_TOKENS,
+    toolChoice: LlmToolChoice = 'auto',
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
-    const data = await this.request(model, messages, tools, maxTokens);
+    const data = await this.request(model, messages, tools, maxTokens, toolChoice);
     const message = data.choices[0]?.message;
 
     if (!message) {
@@ -121,6 +127,7 @@ export class FoundryClient {
     messages: ConversationMessage[] | LlmMessage[],
     tools: LlmToolDefinition[] | undefined,
     maxTokens: number,
+    toolChoice: LlmToolChoice = 'auto',
   ): Promise<ChatCompletionResponse> {
     const deployment = this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
@@ -138,7 +145,7 @@ export class FoundryClient {
           messages,
           max_completion_tokens: maxTokens,
           ...(this.supportsCustomTemperature(model) && { temperature: 0.7 }),
-          ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: 'auto' }),
+          ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: toolChoice }),
         }),
         // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.
         signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
