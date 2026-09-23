@@ -356,6 +356,24 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /** Analyzes an ephemeral image for Athena without storing it in the image library. */
+  async analyzeChatImage(
+    file: File,
+    question?: string,
+  ): Promise<ApiResponse<{ analysis: string }>> {
+    const buffer = await file.arrayBuffer();
+    const r = await this.client.post<ApiResponse<{ analysis: string }>>(
+      '/api/images/analyze-chat',
+      buffer,
+      {
+        headers: { 'Content-Type': file.type },
+        params: question?.trim() ? { question: question.trim() } : undefined,
+        timeout: IMAGE_UPLOAD_TIMEOUT_MS,
+      },
+    );
+    return r.data;
+  }
+
   /**
    * Look up stored vision analysis / OCR text for image blobs already embedded
    * in a note or canvas (matched by the blob name in each URL). Used to prime

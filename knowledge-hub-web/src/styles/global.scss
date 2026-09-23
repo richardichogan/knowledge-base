@@ -1069,6 +1069,37 @@ input, textarea {
   min-width: 0;
 }
 
+.ai-pending-file--image {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  align-items: center;
+
+  .ai-pending-file__name,
+  .ai-pending-file__hint {
+    grid-column: 2;
+  }
+
+  .ai-pending-file__hint {
+    white-space: normal;
+  }
+
+  .ai-pending-file__remove {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}
+
+.ai-pending-file__preview {
+  width: 3rem;
+  height: 3rem;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  flex-shrink: 0;
+  object-fit: cover;
+  border: 1px solid var(--kh-accent-border);
+  background: var(--cds-background);
+}
+
 .ai-pending-file__icon {
   flex-shrink: 0;
   color: var(--kh-accent);

@@ -65,6 +65,16 @@ const STT_SAMPLE_RATE = 16000;
 // been asked at all). 100,000 chars (~25k tokens) comfortably covers most
 // documents/transcripts while staying well under the backend's 1mb JSON body limit.
 const ATTACHED_FILE_CONTEXT_CHAR_LIMIT = 100000;
+const CHAT_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+function isChatImage(file: File): boolean {
+  return CHAT_IMAGE_TYPES.has(file.type.toLowerCase());
+}
+
+function clipboardImageName(mimeType: string): string {
+  const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1] ?? 'png';
+  return `pasted-image-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
+}
 
 function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   const pcm = new Int16Array(samples.length);
@@ -476,6 +486,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string | null>(null);
+  const [activeImageContext, setActiveImageContext] = useState<AthenaPageContext | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ filename: string; percent: number } | null>(null);
   const [uploadProjectId, setUploadProjectId] = useState('personal');
   const [isRecording, setIsRecording] = useState(false);
@@ -511,6 +523,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     const maxHeight = 200;
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
   }, [input]);
+
+  useEffect(() => {
+    if (pendingFile === null || !isChatImage(pendingFile)) {
+      setPendingImagePreviewUrl(null);
+      return;
+    }
+    const previewUrl = URL.createObjectURL(pendingFile);
+    setPendingImagePreviewUrl(previewUrl);
+    return () => { URL.revokeObjectURL(previewUrl); };
+  }, [pendingFile]);
   /** Prevents the Android Share auto-send from firing more than once per page load. */
   const shareProcessedRef = useRef(false);
   /** Tracks the last pageContext title we've already injected into a message, so
@@ -849,7 +871,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   async function submitMessage(): Promise<void> {
-    const text = input.trim();
+    const text = input.trim() || (pendingFile !== null && isChatImage(pendingFile)
+      ? 'What is shown in this image?'
+      : '');
     if (text === '') return;
 
     if (pendingFile !== null) {
@@ -869,7 +893,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // same-project documents as "background context".
     const isFirstMessage = messages.length === 0 && sessionId === null;
     const contextChanged = pageContext !== undefined && lastInjectedContextTitleRef.current !== pageContext.title;
-    if ((isFirstMessage || contextChanged) && pageContext) {
+    if (activeImageContext !== null) {
+      chatMutation.mutate({ text, pageContext: activeImageContext });
+    } else if ((isFirstMessage || contextChanged) && pageContext) {
       lastInjectedContextTitleRef.current = pageContext.title;
       chatMutation.mutate({ text, pageContext });
     } else {
@@ -886,15 +912,37 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     e.target.value = ''; // allow re-selecting the same file later
     if (!file) return;
 
-    if (!/\.(md|markdown|txt|docx|xlsx|pptx|pdf)$/i.test(file.name)) {
+    if (!isChatImage(file) && !/\.(md|markdown|txt|docx|xlsx|pptx|pdf)$/i.test(file.name)) {
       appendMessage(
         'assistant',
-        '⚠️ Please attach a Markdown (.md), text (.txt), Word (.docx), Excel (.xlsx), PowerPoint (.pptx), or PDF file.',
+        '⚠️ Please attach an image (PNG, JPEG, WebP, or GIF), Markdown, text, Word, Excel, PowerPoint, or PDF file.',
       );
       return;
     }
 
     setPendingFile(file);
+    textareaRef.current?.focus();
+  }
+
+  function handleInputPaste(e: React.ClipboardEvent<HTMLTextAreaElement>): void {
+    const imageItem = Array.from(e.clipboardData.items).find(
+      (item) => item.kind === 'file' && item.type.startsWith('image/'),
+    );
+    if (imageItem === undefined) return;
+
+    const imageBlob = imageItem.getAsFile();
+    if (imageBlob === null || !CHAT_IMAGE_TYPES.has(imageBlob.type.toLowerCase())) {
+      appendMessage('assistant', '⚠️ Pasted images must be PNG, JPEG, WebP, or GIF.');
+      return;
+    }
+
+    e.preventDefault();
+    const imageFile = new File(
+      [imageBlob],
+      clipboardImageName(imageBlob.type),
+      { type: imageBlob.type, lastModified: Date.now() },
+    );
+    setPendingFile(imageFile);
     textareaRef.current?.focus();
   }
 
@@ -905,7 +953,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       let storedIn: string;
       let extraNote = '';
 
-      if (/\.(md|markdown)$/i.test(file.name)) {
+      if (isChatImage(file)) {
+        const res = await api.analyzeChatImage(file, question);
+        if (!res.success) throw new Error(res.error?.message ?? 'image analysis failed');
+        fileText = res.data.analysis;
+        storedIn = 'this chat only';
+      } else if (/\.(md|markdown)$/i.test(file.name)) {
         fileText = (await file.text()).trim();
         if (fileText === '') throw new Error('the file is empty');
         setUploadProgress({ filename: file.name, percent: 60 });
@@ -930,7 +983,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       setUploadProgress({ filename: file.name, percent: 100 });
       setPendingFile(null);
       setInput('');
-      appendMessage('user', `${question}\n\n📎 ${file.name}`);
+      appendMessage('user', `${question}\n\n${isChatImage(file) ? '🖼️' : '📎'} ${file.name}`);
       // Send the attached file's content as pageContext (not glued into the message
       // text) for the same reason as viewed-note context: gluing a large document
       // into the message meant the auto-RAG search ran full-text search using the
@@ -938,13 +991,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (fileText.length > ATTACHED_FILE_CONTEXT_CHAR_LIMIT) {
         extraNote += ' The content below is truncated because the file is very large.';
       }
+      const attachedContext: AthenaPageContext = {
+        type: isChatImage(file) ? 'image' : 'document',
+        title: file.name,
+        detail: isChatImage(file)
+          ? `Ephemeral image pasted into this chat (not stored). Visual analysis:\n\n${fileText}`
+          : `Stored in ${storedIn}.${extraNote} Full content:\n\n${fileText.slice(0, ATTACHED_FILE_CONTEXT_CHAR_LIMIT)}`,
+      };
+      if (isChatImage(file)) setActiveImageContext(attachedContext);
       chatMutation.mutate({
         text: question,
-        pageContext: {
-          type: 'document',
-          title: file.name,
-          detail: `Stored in ${storedIn}.${extraNote} Full content:\n\n${fileText.slice(0, ATTACHED_FILE_CONTEXT_CHAR_LIMIT)}`,
-        },
+        pageContext: attachedContext,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -964,6 +1021,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setActiveProjectId('');
     setProjectError(null);
     setPendingFile(null);
+    setActiveImageContext(null);
     if (SESSION_STORAGE_KEY !== '') {
       try {
         window.localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -1542,7 +1600,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         {uploadProgress && (
           <div className="ai-upload-progress" role="status">
             <div className="ai-upload-progress-label">
-              Uploading {uploadProgress.filename}… {uploadProgress.percent}%
+              {pendingFile !== null && isChatImage(pendingFile) ? 'Analysing' : 'Uploading'} {uploadProgress.filename}… {uploadProgress.percent}%
             </div>
             <div className="ai-upload-progress-track">
               <div className="ai-upload-progress-fill" style={{ width: `${uploadProgress.percent}%` }} />
@@ -1551,11 +1609,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         )}
 
         {pendingFile !== null && uploadProgress === null && (
-          <div className="ai-pending-file" role="status">
-            <Attachment size={16} className="ai-pending-file__icon" />
+          <div className={`ai-pending-file${isChatImage(pendingFile) ? ' ai-pending-file--image' : ''}`} role="status">
+            {pendingImagePreviewUrl !== null && (
+              <img
+                className="ai-pending-file__preview"
+                src={pendingImagePreviewUrl}
+                alt="Pasted image preview"
+              />
+            )}
+            {!isChatImage(pendingFile) && <Attachment size={16} className="ai-pending-file__icon" />}
             <span className="ai-pending-file__name">{pendingFile.name}</span>
-            <span className="ai-pending-file__hint">Ready — type your question, then send</span>
-            <label className="ai-pending-file__project">
+            <span className="ai-pending-file__hint">
+              {isChatImage(pendingFile) ? 'Ready — ask about the image or send to describe it' : 'Ready — type your question, then send'}
+            </span>
+            {!isChatImage(pendingFile) && <label className="ai-pending-file__project">
               <span className="ai-pending-file__project-label">Save to</span>
               <select
                 className="ai-pending-file__project-select"
@@ -1567,7 +1634,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                   <option key={project.id} value={project.id}>{project.name}</option>
                 ))}
               </select>
-            </label>
+            </label>}
             <button
               type="button"
               className="ai-pending-file__remove"
@@ -1583,7 +1650,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".md,.markdown,.txt,text/markdown,text/plain,.docx,.xlsx,.pptx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf"
+            accept="image/png,image/jpeg,image/webp,image/gif,.md,.markdown,.txt,text/markdown,text/plain,.docx,.xlsx,.pptx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf"
             className="ai-file-input-hidden"
             onChange={handleFileSelected}
           />
@@ -1595,7 +1662,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               hasIconOnly
               size="sm"
               renderIcon={Attachment}
-              iconDescription="Attach a document (Markdown, Word, Excel, PowerPoint, or PDF)"
+              iconDescription="Attach an image or document"
               tooltipPosition="top"
               className="ai-attach-button ai-attach-button--inline"
               onClick={handleAttachClick}
@@ -1610,6 +1677,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleInputKeyDown}
+              onPaste={handleInputPaste}
               disabled={chatMutation.isPending}
               autoFocus
             />
@@ -1645,7 +1713,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               iconDescription="Send"
               tooltipPosition="top"
               className="ai-send-button"
-              disabled={uploadProgress !== null || input.trim() === ''}
+              disabled={uploadProgress !== null || (input.trim() === '' && pendingFile === null)}
             />
           )}
         </form>

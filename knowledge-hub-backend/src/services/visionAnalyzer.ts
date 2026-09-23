@@ -10,7 +10,11 @@ import { env } from '../config/env.js';
  * Analyze an image buffer using GPT-4V vision capabilities via Azure OpenAI.
  * Returns a semantic description of the image content.
  */
-export async function analyzeImageWithVision(imageBuffer: Buffer, mimeType: string): Promise<string> {
+export async function analyzeImageWithVision(
+  imageBuffer: Buffer,
+  mimeType: string,
+  userQuestion?: string,
+): Promise<string> {
   try {
     if (!env.AZURE_OPENAI_ENDPOINT || !env.AZURE_OPENAI_API_KEY) {
       console.warn('[visionAnalyzer] Azure OpenAI credentials not configured, skipping vision analysis');
@@ -33,7 +37,16 @@ export async function analyzeImageWithVision(imageBuffer: Buffer, mimeType: stri
             content: [
               {
                 type: 'text',
-                text: 'Analyze this screenshot or image in detail. Describe: 1) What UI elements or content are visible? 2) What data, charts, or diagrams are shown? 3) What is the main purpose or context of this image? 4) Any text, numbers, or labels that appear? Provide a comprehensive description that would help someone understand the image without seeing it.',
+                text: [
+                  'Analyze this screenshot or image in detail so another AI assistant can reason over it.',
+                  'Describe: 1) What UI elements or content are visible? 2) What data, charts, diagrams, people, ' +
+                    'or objects are shown? 3) What is the main purpose or context? 4) All legible text, numbers, ' +
+                    'labels, warnings, and relationships that matter. Distinguish direct visual evidence from ' +
+                    'your inference, and do not invent details that are not visible.',
+                  userQuestion?.trim()
+                    ? `Pay particular attention to evidence relevant to this user question: ${userQuestion.trim()}`
+                    : '',
+                ].filter(Boolean).join('\n'),
               },
               {
                 type: 'image_url',

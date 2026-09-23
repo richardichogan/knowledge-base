@@ -24,6 +24,7 @@ import type { ApiSuccess, PaginatedList, KnowledgeImage } from '../types/index.j
 const router = Router();
 
 const KB_IMAGES_CONTAINER = 'kb-images';
+const CHAT_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 /** Calls Azure AI Vision Read API to extract text from an image buffer. */
 async function runOcr(imageBuffer: Buffer): Promise<string> {
@@ -72,6 +73,36 @@ async function runOcr(imageBuffer: Buffer): Promise<string> {
 
 // ── POST /api/images ───────────────────────────────────────────────────────────
 // Expects raw binary body with Content-Type: image/*
+
+// ── POST /api/images/analyze-chat ──────────────────────────────────────────────
+// Synchronously describes an ephemeral chat image. Unlike POST /api/images this
+// does not persist the image or return before analysis finishes: Athena must
+// receive the visual evidence before it starts answering.
+router.post('/analyze-chat', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    const rawBody = req.body instanceof Buffer ? req.body : Buffer.from([]);
+    const contentType = String(req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+    const question = typeof req.query['question'] === 'string' ? req.query['question'] : '';
+
+    if (rawBody.length === 0) {
+      throw new ValidationError('image body is empty', { image: 'required' });
+    }
+    if (!CHAT_IMAGE_TYPES.has(contentType)) {
+      throw new ValidationError('chat image must be PNG, JPEG, WebP, or GIF', { image: 'invalid-type' });
+    }
+
+    const analysis = await analyzeImageWithVision(rawBody as Buffer<ArrayBufferLike>, contentType, question);
+    if (analysis.trim() === '') {
+      throw new ValidationError('the image could not be analysed', { image: 'analysis-failed' });
+    }
+
+    const body: ApiSuccess<{ analysis: string }> = {
+      success: true,
+      data: { analysis },
+    };
+    res.status(HTTP_STATUS.OK).json(body);
+  })().catch(next);
+});
 
 router.post('/', (req: Request, res: Response, next: NextFunction): void => {
   (async (): Promise<void> => {
@@ -318,4 +349,3 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
 });
 
 export { router as imagesRouter };
-
