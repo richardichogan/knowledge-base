@@ -27,6 +27,7 @@ import { env } from '../config/env.js';
 import { isIcaEnabled, icaChat } from './icaClient.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
 import { getLearnMcpTools, isLearnMcpTool, callLearnMcpTool } from './learnMcpClient.js';
+import { getTavilyMcpTools, isTavilyMcpTool, callTavilyMcpTool } from './tavilyMcpClient.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -38,6 +39,7 @@ const NOTE_CONTENT_TYPES = [
 
 export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const learnTools = await getLearnMcpTools();
+  const tavilyTools = await getTavilyMcpTools();
   return [
     ...(isIcaEnabled() ? [{
       type: 'function' as const,
@@ -242,6 +244,11 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     // than hardcoding a schema that may drift. Empty array (not an error) if
     // the server is unreachable this turn.
     ...learnTools,
+    // Tavily MCP tools (tavily-search, tavily-extract as of writing) — real
+    // internet search/page extraction, distinct from fetch_web_page (which
+    // can only read a URL already known). Empty array if TAVILY_API_KEY is
+    // unset or the server is unreachable this turn.
+    ...tavilyTools,
   ];
 }
 
@@ -275,6 +282,7 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string, 
     case 'search_ica':            return searchIca(args);
     default:
       if (isLearnMcpTool(name)) return callLearnMcpTool(name, args);
+      if (isTavilyMcpTool(name)) return callTavilyMcpTool(name, args);
       return { error: `Unknown tool: ${name}` };
   }
 }

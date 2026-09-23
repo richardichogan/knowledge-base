@@ -202,6 +202,15 @@ export const MS_LEARN_MCP_TOOL_CACHE_MS = 10 * 60 * 1_000;
 /** Timeout for individual MCP requests (connect, list_tools, call_tool). */
 export const MS_LEARN_MCP_TIMEOUT_MS = 15_000;
 
+// ── Tavily MCP (general internet search) ────────────────────────────────────────
+
+/** Tavily's hosted MCP server (streamable HTTP) — the API key is passed as a query param. */
+export const TAVILY_MCP_URL = 'https://mcp.tavily.com/mcp/';
+/** How long a cached Tavily MCP tool list is considered fresh before re-fetching via list_tools. */
+export const TAVILY_MCP_TOOL_CACHE_MS = 10 * 60 * 1_000;
+/** Timeout for individual Tavily MCP requests (connect, list_tools, call_tool). */
+export const TAVILY_MCP_TIMEOUT_MS = 15_000;
+
 // ── Graph / tokens ────────────────────────────────────────────────────────────
 
 /** Milliseconds per second — used for token expiry calculations. */

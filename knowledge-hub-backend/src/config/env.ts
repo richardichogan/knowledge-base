@@ -141,6 +141,12 @@ export const env = {
   ICA_ENDPOINT: optionalWithDefault('ICA_ENDPOINT', 'https://api.nextgen-beta.ica.ibm.com/ica/v1'),
   ICA_MODEL_ID: optionalWithDefault('ICA_MODEL_ID', 'claude-opus-4-6'),
 
+  // Tavily MCP (general internet search — tavily-search/tavily-extract tools
+  // via Tavily's hosted MCP server). Optional: if unset, no web_search tools
+  // are registered and Athena falls back to fetch_web_page + the Learn MCP
+  // tools only.
+  TAVILY_API_KEY: optional('TAVILY_API_KEY'),
+
   // Admin / CRON
   ADMIN_PASSWORD: optional('ADMIN_PASSWORD'),
   CRON_SECRET: optional('CRON_SECRET'),

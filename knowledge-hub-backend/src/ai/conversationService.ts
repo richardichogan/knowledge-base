@@ -12,9 +12,11 @@ import { getSessionProjectId } from './chatSessionStore.js';
  * Handles a single conversation turn.
  * Builds three-layer context, assembles message history, calls Azure AI Foundry.
  * Supports function calling — the model may request search_knowledge_base,
- * create_task, update_task, create_note_draft, or (live from the Microsoft
- * Learn MCP server) microsoft_docs_search/microsoft_docs_fetch/etc. tool
- * calls, which are executed here and fed back in a loop (capped at
+ * create_task, update_task, create_note_draft, or tool calls live from the
+ * Microsoft Learn MCP server (microsoft_docs_search/microsoft_docs_fetch/etc.)
+ * and Tavily MCP server (tavily-search/tavily-extract, real internet search —
+ * distinct from fetch_web_page, which can only read an already-known URL),
+ * which are executed here and fed back in a loop (capped at
  * AI_MAX_TOOL_ITERATIONS) until the model produces a final text reply.
  */
 export async function handleConversationTurn(
