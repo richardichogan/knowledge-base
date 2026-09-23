@@ -5264,6 +5264,47 @@ input, textarea {
   padding-top: 4px;
 }
 
+.proj-reference-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+}
+
+.proj-reference-editor__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.proj-reference-editor__title {
+  margin: 0;
+  color: var(--cds-text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.proj-reference-editor__help {
+  margin: 2px 0 0;
+  color: var(--cds-text-helper);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.proj-reference-editor__row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.75fr) minmax(12rem, 1.5fr) 3rem;
+  align-items: end;
+  gap: 8px;
+}
+
+.proj-repo--reference {
+  color: var(--kh-accent);
+}
+
 // Tag pills inside the edit modal
 .proj-tag-pills-edit {
   display: flex;

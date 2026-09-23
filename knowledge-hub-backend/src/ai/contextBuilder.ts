@@ -648,35 +648,63 @@ export async function buildAiContext(
       : Promise.resolve([]),
   ]);
 
+  const projectReferences = activeProject?.links ?? [];
   const activeProjectContext = activeProject === null
     ? ''
     : [
         '## Active conversation project — hard scope',
         `The user has assigned this Athena conversation to project "${activeProject.name}" (id: ${activeProject.id}).`,
+        activeProject.description !== '' ? `Project description: ${activeProject.description}` : '',
+        activeProject.links.length > 0
+          ? [
+              'Canonical project references:',
+              ...activeProject.links.map((link) => `- ${link.label}: ${link.url}`),
+              'These URLs are authoritative starting points for this product. When the question concerns the ' +
+                'product\'s capabilities, terminology, architecture, positioning, or current state, read the ' +
+                'relevant reference with fetch_web_page before answering. Do not infer its contents from the URL.',
+            ].join('\n')
+          : '',
         'This is a hard restriction, not a soft default: every search_knowledge_base, search_library, and ' +
           'list_tasks call this turn must stay scoped to this project. Either omit projectId (it defaults to ' +
           `"${activeProject.id}" automatically) or pass "${activeProject.id}" explicitly. Do not pass a ` +
           'different projectId, and do not pass an empty projectId to broaden the search across all projects, ' +
           'even if you think it would surface more relevant material — unless the user\'s message explicitly ' +
           'asks you to look outside this project (e.g. "check other projects too", "search everything").',
-      ].join('\n');
+      ].filter(Boolean).join('\n');
   const projectContext = [activeProjectContext, storedProjectContext].filter((block) => block !== '').join('\n\n');
 
-  return { staticContext, projectContext, ragItems, memoryItems };
+  return {
+    staticContext,
+    projectContext,
+    projectReferences,
+    activeProjectName: activeProject?.name ?? null,
+    ragItems,
+    memoryItems,
+  };
 }
 
 async function loadActiveSessionProject(
   db: Pool,
   sessionId: string,
-): Promise<{ id: string; name: string } | null> {
+): Promise<{
+  id: string;
+  name: string;
+  description: string;
+  links: Array<{ label: string; url: string }>;
+} | null> {
   const projectId = await getSessionProjectId(db, sessionId);
   if (projectId === null) return null;
 
-  const { rows } = await db.query<{ id: string; name: string }>(
-    `SELECT id, name FROM projects WHERE id = $1`,
+  const { rows } = await db.query<{
+    id: string;
+    name: string;
+    description: string;
+    links: Array<{ label: string; url: string }>;
+  }>(
+    `SELECT id, name, description, links FROM projects WHERE id = $1`,
     [projectId],
   );
-  return rows[0] ?? { id: projectId, name: projectId };
+  return rows[0] ?? { id: projectId, name: projectId, description: '', links: [] };
 }
 
 /**

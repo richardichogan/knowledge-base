@@ -95,6 +95,28 @@ function validateInput(input: Record<string, unknown>, requireName: boolean): vo
   if (input['projectType'] !== undefined && !PROJECT_TYPES.includes(input['projectType'] as ProjectType)) {
     throw new ValidationError(`projectType must be one of: ${PROJECT_TYPES.join(', ')}`, { projectType: 'invalid' });
   }
+  if (input['links'] !== undefined) {
+    if (!Array.isArray(input['links'])) {
+      throw new ValidationError('links must be an array', { links: 'invalid' });
+    }
+    for (const link of input['links']) {
+      if (typeof link !== 'object' || link === null) {
+        throw new ValidationError('each link must have a label and URL', { links: 'invalid' });
+      }
+      const candidate = link as Record<string, unknown>;
+      const label = String(candidate['label'] ?? '').trim();
+      const rawUrl = String(candidate['url'] ?? '').trim();
+      let parsed: URL;
+      try {
+        parsed = new URL(rawUrl);
+      } catch {
+        throw new ValidationError('each project reference must use a valid URL', { links: 'invalid' });
+      }
+      if (label === '' || !['http:', 'https:'].includes(parsed.protocol)) {
+        throw new ValidationError('each project reference needs a label and an http(s) URL', { links: 'invalid' });
+      }
+    }
+  }
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────

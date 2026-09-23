@@ -102,7 +102,12 @@ export const PROJECTS: Project[] = [
     hasIcaDocumentCollection: true,
     icaDocumentCollectionName: 'Project Imagine',
     icaDocumentCollectionId: '7191f616-dffd-42eb-b2f1-c3eba4291c9e',
-    links: [],
+    links: [
+      {
+        label: 'IBM Meridian product portal',
+        url: 'https://app-imagine-imagine-portal-k7m4-lhvvepk7vjncg.azurewebsites.net',
+      },
+    ],
     tags: [],
   },
 

@@ -51,6 +51,10 @@ export interface AiContext {
   staticContext: string;
   /** Project context — current architecture decisions, active projects. */
   projectContext: string;
+  /** Canonical external references configured on the active project. */
+  projectReferences: Array<{ label: string; url: string }>;
+  /** Name of the active project, used to identify project-specific questions. */
+  activeProjectName: string | null;
   /**
    * Dynamic RAG context — top-N relevant content items retrieved from
    * PostgreSQL FTS for the current user query.

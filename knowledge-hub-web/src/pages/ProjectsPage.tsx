@@ -16,6 +16,7 @@ import {
   type ProjectCategory,
   type ProjectPriority,
   type ProjectType,
+  type ProjectLink,
   type CreateProjectInput,
   type UpdateProjectInput,
 } from '../services/useProjects';
@@ -90,6 +91,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
   const [icaCollectionId, setIcaCollectionId] = useState(initial?.icaDocumentCollectionId ?? '');
   const [gitlabRaw, setGitlabRaw]   = useState((initial?.gitlabPaths ?? []).join('\n'));
   const [githubRaw, setGithubRaw]   = useState((initial?.githubRepos ?? []).join('\n'));
+  const [links, setLinks]           = useState<ProjectLink[]>(initial?.links ?? []);
   const [tags, setTags]             = useState<string[]>(initial?.tags ?? []);
   const [err, setErr]               = useState<string | null>(null);
 
@@ -107,6 +109,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
       setIcaCollectionId(initial?.icaDocumentCollectionId ?? '');
       setGitlabRaw((initial?.gitlabPaths ?? []).join('\n'));
       setGithubRaw((initial?.githubRepos ?? []).join('\n'));
+      setLinks(initial?.links ?? []);
       setTags(initial?.tags ?? []);
       setErr(null);
     }
@@ -117,6 +120,22 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
     if (hasIcaCollection && !icaCollectionName.trim() && !icaCollectionId.trim()) {
       setErr('Enter the ICA document collection name or ID.');
       return;
+    }
+    const normalizedLinks = links
+      .map((link) => ({ label: link.label.trim(), url: link.url.trim() }))
+      .filter((link) => link.label !== '' || link.url !== '');
+    for (const link of normalizedLinks) {
+      if (link.label === '' || link.url === '') {
+        setErr('Each project reference needs both a label and a URL.');
+        return;
+      }
+      try {
+        const parsed = new URL(link.url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('Invalid protocol');
+      } catch {
+        setErr(`"${link.url}" is not a valid http(s) URL.`);
+        return;
+      }
     }
     setErr(null);
     try {
@@ -134,7 +153,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
         icaDocumentCollectionName: hasIcaCollection ? icaCollectionName.trim() : '',
         icaDocumentCollectionId: hasIcaCollection ? icaCollectionId.trim() : '',
         tags,
-        links: initial?.links ?? [],
+        links: normalizedLinks,
       });
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Save failed');
@@ -240,6 +259,59 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
           rows={2}
           onChange={(e) => setGithubRaw(e.target.value)}
         />
+
+        <div className="proj-reference-editor">
+          <div className="proj-reference-editor__heading">
+            <div>
+              <p className="proj-reference-editor__title">Canonical references</p>
+              <p className="proj-reference-editor__help">
+                Product sites or documentation Athena should consult for this project.
+              </p>
+            </div>
+            <Button
+              type="button"
+              kind="ghost"
+              size="sm"
+              renderIcon={Add}
+              onClick={() => { setLinks([...links, { label: '', url: '' }]); }}
+            >
+              Add reference
+            </Button>
+          </div>
+          {links.map((link, index) => (
+            <div className="proj-reference-editor__row" key={`reference-${index}`}>
+              <TextInput
+                id={`pm-link-label-${index}`}
+                labelText="Label"
+                placeholder="Product portal"
+                value={link.label}
+                onChange={(e) => {
+                  setLinks(links.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, label: e.target.value } : item));
+                }}
+              />
+              <TextInput
+                id={`pm-link-url-${index}`}
+                labelText="URL"
+                placeholder="https://..."
+                value={link.url}
+                onChange={(e) => {
+                  setLinks(links.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, url: e.target.value } : item));
+                }}
+              />
+              <Button
+                type="button"
+                kind="ghost"
+                size="md"
+                hasIconOnly
+                renderIcon={TrashCan}
+                iconDescription={`Remove ${link.label || 'reference'}`}
+                onClick={() => { setLinks(links.filter((_, itemIndex) => itemIndex !== index)); }}
+              />
+            </div>
+          ))}
+        </div>
 
         {/* Tags — ComboBox with autocomplete from global_tags + removable pills */}
         <div>
@@ -414,7 +486,7 @@ export const ProjectsPage: React.FC = () => {
                   {project.description && <p className="proj-card-desc">{project.description}</p>}
 
                   {/* Footer */}
-                  {(repos.length > 0 || project.tags.length > 0) && (
+                  {(repos.length > 0 || project.links.length > 0 || project.tags.length > 0) && (
                     <div className="proj-card-footer">
                       {repos.length > 0 && (
                         <div className="proj-card-repos">
@@ -423,6 +495,16 @@ export const ProjectsPage: React.FC = () => {
                               {r.type === 'gitlab' ? <GitLabIcon size={11} /> : <LogoGithub size={11} />}
                               <span>{r.name}</span>
                               <Launch size={10} />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      {project.links.length > 0 && (
+                        <div className="proj-card-repos">
+                          {project.links.map((link) => (
+                            <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="proj-repo proj-repo--reference">
+                              <Launch size={11} />
+                              <span>{link.label}</span>
                             </a>
                           ))}
                         </div>

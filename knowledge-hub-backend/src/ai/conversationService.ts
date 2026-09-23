@@ -36,7 +36,12 @@ export async function handleConversationTurn(
 
   const client = getFoundryClient();
   const tools = await getToolDefinitions();
-  const requiredFirstTool = selectRequiredToolChoice(userMessage, tools);
+  const requiredFirstTool = selectRequiredToolChoice(
+    userMessage,
+    tools,
+    context.projectReferences,
+    context.activeProjectName,
+  );
   const maxTokens = model === 'gpt-5.5' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
 
   for (let i = 0; i < AI_MAX_TOOL_ITERATIONS; i++) {
