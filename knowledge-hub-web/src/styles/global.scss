@@ -4245,44 +4245,45 @@ input, textarea {
     gap: 0.5rem;
   }
 
-  // Message cards — left accent-border cards with small-caps mono role
-  // labels instead of padded rounded chat bubbles. Background kept
-  // transparent here (unlike other Athena surfaces) since the layer fill
-  // reads as a mismatched lighter box against this panel's dark chrome.
+  // Message cards — left accent-stripe cards with small-caps mono role
+  // labels, no boxed outline. A hard 1px border all the way round read as a
+  // mismatched lighter rectangle against this panel's dark chrome, so the
+  // left accent stripe alone (plus a hair of tinted background) carries the
+  // "card" feel instead.
   .ai-bubble {
     max-width: 100%;
     min-width: 0;
-    border-radius: 0.25rem;
-    border: 1px solid var(--cds-border-subtle-01);
-    border-left-width: 2px;
-    background: transparent;
-    padding: 0.5rem 0.625rem;
+    border-radius: 0.375rem;
+    border: 0;
+    border-left: 2px solid transparent;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.625rem 0.75rem;
   }
 
   .ai-bubble--user {
     border-left-color: var(--cds-border-strong-01, #8d8d8d);
-    background: transparent;
   }
 
   .ai-bubble--ai {
     border-left-color: var(--kh-accent);
+    background: var(--kh-accent-bg);
   }
 
   // On-demand note summary shown when the linked note has no chat started
   // yet — same left-accent card language as message bubbles, but framed as
   // a standalone "here's what this note is about" panel rather than a
-  // conversation turn.
+  // conversation turn. No full border here either, for the same reason.
   .ai-note-summary-card {
-    border: 1px solid var(--cds-border-subtle-01);
+    border: 0;
     border-left: 2px solid var(--kh-accent);
-    border-radius: 0.25rem;
-    background: transparent;
-    padding: 0.625rem 0.75rem;
+    border-radius: 0.375rem;
+    background: var(--kh-accent-bg);
+    padding: 0.75rem 0.875rem;
     margin-bottom: 0.5rem;
   }
 
   .ai-note-summary-card__label {
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -4291,8 +4292,8 @@ input, textarea {
   }
 
   .ai-note-summary-card__text {
-    font-size: 0.8125rem;
-    line-height: 1.45;
+    font-size: 0.9375rem;
+    line-height: 1.5;
     color: var(--cds-text-secondary);
     margin: 0;
 
@@ -4302,16 +4303,17 @@ input, textarea {
   }
 
   .ai-bubble-label {
-    font-size: 0.625rem;
-    letter-spacing: 0.1em;
-    margin-bottom: 0.1875rem;
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.25rem;
   }
 
   .ai-bubble-text,
   .ai-bubble-text--md {
     overflow-wrap: anywhere;
     word-break: break-word;
-    font-size: 1.0625rem;
+    font-size: 0.9375rem;
+    line-height: 1.5;
   }
 
   .ai-bubble-footer {
@@ -4325,25 +4327,36 @@ input, textarea {
     opacity: 1;
   }
 
-  // Composer — a single flat-edged input frame consistent with the card
-  // aesthetic used for message cards elsewhere in this panel (not a pill).
+  // Composer — borderless pill that blends into the panel instead of a
+  // boxed field. A static 1px border + --cds-field fill read as a
+  // mismatched lighter rectangle against this panel's dark chrome; a
+  // subtle tinted fill plus an accent glow on focus reads as modern instead.
   .ai-chat-compact__body .ai-input-row {
     gap: 0.375rem;
     padding: 0.125rem;
-    background: var(--cds-field);
-    border: 1px solid var(--cds-border-subtle-01);
-    border-radius: 0.25rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 0;
+    border-radius: 1.5rem;
+    transition: box-shadow 0.15s ease;
+
+    &:focus-within {
+      box-shadow: 0 0 0 1px var(--kh-accent-border);
+    }
   }
 
   .ai-chat-compact__body .ai-input-field {
     background: transparent;
     border: 0;
     border-radius: 0;
-    padding: 0 0.25rem;
+    padding: 0 0.5rem;
+  }
+
+  .ai-chat-compact__body .ai-input-textarea {
+    font-size: 0.9375rem;
   }
 
   .ai-chat-compact__body .ai-send-button.cds--btn.cds--btn--icon-only {
-    border-radius: 0.25rem;
+    border-radius: 50%;
     width: 2.25rem;
     min-width: 2.25rem;
     height: 2.25rem;
