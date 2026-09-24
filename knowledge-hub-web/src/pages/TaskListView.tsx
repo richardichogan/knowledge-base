@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { DatePicker, DatePickerInput, Tag } from '@carbon/react';
 import { CheckmarkFilled, CircleDash, WarningFilled, Time, ChevronRight } from '@carbon/icons-react';
 import { api } from '../services/api';
-import { PROJECTS } from '../config/projects';
+import { useProjects } from '../hooks/useProjects';
 
 // ── Types (mirror TasksPage — kept local to avoid coupling) ──────────────────
 
@@ -40,8 +40,8 @@ function todayStr(): string {
   return toDateStr(new Date());
 }
 
-function getProjectName(id: string): string {
-  return PROJECTS.find((p) => p.id === id)?.name ?? id;
+function getProjectName(id: string, projects: Array<{ id: string; name: string }>): string {
+  return projects.find((p) => p.id === id)?.name ?? id;
 }
 
 function formatDate(iso: string): string {
@@ -73,6 +73,7 @@ function StatusIcon({ status }: { status: TaskStatus }): React.ReactElement {
 export const TaskListView: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
   const queryClient = useQueryClient();
+  const { data: projects = [] } = useProjects();
 
   const { data, isPending, isError } = useQuery({
     queryKey: ['tasks'],
@@ -167,7 +168,7 @@ export const TaskListView: React.FC = () => {
                   <div className="tl-item__body">
                     <div className="tl-item__title">{task.title}</div>
                     <div className="tl-item__meta">
-                      <span className="tl-item__project">{getProjectName(task.projectId)}</span>
+                      <span className="tl-item__project">{getProjectName(task.projectId, projects)}</span>
                       {task.dueDate && task.dueDate < todayStr() && (
                         <Tag type="red" size="sm">Overdue — {formatDate(task.dueDate)}</Tag>
                       )}

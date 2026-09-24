@@ -16,7 +16,7 @@ import { TasksPage } from './TasksPage';
 import { TaskListView } from './TaskListView';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useDueNotifications } from '../hooks/useDueNotifications';
-import { PROJECTS } from '../config/projects';
+import { useProjects } from '../hooks/useProjects';
 
 type PlanView = 'calendar' | 'board' | 'list';
 
@@ -38,6 +38,7 @@ export const PlanPage: React.FC = () => {
   const [filterProject, setFilterProject] = useState('');
   const [filterTag,     setFilterTag]     = useState('');
   const flatTags = useFlatTags();
+  const { data: projects = [] } = useProjects();
 
   // Fire OS/browser notifications for tasks due today (once per session)
   useDueNotifications();
@@ -53,7 +54,7 @@ export const PlanPage: React.FC = () => {
               <Select id="plan-filter-project" labelText="" hideLabel size="sm"
                 value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
                 <SelectItem value="" text="All projects" />
-                {PROJECTS.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
+                {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
               </Select>
               <Select id="plan-filter-tag" labelText="" hideLabel size="sm"
                 value={filterTag} onChange={(e) => setFilterTag(e.target.value)}>

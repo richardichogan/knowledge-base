@@ -11,7 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';im
 } from '@carbon/react';
 import { Add, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
 import { api } from '../services/api';
-import { PROJECTS } from '../config/projects';
+import { useProjects, type ProjectRecord } from '../services/useProjects';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { TagPicker } from '../components/TagPicker';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
@@ -68,8 +68,8 @@ const PRIORITY_LABEL: Record<TaskPriority, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getProjectName(id: string): string {
-  return PROJECTS.find((p) => p.id === id)?.name ?? id;
+function getProjectName(id: string, projects: ProjectRecord[]): string {
+  return projects.find((p) => p.id === id)?.name ?? id;
 }
 
 function formatDue(iso: string): string {
@@ -143,10 +143,11 @@ const CardMenu: React.FC<{
 
 const TaskCard: React.FC<{
   task: Task;
+  projects: ProjectRecord[];
   onMove: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
   onEdit: (task: Task) => void;
-}> = ({ task, onMove, onDelete, onEdit }) => {
+}> = ({ task, projects, onMove, onDelete, onEdit }) => {
   const [dragging, setDragging] = useState(false);
   const flatTags = useFlatTags();
 
@@ -201,7 +202,7 @@ const TaskCard: React.FC<{
     )}
 
     <div className="kb-card__footer">
-      <span className="kb-card__project">{getProjectName(task.projectId)}</span>
+      <span className="kb-card__project">{getProjectName(task.projectId, projects)}</span>
       <div className="kb-card__footer-right">
         {task.recurringCadence != null && (
           <span className="kb-card__recur" title={`Repeats ${task.recurringCadence}`}>
@@ -594,11 +595,12 @@ const TaskModal: React.FC<{
   open: boolean;
   initial: Task | null;
   defaultStatus: TaskStatus;
+  projects: ProjectRecord[];
   onClose: () => void;
   onSave: (data: Partial<Task> & { title: string }) => void;
   saving: boolean;
   error: string | null;
-}> = ({ open, initial, defaultStatus, onClose, onSave, saving, error }) => {
+}> = ({ open, initial, defaultStatus, projects, onClose, onSave, saving, error }) => {
   const [title,       setTitle]       = useState('');
   const [body,        setBody]        = useState('');
   const [status,      setStatus]      = useState<TaskStatus>(defaultStatus);
@@ -686,7 +688,7 @@ const TaskModal: React.FC<{
         {/* Project + Status — side by side */}
         <div className="kb-modal-form__row">
           <Select id="t-project" labelText="Project" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            {PROJECTS.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
+            {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
           </Select>
           <Select id="t-status" labelText="Status" value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
             {COLUMNS.map((c) => <SelectItem key={c.id} value={c.id} text={c.label} />)}
@@ -833,6 +835,7 @@ export const TasksPage: React.FC<{
   const filterProject = filterProjectProp ?? filterProjectLocal;
   const filterTag     = filterTagProp     ?? filterTagLocal;
   const flatTags = useFlatTags();
+  const { projects } = useProjects();
 
   const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
 
@@ -927,7 +930,7 @@ export const TasksPage: React.FC<{
             onChange={(e) => setFilterProjectLocal(e.target.value)}
           >
             <SelectItem value="" text="All projects" />
-            {PROJECTS.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
+            {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
           </Select>
           <Select
             id="kb-filter-tag"
@@ -1000,6 +1003,7 @@ export const TasksPage: React.FC<{
                   <TaskCard
                     key={task.id}
                     task={task}
+                    projects={projects}
                     onMove={(id, s) => moveTaskMutation.mutate({ id, status: s })}
                     onDelete={(id) => deleteMutation.mutate(id)}
                     onEdit={(t) => { setEditTask(t); setModalOpen(true); }}
@@ -1030,6 +1034,7 @@ export const TasksPage: React.FC<{
         open={modalOpen}
         initial={editTask}
         defaultStatus={addStatus}
+        projects={projects}
         error={saveError}
         onClose={() => { setModalOpen(false); setEditTask(null); setSaveError(null); }}
         onSave={(input) => {

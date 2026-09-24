@@ -8,7 +8,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
-import { PROJECTS } from '../config/projects';
+import { useProjects } from '../hooks/useProjects';
 import type { TaskDestination } from '../types/task';
 
 interface Props {
@@ -36,9 +36,15 @@ export const CreateTaskFromSelectionModal: React.FC<Props> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const { data: projects = [] } = useProjects();
+  const startedRef = useRef(false);
 
-  // Ask AI to suggest title, description and project
+  // Ask AI to suggest title, description and project. Waits for the project
+  // list to load (DB-backed, falls back to static config) so newly created
+  // projects can be suggested/matched too.
   useEffect(() => {
+    if (projects.length === 0 || startedRef.current) return;
+    startedRef.current = true;
     let cancelled = false;
     void (async () => {
       try {
@@ -46,7 +52,7 @@ export const CreateTaskFromSelectionModal: React.FC<Props> = ({
 Return ONLY a JSON object with these fields:
 - title: short action-oriented task title (max 10 words)
 - description: a 1-3 sentence description of what needs to be done
-- projectId: the best matching project id from this list: ${PROJECTS.map((p) => `${p.id} (${p.name})`).join(', ')}
+- projectId: the best matching project id from this list: ${projects.map((p) => `${p.id} (${p.name})`).join(', ')}
 
 Text:
 """
@@ -63,7 +69,7 @@ Respond with only the JSON object, no markdown, no explanation.`;
           const suggestion = JSON.parse(raw) as AiSuggestion;
           setTitle(suggestion.title ?? '');
           setDescription(suggestion.description ?? '');
-          const matchedProject = PROJECTS.find((p) => p.id === suggestion.projectId);
+          const matchedProject = projects.find((p) => p.id === suggestion.projectId);
           if (matchedProject) setProjectId(matchedProject.id);
         } else {
           // Fallback: use first 80 chars of selected text as title
@@ -84,7 +90,7 @@ Respond with only the JSON object, no markdown, no explanation.`;
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [projects.length]);
 
   async function handleCreate(): Promise<void> {
     if (!title.trim()) return;
@@ -170,7 +176,7 @@ Respond with only the JSON object, no markdown, no explanation.`;
               onChange={(e) => setProjectId(e.target.value)}
               disabled={aiLoading}
             >
-              {PROJECTS.map((p) => (
+              {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
