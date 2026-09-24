@@ -123,6 +123,30 @@ export const JOB_DB_CONCURRENCY = 4;
 // chat client already allows 90s (see CHAT_TIMEOUT_MS in api.ts), so give
 // the backend->Foundry call headroom to match instead of cutting it off first.
 export const AI_REQUEST_TIMEOUT_MS = 60_000;
+/**
+ * Per-request Foundry timeout for reasoning models (gpt-5.5). These models
+ * spend real wall-clock time on hidden reasoning tokens before producing any
+ * visible output, so with the larger AI_REASONING_MODEL_MAX_TOKENS budget a
+ * single legitimate, still-succeeding generation can take well over 60s.
+ * Observed in production: "Request to gpt-5.5 timed out after 60000ms" on
+ * turns that were still actively generating, not stalled — the flat
+ * AI_REQUEST_TIMEOUT_MS used for gpt-4o/gpt-4o mini was too tight for this
+ * model family.
+ */
+export const AI_REASONING_MODEL_REQUEST_TIMEOUT_MS = 100_000;
+/**
+ * Overall wall-clock budget for a full conversation turn, covering every
+ * tool-calling round trip (see AI_MAX_TOOL_ITERATIONS). A reasoning-model
+ * turn that also calls tools (e.g. Tavily search) can otherwise exceed the
+ * frontend's own CHAT_TIMEOUT_MS before the backend gives up, so the user
+ * sees a confusing client-side timeout while the backend is still (slowly)
+ * working underneath it. Kept comfortably under the frontend's timeout (see
+ * CHAT_TIMEOUT_MS in api.ts) so the backend always has time to return a
+ * clear, in-band message before the client-side connection is abandoned.
+ */
+export const AI_CONVERSATION_TURN_BUDGET_MS = 110_000;
+/** Minimum time left in the turn budget to justify starting another tool round instead of giving up early. */
+export const AI_MIN_TOOL_ROUND_BUDGET_MS = 20_000;
 // External HTTP fetches (blog admin API) must also time out.
 export const EXTERNAL_FETCH_TIMEOUT_MS = 20_000;
 

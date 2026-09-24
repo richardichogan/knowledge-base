@@ -31,7 +31,11 @@ const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
 // AI chat turns can chain several tool calls (KG search, Library search, task
 // writes) plus an LLM generation pass — this routinely exceeds the default
 // 8s timeout, which was silently killing the request with no visible error.
-const CHAT_TIMEOUT_MS = 90_000;
+// Kept just above the backend's own AI_CONVERSATION_TURN_BUDGET_MS (110s,
+// see constants.ts) so a reasoning-model (gpt-5.5) turn that legitimately
+// needs the full backend budget still gets a chance to finish before the
+// client gives up on it.
+const CHAT_TIMEOUT_MS = 120_000;
 
 function makeClient(baseURL: string, token: string): AxiosInstance {
   return axios.create({

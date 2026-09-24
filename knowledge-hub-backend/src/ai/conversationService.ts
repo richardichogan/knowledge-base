@@ -3,7 +3,7 @@ import { getFoundryClient } from './foundryClient.js';
 import type { LlmMessage } from './foundryClient.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
-import { AI_MAX_TOOL_ITERATIONS, AI_DEFAULT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS } from '../config/constants.js';
+import { AI_MAX_TOOL_ITERATIONS, AI_DEFAULT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
@@ -44,13 +44,29 @@ export async function handleConversationTurn(
   );
   const maxTokens = model === 'gpt-5.5' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
 
+  // Reasoning-model turns that also call tools can take long enough,
+  // round after round, that the frontend's own request timeout fires first
+  // — leaving the user staring at a confusing client-side "timed out"
+  // message while the backend is still (slowly) working. Track a wall-clock
+  // budget across the whole loop so a round that can't realistically finish
+  // in time is never started, and clamp each round's own request timeout to
+  // whatever's left so we always have time to return a clear message.
+  const turnStart = Date.now();
+
   for (let i = 0; i < AI_MAX_TOOL_ITERATIONS; i++) {
+    const remainingBudgetMs = AI_CONVERSATION_TURN_BUDGET_MS - (Date.now() - turnStart);
+    if (i > 0 && remainingBudgetMs < AI_MIN_TOOL_ROUND_BUDGET_MS) {
+      console.warn(`[ai] Stopping tool loop after ${i} round(s) — turn budget exhausted`);
+      return "This is taking longer than expected — could you try again, or ask a more specific question?";
+    }
+
     const response = await client.chatWithTools(
       model,
       messages,
       tools,
       maxTokens,
       i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto',
+      Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS),
     );
 
     if (response.toolCalls.length === 0) {

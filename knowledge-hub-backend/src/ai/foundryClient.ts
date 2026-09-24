@@ -1,6 +1,10 @@
 import { env } from '../config/env.js';
 import { AiError } from '../types/errors.js';
-import { AI_DEFAULT_MAX_TOKENS, AI_REQUEST_TIMEOUT_MS } from '../config/constants.js';
+import {
+  AI_DEFAULT_MAX_TOKENS,
+  AI_REQUEST_TIMEOUT_MS,
+  AI_REASONING_MODEL_REQUEST_TIMEOUT_MS,
+} from '../config/constants.js';
 import type { ConversationMessage, AiModel } from '../types/aiContext.js';
 
 /** A single tool call the model wants the caller to execute. */
@@ -64,6 +68,11 @@ export class FoundryClient {
     return { endpoint: env.AZURE_OPENAI_ENDPOINT, apiKey: env.AZURE_OPENAI_API_KEY };
   }
 
+  /** gpt-5.5 (reasoning) needs a much longer per-request timeout than gpt-4o/gpt-4o mini — see constants.ts. */
+  private getDefaultTimeoutMs(model: AiModel): number {
+    return model === 'gpt-5.5' ? AI_REASONING_MODEL_REQUEST_TIMEOUT_MS : AI_REQUEST_TIMEOUT_MS;
+  }
+
   /**
    * Sends a chat completion request to Azure AI Foundry.
    * @param model GPT-4o for complex reasoning; GPT-4o mini for lightweight tasks.
@@ -97,8 +106,9 @@ export class FoundryClient {
     tools: LlmToolDefinition[],
     maxTokens = AI_DEFAULT_MAX_TOKENS,
     toolChoice: LlmToolChoice = 'auto',
+    timeoutMs?: number,
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
-    const data = await this.request(model, messages, tools, maxTokens, toolChoice);
+    const data = await this.request(model, messages, tools, maxTokens, toolChoice, timeoutMs);
     const message = data.choices[0]?.message;
 
     if (!message) {
@@ -128,10 +138,12 @@ export class FoundryClient {
     tools: LlmToolDefinition[] | undefined,
     maxTokens: number,
     toolChoice: LlmToolChoice = 'auto',
+    timeoutMsOverride?: number,
   ): Promise<ChatCompletionResponse> {
     const deployment = this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
     const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
+    const timeoutMs = timeoutMsOverride ?? this.getDefaultTimeoutMs(model);
 
     let response: Response;
     try {
@@ -148,7 +160,7 @@ export class FoundryClient {
           ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: toolChoice }),
         }),
         // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.
-        signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       // AbortSignal.timeout() rejects with a raw DOMException, not an
@@ -158,7 +170,7 @@ export class FoundryClient {
       const isTimeout = err instanceof Error && err.name === 'TimeoutError';
       throw new AiError(
         isTimeout
-          ? `Request to ${model} timed out after ${AI_REQUEST_TIMEOUT_MS}ms`
+          ? `Request to ${model} timed out after ${timeoutMs}ms`
           : `Request to ${model} failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
