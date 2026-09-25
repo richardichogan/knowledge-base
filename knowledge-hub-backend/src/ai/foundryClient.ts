@@ -56,21 +56,21 @@ interface ChatCompletionResponse {
 export class FoundryClient {
   private getDeployment(model: AiModel): string {
     if (model === 'gpt-4o') return env.AZURE_OPENAI_DEPLOYMENT_GPT4O;
-    if (model === 'gpt-5.5') return env.AZURE_OPENAI_DEPLOYMENT_GPT55;
+    if (model === 'gpt-5.4') return env.AZURE_OPENAI_DEPLOYMENT_GPT54;
     return env.AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI;
   }
 
-  /** Resolves the endpoint + api key to use for a given model — gpt-5.5 lives on a separate resource. */
+  /** Resolves the endpoint + api key to use for a given model — gpt-5.4 can live on a separate resource. */
   private getConnection(model: AiModel): { endpoint: string | undefined; apiKey: string | undefined } {
-    if (model === 'gpt-5.5' && env.AZURE_OPENAI_ENDPOINT_GPT55) {
-      return { endpoint: env.AZURE_OPENAI_ENDPOINT_GPT55, apiKey: env.AZURE_OPENAI_API_KEY_GPT55 };
+    if (model === 'gpt-5.4' && env.AZURE_OPENAI_ENDPOINT_GPT54) {
+      return { endpoint: env.AZURE_OPENAI_ENDPOINT_GPT54, apiKey: env.AZURE_OPENAI_API_KEY_GPT54 };
     }
     return { endpoint: env.AZURE_OPENAI_ENDPOINT, apiKey: env.AZURE_OPENAI_API_KEY };
   }
 
-  /** gpt-5.5 (reasoning) needs a much longer per-request timeout than gpt-4o/gpt-4o mini — see constants.ts. */
+  /** gpt-5.4 (reasoning) needs a much longer per-request timeout than gpt-4o/gpt-4o mini — see constants.ts. */
   private getDefaultTimeoutMs(model: AiModel): number {
-    return model === 'gpt-5.5' ? AI_REASONING_MODEL_REQUEST_TIMEOUT_MS : AI_REQUEST_TIMEOUT_MS;
+    return model === 'gpt-5.4' ? AI_REASONING_MODEL_REQUEST_TIMEOUT_MS : AI_REQUEST_TIMEOUT_MS;
   }
 
   /**
@@ -123,13 +123,13 @@ export class FoundryClient {
   }
 
   /**
-   * Reasoning-family models (currently gpt-5.5) reject any `temperature`
+   * Reasoning-family models (currently gpt-5.4) reject any `temperature`
    * value other than the API default of 1 — Azure returns a 400
    * "Unsupported value" error if we send 0.7 like we do for gpt-4o/gpt-4o
    * mini. Omit the field entirely for those models instead of sending it.
    */
   private supportsCustomTemperature(model: AiModel): boolean {
-    return model !== 'gpt-5.5';
+    return model !== 'gpt-5.4';
   }
 
   private async request(

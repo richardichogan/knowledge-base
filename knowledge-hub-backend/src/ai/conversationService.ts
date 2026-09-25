@@ -42,7 +42,7 @@ export async function handleConversationTurn(
     context.projectReferences,
     context.activeProjectName,
   );
-  const maxTokens = model === 'gpt-5.5' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
+  const maxTokens = model === 'gpt-5.4' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
 
   // Reasoning-model turns that also call tools can take long enough,
   // round after round, that the frontend's own request timeout fires first

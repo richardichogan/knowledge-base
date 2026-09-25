@@ -23,7 +23,7 @@ const router = Router();
  * restarts/redeploys and can be restored by the frontend after a reload.
  * The model only ever sees a rolling summary + recent messages, not the
  * full raw history, so long-running sessions stay cheap (see chatSessionStore).
- * Body: { sessionId?: string, message: string, model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5' }
+ * Body: { sessionId?: string, message: string, model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4' }
  * If sessionId is omitted, a new session is created and its ID returned.
  */
 router.post('/chat', (req: Request, res: Response, next: NextFunction): void => {
@@ -32,7 +32,7 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext, noteId } = req.body as {
         sessionId?: string;
         message?: string;
-        model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
+        model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
         persona?: string;
         projectId?: string | null;
         pageContext?: ChatPageContext;
@@ -70,11 +70,9 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       }
       const persona = requestedPersona ?? (await getSessionPersona(db, effectiveSessionId));
 
-      // The brainstorming and blog_post personas use the reasoning-model route
-      // by default. The logical model name remains "gpt-5.5" in code, while
-      // production maps AZURE_OPENAI_DEPLOYMENT_GPT55 to the actual deployed
-      // slot (currently gpt-5.4).
-      const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' ? 'gpt-5.5' : 'gpt-4o');
+      // The brainstorming and blog_post personas use the deployed reasoning
+      // model route by default.
+      const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' ? 'gpt-5.4' : 'gpt-4o');
 
       const reply = await handleConversationTurn(db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext);
 

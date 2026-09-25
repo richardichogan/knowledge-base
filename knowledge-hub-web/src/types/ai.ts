@@ -2,9 +2,9 @@
  * AI conversation types — mirrors backend aiContext types.
  */
 
-// 'gpt-5.5' is used automatically for the brainstorming persona (backend
-// picks it by default) — not currently selectable from the frontend.
-export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
+// 'gpt-5.4' is used automatically for reasoning personas (backend picks it by
+// default) — not currently selectable from the frontend.
+export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
 
 export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post';
 

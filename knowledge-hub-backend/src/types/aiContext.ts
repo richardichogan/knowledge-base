@@ -5,11 +5,9 @@
 import type { ContentItem } from './contentItem.js';
 import type { MemoryItem } from '../ai/memoryRetriever.js';
 
-// 'gpt-5.5' is served from a separate Azure AI Foundry resource (a different
-// subscription/project) than 'gpt-4o' / 'gpt-4o-mini' — see foundryClient.ts.
-// It is used for the brainstorming persona, which benefits from stronger
-// reasoning for critique than the main conversational model provides.
-export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.5';
+// 'gpt-5.4' is the deployed reasoning-model route used by personas that need
+// deeper critique/long-form generation than the main conversational model.
+export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
 
 /**
  * Athena persona — selectable per chat session. "general" is the default

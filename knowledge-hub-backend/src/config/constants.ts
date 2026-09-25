@@ -124,11 +124,11 @@ export const JOB_DB_CONCURRENCY = 4;
 // the backend->Foundry call headroom to match instead of cutting it off first.
 export const AI_REQUEST_TIMEOUT_MS = 60_000;
 /**
- * Per-request Foundry timeout for reasoning models (gpt-5.5). These models
+ * Per-request Foundry timeout for reasoning models (gpt-5.4). These models
  * spend real wall-clock time on hidden reasoning tokens before producing any
  * visible output, so with the larger AI_REASONING_MODEL_MAX_TOKENS budget a
  * single legitimate, still-succeeding generation can take well over 60s.
- * Observed in production: "Request to gpt-5.5 timed out after 60000ms" on
+ * Observed in production: reasoning-model requests can exceed the default 60s on
  * turns that were still actively generating, not stalled — the flat
  * AI_REQUEST_TIMEOUT_MS used for gpt-4o/gpt-4o mini was too tight for this
  * model family.
@@ -189,7 +189,7 @@ export const BLOB_UPLOAD_TIMEOUT_MS = 30_000;
 /** Default max tokens for AI completion requests. */
 export const AI_DEFAULT_MAX_TOKENS = 2_000;
 /**
- * Max tokens for reasoning-family models (gpt-5.5). These models spend part of
+ * Max tokens for reasoning-family models (gpt-5.4). These models spend part of
  * the completion-token budget on hidden reasoning tokens before producing any
  * visible content, so the plain AI_DEFAULT_MAX_TOKENS budget can be exhausted
  * entirely by reasoning on a long/complex turn (e.g. drafting several answers
