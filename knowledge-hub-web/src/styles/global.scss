@@ -1017,6 +1017,78 @@ input, textarea {
     padding-left: 0.15em;
   }
 
+  .kh-structured-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    background: color-mix(in srgb, var(--cds-layer-01) 88%, var(--kh-accent-bg));
+    border: 1px solid var(--cds-border-subtle-01);
+    border-left: 3px solid var(--kh-accent);
+    border-radius: 0.55rem;
+    padding: 0.75rem 0.85rem;
+    margin: 0 0 0.65em;
+  }
+
+  .kh-structured-card__title {
+    color: var(--cds-text-primary);
+    font-size: 0.98rem;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .kh-structured-card__rows {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .kh-structured-card__row {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 0.36fr) 1fr;
+    gap: 0.55rem;
+    align-items: baseline;
+    padding-top: 0.45rem;
+    border-top: 1px solid var(--cds-border-subtle-01);
+
+    &:first-child {
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    dt {
+      color: var(--cds-text-secondary);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      line-height: 1.35;
+      text-transform: uppercase;
+    }
+
+    dd {
+      margin: 0;
+      color: var(--cds-text-primary);
+      line-height: 1.45;
+
+      > *:first-child { margin-top: 0; }
+      > *:last-child { margin-bottom: 0; }
+    }
+  }
+
+  .kh-structured-card__section {
+    padding-top: 0.45rem;
+    border-top: 1px solid var(--cds-border-subtle-01);
+    color: var(--kh-accent);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.35;
+    text-transform: uppercase;
+
+    &:first-child {
+      padding-top: 0;
+      border-top: 0;
+    }
+  }
+
   blockquote {
     border-left: 3px solid var(--kh-accent);
     margin: 0 0 0.6em;
@@ -4345,6 +4417,18 @@ input, textarea {
     word-break: break-word;
     font-size: 0.9375rem;
     line-height: 1.5;
+  }
+
+  .ai-bubble-text--md {
+    .kh-structured-card {
+      padding: 0.7rem 0.75rem;
+      border-radius: 0.45rem;
+    }
+
+    .kh-structured-card__row {
+      grid-template-columns: 1fr;
+      gap: 0.15rem;
+    }
   }
 
   .ai-bubble-footer {

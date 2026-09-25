@@ -290,9 +290,30 @@ function buildTaskCardHtml(title: string, fields: Record<string, string>, overdu
   ].filter(Boolean).join('');
 }
 
+function buildStructuredCardHtml(title: string, rows: Array<{ label: string; value: string }>): string {
+  return [
+    '<div class="kh-structured-card">',
+    title !== '' ? `<div class="kh-structured-card__title">${escapeHtml(title)}</div>` : '',
+    '<div class="kh-structured-card__rows">',
+    ...rows.map((row) => (
+      row.value === ''
+        ? `<div class="kh-structured-card__section">${escapeHtml(row.label)}</div>`
+        : [
+            '<div class="kh-structured-card__row">',
+            `<dt>${escapeHtml(row.label)}</dt>`,
+            `<dd>${renderMarkdown(row.value)}</dd>`,
+            '</div>',
+          ].join('')
+    )),
+    '</div>',
+    '</div>',
+  ].filter(Boolean).join('');
+}
+
 const TASK_TITLE_RE = /^\*\*(.+?)\*\*\s*$/;
 const TASK_FIELD_RE = /^(Status|Priority|Project|Due|Link)\s*:\s*(.+)$/i;
 const TASK_OVERDUE_RE = /^(?:⚠️\s*)?overdue\s*$/i;
+const STRUCTURED_FIELD_RE = /^([A-Z][A-Za-z0-9 /&().'-]{1,48})\s*:\s*(.*)$/;
 
 // Scans assistant text line-by-line for task-summary blocks and swaps them
 // for real cards, running everything else through the normal markdown +
@@ -339,6 +360,33 @@ function renderAssistantMessage(raw: string): string {
       if (Object.keys(fields).length >= 2) {
         flushText();
         htmlParts.push(buildTaskCardHtml(titleMatch[1] ?? '', fields, overdue));
+        i = j;
+        continue;
+      }
+    }
+    const currentLine = (lines[i] ?? '').trim();
+    const nextLine = (lines[i + 1] ?? '').trim();
+    const currentIsField = STRUCTURED_FIELD_RE.test(currentLine);
+    const nextIsField = STRUCTURED_FIELD_RE.test(nextLine);
+    if (currentLine !== '' && (currentIsField || nextIsField)) {
+      const title = currentIsField ? '' : currentLine;
+      let j = currentIsField ? i : i + 1;
+      const rows: Array<{ label: string; value: string }> = [];
+      while (j < lines.length) {
+        const fieldLine = (lines[j] ?? '').trim();
+        if (fieldLine === '') {
+          j += 1;
+          if (rows.length > 0) break;
+          continue;
+        }
+        const fieldMatch = STRUCTURED_FIELD_RE.exec(fieldLine);
+        if (!fieldMatch) break;
+        rows.push({ label: fieldMatch[1]!.trim(), value: fieldMatch[2]!.trim() });
+        j += 1;
+      }
+      if (rows.length >= 2) {
+        flushText();
+        htmlParts.push(buildStructuredCardHtml(title, rows));
         i = j;
         continue;
       }
