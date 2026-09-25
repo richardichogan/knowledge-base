@@ -19,9 +19,21 @@ import { PROJECTS } from '../config/projects';
 import { renderMarkdown } from '../utils/markdown';
 import { createNote } from '../notes/noteStorage';
 import { markdownToNoteBlocks } from '../notes/markdownToBlocks';
+import type { ContentType } from '../notes/constants';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
+
+type AthenaThinkContentType = Extract<ContentType, 'blog' | 'newsletter'>;
+
+interface PendingThinkSave {
+  response: ChatMessage;
+  messageIndex: number;
+  projectId: string;
+  projectName: string;
+  title: string;
+  prompt: string;
+}
 
 interface AIChatPageProps {
   /** Renders without the page header/wrapper padding, for use in a floating widget. */
@@ -390,6 +402,35 @@ function deriveThinkTitle(response: string, projectName?: string): string {
   return projectName && projectName !== 'personal' ? `${projectName}: ${title}` : title;
 }
 
+const ATHENA_DEFAULT_PROJECT_ID = 'ibm-thought-leadership';
+
+function inferAthenaContentType(response: string, prompt: string, title: string): AthenaThinkContentType | null {
+  const titleText = stripMarkdownForTitle(title).toLowerCase();
+  const combined = `${title}\n${prompt}\n${response}`.toLowerCase();
+  const newsletterSignal =
+    /\bnewsletter\b/.test(combined) ||
+    /\breaching for the cloud\b/.test(combined) ||
+    /\bedition\s+\d+\b/.test(titleText);
+  const blogSignal =
+    /\bblog post\b/.test(combined) ||
+    /\bquick post\b/.test(combined) ||
+    /\bfull post\b/.test(combined) ||
+    /\bcms package\b/.test(combined) ||
+    /\bthe microsoft cloud blog\b/.test(combined);
+
+  if (newsletterSignal && !blogSignal) return 'newsletter';
+  if (blogSignal && !newsletterSignal) return 'blog';
+  if (/\bnewsletter edition\b/.test(titleText)) return 'newsletter';
+  return null;
+}
+
+function parseAthenaThinkContentTypeChoice(text: string): AthenaThinkContentType | null {
+  const normalised = text.trim().toLowerCase();
+  if (/\bnewsletter\b/.test(normalised)) return 'newsletter';
+  if (/\bblog\b/.test(normalised)) return 'blog';
+  return null;
+}
+
 // Delegated click handler for the "Copy" button injected into fenced code
 // blocks by renderMarkdown() — avoids attaching a listener per code block
 // inside dangerouslySetInnerHTML content.
@@ -485,6 +526,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [projectError, setProjectError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
+  const [pendingThinkSave, setPendingThinkSave] = useState<PendingThinkSave | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string | null>(null);
   const [activeImageContext, setActiveImageContext] = useState<AthenaPageContext | null>(null);
@@ -696,6 +738,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     persistSessionId(id);
     setMessages([]);
     setPendingActions([]);
+    setPendingThinkSave(null);
     setIsRestoringHistory(true);
     void api.getSessionHistory(id).then((result) => {
       if (result.success) setMessages(result.data.messages);
@@ -876,6 +919,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       : '');
     if (text === '') return;
 
+    if (pendingThinkSave !== null) {
+      appendMessage('user', text);
+      setInput('');
+      const contentType = parseAthenaThinkContentTypeChoice(text);
+      if (contentType === null) {
+        appendMessage('assistant', 'Please reply with either **blog** or **newsletter** so I can save the pending Athena response to Think.');
+        return;
+      }
+      const save = pendingThinkSave;
+      setPendingThinkSave(null);
+      await persistResponseToThink(save, contentType);
+      return;
+    }
+
     if (pendingFile !== null) {
       await uploadAttachedFile(pendingFile, text);
       return;
@@ -1017,6 +1074,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
+    setPendingThinkSave(null);
     setPersona(initialPersona ?? 'general');
     setActiveProjectId('');
     setProjectError(null);
@@ -1101,42 +1159,57 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     return '';
   }
 
-  async function handleSaveResponseToThink(response: ChatMessage, messageIndex: number): Promise<void> {
-    if (response.role !== 'assistant' || savingResponseIndex !== null) return;
-    setSavingResponseIndex(messageIndex);
+  async function persistResponseToThink(save: PendingThinkSave, contentType: AthenaThinkContentType): Promise<void> {
+    setSavingResponseIndex(save.messageIndex);
     try {
-      const projectId = activeProjectId !== '' ? activeProjectId : undefined;
-      const projectName = projectId !== undefined ? projectNameById.get(projectId) ?? projectId : undefined;
-      const title = deriveThinkTitle(response.content, projectName);
-      const prompt = getPreviousUserPrompt(messageIndex);
       const contextLines = [
         'Source: Athena response',
         `Captured: ${new Date().toLocaleString()}`,
         `Persona: ${persona.replace(/_/g, ' ')}`,
-        projectName !== undefined ? `Project: ${projectName}` : 'Project: General chat',
+        `Project: ${save.projectName}`,
+        `Content type: ${contentType === 'newsletter' ? 'Newsletter edition' : 'Blog draft'}`,
         pageContext ? `Page context: ${pageContext.title}` : '',
       ].filter((line) => line !== '');
       const noteMarkdown = [
-        `# ${title}`,
+        `# ${save.title}`,
         contextLines.join('\n'),
-        prompt !== '' ? `## User question\n\n${prompt}` : '',
-        `## Athena response\n\n${response.content}`,
+        save.prompt !== '' ? `## User question\n\n${save.prompt}` : '',
+        `## Athena response\n\n${save.response.content}`,
       ].filter((block) => block !== '').join('\n\n');
 
       const note = await createNote({
-        title,
-        contentType: 'note',
+        title: save.title,
+        contentType,
         contentJson: JSON.stringify(markdownToNoteBlocks(noteMarkdown)),
-      }, projectId);
+      }, save.projectId);
       if (note === null) throw new Error('Could not save response to Think');
       await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
-      navigate(`/think?noteId=${encodeURIComponent(note.id)}`);
+      appendMessage('assistant', `✅ Saved to Think under **${save.projectName}** as **${contentType === 'newsletter' ? 'Newsletter edition' : 'Blog draft'}**.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save response to Think';
       appendMessage('assistant', `⚠️ ${message}`);
     } finally {
       setSavingResponseIndex(null);
     }
+  }
+
+  async function handleSaveResponseToThink(response: ChatMessage, messageIndex: number): Promise<void> {
+    if (response.role !== 'assistant' || savingResponseIndex !== null) return;
+    const projectId = activeProjectId !== '' ? activeProjectId : ATHENA_DEFAULT_PROJECT_ID;
+    const projectName = projectNameById.get(projectId) ?? projectId;
+    const title = deriveThinkTitle(response.content);
+    const prompt = getPreviousUserPrompt(messageIndex);
+    const save: PendingThinkSave = { response, messageIndex, projectId, projectName, title, prompt };
+    const contentType = inferAthenaContentType(response.content, prompt, title);
+    if (contentType === null) {
+      setPendingThinkSave(save);
+      appendMessage(
+        'assistant',
+        'I can save this to Think, but I need one detail first: should this be saved as a **blog draft** or a **newsletter edition**?',
+      );
+      return;
+    }
+    await persistResponseToThink(save, contentType);
   }
 
   async function startRecording(): Promise<void> {

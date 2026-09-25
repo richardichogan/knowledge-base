@@ -8,7 +8,36 @@
 export interface NoteBlock {
   type: 'heading' | 'paragraph';
   props?: { level: number };
-  content: Array<{ type: 'text'; text: string; styles: Record<string, never> }>;
+  content: Array<{ type: 'text'; text: string; styles: Partial<Record<'bold' | 'italic' | 'code', boolean>> }>;
+}
+
+type InlineStyle = NoteBlock['content'][number]['styles'];
+
+function parseInlineMarkdown(text: string): NoteBlock['content'] {
+  const segments: NoteBlock['content'] = [];
+  const pattern = /(\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', text: text.slice(lastIndex, match.index), styles: {} });
+    }
+
+    const styles: InlineStyle = {};
+    const matchedText = match[2] ?? match[3] ?? match[4] ?? '';
+    if (match[2] !== undefined) styles.bold = true;
+    if (match[3] !== undefined) styles.code = true;
+    if (match[4] !== undefined) styles.italic = true;
+    segments.push({ type: 'text', text: matchedText, styles });
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push({ type: 'text', text: text.slice(lastIndex), styles: {} });
+  }
+
+  return segments.length > 0 ? segments : [{ type: 'text', text, styles: {} }];
 }
 
 /**
@@ -24,9 +53,9 @@ export function markdownToNoteBlocks(text: string): NoteBlock[] {
       return {
         type: 'heading' as const,
         props: { level: hashes.length },
-        content: [{ type: 'text' as const, text: headingMatch[2] ?? '', styles: {} }],
+        content: parseInlineMarkdown(headingMatch[2] ?? ''),
       };
     }
-    return { type: 'paragraph' as const, content: [{ type: 'text' as const, text: p, styles: {} }] };
+    return { type: 'paragraph' as const, content: parseInlineMarkdown(p) };
   });
 }

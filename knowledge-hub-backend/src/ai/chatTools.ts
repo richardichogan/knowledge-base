@@ -36,6 +36,7 @@ const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 const NOTE_CONTENT_TYPES = [
   'blog', 'podcast', 'podcast-show-notes', 'newsletter', 'project', 'note', 'script', 'architecture', 'meeting', 'research', 'spec', 'use-case',
 ] as const;
+const DEFAULT_ATHENA_NOTE_PROJECT_ID = 'ibm-thought-leadership';
 
 export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const learnTools = await getLearnMcpTools();
@@ -213,6 +214,11 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
                 'lines starting with #, ## or ### become headings.',
             },
             contentType: { type: 'string', enum: [...NOTE_CONTENT_TYPES], description: 'Defaults to "note".' },
+            projectId: {
+              type: 'string',
+              description:
+                'Project id to file this under. Defaults to "ibm-thought-leadership" for Athena-created article drafts if unsure.',
+            },
           },
           required: ['title', 'content'],
         },
@@ -277,7 +283,7 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string, 
     case 'search_library':        return searchLibrary(db, contextualArgs);
     case 'create_task':           return createTask(db, args);
     case 'update_task':           return updateTask(db, args);
-    case 'create_note_draft':     return createNoteDraft(db, args);
+    case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
     case 'fetch_web_page':        return fetchWebPage(args);
     case 'search_ica':            return searchIca(args);
     default:
@@ -811,7 +817,56 @@ async function updateTask(db: Pool, args: Record<string, unknown>): Promise<unkn
 interface DraftBlock {
   type: 'heading' | 'paragraph';
   props?: { level: number };
-  content: Array<{ type: 'text'; text: string; styles: Record<string, never> }>;
+  content: Array<{ type: 'text'; text: string; styles: Partial<Record<'bold' | 'italic' | 'code', boolean>> }>;
+}
+
+type DraftInlineStyle = DraftBlock['content'][number]['styles'];
+
+function parseInlineMarkdown(text: string): DraftBlock['content'] {
+  const segments: DraftBlock['content'] = [];
+  const pattern = /(\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', text: text.slice(lastIndex, match.index), styles: {} });
+    }
+
+    const styles: DraftInlineStyle = {};
+    const matchedText = match[2] ?? match[3] ?? match[4] ?? '';
+    if (match[2] !== undefined) styles.bold = true;
+    if (match[3] !== undefined) styles.code = true;
+    if (match[4] !== undefined) styles.italic = true;
+    segments.push({ type: 'text', text: matchedText, styles });
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push({ type: 'text', text: text.slice(lastIndex), styles: {} });
+  }
+
+  return segments.length > 0 ? segments : [{ type: 'text', text, styles: {} }];
+}
+
+function inferAthenaDraftContentType(title: string, content: string): typeof NOTE_CONTENT_TYPES[number] | null {
+  const titleText = title.toLowerCase();
+  const combined = `${title}\n${content}`.toLowerCase();
+  const newsletterSignal =
+    /\bnewsletter\b/.test(combined) ||
+    /\breaching for the cloud\b/.test(combined) ||
+    /\bedition\s+\d+\b/.test(titleText);
+  const blogSignal =
+    /\bblog post\b/.test(combined) ||
+    /\bquick post\b/.test(combined) ||
+    /\bfull post\b/.test(combined) ||
+    /\bcms package\b/.test(combined) ||
+    /\bthe microsoft cloud blog\b/.test(combined);
+
+  if (newsletterSignal && !blogSignal) return 'newsletter';
+  if (blogSignal && !newsletterSignal) return 'blog';
+  if (/\bnewsletter edition\b/.test(titleText)) return 'newsletter';
+  return null;
 }
 
 /** Splits plain/markdown-ish text into simple BlockNote paragraph/heading blocks. */
@@ -824,10 +879,10 @@ export function textToBlocks(text: string): DraftBlock[] {
       return {
         type: 'heading',
         props: { level: hashes.length },
-        content: [{ type: 'text', text: headingMatch[2] ?? '', styles: {} }],
+        content: parseInlineMarkdown(headingMatch[2] ?? ''),
       };
     }
-    return { type: 'paragraph', content: [{ type: 'text', text: p, styles: {} }] };
+    return { type: 'paragraph', content: parseInlineMarkdown(p) };
   });
 }
 
@@ -837,12 +892,16 @@ async function createNoteDraft(db: Pool, args: Record<string, unknown>): Promise
   if (content.trim() === '') return { error: 'content is required' };
   const contentType = NOTE_CONTENT_TYPES.includes(args['contentType'] as typeof NOTE_CONTENT_TYPES[number])
     ? args['contentType'] as string
-    : 'note';
+    : inferAthenaDraftContentType(title, content) ?? 'note';
+  const projectId =
+    typeof args['projectId'] === 'string' && args['projectId'].trim() !== ''
+      ? args['projectId'].trim()
+      : DEFAULT_ATHENA_NOTE_PROJECT_ID;
 
   const blocks = textToBlocks(content);
   const wrapper = { title, contentType, contentJson: JSON.stringify(blocks) };
 
-  const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), tags: [] });
+  const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), tags: [], projectId });
   return {
     success: true,
     note: {
