@@ -5,8 +5,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useCreateBlockNote } from '@blocknote/react';
-import { BlockNoteSchema, defaultBlockSpecs, createCodeBlockSpec } from '@blocknote/core';
-import { codeBlockOptions } from '@blocknote/code-block';
 import '@blocknote/mantine/style.css';
 import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
@@ -16,6 +14,7 @@ import { TrashCan, Export, DocumentExport, Image as ImageIcon } from '@carbon/ic
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import { api } from '../services/api';
+import { markdownToNoteBlocks } from './markdownToBlocks';
 import {
   AUTOSAVE_INTERVAL_MS,
   SAVED_BANNER_DURATION_MS,
@@ -28,25 +27,13 @@ import type { NoteDocument } from './types';
 import { useNoteTags, useSetNoteTags, useFlatTags } from '../hooks/useTaxonomy';
 import { MetadataPanel } from './MetadataPanel';
 import { useProjects } from '../hooks/useProjects';
+import { editorSchema } from './editorSchema';
 
 interface NoteEditorProps {
   doc: NoteDocument;
   onSaved: (updated: NoteDocument) => void;
   onDelete?: (id: string) => void;
 }
-
-// Default schema with the codeBlock spec swapped for one with shiki syntax
-// highlighting and the full supported-language list from @blocknote/code-block.
-// Cast needed: defaultBlockSpecs doesn't satisfy the BlockSpecs index signature
-// under exactOptionalPropertyTypes (known BlockNote typing gap). Runtime shape is
-// identical to the default schema, so we type it as such.
-const editorSchema = BlockNoteSchema.create({
-  blockSpecs: {
-    ...defaultBlockSpecs,
-    codeBlock: createCodeBlockSpec(codeBlockOptions),
-  },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-} as any) as ReturnType<typeof BlockNoteSchema.create>;
 
 function extractTitle(blocks: { type: string; content?: unknown }[]): string {
   for (const block of blocks) {
@@ -75,6 +62,52 @@ function extractPlainText(blocks: { type: string; content?: unknown; children?: 
     }
   }
   return parts.join(' ');
+}
+
+function blockContentText(block: { content?: unknown; children?: unknown[] }): string {
+  const parts: string[] = [];
+  if (Array.isArray(block.content)) {
+    parts.push((block.content as { text?: string }[]).map((span) => span.text ?? '').join(''));
+  } else if (typeof block.content === 'string') {
+    parts.push(block.content);
+  }
+  if (Array.isArray(block.children)) {
+    for (const child of block.children) {
+      parts.push(blockContentText(child as { content?: unknown; children?: unknown[] }));
+    }
+  }
+  return parts.filter((part) => part.trim() !== '').join('\n');
+}
+
+function markdownSignalCount(markdown: string): number {
+  const patterns = [
+    /^#{1,6}\s+\S/m,
+    /^>\s+\S/m,
+    /^[-*+]\s+\S/m,
+    /^\d+\.\s+\S/m,
+    /^```/m,
+    /\n\|?\s*:?-{3,}:?\s*\|/m,
+    /\*\*[^*\n]+?\*\*/,
+    /`[^`\n]+?`/,
+    /\[[^\]\n]+?\]\([^)]+?\)/,
+  ];
+  return patterns.filter((pattern) => pattern.test(markdown)).length;
+}
+
+function repairLegacyMarkdownBlocks(blocks: object[] | undefined): { blocks: object[] | undefined; repaired: boolean } {
+  if (blocks === undefined || blocks.length === 0) return { blocks, repaired: false };
+  const markdown = blocks
+    .map((block) => blockContentText(block as { content?: unknown; children?: unknown[] }))
+    .filter((part) => part.trim() !== '')
+    .join('\n\n')
+    .trim();
+  if (markdown === '') return { blocks, repaired: false };
+  const shouldRepair =
+    /^#{1,6}\s+\S/m.test(markdown) ||
+    /^```/m.test(markdown) ||
+    markdownSignalCount(markdown) >= 3;
+  if (!shouldRepair) return { blocks, repaired: false };
+  return { blocks: markdownToNoteBlocks(markdown) as object[], repaired: true };
 }
 
 /** Detects whether pasted plain text looks like source code rather than prose. */
@@ -137,6 +170,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
   const projectIdRef = useRef(doc.projectId ?? '');
   const githubPathRef = useRef<string | undefined>(doc.githubPath);
   const onSavedRef = useRef<(updated: NoteDocument) => void>(onSaved);
+  const legacyMarkdownRepairRef = useRef<{ docId: string; shouldSave: boolean; handled: boolean }>({
+    docId: doc.id,
+    shouldSave: false,
+    handled: false,
+  });
 
   useEffect(() => { contentTypeRef.current = contentType; }, [contentType]);
   useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
@@ -144,11 +182,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
   useEffect(() => { onSavedRef.current = onSaved; }, [onSaved]);
 
   let parsedInitial: object[] | undefined;
+  let repairedLegacyMarkdown = false;
   try {
     const parsed = JSON.parse(doc.contentJson) as unknown;
     parsedInitial = Array.isArray(parsed) && parsed.length > 0 ? (parsed as object[]) : undefined;
+    const repaired = repairLegacyMarkdownBlocks(parsedInitial);
+    parsedInitial = repaired.blocks;
+    repairedLegacyMarkdown = repaired.repaired;
   } catch {
     parsedInitial = undefined;
+  }
+  if (legacyMarkdownRepairRef.current.docId !== doc.id) {
+    legacyMarkdownRepairRef.current = { docId: doc.id, shouldSave: false, handled: false };
+  }
+  if (repairedLegacyMarkdown && !legacyMarkdownRepairRef.current.handled) {
+    legacyMarkdownRepairRef.current = { docId: doc.id, shouldSave: true, handled: true };
   }
 
   const editor = useCreateBlockNote(
@@ -344,6 +392,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
       setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS * 2);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!legacyMarkdownRepairRef.current.shouldSave) return;
+    legacyMarkdownRepairRef.current.shouldSave = false;
+    isDirtyRef.current = true;
+    void doSave();
+  }, [doc.id, doSave]);
 
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
