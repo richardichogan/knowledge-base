@@ -70,13 +70,11 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       }
       const persona = requestedPersona ?? (await getSessionPersona(db, effectiveSessionId));
 
-      // The brainstorming and blog_post personas default to the stronger
-      // gpt-5.5 model — brainstorming for critiquing reasoning without
-      // softening pushback over a long thread, blog_post for the nuanced
-      // house-style/banned-construction rules it has to hold consistently
-      // across a long CMS package — unless the caller explicitly requested a
-      // specific model.
-      const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' ? 'gpt-5.5' : 'gpt-4o');
+      // The brainstorming persona defaults to the stronger gpt-5.5 model for
+      // critique and long-horizon reasoning. Blog Post intentionally stays on
+      // the main configured model path so it does not depend on the separate
+      // GPT-5.5 resource/key, which is optional and can fail independently.
+      const effectiveModel = model ?? (persona === 'brainstorming' ? 'gpt-5.5' : 'gpt-4o');
 
       const reply = await handleConversationTurn(db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext);
 
