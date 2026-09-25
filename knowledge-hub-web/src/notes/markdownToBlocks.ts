@@ -8,7 +8,12 @@
 import { BlockNoteEditor } from '@blocknote/core';
 import { editorSchema } from './editorSchema';
 
-const markdownParser = BlockNoteEditor.create({ schema: editorSchema });
+let markdownParser: ReturnType<typeof BlockNoteEditor.create<{ schema: typeof editorSchema }>> | null = null;
+
+function getMarkdownParser(): ReturnType<typeof BlockNoteEditor.create<{ schema: typeof editorSchema }>> {
+  markdownParser ??= BlockNoteEditor.create({ schema: editorSchema });
+  return markdownParser;
+}
 
 /**
  * Parses Markdown using BlockNote's native Markdown importer so native .md files,
@@ -18,5 +23,5 @@ const markdownParser = BlockNoteEditor.create({ schema: editorSchema });
 export function markdownToNoteBlocks(text: string): unknown[] {
   const markdown = text.trim();
   if (markdown === '') return [];
-  return markdownParser.tryParseMarkdownToBlocks(markdown);
+  return getMarkdownParser().tryParseMarkdownToBlocks(markdown);
 }

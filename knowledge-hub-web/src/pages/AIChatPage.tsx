@@ -577,10 +577,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }, [pendingFile]);
   /** Prevents the Android Share auto-send from firing more than once per page load. */
   const shareProcessedRef = useRef(false);
-  /** Tracks the last pageContext title we've already injected into a message, so
-   *  switching to a different note/canvas mid-session re-primes Athena instead
-   *  of only ever doing it once for a brand new session. */
-  const lastInjectedContextTitleRef = useRef<string | null>(null);
+  /** Tracks the last pageContext payload we've already injected into a message, so
+   *  switching notes or receiving updated note image/OCR context re-primes Athena
+   *  instead of only ever doing it once for a brand new session. */
+  const lastInjectedContextKeyRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -949,11 +949,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // entire note's body as the query — which used to drag in unrelated
     // same-project documents as "background context".
     const isFirstMessage = messages.length === 0 && sessionId === null;
-    const contextChanged = pageContext !== undefined && lastInjectedContextTitleRef.current !== pageContext.title;
+    const contextKey = pageContext !== undefined
+      ? `${pageContext.type}:${pageContext.id ?? ''}:${pageContext.title}:${pageContext.detail ?? ''}`
+      : null;
+    const contextChanged = contextKey !== null && lastInjectedContextKeyRef.current !== contextKey;
     if (activeImageContext !== null) {
       chatMutation.mutate({ text, pageContext: activeImageContext });
     } else if ((isFirstMessage || contextChanged) && pageContext) {
-      lastInjectedContextTitleRef.current = pageContext.title;
+      lastInjectedContextKeyRef.current = contextKey;
       chatMutation.mutate({ text, pageContext });
     } else {
       chatMutation.mutate({ text });
