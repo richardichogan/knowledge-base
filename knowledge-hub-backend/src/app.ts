@@ -45,7 +45,16 @@ export function createApp(): express.Application {
   app.use(helmet());
 
   // ── CORS — tighten in production ─────────────────────────────────────────
-  app.use(cors({ origin: process.env['CORS_ORIGIN'] ?? '*' }));
+  // CORS_ORIGIN accepts a comma-separated list so the API can serve more than
+  // one front-end hostname at a time — the custom domain and the underlying
+  // Static Web Apps hostname both need to work, and a single-value setting
+  // meant renaming the domain silently broke every API call from the new one.
+  const corsOrigin = process.env['CORS_ORIGIN'];
+  app.use(cors({
+    origin: corsOrigin === undefined || corsOrigin.trim() === ''
+      ? '*'
+      : corsOrigin.split(',').map((o) => o.trim()).filter((o) => o !== ''),
+  }));
 
   // ── Body parsing ──────────────────────────────────────────────────────────
   // Raw binary for image uploads — MUST come before express.json so binary bodies aren't parsed as JSON
