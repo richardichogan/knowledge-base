@@ -53,7 +53,8 @@ Knowledge-Base/
 cd knowledge-hub-web
 npm install
 cp .env.example .env
-# In development the Vite proxy forwards /api to localhost:3000 automatically.
+# In development the Vite proxy forwards /api to the backend (default port 3000).
+# Set KH_API_PORT if the backend runs on a different port.
 # Set VITE_API_TOKEN if your backend JWT auth is enabled.
 npm run dev   # Starts Vite dev server on http://localhost:5173
 ```
@@ -132,6 +133,114 @@ All required variables are documented in `knowledge-hub-backend/.env.example`.
 | `PODCAST_RSS_URL` | Podcast RSS feed URL |
 | `CMS_BLOB_CONTAINER` | Blob container name (default: `blogcontent`) |
 | `CMS_POSTS_PREFIX` | Blob path prefix (default: `posts/`) |
+
+---
+
+## Deployment (production)
+
+Production is **manual** — there is no CI/CD pipeline. Deploys are run from a local
+shell with the Azure CLI. The Azure MCP tools must not be used for this; they hang.
+
+### Resources
+
+| Purpose | Resource | Resource group |
+|---|---|---|
+| Backend container app | `kh-prod-api-vnet` | `rg-knowledge-hub-prod` |
+| Container registry | `cad79107555facr` (image `kh-prod-api`) | `rg-knowledge-hub-prod` |
+| Frontend static web app | `kh-prod-web` | `rg-knowledge-hub-prod` |
+
+Subscription: **Alliance Tenant Reporting**.
+Live site: <https://athena.themicrosoftcloudblog.com>
+(the underlying Static Web Apps hostname `nice-mud-0f780fb03.7.azurestaticapps.net`
+also still resolves).
+
+### Before deploying anything
+
+```bash
+cd knowledge-hub-web     && npx tsc --noEmit
+cd knowledge-hub-backend && npx tsc --noEmit
+```
+
+Both must be clean. Then commit and push the branch you intend to deploy — the
+backend image is built from GitHub, not from your working tree, so uncommitted
+changes are silently ignored.
+
+### Backend
+
+```bash
+az account set --subscription "Alliance Tenant Reporting"
+
+# 1. Find the tag currently deployed and pick the next one.
+az containerapp show --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod \
+  --query "properties.template.containers[0].image" -o tsv
+
+# 2. Build the image from the pushed branch (note the #branch:subdir syntax).
+az acr build --registry cad79107555facr --image kh-prod-api:v<NN> \
+  --file Dockerfile \
+  "https://github.com/richardichogan/knowledge-base.git#<branch>:knowledge-hub-backend"
+
+# 3. Roll the container app onto it.
+az containerapp update --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod \
+  --image cad79107555facr.azurecr.io/kh-prod-api:v<NN>
+
+# 4. Verify — do not consider the deploy done until the new revision is Healthy.
+az containerapp revision list --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod \
+  --query "[?properties.active].{name:name,health:properties.healthState,running:properties.runningState,image:properties.template.containers[0].image}" \
+  -o table
+```
+
+The new revision takes a minute or two to go from `Activating` to
+`Healthy` / `RunningAtMaxScale`. If it fails to start, read the logs rather than
+guessing:
+
+```bash
+az containerapp logs show --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod --tail 50
+```
+
+### Frontend
+
+```bash
+cd knowledge-hub-web
+npm run build   # loads .env.production — bakes in VITE_API_URL and the password gate
+
+$token = az staticwebapp secrets list --name kh-prod-web \
+  --resource-group rg-knowledge-hub-prod --query "properties.apiKey" -o tsv
+
+npx --yes @azure/static-web-apps-cli deploy ./dist --deployment-token $token --env production
+```
+
+### Environment variables and secrets
+
+Non-secret settings are plain env vars:
+
+```bash
+az containerapp update --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod \
+  --set-env-vars SOME_VAR=value
+```
+
+Secrets must go through the secret store and be referenced indirectly — never as a
+literal env var value:
+
+```bash
+az containerapp secret set --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod \
+  --secrets my-key=<value>
+az containerapp update --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod \
+  --set-env-vars MY_KEY=secretref:my-key
+```
+
+### Custom domains and CORS
+
+`CORS_ORIGIN` on the backend is a **comma-separated allow-list** of front-end
+origins. Adding or changing a front-end domain requires updating it, otherwise the
+site loads but every API call is blocked by the browser and the app appears empty:
+
+```bash
+az containerapp update --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod \
+  --set-env-vars "CORS_ORIGIN=https://athena.themicrosoftcloudblog.com,https://nice-mud-0f780fb03.7.azurestaticapps.net"
+```
+
+A new front-end domain does **not** require a frontend rebuild — `VITE_API_URL`
+points at the backend, not at the site's own hostname.
 
 ---
 
