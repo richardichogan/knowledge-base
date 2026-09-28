@@ -76,11 +76,21 @@ export function extractNoteBlockText(blocks: NoteContentBlock[]): string {
   return parts.join('\n');
 }
 
-function buildPreview(contentJson: string): string {
+/**
+ * Builds the note-list preview snippet. Skips any leading lines that just
+ * repeat the note title — BlockNote documents very often open with an H1
+ * echoing the title, which otherwise makes every card show its own title
+ * twice.
+ */
+function buildPreview(contentJson: string, title: string): string {
   try {
     const blocks = JSON.parse(contentJson) as unknown;
     if (!Array.isArray(blocks)) return '';
-    return extractNoteBlockText(blocks as NoteContentBlock[]).slice(0, 200);
+    const normalisedTitle = title.trim().toLowerCase();
+    const lines = extractNoteBlockText(blocks as NoteContentBlock[]).split('\n');
+    let start = 0;
+    while (start < lines.length && (lines[start] ?? '').trim().toLowerCase() === normalisedTitle) start += 1;
+    return lines.slice(start).join('\n').slice(0, 200);
   } catch {
     return '';
   }
@@ -91,7 +101,7 @@ export async function fetchNotes(): Promise<NoteListItem[]> {
   if (!result.success) return [];
   return result.data.items.map((n) => {
     const doc = deserialise(n.content, n.id, n.createdAt, n.updatedAt, n.projectId ?? undefined);
-    const body = buildPreview(doc.contentJson);
+    const body = buildPreview(doc.contentJson, doc.title);
     return {
       id: n.id,
       title: doc.title,

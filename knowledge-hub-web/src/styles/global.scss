@@ -886,16 +886,21 @@ input, textarea {
   strong { font-weight: 700; }
   em { font-style: italic; }
 
+  // Inline code sits inside running prose, so it is styled as a quiet
+  // highlight rather than a bordered pill: a pill that wraps across a line
+  // break splits into two half-pills. `box-decoration-break: clone` makes
+  // each wrapped fragment keep the full background and radius.
   code {
     font-family: 'IBM Plex Mono', 'Courier New', monospace;
-    font-size: 0.75em;
+    font-size: 0.9em;
     font-weight: 600;
-    background: var(--kh-accent-bg);
-    color: var(--kh-accent);
-    border: 1px solid var(--kh-accent-border);
-    padding: 0.125em 0.55em;
-    border-radius: 999px;
+    background: rgba(141, 141, 141, 0.16);
+    color: var(--cds-text-primary);
+    padding: 0.0625rem 0.25rem;
+    border-radius: 0.1875rem;
     word-break: break-word;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
 
   // Status chips + overdue alert banner injected by enrichAssistantText()
@@ -4752,12 +4757,11 @@ input, textarea {
 }
 
 .notes-editor-inner {
-  max-width: 680px;
+  // Capped at a readable measure at every window width. This previously
+  // released the cap entirely above 1400px, which on a wide monitor gave
+  // roughly 130 characters per line — well past comfortable reading.
+  max-width: 780px;
   margin: 0 auto;
-
-  @media (min-width: 1400px) {
-    max-width: 100%;
-  }
 
   .bn-editor {
     background: var(--cds-background);
@@ -4771,18 +4775,28 @@ input, textarea {
     // Explicit, deliberate scale so H1 > H2 > H3 always holds, matching the thin dark-Carbon look:
     [data-content-type="heading"] {
       font-weight: 600;
+      line-height: 1.25;
     }
-    [data-content-type="heading"][data-level="1"] { --level: 1.75em; }
-    [data-content-type="heading"][data-level="2"] { --level: 1.375em; }
-    [data-content-type="heading"][data-level="3"] { --level: 1.125em; }
+    [data-content-type="heading"][data-level="1"] { --level: 28px; }
+    [data-content-type="heading"][data-level="2"] { --level: 22px; }
+    [data-content-type="heading"][data-level="3"] { --level: 18px; }
 
-    // Document title — the very first block, when it's a heading — stays visually distinct:
-    // larger and thinner than any in-body heading, so it always reads as the top of the hierarchy.
+    // Give in-body headings room to separate sections, but never the title
+    // block — a top margin there would push the whole note down.
+    > [data-node-type="blockGroup"] > [data-node-type="blockOuter"]:not(:first-child) {
+      [data-content-type="heading"] { margin-top: 1.5em; }
+    }
+
+    // Document title — the very first block, when it's a heading. It must be
+    // unambiguously the top of the hierarchy. It previously rendered at 28px
+    // weight 300, which is the *same size* as an in-body H1 and lighter, so a
+    // single "# Heading" in the body out-shouted the note's own title.
     > [data-node-type="blockGroup"] > [data-node-type="blockOuter"]:first-child {
       [data-content-type="heading"] {
-        font-size: 28px !important;
-        font-weight: 300 !important;
+        font-size: 32px !important;
+        font-weight: 600 !important;
         line-height: 1.25;
+        color: var(--cds-text-primary);
       }
     }
 
@@ -6233,6 +6247,8 @@ input, textarea {
     border: 1px solid var(--cds-border-subtle-00);
     padding: 0.125em 0.375em;
     border-radius: 2px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
 
   pre {

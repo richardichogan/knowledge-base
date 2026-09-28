@@ -58,10 +58,17 @@ export function renderMarkdown(md: string): string {
       closeList();
       html.push(`<blockquote>${inlineMarkdown(line.slice(2))}</blockquote>`); continue;
     }
-    const oli = line.match(/^\s*\d+[.)]\s+(.+)/);
+    const oli = line.match(/^\s*(\d+)[.)]\s+(.+)/);
     if (oli) {
-      if (listType !== 'ol') { closeList(); html.push('<ol>'); listType = 'ol'; }
-      html.push(`<li>${inlineMarkdown(oli[1] ?? '')}</li>`); continue;
+      // Honour the number the markdown actually supplies, so a list that
+      // resumes at 4 renders as 4 rather than silently restarting at 1.
+      if (listType !== 'ol') {
+        closeList();
+        const start = Number(oli[1] ?? '1');
+        html.push(start === 1 ? '<ol>' : `<ol start="${start.toString()}">`);
+        listType = 'ol';
+      }
+      html.push(`<li>${inlineMarkdown(oli[2] ?? '')}</li>`); continue;
     }
     const li = line.match(/^\s*[-*+]\s+(.+)/);
     if (li) {

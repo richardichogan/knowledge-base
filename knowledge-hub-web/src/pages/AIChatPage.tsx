@@ -28,6 +28,7 @@ import {
   COMPOSER_ACTION_LABELS,
 } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
+import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
@@ -658,7 +659,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     void api.getSessionHistory(sessionId).then((result) => {
       if (cancelled) return;
       if (result.success && result.data.messages.length > 0) {
-        setMessages(result.data.messages);
+        setMessages(stripHistoryContextPrefixes(result.data.messages));
       }
       if (result.success && result.data.persona) {
         setPersona(result.data.persona);
@@ -711,7 +712,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         const history = await api.getSessionHistory(linkedSessionId);
         if (cancelled) return;
         if (history.success) {
-          setMessages(history.data.messages);
+          setMessages(stripHistoryContextPrefixes(history.data.messages));
           if (history.data.persona) setPersona(history.data.persona);
           setActiveProjectId(history.data.projectId ?? '');
         }
@@ -781,7 +782,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   function refreshSessionList(): void {
     if (!standalone) return;
     void api.listChatSessions().then((result) => {
-      if (result.success) setChatSessions(result.data.sessions);
+      // Titles written before the context marker was kept out of them can
+      // still start with "[Viewing …]"; strip it for display rather than
+      // rewriting stored rows.
+      if (result.success) {
+        setChatSessions(result.data.sessions.map((session) => ({
+          ...session,
+          title: stripContextPrefix(session.title),
+          preview: stripContextPrefix(session.preview),
+        })));
+      }
     }).catch(() => {
       // Non-fatal — sidebar just won't update until the next successful load.
     });
@@ -802,7 +812,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setPendingThinkSave(null);
     setIsRestoringHistory(true);
     void api.getSessionHistory(id).then((result) => {
-      if (result.success) setMessages(result.data.messages);
+      if (result.success) setMessages(stripHistoryContextPrefixes(result.data.messages));
       if (result.success && result.data.persona) setPersona(result.data.persona);
       if (result.success) setActiveProjectId(result.data.projectId ?? '');
       setIsRestoringHistory(false);
