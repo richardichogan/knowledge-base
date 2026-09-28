@@ -20,6 +20,14 @@ import { renderMarkdown } from '../utils/markdown';
 import { createNote } from '../notes/noteStorage';
 import { markdownToNoteBlocks } from '../notes/markdownToBlocks';
 import type { ContentType } from '../notes/constants';
+import {
+  buildComposerIntent,
+  composeMessageText,
+  stripProjectMentions,
+  COMPOSER_ACTIONS,
+  COMPOSER_ACTION_LABELS,
+} from '../chat/composerIntent';
+import type { ComposerAction } from '../chat/composerIntent';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
@@ -571,6 +579,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [input, setInput] = useState('');
   const [persona, setPersona] = useState<AthenaPersona>(initialPersona ?? 'general');
   const [activeProjectId, setActiveProjectId] = useState('');
+  // Per-message chip override. 'none' = user cleared the action chip, null = let
+  // the parser/inference decide. Deliberately separate from `persona`, which is
+  // thread-scoped and drives backend model routing.
+  const [actionOverride, setActionOverride] = useState<ComposerAction | 'none' | null>(null);
+  const [isCommandHelpOpen, setIsCommandHelpOpen] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
@@ -962,7 +975,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   async function submitMessage(): Promise<void> {
-    const text = input.trim() || (pendingFile !== null && isChatImage(pendingFile)
+    const intent = buildComposerIntent({
+      input,
+      projects: uploadProjectOptions,
+      activeProjectId,
+      actionOverride,
+    });
+    const text = intent.rawText || (pendingFile !== null && isChatImage(pendingFile)
       ? 'What is shown in this image?'
       : '');
     if (text === '') return;
@@ -986,8 +1005,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       return;
     }
 
-    appendMessage('user', text);
+    // An `@project` mention grounds the whole conversation, so persist it via the
+    // same path the project chip uses before the turn goes out.
+    if (intent.explicitProjectId !== undefined && intent.explicitProjectId !== activeProjectId) {
+      await handleProjectChange(intent.explicitProjectId);
+    }
+
+    const outgoing = composeMessageText(text, intent.effectiveAction);
+    appendMessage('user', outgoing);
     setInput('');
+    setActionOverride(null);
     // Tell Athena what the user is currently viewing on the first message of a
     // session, or whenever they've navigated to a different note/canvas/item
     // since we last told her about one — otherwise she keeps answering with
@@ -1002,12 +1029,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       : null;
     const contextChanged = contextKey !== null && lastInjectedContextKeyRef.current !== contextKey;
     if (activeImageContext !== null) {
-      chatMutation.mutate({ text, pageContext: activeImageContext });
+      chatMutation.mutate({ text: outgoing, pageContext: activeImageContext });
     } else if ((isFirstMessage || contextChanged) && pageContext) {
       lastInjectedContextKeyRef.current = contextKey;
-      chatMutation.mutate({ text, pageContext });
+      chatMutation.mutate({ text: outgoing, pageContext });
     } else {
-      chatMutation.mutate({ text });
+      chatMutation.mutate({ text: outgoing });
     }
   }
 
@@ -1128,6 +1155,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setPendingThinkSave(null);
     setPersona(initialPersona ?? 'general');
     setActiveProjectId('');
+    setActionOverride(null);
+    setIsCommandHelpOpen(false);
     setProjectError(null);
     setPendingFile(null);
     setActiveImageContext(null);
@@ -1350,6 +1379,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   const projectNameById = new Map(uploadProjectOptions.map((project) => [project.id, project.name]));
+  const composerIntent = buildComposerIntent({
+    input,
+    projects: uploadProjectOptions,
+    activeProjectId,
+    actionOverride,
+  });
+  const chipProjectId = composerIntent.effectiveProjectId ?? '';
+  const chipProjectName = chipProjectId !== '' ? projectNameById.get(chipProjectId) ?? chipProjectId : '';
+  const isProjectInferred = chipProjectId !== '' && chipProjectId !== activeProjectId;
+  const isActionInferred =
+    composerIntent.effectiveAction !== undefined
+    && actionOverride === null
+    && composerIntent.explicitAction === undefined;
   const filteredSidebarSessions = sidebarSearchQuery.trim() === ''
     ? chatSessions
     : chatSessions.filter((s) => {
@@ -1399,22 +1441,104 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     </div>
   );
 
-  const conversationProjectPicker = (
-    <label className={`ai-chat-project${compact ? ' ai-chat-project--compact' : ''}`}>
-      <span className="ai-chat-project__label">Project</span>
-      <select
-        className="ai-chat-project__select"
-        value={activeProjectId}
-        onChange={(event) => { void handleProjectChange(event.target.value); }}
-        aria-label="Conversation project"
+  /**
+   * Project chip edits are authoritative: any stale `@project` mention still in
+   * the input is cleared first, so the chip never appears to ignore the pick.
+   */
+  function handleProjectChipChange(nextProjectId: string): void {
+    if (composerIntent.explicitProjectId !== undefined) {
+      setInput((current) => stripProjectMentions(current, uploadProjectOptions));
+    }
+    void handleProjectChange(nextProjectId);
+  }
+
+  const composerChipBar = (
+    <div className="kh-composer-chips">
+      <div className={`kh-composer-chip kh-composer-chip--action${composerIntent.effectiveAction === undefined ? ' kh-composer-chip--empty' : ''}${isActionInferred ? ' kh-composer-chip--inferred' : ''}`}>
+        <Idea size={14} className="kh-composer-chip__icon" />
+        <span className="kh-composer-chip__value">
+          {composerIntent.effectiveAction !== undefined
+            ? COMPOSER_ACTION_LABELS[composerIntent.effectiveAction]
+            : 'Any action'}
+          {isActionInferred && <span className="kh-composer-chip__hint">suggested</span>}
+        </span>
+        <select
+          className="kh-composer-chip__select"
+          aria-label="Action for this message"
+          value={composerIntent.effectiveAction ?? ''}
+          onChange={(event) => {
+            const next = event.target.value;
+            setActionOverride(next === '' ? 'none' : (next as ComposerAction));
+          }}
+        >
+          <option value="">Any action</option>
+          {COMPOSER_ACTIONS.map((action) => (
+            <option key={action} value={action}>{COMPOSER_ACTION_LABELS[action]}</option>
+          ))}
+        </select>
+        {composerIntent.effectiveAction !== undefined && (
+          <button
+            type="button"
+            className="kh-composer-chip__remove"
+            aria-label="Clear action"
+            onClick={() => { setActionOverride('none'); }}
+          >
+            <Close size={12} />
+          </button>
+        )}
+      </div>
+
+      <div className={`kh-composer-chip kh-composer-chip--project${chipProjectId === '' ? ' kh-composer-chip--empty' : ''}${isProjectInferred ? ' kh-composer-chip--inferred' : ''}`}>
+        <Notebook size={14} className="kh-composer-chip__icon" />
+        <span className="kh-composer-chip__value">
+          {chipProjectId !== '' ? chipProjectName : 'No project'}
+          {isProjectInferred && <span className="kh-composer-chip__hint">suggested</span>}
+        </span>
+        <select
+          className="kh-composer-chip__select"
+          aria-label="Conversation project"
+          value={chipProjectId}
+          onChange={(event) => { handleProjectChipChange(event.target.value); }}
+        >
+          <option value="">No project</option>
+          {uploadProjectOptions.map((project) => (
+            <option key={project.id} value={project.id}>{project.name}</option>
+          ))}
+        </select>
+        {chipProjectId !== '' && (
+          <button
+            type="button"
+            className="kh-composer-chip__remove"
+            aria-label="Clear project grounding"
+            onClick={() => { handleProjectChipChange(''); }}
+          >
+            <Close size={12} />
+          </button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        className={`kh-composer-chip kh-composer-chip--help${isCommandHelpOpen ? ' kh-composer-chip--help-open' : ''}`}
+        aria-expanded={isCommandHelpOpen}
+        onClick={() => { setIsCommandHelpOpen((open) => !open); }}
       >
-        <option value="">General chat</option>
-        {uploadProjectOptions.map((project) => (
-          <option key={project.id} value={project.id}>{project.name}</option>
-        ))}
-      </select>
-      {projectError !== null && <span className="ai-chat-project__error" role="alert">{projectError}</span>}
-    </label>
+        <span className="kh-composer-chip__value">/ commands</span>
+      </button>
+
+      {isCommandHelpOpen && (
+        <div className="kh-composer-help" role="note">
+          <p className="kh-composer-help__line">
+            Start a message with <code>/draft</code>, <code>/critique</code>, <code>/code</code>, <code>/task</code> or <code>/note</code> to set the action.
+          </p>
+          <p className="kh-composer-help__line">
+            Use <code>@project</code> anywhere to ground the conversation in a project.
+          </p>
+        </div>
+      )}
+
+      {projectError !== null && <span className="kh-composer-chips__error" role="alert">{projectError}</span>}
+    </div>
   );
 
   const actionButtons = (
@@ -1770,6 +1894,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </div>
         )}
 
+        {composerChipBar}
+
         <form onSubmit={handleSend} className="ai-input-row">
           <input
             ref={fileInputRef}
@@ -1778,7 +1904,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             className="ai-file-input-hidden"
             onChange={handleFileSelected}
           />
-          {(!compact || compactVariant !== 'narrow') && conversationProjectPicker}
           <div className="ai-input-field">
             <Button
               type="button"

@@ -497,69 +497,173 @@ input, textarea {
   flex-shrink: 0;
 }
 
-.ai-chat-project {
+/* ── Composer intent chips ───────────────────────────────────────────────────
+   Replaces the old detached project dropdown. Shows the per-message action and
+   the thread-scoped project grounding as editable, removable chips directly
+   above the input. Each chip renders an invisible full-bleed <select> as its
+   edit affordance so the control stays keyboard-accessible without needing a
+   custom popover — important because the floating widget is only 400px wide. */
+.kh-composer-chips {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.375rem;
-  flex-shrink: 0;
-  min-height: 2.5rem;
-  max-width: 13rem;
-  margin: 0;
-  padding: 0 0.625rem;
-  border: 1px solid var(--cds-border-subtle-01);
-  border-radius: 1.25rem;
-  background: var(--cds-layer-01);
+  padding: 0 0.25rem 0.5rem;
 }
 
-.ai-chat-project__label {
+.kh-composer-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  height: 1.5rem;
+  gap: 0.3125rem;
+  max-width: 100%;
+  min-height: 1.75rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 1rem;
+  background: var(--cds-layer-01);
+  color: var(--cds-text-primary);
+  font-size: 0.75rem;
+  line-height: 1;
+  transition: border-color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    border-color: var(--kh-accent);
+  }
+
+  &:focus-within {
+    outline: 2px solid var(--kh-accent);
+    outline-offset: 2px;
+  }
+}
+
+.kh-composer-chip--empty {
+  color: var(--cds-text-secondary);
+  border-style: dashed;
+}
+
+.kh-composer-chip--inferred {
+  border-color: var(--kh-accent);
+  background: color-mix(in srgb, var(--kh-accent) 10%, var(--cds-layer-01));
+}
+
+.kh-composer-chip__icon {
+  flex-shrink: 0;
+  color: var(--cds-text-secondary);
+}
+
+.kh-composer-chip__value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3125rem;
+  min-width: 0;
+  max-width: 11rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.kh-composer-chip__hint {
   flex-shrink: 0;
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.625rem;
-  line-height: 1;
+  font-size: 0.5625rem;
   font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--cds-text-secondary);
 }
 
-.ai-chat-project__select {
-  min-width: 0;
-  max-width: 8.25rem;
-  height: 1.5rem;
+/* Full-bleed transparent select — the chip's edit affordance. Sits above the
+   label but below the remove button so both remain clickable. */
+.kh-composer-chip__select {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   padding: 0;
   border: 0;
-  background: transparent;
-  color: var(--cds-text-primary);
-  font-size: 0.75rem;
-  line-height: 1.5rem;
-  font-weight: 600;
+  opacity: 0;
   cursor: pointer;
-  transform: translateY(-1px);
+  appearance: none;
 
-  &:focus { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
   option { background: #262626; color: #f4f4f4; }
 }
 
-.ai-chat-project__error {
-  min-width: 0;
-  color: var(--cds-text-error);
-  font-size: 0.75rem;
+.kh-composer-chip__remove {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--cds-text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--cds-layer-hover-01);
+    color: var(--cds-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--kh-accent);
+    outline-offset: 1px;
+  }
 }
 
-.ai-chat-project--compact {
-  max-width: 8rem;
-  padding-inline: 0.5rem;
+.kh-composer-chip--help {
+  cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  color: var(--cds-text-secondary);
+  border-style: dashed;
+}
 
-  .ai-chat-project__label {
-    display: none;
-  }
+.kh-composer-chip--help-open {
+  border-style: solid;
+  border-color: var(--kh-accent);
+  color: var(--cds-text-primary);
+}
 
-  .ai-chat-project__select {
-    max-width: 7rem;
+.kh-composer-help {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 0.5rem;
+  background: var(--cds-layer-01);
+}
+
+.kh-composer-help__line {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--cds-text-secondary);
+
+  + .kh-composer-help__line { margin-top: 0.25rem; }
+
+  code {
+    padding: 0.0625rem 0.25rem;
+    border-radius: 0.1875rem;
+    background: var(--cds-layer-accent-01);
+    color: var(--cds-text-primary);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.625rem;
   }
+}
+
+.kh-composer-chips__error {
+  flex-basis: 100%;
+  color: var(--cds-text-error);
+  font-size: 0.6875rem;
 }
 
 .ai-voice-toggle.cds--btn.cds--btn--icon-only {
