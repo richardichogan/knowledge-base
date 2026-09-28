@@ -11,7 +11,8 @@ export default defineConfig({
     },
   },
   // In production VITE_API_URL is set to the deployed backend URL in the .env build.
-  // In development the proxy below forwards /api → localhost:3000 (used when VITE_API_URL is empty).
+  // In development the proxy below forwards /api → the local backend (used when VITE_API_URL is empty).
+  // KH_API_PORT overrides the backend port for when 3000 is taken by another project.
   optimizeDeps: {
     include: ['react-force-graph-2d'],
   },
@@ -20,7 +21,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: `http://localhost:${process.env['KH_API_PORT'] ?? '3000'}`,
         changeOrigin: true,
         proxyTimeout: 60_000,
         timeout: 60_000,
