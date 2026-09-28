@@ -13,7 +13,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy, Blog } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy, Blog, View } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { renderMarkdown } from '../utils/markdown';
@@ -550,6 +550,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // session state with the floating widget / full-page chat.
   const isNoteLinkedPanel = compact && compactVariant === 'narrow';
   const currentNoteId = isNoteLinkedPanel && pageContext?.type === 'note' ? pageContext.id : undefined;
+
+  // Dismissing the context chip opts this chat out of sending the page's
+  // content. Keyed by the dismissed context rather than a plain boolean, so
+  // opening a *different* note re-arms grounding automatically — a sticky
+  // flag would silently leave every later note ungrounded too.
+  const [dismissedContextKey, setDismissedContextKey] = useState<string | null>(null);
+  const pageContextKey = pageContext !== undefined
+    ? `${pageContext.type}:${pageContext.id ?? ''}:${pageContext.title}`
+    : null;
+  const isContextDismissed = pageContextKey !== null && dismissedContextKey === pageContextKey;
   const SESSION_STORAGE_KEY = standalone
     ? SESSION_STORAGE_KEY_STANDALONE
     : isNoteLinkedPanel
@@ -1040,7 +1050,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     const contextChanged = contextKey !== null && lastInjectedContextKeyRef.current !== contextKey;
     if (activeImageContext !== null) {
       chatMutation.mutate({ text: outgoing, pageContext: activeImageContext });
-    } else if ((isFirstMessage || contextChanged) && pageContext) {
+    } else if ((isFirstMessage || contextChanged) && pageContext && !isContextDismissed) {
       lastInjectedContextKeyRef.current = contextKey;
       chatMutation.mutate({ text: outgoing, pageContext });
     } else {
@@ -1464,6 +1474,23 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   const composerChipBar = (
     <div className="kh-composer-chips">
+      {pageContext !== undefined && !isContextDismissed && (
+        <div className="kh-composer-chip kh-composer-chip--context">
+          <View size={14} className="kh-composer-chip__icon" />
+          <span className="kh-composer-chip__value" title={pageContext.title}>
+            Viewing: {pageContext.title}
+          </span>
+          <button
+            type="button"
+            className="kh-composer-chip__remove"
+            aria-label="Stop using this page as context"
+            onClick={() => { setDismissedContextKey(pageContextKey); }}
+          >
+            <Close size={12} />
+          </button>
+        </div>
+      )}
+
       <div className={`kh-composer-chip kh-composer-chip--action${composerIntent.effectiveAction === undefined ? ' kh-composer-chip--empty' : ''}${isActionInferred ? ' kh-composer-chip--inferred' : ''}`}>
         <Idea size={14} className="kh-composer-chip__icon" />
         <span className="kh-composer-chip__value">
@@ -1802,10 +1829,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             <div
               key={i}
               className={msg.role === 'user' ? 'ai-bubble ai-bubble--user' : 'ai-bubble ai-bubble--ai'}
+              aria-label={msg.role === 'user' ? 'You' : 'Athena'}
             >
-              <div className="ai-bubble-label">
-                {msg.role === 'user' ? 'You' : 'Athena'}
-              </div>
               {msg.role === 'user' ? (
                 <div className="ai-bubble-text">{msg.content}</div>
               ) : (
@@ -1816,7 +1841,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 />
               )}
               <div className="ai-bubble-footer">
-                <div className="ai-bubble-time">{formatMessageTime(msg.timestamp)}</div>
+                <div className="ai-bubble-time" title={formatMessageTime(msg.timestamp)}>
+                  {formatMessageTime(msg.timestamp)}
+                </div>
                 {msg.role === 'assistant' && (
                   <div className="ai-bubble-actions">
                     <Button

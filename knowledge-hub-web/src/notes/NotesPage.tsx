@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
+import { Search, Add, SidePanelOpen, SidePanelClose } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
 import { ImportNoteModal } from './ImportNoteModal';
@@ -17,6 +18,7 @@ import { SparkPanel } from '../features/sparks/SparkPanel';
 import { CanvasEditor } from '../features/canvas/CanvasEditor';
 import { api } from '../services/api';
 import { useAthenaContext } from '../context/AthenaContext';
+import { usePersistedBoolean } from '../hooks/usePersistedState';
 import type { CanvasSummaryApi } from '../services/api';
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
@@ -37,6 +39,11 @@ export const NotesPage: React.FC = () => {
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
   const [importModalOpen,  setImportModalOpen]  = useState(false);
+  const [listCollapsed, setListCollapsed] = usePersistedBoolean('kh_think_list_collapsed', false);
+  // Incremented rather than set to `true`, so expanding from the rail's search
+  // icon can pull focus into the box every time — a boolean would only fire on
+  // the first expand of a session.
+  const [focusSearchSignal, setFocusSearchSignal] = useState(0);
   const { pageContext, setAthenaContext } = useAthenaContext();
 
   const { data: notes = [], isLoading, isError, refetch } = useQuery<NoteListItem[]>({
@@ -252,36 +259,74 @@ export const NotesPage: React.FC = () => {
 
   return (
     <div className="notes-page">
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Think</h1>
-          {mode === 'canvas' && <p className="page-subtitle">{canvases.length} canvas{canvases.length !== 1 ? 'es' : ''}</p>}
-        </div>
-      </div>
-
       <div className="notes-root">
         {/* ── Left panel ── */}
+        {listCollapsed ? (
+          // Collapsed rail. Search and "+" both expand the list rather than
+          // opening cramped rail-width variants of those controls — at 56px
+          // wide there is no room to show results or a title field.
+          <div className="notes-list-rail">
+            <button
+              type="button"
+              className="notes-list-rail__btn"
+              title="Expand note list"
+              aria-label="Expand note list"
+              onClick={() => { setListCollapsed(false); }}
+            >
+              <SidePanelOpen size={16} />
+            </button>
+            <button
+              type="button"
+              className="notes-list-rail__btn"
+              title="Search notes"
+              aria-label="Search notes"
+              onClick={() => {
+                setListCollapsed(false);
+                setFocusSearchSignal((n) => n + 1);
+              }}
+            >
+              <Search size={16} />
+            </button>
+            <button
+              type="button"
+              className="notes-list-rail__btn"
+              title="New note"
+              aria-label="New note"
+              onClick={() => { setListCollapsed(false); void handleCreateNote(); }}
+            >
+              <Add size={16} />
+            </button>
+          </div>
+        ) : (
         <div className="notes-list-panel">
           <div className="notes-mode-switcher">
-            <button className={`notes-mode-btn${mode === 'notes'  ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('notes'); }}>Notes</button>
-            <button className={`notes-mode-btn${mode === 'sparks' ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('sparks'); }}>Sparks</button>
-            <button className={`notes-mode-btn${mode === 'canvas' ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('canvas'); }}>Canvas</button>
+            <div className="notes-mode-switcher__group">
+              <button className={`notes-mode-btn${mode === 'notes'  ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('notes'); }}>Notes</button>
+              <button className={`notes-mode-btn${mode === 'sparks' ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('sparks'); }}>Sparks</button>
+              <button className={`notes-mode-btn${mode === 'canvas' ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('canvas'); }}>Canvas</button>
+            </div>
+            <button
+              type="button"
+              className="notes-mode-collapse"
+              title="Collapse note list"
+              aria-label="Collapse note list"
+              onClick={() => { setListCollapsed(true); }}
+            >
+              <SidePanelClose size={16} />
+            </button>
           </div>
 
           {mode === 'notes' && (
-            <>
-              <NoteList
-                notes={notes}
-                selectedId={selectedId}
-                onSelect={(id) => { void handleSelectNote(id); }}
-                onDelete={(id) => { void handleDeleteNote(id); }}
-                deletingId={deletingNoteId}
-              />
-              <div className="notes-list-footer">
-                <button className="kh-btn-accent" onClick={() => { void handleCreateNote(); }}>+ New note</button>
-                <button className="kh-btn-ghost" onClick={() => { setImportModalOpen(true); }}>Import</button>
-              </div>
-            </>
+            <NoteList
+              notes={notes}
+              selectedId={selectedId}
+              onSelect={(id) => { void handleSelectNote(id); }}
+              onDelete={(id) => { void handleDeleteNote(id); }}
+              onCreate={() => { void handleCreateNote(); }}
+              onImport={() => { setImportModalOpen(true); }}
+              deletingId={deletingNoteId}
+              focusSearchSignal={focusSearchSignal}
+            />
           )}
 
           {mode === 'canvas' && (
@@ -320,6 +365,7 @@ export const NotesPage: React.FC = () => {
             </>
           )}
         </div>
+        )}
 
         {/* ── Right: editor area ── */}
         {mode === 'sparks' ? (

@@ -107,6 +107,7 @@ export async function fetchNotes(): Promise<NoteListItem[]> {
       title: doc.title,
       contentType: doc.contentType,
       updatedAt: n.updatedAt,
+      createdAt: n.createdAt,
       ...(body !== '' && { body }),
       tagIds: n.taxonomyTagIds ?? [],
       ...(n.projectId !== undefined && n.projectId !== null && { projectId: n.projectId }),

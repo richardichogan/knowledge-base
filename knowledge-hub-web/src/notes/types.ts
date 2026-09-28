@@ -24,6 +24,8 @@ export interface NoteListItem {
   title: string;
   contentType: ContentType;
   updatedAt: string;
+  /** Creation timestamp, for the list's "Created" sort order. */
+  createdAt?: string;
   /** Plain-text preview extracted from the note body, for list-view snippets. */
   body?: string;
   /** Taxonomy tag UUIDs — populated from note_tags join in list response */
