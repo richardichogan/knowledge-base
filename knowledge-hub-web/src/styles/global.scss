@@ -508,7 +508,9 @@ input, textarea {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.375rem;
-  padding: 0 0.25rem 0.5rem;
+  padding: 0.625rem 0.25rem 0.5rem;
+  // Separates the chips from the scrolling thread above them.
+  border-top: 1px solid var(--cds-border-subtle-01);
 }
 
 .kh-composer-chip {
@@ -4631,6 +4633,37 @@ body.kh-pane-resizing {
   color: var(--cds-text-primary);
 }
 
+// Collapsed side panel: slim strip that reopens it.
+.think-side-strip {
+  width: 48px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+  background: var(--cds-layer-01);
+  border-left: 1px solid var(--cds-border-subtle-01);
+}
+
+.think-side-strip__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  background: transparent;
+  color: var(--cds-icon-secondary);
+  cursor: pointer;
+
+  &:hover { background: var(--cds-layer-hover-01); color: var(--cds-icon-primary); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+}
+
+// SidePanelOpen points right; flip it so it points back into the page.
+.think-side-strip__icon { transform: scaleX(-1); }
+
 .think-athena-panel__context {
   min-width: 0;
   overflow: hidden;
@@ -4668,14 +4701,29 @@ body.kh-pane-resizing {
   min-width: 0;
   flex: 1 1 auto;
   height: 100%;
-  min-height: 24rem;
   border: 0;
   display: flex;
   flex-direction: column;
+  // Sit on the side panel's own surface rather than a darker inset box.
+  background: transparent;
 
   .think-athena-panel__body {
     flex: 1;
     min-height: 0;
+  }
+
+  // Your own turns: the hover-only time/actions row floats beside the
+  // bubble (in the empty space to its left) instead of padding it out.
+  .ai-bubble--user {
+    position: relative;
+
+    .ai-bubble-footer {
+      position: absolute;
+      right: 100%;
+      bottom: 0;
+      margin: 0 0.5rem 0 0;
+      white-space: nowrap;
+    }
   }
 
   .think-athena-panel__body > .ai-chat-compact {
@@ -5183,32 +5231,82 @@ body.kh-pane-resizing {
 // ── Metadata panel (right sidebar) ────────────────────────────────────────────
 
 .notes-meta-panel {
-  width: 280px;
   flex-shrink: 0;
   border-left: 1px solid var(--cds-border-subtle-00);
   background: var(--cds-layer-01);
-  overflow-y: auto;
-  padding: 1rem;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   height: 100%;
   box-sizing: border-box;
+
+  &[hidden] { display: none; }
 }
 
-// Lets the Athena section stretch to fill whatever vertical space the other
-// (collapsed-by-default) sections above it leave available, instead of
-// being capped to an arbitrary fixed height.
-.notes-meta-athena-section {
-  flex: 1;
+// Athena / Metadata / Connections tab strip at the top of the side panel.
+.notes-meta-tabs {
+  flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  min-height: 22rem;
+  align-items: stretch;
+  min-height: 40px;
+  padding: 0 0.25rem 0 0.5rem;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
 
-  .collapsible-section__body {
-    flex: 1;
+.notes-meta-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--cds-text-secondary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+
+  &:hover { color: var(--cds-text-primary); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+
+  &--active {
+    color: var(--cds-text-primary);
+    font-weight: 600;
+    border-bottom-color: var(--kh-accent);
+  }
+}
+
+.notes-meta-tabs__collapse {
+  margin-left: auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  background: transparent;
+  color: var(--cds-icon-secondary);
+  cursor: pointer;
+
+  &:hover { background: var(--cds-layer-hover-01); color: var(--cds-icon-primary); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+}
+
+.notes-meta-tabpanel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem;
+  box-sizing: border-box;
+
+  &[hidden] { display: none; }
+
+  // Athena manages its own scrolling thread + pinned composer.
+  &--athena {
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    overflow: hidden;
+    padding: 0.75rem 1.25rem;
   }
 }
 
@@ -5266,7 +5364,7 @@ body.kh-pane-resizing {
 
 // Live status indicator shown in the Athena section's header (dot + Ready/
 // Thinking text) instead of duplicating a header inside the panel body.
-.notes-meta-athena-status {
+.think-athena-status {
   display: flex;
   align-items: center;
   gap: 0.375rem;
@@ -5274,7 +5372,7 @@ body.kh-pane-resizing {
   color: var(--cds-text-secondary);
 }
 
-.notes-meta-athena-status__dot {
+.think-athena-status__dot {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
@@ -7309,10 +7407,47 @@ body.kh-pane-resizing {
 .notes-page {
   display: flex;
   flex-direction: column;
-  // Think is a three-pane workspace, not a document page: the panes run
-  // edge-to-edge and own their own internal padding, so the page contributes
-  // no gutters of its own.
-  padding: 0;
+  // Same gutters as Plan / Library so the header and panes line up across pages.
+  padding: 3.5rem 3rem 0;
+
+  .notes-header { margin-bottom: 16px; }
+}
+
+// Frame the three panes like Library's panels.
+.notes-page .notes-root {
+  border: 1px solid var(--cds-border-subtle-00);
+}
+
+// Note actions (Export / Push / Delete) portalled into the command bar.
+.notes-doc-actions-slot,
+.notes-doc-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notes-doc-actions .notes-export-anchor { margin-right: 0; }
+
+.kb-import-btn--danger:hover {
+  color: var(--cds-support-error, #fa4d56);
+  border-color: var(--cds-support-error, #fa4d56);
+}
+
+.notes-list-panel__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 0.25rem 0 1rem;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.notes-list-panel__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cds-text-secondary);
 }
 
 .docs-page {
@@ -12153,4 +12288,11 @@ $interactive:      #0f62fe;
       cursor: not-allowed;
     }
   }
+}
+
+// Fixed width so New note / New spark / New canvas don't resize the command
+// bar when switching Think views (sized for the longest label).
+.notes-header__new {
+  min-width: 9.5rem;
+  justify-content: center;
 }

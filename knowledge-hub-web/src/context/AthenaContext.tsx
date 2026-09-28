@@ -25,6 +25,12 @@ export interface AthenaPageContext {
    * note — not sent to the backend as part of the LLM-facing context.
    */
   id?: string;
+  /**
+   * Project the underlying item belongs to (e.g. the note's project). The
+   * Think-embedded Athena panel grounds the conversation in it instead of
+   * offering its own project picker.
+   */
+  projectId?: string;
 }
 
 interface AthenaContextValue {

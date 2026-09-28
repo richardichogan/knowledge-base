@@ -4,13 +4,14 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useCreateBlockNote } from '@blocknote/react';
 import '@blocknote/mantine/style.css';
 import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
 import { setActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
-import { TrashCan, Export, DocumentExport, Image as ImageIcon } from '@carbon/icons-react';
+import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub } from '@carbon/icons-react';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import { api } from '../services/api';
@@ -32,6 +33,13 @@ interface NoteEditorProps {
   doc: NoteDocument;
   onSaved: (updated: NoteDocument) => void;
   onDelete?: (id: string) => void;
+  /** Page command-bar element to render the note actions (Export, Push, Delete) into. */
+  actionsSlot?: HTMLElement | null;
+}
+
+/** Renders `node` into `slot` via a portal when one is provided, otherwise in place. */
+function portalInto(slot: HTMLElement | null | undefined, node: React.ReactNode): React.ReactNode {
+  return slot ? createPortal(node, slot) : node;
 }
 
 function extractTitle(blocks: { type: string; content?: unknown }[]): string {
@@ -100,7 +108,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
@@ -465,15 +473,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
     <div className="notes-editor-panel">
       {/* Centre: editor column */}
       <div className="notes-editor-centre">
-        {/* Top bar */}
-        <div className="notes-top-bar">
+        {/* Note actions — rendered into the Think page command bar when it
+            provides a slot, otherwise inline above the editor. */}
+        {portalInto(actionsSlot, (
+        <div className={actionsSlot ? 'notes-doc-actions' : 'notes-top-bar'}>
           <div className="notes-export-anchor" ref={exportMenuRef}>
             <button
-              className="notes-export-link"
+              className="kb-import-btn"
               disabled={exporting}
               onClick={() => { setExportMenuOpen((v) => !v); }}
             >
-              <Export size={14} /> {exporting ? 'Exporting…' : 'Export'}
+              <Export size={16} /> {exporting ? 'Exporting…' : 'Export'}
             </button>
             {exportMenuOpen && (
               <ul className="kb-menu" role="menu">
@@ -490,21 +500,22 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete }
               </ul>
             )}
           </div>
-          <button className="notes-push-link" onClick={() => { setGithubModalOpen(true); }}>
-            Push to GitHub
+          <button className="kb-import-btn" onClick={() => { setGithubModalOpen(true); }}>
+            <LogoGithub size={16} /> Push to GitHub
           </button>
           {onDelete && (
             <button
-              className="notes-delete-link"
+              className="kb-import-btn kb-import-btn--danger"
               onClick={() => {
                 if (!window.confirm(`Delete "${savedDocRef.current.title}"? This cannot be undone.`)) return;
                 onDelete(doc.id);
               }}
             >
-              <TrashCan size={14} /> Delete
+              <TrashCan size={16} /> Delete
             </button>
           )}
         </div>
+        ))}
 
         {notification !== null && (
           <span className={`notes-save-status notes-save-status--${notification.kind}`}>

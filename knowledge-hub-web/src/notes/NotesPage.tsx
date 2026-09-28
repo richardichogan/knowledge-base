@@ -1,16 +1,18 @@
 /**
- * notes/NotesPage.tsx — Think page: three-column layout.
- * Left: NoteList (260px). Centre: Editor. Right: Metadata panel (220px).
+ * notes/NotesPage.tsx — Think page: page header + command bar, then a
+ * three-column layout. Left: NoteList. Centre: Editor. Right: tabbed side
+ * panel (Athena / Metadata / Connections).
  */
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Search, Add, SidePanelOpen, SidePanelClose } from '@carbon/icons-react';
+import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, Document, Idea, Draw } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
 import { ImportNoteModal } from './ImportNoteModal';
+import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotes, fetchNote, createNote, deleteNote, extractNoteBlockText } from './noteStorage';
 import type { NoteContentBlock } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
@@ -22,6 +24,12 @@ import { usePersistedBoolean } from '../hooks/usePersistedState';
 import type { CanvasSummaryApi } from '../services/api';
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
+
+const VIEW_MODES: { key: ViewMode; label: string; Icon: typeof Document }[] = [
+  { key: 'notes',  label: 'Notes',  Icon: Document },
+  { key: 'sparks', label: 'Sparks', Icon: Idea },
+  { key: 'canvas', label: 'Canvas', Icon: Draw },
+];
 
 // Cap on how much of a note's body text is sent to Athena as page context —
 // large enough for typical notes/transcripts to be answerable in full, but
@@ -39,12 +47,15 @@ export const NotesPage: React.FC = () => {
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
   const [importModalOpen,  setImportModalOpen]  = useState(false);
+  const [sparkModalOpen,   setSparkModalOpen]   = useState(false);
   const [listCollapsed, setListCollapsed] = usePersistedBoolean('kh_think_list_collapsed', false);
   // Incremented rather than set to `true`, so expanding from the rail's search
   // icon can pull focus into the box every time — a boolean would only fire on
   // the first expand of a session.
   const [focusSearchSignal, setFocusSearchSignal] = useState(0);
   const { pageContext, setAthenaContext } = useAthenaContext();
+  // Command-bar element NoteEditor portals its note actions (Export, Push, Delete) into.
+  const [docActionsSlot, setDocActionsSlot] = useState<HTMLDivElement | null>(null);
 
   const { data: notes = [], isLoading, isError, refetch } = useQuery<NoteListItem[]>({
     queryKey: ['notes-list'],
@@ -162,6 +173,7 @@ export const NotesPage: React.FC = () => {
   const noteContentJson = mode === 'notes' ? openDoc?.contentJson ?? null : null;
   const noteTitle = mode === 'notes' ? openDoc?.title ?? null : null;
   const noteContentType = mode === 'notes' ? openDoc?.contentType ?? null : null;
+  const noteProjectId = mode === 'notes' ? openDoc?.projectId ?? null : null;
 
   useEffect(() => {
     if (mode === 'notes' && openDoc !== null) {
@@ -186,6 +198,7 @@ export const NotesPage: React.FC = () => {
         title: openDoc.title,
         detail: `Content type: ${openDoc.contentType}${bodyBlock}`,
         id: openDoc.id,
+        ...(openDoc.projectId ? { projectId: openDoc.projectId } : {}),
       });
 
       if (lastLookupKeyRef.current === lookupKey) {
@@ -224,6 +237,7 @@ export const NotesPage: React.FC = () => {
           title: openDoc.title,
           detail: `Content type: ${openDoc.contentType}. Contains ${imageUrls.length.toString()} embedded image(s):\n${descriptions.join('\n')}${bodyBlock}`,
           id: openDoc.id,
+          ...(openDoc.projectId ? { projectId: openDoc.projectId } : {}),
         });
       })();
 
@@ -247,7 +261,7 @@ export const NotesPage: React.FC = () => {
     // nothing changed, which would otherwise refire this effect (and the image
     // lookup fetch inside it) in a tight loop on a timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, noteId, noteContentJson, noteTitle, noteContentType, selectedCanvasId, canvases, setAthenaContext]);
+  }, [mode, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, selectedCanvasId, canvases, setAthenaContext]);
 
   if (isLoading) return <InlineLoading description="Loading documents…" />;
   if (isError) return (
@@ -259,6 +273,50 @@ export const NotesPage: React.FC = () => {
 
   return (
     <div className="notes-page">
+      {/* ── Header + command bar (matches Plan / Library) ── */}
+      <div className="page-header notes-header">
+        <div className="page-title-group">
+          <h1 className="page-title">Think</h1>
+        </div>
+        <div className="plan-header__right">
+          {mode === 'notes' && <div className="notes-doc-actions-slot" ref={setDocActionsSlot} />}
+          {mode === 'notes' && (
+            <button type="button" className="kb-import-btn" onClick={() => { setImportModalOpen(true); }} title="Import a Markdown or text file as a note">
+              <DocumentImport size={16} /> Import
+            </button>
+          )}
+          <div className="plan-view-toggle" role="tablist" aria-label="Think view">
+            {VIEW_MODES.map(({ key, label, Icon }) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={mode === key}
+                className={`plan-view-btn${mode === key ? ' plan-view-btn--active' : ''}`}
+                onClick={() => { setMode(key); }}
+              >
+                <Icon size={16} />
+                {label}
+              </button>
+            ))}
+          </div>
+          {/* Always present (label follows the view) so the bar keeps its
+              shape when switching Notes / Sparks / Canvas. */}
+          <button
+            type="button"
+            className="docs-upload-btn notes-header__new"
+            onClick={() => {
+              if (mode === 'canvas') void handleCreateCanvas();
+              else if (mode === 'sparks') setSparkModalOpen(true);
+              else void handleCreateNote();
+            }}
+          >
+            <Add size={20} />
+            {mode === 'canvas' ? 'New canvas' : mode === 'sparks' ? 'New spark' : 'New note'}
+          </button>
+        </div>
+      </div>
+
       <div className="notes-root">
         {/* ── Left panel ── */}
         {listCollapsed ? (
@@ -299,17 +357,13 @@ export const NotesPage: React.FC = () => {
           </div>
         ) : (
         <div className="notes-list-panel">
-          <div className="notes-mode-switcher">
-            <div className="notes-mode-switcher__group">
-              <button className={`notes-mode-btn${mode === 'notes'  ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('notes'); }}>Notes</button>
-              <button className={`notes-mode-btn${mode === 'sparks' ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('sparks'); }}>Sparks</button>
-              <button className={`notes-mode-btn${mode === 'canvas' ? ' notes-mode-btn--active' : ''}`} onClick={() => { setMode('canvas'); }}>Canvas</button>
-            </div>
+          <div className="notes-list-panel__head">
+            <span className="notes-list-panel__label">{VIEW_MODES.find((v) => v.key === mode)?.label}</span>
             <button
               type="button"
               className="notes-mode-collapse"
-              title="Collapse note list"
-              aria-label="Collapse note list"
+              title="Collapse list"
+              aria-label="Collapse list"
               onClick={() => { setListCollapsed(true); }}
             >
               <SidePanelClose size={16} />
@@ -381,7 +435,7 @@ export const NotesPage: React.FC = () => {
         ) : (
           <div className="notes-editor-area">
             {openDoc !== null ? (
-              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} />
+              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>
             )}
@@ -394,6 +448,8 @@ export const NotesPage: React.FC = () => {
         onClose={() => { setImportModalOpen(false); }}
         onImported={(doc) => { void handleImported(doc); }}
       />
+
+      <QuickSparkModal open={sparkModalOpen} onClose={() => { setSparkModalOpen(false); }} />
     </div>
   );
 };

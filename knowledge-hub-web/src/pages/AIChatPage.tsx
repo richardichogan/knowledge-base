@@ -13,7 +13,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy, Blog, View } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy, Blog, View, OverflowMenuHorizontal } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { renderMarkdown } from '../utils/markdown';
@@ -550,6 +550,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // session state with the floating widget / full-page chat.
   const isNoteLinkedPanel = compact && compactVariant === 'narrow';
   const currentNoteId = isNoteLinkedPanel && pageContext?.type === 'note' ? pageContext.id : undefined;
+  // In Think, the open note's project grounds the chat (no project chip there).
+  const noteProjectId = isNoteLinkedPanel ? pageContext?.projectId : undefined;
 
   // Dismissing the context chip opts this chat out of sending the page's
   // content. Keyed by the dismissed context rather than a plain boolean, so
@@ -879,7 +881,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         {
           message: text,
           persona,
-          projectId: activeProjectId !== '' ? activeProjectId : null,
+          projectId: noteProjectId ?? (activeProjectId !== '' ? activeProjectId : null),
           ...(sessionId !== null && { sessionId }),
           ...(ctx && { pageContext: ctx }),
           ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
@@ -1295,7 +1297,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   async function handleSaveResponseToThink(response: ChatMessage, messageIndex: number): Promise<void> {
     if (response.role !== 'assistant' || savingResponseIndex !== null) return;
-    const projectId = activeProjectId !== '' ? activeProjectId : ATHENA_DEFAULT_PROJECT_ID;
+    const projectId = noteProjectId ?? (activeProjectId !== '' ? activeProjectId : ATHENA_DEFAULT_PROJECT_ID);
     const projectName = projectNameById.get(projectId) ?? projectId;
     const title = deriveThinkTitle(response.content);
     const prompt = getPreviousUserPrompt(messageIndex);
@@ -1472,8 +1474,36 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     void handleProjectChange(nextProjectId);
   }
 
+  // Persona chip + "more" menu used by the narrow (Think side panel) layout,
+  // which drops the top icon row in favour of the composer chip bar.
+  const PERSONA_CHIP: Record<AthenaPersona, { label: string; Icon: typeof Notebook }> = {
+    general: { label: 'General', Icon: Notebook },
+    brainstorming: { label: 'Brainstorm', Icon: Idea },
+    copilot_coach: { label: 'Copilot Coach', Icon: Compass },
+    blog_post: { label: 'Blog Post', Icon: Blog },
+  };
+  const PersonaChipIcon = PERSONA_CHIP[persona].Icon;
+  const canExportChat = messages.length > 0 && sessionId !== null && !isExporting && !chatMutation.isPending;
+  const canStartNewChat = messages.length > 0 && !chatMutation.isPending;
+
   const composerChipBar = (
     <div className="kh-composer-chips">
+      {isNoteLinkedPanel && (
+        <div className="kh-composer-chip kh-composer-chip--persona">
+          <PersonaChipIcon size={14} className="kh-composer-chip__icon" />
+          <span className="kh-composer-chip__value">{PERSONA_CHIP[persona].label}</span>
+          <select
+            className="kh-composer-chip__select"
+            aria-label="Athena persona"
+            value={persona}
+            onChange={(event) => { handlePersonaChange(event.target.value as AthenaPersona); }}
+          >
+            {(Object.keys(PERSONA_CHIP) as AthenaPersona[]).map((key) => (
+              <option key={key} value={key}>{PERSONA_CHIP[key].label}</option>
+            ))}
+          </select>
+        </div>
+      )}
       {pageContext !== undefined && !isContextDismissed && (
         <div className="kh-composer-chip kh-composer-chip--context">
           <View size={14} className="kh-composer-chip__icon" />
@@ -1491,7 +1521,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         </div>
       )}
 
-      <div className={`kh-composer-chip kh-composer-chip--action${composerIntent.effectiveAction === undefined ? ' kh-composer-chip--empty' : ''}${isActionInferred ? ' kh-composer-chip--inferred' : ''}`}>
+      <div className={`kh-composer-chip kh-composer-chip--action${composerIntent.effectiveAction === undefined ? ' kh-composer-chip--empty' : ''}${isActionInferred ? ' kh-composer-chip--inferred' : ''}`}
+        title="Action for this message. Shortcut: start your message with /draft, /critique, /code, /task or /note"
+      >
         <Idea size={14} className="kh-composer-chip__icon" />
         <span className="kh-composer-chip__value">
           {composerIntent.effectiveAction !== undefined
@@ -1525,6 +1557,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         )}
       </div>
 
+      {!isNoteLinkedPanel && (
       <div className={`kh-composer-chip kh-composer-chip--project${chipProjectId === '' ? ' kh-composer-chip--empty' : ''}${isProjectInferred ? ' kh-composer-chip--inferred' : ''}`}>
         <Notebook size={14} className="kh-composer-chip__icon" />
         <span className="kh-composer-chip__value">
@@ -1553,7 +1586,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </button>
         )}
       </div>
+      )}
 
+      {/* Think's panel relies on the action chip's tooltip for the / shortcuts. */}
+      {!isNoteLinkedPanel && (
       <button
         type="button"
         className={`kh-composer-chip kh-composer-chip--help${isCommandHelpOpen ? ' kh-composer-chip--help-open' : ''}`}
@@ -1562,6 +1598,29 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       >
         <span className="kh-composer-chip__value">/ commands</span>
       </button>
+      )}
+
+      {isNoteLinkedPanel && (
+        <div className="kh-composer-chip kh-composer-chip--more" title="More">
+          <OverflowMenuHorizontal size={14} className="kh-composer-chip__icon" />
+          <select
+            className="kh-composer-chip__select"
+            aria-label="More chat actions"
+            value=""
+            onChange={(event) => {
+              const choice = event.target.value;
+              if (choice === 'export') handleExportToThink();
+              else if (choice === 'new') handleNewChat();
+              else if (choice === 'voice') { stopTts(); setVoiceOutputOn((v) => !v); }
+            }}
+          >
+            <option value="" disabled>More…</option>
+            <option value="new" disabled={!canStartNewChat}>New chat</option>
+            <option value="export" disabled={!canExportChat}>{isExporting ? 'Saving to Think…' : 'Export chat to Think'}</option>
+            <option value="voice">{voiceOutputOn ? 'Turn voice replies off' : 'Turn voice replies on'}</option>
+          </select>
+        </div>
+      )}
 
       {isCommandHelpOpen && (
         <div className="kh-composer-help" role="note">
@@ -1755,7 +1814,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </div>
         </div>
       )}
-      {!standalone && (
+      {!standalone && !isNoteLinkedPanel && (
         <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact ai-new-chat-row--with-persona' : 'ai-new-chat-row ai-new-chat-row--with-persona'}>
           {personaSwitch}
           <div className="ai-new-chat-row__actions">
