@@ -454,8 +454,10 @@ export async function upsertSyncState(
   updates: { lastSyncAt?: Date; lastCursor?: string; itemCount?: number; lastError?: string | null },
 ): Promise<void> {
   await db.query(
+    // item_count is NOT NULL: a first write that doesn't carry a count
+    // (e.g. storing the OneDrive sign-in) starts it at 0.
     `INSERT INTO sync_state (source, last_sync_at, last_cursor, item_count, last_error, updated_at)
-     VALUES ($1, $2, $3, $4, $5, NOW())
+     VALUES ($1, $2, $3, COALESCE($4, 0), $5, NOW())
      ON CONFLICT (source) DO UPDATE SET
        last_sync_at = COALESCE($2, sync_state.last_sync_at),
        last_cursor  = COALESCE($3, sync_state.last_cursor),
