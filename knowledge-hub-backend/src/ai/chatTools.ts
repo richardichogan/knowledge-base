@@ -20,8 +20,7 @@ import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db
 import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
 import { createNoteRecord } from '../routes/notes.js';
 import { rowToTask, type Task } from '../routes/tasks.js';
-import { buildLibrary, CONTENT_STORE } from '../routes/documents.js';
-import { GitHubClient } from '../integrations/github/githubClient.js';
+import { CONTENT_STORE } from '../routes/documents.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
 import { env } from '../config/env.js';
 import { isIcaEnabled, icaChat } from './icaClient.js';
@@ -140,11 +139,12 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           "or anything else — those are search_knowledge_base only. Never use this as a substitute for " +
           "search_knowledge_base on a project question; call search_knowledge_base first (or alongside) so " +
           "notes and discovered articles are represented, and use this in addition when the question is " +
-          "specifically about formal docs/specs/READMEs.",
+          "specifically about formal docs/specs/READMEs. Searches document CONTENT (PRDs, specs, ADRs, design docs) " +
+          "and returns the most relevant passage plus the document text for each match.",
         parameters: {
           type: 'object',
           properties: {
-            query: { type: 'string', description: 'Search terms to match against document titles/paths.' },
+            query: { type: 'string', description: 'Search terms — matched against the documents\' full content as well as titles (any term can match; results are ranked). Use the key concepts, not a whole sentence.' },
             projectId: { type: 'string', description: 'Optional project id to scope the search to (e.g. "imagine"). If this conversation has an active project, omit this (it defaults automatically) or pass that same project id — do not broaden to all projects unless the user explicitly asked to.' },
             limit: { type: 'integer', description: `Max results (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
@@ -503,96 +503,108 @@ async function listTasks(db: Pool, args: Record<string, unknown>): Promise<unkno
 
 // ── search_library ──────────────────────────────────────────────────────────
 
+// Library content per result. Enough for the model to reason over a PRD or
+// design doc section, bounded so several results fit comfortably in context.
+const LIBRARY_RESULT_CONTENT_CHARS = 6_000;
+
+/**
+ * search_library — searches every Library document (project repo docs, the
+ * content store, uploaded files) by CONTENT, using the indexed stored copies.
+ *
+ * Previously this re-listed repos live from GitHub on every call (slow, and a
+ * repo GitHub refused just vanished), matched only titles/paths for repo docs,
+ * and matched the whole query as one exact substring — so multi-word questions
+ * found nothing even when PRDs and design docs clearly covered them.
+ */
 async function searchLibrary(db: Pool, args: Record<string, unknown>): Promise<unknown> {
-  const query = typeof args['query'] === 'string' ? args['query'].trim().toLowerCase() : '';
+  const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
   const projectId = typeof args['projectId'] === 'string' ? args['projectId'].trim() : '';
   const rawLimit = Number(args['limit']);
   const limit = Number.isFinite(rawLimit) && rawLimit > 0
     ? Math.min(Math.trunc(rawLimit), AI_TOOL_SEARCH_MAX_LIMIT)
     : AI_TOOL_SEARCH_DEFAULT_LIMIT;
 
-  let repos: string[] = [];
-  const labelMap: Record<string, string> = {};
-
   if (projectId !== '') {
-    const r = await db.query<{ id: string; name: string; github_repos: string[] }>(
-      `SELECT id, name, github_repos FROM projects WHERE id = $1`,
-      [projectId],
-    );
-    const row = r.rows[0];
-    if (row === undefined) return { error: `No project found with id "${projectId}"` };
-    repos = row.github_repos ?? [];
-    for (const repo of repos) labelMap[repo] = row.name;
-  } else {
-    const r = await db.query<{ name: string; github_repos: string[] }>(
-      `SELECT name, github_repos FROM projects WHERE array_length(github_repos, 1) > 0`,
-    );
-    for (const row of r.rows) {
-      for (const repo of row.github_repos) {
-        repos.push(repo);
-        labelMap[repo] = row.name;
-      }
-    }
+    const p = await db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId]);
+    if (p.rowCount === 0) return { error: `No project found with id "${projectId}"` };
   }
 
-  const gh = new GitHubClient();
-  const docs = await buildLibrary(gh, repos, labelMap);
-  const uploadParams: unknown[] = [];
-  const uploadConditions = [`source = 'user-upload'`];
+  // Any-word match, ranked: documents matching more (and rarer) terms, and
+  // matching in the title, come first. Words are reduced to safe tokens.
+  const terms = [...new Set((query.toLowerCase().match(/[a-z0-9][a-z0-9_-]{1,}/g) ?? [])
+    .map((t) => t.replace(/[-_]+/g, ' ').trim())
+    .flatMap((t) => t.split(' '))
+    .filter((t) => t.length >= 2))];
+  const orQuery = terms.join(' | ');
+
+  const params: unknown[] = [];
+  const where = [`ci.source IN ('github-doc', 'github-content-store', 'user-upload')`];
   if (projectId !== '') {
-    uploadParams.push(projectId);
-    uploadConditions.push(`project_context = $${uploadParams.length}`);
+    params.push(projectId);
+    where.push(`ci.project_context = $${params.length}`);
   }
-  const uploadRows = await db.query<{
+  let rankSql = '0';
+  let headlineSql = `left(coalesce(ci.body, ''), 400)`;
+  if (orQuery !== '') {
+    params.push(orQuery);
+    const tsq = `to_tsquery('english', $${params.length})`;
+    where.push(`ci.search_vector @@ ${tsq}`);
+    rankSql = `ts_rank_cd(ci.search_vector, ${tsq}, 32)`;
+    headlineSql = `ts_headline('english', coalesce(ci.body, ''), ${tsq},
+      'MaxFragments=3, MinWords=12, MaxWords=40, FragmentDelimiter=" … ", StartSel="", StopSel=""')`;
+  }
+  params.push(limit);
+
+  const rows = await db.query<{
+    id: string;
+    source: string;
     title: string;
     url: string | null;
-    project_context: string;
     project_name: string | null;
+    project_context: string | null;
     metadata: Record<string, unknown> | null;
-    body: string;
+    body: string | null;
+    excerpt: string;
+    rank: number;
   }>(
-    `SELECT ci.title, ci.url, ci.project_context, p.name AS project_name, ci.metadata, ci.body
-     FROM content_items ci
-     LEFT JOIN projects p ON p.id = ci.project_context
-     WHERE ${uploadConditions.join(' AND ')}
-     ORDER BY ci.updated_at DESC
-     LIMIT $${uploadParams.length + 1}`,
-    [...uploadParams, limit],
+    `SELECT ci.id::text, ci.source, COALESCE(NULLIF(ci.title, ''), 'Untitled Document') AS title, ci.url,
+            p.name AS project_name, ci.project_context, ci.metadata, ci.body,
+            ${headlineSql} AS excerpt,
+            ${rankSql} AS rank
+       FROM content_items ci
+       LEFT JOIN projects p ON p.id = ci.project_context
+      WHERE ${where.join(' AND ')}
+      ORDER BY rank DESC, ci.updated_at DESC
+      LIMIT $${params.length}`,
+    params,
   );
-  const uploadDocs = uploadRows.rows.map((row) => {
-    const filename = typeof row.metadata?.['filename'] === 'string' ? row.metadata['filename'] : row.title;
-    const sourceLabel = row.project_name ?? row.project_context;
+
+  const documents = rows.rows.map((r) => {
+    const repo = typeof r.metadata?.['repo'] === 'string' ? r.metadata['repo'] : (r.source === 'user-upload' ? 'Uploaded Library' : '');
+    const path = typeof r.metadata?.['path'] === 'string'
+      ? r.metadata['path']
+      : (typeof r.metadata?.['filename'] === 'string' ? r.metadata['filename'] : r.title);
     return {
-      title: row.title,
-      repo: 'Uploaded Library',
-      path: filename,
-      sourceLabel,
-      htmlUrl: row.url ?? '',
-      body: row.body,
+      title: r.title,
+      project: r.project_name ?? r.project_context ?? 'personal',
+      repo: repo === CONTENT_STORE ? 'Content Store' : repo,
+      path,
+      url: r.url ?? '',
+      excerpt: r.excerpt,
+      content: (r.body ?? '').slice(0, LIBRARY_RESULT_CONTENT_CHARS),
     };
   });
-  const allDocs = [...docs, ...uploadDocs];
 
-  const filtered = query === ''
-    ? allDocs
-    : allDocs.filter((d) =>
-        d.title.toLowerCase().includes(query) ||
-        d.path.toLowerCase().includes(query) ||
-        d.sourceLabel.toLowerCase().includes(query) ||
-        d.repo.toLowerCase().includes(query) ||
-        ('body' in d && typeof d.body === 'string' && d.body.toLowerCase().includes(query)),
-      );
-
-  const results = filtered.slice(0, limit).map((d) => ({
-    title: d.title,
-    repo: d.repo === CONTENT_STORE ? 'Content Store' : d.repo,
-    path: d.path,
-    sourceLabel: d.sourceLabel,
-    url: d.htmlUrl,
-    ...('body' in d && typeof d.body === 'string' ? { content: d.body.slice(0, 12000) } : {}),
-  }));
-
-  return { resultCount: results.length, totalScanned: allDocs.length, documents: results };
+  return {
+    resultCount: documents.length,
+    matchedTerms: terms,
+    documents,
+    ...(documents.length === 0 && {
+      hint: projectId !== ''
+        ? 'No Library documents matched in this project. Try broader or different terms, or search without the project filter.'
+        : 'No Library documents matched. Try broader or different terms.',
+    }),
+  };
 }
 
 // ── create_task / update_task ────────────────────────────────────────────────
