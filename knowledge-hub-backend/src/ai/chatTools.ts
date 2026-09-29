@@ -135,7 +135,8 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
         name: 'search_library',
         description:
           "Searches ONLY the Library section — formal markdown documents (specs, READMEs, docs/ folders) " +
-          "stored in the user's GitHub repos plus uploaded Library files (DOCX/XLSX/PPTX/PDF extracted text). It does NOT cover notes, the discovery feed, tasks, emails, " +
+          "stored in the user's GitHub repos, documents synced from the user's OneDrive (IBM Alliance tenant — PRDs, decks, " +
+          "spreadsheets, diagrams, with images described), plus uploaded Library files. It does NOT cover notes, the discovery feed, tasks, emails, " +
           "or anything else — those are search_knowledge_base only. Never use this as a substitute for " +
           "search_knowledge_base on a project question; call search_knowledge_base first (or alongside) so " +
           "notes and discovered articles are represented, and use this in addition when the question is " +
@@ -538,7 +539,7 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>): Promise<u
   const orQuery = terms.join(' | ');
 
   const params: unknown[] = [];
-  const where = [`ci.source IN ('github-doc', 'github-content-store', 'user-upload')`];
+  const where = [`ci.source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')`];
   if (projectId !== '') {
     params.push(projectId);
     where.push(`ci.project_context = $${params.length}`);
@@ -580,9 +581,11 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>): Promise<u
   );
 
   const documents = rows.rows.map((r) => {
-    const repo = typeof r.metadata?.['repo'] === 'string' ? r.metadata['repo'] : (r.source === 'user-upload' ? 'Uploaded Library' : '');
+    const repo = typeof r.metadata?.['repo'] === 'string'
+      ? r.metadata['repo']
+      : r.source === 'user-upload' ? 'Uploaded Library' : r.source === 'onedrive-document' ? 'OneDrive' : '';
     const path = typeof r.metadata?.['path'] === 'string'
-      ? r.metadata['path']
+      ? r.metadata['path'] as string
       : (typeof r.metadata?.['filename'] === 'string' ? r.metadata['filename'] : r.title);
     return {
       title: r.title,

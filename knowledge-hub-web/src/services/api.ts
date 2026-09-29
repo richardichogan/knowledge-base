@@ -23,6 +23,8 @@ import type {
 
 // Use relative base URL so all requests go through the Vite dev proxy.
 const BASE_URL = import.meta.env['VITE_API_URL'] as string | undefined ?? '';
+/** Backend origin ('' in dev, where Vite proxies /api and /auth). */
+export const API_BASE_URL = BASE_URL;
 const TOKEN = import.meta.env['VITE_API_TOKEN'] as string | undefined ?? '';
 
 const TIMEOUT_MS = 8_000;
@@ -88,6 +90,17 @@ export interface DocEntry {
   size: number;
   tags: string[];
   taxonomyTagIds?: string[];
+}
+
+export interface AllianceStatus {
+  configured: boolean;
+  connected: boolean;
+  account: string | null;
+  connectedAt: string | null;
+  lastError: string | null;
+  root: string;
+  syncRunning: boolean;
+  sync: { lastSyncAt: string | null; fileCount: number; documentCount: number; lastError: string | null };
 }
 
 export interface DocumentContent {
@@ -804,6 +817,18 @@ export class KnowledgeHubApi {
     if (extraRepos.length > 0) params['repos'] = extraRepos;
     if (Object.keys(repoLabels).length > 0) params['repoLabels'] = JSON.stringify(repoLabels);
     const r = await this.client.get<ApiResponse<DocEntry[]>>('/api/documents/library', { params });
+    return r.data;
+  }
+
+  /** OneDrive (IBM Alliance tenant) connection + sync status. */
+  async getAllianceStatus(): Promise<ApiResponse<AllianceStatus>> {
+    const r = await this.client.get<ApiResponse<AllianceStatus>>('/api/integrations/alliance/status');
+    return r.data;
+  }
+
+  /** Starts a OneDrive sync in the background. */
+  async syncOneDrive(): Promise<ApiResponse<{ started: boolean }>> {
+    const r = await this.client.post<ApiResponse<{ started: boolean }>>('/api/integrations/alliance/sync');
     return r.data;
   }
 

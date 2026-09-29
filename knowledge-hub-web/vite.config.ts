@@ -20,6 +20,11 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
+      // Microsoft sign-in redirects (OneDrive/Alliance) go through the backend too.
+      '/auth': {
+        target: `http://localhost:${process.env['KH_API_PORT'] ?? '3000'}`,
+        changeOrigin: true,
+      },
       '/api': {
         target: `http://localhost:${process.env['KH_API_PORT'] ?? '3000'}`,
         changeOrigin: true,

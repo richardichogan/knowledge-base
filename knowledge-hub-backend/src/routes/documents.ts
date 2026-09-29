@@ -34,6 +34,8 @@ const KB_DOCUMENTS_CONTAINER = 'kb-documents';
  * without a schema change — `path` holds the content_items.id instead of a
  * GitHub path. */
 const UPLOAD_REPO_SENTINEL = 'kb-uploads';
+/** Sentinel `repo` for documents synced from OneDrive (Alliance); `path` holds content_items.id. */
+const ONEDRIVE_REPO_SENTINEL = 'onedrive';
 
 const router = Router();
 
@@ -280,7 +282,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
       const db = getDb();
       const result = await db.query<{
         id: string;
-        source: 'github-doc' | 'github-content-store' | 'user-upload';
+        source: 'github-doc' | 'github-content-store' | 'user-upload' | 'onedrive-document';
         title: string;
         html_url: string | null;
         project_context: string | null;
@@ -299,13 +301,34 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
            octet_length(ci.body) AS body_bytes
          FROM content_items ci
          LEFT JOIN projects p ON p.id = ci.project_context
-         WHERE ci.source IN ('github-doc', 'github-content-store', 'user-upload')
+         WHERE ci.source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')
          ORDER BY ci.updated_at DESC, ci.indexed_at DESC`,
       );
 
       const docsById = new Map<string, DocEntry>();
       for (const row of result.rows) {
         const metadata = row.metadata ?? {};
+
+        if (row.source === 'onedrive-document') {
+          const filename = typeof metadata['filename'] === 'string' ? metadata['filename'] : row.title;
+          const id = `${ONEDRIVE_REPO_SENTINEL}::${row.id}`;
+          if (docsById.has(id)) continue;
+          docsById.set(id, {
+            id,
+            contentItemId: row.id,
+            title: row.title,
+            type: inferDocType(filename, false),
+            repo: ONEDRIVE_REPO_SENTINEL,
+            path: row.id,
+            sourceLabel: row.project_name ?? row.project_context ?? 'OneDrive',
+            projectId: row.project_context ?? 'personal',
+            htmlUrl: row.html_url ?? '',
+            size: row.body_bytes ?? 0,
+            tags: row.project_context ? [row.project_context] : [],
+            taxonomyTagIds: [],
+          });
+          continue;
+        }
 
         if (row.source === 'user-upload') {
           const filename = typeof metadata['filename'] === 'string' ? metadata['filename'] : row.title;
@@ -408,11 +431,11 @@ router.get('/content', (req: Request, res: Response, next: NextFunction): void =
 
       // Uploaded documents aren't GitHub-backed — content lives directly in
       // content_items.body, keyed by content_items.id (see UPLOAD_REPO_SENTINEL).
-      if (repo === UPLOAD_REPO_SENTINEL) {
+      if (repo === UPLOAD_REPO_SENTINEL || repo === ONEDRIVE_REPO_SENTINEL) {
         const db = getDb();
         const result = await db.query<{ body: string | null; metadata: Record<string, unknown> | null }>(
-          `SELECT body, metadata FROM content_items WHERE id = $1 AND source = 'user-upload'`,
-          [filePath],
+          `SELECT body, metadata FROM content_items WHERE id = $1 AND source = $2`,
+          [filePath, repo === ONEDRIVE_REPO_SENTINEL ? 'onedrive-document' : 'user-upload'],
         );
         const row = result.rows[0];
         if (!row) {

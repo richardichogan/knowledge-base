@@ -90,6 +90,18 @@ export const env = {
   GRAPH_REDIRECT_URI: optionalWithDefault('GRAPH_REDIRECT_URI', 'http://localhost:3000/auth/graph/callback'),
   GRAPH_REFRESH_TOKEN: optional('GRAPH_REFRESH_TOKEN'),
 
+  // ── Alliance tenant (IBM) Microsoft 365 — OneDrive document sync ──────────
+  // Separate from GRAPH_* above, which signs in to the themicrosoftcloudblog
+  // tenant for calendar/mail/To Do. Delegated Files.Read(.All), your account.
+  ALLIANCE_GRAPH_CLIENT_ID: optional('ALLIANCE_GRAPH_CLIENT_ID'),
+  ALLIANCE_GRAPH_TENANT_ID: optional('ALLIANCE_GRAPH_TENANT_ID'),
+  ALLIANCE_GRAPH_CLIENT_SECRET: optional('ALLIANCE_GRAPH_CLIENT_SECRET'),
+  ALLIANCE_GRAPH_REDIRECT_URI: optionalWithDefault('ALLIANCE_GRAPH_REDIRECT_URI', 'http://localhost:3000/auth/alliance/callback'),
+  /** OneDrive folder whose sub-folders map to Athena projects, e.g. Athena/IMAGINE. */
+  ALLIANCE_ONEDRIVE_ROOT: optionalWithDefault('ALLIANCE_ONEDRIVE_ROOT', 'Athena'),
+  /** If set, only this account may connect (guards the public sign-in route). */
+  ALLIANCE_ALLOWED_UPN: optional('ALLIANCE_ALLOWED_UPN'),
+
   // GitLab
   GITLAB_BASE_URL: optionalWithDefault('GITLAB_BASE_URL', 'https://gitlab.com'),
   GITLAB_ACCESS_TOKEN: integrationCredential('GITLAB_ACCESS_TOKEN'),

@@ -12612,3 +12612,38 @@ $interactive:      #0f62fe;
     opacity: 0;
   }
 }
+
+// ── Library: OneDrive (Alliance) connection strip ────────────────────────────
+.onedrive-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: -0.5rem 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+
+  &--disconnected { border-color: rgba(241, 194, 27, 0.4); }
+}
+
+.onedrive-status__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #f1c21b;
+
+  &--ok { background: #42be65; }
+}
+
+.onedrive-status__label { color: var(--cds-text-primary); font-weight: 600; }
+.onedrive-status__spacer { flex: 1; }
+
+.onedrive-status__notice {
+  &--ok { color: #42be65; }
+  &--error { color: #ff8389; }
+}
+
+.onedrive-status .kb-import-btn { text-decoration: none; padding: 4px 12px; }

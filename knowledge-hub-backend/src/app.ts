@@ -16,6 +16,7 @@ import { captureRouter } from './routes/capture.js';
 import { notesRouter } from './routes/notes.js';
 import { imagesRouter } from './routes/images.js';
 import { graphAuthRouter } from './routes/graphAuth.js';
+import { allianceAuthRouter, allianceApiRouter } from './routes/allianceAuth.js';
 import { projectsRouter } from './routes/projects.js';
 import { tagsRouter } from './routes/tags.js';
 import { documentsRouter } from './routes/documents.js';
@@ -87,6 +88,7 @@ export function createApp(): express.Application {
 
   // ── OAuth routes — unauthenticated (must be before /api middleware) ──────
   app.use('/auth/graph', graphAuthRouter);
+  app.use('/auth/alliance', allianceAuthRouter);
 
   // ── API routes — all authenticated ────────────────────────────────────────
   app.use('/api', authenticate);
@@ -103,6 +105,7 @@ export function createApp(): express.Application {
   app.use('/api/projects', projectsRouter);
   app.use('/api/tags', tagsRouter);
   app.use('/api/documents', documentsRouter);
+  app.use('/api/integrations/alliance', allianceApiRouter);
   app.use('/api/discover', discoverRouter);
   app.use('/api/taxonomy', taxonomyRouter);
   app.use('/api/repo-mappings', repoMappingsRouter);

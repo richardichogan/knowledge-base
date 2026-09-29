@@ -24,6 +24,7 @@ import { useProjects } from '../hooks/useProjects';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { useAthenaContext } from '../context/AthenaContext';
 import { SideTabsPanel } from '../components/SideTabsPanel';
+import { OneDriveStatus } from '../components/library/OneDriveStatus';
 import { ThinkAthenaPanel } from '../notes/ThinkAthenaPanel';
 import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
@@ -155,6 +156,7 @@ export const DocumentsPage: React.FC = () => {
 
   const selectedDoc = allDocs.find((d) => d.id === selectedId) ?? null;
   const selectedDocIsUpload = selectedDoc?.repo === 'kb-uploads';
+  const selectedDocIsOneDrive = selectedDoc?.repo === 'onedrive';
 
   // ── Tag save handler ───────────────────────────────────────────────────────
   const handleDocTagChange = useCallback(async (ids: string[]) => {
@@ -271,6 +273,8 @@ export const DocumentsPage: React.FC = () => {
           Upload Document
         </button>
       </div>
+
+      <OneDriveStatus />
 
       {/* ── Three-panel body ── */}
       <div className="docs-body">
@@ -413,7 +417,7 @@ export const DocumentsPage: React.FC = () => {
                   className="docs-viewer__gh-link"
                 >
                   <Launch size={14} />
-                  {selectedDocIsUpload ? 'Open original' : 'View on GitHub'}
+                  {selectedDocIsOneDrive ? 'Open in OneDrive' : selectedDocIsUpload ? 'Open original' : 'View on GitHub'}
                 </a>
               </div>
               {contentData.data.fromIndex === true && (
@@ -472,7 +476,7 @@ export const DocumentsPage: React.FC = () => {
               <p className="docs-info-panel__value">{selectedDoc.sourceLabel}</p>
             </div>
 
-            {!selectedDocIsUpload && (
+            {!selectedDocIsUpload && !selectedDocIsOneDrive && (
               <div className="docs-info-panel__section">
                 <p className="docs-info-panel__label">Repository</p>
                 <a
@@ -487,10 +491,12 @@ export const DocumentsPage: React.FC = () => {
               </div>
             )}
 
+            {!selectedDocIsOneDrive && (
             <div className="docs-info-panel__section">
               <p className="docs-info-panel__label">Path</p>
               <code className="docs-info-panel__path">{selectedDoc.path}</code>
             </div>
+            )}
 
             <div className="docs-info-panel__section">
               <p className="docs-info-panel__label">Size</p>

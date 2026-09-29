@@ -133,7 +133,7 @@ async function syncDocuments(db: Pool): Promise<void> {
   // files (previously only 'github-doc', so uploads never joined the graph).
   const rows = await db.query<{ id: string; title: string }>(
     `SELECT id::text, COALESCE(title, 'Untitled Document') AS title
-     FROM content_items WHERE source IN ('github-doc', 'github-content-store', 'user-upload')`,
+     FROM content_items WHERE source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')`,
   );
   for (const r of rows.rows) await upsertNode(db, r.id, 'document', r.title, []);
 }

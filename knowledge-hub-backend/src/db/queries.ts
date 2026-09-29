@@ -263,7 +263,7 @@ export async function getLibraryRagItems(
             url, project_context, metadata, tags,
             ts_rank_cd(search_vector, to_tsquery('english', $1), 32) AS rank
        FROM content_items
-      WHERE source IN ('github-doc', 'github-content-store', 'user-upload')
+      WHERE source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')
         AND search_vector @@ to_tsquery('english', $1)${projectWhere}
       ORDER BY rank DESC, updated_at DESC
       LIMIT $2`,

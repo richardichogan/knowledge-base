@@ -1,3 +1,4 @@
+import { syncOneDriveDocuments } from '../integrations/alliance/oneDriveSync.js';
 import type { Pool } from 'pg';
 import { indexAllPosts } from '../integrations/cms/postIndexer.js';
 import { syncDiscoveredArticles } from '../integrations/cms/discoveredArticlesSync.js';
@@ -112,6 +113,7 @@ async function runTier1SyncInner(db: Pool): Promise<OrchestratorResult> {
     { name: 'graph-todo',       sync: syncTodoTasks },
     { name: 'graph-mail',       sync: syncGraphMail },
     { name: 'ica-collections',  sync: syncIcaCollections },
+    { name: 'onedrive-documents', sync: syncOneDriveDocuments },
     { name: 'project-docs',     sync: syncProjectDocs },
     { name: 'cfps',             sync: syncCfps },
   ];

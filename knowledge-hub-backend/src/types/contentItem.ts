@@ -32,7 +32,8 @@ export type ContentSource =
   | 'task'
   | 'discovered-article'
   | 'ica-document'
-  | 'user-upload';
+  | 'user-upload'
+  | 'onedrive-document';
 
 /**
  * Project context for timeline filtering.
