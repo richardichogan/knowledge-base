@@ -49,6 +49,19 @@ export interface ChatMessage {
   sources?: string[];
   /** Standing instructions Athena saved during this turn (shown as "Remembered: …" with Undo). */
   memoriesCreated?: SavedMemory[];
+  /** Edits Athena proposed to the open Think note (previewed; applied on click). */
+  noteEdits?: NoteEdit[];
+  /** The note those edits were written for. */
+  noteEditsFor?: string;
+}
+
+/** One edit Athena proposes to the open Think note. */
+export interface NoteEdit {
+  action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' | 'replace_text';
+  heading?: string;
+  find?: string;
+  markdown?: string;
+  summary: string;
 }
 
 /** A standing instruction just saved via chat. */
@@ -100,6 +113,8 @@ export interface ChatResponse {
   persona?: AthenaPersona;
   sources?: string[];
   memoriesCreated?: SavedMemory[];
+  noteEdits?: NoteEdit[];
+  noteEditsFor?: string | null;
   pendingActions: WriteActionProposal[];
 }
 

@@ -14,6 +14,8 @@
  * CMS publish, MS Todo push), which still require explicit confirmation.
  */
 
+import { validateNoteEdits } from './noteEdits.js';
+import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import type { LlmToolDefinition } from './foundryClient.js';
@@ -230,6 +232,47 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'propose_note_edit',
+        description:
+          "Proposes changes to the Think note that is open next to this chat (shown under 'Document in view'). " +
+          "Use it whenever Richard asks you to add to, write into, update, rewrite, restructure, tidy, fix or remove " +
+          "content in the open note. The edits are shown to him as a preview with Apply/Discard — they are not saved " +
+          "until he applies them. Reference headings EXACTLY as they appear in the note. Write content as Markdown " +
+          "(headings, lists, checklists '- [ ]', tables). Prefer the smallest edit that does the job: add_to_section or " +
+          "replace_text over replacing whole sections. After calling it, reply in one or two short lines saying what " +
+          "you've proposed and that he can review and Apply it — do not paste the content again in your reply.",
+        parameters: {
+          type: 'object',
+          properties: {
+            edits: {
+              type: 'array',
+              description: 'One or more edits, applied in order.',
+              items: {
+                type: 'object',
+                properties: {
+                  action: {
+                    type: 'string',
+                    enum: ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text'],
+                    description: "append = end of note; prepend = top (after the title); add_to_section = end of the section under 'heading'; " +
+                      "replace_section = replace the content under 'heading'; delete_section = remove 'heading' and its content; " +
+                      "replace_text = replace the exact existing text 'find' with 'markdown'.",
+                  },
+                  heading: { type: 'string', description: 'Exact heading text of the target section (section actions only).' },
+                  find: { type: 'string', description: 'Exact existing text to replace (replace_text only) — a sentence or phrase copied from the note.' },
+                  markdown: { type: 'string', description: 'New content as Markdown. For section actions, give ONLY the section body — do not repeat the heading line (it stays in the note). To ADD a new section (append/prepend/add_to_section), start with a real Markdown heading, e.g. \"## Summary\". Use a blank line between paragraphs.' },
+                  summary: { type: 'string', description: 'One short line describing this edit, e.g. "Add a Summary section at the top".' },
+                },
+                required: ['action', 'summary'],
+              },
+            },
+          },
+          required: ['edits'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'list_memories',
         description: "Lists Athena's active standing instructions (with ids). Use when Richard asks what Athena remembers, or before forgetting one.",
         parameters: { type: 'object', properties: {}, required: [] },
@@ -313,7 +356,7 @@ export async function executeToolCall(
   name: string,
   argsJson: string,
   activeProjectId?: string,
-  turn: { sessionId?: string | undefined } = {},
+  turn: { sessionId?: string | undefined; noteId?: string | undefined; noteEdits?: NoteEditProposal[] } = {},
 ): Promise<unknown> {
   let args: Record<string, unknown> = {};
   try {
@@ -340,6 +383,15 @@ export async function executeToolCall(
     case 'update_task':           return updateTask(db, args);
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
     case 'remember':              return rememberInstruction(db, args, turn.sessionId);
+    case 'propose_note_edit': {
+      if (turn.noteId === undefined || turn.noteId === '' || turn.noteId.startsWith('doc:')) {
+        return { error: 'No editable Think note is open next to this chat. Library documents are read-only.' };
+      }
+      const { edits, problems } = validateNoteEdits(args['edits']);
+      if (edits.length === 0) return { error: `No valid edits: ${problems.join('; ') || 'edits array was empty'}` };
+      turn.noteEdits?.push(...edits);
+      return { proposed: edits.length, ...(problems.length > 0 && { skipped: problems }), note: 'Shown to the user as a preview with Apply/Discard.' };
+    }
     case 'list_memories':         return { memories: (await listMemories(db)).filter((m) => m.kind === 'instruction' && m.status === 'active').map((m) => ({ id: m.id, instruction: m.content, scope: m.scopeType, scopeValue: m.scopeValue })) };
     case 'forget_memory': {
       const id = typeof args['id'] === 'string' ? args['id'] : '';

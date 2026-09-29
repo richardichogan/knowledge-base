@@ -14,7 +14,14 @@ import JSZip from 'jszip';
 // tolerates it, which is why this went unnoticed until a route actually
 // imported this module in production).
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+// pdf-parse v2 exports a PDFParse class (v1 exported a function — calling
+// it that way failed every PDF with "pdfParse is not a function").
+const { PDFParse } = require('pdf-parse') as {
+  PDFParse: new (opts: { data: Uint8Array }) => {
+    getText: () => Promise<{ text: string; total: number }>;
+    destroy: () => Promise<void>;
+  };
+};
 
 export interface ExtractionResult {
   text: string;
@@ -47,12 +54,17 @@ function sortByTrailingNumber(names: string[]): string[] {
  */
 export async function extractPdfText(buffer: Buffer): Promise<ExtractionResult> {
   try {
-    const data = await pdfParse(buffer);
-    return {
-      text: data.text || '',
-      pageCount: data.numpages,
-      error: undefined,
-    };
+    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    try {
+      const data = await parser.getText();
+      return {
+        text: data.text || '',
+        pageCount: data.total,
+        error: undefined,
+      };
+    } finally {
+      await parser.destroy().catch(() => undefined);
+    }
   } catch (err) {
     return {
       text: '',

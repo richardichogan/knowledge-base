@@ -55,9 +55,13 @@ export const OneDriveStatus: React.FC = () => {
       ) : (
         <span className="onedrive-status__detail">{data.lastError ?? 'Not connected'}</span>
       )}
-      {(notice !== null || (data.connected && data.sync.lastError)) && (
-        <span className={`onedrive-status__notice onedrive-status__notice--${notice?.kind ?? 'error'}`}>
-          {notice?.text ?? data.sync.lastError}
+      {notice !== null && (
+        <span className={`onedrive-status__notice onedrive-status__notice--${notice.kind}`}>{notice.text}</span>
+      )}
+      {notice === null && data.connected && data.sync.lastError && (
+        // File-level problems from the last sync — not a connection problem.
+        <span className="onedrive-status__notice onedrive-status__notice--warn" title={data.sync.lastError}>
+          Last sync: {data.sync.lastError.split('; ').length} file issue{data.sync.lastError.split('; ').length === 1 ? '' : 's'} — {data.sync.lastError.slice(0, 120)}{data.sync.lastError.length > 120 ? '…' : ''}
         </span>
       )}
       <span className="onedrive-status__spacer" />
@@ -71,7 +75,10 @@ export const OneDriveStatus: React.FC = () => {
           {data.syncRunning ? 'Syncing…' : 'Sync now'}
         </button>
       ) : null}
-      <a className="kb-import-btn" href={connectHref}>{data.connected ? 'Reconnect' : 'Connect OneDrive'}</a>
+      {/* Only needed when the sign-in has actually lapsed or was never made. */}
+      {!data.connected && (
+        <a className="kb-import-btn" href={connectHref}>{data.account !== null || data.lastError !== null ? 'Reconnect' : 'Connect OneDrive'}</a>
+      )}
     </div>
   );
 };

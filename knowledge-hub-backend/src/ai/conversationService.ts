@@ -1,3 +1,4 @@
+import type { NoteEditProposal } from './noteEdits.js';
 import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { getFoundryClient } from './foundryClient.js';
@@ -31,6 +32,8 @@ export async function handleConversationTurn(
   pageContext?: ChatPageContext,
   /** Called with each tool name the model invokes — lets the caller report the reply's sources. */
   onToolCall?: (toolName: string) => void,
+  /** Per-turn tool context: the open Think note, and a collector for proposed edits to it. */
+  toolContext: { noteId?: string | undefined; noteEdits?: NoteEditProposal[] } = {},
 ): Promise<string> {
   const context = await buildAiContext(db, userMessage, history, sessionId);
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
@@ -47,6 +50,7 @@ export async function handleConversationTurn(
     tools,
     context.projectReferences,
     context.activeProjectName,
+    toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:'),
   );
   const maxTokens = model === 'gpt-5.4' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
 
@@ -96,7 +100,7 @@ export async function handleConversationTurn(
       let result: unknown;
       onToolCall?.(call.function.name);
       try {
-        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId });
+        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext });
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }

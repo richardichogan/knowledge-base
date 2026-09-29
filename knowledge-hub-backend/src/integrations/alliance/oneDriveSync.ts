@@ -147,8 +147,11 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
     return { indexed: 0, errors: 1 };
   }
 
+  // Files whose text came out empty (e.g. an extraction failure) have no
+  // cTag stored, so they're retried on every sync until they succeed.
   const { rows: existingRows } = await db.query<{ source_id: string; ctag: string | null }>(
-    `SELECT source_id, metadata->>'cTag' AS ctag FROM content_items WHERE source = $1`,
+    `SELECT source_id, CASE WHEN coalesce(length(body), 0) = 0 THEN NULL ELSE metadata->>'cTag' END AS ctag
+       FROM content_items WHERE source = $1`,
     [SOURCE],
   );
   const existing = new Map(existingRows.map((r) => [r.source_id, r.ctag]));
@@ -162,7 +165,8 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
     const ext = item.name.toLowerCase().split('.').pop() ?? '';
     if (!TEXT_TYPES.has(ext) && IMAGE_TYPES[ext] === undefined) continue;
     if ((item.size ?? 0) > MAX_FILE_BYTES) { warnings.push(`${relPath}: too large, skipped`); continue; }
-    if (existing.get(item.id) === (item.cTag ?? null)) continue; // unchanged
+    const known = existing.get(item.id);
+    if (known !== undefined && known !== null && known === (item.cTag ?? null)) continue; // unchanged and extracted OK
 
     try {
       const buffer = await allianceDownload(db, item.id);
@@ -179,7 +183,8 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
         publishedAt: item.lastModifiedDateTime ?? new Date().toISOString(),
         url: item.webUrl ?? '',
         projectContext: resolveProject(topFolder),
-        metadata: { driveItemId: item.id, path: relPath, filename: item.name, cTag: item.cTag ?? null, fileType: ext, size: item.size ?? 0 },
+        // No cTag when extraction produced nothing, so the next sync retries it.
+        metadata: { driveItemId: item.id, path: relPath, filename: item.name, cTag: body.trim() === '' ? null : item.cTag ?? null, fileType: ext, size: item.size ?? 0 },
         tags: ['onedrive'],
       };
       await upsertContentItem(db, doc);

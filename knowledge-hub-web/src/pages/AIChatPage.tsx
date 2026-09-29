@@ -31,13 +31,14 @@ import {
 } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
 import { ReplyMeta } from '../components/athena/ReplyMeta';
 import { RememberedNotice } from '../components/athena/RememberedNotice';
 import { ReplyFeedback } from '../components/athena/ReplyFeedback';
+import { NoteEditCard } from '../components/athena/NoteEditCard';
 import { PERSONAS, getPersona } from '../components/athena/personas';
 
 type AthenaThinkContentType = Extract<ContentType, 'blog' | 'newsletter'>;
@@ -557,7 +558,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         return;
       }
       if (sessionId === null) persistSessionId(result.data.sessionId);
-      appendMessage('assistant', result.data.reply, { persona: result.data.persona, sources: result.data.sources, memoriesCreated: result.data.memoriesCreated });
+      appendMessage('assistant', result.data.reply, {
+        persona: result.data.persona,
+        sources: result.data.sources,
+        memoriesCreated: result.data.memoriesCreated,
+        noteEdits: result.data.noteEdits,
+        noteEditsFor: result.data.noteEditsFor,
+      });
       playReply(result.data.reply);
       refreshSessionList();
       if (result.data.pendingActions.length > 0) {
@@ -623,7 +630,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   function appendMessage(
     role: 'user' | 'assistant',
     content: string,
-    meta: { persona?: AthenaPersona | undefined; sources?: string[] | undefined; memoriesCreated?: SavedMemory[] | undefined } = {},
+    meta: {
+      persona?: AthenaPersona | undefined;
+      sources?: string[] | undefined;
+      memoriesCreated?: SavedMemory[] | undefined;
+      noteEdits?: NoteEdit[] | undefined;
+      noteEditsFor?: string | null | undefined;
+    } = {},
   ): void {
     setMessages((prev) => [
       ...prev,
@@ -634,6 +647,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         ...(meta.persona !== undefined && { persona: meta.persona }),
         ...(meta.sources !== undefined && meta.sources.length > 0 && { sources: meta.sources }),
         ...(meta.memoriesCreated !== undefined && meta.memoriesCreated.length > 0 && { memoriesCreated: meta.memoriesCreated }),
+        ...(meta.noteEdits !== undefined && meta.noteEdits.length > 0 && typeof meta.noteEditsFor === 'string' && { noteEdits: meta.noteEdits, noteEditsFor: meta.noteEditsFor }),
       },
     ]);
     if (role === 'user') {
@@ -1477,6 +1491,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 />
               )}
               {msg.role === 'assistant' && <ReplyMeta persona={msg.persona} sources={msg.sources} />}
+              {msg.role === 'assistant' && msg.noteEdits !== undefined && msg.noteEditsFor !== undefined && (
+                <NoteEditCard edits={msg.noteEdits} noteId={msg.noteEditsFor} />
+              )}
               {msg.role === 'assistant' && msg.memoriesCreated !== undefined && <RememberedNotice memories={msg.memoriesCreated} />}
               {msg.role === 'assistant' && !/^(Error:|⏹️|⚠️)/.test(msg.content) && (
                 <ReplyFeedback reply={msg.content} persona={msg.persona ?? persona} sessionId={sessionId} />

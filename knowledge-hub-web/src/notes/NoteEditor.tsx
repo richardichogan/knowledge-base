@@ -252,7 +252,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   // can read table/text selections directly from the editor (native
   // window.getSelection() doesn't reflect ProseMirror table cell selections).
   useEffect(() => {
-    setActiveBlockNoteEditor(editor);
+    setActiveBlockNoteEditor(editor, doc.id);
     return () => { setActiveBlockNoteEditor(null); };
   }, [editor]);
 

@@ -30,6 +30,7 @@ export type {
   MemoryScopeType,
   MemoryStatus,
   SavedMemory,
+  NoteEdit,
 } from './ai';
 
 export type { TaskDestination, CreateTaskInput } from './task';

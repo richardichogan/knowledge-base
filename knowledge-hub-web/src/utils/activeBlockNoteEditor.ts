@@ -102,11 +102,27 @@ function computeSelectedText(editor: BlockNoteEditor<any, any, any>): string {
   }
 }
 
+// Id of the Think note the active editor is showing — lets Athena's proposed
+// edits be applied only to the note they were written for.
+let activeNoteId: string | null = null;
+
+/** The active Think note editor, if one is open. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function setActiveBlockNoteEditor(editor: BlockNoteEditor<any, any, any> | null): void {
+export function getActiveBlockNoteEditor(): BlockNoteEditor<any, any, any> | null {
+  return activeEditor;
+}
+
+/** Id of the note shown in the active editor. */
+export function getActiveNoteId(): string | null {
+  return activeEditor === null ? null : activeNoteId;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function setActiveBlockNoteEditor(editor: BlockNoteEditor<any, any, any> | null, noteId: string | null = null): void {
   unsubscribe?.();
   unsubscribe = null;
   activeEditor = editor;
+  activeNoteId = editor === null ? null : noteId;
   lastSelectionSnapshot = '';
 
   if (editor) {
