@@ -293,11 +293,14 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           </>
         )}
         <span className="dc-card-meta-spacer" />
-        {item.spark === true && (
-          <span className="dc-spark-badge" title={item.sparkReason ?? 'High value content'}>⚡ Spark</span>
-        )}
-        {item.relevanceScore !== null && (
-          <span className="dc-relevance-badge">{Math.round(item.relevanceScore * 100)}%</span>
+        {(item.spark === true || item.relevanceScore !== null) && (
+          <span
+            className={`dc-score${item.spark === true ? ' dc-score--spark' : ''}`}
+            title={item.spark === true ? (item.sparkReason ?? 'High value content') : 'Relevance to your interests'}
+          >
+            {item.spark === true && '⚡ '}
+            {item.relevanceScore !== null && `${Math.round(item.relevanceScore * 100).toString()}%`}
+          </span>
         )}
       </div>
 
@@ -322,13 +325,13 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
       {/* ── Footer: tags left · actions right ── */}
       <div className="dc-card-footer">
         <div className="dc-card-tags">
-          {item.platform && (
-            <span className="dc-platform-pill">
-              {item.platform === 'Full Blog Post' && '📝 Blog'}
-              {item.platform === 'Newsletter Candidate' && '📧 Newsletter'}
-              {item.platform === 'LinkedIn Standalone' && '🔗 LinkedIn'}
-              {item.platform === 'Podcast' && '🎙️ Podcast'}
-              {item.platform === 'Archive' && '📦 Archive'}
+          {item.platform && item.platform !== 'Archive' && (
+            <span className="dc-suggestion">
+              Suggested:{' '}
+              {item.platform === 'Full Blog Post' && 'blog post'}
+              {item.platform === 'Newsletter Candidate' && 'newsletter'}
+              {item.platform === 'LinkedIn Standalone' && 'LinkedIn'}
+              {item.platform === 'Podcast' && 'podcast'}
             </span>
           )}
           {taxonomyTags.map((t) => (
@@ -343,6 +346,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         </div>
 
         <div className="dc-card-actions">
+          <div className="dc-card-actions__more">
           {item.url !== null && !isPublished && (
             <button
               className={`dc-action dc-action--copy${copied ? ' dc-action--copied' : ''}`}
@@ -372,6 +376,16 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           >
             <Diagram size={14} /> {sentToCanvas ? 'Copied!' : 'Canvas'}
           </button>
+          <SparkCaptureButton sourceId={item.id} sourceType="discover_item" />
+          <button
+            className={`dc-action dc-action--icon${connectionsOpen ? ' dc-action--connections-active' : ''}`}
+            onClick={() => setConnectionsOpen((v) => !v)}
+            title="Connections"
+            aria-label="Connections"
+          >
+            <Link size={14} />
+          </button>
+          </div>
           {isToReview && (
               <DiscoverActions
                 itemId={item.id}
@@ -412,14 +426,6 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
               <ArrowRight size={14} /> Restore
             </button>
           )}
-          <SparkCaptureButton sourceId={item.id} sourceType="discover_item" />
-          <button
-            className={`dc-action dc-action--icon${connectionsOpen ? ' dc-action--connections-active' : ''}`}
-            onClick={() => setConnectionsOpen((v) => !v)}
-            title="Connections"
-          >
-            <Link size={14} />
-          </button>
         </div>
       </div>
 

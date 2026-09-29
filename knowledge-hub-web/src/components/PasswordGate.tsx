@@ -43,7 +43,7 @@ export const PasswordGate: React.FC<Props> = ({ children }) => {
   return (
     <div className="pw-gate">
       <form className="pw-gate__form" onSubmit={(e) => { void handleSubmit(e); }}>
-        <p className="pw-gate__label">Knowledge Hub</p>
+        <p className="pw-gate__label">Athena</p>
         <input
           className={`pw-gate__input${error ? ' pw-gate__input--error' : ''}`}
           type="password"

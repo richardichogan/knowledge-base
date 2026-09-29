@@ -98,9 +98,9 @@ export const AppShell: React.FC = () => {
 
   return (
     <>
-      <Header aria-label="Knowledge Hub">
+      <Header aria-label="Athena">
         <HeaderName href="/discover" prefix="Richard Hogan">
-          Knowledge Hub
+          Athena
         </HeaderName>
         <HeaderGlobalBar>
           <HeaderGlobalAction

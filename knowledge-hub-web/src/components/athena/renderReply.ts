@@ -57,7 +57,7 @@ function enrichAssistantText(text: string): string {
 // buildTaskCardHtml for the in-card version).
 function enrichSourceLinks(text: string): string {
   return text.replace(/^Link:\s*(\S+)\s*$/gim, (_m, url: string) =>
-    `<a class="kh-source-link" href="${escapeHtml(toInAppHref(url))}" target="_blank" rel="noreferrer">🔗 Open in Knowledge Hub</a>`);
+    `<a class="kh-source-link" href="${escapeHtml(toInAppHref(url))}" target="_blank" rel="noreferrer">🔗 Open</a>`);
 }
 
 function escapeHtml(s: string): string {

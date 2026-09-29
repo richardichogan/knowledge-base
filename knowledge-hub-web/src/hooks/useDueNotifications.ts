@@ -66,7 +66,7 @@ export function useDueNotifications(): void {
       if (dueTasks.length === 1) {
         const t = dueTasks[0];
         if (t !== undefined) {
-          new Notification('Knowledge Hub — Task due today', {
+          new Notification('Athena — Task due today', {
             body: `${PRIORITY_EMOJI[t.priority]} ${t.title}`,
             icon: '/favicon.ico',
             tag:  `kh-due-${t.id}`,
@@ -82,7 +82,7 @@ export function useDueNotifications(): void {
           overdueCount > 0 ? `⚠️ ${overdueCount} overdue` : '',
         ].filter(Boolean).join(' · ');
 
-        new Notification('Knowledge Hub — Tasks due today', {
+        new Notification('Athena — Tasks due today', {
           body: lines,
           icon: '/favicon.ico',
           tag:  'kh-due-summary',

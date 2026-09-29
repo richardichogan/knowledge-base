@@ -1,7 +1,7 @@
 {
-  "name": "Athena — Knowledge Hub Chat",
+  "name": "Athena",
   "short_name": "Athena",
-  "description": "Athena, the standalone AI chat for Knowledge Hub",
+  "description": "Athena — Richard Hogan's knowledge workspace and AI assistant",
   "start_url": "/chat",
   "scope": "/chat",
   "display": "standalone",

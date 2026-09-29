@@ -157,7 +157,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   return (
     <aside className={className} aria-label="Chat history">
       <div className="kh-chat-sidebar__header">
-        <Link to="/" className="kh-chat-sidebar__brand" title="Back to Knowledge Hub">
+        <Link to="/" className="kh-chat-sidebar__brand" title="Back to Athena home">
           <img src="/favicon.svg" alt="" className="kh-chat-sidebar__logo" />
           <span>Athena</span>
         </Link>

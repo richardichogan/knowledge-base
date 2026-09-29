@@ -223,7 +223,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
               <TextInput
                 id="pm-ica-name"
                 labelText="ICA document collection name"
-                helperText="Human-readable collection label shown in Knowledge Hub."
+                helperText="Human-readable collection label shown in Athena."
                 value={icaCollectionName}
                 onChange={(e) => setIcaCollectionName(e.target.value)}
               />

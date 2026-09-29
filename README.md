@@ -1,4 +1,6 @@
-# Personal Knowledge Hub
+# Athena
+
+> Formerly "Personal Knowledge Hub". The product is now called **Athena**; code, folders (`knowledge-hub-*`) and Azure resources (`kh-prod-*`) keep their original names.
 
 A unified personal intelligence layer that aggregates content, code activity, calendar events, and tasks from 10+ sources into a single, searchable, AI-queryable timeline — accessible from Android and Mac.
 
