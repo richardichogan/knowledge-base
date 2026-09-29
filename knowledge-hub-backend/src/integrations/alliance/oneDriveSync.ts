@@ -19,7 +19,7 @@ import JSZip from 'jszip';
 import type { Pool } from 'pg';
 import { env } from '../../config/env.js';
 import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
-import { extractDocumentText } from '../github/documentExtractor.js';
+import { extractDocumentText, extractPdfWithVisuals, PDF_MAX_VISUAL_PAGES } from '../github/documentExtractor.js';
 import { analyzeImageWithVision } from '../../services/visionAnalyzer.js';
 import { allianceGraphGet, allianceDownload, getAllianceStatus, isAllianceConfigured } from './allianceGraph.js';
 import type { ContentItem } from '../../types/contentItem.js';
@@ -32,6 +32,9 @@ const MAX_SUMMARY_CHARS = 300;
 // Pictures inside a deck: skip icons/logos, cap the number described per file.
 const DECK_IMAGE_MIN_BYTES = 20_000;
 const DECK_IMAGES_MAX = 12;
+
+/** Bump to re-extract every PDF once (e.g. when extraction improves). */
+const PDF_EXTRACTOR_VERSION = 'pdf-visual-1';
 
 const TEXT_TYPES = new Set(['pdf', 'docx', 'pptx', 'xlsx', 'md', 'markdown', 'txt']);
 const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
@@ -114,6 +117,16 @@ async function extractFileText(name: string, buffer: Buffer): Promise<{ text: st
     const description = await analyzeImageWithVision(buffer, imageMime);
     return { text: description.trim() !== '' ? `Image: ${name}\n\n${description.trim()}` : '' };
   }
+  if (ext === 'pdf') {
+    // Content-aware: diagram/scan pages (little text or a large image) are
+    // rendered and described; text-heavy pages are text-extracted only.
+    const pdf = await extractPdfWithVisuals(buffer, (png) => analyzeImageWithVision(png, 'image/png'));
+    const notes = [
+      pdf.error,
+      pdf.visualCapped ? `only the first ${PDF_MAX_VISUAL_PAGES.toString()} visual pages described` : undefined,
+    ].filter((n): n is string => n !== undefined);
+    return notes.length > 0 ? { text: pdf.text, warning: notes.join('; ') } : { text: pdf.text };
+  }
   const result = await extractDocumentText(buffer, name);
   let text = result.text;
   if (ext === 'pptx') {
@@ -150,9 +163,13 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
   // Files whose text came out empty (e.g. an extraction failure) have no
   // cTag stored, so they're retried on every sync until they succeed.
   const { rows: existingRows } = await db.query<{ source_id: string; ctag: string | null }>(
-    `SELECT source_id, CASE WHEN coalesce(length(body), 0) = 0 THEN NULL ELSE metadata->>'cTag' END AS ctag
+    `SELECT source_id,
+            CASE WHEN coalesce(length(body), 0) = 0 THEN NULL
+                 -- PDFs extracted before visual-page descriptions: redo once.
+                 WHEN metadata->>'fileType' = 'pdf' AND coalesce(metadata->>'extractor', '') <> $2 THEN NULL
+                 ELSE metadata->>'cTag' END AS ctag
        FROM content_items WHERE source = $1`,
-    [SOURCE],
+    [SOURCE, PDF_EXTRACTOR_VERSION],
   );
   const existing = new Map(existingRows.map((r) => [r.source_id, r.ctag]));
   const resolveProject = await projectResolver(db);
@@ -184,7 +201,11 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
         url: item.webUrl ?? '',
         projectContext: resolveProject(topFolder),
         // No cTag when extraction produced nothing, so the next sync retries it.
-        metadata: { driveItemId: item.id, path: relPath, filename: item.name, cTag: body.trim() === '' ? null : item.cTag ?? null, fileType: ext, size: item.size ?? 0 },
+        metadata: {
+          driveItemId: item.id, path: relPath, filename: item.name,
+          cTag: body.trim() === '' ? null : item.cTag ?? null, fileType: ext, size: item.size ?? 0,
+          ...(ext === 'pdf' && { extractor: PDF_EXTRACTOR_VERSION }),
+        },
         tags: ['onedrive'],
       };
       await upsertContentItem(db, doc);

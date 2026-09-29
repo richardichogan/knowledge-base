@@ -16,12 +16,17 @@ import JSZip from 'jszip';
 const require = createRequire(import.meta.url);
 // pdf-parse v2 exports a PDFParse class (v1 exported a function — calling
 // it that way failed every PDF with "pdfParse is not a function").
-const { PDFParse } = require('pdf-parse') as {
-  PDFParse: new (opts: { data: Uint8Array }) => {
-    getText: () => Promise<{ text: string; total: number }>;
-    destroy: () => Promise<void>;
-  };
-};
+interface PdfParser {
+  getText: (params?: { partial?: number[] }) => Promise<{ text: string; total: number; pages: Array<{ num: number; text: string }> }>;
+  getImage: (params?: { imageThreshold?: number; imageBuffer?: boolean; imageDataUrl?: boolean }) => Promise<{
+    pages: Array<{ pageNumber: number; images: Array<{ width: number; height: number }> }>;
+  }>;
+  getScreenshot: (params?: { partial?: number[]; desiredWidth?: number; imageBuffer?: boolean; imageDataUrl?: boolean }) => Promise<{
+    pages: Array<{ pageNumber: number; data: Uint8Array }>;
+  }>;
+  destroy: () => Promise<void>;
+}
+const { PDFParse } = require('pdf-parse') as { PDFParse: new (opts: { data: Uint8Array }) => PdfParser };
 
 export interface ExtractionResult {
   text: string;
@@ -71,6 +76,92 @@ export async function extractPdfText(buffer: Buffer): Promise<ExtractionResult> 
       pageCount: 0,
       error: `PDF extraction failed: ${err instanceof Error ? err.message : String(err)}`,
     };
+  }
+}
+
+// ── PDF with visual pages (diagrams, charts, scans) ──────────────────────────
+
+/** Pages with fewer words than this are treated as visual (diagram/scan). */
+const PDF_VISUAL_PAGE_MAX_WORDS = 50;
+/** An embedded image at least this large (px area) makes a page worth describing. */
+const PDF_LARGE_IMAGE_AREA = 300 * 200;
+/** Cap on pages described per document, to bound vision cost. */
+export const PDF_MAX_VISUAL_PAGES = 15;
+
+export interface PdfVisualResult extends ExtractionResult {
+  /** Pages that were rendered and described. */
+  visualPages: number[];
+  /** True when more pages qualified than the cap allowed. */
+  visualCapped: boolean;
+}
+
+/**
+ * Extracts a PDF's text and, decided page by page from its content, renders
+ * the visual pages — little text (a diagram, chart or scan) or a large
+ * embedded image — and adds a description of each from `describe` (vision).
+ * Text-heavy pages are only text-extracted.
+ */
+export async function extractPdfWithVisuals(
+  buffer: Buffer,
+  describe: (png: Buffer) => Promise<string>,
+): Promise<PdfVisualResult> {
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  try {
+    const textResult = await parser.getText();
+    const pages = textResult.pages;
+
+    // Pages carrying a sizeable image (tiny logos/icons filtered out).
+    let imagePages = new Set<number>();
+    try {
+      const images = await parser.getImage({ imageThreshold: 150, imageBuffer: false, imageDataUrl: false });
+      imagePages = new Set(images.pages
+        .filter((p) => p.images.some((img) => img.width * img.height >= PDF_LARGE_IMAGE_AREA))
+        .map((p) => p.pageNumber));
+    } catch {
+      // Image listing is best-effort; fall back to the word-count rule only.
+    }
+
+    const words = (t: string): number => t.split(/\s+/).filter(Boolean).length;
+    const qualifying = pages
+      .filter((p) => words(p.text) < PDF_VISUAL_PAGE_MAX_WORDS || imagePages.has(p.num))
+      .map((p) => p.num);
+    const toDescribe = qualifying.slice(0, PDF_MAX_VISUAL_PAGES);
+
+    const descriptions = new Map<number, string>();
+    if (toDescribe.length > 0) {
+      const shots = await parser.getScreenshot({ partial: toDescribe, desiredWidth: 1400, imageBuffer: true, imageDataUrl: false });
+      for (const shot of shots.pages) {
+        const text = await describe(Buffer.from(shot.data)).catch(() => '');
+        if (text.trim() !== '') descriptions.set(shot.pageNumber, text.trim());
+      }
+    }
+
+    const body = pages.map((p) => {
+      const visual = descriptions.get(p.num);
+      return [
+        `Page ${p.num.toString()}:`,
+        p.text.trim(),
+        visual !== undefined ? `[Visual content on page ${p.num.toString()}, described by vision analysis]\n${visual}` : '',
+      ].filter(Boolean).join('\n');
+    }).join('\n\n');
+
+    return {
+      text: body,
+      pageCount: textResult.total,
+      visualPages: [...descriptions.keys()],
+      visualCapped: qualifying.length > toDescribe.length,
+      error: undefined,
+    };
+  } catch (err) {
+    return {
+      text: '',
+      pageCount: 0,
+      visualPages: [],
+      visualCapped: false,
+      error: `PDF extraction failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  } finally {
+    await parser.destroy().catch(() => undefined);
   }
 }
 
