@@ -129,10 +129,11 @@ async function syncNotes(db: Pool): Promise<void> {
 }
 
 async function syncDocuments(db: Pool): Promise<void> {
-  // Documents live in content_items with source = 'github-doc'
+  // Every Library document: repo docs, the content-store repo and uploaded
+  // files (previously only 'github-doc', so uploads never joined the graph).
   const rows = await db.query<{ id: string; title: string }>(
     `SELECT id::text, COALESCE(title, 'Untitled Document') AS title
-     FROM content_items WHERE source = 'github-doc'`,
+     FROM content_items WHERE source IN ('github-doc', 'github-content-store', 'user-upload')`,
   );
   for (const r of rows.rows) await upsertNode(db, r.id, 'document', r.title, []);
 }

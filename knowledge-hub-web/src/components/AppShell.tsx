@@ -180,7 +180,7 @@ export const AppShell: React.FC = () => {
       {/* Think owns a persistent Athena rail when there is enough horizontal
           room; narrower Think layouts and every other page retain the
           established floating launcher. */}
-      {!(location.pathname.startsWith('/think') && hasThinkAthenaRail) && (
+      {!((location.pathname.startsWith('/think') || location.pathname.startsWith('/library')) && hasThinkAthenaRail) && (
         <FloatingAIChat pageContext={pageContext ?? undefined} />
       )}
 

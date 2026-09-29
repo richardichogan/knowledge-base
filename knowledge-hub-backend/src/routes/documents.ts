@@ -61,6 +61,8 @@ export type DocType = 'blog-draft' | 'spec' | 'newsletter' | 'readme' | 'doc';
 export interface DocEntry {
   /** Unique stable id: `repo::path` */
   id: string;
+  /** content_items.id — the document's id in the knowledge graph (nodes.ref_id) and chat links. Absent for live-from-GitHub listings. */
+  contentItemId?: string;
   title: string;
   type: DocType;
   /** owner/repo */
@@ -83,6 +85,8 @@ export interface DocumentContent {
   path: string;
   content: string;
   sha: string;
+  /** True when GitHub was unreachable and this is the indexed (plain-text) copy. */
+  fromIndex?: boolean;
 }
 
 // ── GitHub API shapes ─────────────────────────────────────────────────────────
@@ -282,7 +286,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
         project_context: string | null;
         project_name: string | null;
         metadata: Record<string, unknown> | null;
-        body: string | null;
+        body_bytes: number | null;
       }>(
         `SELECT
            ci.id,
@@ -292,7 +296,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
            ci.project_context,
            p.name AS project_name,
            ci.metadata,
-           ci.body
+           octet_length(ci.body) AS body_bytes
          FROM content_items ci
          LEFT JOIN projects p ON p.id = ci.project_context
          WHERE ci.source IN ('github-doc', 'github-content-store', 'user-upload')
@@ -309,6 +313,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
           if (docsById.has(id)) continue;
           docsById.set(id, {
             id,
+            contentItemId: row.id,
             title: row.title,
             type: inferDocType(filename, false),
             repo: UPLOAD_REPO_SENTINEL,
@@ -316,7 +321,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
             sourceLabel: row.project_name ?? row.project_context ?? 'My Uploads',
             projectId: row.project_context ?? 'personal',
             htmlUrl: row.html_url ?? '',
-            size: Buffer.byteLength(row.body ?? '', 'utf8'),
+            size: row.body_bytes ?? 0,
             tags: row.project_context ? [row.project_context] : [],
             taxonomyTagIds: [],
           });
@@ -339,6 +344,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
 
         docsById.set(id, {
           id,
+          contentItemId: row.id,
           title: row.title,
           type: inferDocType(path, row.source === 'github-content-store'),
           repo,
@@ -346,7 +352,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
           sourceLabel,
           projectId: row.project_context ?? 'personal',
           htmlUrl: row.html_url ?? `https://github.com/${repo}/blob/main/${path}`,
-          size: Buffer.byteLength(row.body ?? '', 'utf8'),
+          size: row.body_bytes ?? 0,
           tags: inferTags(path, sourceLabel, row.source === 'github-content-store'),
           taxonomyTagIds: [],
         });
@@ -430,7 +436,31 @@ router.get('/content', (req: Request, res: Response, next: NextFunction): void =
       }
 
       const gh = new GitHubClient();
-      const blob = await gh.get<GitHubBlobResponse>(`/repos/${repo}/contents/${filePath}`);
+      let blob: GitHubBlobResponse;
+      try {
+        blob = await gh.get<GitHubBlobResponse>(`/repos/${repo}/contents/${filePath}`);
+      } catch (ghErr) {
+        // GitHub unavailable for this repo (token access, renamed repo, rate
+        // limit). Fall back to the copy the sync already indexed, so the
+        // document still opens and Athena still gets its text.
+        const db = getDb();
+        const cached = await db.query<{ body: string | null }>(
+          `SELECT body FROM content_items
+            WHERE source IN ('github-doc', 'github-content-store')
+              AND metadata->>'repo' = $1 AND metadata->>'path' = $2
+            ORDER BY updated_at DESC LIMIT 1`,
+          [repo, filePath],
+        );
+        const cachedBody = cached.rows[0]?.body;
+        if (cachedBody === undefined || cachedBody === null) throw ghErr;
+        console.warn(`[documents] GitHub fetch failed for ${repo}/${filePath}; serving indexed copy`);
+        const fallback: ApiSuccess<DocumentContent> = {
+          success: true,
+          data: { path: filePath, content: cachedBody, sha: '', fromIndex: true },
+        };
+        res.status(HTTP_STATUS.OK).json(fallback);
+        return;
+      }
       const content =
         blob.encoding === 'base64'
           ? Buffer.from(blob.content.replace(/\n/g, ''), 'base64').toString('utf8')

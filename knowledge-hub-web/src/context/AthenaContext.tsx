@@ -31,6 +31,11 @@ export interface AthenaPageContext {
    * offering its own project picker.
    */
   projectId?: string;
+  /**
+   * Descriptions of images embedded in the item (vision analysis / OCR).
+   * Sent alongside `detail`, never trimmed by the backend's excerpting.
+   */
+  images?: string;
 }
 
 interface AthenaContextValue {

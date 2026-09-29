@@ -143,6 +143,14 @@ async function getNodeSummary(db: Pool, node: NodeRow): Promise<string> {
       );
       return r.rows[0]?.body ?? '';
     }
+    if (node.ref_type === 'document') {
+      // Compare documents on their content, not just the title — title-only
+      // matching is why Library documents almost never got connections.
+      const r = await db.query<{ body: string | null }>(
+        `SELECT body FROM content_items WHERE id::text = $1`, [node.ref_id],
+      );
+      return (r.rows[0]?.body ?? node.title).slice(0, SUMMARY_MAX_CHARS);
+    }
     if (node.ref_type === 'commit') {
       const r = await db.query<{ message: string }>(
         `SELECT message FROM timeline_items WHERE id = $1::uuid`, [node.ref_id],

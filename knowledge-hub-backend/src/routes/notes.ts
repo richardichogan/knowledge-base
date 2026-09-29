@@ -2,6 +2,8 @@
  * Notes routes — Change 002
  *
  * GET  /api/notes         — paginated list of active notes
+ *                            (?view=summary → titles/previews only, no bodies)
+ * GET  /api/notes/:id     — one active note
  * POST /api/notes         — create a note
  * DELETE /api/notes/:id   — archive (soft delete) a note
  */
@@ -132,6 +134,105 @@ export async function syncNoteToTimeline(db: ReturnType<typeof getDb>, note: Ind
   });
 }
 
+/** Lightweight list row for the Think sidebar — no note body (bodies can be MBs with images). */
+interface NoteSummary {
+  id: string;
+  title: string;
+  contentType: string;
+  preview: string;
+  createdAt: string;
+  updatedAt: string;
+  projectId?: string;
+  taxonomyTagIds: string[];
+}
+
+const NOTE_PREVIEW_CHARS = 200;
+
+/** Joins block text, recursing into children (mirrors the web client's extractNoteBlockText). */
+function blockText(blocks: unknown[]): string[] {
+  const out: string[] = [];
+  for (const b of blocks) {
+    if (typeof b !== 'object' || b === null) continue;
+    const block = b as { content?: unknown; children?: unknown };
+    if (Array.isArray(block.content)) {
+      const t = (block.content as { text?: unknown }[])
+        .map((c) => (typeof c.text === 'string' ? c.text : ''))
+        .join('')
+        .trim();
+      if (t !== '') out.push(t);
+    }
+    if (Array.isArray(block.children)) out.push(...blockText(block.children as unknown[]));
+  }
+  return out;
+}
+
+/**
+ * Title / type / preview from the stored wrapper JSON — the same rules the
+ * web client used when it derived these from full bodies (preview skips
+ * leading lines that just repeat the title).
+ */
+function summariseNote(row: { id: string; content: string; created_at: string; updated_at: string; project_id: string | null; taxonomy_tag_ids: string[] }): NoteSummary {
+  let title = 'Untitled';
+  let contentType = 'note';
+  let preview = '';
+  try {
+    const wrapper = JSON.parse(row.content) as { title?: unknown; contentType?: unknown; contentJson?: unknown };
+    if (typeof wrapper.title === 'string') title = wrapper.title;
+    if (typeof wrapper.contentType === 'string') contentType = wrapper.contentType;
+    if (typeof wrapper.contentJson === 'string') {
+      const blocks = JSON.parse(wrapper.contentJson) as unknown;
+      if (Array.isArray(blocks)) {
+        const lines = blockText(blocks);
+        const t = title.trim().toLowerCase();
+        let start = 0;
+        while (start < lines.length && (lines[start] ?? '').trim().toLowerCase() === t) start += 1;
+        preview = lines.slice(start).join('\n').slice(0, NOTE_PREVIEW_CHARS);
+      }
+    }
+  } catch {
+    // Unparseable legacy content — keep the defaults.
+  }
+  return {
+    id: row.id,
+    title,
+    contentType,
+    preview,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.project_id !== null && { projectId: row.project_id }),
+    taxonomyTagIds: row.taxonomy_tag_ids ?? [],
+  };
+}
+
+// Autosave PATCHes a note every few seconds while the user types. Re-indexing
+// (timeline mirror, Foundry IQ embedding, graph node) on every one of those
+// was wasted work, so it runs once per note after edits settle.
+const INDEX_SETTLE_MS = 30_000;
+const pendingIndexTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleNoteIndexing(db: ReturnType<typeof getDb>, note: Note): void {
+  const existing = pendingIndexTimers.get(note.id);
+  if (existing !== undefined) clearTimeout(existing);
+  pendingIndexTimers.set(note.id, setTimeout(() => {
+    pendingIndexTimers.delete(note.id);
+    upsertTags(db, note.tags).catch((e: unknown) => {
+      console.error('[notes] Failed to upsert tags:', e);
+    });
+    syncNoteToTimeline(db, note).catch((e: unknown) => {
+      console.error('[notes] Failed to sync updated note to timeline:', e);
+    });
+    void (async (): Promise<void> => {
+      try {
+        let title = 'Untitled Note';
+        try { const p = JSON.parse(note.content) as { title?: string }; title = p.title ?? title; } catch { /* ignore */ }
+        await upsertNode(db, note.id, 'note', title, note.tags);
+      } catch (e: unknown) {
+        console.error('[notes] Failed to upsert graph node on update:', e);
+      }
+    })();
+  }, INDEX_SETTLE_MS));
+}
+
 // ── GET /api/notes ─────────────────────────────────────────────────────────────
 
 router.get('/', (req: Request, res: Response, next: NextFunction): void => {
@@ -173,6 +274,17 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       ]);
 
       const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+      if (req.query['view'] === 'summary') {
+        const items = rowsResult.rows.map(summariseNote);
+        const summaryBody: ApiSuccess<PaginatedList<NoteSummary>> = {
+          success: true,
+          data: { items, total, page, pageSize, hasMore: offset + items.length < total },
+        };
+        res.status(HTTP_STATUS.OK).json(summaryBody);
+        return;
+      }
+
       const notes: Note[] = rowsResult.rows.map((row) => ({
         id: row.id,
         content: row.content,
@@ -195,6 +307,53 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
           hasMore: offset + notes.length < total,
         },
       };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+// ── GET /api/notes/:id ────────────────────────────────────────────────────────
+
+router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const db = getDb();
+      const { id } = req.params;
+      const result = await db.query<{
+        id: string;
+        content: string;
+        created_at: string;
+        updated_at: string;
+        tags: string[];
+        linked_items: string[];
+        status: string;
+        project_id: string | null;
+        taxonomy_tag_ids: string[];
+      }>(
+        `SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id,
+                COALESCE(ARRAY_AGG(nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
+           FROM notes n
+           LEFT JOIN note_tags nt ON nt.note_id = n.id
+          WHERE n.id::text = $1 AND n.status = 'active'
+          GROUP BY n.id`,
+        [id],
+      );
+      const row = result.rows[0];
+      if (row === undefined) throw new NotFoundError(`Note ${String(id)} not found`);
+      const note: Note = {
+        id: row.id,
+        content: row.content,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        tags: row.tags,
+        linkedItems: row.linked_items,
+        status: row.status as Note['status'],
+        ...(row.project_id !== null && { projectId: row.project_id }),
+        taxonomyTagIds: row.taxonomy_tag_ids ?? [],
+      };
+      const body: ApiSuccess<Note> = { success: true, data: note };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
       next(err);
@@ -312,8 +471,14 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         : undefined;
 
       // Build SET clause dynamically so we only touch project_id when provided
-      const setClauses = ['content = $1', 'tags = $2', 'updated_at = NOW()'];
-      const params: unknown[] = [input.content.trim(), input.tags ?? []];
+      // tags: only written when the caller sends them — Think autosave does
+      // not, and previously wiped them with [] on every save.
+      const setClauses = ['content = $1', 'updated_at = NOW()'];
+      const params: unknown[] = [input.content.trim()];
+      if (Array.isArray(input.tags)) {
+        setClauses.push(`tags = $${params.length + 1}`);
+        params.push(input.tags);
+      }
       if (hasProjectId) {
         setClauses.push(`project_id = $${params.length + 1}`);
         params.push(projectId ?? null);
@@ -354,24 +519,8 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
 
       const body: ApiSuccess<Note> = { success: true, data: note };
       res.status(HTTP_STATUS.OK).json(body);
-      // Auto-upsert tags into global_tags (fire-and-forget)
-      upsertTags(db, note.tags).catch((e: unknown) => {
-        console.error('[notes] Failed to upsert tags:', e);
-      });
-      // Mirror note into content_items for timeline visibility (fire-and-forget)
-      syncNoteToTimeline(db, note).catch((e: unknown) => {
-        console.error('[notes] Failed to sync updated note to timeline:', e);
-      });
-      // Keep graph node in sync with updated content/tags (fire-and-forget)
-      void (async (): Promise<void> => {
-        try {
-          let title = 'Untitled Note';
-          try { const p = JSON.parse(note.content) as { title?: string }; title = p.title ?? title; } catch { /* ignore */ }
-          await upsertNode(db, note.id, 'note', title, note.tags);
-        } catch (e: unknown) {
-          console.error('[notes] Failed to upsert graph node on update:', e);
-        }
-      })();
+      // Re-index once edits settle, not on every autosave.
+      scheduleNoteIndexing(db, note);
     } catch (err) {
       next(err);
     }

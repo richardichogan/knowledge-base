@@ -28,6 +28,7 @@ import { useNoteTags, useSetNoteTags, useFlatTags } from '../hooks/useTaxonomy';
 import { MetadataPanel } from './MetadataPanel';
 import { useProjects } from '../hooks/useProjects';
 import { editorSchema } from './editorSchema';
+import { parseTranscript, transcriptToBlocks } from './transcriptPaste';
 
 interface NoteEditorProps {
   doc: NoteDocument;
@@ -153,6 +154,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       pasteHandler: ({ event, editor: ed, defaultPasteHandler }) => {
         const plain = event.clipboardData?.getData('text/plain');
         const html = event.clipboardData?.getData('text/html');
+        // Teams transcripts: the HTML flavour flattens into one paragraph, so
+        // rebuild one block per speaker turn from the plain-text flavour.
+        if (plain) {
+          const transcript = parseTranscript(plain);
+          if (transcript !== null) {
+            const cursorBlock = ed.getTextCursorPosition().block;
+            const blocks = transcriptToBlocks(transcript);
+            const cursorIsEmpty = !Array.isArray(cursorBlock.content) || cursorBlock.content.length === 0;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if (cursorIsEmpty) ed.replaceBlocks([cursorBlock], blocks as any);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            else ed.insertBlocks(blocks as any, cursorBlock, 'after');
+            return true;
+          }
+        }
         // Only intercept plain-text pastes (no rich HTML source)
         if (plain && !html) {
           const cursorBlock = ed.getTextCursorPosition().block;

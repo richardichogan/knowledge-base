@@ -12502,3 +12502,29 @@ $interactive:      #0f62fe;
   &:hover { border-color: var(--kh-accent); }
   &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
 }
+
+// ── Library: tabbed side panel ───────────────────────────────────────────────
+// Sits in .docs-body like the old info panel (framed on the outside edge).
+.docs-body .side-tabs-panel {
+  border: 1px solid var(--cds-border-subtle-00);
+  border-left: none;
+}
+
+// The Details tab reuses the old info panel's sections; the tab owns the
+// width, border and scrolling now.
+.docs-info-panel--embedded {
+  width: auto;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  margin: -1rem; // cancel the tab panel padding; sections have their own
+}
+
+.docs-viewer__notice {
+  margin: 0;
+  padding: 0.5rem 1.5rem;
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+  background: var(--cds-layer-01);
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}

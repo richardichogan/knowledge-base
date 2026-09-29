@@ -23,6 +23,21 @@ import { useFlatTags, useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { useAthenaContext } from '../context/AthenaContext';
+import { SideTabsPanel } from '../components/SideTabsPanel';
+import { ThinkAthenaPanel } from '../notes/ThinkAthenaPanel';
+import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
+import type { PaneWidthOptions } from '../hooks/usePersistedState';
+
+// Same cap as Think notes: enough for long specs, bounded for the model.
+const DOC_CONTEXT_MAX_CHARS = 100_000;
+
+// Module constant so the width hook gets a stable object.
+const LIBRARY_SIDE_WIDTH: PaneWidthOptions = {
+  compact: 380,
+  wide: 480,
+  min: 280,
+  max: (viewport) => Math.round(viewport * 0.5),
+};
 import { renderMarkdown } from '../utils/markdown';
 
 // ── Source config ─────────────────────────────────────────────────────────────
@@ -81,7 +96,9 @@ export const DocumentsPage: React.FC = () => {
   const [uploadLoading, setUploadLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
-  const { setAthenaContext } = useAthenaContext();
+  const { pageContext, setAthenaContext } = useAthenaContext();
+  const showAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
+  const [athenaBusy, setAthenaBusy] = useState(false);
   const { data: projectRecords = [] } = useProjects();
   const projectOptions = projectRecords.length > 0 ? projectRecords : PROJECTS;
 
@@ -168,23 +185,32 @@ export const DocumentsPage: React.FC = () => {
     return renderMarkdown(contentData.data.content);
   }, [contentData]);
 
+  // Athena sees the open document's actual text (not just its path), and
+  // each document keeps its own conversation (id links the chat, as notes do).
+  const docText = contentData?.success === true ? contentData.data.content : '';
   useEffect(() => {
     if (selectedDoc === null) {
       setAthenaContext(null);
       return;
     }
+    // Wait for the text: Athena's opening summary is generated as soon as the
+    // context appears, and with only the path it could only guess.
+    if (contentPending) return;
+    const meta = [
+      `Project: ${selectedDoc.sourceLabel}`,
+      `Repo: ${selectedDoc.repo}`,
+      `Path: ${selectedDoc.path}`,
+      `Type: ${TYPE_LABEL[selectedDoc.type]}`,
+    ].join(' | ');
     setAthenaContext({
       type: 'document',
       title: selectedDoc.title,
-      detail: [
-        `Project: ${selectedDoc.sourceLabel}`,
-        `Repo: ${selectedDoc.repo}`,
-        `Path: ${selectedDoc.path}`,
-        `Type: ${TYPE_LABEL[selectedDoc.type]}`,
-      ].join(' | '),
+      detail: docText !== '' ? `${meta}\n\nContent:\n${docText.slice(0, DOC_CONTEXT_MAX_CHARS)}` : meta,
+      id: `doc:${selectedDoc.contentItemId ?? selectedDoc.id}`,
+      ...(selectedDoc.projectId !== 'personal' && { projectId: selectedDoc.projectId }),
     });
     return () => { setAthenaContext(null); };
-  }, [selectedDoc, setAthenaContext]);
+  }, [selectedDoc, docText, contentPending, setAthenaContext]);
 
   // ── Upload handler ─────────────────────────────────────────────────────────
   const handleUpload = useCallback(async (file: File) => {
@@ -390,6 +416,11 @@ export const DocumentsPage: React.FC = () => {
                   {selectedDocIsUpload ? 'Open original' : 'View on GitHub'}
                 </a>
               </div>
+              {contentData.data.fromIndex === true && (
+                <p className="docs-viewer__notice">
+                  GitHub couldn&apos;t be reached for this file, so this is the indexed text copy (formatting removed).
+                </p>
+              )}
               <div
                 className="docs-viewer__content"
                 // eslint-disable-next-line react/no-danger
@@ -399,9 +430,27 @@ export const DocumentsPage: React.FC = () => {
           )}
         </div>
 
-        {/* ── Right: document info panel ── */}
+        {/* ── Right: tabbed side panel (Athena / Details / Connections) ── */}
         {selectedDoc !== null && (
-          <div className="docs-info-panel">
+          <SideTabsPanel
+            storageKey="library-side"
+            label="Document side panel"
+            defaultTab={showAthena ? 'athena' : 'details'}
+            width={LIBRARY_SIDE_WIDTH}
+            tabs={[
+              ...(showAthena ? [{
+                id: 'athena',
+                label: 'Athena',
+                dot: athenaBusy ? 'busy' as const : 'idle' as const,
+                keepMounted: true,
+                fill: true,
+                content: <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy} />,
+              }] : []),
+              {
+                id: 'details',
+                label: 'Details',
+                content: (
+                  <div className="docs-info-panel docs-info-panel--embedded">
             <div className="docs-info-panel__section">
               <p className="docs-info-panel__label">Title</p>
               <p className="docs-info-panel__value docs-info-panel__title">{selectedDoc.title}</p>
@@ -475,8 +524,18 @@ export const DocumentsPage: React.FC = () => {
               />
             </div>
 
-            <ConnectionsPanel refId={selectedDoc.id} refType="document" />
-          </div>
+                  </div>
+                ),
+              },
+              {
+                id: 'connections',
+                label: 'Connections',
+                content: selectedDoc.contentItemId !== undefined
+                  ? <ConnectionsPanel refId={selectedDoc.contentItemId} refType="document" headerless />
+                  : <p className="docs-info-panel__value docs-info-panel__value--muted">Not in the knowledge graph yet.</p>,
+              },
+            ]}
+          />
         )}
 
       </div>

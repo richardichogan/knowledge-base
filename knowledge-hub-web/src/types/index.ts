@@ -11,6 +11,7 @@ export type {
   ContentItemSummary,
   ContentItem,
   Note,
+  NoteSummary,
   CreateNoteInput,
   KnowledgeImage,
 } from './contentItem';

@@ -29,6 +29,11 @@ export interface ChatPageContext {
   type: string;
   title: string;
   detail?: string;
+  /**
+   * Descriptions of images embedded in the document (vision analysis / OCR).
+   * Kept separate from `detail` so long-document excerpting never trims them.
+   */
+  images?: string;
 }
 
 export type MessageRole = 'system' | 'user' | 'assistant';

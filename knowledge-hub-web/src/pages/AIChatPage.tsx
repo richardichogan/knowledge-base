@@ -210,7 +210,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // note-linking effect below) instead of sharing localStorage-persisted
   // session state with the floating widget / full-page chat.
   const isNoteLinkedPanel = compact && compactVariant === 'narrow';
-  const currentNoteId = isNoteLinkedPanel && pageContext?.type === 'note' ? pageContext.id : undefined;
+  // Think notes and Library documents each keep their own linked conversation.
+  const currentNoteId = isNoteLinkedPanel && (pageContext?.type === 'note' || pageContext?.type === 'document') ? pageContext.id : undefined;
   // In Think, the open note's project grounds the chat (no project chip there).
   const noteProjectId = isNoteLinkedPanel ? pageContext?.projectId : undefined;
 
@@ -668,7 +669,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       }
       return;
     }
-    if (e.key === 'Enter' && e.shiftKey) {
+    // Enter sends; Shift+Enter adds a new line. (Skip while an IME is
+    // composing, e.g. accented/CJK input, where Enter confirms a character.)
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void submitMessage();
     }
@@ -725,12 +728,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // same-project documents as "background context".
     const isFirstMessage = messages.length === 0 && sessionId === null;
     const contextKey = pageContext !== undefined
-      ? `${pageContext.type}:${pageContext.id ?? ''}:${pageContext.title}:${pageContext.detail ?? ''}`
+      ? `${pageContext.type}:${pageContext.id ?? ''}:${pageContext.title}:${pageContext.detail ?? ''}:${pageContext.images ?? ''}`
       : null;
     const contextChanged = contextKey !== null && lastInjectedContextKeyRef.current !== contextKey;
+    // In Think the chat is about the open note, so send it with every message
+    // — otherwise follow-up questions reached Athena without the note (or its
+    // images) at all, since history only keeps a short "[Viewing …]" marker.
     if (activeImageContext !== null) {
       chatMutation.mutate({ text: outgoing, pageContext: activeImageContext });
-    } else if ((isFirstMessage || contextChanged) && pageContext && !isContextDismissed) {
+    } else if ((isFirstMessage || contextChanged || isNoteLinkedPanel) && pageContext && !isContextDismissed) {
       lastInjectedContextKeyRef.current = contextKey;
       chatMutation.mutate({ text: outgoing, pageContext });
     } else {
@@ -1422,7 +1428,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 <p className="ai-note-summary-card__text">{noteSummary}</p>
               ) : (
                 <p className="ai-note-summary-card__text ai-note-summary-card__text--muted">
-                  Ask Athena anything about this note below.
+                  Ask Athena anything about this {pageContext?.type === 'document' ? 'document' : 'note'} below.
                 </p>
               )}
             </div>
@@ -1643,7 +1649,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           )}
         </form>
         {standalone && !isMobile && (
-          <p className="ai-composer__hint">Shift+Enter to send · Enter for a new line · ↑ to edit your last message</p>
+          <p className="ai-composer__hint">Enter to send · Shift+Enter for a new line · ↑ to edit your last message</p>
         )}
         </div>
       </div>

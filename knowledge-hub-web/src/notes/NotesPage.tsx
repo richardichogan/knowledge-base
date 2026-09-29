@@ -13,7 +13,7 @@ import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
 import { ImportNoteModal } from './ImportNoteModal';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
-import { fetchNotes, fetchNote, createNote, deleteNote, extractNoteBlockText } from './noteStorage';
+import { fetchNotes, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import type { NoteContentBlock } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
@@ -43,6 +43,10 @@ const VIEW_MODES: { key: ViewMode; label: string; Icon: typeof Document }[] = [
 // Was 20,000 — too small for full meeting transcripts, which caused Athena to
 // answer as if the back half of a note (e.g. the Q&A section) didn't exist.
 const NOTE_CONTEXT_MAX_CHARS = 100_000;
+
+// Per-image cap on the vision description passed to Athena. Was 600, which
+// cut most descriptions off before any of the slide/diagram detail.
+const IMAGE_DESCRIPTION_MAX_CHARS = 2_500;
 
 export const NotesPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -93,10 +97,17 @@ export const NotesPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes]);
 
+  // The most recently clicked note. A slower earlier load must not replace
+  // the note the user has since clicked on.
+  const latestSelectRef = useRef<string | null>(null);
+
   async function handleSelectNote(id: string): Promise<void> {
     if (id === selectedId) return;
+    latestSelectRef.current = id;
+    setSelectedId(id); // highlight immediately; the body follows
     const doc = await fetchNote(id);
-    if (doc !== null) { setSelectedId(id); setOpenDoc(doc); }
+    if (latestSelectRef.current !== id) return;
+    if (doc !== null) setOpenDoc(doc);
   }
 
   async function handleCreateNote(): Promise<void> {
@@ -145,12 +156,22 @@ export const NotesPage: React.FC = () => {
   }
 
   function handleNoteSaved(updated: NoteDocument): void {
-    setOpenDoc((prev) => {
-      if (prev?.title !== updated.title || prev?.projectId !== updated.projectId) {
-        void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
-      }
-      return updated;
-    });
+    setOpenDoc(updated);
+    // Patch the sidebar row in place rather than re-fetching the whole list
+    // on every autosave that changes the title.
+    const preview = buildPreview(updated.contentJson, updated.title);
+    queryClient.setQueryData<NoteListItem[]>(['notes-list'], (list) => list?.map((n): NoteListItem => {
+      if (n.id !== updated.id) return n;
+      const { body: _body, projectId: _projectId, ...rest } = n;
+      return {
+        ...rest,
+        title: updated.title,
+        contentType: updated.contentType,
+        updatedAt: new Date().toISOString(),
+        ...(preview !== '' && { body: preview }),
+        ...(updated.projectId !== undefined && { projectId: updated.projectId }),
+      };
+    }));
   }
 
   /** Recursively walk BlockNote's Block[] JSON and collect every image block's URL. */
@@ -168,13 +189,11 @@ export const NotesPage: React.FC = () => {
     return urls;
   }
 
-  // Guards against re-running the image lookup on every autosave tick — the
-  // editor's autosave interval/debounce hands back a *new* NoteDocument object
-  // (new `updatedAt`) even when nothing actually changed, and openDoc was
-  // previously a direct effect dependency, so this used to refire the lookup
-  // in a tight loop and flood the backend. Only re-run when the note's id or
-  // its actual serialized content changes.
-  const lastLookupKeyRef = useRef<string | null>(null);
+  // Image descriptions (vision analysis / OCR) per set of image URLs. Cached
+  // so every re-run of the effect below can include them straight away —
+  // previously a re-run reset Athena's context without images and then
+  // skipped the lookup, so Athena almost never saw a note's images.
+  const imageDescriptionsRef = useRef(new Map<string, string[]>());
   const noteId = mode === 'notes' ? openDoc?.id ?? null : null;
   const noteContentJson = mode === 'notes' ? openDoc?.contentJson ?? null : null;
   const noteTitle = mode === 'notes' ? openDoc?.title ?? null : null;
@@ -186,69 +205,55 @@ export const NotesPage: React.FC = () => {
 
   useEffect(() => {
     if (mode === 'notes' && openDoc !== null) {
-      const lookupKey = `${openDoc.id}:${noteContentJson ?? ''}`;
-
       // Give Athena the note's actual text, not just its title/type — otherwise
       // it has nothing to answer questions about the content you're viewing
       // and falls back to (possibly stale/unindexed) RAG search instead.
-      let bodyText = '';
-      try {
-        const blocks = JSON.parse(openDoc.contentJson) as unknown;
-        if (Array.isArray(blocks)) bodyText = extractNoteBlockText(blocks as NoteContentBlock[]).slice(0, NOTE_CONTEXT_MAX_CHARS);
-      } catch {
-        bodyText = '';
-      }
+      let blocks: unknown = [];
+      try { blocks = JSON.parse(openDoc.contentJson); } catch { blocks = []; }
+      const bodyText = Array.isArray(blocks)
+        ? extractNoteBlockText(blocks as NoteContentBlock[]).slice(0, NOTE_CONTEXT_MAX_CHARS)
+        : '';
       const bodyBlock = bodyText !== '' ? `\n\nContent:\n${bodyText}` : '';
+      const imageUrls = extractImageUrls(blocks);
+      const imagesKey = imageUrls.join('|');
+      const doc = openDoc;
 
-      // Prime with basic context immediately, then upgrade it once any
-      // embedded images' vision analysis has loaded (async, may take a beat).
-      setAthenaContext({
-        type: 'note',
-        title: openDoc.title,
-        detail: `Content type: ${openDoc.contentType}${bodyBlock}`,
-        id: openDoc.id,
-        ...(openDoc.projectId ? { projectId: openDoc.projectId } : {}),
-      });
+      const publish = (descriptions: string[] | undefined): void => {
+        const imageNote = imageUrls.length > 0
+          ? `. Contains ${imageUrls.length.toString()} embedded image(s)`
+          : '';
+        setAthenaContext({
+          type: 'note',
+          title: doc.title,
+          detail: `Content type: ${doc.contentType}${imageNote}${bodyBlock}`,
+          id: doc.id,
+          ...(doc.projectId ? { projectId: doc.projectId } : {}),
+          ...(descriptions !== undefined && descriptions.length > 0 && { images: descriptions.join('\n\n') }),
+        });
+      };
 
-      if (lastLookupKeyRef.current === lookupKey) {
+      const cached = imageDescriptionsRef.current.get(imagesKey);
+      publish(cached);
+      if (imageUrls.length === 0 || cached !== undefined) {
         return () => { setAthenaContext(null); };
       }
-      lastLookupKeyRef.current = lookupKey;
 
       let cancelled = false;
-      void (async (): Promise<void> => {
-        let blocks: unknown;
-        try {
-          blocks = JSON.parse(openDoc.contentJson);
-        } catch {
-          return;
-        }
-        const imageUrls = extractImageUrls(blocks);
-        if (imageUrls.length === 0) return;
-
-        const r = await api.lookupImages(imageUrls);
-        if (cancelled || !r.success) return;
-
+      void api.lookupImages(imageUrls).then((r) => {
+        if (!r.success) return;
         const descriptions = r.data.items
           .map((img, i) => {
             const parts: string[] = [];
             if (img.visionAnalysis !== undefined) parts.push(img.visionAnalysis);
             else if (img.ocrText !== undefined) parts.push(`Text in image: ${img.ocrText}`);
             if (img.caption !== undefined) parts.push(`Caption: ${img.caption}`);
-            return parts.length > 0 ? `[Image ${(i + 1).toString()}] ${parts.join(' — ').slice(0, 600)}` : null;
+            return parts.length > 0 ? `[Image ${(i + 1).toString()}] ${parts.join(' — ').slice(0, IMAGE_DESCRIPTION_MAX_CHARS)}` : null;
           })
           .filter((d): d is string => d !== null);
-
-        if (descriptions.length === 0 || cancelled) return;
-
-        setAthenaContext({
-          type: 'note',
-          title: openDoc.title,
-          detail: `Content type: ${openDoc.contentType}. Contains ${imageUrls.length.toString()} embedded image(s):\n${descriptions.join('\n')}${bodyBlock}`,
-          id: openDoc.id,
-          ...(openDoc.projectId ? { projectId: openDoc.projectId } : {}),
-        });
-      })();
+        // Cache even if this run was superseded, so the next run uses it.
+        imageDescriptionsRef.current.set(imagesKey, descriptions);
+        if (!cancelled) publish(descriptions);
+      }).catch(() => { /* context stays without image detail */ });
 
       return () => { cancelled = true; setAthenaContext(null); };
     }

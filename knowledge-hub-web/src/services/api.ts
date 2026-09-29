@@ -17,6 +17,7 @@ import type {
   CreateTaskInput,
   CreateNoteInput,
   Note,
+  NoteSummary,
   WriteActionProposal,
 } from '../types';
 
@@ -75,6 +76,8 @@ export type DocType = 'blog-draft' | 'spec' | 'newsletter' | 'readme' | 'doc';
 
 export interface DocEntry {
   id: string;
+  /** Database id — the document's knowledge-graph node id; absent for live GitHub listings. */
+  contentItemId?: string;
   title: string;
   type: DocType;
   repo: string;
@@ -91,6 +94,8 @@ export interface DocumentContent {
   path: string;
   content: string;
   sha: string;
+  /** True when GitHub was unreachable and this is the indexed (plain-text) copy. */
+  fromIndex?: boolean;
 }
 
 export type DiscoverWorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published';
@@ -322,6 +327,21 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /** Lightweight note list for the Think sidebar: titles/previews only, no bodies. */
+  async getNoteSummaries(page = 1, pageSize = 100): Promise<ApiResponse<PaginatedList<NoteSummary>>> {
+    const r = await this.client.get<ApiResponse<PaginatedList<NoteSummary>>>(
+      '/api/notes',
+      { params: { page, pageSize, view: 'summary' } },
+    );
+    return r.data;
+  }
+
+  /** One note with its full body. */
+  async getNote(id: string): Promise<ApiResponse<Note>> {
+    const r = await this.client.get<ApiResponse<Note>>(`/api/notes/${encodeURIComponent(id)}`);
+    return r.data;
+  }
+
   async createNote(input: CreateNoteInput): Promise<ApiResponse<Note>> {
     const r = await this.client.post<ApiResponse<Note>>('/api/notes', input);
     return r.data;
@@ -332,8 +352,10 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async patchNote(id: string, content: string, tags: string[], projectId?: string | null): Promise<ApiResponse<Note>> {
-    const body: Record<string, unknown> = { content, tags };
+  /** Updates a note. `tags` is only sent when given — omitting it leaves the stored tags untouched. */
+  async patchNote(id: string, content: string, tags?: string[], projectId?: string | null): Promise<ApiResponse<Note>> {
+    const body: Record<string, unknown> = { content };
+    if (tags !== undefined) body['tags'] = tags;
     if (projectId !== undefined) body['projectId'] = projectId;
     const r = await this.client.patch<ApiResponse<Note>>(`/api/notes/${id}`, body);
     return r.data;

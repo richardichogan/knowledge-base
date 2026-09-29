@@ -944,6 +944,7 @@ async function formatPageContext(pageContext: ChatPageContext | undefined, userM
   return [
     `## Document in view (primary source — the user is asking about this specific ${pageContext.type})`,
     `Title: ${pageContext.title}`,
+    pageContext.images ? `Images embedded in this document (described by vision analysis — treat these as what the images show):\n${pageContext.images}` : '',
     excerpt ? `Content:\n${excerpt}` : '',
     wasExcerpted
       ? 'Note: this document is very long, so the excerpts above were semantically selected as most relevant ' +

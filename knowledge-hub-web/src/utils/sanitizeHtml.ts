@@ -16,7 +16,7 @@ const ALLOWED_TAGS = new Set([
 ]);
 
 const ALLOWED_ATTRS = new Set([
-  'class', 'href', 'target', 'rel', 'title', 'type', 'disabled',
+  'class', 'href', 'target', 'rel', 'title', 'type', 'disabled', 'start',
   'aria-hidden', 'aria-label', 'data-copy-code', 'data-task-action', 'data-task-id',
 ]);
 

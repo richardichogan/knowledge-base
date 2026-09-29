@@ -82,7 +82,7 @@ export function extractNoteBlockText(blocks: NoteContentBlock[]): string {
  * echoing the title, which otherwise makes every card show its own title
  * twice.
  */
-function buildPreview(contentJson: string, title: string): string {
+export function buildPreview(contentJson: string, title: string): string {
   try {
     const blocks = JSON.parse(contentJson) as unknown;
     if (!Array.isArray(blocks)) return '';
@@ -96,30 +96,32 @@ function buildPreview(contentJson: string, title: string): string {
   }
 }
 
+/**
+ * Note list for the sidebar. Uses the summary view — titles and previews
+ * computed server-side — instead of downloading every note's full body
+ * (several MB once notes contain images), which made Think slow to open and
+ * prone to timing out.
+ */
 export async function fetchNotes(): Promise<NoteListItem[]> {
-  const result = await api.getNotes(1, 100);
-  if (!result.success) return [];
-  return result.data.items.map((n) => {
-    const doc = deserialise(n.content, n.id, n.createdAt, n.updatedAt, n.projectId ?? undefined);
-    const body = buildPreview(doc.contentJson, doc.title);
-    return {
-      id: n.id,
-      title: doc.title,
-      contentType: doc.contentType,
-      updatedAt: n.updatedAt,
-      createdAt: n.createdAt,
-      ...(body !== '' && { body }),
-      tagIds: n.taxonomyTagIds ?? [],
-      ...(n.projectId !== undefined && n.projectId !== null && { projectId: n.projectId }),
-    };
-  });
+  const result = await api.getNoteSummaries(1, 100);
+  if (!result.success) throw new Error(result.error.message);
+  return result.data.items.map((n) => ({
+    id: n.id,
+    title: n.title || UNTITLED_DOCUMENT,
+    contentType: n.contentType as ContentType,
+    updatedAt: n.updatedAt,
+    createdAt: n.createdAt,
+    ...(n.preview !== '' && { body: n.preview }),
+    tagIds: n.taxonomyTagIds,
+    ...(n.projectId !== undefined && { projectId: n.projectId }),
+  }));
 }
 
+/** Loads one note's full body (previously fetched the whole list to find it). */
 export async function fetchNote(id: string): Promise<NoteDocument | null> {
-  const result = await api.getNotes(1, 100);
+  const result = await api.getNote(id);
   if (!result.success) return null;
-  const note = result.data.items.find((n) => n.id === id);
-  if (note === undefined) return null;
+  const note = result.data;
   return deserialise(note.content, note.id, note.createdAt, note.updatedAt, note.projectId ?? undefined);
 }
 
@@ -139,7 +141,9 @@ export async function createNote(
 }
 
 export async function saveNote(doc: NoteDocument): Promise<boolean> {
-  const result = await api.patchNote(doc.id, serialise(doc), [], doc.projectId ?? null);
+  // No tags argument: taxonomy tags live in note_tags, and sending [] here
+  // wiped the note's stored tags on every autosave.
+  const result = await api.patchNote(doc.id, serialise(doc), undefined, doc.projectId ?? null);
   return result.success;
 }
 

@@ -64,6 +64,19 @@ export interface Note {
   taxonomyTagIds?: string[];
 }
 
+/** Lightweight note list row (GET /api/notes?view=summary) — no body. */
+export interface NoteSummary {
+  id: string;
+  title: string;
+  contentType: string;
+  /** First ~200 chars of body text, skipping lines that repeat the title. */
+  preview: string;
+  createdAt: string;
+  updatedAt: string;
+  projectId?: string;
+  taxonomyTagIds: string[];
+}
+
 export interface CreateNoteInput {
   content: string;
   tags?: string[];

@@ -39,14 +39,32 @@ export function renderMarkdown(md: string): string {
     if (listType) { html.push(`</${listType}>`); listType = null; }
   };
 
+  // Fences are often indented under a list item ("1. Clone:\n   ```bash");
+  // remember that indent so it can be stripped from the code lines.
+  let fenceIndent = 0;
+  // Numbered lists interrupted by a code block or blank line would otherwise
+  // restart at 1 — docs that write "1." for every step relied on this.
+  let olCount = 0;
+  let olResume = 0;
+
   for (const line of lines) {
-    if (line.startsWith('```')) {
+    const fence = /^(\s*)```(.*)$/.exec(line);
+    if (fence && (!inCode || fence[1]!.length <= fenceIndent + 3)) {
+      if (!inCode && listType === 'ol') olResume = olCount + 1;
       closeList();
       if (inCode) { html.push('</code></pre></div>'); inCode = false; }
-      else { html.push(`<div class="kh-code-block"><button type="button" class="kh-code-copy-btn" data-copy-code>Copy</button><pre><code class="language-${escapeHtml(line.slice(3).trim())}">`); inCode = true; }
+      else {
+        fenceIndent = fence[1]!.length;
+        html.push(`<div class="kh-code-block"><button type="button" class="kh-code-copy-btn" data-copy-code>Copy</button><pre><code class="language-${escapeHtml((fence[2] ?? '').trim())}">`);
+        inCode = true;
+      }
       continue;
     }
-    if (inCode) { html.push(escapeHtml(line)); continue; }
+    if (inCode) {
+      const stripped = line.slice(Math.min(fenceIndent, line.length - line.trimStart().length));
+      html.push(escapeHtml(stripped));
+      continue;
+    }
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
       closeList();
       html.push('<hr />'); continue;
@@ -54,6 +72,7 @@ export function renderMarkdown(md: string): string {
     const hm = line.match(/^(#{1,6})\s+(.+)/);
     if (hm) {
       closeList();
+      olResume = 0;
       html.push(`<h${hm[1]!.length}>${inlineMarkdown(hm[2] ?? '')}</h${hm[1]!.length}>`); continue;
     }
     if (line.startsWith('> ')) {
@@ -66,10 +85,15 @@ export function renderMarkdown(md: string): string {
       // resumes at 4 renders as 4 rather than silently restarting at 1.
       if (listType !== 'ol') {
         closeList();
-        const start = Number(oli[1] ?? '1');
+        let start = Number(oli[1] ?? '1');
+        // Lazy "1." numbering resuming after an interruption continues the count.
+        if (start === 1 && olResume > 0) start = olResume;
+        olResume = 0;
+        olCount = start - 1;
         html.push(start === 1 ? '<ol>' : `<ol start="${start.toString()}">`);
         listType = 'ol';
       }
+      olCount += 1;
       html.push(`<li>${inlineMarkdown(oli[2] ?? '')}</li>`); continue;
     }
     const li = line.match(/^\s*[-*+]\s+(.+)/);
@@ -78,10 +102,13 @@ export function renderMarkdown(md: string): string {
       html.push(`<li>${inlineMarkdown(li[1] ?? '')}</li>`); continue;
     }
     if (line.trim() === '') {
+      if (listType === 'ol') olResume = olCount + 1;
       closeList();
       continue;
     }
     closeList();
+    // Indented text continues the current list item; anything else ends the numbering run.
+    if (!/^\s/.test(line)) olResume = 0;
     html.push(`<p>${inlineMarkdown(line)}</p>`);
   }
 
