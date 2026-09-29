@@ -26,6 +26,7 @@ import { TasksPage } from './pages/TasksPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { NotesPage } from './notes/NotesPage';
 import { DocumentsPage } from './pages/DocumentsPage';
+import { MemoryPage } from './pages/MemoryPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { AutocueApp } from './features/autocue/AutocueApp';
 import { GraphPage } from './pages/GraphPage';
@@ -58,6 +59,7 @@ const App: React.FC = () => {
                 <Route path="my-work"  element={<MyWorkPage />} />
                 <Route path="think"    element={<ThinkPage />} />
                 <Route path="library"  element={<DocumentsPage />} />
+                <Route path="memory"   element={<MemoryPage />} />
                 <Route path="blog-post" element={<Navigate to="/chat" replace />} />
                 <Route path="graph"    element={<GraphPage />} />
                 <Route path="settings/repo-mappings" element={<RepoProjectMappingsPage />} />

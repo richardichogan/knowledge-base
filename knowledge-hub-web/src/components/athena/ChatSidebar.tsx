@@ -9,7 +9,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@carbon/react';
-import { Add, ChevronLeft, ChevronRight, Edit, Pin, PinFilled, Search, TrashCan } from '@carbon/icons-react';
+import { Add, ChevronLeft, ChevronRight, Edit, MachineLearningModel, Pin, PinFilled, Search, TrashCan } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import type { ChatSessionSummary } from '../../types';
 
@@ -180,6 +180,10 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
           <Add className="kh-chat-sidebar__nav-icon" />
           New chat
         </button>
+        <Link to="/memory" className="kh-chat-sidebar__nav-item kh-chat-sidebar__nav-item--quiet" title="What Athena has learned from you">
+          <MachineLearningModel className="kh-chat-sidebar__nav-icon" />
+          Memory
+        </Link>
       </nav>
 
       <label className="kh-chat-sidebar__search">

@@ -1,3 +1,4 @@
+import { getProfileText } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { downloadBlobAsText } from '../integrations/cms/blobClient.js';
 import { env } from '../config/env.js';
@@ -656,7 +657,10 @@ export async function buildAiContext(
     : null;
 
   const [staticContext, storedProjectContext, ragItems, memoryItems] = await Promise.all([
-    loadBlobText(STATIC_CONTEXT_BLOB),
+    // Profile now lives in athena_memories (editable in the app); the blob is imported once.
+    // First use seeds it from the built-in "About the user" text plus the old blob file.
+    getProfileText(db, async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].filter((t) => t.trim() !== '').join('\n\n'))
+      .catch(async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].join('\n\n')),
     loadBlobText(PROJECT_CONTEXT_BLOB),
     retrieveRagItems(db, ragQuery, activeProject?.id),
     currentSessionId
@@ -965,12 +969,14 @@ export async function assembleMessages(
   userMessage: string,
   persona?: string,
   pageContext?: ChatPageContext,
+  /** Learned standing instructions + liked examples (ai/athenaMemory.ts). */
+  standingInstructions = '',
 ): Promise<ConversationMessage[]> {
   const systemPrompt = [
     ASSISTANT_IDENTITY_BLURB,
     '---',
-    USER_PROFILE_BLURB,
-    '---',
+    // The user profile (formerly USER_PROFILE_BLURB + static-context.md) is
+    // context.staticContext below — editable on the Memory page.
     EVIDENCE_CALIBRATION_BLURB,
     '---',
     FORMATTING_BLURB,
@@ -982,6 +988,7 @@ export async function assembleMessages(
     context.projectContext,
     '---',
     buildToolCapabilitiesBlurb(),
+    ...(standingInstructions !== '' ? ['---', standingInstructions] : []),
   ].join('\n\n');
 
   const pageContextBlock = await formatPageContext(pageContext, userMessage);

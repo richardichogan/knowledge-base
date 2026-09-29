@@ -26,6 +26,10 @@ export type {
   ExportToThinkResponse,
   WriteActionType,
   WriteActionProposal,
+  AthenaMemory,
+  MemoryScopeType,
+  MemoryStatus,
+  SavedMemory,
 } from './ai';
 
 export type { TaskDestination, CreateTaskInput } from './task';

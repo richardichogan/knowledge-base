@@ -1,3 +1,4 @@
+import { runWeeklyMemoryReview } from '../ai/memorySuggestions.js';
 import { MS_PER_MINUTE, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
@@ -24,6 +25,7 @@ const FOUNDRY_BACKFILL_INTERVAL_MS = 60 * MS_PER_MINUTE; // Sweep for un-indexed
 const timers: ReturnType<typeof setInterval>[] = [];
 let lastSyncHour = -1; // Track the last hour we ran sync to avoid double-runs
 let lastEdgeDay = -1;  // Track the last day we ran inferred edges
+let lastMemoryReviewWeek = ''; // Week key of the last weekly memory review
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
 
 function isWithinWorkingHours(): boolean {
@@ -88,6 +90,18 @@ export function startSyncScheduler(): void {
         runTier1Sync(db).catch((err: unknown) => {
           console.error('[Scheduler] Tier 1 sync failed:', err instanceof Error ? err.message : String(err));
         });
+      }
+
+      // Weekly memory review — production only, Mondays 08:00. Suggests
+      // standing instructions from preferences the user kept repeating;
+      // suggestions only, never applied until approved on the Memory page.
+      const nowForReview = new Date();
+      const reviewWeek = `${nowForReview.getFullYear().toString()}-${Math.floor(nowForReview.getTime() / (7 * 86_400_000)).toString()}`;
+      if (!env.isDevelopment && nowForReview.getDay() === 1 && nowForReview.getHours() === 8 && lastMemoryReviewWeek !== reviewWeek && !isSyncInProgress()) {
+        lastMemoryReviewWeek = reviewWeek;
+        void runWeeklyMemoryReview(db)
+          .then((n) => { console.warn(`[Scheduler] Weekly memory review: ${n.toString()} suggestion(s)`); })
+          .catch((err: unknown) => { console.error('[Scheduler] Weekly memory review failed:', err instanceof Error ? err.message : String(err)); });
       }
 
       // Inferred edge job — production only, runs at 08:00 daily. Must NOT run

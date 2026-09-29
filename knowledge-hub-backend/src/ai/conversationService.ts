@@ -1,3 +1,4 @@
+import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { getFoundryClient } from './foundryClient.js';
 import type { LlmMessage } from './foundryClient.js';
@@ -33,7 +34,10 @@ export async function handleConversationTurn(
 ): Promise<string> {
   const context = await buildAiContext(db, userMessage, history, sessionId);
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
-  const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext);
+  // Learned standing instructions + liked examples for this persona/project.
+  const standingBlock = await buildStandingInstructionsBlock(db, { persona, projectId: activeProjectId })
+    .catch((err: unknown) => { console.error('[memory] could not load standing instructions:', err); return ''; });
+  const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, standingBlock);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
   const client = getFoundryClient();
@@ -92,7 +96,7 @@ export async function handleConversationTurn(
       let result: unknown;
       onToolCall?.(call.function.name);
       try {
-        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined);
+        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId });
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }

@@ -19,6 +19,8 @@ import type {
   Note,
   NoteSummary,
   WriteActionProposal,
+  AthenaMemory,
+  MemoryScopeType,
 } from '../types';
 
 // Use relative base URL so all requests go through the Vite dev proxy.
@@ -491,6 +493,33 @@ export class KnowledgeHubApi {
   /** Deletes a chat session and its messages. */
   async deleteChatSession(sessionId: string): Promise<ApiResponse<{ deleted: true }>> {
     const r = await this.client.delete<ApiResponse<{ deleted: true }>>(`/api/ai/session/${sessionId}`);
+    return r.data;
+  }
+
+  /** All of Athena's memories (instructions, examples, profile, suggestions). */
+  async listMemories(): Promise<ApiResponse<{ memories: AthenaMemory[] }>> {
+    const r = await this.client.get<ApiResponse<{ memories: AthenaMemory[] }>>('/api/memories');
+    return r.data;
+  }
+
+  async createMemory(input: { content: string; scopeType: MemoryScopeType; scopeValue?: string | null }): Promise<ApiResponse<AthenaMemory>> {
+    const r = await this.client.post<ApiResponse<AthenaMemory>>('/api/memories', input);
+    return r.data;
+  }
+
+  async updateMemory(id: string, patch: Partial<Pick<AthenaMemory, 'content' | 'scopeType' | 'scopeValue' | 'status'>>): Promise<ApiResponse<AthenaMemory>> {
+    const r = await this.client.patch<ApiResponse<AthenaMemory>>(`/api/memories/${id}`, patch);
+    return r.data;
+  }
+
+  async deleteMemory(id: string): Promise<ApiResponse<{ deleted: true }>> {
+    const r = await this.client.delete<ApiResponse<{ deleted: true }>>(`/api/memories/${id}`);
+    return r.data;
+  }
+
+  /** 👍 saves the reply as an example; 👎 + note returns a suggested instruction. */
+  async sendReplyFeedback(input: { sessionId: string | null; rating: 'up' | 'down'; comment?: string; replyContent: string; persona?: string }): Promise<ApiResponse<{ memory: AthenaMemory | null }>> {
+    const r = await this.client.post<ApiResponse<{ memory: AthenaMemory | null }>>('/api/memories/feedback', input);
     return r.data;
   }
 

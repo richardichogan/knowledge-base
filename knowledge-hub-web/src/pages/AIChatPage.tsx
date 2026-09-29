@@ -31,11 +31,13 @@ import {
 } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
 import { ReplyMeta } from '../components/athena/ReplyMeta';
+import { RememberedNotice } from '../components/athena/RememberedNotice';
+import { ReplyFeedback } from '../components/athena/ReplyFeedback';
 import { PERSONAS, getPersona } from '../components/athena/personas';
 
 type AthenaThinkContentType = Extract<ContentType, 'blog' | 'newsletter'>;
@@ -555,7 +557,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         return;
       }
       if (sessionId === null) persistSessionId(result.data.sessionId);
-      appendMessage('assistant', result.data.reply, { persona: result.data.persona, sources: result.data.sources });
+      appendMessage('assistant', result.data.reply, { persona: result.data.persona, sources: result.data.sources, memoriesCreated: result.data.memoriesCreated });
       playReply(result.data.reply);
       refreshSessionList();
       if (result.data.pendingActions.length > 0) {
@@ -621,7 +623,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   function appendMessage(
     role: 'user' | 'assistant',
     content: string,
-    meta: { persona?: AthenaPersona | undefined; sources?: string[] | undefined } = {},
+    meta: { persona?: AthenaPersona | undefined; sources?: string[] | undefined; memoriesCreated?: SavedMemory[] | undefined } = {},
   ): void {
     setMessages((prev) => [
       ...prev,
@@ -631,6 +633,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         timestamp: new Date().toISOString(),
         ...(meta.persona !== undefined && { persona: meta.persona }),
         ...(meta.sources !== undefined && meta.sources.length > 0 && { sources: meta.sources }),
+        ...(meta.memoriesCreated !== undefined && meta.memoriesCreated.length > 0 && { memoriesCreated: meta.memoriesCreated }),
       },
     ]);
     if (role === 'user') {
@@ -1474,6 +1477,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 />
               )}
               {msg.role === 'assistant' && <ReplyMeta persona={msg.persona} sources={msg.sources} />}
+              {msg.role === 'assistant' && msg.memoriesCreated !== undefined && <RememberedNotice memories={msg.memoriesCreated} />}
+              {msg.role === 'assistant' && !/^(Error:|⏹️|⚠️)/.test(msg.content) && (
+                <ReplyFeedback reply={msg.content} persona={msg.persona ?? persona} sessionId={sessionId} />
+              )}
               <div className="ai-bubble-footer">
                 <div className="ai-bubble-time" title={formatMessageTime(msg.timestamp)}>
                   {formatMessageTime(msg.timestamp)}

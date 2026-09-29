@@ -1,6 +1,8 @@
 import type { LlmToolChoice, LlmToolDefinition } from './foundryClient.js';
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>()]+/i;
+const STANDING_INSTRUCTION_PATTERN =
+  /\b(?:from\s+now\s+on|going\s+forward|in\s+future\s*,|remember\s+(?:that|to|this)|(?:please\s+)?always\s+(?:include|use|add|end|start|write|put|give|mention|keep|format)|never\s+(?:include|use|add|write|mention|say|start)|(?:don'?t|do\s+not)\s+ever|stop\s+(?:doing|adding|including|using|writing))\b/i;
 const EXPLICIT_WEB_LOOKUP_PATTERN =
   /\b(?:search(?:\s+the\s+web)?|web\s+search|look\s+(?:it\s+)?up|google|find\s+(?:it\s+)?online)\b/i;
 const CURRENT_OR_NEW_PATTERN =
@@ -30,6 +32,15 @@ export function selectRequiredToolChoice(
   projectReferences: Array<{ label: string; url: string }> = [],
   activeProjectName: string | null = null,
 ): LlmToolChoice | undefined {
+  // A lasting preference/correction must be saved, not just acknowledged —
+  // left to choose, the model often replies "Remembered" without saving.
+  if (STANDING_INSTRUCTION_PATTERN.test(userMessage)) {
+    const rememberToolName = findToolName(tools, (name) => name === 'remember');
+    if (rememberToolName !== undefined) {
+      return { type: 'function', function: { name: rememberToolName } };
+    }
+  }
+
   if (URL_PATTERN.test(userMessage)) {
     const fetchToolName = findToolName(tools, (name) => name === 'fetch_web_page');
     if (fetchToolName !== undefined) {

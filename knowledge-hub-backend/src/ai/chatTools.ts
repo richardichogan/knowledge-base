@@ -14,6 +14,7 @@
  * CMS publish, MS Todo push), which still require explicit confirmation.
  */
 
+import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import type { LlmToolDefinition } from './foundryClient.js';
 import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db/queries.js';
@@ -202,6 +203,53 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'remember',
+        description:
+          "Saves a STANDING INSTRUCTION that Athena follows in all future conversations. Call it whenever Richard " +
+          "states a lasting preference or correction — e.g. 'from now on…', 'always…', 'never…', 'remember that…', " +
+          "'blog posts should include…', 'in future…'. Do NOT call it for one-off requests about the current reply. " +
+          "Write the instruction as a short, self-contained imperative (e.g. 'Include the source URL at the end of " +
+          "every blog post package'). Choose the narrowest correct scope. After saving, confirm in one short line " +
+          "starting 'Remembered:' — do not repeat it at length. If the scope is genuinely unclear, ask instead.",
+        parameters: {
+          type: 'object',
+          properties: {
+            instruction: { type: 'string', description: 'The standing instruction, imperative and self-contained.' },
+            scope: {
+              type: 'string',
+              enum: ['global', 'persona', 'project', 'output'],
+              description: "'global' = everywhere; 'persona' = one persona (general, brainstorming, copilot_coach, blog_post); " +
+                "'project' = one project id; 'output' = one kind of output (e.g. 'blog post', 'newsletter', 'task summary', 'meeting notes').",
+            },
+            scopeValue: { type: 'string', description: "Persona id, project id, or output type. Omit for 'global'." },
+          },
+          required: ['instruction', 'scope'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_memories',
+        description: "Lists Athena's active standing instructions (with ids). Use when Richard asks what Athena remembers, or before forgetting one.",
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'forget_memory',
+        description: "Removes a standing instruction by id (get ids from list_memories). Use when Richard says to stop doing something Athena was told to remember.",
+        parameters: {
+          type: 'object',
+          properties: { id: { type: 'string', description: 'Memory id from list_memories.' } },
+          required: ['id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'create_note_draft',
         description: 'Creates a new document draft in the Think section (notes).',
         parameters: {
@@ -260,7 +308,13 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
 }
 
 /** Dispatches a single tool call by name, returning a JSON-serialisable result. */
-export async function executeToolCall(db: Pool, name: string, argsJson: string, activeProjectId?: string): Promise<unknown> {
+export async function executeToolCall(
+  db: Pool,
+  name: string,
+  argsJson: string,
+  activeProjectId?: string,
+  turn: { sessionId?: string | undefined } = {},
+): Promise<unknown> {
   let args: Record<string, unknown> = {};
   try {
     args = JSON.parse(argsJson || '{}') as Record<string, unknown>;
@@ -285,6 +339,14 @@ export async function executeToolCall(db: Pool, name: string, argsJson: string, 
     case 'create_task':           return createTask(db, args);
     case 'update_task':           return updateTask(db, args);
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
+    case 'remember':              return rememberInstruction(db, args, turn.sessionId);
+    case 'list_memories':         return { memories: (await listMemories(db)).filter((m) => m.kind === 'instruction' && m.status === 'active').map((m) => ({ id: m.id, instruction: m.content, scope: m.scopeType, scopeValue: m.scopeValue })) };
+    case 'forget_memory': {
+      const id = typeof args['id'] === 'string' ? args['id'] : '';
+      if (id === '') return { error: 'id required' };
+      await deleteMemory(db, id);
+      return { forgotten: id };
+    }
     case 'fetch_web_page':        return fetchWebPage(args);
     case 'search_ica':            return searchIca(args);
     default:
@@ -608,6 +670,25 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>): Promise<u
         : 'No Library documents matched. Try broader or different terms.',
     }),
   };
+}
+
+// ── remember (standing instructions) ────────────────────────────────────────
+
+async function rememberInstruction(db: Pool, args: Record<string, unknown>, sessionId: string | undefined): Promise<unknown> {
+  const instruction = typeof args['instruction'] === 'string' ? args['instruction'].trim() : '';
+  if (instruction === '') return { error: 'instruction required' };
+  const scopeRaw = typeof args['scope'] === 'string' ? args['scope'] : 'global';
+  const scope = (['global', 'persona', 'project', 'output'] as const).find((s) => s === scopeRaw) ?? 'global';
+  const scopeValue = typeof args['scopeValue'] === 'string' ? args['scopeValue'].trim() : '';
+  if (scope !== 'global' && scopeValue === '') return { error: `scopeValue required for scope "${scope}"` };
+  const memory = await createMemory(db, {
+    content: instruction,
+    scopeType: scope,
+    scopeValue: scope === 'global' ? null : scopeValue,
+    origin: 'chat',
+    sourceSessionId: sessionId ?? null,
+  });
+  return { saved: true, id: memory.id, instruction: memory.content, scope: memory.scopeType, scopeValue: memory.scopeValue };
 }
 
 // ── create_task / update_task ────────────────────────────────────────────────

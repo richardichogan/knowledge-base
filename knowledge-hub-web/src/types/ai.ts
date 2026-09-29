@@ -47,6 +47,34 @@ export interface ChatMessage {
   persona?: AthenaPersona;
   /** Tool names the reply drew on (e.g. 'list_tasks'), shown as "From: Plan". */
   sources?: string[];
+  /** Standing instructions Athena saved during this turn (shown as "Remembered: …" with Undo). */
+  memoriesCreated?: SavedMemory[];
+}
+
+/** A standing instruction just saved via chat. */
+export interface SavedMemory {
+  id: string;
+  content: string;
+  scopeType: MemoryScopeType;
+  scopeValue: string | null;
+}
+
+export type MemoryScopeType = 'global' | 'persona' | 'project' | 'output';
+export type MemoryStatus = 'active' | 'paused' | 'suggested' | 'dismissed';
+
+/** Athena's learned memory (Memory page). */
+export interface AthenaMemory {
+  id: string;
+  kind: 'instruction' | 'example' | 'profile';
+  content: string;
+  scopeType: MemoryScopeType;
+  scopeValue: string | null;
+  status: MemoryStatus;
+  origin: 'chat' | 'feedback' | 'weekly' | 'manual' | 'profile-import';
+  sourceExcerpt: string | null;
+  lastAppliedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type WriteActionType =
@@ -71,6 +99,7 @@ export interface ChatResponse {
   sessionId: string;
   persona?: AthenaPersona;
   sources?: string[];
+  memoriesCreated?: SavedMemory[];
   pendingActions: WriteActionProposal[];
 }
 

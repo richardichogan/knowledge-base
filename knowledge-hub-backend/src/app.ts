@@ -17,6 +17,7 @@ import { notesRouter } from './routes/notes.js';
 import { imagesRouter } from './routes/images.js';
 import { graphAuthRouter } from './routes/graphAuth.js';
 import { allianceAuthRouter, allianceApiRouter } from './routes/allianceAuth.js';
+import { memoriesRouter } from './routes/memories.js';
 import { projectsRouter } from './routes/projects.js';
 import { tagsRouter } from './routes/tags.js';
 import { documentsRouter } from './routes/documents.js';
@@ -106,6 +107,7 @@ export function createApp(): express.Application {
   app.use('/api/tags', tagsRouter);
   app.use('/api/documents', documentsRouter);
   app.use('/api/integrations/alliance', allianceApiRouter);
+  app.use('/api/memories', memoriesRouter);
   app.use('/api/discover', discoverRouter);
   app.use('/api/taxonomy', taxonomyRouter);
   app.use('/api/repo-mappings', repoMappingsRouter);

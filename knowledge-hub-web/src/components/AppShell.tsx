@@ -22,6 +22,7 @@ import {
   HeaderGlobalAction,
 } from '@carbon/react';
 import {
+  MachineLearningModel,
   Home,
   Compass,
   CalendarTools,
@@ -129,6 +130,13 @@ export const AppShell: React.FC = () => {
             onClick={() => { setSparkModalOpen((v) => !v); }}
           >
             <Flash size={20} />
+          </HeaderGlobalAction>
+          <HeaderGlobalAction
+            aria-label="Athena memory"
+            isActive={location.pathname === '/memory'}
+            onClick={() => { void navigate('/memory'); }}
+          >
+            <MachineLearningModel size={20} />
           </HeaderGlobalAction>
           <HeaderGlobalAction
             aria-label="Knowledge Graph"

@@ -6,6 +6,7 @@ import { handleConversationTurn, summariseSession, rollUpConversationSummary, fo
 import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessionIds } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
+import { memoriesCreatedSince } from '../ai/athenaMemory.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
 import { createNoteRecord } from './notes.js';
 import { env } from '../config/env.js';
@@ -74,6 +75,7 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       // model route by default.
       const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' ? 'gpt-5.4' : 'gpt-4o');
 
+      const turnStartedAt = new Date();
       const toolsUsed = new Set<string>();
       const reply = await handleConversationTurn(
         db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext,
@@ -112,10 +114,14 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       });
 
       const pending = getPendingProposals(effectiveSessionId);
+      // Instructions saved via the remember tool this turn — the UI confirms them with Undo.
+      const memoriesCreated = toolsUsed.has('remember')
+        ? (await memoriesCreatedSince(db, effectiveSessionId, turnStartedAt)).map((m) => ({ id: m.id, content: m.content, scopeType: m.scopeType, scopeValue: m.scopeValue }))
+        : [];
 
-      const body: ApiSuccess<{ reply: string; sessionId: string; persona: string; sources: string[]; pendingActions: typeof pending }> = {
+      const body: ApiSuccess<{ reply: string; sessionId: string; persona: string; sources: string[]; pendingActions: typeof pending; memoriesCreated: typeof memoriesCreated }> = {
         success: true,
-        data: { reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending },
+        data: { reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated },
       };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {

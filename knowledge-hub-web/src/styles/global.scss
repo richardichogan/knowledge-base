@@ -12647,3 +12647,197 @@ $interactive:      #0f62fe;
 }
 
 .onedrive-status .kb-import-btn { text-decoration: none; padding: 4px 12px; }
+
+// ── Athena: "Remembered" notice + reply feedback ─────────────────────────────
+.ai-remembered {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.ai-remembered__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border-left: 2px solid var(--kh-accent);
+  background: var(--kh-accent-bg);
+  font-size: 0.8125rem;
+
+  &--undone { opacity: 0.6; border-left-color: var(--cds-border-subtle-01); background: transparent; }
+}
+
+.ai-remembered__label { font-weight: 600; color: var(--kh-accent); }
+.ai-remembered__item--undone .ai-remembered__label { color: var(--cds-text-secondary); }
+.ai-remembered__scope { color: var(--cds-text-secondary); font-size: 0.75rem; }
+
+.ai-remembered__undo {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--kh-accent);
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ai-feedback {
+  margin-top: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--cds-text-secondary);
+}
+
+// Thumbs sit quietly until the reply is hovered (or feedback is in progress).
+.ai-feedback__buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+
+  .ai-bubble:hover &,
+  .ai-bubble:focus-within &,
+  .ai-feedback--active & { opacity: 1; }
+}
+
+@media (hover: none) { .ai-feedback__buttons { opacity: 1; } }
+
+.ai-feedback__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--cds-icon-secondary);
+  cursor: pointer;
+
+  &:hover:not(:disabled) { background: var(--cds-layer-hover-01); color: var(--cds-icon-primary); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 1px; }
+  &--on { color: var(--kh-accent); }
+}
+
+.ai-feedback__form,
+.ai-feedback__row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.ai-feedback__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 0.375rem;
+  background: var(--cds-field-01);
+  color: var(--cds-text-primary);
+  font-size: 0.8125rem;
+
+  &:focus { outline: none; border-color: var(--kh-accent); }
+}
+
+.ai-feedback__action {
+  padding: 0.3125rem 0.75rem;
+  border: 1px solid var(--kh-accent-border);
+  border-radius: 0.375rem;
+  background: var(--kh-accent-bg);
+  color: var(--kh-accent);
+  font-size: 0.75rem;
+  cursor: pointer;
+
+  &:disabled { opacity: 0.5; cursor: default; }
+  &--quiet { border-color: var(--cds-border-subtle-01); background: transparent; color: var(--cds-text-secondary); }
+}
+
+.ai-feedback__suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  border-left: 2px solid #f1c21b;
+  background: rgba(241, 194, 27, 0.06);
+}
+
+.ai-feedback__label { font-weight: 600; color: #f1c21b; }
+.ai-feedback__text { color: var(--cds-text-primary); font-size: 0.8125rem; }
+.ai-feedback__msg { color: var(--cds-text-secondary); }
+
+.kh-chat-sidebar__nav-item--quiet {
+  color: var(--cds-text-secondary);
+  text-decoration: none;
+}
+
+// ── Memory page ──────────────────────────────────────────────────────────────
+.memory-page {
+  padding: 3.5rem 3rem 3rem;
+  max-width: 1100px;
+}
+
+.memory-section { margin-bottom: 2rem; }
+.memory-section--suggestions .memory-item { border-left: 2px solid #f1c21b; }
+
+.memory-section__title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+  color: var(--cds-text-primary);
+}
+
+.memory-group { margin-bottom: 1rem; }
+
+.memory-group__title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cds-text-secondary);
+  margin: 0 0 0.375rem;
+}
+
+.memory-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+
+.memory-item {
+  padding: 0.75rem 0.875rem;
+  background: var(--cds-layer-01);
+  border-left: 2px solid transparent;
+
+  &--paused { opacity: 0.6; }
+}
+
+.memory-item__text { margin: 0; color: var(--cds-text-primary); font-size: 0.875rem; line-height: 1.5; cursor: default; }
+.memory-item__meta { margin: 0.25rem 0 0; font-size: 0.75rem; color: var(--cds-text-secondary); }
+.memory-item__actions { display: flex; gap: 0.375rem; margin-top: 0.5rem; }
+.memory-item__actions .kb-import-btn { padding: 3px 10px; font-size: 0.75rem; }
+
+.memory-empty { color: var(--cds-text-secondary); font-size: 0.875rem; }
+
+.memory-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+.memory-edit, .memory-add { display: flex; flex-direction: column; }
+
+.memory-input, .memory-select {
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-field-01);
+  color: var(--cds-text-primary);
+  font-family: inherit;
+  font-size: 0.875rem;
+
+  &:focus { outline: none; border-color: var(--kh-accent); }
+}
+
+.memory-input { width: 100%; box-sizing: border-box; resize: vertical; }
+.memory-input--short { width: 12rem; }
+.memory-profile { font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem; }
+
+.memory-example {
+  white-space: pre-wrap;
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+  max-height: 20rem;
+  overflow: auto;
+  margin: 0.5rem 0 0;
+}
