@@ -13,10 +13,12 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, TrashCan, Add, Search, Menu, ChevronLeft, ChevronRight, Idea, Notebook, Export, Compass, Copy, Blog, View, OverflowMenuHorizontal } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Export, Copy, View, OverflowMenuHorizontal } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { PROJECTS } from '../config/projects';
-import { renderMarkdown } from '../utils/markdown';
+import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
+import { encodeWav, blobToBase64, stripMarkdownForSpeech } from '../components/athena/speech';
+import { CHAT_IMAGE_TYPES, isChatImage, clipboardImageName } from '../components/athena/attachments';
 import { createNote } from '../notes/noteStorage';
 import { markdownToNoteBlocks } from '../notes/markdownToBlocks';
 import type { ContentType } from '../notes/constants';
@@ -32,6 +34,9 @@ import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/context
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
+import { ChatSidebar } from '../components/athena/ChatSidebar';
+import { ReplyMeta } from '../components/athena/ReplyMeta';
+import { PERSONAS, getPersona } from '../components/athena/personas';
 
 type AthenaThinkContentType = Extract<ContentType, 'blog' | 'newsletter'>;
 
@@ -86,327 +91,8 @@ const STT_SAMPLE_RATE = 16000;
 // been asked at all). 100,000 chars (~25k tokens) comfortably covers most
 // documents/transcripts while staying well under the backend's 1mb JSON body limit.
 const ATTACHED_FILE_CONTEXT_CHAR_LIMIT = 100000;
-const CHAT_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
-function isChatImage(file: File): boolean {
-  return CHAT_IMAGE_TYPES.has(file.type.toLowerCase());
-}
 
-function clipboardImageName(mimeType: string): string {
-  const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1] ?? 'png';
-  return `pasted-image-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
-}
-
-function encodeWav(samples: Float32Array, sampleRate: number): Blob {
-  const pcm = new Int16Array(samples.length);
-  for (let i = 0; i < samples.length; i++) {
-    pcm[i] = Math.max(-32768, Math.min(32767, (samples[i] ?? 0) * 32768));
-  }
-  const dataLen = pcm.byteLength;
-  const buf = new ArrayBuffer(44 + dataLen);
-  const v = new DataView(buf);
-  const le = true;
-  v.setUint32(0, 0x52494646, false); // 'RIFF'
-  v.setUint32(4, 36 + dataLen, le);
-  v.setUint32(8, 0x57415645, false); // 'WAVE'
-  v.setUint32(12, 0x666d7420, false); // 'fmt '
-  v.setUint32(16, 16, le);
-  v.setUint16(20, 1, le);
-  v.setUint16(22, 1, le);
-  v.setUint32(24, sampleRate, le);
-  v.setUint32(28, sampleRate * 2, le);
-  v.setUint16(32, 2, le);
-  v.setUint16(34, 16, le);
-  v.setUint32(36, 0x64617461, false); // 'data'
-  v.setUint32(40, dataLen, le);
-  new Int16Array(buf, 44).set(pcm);
-  return new Blob([buf], { type: 'audio/wav' });
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = String(reader.result || '');
-      const comma = result.indexOf(',');
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
-    };
-    reader.onerror = () => reject(reader.error as Error);
-    reader.readAsDataURL(blob);
-  });
-}
-
-// Converts an ISO YYYY-MM-DD date to a natural spoken form, e.g. "29 April
-// 2026" instead of reading out each digit group. Falls back to the raw
-// string if it doesn't parse as a real date.
-function formatDateForSpeech(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(d);
-}
-
-// Strip markdown syntax before TTS so voice replies read as clean, natural
-// prose. Also drops IDs/URLs — those are useful to see on screen but tedious
-// and unhelpful to hear read aloud; the spoken reply should stick to the
-// salient points (status, priority, due date, etc.).
-function stripMarkdownForSpeech(md: string): string {
-  return md
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/_([^_]+)_/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/^\s*[-*]\s+/gm, '')
-    .replace(/^\s*\d+\.\s+/gm, '')
-    .replace(/^\s*(ID|Url|URL|Link)\s*:.*$/gim, '')
-    .replace(/https?:\/\/\S+/gi, '')
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '')
-    // ISO dates (e.g. "2026-04-29") → natural spoken date. Must run before
-    // the slug un-concatenation below, or the hyphens here would just get
-    // split into "2026 04 29" instead of a real date.
-    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, (iso) => formatDateForSpeech(iso))
-    // Slugs like "ibm-thought-leadership" or paths like "owner/repo" read as
-    // one garbled run-on word — split hyphens/underscores/slashes into
-    // separate words so project and repo names are actually intelligible.
-    .replace(/\b[a-zA-Z0-9]+(?:[-_/][a-zA-Z0-9]+)+\b/g, (slug) => slug.replace(/[-_/]/g, ' '))
-    .replace(/&/g, ' and ')
-    .replace(/[—–]/g, ', ')
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}]/gu, '')
-    .replace(/[!?]{2,}/g, (m) => m.charAt(0))
-    .replace(/\n{2,}/g, '. ')
-    .replace(/\n/g, '. ')
-    .replace(/\.\s*\.\s*/g, '. ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
-
-// Colour-coded status chip rules applied to assistant replies before markdown
-// rendering — turns plain-text status words into small pill badges so dense
-// task-list replies are scannable at a glance instead of a wall of text.
-const STATUS_CHIP_RULES: Array<[RegExp, string]> = [
-  [/\bhigh priority\b/gi, '<span class="kh-chip kh-chip--danger">🔴 High priority</span>'],
-  [/\bmedium priority\b/gi, '<span class="kh-chip kh-chip--warning">🟠 Medium priority</span>'],
-  [/\blow priority\b/gi, '<span class="kh-chip kh-chip--neutral">⚪ Low priority</span>'],
-  [/\bin progress\b/gi, '<span class="kh-chip kh-chip--info">🔵 In progress</span>'],
-  [/\bto-review\b/gi, '<span class="kh-chip kh-chip--info">👀 To review</span>'],
-  [/\bbacklog\b/gi, '<span class="kh-chip kh-chip--neutral">📥 Backlog</span>'],
-  [/\boverdue\b/gi, '<span class="kh-chip kh-chip--danger">⚠️ Overdue</span>'],
-];
-
-// Turns "Overdue tasks: N" (bolded or plain) into a prominent alert banner
-// instead of a plain heading — the single most important line in a task
-// summary reply deserves to stand out.
-function enrichOverdueBanner(text: string): string {
-  return text.replace(/\*{0,2}Overdue tasks:\s*(\d+)\*{0,2}/gi, (_match, n: string) => {
-    const count = parseInt(n, 10);
-    if (count === 0) return '<div class="kh-alert kh-alert--success">✅ No overdue tasks</div>';
-    return `<div class="kh-alert kh-alert--danger">⚠️ <strong>${count}</strong> overdue task${count === 1 ? '' : 's'} need attention</div>`;
-  });
-}
-
-// Applies the chip/banner enrichment to assistant text only, skipping the
-// inside of fenced code blocks so real code snippets are left untouched.
-function enrichAssistantText(text: string): string {
-  return text
-    .split(/(```[\s\S]*?```)/g)
-    .map((part, i) => {
-      if (i % 2 === 1) return part; // fenced code block — leave as-is
-      let out = enrichOverdueBanner(part);
-      out = enrichSourceLinks(out);
-      for (const [re, replacement] of STATUS_CHIP_RULES) {
-        out = out.replace(re, replacement);
-      }
-      return out;
-    })
-    .join('');
-}
-
-// Turns a standalone "Link: <url>" line (e.g. after a create_note_draft
-// reply) into a clickable button instead of a raw, awkward-to-read URL —
-// only used for links that fall outside a task card block (see
-// buildTaskCardHtml for the in-card version).
-function enrichSourceLinks(text: string): string {
-  return text.replace(/^Link:\s*(\S+)\s*$/gim, (_m, url: string) =>
-    `<a class="kh-source-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">🔗 Open in Knowledge Hub</a>`);
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-// Short, scannable date for card display, e.g. "24 Jul 2026" — distinct from
-// formatDateForSpeech() above, which spells the month out for TTS.
-function formatDueDateShort(due: string): string {
-  const m = due.match(/^\d{4}-\d{2}-\d{2}$/);
-  if (!m) return escapeHtml(due);
-  const d = new Date(`${due}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return escapeHtml(due);
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(d);
-}
-
-function statusChipHtml(status: string): string {
-  const s = status.toLowerCase();
-  if (s.includes('progress')) return '<span class="kh-chip kh-chip--info">🔵 In progress</span>';
-  if (s.includes('review')) return '<span class="kh-chip kh-chip--info">👀 To review</span>';
-  if (s.includes('backlog')) return '<span class="kh-chip kh-chip--neutral">📥 Backlog</span>';
-  if (s.includes('blocked')) return '<span class="kh-chip kh-chip--danger">⛔ Blocked</span>';
-  if (s.includes('done') || s.includes('complete')) return '<span class="kh-chip kh-chip--success">✅ Done</span>';
-  return `<span class="kh-chip kh-chip--neutral">${escapeHtml(status)}</span>`;
-}
-
-function priorityChipHtml(priority: string): string {
-  const p = priority.toLowerCase();
-  if (p === 'urgent') return '<span class="kh-chip kh-chip--danger">🔺 Urgent</span>';
-  if (p === 'high') return '<span class="kh-chip kh-chip--danger">🔴 High priority</span>';
-  if (p === 'medium' || p === 'normal') return '<span class="kh-chip kh-chip--warning">🟠 Medium priority</span>';
-  if (p === 'low') return '<span class="kh-chip kh-chip--neutral">⚪ Low priority</span>';
-  return `<span class="kh-chip kh-chip--neutral">${escapeHtml(priority)}</span>`;
-}
-
-// A single task summary block — "**Title**" followed by Status:/Priority:/
-// Project:/Due: lines — rendered as a proper card rather than a wall of bold
-// text and colons, so dense task-list replies are actually scannable.
-function buildTaskCardHtml(title: string, fields: Record<string, string>, overdue: boolean): string {
-  const priorityClass = fields.priority ? ` kh-task-card--${fields.priority.toLowerCase()}` : '';
-  const overdueClass = overdue ? ' kh-task-card--overdue' : '';
-  const metaRow = [
-    fields.status ? statusChipHtml(fields.status) : '',
-    fields.priority ? priorityChipHtml(fields.priority) : '',
-  ].filter(Boolean).join('');
-  const detailRow = [
-    fields.project
-      ? `<span class="kh-task-card__detail"><span class="kh-task-card__detail-icon">📁</span>${escapeHtml(fields.project)}</span>`
-      : '',
-    fields.due
-      ? `<span class="kh-task-card__detail"><span class="kh-task-card__detail-icon">📅</span>${formatDueDateShort(fields.due)}</span>`
-      : '',
-  ].filter(Boolean).join('');
-  return [
-    `<div class="kh-task-card${priorityClass}${overdueClass}">`,
-    overdue ? '<span class="kh-task-card__overdue-flag">⚠️ Overdue</span>' : '',
-    `<div class="kh-task-card__title">${escapeHtml(title)}</div>`,
-    metaRow ? `<div class="kh-task-card__meta">${metaRow}</div>` : '',
-    detailRow ? `<div class="kh-task-card__details">${detailRow}</div>` : '',
-    fields.link
-      ? `<a class="kh-task-card__link" href="${escapeHtml(fields.link)}" target="_blank" rel="noreferrer">Open in Knowledge Hub →</a>`
-      : '',
-    '</div>',
-  ].filter(Boolean).join('');
-}
-
-function buildStructuredCardHtml(title: string, rows: Array<{ label: string; value: string }>): string {
-  return [
-    '<div class="kh-structured-card">',
-    title !== '' ? `<div class="kh-structured-card__title">${escapeHtml(title)}</div>` : '',
-    '<div class="kh-structured-card__rows">',
-    ...rows.map((row) => (
-      row.value === ''
-        ? `<div class="kh-structured-card__section">${escapeHtml(row.label)}</div>`
-        : [
-            '<div class="kh-structured-card__row">',
-            `<dt>${escapeHtml(row.label)}</dt>`,
-            `<dd>${renderMarkdown(row.value)}</dd>`,
-            '</div>',
-          ].join('')
-    )),
-    '</div>',
-    '</div>',
-  ].filter(Boolean).join('');
-}
-
-const TASK_TITLE_RE = /^\*\*(.+?)\*\*\s*$/;
-const TASK_FIELD_RE = /^(Status|Priority|Project|Due|Link)\s*:\s*(.+)$/i;
-const TASK_OVERDUE_RE = /^(?:⚠️\s*)?overdue\s*$/i;
-const STRUCTURED_FIELD_RE = /^([A-Z][A-Za-z0-9 /&().'-]{1,48})\s*:\s*(.*)$/;
-
-// Scans assistant text line-by-line for task-summary blocks and swaps them
-// for real cards, running everything else through the normal markdown +
-// chip pipeline unchanged.
-function renderAssistantMessage(raw: string): string {
-  const lines = raw.split('\n');
-  const htmlParts: string[] = [];
-  let textBuf: string[] = [];
-
-  const flushText = () => {
-    if (textBuf.length > 0) {
-      htmlParts.push(renderMarkdown(enrichAssistantText(textBuf.join('\n'))));
-      textBuf = [];
-    }
-  };
-
-  let i = 0;
-  while (i < lines.length) {
-    let idx = i;
-    let overdue = false;
-    if (TASK_OVERDUE_RE.test((lines[idx] ?? '').trim())) {
-      overdue = true;
-      idx += 1;
-    }
-    const titleMatch = TASK_TITLE_RE.exec((lines[idx] ?? '').trim());
-    if (titleMatch) {
-      const fields: Record<string, string> = {};
-      let j = idx + 1;
-      while (j < lines.length) {
-        const l = (lines[j] ?? '').trim();
-        const fieldMatch = TASK_FIELD_RE.exec(l);
-        if (fieldMatch) {
-          fields[fieldMatch[1]!.toLowerCase()] = fieldMatch[2]!.trim();
-          j += 1;
-          continue;
-        }
-        if (TASK_OVERDUE_RE.test(l)) {
-          overdue = true;
-          j += 1;
-          continue;
-        }
-        break;
-      }
-      if (Object.keys(fields).length >= 2) {
-        flushText();
-        htmlParts.push(buildTaskCardHtml(titleMatch[1] ?? '', fields, overdue));
-        i = j;
-        continue;
-      }
-    }
-    const currentLine = (lines[i] ?? '').trim();
-    const nextLine = (lines[i + 1] ?? '').trim();
-    const currentIsField = STRUCTURED_FIELD_RE.test(currentLine);
-    const nextIsField = STRUCTURED_FIELD_RE.test(nextLine);
-    if (currentLine !== '' && (currentIsField || nextIsField)) {
-      const title = currentIsField ? '' : currentLine;
-      let j = currentIsField ? i : i + 1;
-      const rows: Array<{ label: string; value: string }> = [];
-      while (j < lines.length) {
-        const fieldLine = (lines[j] ?? '').trim();
-        if (fieldLine === '') {
-          j += 1;
-          if (rows.length > 0) break;
-          continue;
-        }
-        const fieldMatch = STRUCTURED_FIELD_RE.exec(fieldLine);
-        if (!fieldMatch) break;
-        rows.push({ label: fieldMatch[1]!.trim(), value: fieldMatch[2]!.trim() });
-        j += 1;
-      }
-      if (rows.length >= 2) {
-        flushText();
-        htmlParts.push(buildStructuredCardHtml(title, rows));
-        i = j;
-        continue;
-      }
-    }
-    textBuf.push(lines[i] ?? '');
-    i += 1;
-  }
-  flushText();
-
-  return htmlParts.join('\n');
-}
 
 // Relative time for messages sent today, absolute date prefix otherwise —
 // keeps the timeline scannable without seconds-level noise.
@@ -419,22 +105,6 @@ function formatMessageTime(iso: string): string {
   if (isToday) return time;
   const datePart = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return `${datePart}, ${time}`;
-}
-
-// Compact relative label for the sidebar list ("2h ago", "3d ago", or a date
-// once it's old enough that a relative label stops being useful).
-function formatSessionTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const diffMs = Date.now() - d.getTime();
-  const diffMins = Math.round(diffMs / 60_000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.round(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.round(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function stripMarkdownForTitle(md: string): string {
@@ -488,24 +158,6 @@ function parseAthenaThinkContentTypeChoice(text: string): AthenaThinkContentType
   return null;
 }
 
-// Delegated click handler for the "Copy" button injected into fenced code
-// blocks by renderMarkdown() — avoids attaching a listener per code block
-// inside dangerouslySetInnerHTML content.
-function handleCodeCopyClick(e: React.MouseEvent<HTMLElement>): void {
-  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-copy-code]');
-  if (!btn) return;
-  const code = btn.parentElement?.querySelector('pre code');
-  if (!code?.textContent) return;
-  void navigator.clipboard.writeText(code.textContent).then(() => {
-    const original = btn.textContent;
-    btn.textContent = 'Copied!';
-    btn.classList.add('kh-code-copy-btn--copied');
-    setTimeout(() => {
-      btn.textContent = original;
-      btn.classList.remove('kh-code-copy-btn--copied');
-    }, 1500);
-  });
-}
 
 // Persisted so a page reload or reopening the standalone Athena PWA window
 // restores the same conversation instead of starting blank — the backend
@@ -515,6 +167,15 @@ function handleCodeCopyClick(e: React.MouseEvent<HTMLElement>): void {
 // The floating in-app widget and the standalone /chat window are separate
 // contexts (quick lookup vs a dedicated deep-work session) and each gets its
 // own storage key so they no longer show the same conversation.
+// Starter prompts offered in an empty chat — grounded in the user's own data
+// so a blank window suggests what Athena is actually good at.
+const STARTER_PROMPTS: readonly string[] = [
+  "What's overdue or due this week?",
+  'What should I focus on today?',
+  'Summarise my notes from this week',
+  'Draft a blog post outline from my latest notes',
+];
+
 const SESSION_STORAGE_KEY_STANDALONE = 'kh-athena-session-id-standalone';
 const SESSION_STORAGE_KEY_WIDGET = 'kh-athena-session-id-widget';
 const SESSION_STORAGE_KEY_PAGE = 'kh-athena-session-id-page';
@@ -587,8 +248,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [noteSummary, setNoteSummary] = useState<string | null>(null);
   const [isNoteSummaryLoading, setIsNoteSummaryLoading] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
-  const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false);
-  const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
+  // Shown once the user has scrolled well up from the latest message.
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [input, setInput] = useState('');
   const [persona, setPersona] = useState<AthenaPersona>(initialPersona ?? 'general');
   const [activeProjectId, setActiveProjectId] = useState('');
@@ -596,7 +257,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // the parser/inference decide. Deliberately separate from `persona`, which is
   // thread-scoped and drives backend model routing.
   const [actionOverride, setActionOverride] = useState<ComposerAction | 'none' | null>(null);
-  const [isCommandHelpOpen, setIsCommandHelpOpen] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [pendingActions, setPendingActions] = useState<WriteActionProposal[]>([]);
@@ -894,7 +554,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         return;
       }
       if (sessionId === null) persistSessionId(result.data.sessionId);
-      appendMessage('assistant', result.data.reply);
+      appendMessage('assistant', result.data.reply, { persona: result.data.persona, sources: result.data.sources });
       playReply(result.data.reply);
       refreshSessionList();
       if (result.data.pendingActions.length > 0) {
@@ -957,10 +617,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     },
   });
 
-  function appendMessage(role: 'user' | 'assistant', content: string): void {
+  function appendMessage(
+    role: 'user' | 'assistant',
+    content: string,
+    meta: { persona?: AthenaPersona | undefined; sources?: string[] | undefined } = {},
+  ): void {
     setMessages((prev) => [
       ...prev,
-      { role, content, timestamp: new Date().toISOString() },
+      {
+        role,
+        content,
+        timestamp: new Date().toISOString(),
+        ...(meta.persona !== undefined && { persona: meta.persona }),
+        ...(meta.sources !== undefined && meta.sources.length > 0 && { sources: meta.sources }),
+      },
     ]);
     if (role === 'user') {
       // Scroll immediately so the user's own message (and the "thinking"
@@ -990,6 +660,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   /** Shift+Enter submits from the textarea — Enter and Ctrl+Enter just insert a newline (native textarea behaviour). */
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (e.key === 'ArrowUp' && input === '') {
+      const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+      if (lastUser !== undefined) {
+        e.preventDefault();
+        setInput(lastUser.content);
+      }
+      return;
+    }
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       void submitMessage();
@@ -1178,7 +856,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setPersona(initialPersona ?? 'general');
     setActiveProjectId('');
     setActionOverride(null);
-    setIsCommandHelpOpen(false);
     setProjectError(null);
     setPendingFile(null);
     setActiveImageContext(null);
@@ -1401,6 +1078,37 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   const projectNameById = new Map(uploadProjectOptions.map((project) => [project.id, project.name]));
+
+  /** Delegated clicks inside rendered replies: code "Copy" and task-card actions. */
+  function handleThreadClick(e: React.MouseEvent<HTMLElement>): void {
+    handleCodeCopyClick(e);
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-task-action]');
+    if (!btn || btn.disabled) return;
+    const taskId = btn.dataset['taskId'];
+    const action = btn.dataset['taskAction'];
+    if (taskId === undefined || (action !== 'done' && action !== 'snooze')) return;
+    const actionsRow = btn.closest<HTMLElement>('.kh-task-card__actions');
+    actionsRow?.querySelectorAll<HTMLButtonElement>('button').forEach((b) => { b.disabled = true; });
+    const snoozeDate = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+    const input = action === 'done' ? { status: 'completed' } : { dueDate: snoozeDate };
+    void api.updateTask(taskId, input).then((r) => {
+      if (!r.success) throw new Error('update failed');
+      void queryClient.invalidateQueries({ queryKey: ['today-tasks'] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      if (actionsRow) {
+        actionsRow.querySelectorAll('button').forEach((b) => { b.remove(); });
+        const note = document.createElement('span');
+        note.className = 'kh-task-card__status-note';
+        note.textContent = action === 'done'
+          ? '✓ Marked done'
+          : `✓ Snoozed to ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(snoozeDate))}`;
+        actionsRow.appendChild(note);
+      }
+    }).catch(() => {
+      actionsRow?.querySelectorAll<HTMLButtonElement>('button').forEach((b) => { b.disabled = false; });
+      btn.textContent = 'Failed — retry';
+    });
+  }
   const composerIntent = buildComposerIntent({
     input,
     projects: uploadProjectOptions,
@@ -1414,54 +1122,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     composerIntent.effectiveAction !== undefined
     && actionOverride === null
     && composerIntent.explicitAction === undefined;
-  const filteredSidebarSessions = sidebarSearchQuery.trim() === ''
-    ? chatSessions
-    : chatSessions.filter((s) => {
-        const query = sidebarSearchQuery.trim().toLowerCase();
-        const projectName = s.projectId !== null ? projectNameById.get(s.projectId) ?? '' : '';
-        return s.title.toLowerCase().includes(query) || projectName.toLowerCase().includes(query);
-      });
 
-  const personaSwitch = (
-    <div className="kh-persona-switch" role="group" aria-label="Athena persona">
-      <button
-        type="button"
-        className={`kh-persona-switch__btn${persona === 'general' ? ' kh-persona-switch__btn--active' : ''}`}
-        onClick={() => handlePersonaChange('general')}
-        title="General assistant"
-      >
-        <Notebook className="kh-persona-switch__icon" />
-        <span className="kh-persona-switch__label">General</span>
-      </button>
-      <button
-        type="button"
-        className={`kh-persona-switch__btn${persona === 'brainstorming' ? ' kh-persona-switch__btn--active' : ''}`}
-        onClick={() => handlePersonaChange('brainstorming')}
-        title="Ideas sounding board — stress-tests and sharpens early-stage thinking"
-      >
-        <Idea className="kh-persona-switch__icon" />
-        <span className="kh-persona-switch__label">Brainstorm</span>
-      </button>
-      <button
-        type="button"
-        className={`kh-persona-switch__btn${persona === 'copilot_coach' ? ' kh-persona-switch__btn--active' : ''}`}
-        onClick={() => handlePersonaChange('copilot_coach')}
-        title="Copilot Coach — expert guide on using GitHub Copilot agents, skills, and workflows"
-      >
-        <Compass className="kh-persona-switch__icon" />
-        <span className="kh-persona-switch__label">Copilot Coach</span>
-      </button>
-      <button
-        type="button"
-        className={`kh-persona-switch__btn${persona === 'blog_post' ? ' kh-persona-switch__btn--active' : ''}`}
-        onClick={() => handlePersonaChange('blog_post')}
-        title="Blog Post — produces a full CMS-ready package for The Microsoft Cloud Blog"
-      >
-        <Blog className="kh-persona-switch__icon" />
-        <span className="kh-persona-switch__label">Blog Post</span>
-      </button>
-    </div>
-  );
 
   /**
    * Project chip edits are authoritative: any stale `@project` mention still in
@@ -1474,36 +1135,29 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     void handleProjectChange(nextProjectId);
   }
 
-  // Persona chip + "more" menu used by the narrow (Think side panel) layout,
-  // which drops the top icon row in favour of the composer chip bar.
-  const PERSONA_CHIP: Record<AthenaPersona, { label: string; Icon: typeof Notebook }> = {
-    general: { label: 'General', Icon: Notebook },
-    brainstorming: { label: 'Brainstorm', Icon: Idea },
-    copilot_coach: { label: 'Copilot Coach', Icon: Compass },
-    blog_post: { label: 'Blog Post', Icon: Blog },
-  };
-  const PersonaChipIcon = PERSONA_CHIP[persona].Icon;
+  // Persona chip (every surface) + "more" menu (Think side panel, which has
+  // no top icon row).
+  const activePersona = getPersona(persona);
+  const PersonaChipIcon = activePersona.Icon;
   const canExportChat = messages.length > 0 && sessionId !== null && !isExporting && !chatMutation.isPending;
   const canStartNewChat = messages.length > 0 && !chatMutation.isPending;
 
   const composerChipBar = (
     <div className="kh-composer-chips">
-      {isNoteLinkedPanel && (
-        <div className="kh-composer-chip kh-composer-chip--persona">
-          <PersonaChipIcon size={14} className="kh-composer-chip__icon" />
-          <span className="kh-composer-chip__value">{PERSONA_CHIP[persona].label}</span>
-          <select
-            className="kh-composer-chip__select"
-            aria-label="Athena persona"
-            value={persona}
-            onChange={(event) => { handlePersonaChange(event.target.value as AthenaPersona); }}
-          >
-            {(Object.keys(PERSONA_CHIP) as AthenaPersona[]).map((key) => (
-              <option key={key} value={key}>{PERSONA_CHIP[key].label}</option>
-            ))}
-          </select>
-        </div>
-      )}
+      <div className="kh-composer-chip kh-composer-chip--persona" title={`Persona: ${activePersona.description}`}>
+        <PersonaChipIcon size={14} className="kh-composer-chip__icon" />
+        <span className="kh-composer-chip__value">{activePersona.label}</span>
+        <select
+          className="kh-composer-chip__select"
+          aria-label="Athena persona"
+          value={persona}
+          onChange={(event) => { handlePersonaChange(event.target.value as AthenaPersona); }}
+        >
+          {PERSONAS.map((p) => (
+            <option key={p.id} value={p.id}>{p.label}</option>
+          ))}
+        </select>
+      </div>
       {pageContext !== undefined && !isContextDismissed && (
         <div className="kh-composer-chip kh-composer-chip--context">
           <View size={14} className="kh-composer-chip__icon" />
@@ -1522,7 +1176,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       )}
 
       <div className={`kh-composer-chip kh-composer-chip--action${composerIntent.effectiveAction === undefined ? ' kh-composer-chip--empty' : ''}${isActionInferred ? ' kh-composer-chip--inferred' : ''}`}
-        title="Action for this message. Shortcut: start your message with /draft, /critique, /code, /task or /note"
+        title={`Action for this message. Shortcut: start your message with ${COMPOSER_ACTIONS.map((a) => `/${a}`).join(', ')}`}
       >
         <Idea size={14} className="kh-composer-chip__icon" />
         <span className="kh-composer-chip__value">
@@ -1558,7 +1212,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       </div>
 
       {!isNoteLinkedPanel && (
-      <div className={`kh-composer-chip kh-composer-chip--project${chipProjectId === '' ? ' kh-composer-chip--empty' : ''}${isProjectInferred ? ' kh-composer-chip--inferred' : ''}`}>
+      <div title="Project to ground this chat in. Shortcut: type @project anywhere in your message" className={`kh-composer-chip kh-composer-chip--project${chipProjectId === '' ? ' kh-composer-chip--empty' : ''}${isProjectInferred ? ' kh-composer-chip--inferred' : ''}`}>
         <Notebook size={14} className="kh-composer-chip__icon" />
         <span className="kh-composer-chip__value">
           {chipProjectId !== '' ? chipProjectName : 'No project'}
@@ -1588,18 +1242,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       </div>
       )}
 
-      {/* Think's panel relies on the action chip's tooltip for the / shortcuts. */}
-      {!isNoteLinkedPanel && (
-      <button
-        type="button"
-        className={`kh-composer-chip kh-composer-chip--help${isCommandHelpOpen ? ' kh-composer-chip--help-open' : ''}`}
-        aria-expanded={isCommandHelpOpen}
-        onClick={() => { setIsCommandHelpOpen((open) => !open); }}
-      >
-        <span className="kh-composer-chip__value">/ commands</span>
-      </button>
-      )}
-
       {isNoteLinkedPanel && (
         <div className="kh-composer-chip kh-composer-chip--more" title="More">
           <OverflowMenuHorizontal size={14} className="kh-composer-chip__icon" />
@@ -1622,17 +1264,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         </div>
       )}
 
-      {isCommandHelpOpen && (
-        <div className="kh-composer-help" role="note">
-          <p className="kh-composer-help__line">
-            Start a message with <code>/draft</code>, <code>/critique</code>, <code>/code</code>, <code>/task</code> or <code>/note</code> to set the action.
-          </p>
-          <p className="kh-composer-help__line">
-            Use <code>@project</code> anywhere to ground the conversation in a project.
-          </p>
-        </div>
-      )}
-
       {projectError !== null && <span className="kh-composer-chips__error" role="alert">{projectError}</span>}
     </div>
   );
@@ -1651,7 +1282,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           disabled={isExporting || chatMutation.isPending}
         />
       )}
-      {messages.length > 0 && (
+      {messages.length > 0 && !standalone && (
         <Button
           size="sm"
           kind="ghost"
@@ -1679,108 +1310,27 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   return (
     <div className={standalone ? 'ai-chat-standalone' : compact ? `ai-chat-compact ai-chat-compact--${compactVariant}` : 'page-root'}>
       {standalone && (
-        <aside className={`kh-chat-sidebar${isMobile && isMobileSidebarOpen ? ' kh-chat-sidebar--open' : ''}${!isMobile && isDesktopSidebarCollapsed ? ' kh-chat-sidebar--collapsed' : ''}`}>
-          <div className="kh-chat-sidebar__header">
-            <div className="kh-chat-sidebar__brand">
-              <img src="/favicon.svg" alt="" className="kh-chat-sidebar__logo" />
-              <span>Athena</span>
-            </div>
-            <div className="kh-chat-sidebar__header-actions">
-              {!isMobile && (
-                <Button
-                  size="sm"
-                  kind="ghost"
-                  hasIconOnly
-                  renderIcon={isDesktopSidebarCollapsed ? ChevronRight : ChevronLeft}
-                  iconDescription={isDesktopSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                  tooltipPosition="right"
-                  className="kh-chat-sidebar__collapse-btn"
-                  onClick={() => setIsDesktopSidebarCollapsed((v) => !v)}
-                />
-              )}
-              <Button
-                size="sm"
-                kind="ghost"
-                hasIconOnly
-                renderIcon={Search}
-                iconDescription="Search chats"
-                tooltipPosition="right"
-                className="kh-chat-sidebar__header-action"
-                onClick={() => setIsSidebarSearchOpen((open) => !open)}
-              />
-            </div>
-          </div>
-          <nav className="kh-chat-sidebar__nav">
-            <button
-              type="button"
-              className="kh-chat-sidebar__nav-item"
-              onClick={handleNewChat}
-              disabled={chatMutation.isPending}
-            >
-              <Add className="kh-chat-sidebar__nav-icon" />
-              New chat
-            </button>
-          </nav>
-          {personaSwitch}
-          {isSidebarSearchOpen && (
-            <div className="kh-chat-sidebar__search">
-              <Search className="kh-chat-sidebar__search-icon" />
-              <input
-                type="text"
-                className="kh-chat-sidebar__search-input"
-                placeholder="Search chats"
-                value={sidebarSearchQuery}
-                onChange={(e) => setSidebarSearchQuery(e.target.value)}
-                autoFocus
-              />
-            </div>
-          )}
-          <div className="kh-chat-sidebar__section-label">Recents</div>
-          <div className="kh-chat-sidebar__list">
-            {chatSessions.length === 0 && (
-              <p className="kh-chat-sidebar__empty">Your past chats with Athena will show up here.</p>
-            )}
-            {chatSessions.length > 0 && filteredSidebarSessions.length === 0 && (
-              <p className="kh-chat-sidebar__empty">No chats match "{sidebarSearchQuery}".</p>
-            )}
-            {filteredSidebarSessions.map((s) => (
-              <div
-                key={s.id}
-                className={
-                  s.id === sessionId
-                    ? 'kh-chat-sidebar__item kh-chat-sidebar__item--active'
-                    : 'kh-chat-sidebar__item'
-                }
-                onClick={() => handleSelectSession(s.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSelectSession(s.id); }}
-              >
-                <div className="kh-chat-sidebar__item-main">
-                  <div className="kh-chat-sidebar__item-title">{s.title}</div>
-                  <div className="kh-chat-sidebar__item-meta">
-                    {s.projectId !== null && (
-                      <span className="kh-chat-sidebar__project">
-                        {projectNameById.get(s.projectId) ?? s.projectId}
-                      </span>
-                    )}
-                    <span className="kh-chat-sidebar__item-time">{formatSessionTime(s.updatedAt)}</span>
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  kind="ghost"
-                  hasIconOnly
-                  renderIcon={TrashCan}
-                  iconDescription="Delete chat"
-                  tooltipPosition="right"
-                  className="kh-chat-sidebar__delete"
-                  onClick={(e) => handleDeleteSession(s.id, e)}
-                />
-              </div>
-            ))}
-          </div>
-        </aside>
+        <ChatSidebar
+          sessions={chatSessions}
+          activeSessionId={sessionId}
+          projectNameById={projectNameById}
+          onSelect={handleSelectSession}
+          onNewChat={handleNewChat}
+          newChatDisabled={chatMutation.isPending}
+          onDelete={handleDeleteSession}
+          onSessionPatched={(id, patch) => {
+            setChatSessions((prev) => {
+              const next = prev.map((c) => (c.id === id ? { ...c, ...patch } : c));
+              // Pinned chats sort first, then most recent — mirrors the backend order.
+              return next.sort((x, y) => Number(y.pinned === true) - Number(x.pinned === true)
+                || new Date(y.updatedAt).getTime() - new Date(x.updatedAt).getTime());
+            });
+          }}
+          collapsed={isDesktopSidebarCollapsed}
+          onToggleCollapsed={() => { setIsDesktopSidebarCollapsed((v) => !v); }}
+          isMobile={isMobile}
+          mobileOpen={isMobileSidebarOpen}
+        />
       )}
       {standalone && isMobile && isMobileSidebarOpen && (
         <div
@@ -1815,8 +1365,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         </div>
       )}
       {!standalone && !isNoteLinkedPanel && (
-        <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact ai-new-chat-row--with-persona' : 'ai-new-chat-row ai-new-chat-row--with-persona'}>
-          {personaSwitch}
+        <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact' : 'ai-new-chat-row'}>
           <div className="ai-new-chat-row__actions">
             {actionButtons}
           </div>
@@ -1851,7 +1400,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </Tile>
         ))}
 
-        <div className={compact ? 'ai-messages ai-messages--compact' : 'ai-messages cds--tile'} onClick={handleCodeCopyClick}>
+        <div
+          className={compact ? 'ai-messages ai-messages--compact' : 'ai-messages cds--tile'}
+          onClick={handleThreadClick}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            setShowJumpToLatest(el.scrollHeight - el.scrollTop - el.clientHeight > 400);
+          }}
+        >
           {messages.length === 0 && isRestoringHistory && (
             <div className="ai-empty">
               <InlineLoading description="Restoring conversation…" />
@@ -1882,6 +1438,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               ) : (
                 <p className="ai-empty__subtitle">Notes, tasks, commits, articles, sparks — ask anything.</p>
               )}
+              <div className="ai-starters">
+                {STARTER_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    className="ai-starter"
+                    onClick={() => { setInput(prompt); textareaRef.current?.focus(); }}
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {messages.map((msg, i) => (
@@ -1896,9 +1464,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 <div
                   className="ai-bubble-text ai-bubble-text--md"
                   // eslint-disable-next-line react/no-danger
-                  dangerouslySetInnerHTML={{ __html: renderAssistantMessage(msg.content) }}
+                  dangerouslySetInnerHTML={{ __html: renderAssistantMessage(msg.content, { projectNameById }) }}
                 />
               )}
+              {msg.role === 'assistant' && <ReplyMeta persona={msg.persona} sources={msg.sources} />}
               <div className="ai-bubble-footer">
                 <div className="ai-bubble-time" title={formatMessageTime(msg.timestamp)}>
                   {formatMessageTime(msg.timestamp)}
@@ -1941,6 +1510,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           <div ref={bottomRef} />
         </div>
 
+        {showJumpToLatest && (
+          <button
+            type="button"
+            className="ai-jump-latest"
+            onClick={() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
+          >
+            ↓ Latest
+          </button>
+        )}
+
+        <div className="ai-composer">
         {uploadProgress && (
           <div className="ai-upload-progress" role="status">
             <div className="ai-upload-progress-label">
@@ -2018,7 +1598,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               id="ai-chat-input"
               className="ai-input-textarea"
               rows={1}
-              placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : pendingFile !== null ? 'Ask a question about the attached file…' : 'Ask your knowledge hub…'}
+              placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : pendingFile !== null ? 'Ask a question about the attached file…' : 'Ask Athena…'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleInputKeyDown}
@@ -2062,6 +1642,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             />
           )}
         </form>
+        {standalone && !isMobile && (
+          <p className="ai-composer__hint">Shift+Enter to send · Enter for a new line · ↑ to edit your last message</p>
+        )}
+        </div>
       </div>
       </div>
     </div>

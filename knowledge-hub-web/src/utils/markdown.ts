@@ -8,6 +8,8 @@
  * both surfaces render markdown identically.
  */
 
+import { sanitizeHtml } from './sanitizeHtml';
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -85,5 +87,5 @@ export function renderMarkdown(md: string): string {
 
   closeList();
   if (inCode) html.push('</code></pre></div>');
-  return html.join('\n');
+  return sanitizeHtml(html.join('\n'));
 }

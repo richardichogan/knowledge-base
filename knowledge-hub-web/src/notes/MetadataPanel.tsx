@@ -18,9 +18,19 @@ import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import { ThinkAthenaPanel } from './ThinkAthenaPanel';
 import { PaneResizer } from '../components/PaneResizer';
 import { usePersistedBoolean, usePersistedChoice, usePersistedPaneWidth } from '../hooks/usePersistedState';
+import type { PaneWidthOptions } from '../hooks/usePersistedState';
 
 const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections'] as const;
 type SidePanelTab = typeof SIDE_PANEL_TABS[number];
+
+// Module constant (not an inline literal) so the width hook gets a stable object.
+const SIDE_PANEL_WIDTH: PaneWidthOptions = {
+  compact: 380,
+  wide: 480,
+  min: 280,
+  // Leave the document at least half the window however hard it is dragged.
+  max: (viewport) => Math.round(viewport * 0.5),
+};
 
 interface AppliedTag {
   id: string;
@@ -78,13 +88,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   // Narrower Think layouts use the floating Athena launcher instead of a tab.
   const tab: SidePanelTab = !showAthena && storedTab === 'athena' ? 'metadata' : storedTab;
   const [collapsed, setCollapsed] = usePersistedBoolean('kh_think_side_collapsed', false);
-  const [width, setWidth] = usePersistedPaneWidth('think-side-panel', {
-    compact: 380,
-    wide: 480,
-    min: 280,
-    // Leave the document at least half the window however hard it is dragged.
-    max: (viewport) => Math.round(viewport * 0.5),
-  });
+  const [width, setWidth] = usePersistedPaneWidth('think-side-panel', SIDE_PANEL_WIDTH);
 
   // ⌘J / Ctrl+J toggles the side panel.
   useEffect(() => {

@@ -55,7 +55,7 @@ export const env = {
   // Frontend base URL — used to build deep links back into the app (e.g. a
   // task link in an AI chat reply) so responses can point at the actual
   // Knowledge Hub record instead of just naming it in plain text.
-  FRONTEND_BASE_URL: optionalWithDefault('FRONTEND_BASE_URL', 'https://nice-mud-0f780fb03.7.azurestaticapps.net'),
+  FRONTEND_BASE_URL: optionalWithDefault('FRONTEND_BASE_URL', 'https://athena.themicrosoftcloudblog.com'),
 
   // Azure AI Foundry
   AZURE_OPENAI_ENDPOINT: integrationCredential('AZURE_OPENAI_ENDPOINT'),

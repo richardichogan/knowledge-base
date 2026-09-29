@@ -7,7 +7,7 @@
  * allowed to take a page down.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function readStored(key: string): string | null {
   try {
@@ -134,14 +134,19 @@ export function usePersistedPaneWidth(
   const profile = useLayoutProfile();
   const key = `kh_pane_${paneId}_${profile}`;
 
-  const clamp = useCallback(
-    (value: number) => {
-      const viewport = typeof window === 'undefined' ? options.min : window.innerWidth;
-      const max = typeof options.max === 'function' ? options.max(viewport) : options.max;
-      return Math.min(Math.max(value, options.min), Math.max(max, options.min));
-    },
-    [options],
-  );
+  // Callers usually pass `options` as an inline object literal — a new object
+  // every render. Keep the latest in a ref so `clamp` (and the re-read effect
+  // below) stay stable; depending on the object itself re-ran the effect and
+  // set state on every render.
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
+  const clamp = useCallback((value: number) => {
+    const { min, max: maxOpt } = optionsRef.current;
+    const viewport = typeof window === 'undefined' ? min : window.innerWidth;
+    const max = typeof maxOpt === 'function' ? maxOpt(viewport) : maxOpt;
+    return Math.min(Math.max(value, min), Math.max(max, min));
+  }, []);
 
   const fallback = profile === 'wide' ? options.wide : options.compact;
   const [width, setWidth] = useState<number>(() => {

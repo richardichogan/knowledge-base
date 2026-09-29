@@ -459,6 +459,28 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /** Renames a chat (locks the title against automatic re-titling). */
+  async renameChatSession(sessionId: string, title: string): Promise<ApiResponse<{ sessionId: string; title: string }>> {
+    const r = await this.client.patch<ApiResponse<{ sessionId: string; title: string }>>(
+      `/api/ai/session/${sessionId}/title`, { title },
+    );
+    return r.data;
+  }
+
+  /** Pins or unpins a chat in the sidebar. */
+  async setChatSessionPinned(sessionId: string, pinned: boolean): Promise<ApiResponse<{ sessionId: string; pinned: boolean }>> {
+    const r = await this.client.patch<ApiResponse<{ sessionId: string; pinned: boolean }>>(
+      `/api/ai/session/${sessionId}/pinned`, { pinned },
+    );
+    return r.data;
+  }
+
+  /** Full-text search across chat titles and message text; returns matching session ids. */
+  async searchChatSessions(query: string): Promise<ApiResponse<{ ids: string[] }>> {
+    const r = await this.client.get<ApiResponse<{ ids: string[] }>>('/api/ai/sessions/search', { params: { q: query } });
+    return r.data;
+  }
+
   /** Looks up the chat session already linked to a Think note, if any — used by the embedded Athena panel to restore the right conversation when the user switches notes. */
   async getSessionIdForNote(noteId: string): Promise<ApiResponse<{ sessionId: string | null }>> {
     const r = await this.client.get<ApiResponse<{ sessionId: string | null }>>(

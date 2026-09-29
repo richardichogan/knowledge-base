@@ -24,6 +24,10 @@ export interface StoredChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  /** Persona that produced an assistant reply (null for user turns / older rows). */
+  persona?: string;
+  /** Tool names the reply drew on, e.g. ['list_tasks'] (assistant turns only). */
+  sources?: string[];
 }
 
 interface StoredChatMessageRow extends StoredChatMessage {
@@ -38,6 +42,7 @@ export interface SessionListItem {
   preview: string;
   persona: string;
   projectId: string | null;
+  pinned: boolean;
 }
 
 /** Ensures a session row exists, then returns its current message history. */
@@ -87,11 +92,24 @@ export async function setSessionProjectId(db: Pool, sessionId: string, projectId
 
 /** Reads a session's full message history in chronological order — used for display, not for the model call. */
 export async function getSessionHistory(db: Pool, sessionId: string): Promise<StoredChatMessage[]> {
-  const { rows } = await db.query<{ role: 'user' | 'assistant'; content: string; created_at: string }>(
-    `SELECT role, content, created_at FROM ai_chat_messages WHERE session_id = $1 ORDER BY created_at ASC, id ASC`,
+  const { rows } = await db.query<{
+    role: 'user' | 'assistant';
+    content: string;
+    created_at: string;
+    persona: string | null;
+    sources: string[] | null;
+  }>(
+    `SELECT role, content, created_at, persona, sources FROM ai_chat_messages
+      WHERE session_id = $1 ORDER BY created_at ASC, id ASC`,
     [sessionId],
   );
-  return rows.map((r) => ({ role: r.role, content: r.content, timestamp: r.created_at }));
+  return rows.map((r) => ({
+    role: r.role,
+    content: r.content,
+    timestamp: r.created_at,
+    ...(r.persona !== null && { persona: r.persona }),
+    ...(r.sources !== null && r.sources.length > 0 && { sources: r.sources }),
+  }));
 }
 
 /** Appends a user/assistant message pair and bumps the session's updated_at. */
@@ -100,10 +118,12 @@ export async function appendTurn(
   sessionId: string,
   userMessage: string,
   assistantReply: string,
+  replyMeta: { persona?: string; sources?: string[] } = {},
 ): Promise<void> {
   await db.query(
-    `INSERT INTO ai_chat_messages (session_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)`,
-    [sessionId, userMessage, assistantReply],
+    `INSERT INTO ai_chat_messages (session_id, role, content, persona, sources)
+       VALUES ($1, 'user', $2, NULL, NULL), ($1, 'assistant', $3, $4, $5)`,
+    [sessionId, userMessage, assistantReply, replyMeta.persona ?? null, replyMeta.sources ?? null],
   );
   await db.query(`UPDATE ai_chat_sessions SET updated_at = NOW() WHERE id = $1`, [sessionId]);
 }
@@ -129,7 +149,66 @@ export async function setSessionTitleIfMissing(db: Pool, sessionId: string, firs
   );
 }
 
-/** Lists sessions for the chat history sidebar, most recently active first. */
+/**
+ * Replaces an automatic title with an AI-generated one — unless the user has
+ * renamed the chat themselves (title_locked), which always wins.
+ */
+export async function setGeneratedSessionTitle(db: Pool, sessionId: string, title: string): Promise<void> {
+  const clean = title.trim().replace(/^["'“”]+|["'“”.]+$/g, '').slice(0, AI_SESSION_TITLE_MAX_LENGTH);
+  if (clean === '') return;
+  await db.query(
+    `UPDATE ai_chat_sessions SET title = $2 WHERE id = $1 AND title_locked = FALSE`,
+    [sessionId, clean],
+  );
+}
+
+/** User rename — locks the title so automatic titling never overwrites it. */
+export async function renameSession(db: Pool, sessionId: string, title: string): Promise<void> {
+  await db.query(
+    `UPDATE ai_chat_sessions SET title = $2, title_locked = TRUE WHERE id = $1`,
+    [sessionId, title.trim().slice(0, AI_SESSION_TITLE_MAX_LENGTH)],
+  );
+}
+
+/** Pins or unpins a chat in the sidebar. */
+export async function setSessionPinned(db: Pool, sessionId: string, pinned: boolean): Promise<void> {
+  await db.query(`UPDATE ai_chat_sessions SET pinned = $2 WHERE id = $1`, [sessionId, pinned]);
+}
+
+/** Number of user turns in a session — used to decide when to (re)generate a title. */
+export async function countUserTurns(db: Pool, sessionId: string): Promise<number> {
+  const { rows } = await db.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM ai_chat_messages WHERE session_id = $1 AND role = 'user'`,
+    [sessionId],
+  );
+  return Number(rows[0]?.n ?? '0');
+}
+
+/**
+ * Sidebar search: ids of sessions whose title or any message matches the
+ * query (message text uses the existing idx_ai_chat_messages_fts index).
+ */
+export async function searchSessionIds(db: Pool, query: string, limit = 50): Promise<string[]> {
+  const q = query.trim();
+  if (q === '') return [];
+  const { rows } = await db.query<{ id: string }>(
+    `SELECT s.id
+       FROM ai_chat_sessions s
+      WHERE s.title ILIKE '%' || $1 || '%'
+         OR EXISTS (
+              SELECT 1 FROM ai_chat_messages m
+               WHERE m.session_id = s.id
+                 AND (to_tsvector('english', m.content) @@ plainto_tsquery('english', $1)
+                      OR m.content ILIKE '%' || $1 || '%')
+            )
+      ORDER BY s.updated_at DESC
+      LIMIT $2`,
+    [q, limit],
+  );
+  return rows.map((r) => r.id);
+}
+
+/** Lists sessions for the chat history sidebar: pinned first, then most recently active. */
 export async function listSessions(db: Pool, limit = 50): Promise<SessionListItem[]> {
   const { rows } = await db.query<{
     id: string;
@@ -139,12 +218,13 @@ export async function listSessions(db: Pool, limit = 50): Promise<SessionListIte
     preview: string | null;
     persona: string;
     project_id: string | null;
+    pinned: boolean;
   }>(
-    `SELECT s.id, s.title, s.started_at, s.updated_at, s.persona, s.project_id,
+    `SELECT s.id, s.title, s.started_at, s.updated_at, s.persona, s.project_id, s.pinned,
             (SELECT content FROM ai_chat_messages m WHERE m.session_id = s.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS preview
        FROM ai_chat_sessions s
       WHERE EXISTS (SELECT 1 FROM ai_chat_messages m WHERE m.session_id = s.id)
-      ORDER BY s.updated_at DESC
+      ORDER BY s.pinned DESC, s.updated_at DESC
       LIMIT $1`,
     [limit],
   );
@@ -156,6 +236,7 @@ export async function listSessions(db: Pool, limit = 50): Promise<SessionListIte
     preview: (r.preview ?? '').slice(0, 140),
     persona: r.persona,
     projectId: r.project_id,
+    pinned: r.pinned,
   }));
 }
 

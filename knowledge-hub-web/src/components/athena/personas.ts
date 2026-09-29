@@ -1,0 +1,28 @@
+/**
+ * components/athena/personas.ts — the single list of Athena personas.
+ * Every persona picker (chip, menus) and label reads from here, so adding a
+ * persona is one entry rather than edits in several components.
+ */
+import { Blog, Compass, Idea, Notebook } from '@carbon/icons-react';
+import type { AthenaPersona } from '../../types';
+
+export interface PersonaDefinition {
+  id: AthenaPersona;
+  label: string;
+  description: string;
+  Icon: typeof Notebook;
+}
+
+export const PERSONAS: readonly PersonaDefinition[] = [
+  { id: 'general', label: 'General', description: 'General assistant across your notes, tasks and library', Icon: Notebook },
+  { id: 'brainstorming', label: 'Brainstorm', description: 'Ideas sounding board — stress-tests and sharpens early-stage thinking', Icon: Idea },
+  { id: 'copilot_coach', label: 'Copilot Coach', description: 'Expert guide on GitHub Copilot agents, skills and workflows', Icon: Compass },
+  { id: 'blog_post', label: 'Blog Post', description: 'Produces a full CMS-ready package for The Microsoft Cloud Blog', Icon: Blog },
+];
+
+const BY_ID = new Map(PERSONAS.map((p) => [p.id, p]));
+
+/** Looks up a persona, falling back to General for unknown/legacy ids. */
+export function getPersona(id: string | undefined): PersonaDefinition {
+  return BY_ID.get(id as AthenaPersona) ?? PERSONAS[0]!;
+}

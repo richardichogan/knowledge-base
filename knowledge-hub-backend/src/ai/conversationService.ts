@@ -28,6 +28,8 @@ export async function handleConversationTurn(
   persona?: string,
   sessionId?: string,
   pageContext?: ChatPageContext,
+  /** Called with each tool name the model invokes — lets the caller report the reply's sources. */
+  onToolCall?: (toolName: string) => void,
 ): Promise<string> {
   const context = await buildAiContext(db, userMessage, history, sessionId);
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
@@ -88,6 +90,7 @@ export async function handleConversationTurn(
 
     for (const call of response.toolCalls) {
       let result: unknown;
+      onToolCall?.(call.function.name);
       try {
         result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined);
       } catch (err) {
@@ -127,6 +130,29 @@ export async function summarizeNoteContent(title: string, content: string): Prom
   ];
 
   return client.chat('gpt-4o-mini', messages, 400);
+}
+
+/**
+ * Short sidebar title (3–6 words) for a chat, from its opening exchange.
+ * Replaces the "first 60 characters of the first message" default, which
+ * produced a sidebar full of chats called "hello".
+ */
+export async function generateSessionTitle(userMessage: string, reply: string): Promise<string> {
+  const client = getFoundryClient();
+  return client.chat(
+    'gpt-4o-mini',
+    [
+      {
+        role: 'system',
+        content:
+          'Write a 3 to 6 word title for this chat, in sentence case, naming its actual topic. ' +
+          'No quotes, no trailing punctuation, no words like "chat" or "conversation". ' +
+          'If it is only a greeting with no topic, reply with exactly: Quick check-in',
+      },
+      { role: 'user', content: `User: ${userMessage.slice(0, 1_500)}\n\nAssistant: ${reply.slice(0, 1_500)}` },
+    ],
+    24,
+  );
 }
 
 /**

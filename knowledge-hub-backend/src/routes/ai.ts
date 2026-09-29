@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
-import { handleConversationTurn, summariseSession, rollUpConversationSummary, formatSessionForThink, summarizeNoteContent } from '../ai/conversationService.js';
-import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote } from '../ai/chatSessionStore.js';
+import { handleConversationTurn, summariseSession, rollUpConversationSummary, formatSessionForThink, summarizeNoteContent, generateSessionTitle } from '../ai/conversationService.js';
+import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessionIds } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
@@ -74,7 +74,12 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       // model route by default.
       const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' ? 'gpt-5.4' : 'gpt-4o');
 
-      const reply = await handleConversationTurn(db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext);
+      const toolsUsed = new Set<string>();
+      const reply = await handleConversationTurn(
+        db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext,
+        (toolName) => { toolsUsed.add(toolName); },
+      );
+      const sources = [...toolsUsed];
 
       // Store only a compact marker for the viewed document in history — not its
       // full body — so a later turn's RAG query (which folds in recent prior user
@@ -84,8 +89,19 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       const historyMessage = pageContext
         ? `[Viewing ${pageContext.type}: "${pageContext.title}"]\n${message}`
         : message;
-      await appendTurn(db, effectiveSessionId, historyMessage, reply);
+      await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources });
       if (isFirstMessage) await setSessionTitleIfMissing(db, effectiveSessionId, message);
+      // Fire-and-forget AI title from the opening exchange (re-run on the
+      // second turn, since first messages are often just "hello"). Never
+      // overwrites a title the user set themselves.
+      void (async () => {
+        const turns = await countUserTurns(db, effectiveSessionId);
+        if (turns > 2) return;
+        const title = await generateSessionTitle(message, reply);
+        await setGeneratedSessionTitle(db, effectiveSessionId, title);
+      })().catch(() => {
+        // Titles are cosmetic; the truncated first message stays if this fails.
+      });
       // Fire-and-forget: fold older messages into the rolling summary once the
       // session grows past the trigger threshold. Never blocks the reply.
       void rollUpSummaryIfNeeded(db, effectiveSessionId, (prev, batch) =>
@@ -97,9 +113,9 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
 
       const pending = getPendingProposals(effectiveSessionId);
 
-      const body: ApiSuccess<{ reply: string; sessionId: string; persona: string; pendingActions: typeof pending }> = {
+      const body: ApiSuccess<{ reply: string; sessionId: string; persona: string; sources: string[]; pendingActions: typeof pending }> = {
         success: true,
-        data: { reply, sessionId: effectiveSessionId, persona, pendingActions: pending },
+        data: { reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending },
       };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
@@ -172,6 +188,64 @@ router.get('/sessions', (_req: Request, res: Response, next: NextFunction): void
       const db = getDb();
       const sessions = await listSessions(db);
       const body: ApiSuccess<{ sessions: typeof sessions }> = { success: true, data: { sessions } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * GET /api/ai/sessions/search?q=
+ * Sidebar search across chat titles AND message text. Returns matching ids;
+ * the sidebar filters its already-loaded list with them.
+ */
+router.get('/sessions/search', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const q = typeof req.query['q'] === 'string' ? req.query['q'] : '';
+      const ids = await searchSessionIds(getDb(), q);
+      const body: ApiSuccess<{ ids: string[] }> = { success: true, data: { ids } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * PATCH /api/ai/session/:sessionId/title
+ * User rename. Body: { title: string }. Locks the title against auto-titling.
+ */
+router.patch('/session/:sessionId/title', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { sessionId } = req.params as { sessionId: string };
+      const { title } = req.body as { title?: unknown };
+      if (typeof title !== 'string' || title.trim() === '') {
+        throw new ValidationError('title required', { title: 'required' });
+      }
+      await renameSession(getDb(), sessionId, title);
+      const body: ApiSuccess<{ sessionId: string; title: string }> = { success: true, data: { sessionId, title: title.trim() } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * PATCH /api/ai/session/:sessionId/pinned
+ * Pins/unpins a chat in the sidebar. Body: { pinned: boolean }
+ */
+router.patch('/session/:sessionId/pinned', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { sessionId } = req.params as { sessionId: string };
+      const { pinned } = req.body as { pinned?: unknown };
+      if (typeof pinned !== 'boolean') throw new ValidationError('pinned must be boolean', { pinned: 'boolean' });
+      await setSessionPinned(getDb(), sessionId, pinned);
+      const body: ApiSuccess<{ sessionId: string; pinned: boolean }> = { success: true, data: { sessionId, pinned } };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
       next(err);

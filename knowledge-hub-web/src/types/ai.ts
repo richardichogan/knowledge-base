@@ -43,6 +43,10 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  /** Persona that produced an assistant reply. */
+  persona?: AthenaPersona;
+  /** Tool names the reply drew on (e.g. 'list_tasks'), shown as "From: Plan". */
+  sources?: string[];
 }
 
 export type WriteActionType =
@@ -66,6 +70,7 @@ export interface ChatResponse {
   reply: string;
   sessionId: string;
   persona?: AthenaPersona;
+  sources?: string[];
   pendingActions: WriteActionProposal[];
 }
 
@@ -77,6 +82,7 @@ export interface ChatSessionSummary {
   preview: string;
   persona?: AthenaPersona;
   projectId: string | null;
+  pinned?: boolean;
 }
 
 export interface ExportToThinkResponse {

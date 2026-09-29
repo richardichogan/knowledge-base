@@ -25,6 +25,12 @@ import type { CanvasSummaryApi } from '../services/api';
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
 
+// Stable empty fallback. A `= []` default is a NEW array every render, and
+// the Athena-context effect below depends on the canvas list — so it re-ran,
+// re-set the context and re-rendered the page in an endless loop.
+const NO_CANVASES: CanvasSummaryApi[] = [];
+const NO_NOTES: NoteListItem[] = [];
+
 const VIEW_MODES: { key: ViewMode; label: string; Icon: typeof Document }[] = [
   { key: 'notes',  label: 'Notes',  Icon: Document },
   { key: 'sparks', label: 'Sparks', Icon: Idea },
@@ -57,14 +63,14 @@ export const NotesPage: React.FC = () => {
   // Command-bar element NoteEditor portals its note actions (Export, Push, Delete) into.
   const [docActionsSlot, setDocActionsSlot] = useState<HTMLDivElement | null>(null);
 
-  const { data: notes = [], isLoading, isError, refetch } = useQuery<NoteListItem[]>({
+  const { data: notes = NO_NOTES, isLoading, isError, refetch } = useQuery<NoteListItem[]>({
     queryKey: ['notes-list'],
     queryFn: fetchNotes,
     staleTime: 30_000,
     retry: 1,
   });
 
-  const { data: canvases = [], isLoading: canvasLoading } = useQuery<CanvasSummaryApi[]>({
+  const { data: canvases = NO_CANVASES, isLoading: canvasLoading } = useQuery<CanvasSummaryApi[]>({
     queryKey: ['canvases'],
     queryFn: async () => {
       const r = await api.listCanvases();
@@ -174,6 +180,9 @@ export const NotesPage: React.FC = () => {
   const noteTitle = mode === 'notes' ? openDoc?.title ?? null : null;
   const noteContentType = mode === 'notes' ? openDoc?.contentType ?? null : null;
   const noteProjectId = mode === 'notes' ? openDoc?.projectId ?? null : null;
+  const selectedCanvas = selectedCanvasId !== null ? canvases.find((c) => c.id === selectedCanvasId) ?? null : null;
+  const selectedCanvasTitle = selectedCanvas?.title ?? null;
+  const selectedCanvasUpdatedAt = selectedCanvas?.updatedAt ?? null;
 
   useEffect(() => {
     if (mode === 'notes' && openDoc !== null) {
@@ -243,16 +252,13 @@ export const NotesPage: React.FC = () => {
 
       return () => { cancelled = true; setAthenaContext(null); };
     }
-    if (mode === 'canvas' && selectedCanvasId !== null) {
-      const selectedCanvas = canvases.find((c) => c.id === selectedCanvasId) ?? null;
-      if (selectedCanvas !== null) {
-        setAthenaContext({
-          type: 'canvas',
-          title: selectedCanvas.title,
-          detail: `Updated: ${new Date(selectedCanvas.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
-        });
-        return () => { setAthenaContext(null); };
-      }
+    if (mode === 'canvas' && selectedCanvasTitle !== null && selectedCanvasUpdatedAt !== null) {
+      setAthenaContext({
+        type: 'canvas',
+        title: selectedCanvasTitle,
+        detail: `Updated: ${new Date(selectedCanvasUpdatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+      });
+      return () => { setAthenaContext(null); };
     }
     setAthenaContext(null);
     return undefined;
@@ -261,7 +267,7 @@ export const NotesPage: React.FC = () => {
     // nothing changed, which would otherwise refire this effect (and the image
     // lookup fetch inside it) in a tight loop on a timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, selectedCanvasId, canvases, setAthenaContext]);
+  }, [mode, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, selectedCanvasTitle, selectedCanvasUpdatedAt, setAthenaContext]);
 
   if (isLoading) return <InlineLoading description="Loading documents…" />;
   if (isError) return (
