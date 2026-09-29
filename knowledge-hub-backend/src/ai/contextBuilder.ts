@@ -695,6 +695,7 @@ export async function buildAiContext(
     projectReferences,
     activeProjectName: activeProject?.name ?? null,
     ragItems,
+    ragQuery,
     memoryItems,
   };
 }
@@ -984,7 +985,7 @@ export async function assembleMessages(
   ].join('\n\n');
 
   const pageContextBlock = await formatPageContext(pageContext, userMessage);
-  const ragBlock = formatRagContext(context.ragItems);
+  const ragBlock = formatRagContext(context.ragItems, context.ragQuery);
   const memoryBlock = formatMemoryContext(context.memoryItems);
   // Page context (what the user is actually looking at) comes first and is
   // framed as the primary source; RAG/memory are separate, lower-priority

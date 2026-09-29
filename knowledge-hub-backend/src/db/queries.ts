@@ -238,6 +238,48 @@ export async function searchContentItems(
 }
 
 /**
+ * Top Library documents (project repo docs, content store, uploads) for a
+ * query — any-term, ranked. Used to reserve a few automatic-context slots for
+ * formal docs (PRDs, specs, ADRs), which otherwise lose out to notes, uploads
+ * and long ICA documents in the general ranking.
+ */
+export async function getLibraryRagItems(
+  db: Pool,
+  query: string,
+  limit: number,
+  projectContext?: string,
+): Promise<ContentItem[]> {
+  const terms = [...new Set((query.toLowerCase().match(/[a-z0-9][a-z0-9]{2,}/g) ?? [])
+    .filter((t) => !LIBRARY_RAG_STOPWORDS.has(t)))];
+  if (terms.length === 0) return [];
+  const params: unknown[] = [terms.join(' | '), limit];
+  let projectWhere = '';
+  if (projectContext !== undefined && projectContext.trim() !== '') {
+    params.push(projectContext.trim());
+    projectWhere = ` AND project_context = $3`;
+  }
+  const result: QueryResult<ContentItemRow & { body: string }> = await db.query(
+    `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
+            url, project_context, metadata, tags,
+            ts_rank_cd(search_vector, to_tsquery('english', $1), 32) AS rank
+       FROM content_items
+      WHERE source IN ('github-doc', 'github-content-store', 'user-upload')
+        AND search_vector @@ to_tsquery('english', $1)${projectWhere}
+      ORDER BY rank DESC, updated_at DESC
+      LIMIT $2`,
+    params,
+  );
+  return result.rows.map(rowToItem);
+}
+
+const LIBRARY_RAG_STOPWORDS = new Set([
+  'the', 'and', 'for', 'are', 'was', 'with', 'that', 'this', 'from', 'have', 'has', 'you', 'your', 'what',
+  'which', 'who', 'how', 'why', 'when', 'where', 'can', 'could', 'would', 'should', 'about', 'into', 'any',
+  'there', 'their', 'them', 'they', 'our', 'out', 'not', 'but', 'all', 'also', 'its', 'did', 'does', 'tell',
+  'give', 'show', 'please', 'anything', 'something', 'thing', 'things', 'does', 'doing', 'been', 'were',
+]);
+
+/**
  * Retrieves top-N relevant items for RAG context.
  *
  * `plainto_tsquery` ANDs every word together, so a multi-word query like

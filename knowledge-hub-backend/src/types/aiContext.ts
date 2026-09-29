@@ -62,6 +62,8 @@ export interface AiContext {
    * PostgreSQL FTS for the current user query.
    */
   ragItems: ContentItem[];
+  /** The search query the RAG items were retrieved for (used to pick relevant passages). */
+  ragQuery: string;
   /**
    * Cross-session memory — top relevant snippets pulled from OTHER chat
    * sessions (not the current one), so Athena can recall and cross-reference

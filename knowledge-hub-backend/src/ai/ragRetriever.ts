@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { getProjectContextItems } from '../db/queries.js';
+import { getProjectContextItems, getLibraryRagItems } from '../db/queries.js';
 import { getKnowledgeBaseItems } from './chatTools.js';
 import { RAG_ITEMS_LIMIT } from '../config/constants.js';
 import type { ContentItem } from '../types/contentItem.js';
@@ -41,7 +41,94 @@ export async function retrieveRagItems(db: Pool, query: string, projectContext?:
     return projectId !== '' ? getProjectContextItems(db, projectId, RAG_ITEMS_LIMIT) : [];
   }
 
-  return getKnowledgeBaseItems(db, query, RAG_ITEMS_LIMIT, projectId);
+  const [general, library] = await Promise.all([
+    getKnowledgeBaseItems(db, query, RAG_ITEMS_LIMIT, projectId),
+    getLibraryRagItems(db, query, RAG_LIBRARY_SLOTS, projectId === '' ? undefined : projectId)
+      .catch(() => [] as ContentItem[]),
+  ]);
+  // Reserve up to RAG_LIBRARY_SLOTS for Library documents, interleaved with
+  // the general results so both share the content budget in formatRagContext.
+  const seen = new Set<string>();
+  const libraryPicks = library.filter((i) => !seen.has(i.id) && (seen.add(i.id), true));
+  const generalPicks = general
+    .filter((i) => !seen.has(i.id) && (seen.add(i.id), true))
+    .slice(0, Math.max(0, RAG_ITEMS_LIMIT - libraryPicks.length));
+  const merged: ContentItem[] = [];
+  for (let k = 0; k < Math.max(generalPicks.length, libraryPicks.length); k++) {
+    if (k < generalPicks.length) merged.push(generalPicks[k]!);
+    if (k < libraryPicks.length) merged.push(libraryPicks[k]!);
+  }
+  return merged;
+}
+
+// Automatic-context slots reserved for Library documents (PRDs, specs, ADRs).
+const RAG_LIBRARY_SLOTS = 4;
+
+// Per-item and total content passed to the model from auto-retrieved items.
+// Was a flat 400 chars from the start of each item, so a retrieved PRD or long
+// note contributed its opening lines rather than the section that answered.
+const RAG_ITEM_CONTENT_CHARS = 1_500;
+const RAG_TOTAL_CONTENT_CHARS = 12_000;
+const RAG_PASSAGE_CHARS = 500;
+
+const EXCERPT_STOPWORDS = new Set([
+  'the', 'and', 'for', 'are', 'was', 'with', 'that', 'this', 'from', 'have', 'has', 'you', 'your', 'what',
+  'which', 'who', 'how', 'why', 'when', 'where', 'can', 'could', 'would', 'should', 'about', 'into', 'any',
+  'there', 'their', 'them', 'they', 'our', 'out', 'not', 'but', 'all', 'also', 'its', 'it’s', 'did', 'does',
+  'tell', 'give', 'show', 'please', 'anything', 'something', 'thing', 'things',
+]);
+
+/**
+ * The passages of `body` that best match `query`, up to `maxChars`, in their
+ * original order. Scores ~500-char passages by query-term hits (rarer terms
+ * count more); falls back to the opening when nothing matches.
+ */
+export function relevantExcerpt(body: string, query: string, maxChars: number): string {
+  const text = body.replace(/\s+\n/g, '\n').trim();
+  if (text.length <= maxChars) return text;
+
+  const terms = [...new Set((query.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) ?? [])
+    .filter((t) => !EXCERPT_STOPWORDS.has(t)))];
+  if (terms.length === 0) return `${text.slice(0, maxChars)}…`;
+
+  // Passages on paragraph/sentence boundaries, merged up to ~RAG_PASSAGE_CHARS.
+  const pieces = text.split(/(?<=[.!?])\s+|\n{2,}/);
+  const passages: string[] = [];
+  let current = '';
+  for (const piece of pieces) {
+    if (current.length + piece.length > RAG_PASSAGE_CHARS && current !== '') {
+      passages.push(current);
+      current = '';
+    }
+    current = current === '' ? piece : `${current} ${piece}`;
+  }
+  if (current !== '') passages.push(current);
+
+  const lower = passages.map((p) => p.toLowerCase());
+  const docFreq = new Map(terms.map((t) => [t, lower.filter((p) => p.includes(t)).length]));
+  const scored = lower.map((p, i) => {
+    let score = 0;
+    for (const t of terms) {
+      const df = docFreq.get(t) ?? 0;
+      if (df > 0 && p.includes(t)) score += 1 / df; // rarer terms weigh more
+    }
+    return { i, score };
+  });
+  if (scored.every((s) => s.score === 0)) return `${text.slice(0, maxChars)}…`;
+
+  const chosen: number[] = [];
+  let used = 0;
+  for (const { i, score } of [...scored].sort((a, b) => b.score - a.score)) {
+    if (score === 0) break;
+    const len = passages[i]!.length + 3;
+    if (used + len > maxChars) continue;
+    chosen.push(i);
+    used += len;
+  }
+  return chosen
+    .sort((a, b) => a - b)
+    .map((i, k, arr) => (k > 0 && i !== arr[k - 1]! + 1 ? `… ${passages[i]!}` : passages[i]!))
+    .join(' ');
 }
 
 /**
@@ -51,19 +138,25 @@ export async function retrieveRagItems(db: Pool, query: string, projectContext?:
  * Explicitly labelled as auto-retrieved background context — the model must
  * never treat this as something the user typed or pasted themselves.
  */
-export function formatRagContext(items: ContentItem[]): string {
+export function formatRagContext(items: ContentItem[], query = ''): string {
   if (items.length === 0) {
     return '';
   }
 
+  // Share a total budget across items in rank order, so the best matches get
+  // their most relevant passages rather than every item getting its opening.
+  let remaining = RAG_TOTAL_CONTENT_CHARS;
   const lines = items.map((item, index) => {
     const date = item.publishedAt.substring(0, 10);
     const url = item.url ? ` (${item.url})` : '';
+    const budget = Math.min(RAG_ITEM_CONTENT_CHARS, remaining);
+    const excerpt = item.body && budget > 200 ? relevantExcerpt(item.body, query, budget) : '';
+    remaining -= excerpt.length;
     return [
       `[${index + 1}] ${item.source.toUpperCase()} — ${date}${url}`,
       `Title: ${item.title}`,
       `Summary: ${item.summary}`,
-      item.body ? `Content: ${item.body.substring(0, 400)}${item.body.length > 400 ? '...' : ''}` : '',
+      excerpt ? `Relevant content: ${excerpt}` : '',
     ]
       .filter(Boolean)
       .join('\n');
