@@ -298,8 +298,51 @@ export function prepareTtsText(text: string): string {
 }
 
 /**
+ * gpt-4o-mini-tts (Azure OpenAI audio/speech) for spoken replies — a more
+ * natural voice whose tone is steered by plain-English instructions.
+ * Transcription stays on Azure Speech, and synthesis falls back to it if the
+ * TTS call fails (e.g. a reply longer than the model's input limit).
+ */
+export class OpenAiTtsProvider implements VoiceProvider {
+  name = 'gpt-4o-mini-tts';
+  private readonly fallback = new AzureSpeechProvider();
+
+  transcribe(request: TranscribeRequest): Promise<TranscribeResult> {
+    return this.fallback.transcribe(request);
+  }
+
+  async synthesize(request: SynthesizeRequest): Promise<SynthesizeResult> {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), VOICE_TIMEOUT_MS);
+    try {
+      const response = await fetch(env.AZURE_TTS_ENDPOINT ?? '', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': env.AZURE_TTS_API_KEY ?? '' },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini-tts',
+          input: prepareTtsText(request.text),
+          voice: env.AZURE_TTS_VOICE,
+          instructions: env.AZURE_TTS_INSTRUCTIONS,
+          response_format: 'mp3',
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`gpt-4o-mini-tts error (${response.status}): ${await response.text()}`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      return { audioBase64: buffer.toString('base64'), mimeType: 'audio/mpeg', provider: `${this.name} (${env.AZURE_TTS_VOICE})` };
+    } catch (err) {
+      console.warn(`[OpenAiTtsProvider] ${err instanceof Error ? err.message : String(err)} — falling back to Azure Speech`);
+      return this.fallback.synthesize(request);
+    } finally {
+      clearTimeout(tid);
+    }
+  }
+}
+
+/**
  * Selects the voice provider.
  * - VOICE_PROVIDER=mock forces the mock (silent WAV, canned transcript)
+ * - AZURE_TTS_ENDPOINT + AZURE_TTS_API_KEY set → OpenAiTtsProvider (Azure Speech fallback)
  * - Otherwise AzureSpeechProvider is used (requires AZURE_SPEECH_KEY or AZURE_OPENAI_API_KEY)
  */
 export class VoiceProviderFactory {
@@ -310,6 +353,9 @@ export class VoiceProviderFactory {
     if (env.AZURE_SPEECH_KEY === undefined && env.AZURE_OPENAI_API_KEY === undefined) {
       console.warn('[VoiceProviderFactory] No Speech key configured — falling back to mock voice provider');
       return new MockVoiceProvider();
+    }
+    if (env.AZURE_TTS_ENDPOINT !== undefined && env.AZURE_TTS_API_KEY !== undefined) {
+      return new OpenAiTtsProvider();
     }
     return new AzureSpeechProvider();
   }

@@ -82,6 +82,16 @@ export const env = {
   AZURE_SPEECH_FALLBACK_VOICE: optionalWithDefault('AZURE_SPEECH_FALLBACK_VOICE', 'en-US-SaraNeural'),
   // Set to 'mock' to force the deterministic mock voice provider (no network).
   VOICE_PROVIDER: optional('VOICE_PROVIDER'),
+  // Athena's spoken replies via gpt-4o-mini-tts (Azure OpenAI). When the
+  // endpoint + key are set it's the primary voice; Azure Speech is the fallback.
+  /** Full audio/speech URL, e.g. https://<res>.openai.azure.com/openai/deployments/gpt-4o-mini-tts/audio/speech?api-version=2025-03-01-preview */
+  AZURE_TTS_ENDPOINT: optional('AZURE_TTS_ENDPOINT'),
+  AZURE_TTS_API_KEY: optional('AZURE_TTS_API_KEY'),
+  AZURE_TTS_VOICE: optionalWithDefault('AZURE_TTS_VOICE', 'nova'),
+  AZURE_TTS_INSTRUCTIONS: optionalWithDefault(
+    'AZURE_TTS_INSTRUCTIONS',
+    'Relaxed and gentle, like a trusted colleague over coffee. Unhurried, friendly, soft smile in the voice.',
+  ),
 
   // Microsoft Graph (personal M365)
   GRAPH_CLIENT_ID: integrationCredential('GRAPH_CLIENT_ID'),
