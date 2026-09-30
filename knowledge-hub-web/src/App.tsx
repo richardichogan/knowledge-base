@@ -18,7 +18,7 @@ import React from 'react';
 import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom';
 import { Theme } from '@carbon/react';
 import { AppShell } from './components/AppShell';
-import { PasswordGate } from './components/PasswordGate';
+import { SignInGate } from './components/SignInGate';
 import { DiscoverPage } from './pages/DiscoverPage';
 import { PlanPage } from './pages/PlanPage';
 import { TimelinePage } from './pages/TimelinePage';
@@ -42,7 +42,7 @@ const ThinkPage: React.FC = () => <NotesPage />;
 
 const App: React.FC = () => {
   return (
-    <PasswordGate>
+    <SignInGate>
       <Theme theme="g100" as="div" style={{ minHeight: '100vh' }}>
         <GlobalContextMenuProvider>
           <AthenaContextProvider>
@@ -78,7 +78,7 @@ const App: React.FC = () => {
           </AthenaContextProvider>
         </GlobalContextMenuProvider>
       </Theme>
-    </PasswordGate>
+    </SignInGate>
   );
 };
 

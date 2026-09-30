@@ -101,6 +101,15 @@ export const env = {
   ALLIANCE_ONEDRIVE_ROOT: optionalWithDefault('ALLIANCE_ONEDRIVE_ROOT', 'Athena'),
   /** If set, only this account may connect (guards the public sign-in route). */
   ALLIANCE_ALLOWED_UPN: optional('ALLIANCE_ALLOWED_UPN'),
+  /**
+   * App sign-in (Microsoft Entra, Alliance tenant). The web app signs in with
+   * MSAL and sends an access token for this app registration's API
+   * (api://<client id>/access_as_user). Defaults to the Alliance app above.
+   */
+  ATHENA_AUTH_CLIENT_ID: optional('ATHENA_AUTH_CLIENT_ID'),
+  ATHENA_AUTH_TENANT_ID: optional('ATHENA_AUTH_TENANT_ID'),
+  /** Comma-separated Entra object ids allowed to use the API (in addition to ALLIANCE_ALLOWED_UPN). */
+  ATHENA_ALLOWED_USER_IDS: optional('ATHENA_ALLOWED_USER_IDS'),
 
   // GitLab
   GITLAB_BASE_URL: optionalWithDefault('GITLAB_BASE_URL', 'https://gitlab.com'),

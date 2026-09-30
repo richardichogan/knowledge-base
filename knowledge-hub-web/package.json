@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.23.0",
     "@blocknote/code-block": "^0.47.3",
     "@blocknote/core": "^0.47.3",
     "@blocknote/mantine": "^0.47.3",

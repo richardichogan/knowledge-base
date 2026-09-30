@@ -22,6 +22,7 @@ import type {
   AthenaMemory,
   MemoryScopeType,
 } from '../types';
+import { getApiToken } from './auth';
 
 // Use relative base URL so all requests go through the Vite dev proxy.
 const BASE_URL = import.meta.env['VITE_API_URL'] as string | undefined ?? '';
@@ -43,7 +44,7 @@ const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
 const CHAT_TIMEOUT_MS = 120_000;
 
 function makeClient(baseURL: string, token: string): AxiosInstance {
-  return axios.create({
+  const client = axios.create({
     baseURL,
     timeout: TIMEOUT_MS,
     headers: {
@@ -51,6 +52,13 @@ function makeClient(baseURL: string, token: string): AxiosInstance {
       ...(token !== '' && { Authorization: `Bearer ${token}` }),
     },
   });
+  // Microsoft sign-in token (production) takes precedence over the static one.
+  client.interceptors.request.use(async (config) => {
+    const signedIn = await getApiToken();
+    if (signedIn !== '') config.headers.set('Authorization', `Bearer ${signedIn}`);
+    return config;
+  });
+  return client;
 }
 
 export interface TimelineQuery {
