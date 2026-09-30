@@ -113,8 +113,9 @@ export interface MeetingImportResult {
 }
 
 /**
- * Saves a pasted meeting list for `date` (default: today, London). Replaces
- * that day's earlier paste, so cancelled meetings disappear.
+ * Saves a pasted meeting list for `date` (default: today, London). Earlier
+ * pasted meetings inside the time span the list covers, but no longer in it,
+ * are removed (cancelled); meetings outside that span are kept.
  */
 export async function importMeetingList(db: Pool, text: string, date = workToday()): Promise<MeetingImportResult> {
   const meetings = parseMeetingList(text);
@@ -175,10 +176,20 @@ export async function importMeetingList(db: Pool, text: string, date = workToday
     }
   }
 
-  const removed = await db.query(
-    `DELETE FROM content_items WHERE source = 'graph-calendar' AND source_id LIKE $1 AND NOT (source_id = ANY($2::text[]))`,
-    [`ibm-paste-${date}-%`, ids],
-  );
+  // A paste may cover only part of the day ("my morning calls"): only earlier
+  // entries inside the span it covers, and missing from it, are removed.
+  const starts = meetings.map((m) => m.start).sort();
+  const ends = meetings.map((m) => m.end).sort();
+  const spanStart = starts[0];
+  const spanEnd = ends[ends.length - 1];
+  const removed = spanStart === undefined || spanEnd === undefined
+    ? { rowCount: 0 }
+    : await db.query(
+      `DELETE FROM content_items
+        WHERE source = 'graph-calendar' AND source_id LIKE $1 AND NOT (source_id = ANY($2::text[]))
+          AND published_at >= $3 AND published_at < $4`,
+      [`ibm-paste-${date}-%`, ids, londonToUtc(date, spanStart), londonToUtc(date, spanEnd)],
+    );
   return { date, imported: meetings.length, removed: removed.rowCount ?? 0, tasksCreated, tasksAlreadyThere };
 }
 
