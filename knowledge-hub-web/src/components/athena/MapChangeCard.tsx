@@ -35,8 +35,8 @@ export const MapChangeCard: React.FC<{ changes: MapChange[]; mapId: string }> = 
   return (
     <div className={`note-edit-card note-edit-card--${status === 'applied' ? 'applied' : status === 'discarded' ? 'discarded' : 'pending'}`}>
       <div className="note-edit-card__head">
-        <span className="note-edit-card__title">Proposed change{changes.length === 1 ? '' : 's'} to this map</span>
-        {status === 'applied' && <span className="note-edit-card__done">Applied — ⌘Z in the map to undo</span>}
+        <span className="note-edit-card__title">Proposed change{changes.length === 1 ? '' : 's'} to this canvas</span>
+        {status === 'applied' && <span className="note-edit-card__done">Applied — ⌘Z on the canvas to undo</span>}
         {status === 'discarded' && <span className="note-edit-card__done">Discarded</span>}
       </div>
       <ol className="note-edit-card__list">

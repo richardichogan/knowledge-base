@@ -23,7 +23,7 @@ export interface MapSuggestion {
 }
 
 const MAX_SUGGESTIONS = 24;
-const PLACEHOLDER_LABELS = new Set(['', 'central idea', 'new idea', 'untitled', 'untitled map']);
+const PLACEHOLDER_LABELS = new Set(['', 'central idea', 'new idea', 'untitled', 'untitled map', 'untitled canvas']);
 const PER_SOURCE_LIMIT = 40;
 const CHAT_LIMIT = 5;
 const EXCERPT_CHARS = 220;

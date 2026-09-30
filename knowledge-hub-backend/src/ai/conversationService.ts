@@ -68,8 +68,8 @@ export async function handleConversationTurn(
   const scheduleBlock = await buildTodayScheduleBlock(db)
     .catch((err: unknown) => { console.error('[meetings] schedule block failed:', err); return ''; });
   const mapBlock = mapOutlineResult === null ? '' : [
-    '## Mind map in view (the user is working on this map)',
-    'Ideas are shown with aliases in brackets; n1 is the central idea. Use propose_map_changes to change the map.',
+    '## Canvas in view (a mind map the user is working on — call it a "canvas" when talking to the user)',
+    'Ideas are shown with aliases in brackets; n1 is the central idea. Use propose_map_changes to change the canvas.',
     mapOutlineResult.text,
   ].join('\n');
   const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock].filter((b) => b !== '').join('\n\n---\n\n');

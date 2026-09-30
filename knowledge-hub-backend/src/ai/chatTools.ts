@@ -235,8 +235,8 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       function: {
         name: 'propose_map_changes',
         description:
-          "Proposes changes to the mind map open next to this chat (outline under 'Mind map in view'). Use it whenever " +
-          "Richard asks you to expand, add ideas/branches to, restructure, rename, prune or link ideas on the map. Refer " +
+          "Proposes changes to the canvas (mind map) open next to this chat (outline under 'Canvas in view'). Use it whenever " +
+          "Richard asks you to expand, add ideas/branches to, restructure, rename, prune or link ideas on the canvas. Refer " +
           "to existing ideas by their alias exactly as in the outline (n1 is the central idea). When you add an idea you " +
           "can give it a 'key' (e.g. k1) and use that key as the parent of later additions, to build several levels at " +
           "once. Keep labels short (2–8 words); put detail in 'note'. The changes are shown as a preview with " +
@@ -441,7 +441,7 @@ export async function executeToolCall(
       return { proposed: edits.length, ...(problems.length > 0 && { skipped: problems }), note: 'Shown to the user as a preview with Apply/Discard.' };
     }
     case 'propose_map_changes': {
-      if (turn.mapAliases === undefined) return { error: 'No mind map is open next to this chat.' };
+      if (turn.mapAliases === undefined) return { error: 'No canvas is open next to this chat.' };
       const { proposals, problems } = resolveMapChanges(args['changes'], turn.mapAliases);
       if (proposals.length === 0) return { error: `No valid changes: ${problems.join('; ') || 'changes array was empty'}` };
       turn.mapChanges?.push(...proposals);

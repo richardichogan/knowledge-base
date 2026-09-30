@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, Document, Idea, Draw } from '@carbon/icons-react';
+import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, Document, Idea, Draw, TrashCan } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
 import { ImportNoteModal } from './ImportNoteModal';
@@ -154,14 +154,21 @@ export const NotesPage: React.FC = () => {
   }
 
   async function handleCreateCanvas(): Promise<void> {
-    const r = await api.createCanvas({ title: 'Untitled map', rootLabel: 'Central idea' });
+    const r = await api.createCanvas({ title: 'Untitled canvas', rootLabel: 'Central idea' });
     if (r.success) {
       await queryClient.invalidateQueries({ queryKey: ['canvases'] });
       setSelectedCanvasId(r.data.id);
     }
   }
 
-  /** "New map": with a note open, offer to pin the map to it (recommended) or start blank. */
+  async function handleDeleteCanvas(id: string, title: string): Promise<void> {
+    if (!window.confirm(`Delete the canvas “${title}”? This cannot be undone.`)) return;
+    await api.deleteCanvas(id);
+    if (selectedCanvasId === id) setSelectedCanvasId(null);
+    await queryClient.invalidateQueries({ queryKey: ['canvases'] });
+  }
+
+  /** "New canvas": with a note open, offer to pin the map to it (recommended) or start blank. */
   const [newMapMenu, setNewMapMenu] = useState<'header' | 'footer' | null>(null);
   function requestNewMap(where: 'header' | 'footer'): void {
     if (openDoc !== null) setNewMapMenu(where);
@@ -365,7 +372,7 @@ export const NotesPage: React.FC = () => {
               }}
             >
               <Add size={20} />
-              {mode === 'canvas' ? 'New map' : mode === 'sparks' ? 'New spark' : 'New note'}
+              {mode === 'canvas' ? 'New canvas' : mode === 'sparks' ? 'New spark' : 'New note'}
             </button>
             {newMapMenu === 'header' && openDoc !== null && (
               <NewMapMenu
@@ -462,6 +469,13 @@ export const NotesPage: React.FC = () => {
                       onClick={() => { setSelectedCanvasId(c.id); }}
                       onKeyDown={(e) => { if (e.key === 'Enter') setSelectedCanvasId(c.id); }}
                     >
+                      <button
+                        className="notes-list-item__delete"
+                        title="Delete canvas"
+                        onClick={(e) => { e.stopPropagation(); void handleDeleteCanvas(c.id, c.title); }}
+                      >
+                        <TrashCan size={14} />
+                      </button>
                       <p className="notes-list-item-title">{c.title}</p>
                       {c.linkedNotes.length > 0 && (
                         <p className="notes-list-item-preview mm-list-notes">↳ {c.linkedNotes.map((n) => n.title).join(', ')}</p>
@@ -474,13 +488,13 @@ export const NotesPage: React.FC = () => {
                     </div>
                   ))}
                   {canvases.length === 0 && (
-                    <p className="notes-list-empty">No maps yet. Start one here, or use “Map” on any note.</p>
+                    <p className="notes-list-empty">No canvases yet. Start one here, or use “Canvas” on any note.</p>
                   )}
                 </div>
               )}
               <div className="notes-list-footer">
                 <div className="mm-newmap-anchor mm-newmap-anchor--up">
-                  <button className="kh-btn-accent" onClick={() => { requestNewMap('footer'); }}>+ New map</button>
+                  <button className="kh-btn-accent" onClick={() => { requestNewMap('footer'); }}>+ New canvas</button>
                   {newMapMenu === 'footer' && openDoc !== null && (
                     <NewMapMenu
                       noteTitle={openDoc.title}
@@ -509,7 +523,7 @@ export const NotesPage: React.FC = () => {
                 onDeleted={() => { setSelectedCanvasId(null); }}
               />
             ) : (
-              <div className="notes-empty-state">Select a map, start a new one, or use “Map” on any note</div>
+              <div className="notes-empty-state">Select a canvas, start a new one, or use “Canvas” on any note</div>
             )}
           </div>
         ) : (
@@ -545,13 +559,13 @@ const NewMapMenu: React.FC<{ noteTitle: string; onPin: () => void; onBlank: () =
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [onClose]);
   return (
-    <div ref={ref} className="mm-newmap-menu" role="menu" aria-label="New map">
+    <div ref={ref} className="mm-newmap-menu" role="menu" aria-label="New canvas">
       <button type="button" role="menuitem" className="mm-newmap-menu__item" autoFocus onClick={onPin}>
         <span className="mm-newmap-menu__title">Pin to “{noteTitle}”</span>
-        <span className="mm-newmap-menu__desc">Recommended — the note is the central idea, its headings become branches, and the map joins the note in the knowledge graph.</span>
+        <span className="mm-newmap-menu__desc">Recommended — the note is the central idea, its headings become branches, and the canvas joins the note in the knowledge graph.</span>
       </button>
       <button type="button" role="menuitem" className="mm-newmap-menu__item" onClick={onBlank}>
-        <span className="mm-newmap-menu__title">Blank map</span>
+        <span className="mm-newmap-menu__title">Blank canvas</span>
         <span className="mm-newmap-menu__desc">Start from an empty central idea and link notes later.</span>
       </button>
     </div>

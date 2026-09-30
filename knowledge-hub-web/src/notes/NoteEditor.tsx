@@ -521,8 +521,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             )}
           </div>
           {onMapNote && (
-            <button className="kb-import-btn" title="Open this note's mind map, or start one from its headings" onClick={() => { onMapNote(doc.id); }}>
-              <Diagram size={16} /> Map
+            <button className="kb-import-btn" title="Open this note's canvas, or start one from its headings" onClick={() => { onMapNote(doc.id); }}>
+              <Diagram size={16} /> Canvas
             </button>
           )}
           <button className="kb-import-btn" onClick={() => { setGithubModalOpen(true); }}>

@@ -204,7 +204,7 @@ export async function createCanvas(input: CreateMapInput = {}): Promise<CanvasFu
   try {
     await client.query('BEGIN');
     const note = input.noteId !== undefined ? await loadNote(client, input.noteId) : null;
-    const title = input.title ?? note?.title ?? 'Untitled map';
+    const title = input.title ?? note?.title ?? 'Untitled canvas';
     const res = await client.query<{ id: string }>(
       `INSERT INTO canvases (title, project) VALUES ($1, $2) RETURNING id`,
       [title, input.project ?? note?.projectId ?? null],
@@ -486,7 +486,7 @@ export function mapOutline(map: CanvasFull, selectedId?: string): { text: string
   const idToAlias = new Map([...aliases].map(([a, id]) => [id, a]));
   const links = map.edges.map((e) => `- ${idToAlias.get(e.sourceId) ?? '?'} ↔ ${idToAlias.get(e.targetId) ?? '?'}${e.label !== null ? ` ("${e.label}")` : ''}`);
   const text = [
-    `Map "${map.title}"${map.linkedNotes.length > 0 ? ` — linked to notes: ${map.linkedNotes.map((n) => `"${n.title}"`).join(', ')}` : ''}`,
+    `Canvas "${map.title}"${map.linkedNotes.length > 0 ? ` — linked to notes: ${map.linkedNotes.map((n) => `"${n.title}"`).join(', ')}` : ''}`,
     ...lines,
     ...(links.length > 0 ? ['Cross-links:', ...links] : []),
   ].join('\n');

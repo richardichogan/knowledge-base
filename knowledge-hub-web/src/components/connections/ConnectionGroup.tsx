@@ -20,7 +20,7 @@ const GROUP_LABELS: Record<string, string> = {
   tag_overlap:          'Shared tags',
   produced_in_window:   'Co-temporal',
   thematically_related: 'Thematically related',
-  on_map:               'Mind maps',
+  on_map:               'Canvases',
 };
 
 export const ConnectionGroup: React.FC<ConnectionGroupProps> = ({ edgeType, edges, onItemClick }) => {

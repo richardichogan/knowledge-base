@@ -7,7 +7,7 @@ const NOTE_EDIT_PATTERN =
 const NOT_A_NOTE_EDIT_PATTERN = /\b(?:tasks?|plan\s+board|to-?do|calendar|e-?mail|remember|from\s+now\s+on|always|never)\b/i;
 // Asked to change the open mind map (ideas, branches, links).
 const MAP_EDIT_PATTERN =
-  /\b(?:add|expand|extend|grow|develop|brainstorm|suggest|generate|break\s+down|flesh\s+out|restructure|reorgani[sz]e|regroup|rename|remove|delete|prune|link|connect|move)\b[\s\S]{0,120}\b(?:map|idea|ideas|branch(?:es)?|node|nodes|sub-?ideas?|children|this|it|them)\b/i;
+  /\b(?:add|expand|extend|grow|develop|brainstorm|suggest|generate|break\s+down|flesh\s+out|restructure|reorgani[sz]e|regroup|rename|remove|delete|prune|link|connect|move)\b[\s\S]{0,120}\b(?:map|canvas|idea|ideas|branch(?:es)?|node|nodes|sub-?ideas?|children|this|it|them)\b/i;
 const STANDING_INSTRUCTION_PATTERN =
   /\b(?:from\s+now\s+on|going\s+forward|in\s+future\s*,|remember\s+(?:that|to|this)|(?:please\s+)?always\s+(?:include|use|add|end|start|write|put|give|mention|keep|format)|never\s+(?:include|use|add|write|mention|say|start)|(?:don'?t|do\s+not)\s+ever|stop\s+(?:doing|adding|including|using|writing))\b/i;
 const EXPLICIT_WEB_LOOKUP_PATTERN =

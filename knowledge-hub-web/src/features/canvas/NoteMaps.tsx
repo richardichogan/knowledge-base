@@ -25,11 +25,11 @@ export const NoteMaps: React.FC<Props> = ({ noteId, onOpenMap, onMapNote }) => {
 
   return (
     <div className="mm-note-maps">
-      <p className="mm-note-maps__title">Maps</p>
+      <p className="mm-note-maps__title">Canvases</p>
       {maps.length === 0 ? (
         onMapNote !== undefined && (
           <button type="button" className="mm-note-maps__item mm-note-maps__item--new" onClick={() => { onMapNote(noteId); }}>
-            <Add size={16} /> Map this note
+            <Add size={16} /> Create a canvas for this note
           </button>
         )
       ) : (

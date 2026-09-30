@@ -116,7 +116,7 @@ export const MapDetailsTab: React.FC<DetailsProps> = ({ map, node, onUpdate, onD
       <div className="mm-details">
         <p className="mm-details__hint">Select an idea to see and edit its details.</p>
         <MapFacts map={map} />
-        <button type="button" className="kb-import-btn kb-import-btn--danger" onClick={onDeleteMap}><TrashCan size={16} /> Delete map</button>
+        <button type="button" className="kb-import-btn kb-import-btn--danger" onClick={onDeleteMap}><TrashCan size={16} /> Delete canvas</button>
       </div>
     );
   }
@@ -169,12 +169,12 @@ export const MapDetailsTab: React.FC<DetailsProps> = ({ map, node, onUpdate, onD
       </p>
 
       <div className="mm-details__actions">
-        <p className="mm-field__label">Turn this {isRoot ? 'map' : 'branch'} into a note</p>
+        <p className="mm-field__label">Turn this {isRoot ? 'canvas' : 'branch'} into a note</p>
         <button
           type="button"
           className="kb-import-btn"
           disabled={busy !== null}
-          onClick={() => { void run('new', () => onBranchToNote(node.id), 'New note created and linked to this map.'); }}
+          onClick={() => { void run('new', () => onBranchToNote(node.id), 'New note created and linked to this canvas.'); }}
         >
           <DocumentAdd size={16} /> {busy === 'new' ? 'Creating…' : 'New note'}
         </button>

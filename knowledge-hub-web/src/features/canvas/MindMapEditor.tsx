@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { ZoomIn, ZoomOut, FitToScreen, Undo, Copy, Close, Link as LinkIcon, CaretRight, CaretLeft, Add } from '@carbon/icons-react';
+import { ZoomIn, ZoomOut, FitToScreen, Undo, Copy, Close, Link as LinkIcon, CaretRight, CaretLeft, Add, TrashCan } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import type { CanvasFullApi, CanvasNodeApi, MapOp, MapSide, MapSuggestionApi } from '../../services/api';
 import { fetchNotes } from '../../notes/noteStorage';
@@ -64,8 +64,8 @@ export const MindMapEditor: React.FC<Props> = (props) => {
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
-  if (isLoading) return <div className="mm-editor mm-editor--status"><InlineLoading description="Loading map…" /></div>;
-  if (isError || data === undefined) return <div className="mm-editor mm-editor--status">Couldn’t load this map.</div>;
+  if (isLoading) return <div className="mm-editor mm-editor--status"><InlineLoading description="Loading canvas…" /></div>;
+  if (isError || data === undefined) return <div className="mm-editor mm-editor--status">Couldn’t load this canvas.</div>;
   return <MindMapCanvas key={props.canvasId} {...props} initial={data} serverMap={data} />;
 };
 
@@ -132,7 +132,7 @@ const MindMapCanvas: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
       .catch((err: unknown) => {
         pending.current = 0;
         undoStack.current = [];
-        setError(`Couldn’t save that change (${err instanceof Error ? err.message : 'error'}) — the map was reloaded.`);
+        setError(`Couldn’t save that change (${err instanceof Error ? err.message : 'error'}) — the canvas was reloaded.`);
         void reloadFromServer();
       });
   }, [canvasId, queryClient, reloadFromServer, setMap]);
@@ -264,7 +264,7 @@ const MindMapCanvas: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
       return;
     }
     // Naming the central idea of an untitled map names the map too.
-    if (save && label !== '' && n.parentId === null && mapRef.current.title === 'Untitled map') void renameMap(label);
+    if (save && label !== '' && n.parentId === null && mapRef.current.title === 'Untitled canvas') void renameMap(label);
     if (save && label !== '' && label !== (n.label ?? '')) {
       if (isNew) {
         // Fold the label into the "add" so one ⌘Z removes the new idea.
@@ -549,7 +549,7 @@ const MindMapCanvas: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   }
 
   async function deleteMap(): Promise<void> {
-    if (!window.confirm(`Delete the map “${map.title}”? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete the canvas “${map.title}”? This cannot be undone.`)) return;
     await api.deleteCanvas(canvasId);
     void queryClient.invalidateQueries({ queryKey: ['canvases'] });
     onDeleted();
@@ -581,10 +581,10 @@ const MindMapCanvas: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   const onMapRefs = useMemo(() => new Set(map.nodes.flatMap((n) => (n.refId !== null ? [n.refId] : []))), [map.nodes]);
   const selectedLabel = selected?.label ?? '';
   const athenaContext = useMemo<AthenaPageContext>(() => ({
-    type: 'map',
+    type: 'canvas',
     title: map.title,
     id: `map:${canvasId}`,
-    detail: `Mind map with ${map.nodes.length.toString()} ideas.${selectedId !== null ? ` Selected idea: "${selectedLabel}".` : ''} The full outline is provided separately.`,
+    detail: `Canvas (mind map) with ${map.nodes.length.toString()} ideas.${selectedId !== null ? ` Selected idea: "${selectedLabel}".` : ''} The full outline is provided separately.`,
     ...(selectedId !== null && { selectedId }),
     ...(map.project !== null && { projectId: map.project }),
   }), [canvasId, map.title, map.nodes.length, map.project, selectedId, selectedLabel]);
@@ -624,6 +624,7 @@ const MindMapCanvas: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
       <div className="mm-main">
         <MapHeader
           map={map}
+          onDelete={() => { void deleteMap(); }}
           onRename={(t) => { void renameMap(t); }}
           onLinkNote={(id) => { void linkNote(id); }}
           onUnlinkNote={(id) => { void unlinkNote(id); }}
@@ -634,7 +635,7 @@ const MindMapCanvas: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
           className={`mm-surface${drag?.kind === 'pan' ? ' mm-surface--panning' : ''}`}
           tabIndex={0}
           role="application"
-          aria-label={`Mind map ${map.title}. Tab adds a sub-idea, Enter a sibling, F2 renames, Delete removes, arrows move around.`}
+          aria-label={`Canvas ${map.title}. Tab adds a sub-idea, Enter a sibling, F2 renames, Delete removes, arrows move around.`}
           onKeyDown={onKeyDown}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -783,7 +784,7 @@ const MindMapCanvas: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
             <button type="button" className="mm-icon-btn" title="Zoom out" aria-label="Zoom out" onClick={() => { zoomBy(1 / ZOOM_STEP); }}><ZoomOut size={16} /></button>
             <span className="mm-toolbar__zoom">{Math.round(view.zoom * 100)}%</span>
             <button type="button" className="mm-icon-btn" title="Zoom in" aria-label="Zoom in" onClick={() => { zoomBy(ZOOM_STEP); }}><ZoomIn size={16} /></button>
-            <button type="button" className="mm-icon-btn" title="Fit the whole map" aria-label="Fit the whole map" onClick={fit}><FitToScreen size={16} /></button>
+            <button type="button" className="mm-icon-btn" title="Fit the whole canvas" aria-label="Fit the whole canvas" onClick={fit}><FitToScreen size={16} /></button>
             <span className="mm-toolbar__sep" />
             <button type="button" className="mm-icon-btn" title="Undo (⌘Z)" aria-label="Undo" onClick={undo}><Undo size={16} /></button>
             <button type="button" className="mm-icon-btn" title="Copy as an outline (Markdown)" aria-label="Copy as outline" onClick={() => { void copyOutline(); }}><Copy size={16} /></button>
@@ -803,7 +804,7 @@ const MindMapCanvas: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
 
       <SideTabsPanel
         storageKey="map-side"
-        label="Map side panel"
+        label="Canvas side panel"
         defaultTab="suggestions"
         width={MAP_SIDE_WIDTH}
         tabs={[
@@ -847,13 +848,14 @@ const MindMapCanvas: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
 
 interface HeaderProps {
   map: CanvasFullApi;
+  onDelete: () => void;
   onRename: (title: string) => void;
   onLinkNote: (noteId: string) => void;
   onUnlinkNote: (noteId: string) => void;
   onOpenNote: (noteId: string) => void;
 }
 
-const MapHeader: React.FC<HeaderProps> = ({ map, onRename, onLinkNote, onUnlinkNote, onOpenNote }) => {
+const MapHeader: React.FC<HeaderProps> = ({ map, onDelete, onRename, onLinkNote, onUnlinkNote, onOpenNote }) => {
   const [title, setTitle] = useState(map.title);
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState('');
@@ -868,14 +870,14 @@ const MapHeader: React.FC<HeaderProps> = ({ map, onRename, onLinkNote, onUnlinkN
       <input
         className="mm-header__title"
         value={title}
-        aria-label="Map title"
+        aria-label="Canvas title"
         onChange={(e) => { setTitle(e.target.value); }}
         onBlur={() => { onRename(title); }}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
       />
       <div className="mm-header__notes">
         {map.linkedNotes.length === 0 && (
-          <span className="mm-header__nudge">Not linked to a note yet — linking one connects this map to your notes and the knowledge graph.</span>
+          <span className="mm-header__nudge">Not linked to a note yet — linking one connects this canvas to your notes and the knowledge graph.</span>
         )}
         {map.linkedNotes.map((n) => (
           <span key={n.id} className="mm-chip">
@@ -908,6 +910,9 @@ const MapHeader: React.FC<HeaderProps> = ({ map, onRename, onLinkNote, onUnlinkN
           )}
         </div>
       </div>
+      <button type="button" className="mm-icon-btn mm-header__delete" title="Delete canvas" aria-label="Delete canvas" onClick={onDelete}>
+        <TrashCan size={16} />
+      </button>
     </div>
   );
 };
