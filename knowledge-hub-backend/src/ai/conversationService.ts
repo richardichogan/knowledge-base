@@ -10,6 +10,7 @@ import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
 import { selectRequiredToolChoice } from './toolRouting.js';
+import { looksLikeMeetingList, importMeetingList, buildTodayScheduleBlock } from '../integrations/ibm/ibmMeetings.js';
 
 /**
  * Handles a single conversation turn.
@@ -40,7 +41,28 @@ export async function handleConversationTurn(
   // Learned standing instructions + liked examples for this persona/project.
   const standingBlock = await buildStandingInstructionsBlock(db, { persona, projectId: activeProjectId })
     .catch((err: unknown) => { console.error('[memory] could not load standing instructions:', err); return ''; });
-  const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, standingBlock);
+  // A pasted M365 Copilot meeting list is saved as today's IBM diary before Athena replies.
+  let meetingImportNote = '';
+  if (looksLikeMeetingList(userMessage)) {
+    try {
+      const r = await importMeetingList(db, userMessage);
+      meetingImportNote = [
+        '## Meeting list saved',
+        `The user's message is their IBM meeting list for ${r.date}. It has already been saved to their calendar ` +
+          `(${r.imported.toString()} meetings${r.removed > 0 ? `, ${r.removed.toString()} earlier entries no longer listed were removed` : ''}).`,
+        r.tasksCreated.length > 0 ? `Prep tasks added to the Plan: ${r.tasksCreated.join('; ')}.` : 'No new Plan tasks were added.',
+        r.tasksAlreadyThere.length > 0 ? `Already on the Plan (not duplicated): ${r.tasksAlreadyThere.join('; ')}.` : '',
+        'Confirm this briefly, point out clashes and the meetings that need prep, and do NOT call create_task for these meetings.',
+      ].filter(Boolean).join('\n');
+    } catch (err) {
+      console.error('[meetings] import failed:', err);
+    }
+  }
+  // Today's date and meetings (personal calendar + pasted IBM diary), always.
+  const scheduleBlock = await buildTodayScheduleBlock(db)
+    .catch((err: unknown) => { console.error('[meetings] schedule block failed:', err); return ''; });
+  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote].filter((b) => b !== '').join('\n\n---\n\n');
+  const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
   const client = getFoundryClient();

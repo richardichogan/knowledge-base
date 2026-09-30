@@ -9,6 +9,7 @@ import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { ContentItem } from '../types/contentItem.js';
+import { looksLikeMeetingList, importMeetingList } from '../integrations/ibm/ibmMeetings.js';
 
 const router = Router();
 
@@ -166,6 +167,26 @@ router.post('/ibm-calendar', (req: Request, res: Response, next: NextFunction): 
         success: true,
         data: { imported },
       };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * POST /api/capture/ibm-meetings
+ * The daily M365 Copilot meeting list, pasted as text. Body: { text, date? (YYYY-MM-DD, default today UK) }
+ */
+router.post('/ibm-meetings', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { text, date } = req.body as { text?: string; date?: string };
+      if (typeof text !== 'string' || !looksLikeMeetingList(text)) {
+        throw new ValidationError('text must be a meeting list ("HH:MM–HH:MM: Title, …" per line)', { text: 'meeting list' });
+      }
+      const result = await importMeetingList(getDb(), text, typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined);
+      const body: ApiSuccess<typeof result> = { success: true, data: result };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
       next(err);

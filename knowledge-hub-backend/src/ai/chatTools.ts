@@ -803,6 +803,22 @@ async function createTask(db: Pool, args: Record<string, unknown>): Promise<unkn
     return { success: true, task: summariseTask(rowToTask(recentDupeRow)), duplicate: true };
   }
 
+  // Third guard: the same action already exists in any state (done, archived,
+  // other project) — report it rather than adding it to the Plan again.
+  const anyDupe = await db.query<Record<string, unknown>>(
+    `SELECT * FROM tasks WHERE lower(title) = lower($1) ORDER BY updated_at DESC LIMIT 1`,
+    [title],
+  );
+  const anyDupeRow = anyDupe.rows[0];
+  if (anyDupeRow !== undefined) {
+    return {
+      success: true,
+      task: summariseTask(rowToTask(anyDupeRow)),
+      duplicate: true,
+      note: `Not added — this task already exists (status: ${String(anyDupeRow['status'])}${anyDupeRow['archived'] === true ? ', archived' : ''}). Tell the user rather than creating another.`,
+    };
+  }
+
   const result = await db.query<Record<string, unknown>>(
     `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,

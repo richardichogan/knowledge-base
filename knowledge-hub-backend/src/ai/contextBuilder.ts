@@ -645,6 +645,14 @@ function resolvePersonaPrompt(persona: string | undefined): string {
  * Layer 3 — Dynamic RAG context: top-N relevant items from PostgreSQL FTS
  *            retrieved per turn based on the user query.
  */
+// Greetings, thanks and one-word acknowledgements don't need the knowledge
+// base searched — skip RAG and cross-session memory for them.
+const SMALL_TALK = /^(hi|hiya|hello|hey|morning|good (morning|afternoon|evening)|thanks|thank you|cheers|ta|ok|okay|great|cool|nice|perfect|lovely|yes|yep|no|nope|bye|goodbye|night)\b[\s,.!?]*(athena|there|all)?[\s,.!?]*$/i;
+
+export function isSmallTalk(message: string): boolean {
+  return SMALL_TALK.test(message.trim());
+}
+
 export async function buildAiContext(
   db: Pool,
   userQuery: string,
@@ -662,8 +670,8 @@ export async function buildAiContext(
     getProfileText(db, async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].filter((t) => t.trim() !== '').join('\n\n'))
       .catch(async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].join('\n\n')),
     loadBlobText(PROJECT_CONTEXT_BLOB),
-    retrieveRagItems(db, ragQuery, activeProject?.id),
-    currentSessionId
+    isSmallTalk(userQuery) ? Promise.resolve([]) : retrieveRagItems(db, ragQuery, activeProject?.id),
+    currentSessionId !== undefined && !isSmallTalk(userQuery)
       ? retrieveCrossSessionMemory(db, ragQuery, currentSessionId)
       : Promise.resolve([]),
   ]);
