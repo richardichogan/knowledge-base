@@ -18,7 +18,7 @@ const require = createRequire(import.meta.url);
 // it that way failed every PDF with "pdfParse is not a function").
 interface PdfParser {
   getText: (params?: { partial?: number[] }) => Promise<{ text: string; total: number; pages: Array<{ num: number; text: string }> }>;
-  getImage: (params?: { imageThreshold?: number; imageBuffer?: boolean; imageDataUrl?: boolean }) => Promise<{
+  getImage: (params?: { partial?: number[]; imageThreshold?: number; imageBuffer?: boolean; imageDataUrl?: boolean }) => Promise<{
     pages: Array<{ pageNumber: number; images: Array<{ width: number; height: number }> }>;
   }>;
   getScreenshot: (params?: { partial?: number[]; desiredWidth?: number; imageBuffer?: boolean; imageDataUrl?: boolean }) => Promise<{
@@ -87,6 +87,10 @@ const PDF_VISUAL_PAGE_MAX_WORDS = 50;
 const PDF_LARGE_IMAGE_AREA = 300 * 200;
 /** Cap on pages described per document, to bound vision cost. */
 export const PDF_MAX_VISUAL_PAGES = 15;
+/** Only the first pages are checked for embedded images (decoding every image in a long PDF is slow). */
+const PDF_MAX_PAGES_TO_SCAN_FOR_IMAGES = 60;
+/** Width pages are rendered at for vision (enough to read diagrams and slide text). */
+const PDF_RENDER_WIDTH = 1200;
 
 export interface PdfVisualResult extends ExtractionResult {
   /** Pages that were rendered and described. */
@@ -110,30 +114,37 @@ export async function extractPdfWithVisuals(
     const textResult = await parser.getText();
     const pages = textResult.pages;
 
-    // Pages carrying a sizeable image (tiny logos/icons filtered out).
-    let imagePages = new Set<number>();
-    try {
-      const images = await parser.getImage({ imageThreshold: 150, imageBuffer: false, imageDataUrl: false });
-      imagePages = new Set(images.pages
-        .filter((p) => p.images.some((img) => img.width * img.height >= PDF_LARGE_IMAGE_AREA))
-        .map((p) => p.pageNumber));
-    } catch {
-      // Image listing is best-effort; fall back to the word-count rule only.
+    // Work one page at a time so memory stays small whatever the document:
+    // listing a page's images decodes them, and rendering holds a full-size
+    // bitmap — done for a whole document at once, a few-MB PDF full of
+    // photos can need well over 1 GB.
+    const words = (t: string): number => t.split(/\s+/).filter(Boolean).length;
+    const toDescribe: number[] = [];
+    let qualifyingCount = 0;
+    for (const p of pages) {
+      let visual = words(p.text) < PDF_VISUAL_PAGE_MAX_WORDS;
+      if (!visual && p.num <= PDF_MAX_PAGES_TO_SCAN_FOR_IMAGES) {
+        try {
+          // A sizeable image on the page (tiny logos/icons filtered out).
+          const images = await parser.getImage({ partial: [p.num], imageThreshold: 150, imageBuffer: false, imageDataUrl: false });
+          visual = images.pages.some((pg) => pg.images.some((img) => img.width * img.height >= PDF_LARGE_IMAGE_AREA));
+        } catch {
+          // Image listing is best-effort; the word-count rule still applies.
+        }
+      }
+      if (!visual) continue;
+      qualifyingCount++;
+      if (toDescribe.length < PDF_MAX_VISUAL_PAGES) toDescribe.push(p.num);
+      else if (p.num > PDF_MAX_PAGES_TO_SCAN_FOR_IMAGES) break;
     }
 
-    const words = (t: string): number => t.split(/\s+/).filter(Boolean).length;
-    const qualifying = pages
-      .filter((p) => words(p.text) < PDF_VISUAL_PAGE_MAX_WORDS || imagePages.has(p.num))
-      .map((p) => p.num);
-    const toDescribe = qualifying.slice(0, PDF_MAX_VISUAL_PAGES);
-
     const descriptions = new Map<number, string>();
-    if (toDescribe.length > 0) {
-      const shots = await parser.getScreenshot({ partial: toDescribe, desiredWidth: 1400, imageBuffer: true, imageDataUrl: false });
-      for (const shot of shots.pages) {
-        const text = await describe(Buffer.from(shot.data)).catch(() => '');
-        if (text.trim() !== '') descriptions.set(shot.pageNumber, text.trim());
-      }
+    for (const num of toDescribe) {
+      const shot = await parser.getScreenshot({ partial: [num], desiredWidth: PDF_RENDER_WIDTH, imageBuffer: true, imageDataUrl: false }).catch(() => null);
+      const page = shot?.pages[0];
+      if (page === undefined) continue;
+      const text = await describe(Buffer.from(page.data)).catch(() => '');
+      if (text.trim() !== '') descriptions.set(num, text.trim());
     }
 
     const body = pages.map((p) => {
@@ -149,7 +160,7 @@ export async function extractPdfWithVisuals(
       text: body,
       pageCount: textResult.total,
       visualPages: [...descriptions.keys()],
-      visualCapped: qualifying.length > toDescribe.length,
+      visualCapped: qualifyingCount > toDescribe.length,
       error: undefined,
     };
   } catch (err) {
