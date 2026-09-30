@@ -161,6 +161,21 @@ export const NotesPage: React.FC = () => {
     }
   }
 
+  /** "New map": with a note open, offer to pin the map to it (recommended) or start blank. */
+  const [newMapMenu, setNewMapMenu] = useState<'header' | 'footer' | null>(null);
+  function requestNewMap(where: 'header' | 'footer'): void {
+    if (openDoc !== null) setNewMapMenu(where);
+    else void handleCreateCanvas();
+  }
+  async function createPinnedMap(noteId: string): Promise<void> {
+    setNewMapMenu(null);
+    const r = await api.createCanvas({ noteId, seedFromHeadings: true });
+    if (r.success) {
+      await queryClient.invalidateQueries({ queryKey: ['canvases'] });
+      openMap(r.data.id);
+    }
+  }
+
   function openMap(mapId: string): void {
     setMode('canvas');
     setSelectedCanvasId(mapId);
@@ -338,18 +353,29 @@ export const NotesPage: React.FC = () => {
           </div>
           {/* Always present (label follows the view) so the bar keeps its
               shape when switching Notes / Sparks / Canvas. */}
-          <button
-            type="button"
-            className="docs-upload-btn notes-header__new"
-            onClick={() => {
-              if (mode === 'canvas') void handleCreateCanvas();
-              else if (mode === 'sparks') setSparkModalOpen(true);
-              else void handleCreateNote();
-            }}
-          >
-            <Add size={20} />
-            {mode === 'canvas' ? 'New map' : mode === 'sparks' ? 'New spark' : 'New note'}
-          </button>
+          <div className="mm-newmap-anchor">
+            <button
+              type="button"
+              className="docs-upload-btn notes-header__new"
+              aria-haspopup={mode === 'canvas' && openDoc !== null ? 'menu' : undefined}
+              onClick={() => {
+                if (mode === 'canvas') requestNewMap('header');
+                else if (mode === 'sparks') setSparkModalOpen(true);
+                else void handleCreateNote();
+              }}
+            >
+              <Add size={20} />
+              {mode === 'canvas' ? 'New map' : mode === 'sparks' ? 'New spark' : 'New note'}
+            </button>
+            {newMapMenu === 'header' && openDoc !== null && (
+              <NewMapMenu
+                noteTitle={openDoc.title}
+                onPin={() => { void createPinnedMap(openDoc.id); }}
+                onBlank={() => { setNewMapMenu(null); void handleCreateCanvas(); }}
+                onClose={() => { setNewMapMenu(null); }}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -453,7 +479,17 @@ export const NotesPage: React.FC = () => {
                 </div>
               )}
               <div className="notes-list-footer">
-                <button className="kh-btn-accent" onClick={() => { void handleCreateCanvas(); }}>+ New map</button>
+                <div className="mm-newmap-anchor mm-newmap-anchor--up">
+                  <button className="kh-btn-accent" onClick={() => { requestNewMap('footer'); }}>+ New map</button>
+                  {newMapMenu === 'footer' && openDoc !== null && (
+                    <NewMapMenu
+                      noteTitle={openDoc.title}
+                      onPin={() => { void createPinnedMap(openDoc.id); }}
+                      onBlank={() => { setNewMapMenu(null); void handleCreateCanvas(); }}
+                      onClose={() => { setNewMapMenu(null); }}
+                    />
+                  )}
+                </div>
               </div>
             </>
           )}
@@ -494,6 +530,30 @@ export const NotesPage: React.FC = () => {
       />
 
       <QuickSparkModal open={sparkModalOpen} onClose={() => { setSparkModalOpen(false); }} />
+    </div>
+  );
+};
+
+/** The choice offered by "New map" when a note is open. */
+const NewMapMenu: React.FC<{ noteTitle: string; onPin: () => void; onBlank: () => void; onClose: () => void }> = ({ noteTitle, onPin, onBlank, onClose }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent): void => { if (ref.current !== null && !ref.current.contains(e.target as Node)) onClose(); };
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  return (
+    <div ref={ref} className="mm-newmap-menu" role="menu" aria-label="New map">
+      <button type="button" role="menuitem" className="mm-newmap-menu__item" autoFocus onClick={onPin}>
+        <span className="mm-newmap-menu__title">Pin to “{noteTitle}”</span>
+        <span className="mm-newmap-menu__desc">Recommended — the note is the central idea, its headings become branches, and the map joins the note in the knowledge graph.</span>
+      </button>
+      <button type="button" role="menuitem" className="mm-newmap-menu__item" onClick={onBlank}>
+        <span className="mm-newmap-menu__title">Blank map</span>
+        <span className="mm-newmap-menu__desc">Start from an empty central idea and link notes later.</span>
+      </button>
     </div>
   );
 };

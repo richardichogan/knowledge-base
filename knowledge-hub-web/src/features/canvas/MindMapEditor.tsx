@@ -874,6 +874,9 @@ const MapHeader: React.FC<HeaderProps> = ({ map, onRename, onLinkNote, onUnlinkN
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
       />
       <div className="mm-header__notes">
+        {map.linkedNotes.length === 0 && (
+          <span className="mm-header__nudge">Not linked to a note yet — linking one connects this map to your notes and the knowledge graph.</span>
+        )}
         {map.linkedNotes.map((n) => (
           <span key={n.id} className="mm-chip">
             <button type="button" className="mm-chip__open" title="Open note" onClick={() => { onOpenNote(n.id); }}>{n.title}</button>
@@ -881,7 +884,11 @@ const MapHeader: React.FC<HeaderProps> = ({ map, onRename, onLinkNote, onUnlinkN
           </span>
         ))}
         <div className="mm-picker-anchor">
-          <button type="button" className="mm-chip mm-chip--add" onClick={() => { setPicking((v) => !v); setQuery(''); }}>
+          <button
+            type="button"
+            className={`mm-chip mm-chip--add${map.linkedNotes.length === 0 ? ' mm-chip--nudge' : ''}`}
+            onClick={() => { setPicking((v) => !v); setQuery(''); }}
+          >
             <Add size={12} /> Link note
           </button>
           {picking && (

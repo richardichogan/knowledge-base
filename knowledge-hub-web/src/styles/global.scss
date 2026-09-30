@@ -12930,3 +12930,40 @@ $interactive:      #0f62fe;
 }
 
 .mm-list-notes { color: var(--kh-accent); opacity: 0.85; }
+
+// "New map" choice (pin to the open note, or blank)
+.mm-newmap-anchor { position: relative; }
+.mm-newmap-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 9000;
+  width: 22rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--cds-layer-03);
+  border: 1px solid var(--cds-border-subtle-02);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+
+  .mm-newmap-anchor--up & { top: auto; bottom: calc(100% + 4px); left: 0; right: auto; width: 100%; min-width: 18rem; }
+
+  &__item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.75rem 1rem;
+    background: none;
+    border: none;
+    border-left: 3px solid transparent;
+    text-align: left;
+    cursor: pointer;
+    color: var(--cds-text-primary);
+    &:hover, &:focus-visible { background: var(--cds-layer-hover-02); border-left-color: var(--kh-accent); outline: none; }
+    & + & { border-top: 1px solid var(--cds-border-subtle-01); }
+  }
+  &__title { font-size: 0.875rem; font-weight: 600; }
+  &__desc { font-size: 0.75rem; line-height: 1.4; color: var(--cds-text-secondary); }
+}
+
+.mm-header__nudge { font-size: 0.75rem; color: var(--cds-text-helper); }
+.mm-chip--nudge { border-style: solid; border-color: var(--kh-accent-border); color: var(--kh-accent); }
