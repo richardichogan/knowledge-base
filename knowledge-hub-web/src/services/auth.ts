@@ -17,6 +17,17 @@ const TENANT_ID = import.meta.env['VITE_ENTRA_TENANT_ID'] as string | undefined 
 
 export const AUTH_ENABLED = CLIENT_ID !== '' && TENANT_ID !== '';
 
+// The account last used here, so Microsoft skips the account picker next time.
+const HINT_KEY = 'kh_signin_hint';
+
+function readHint(): string | undefined {
+  try { return window.localStorage.getItem(HINT_KEY) ?? undefined; } catch { return undefined; }
+}
+
+function saveHint(username: string): void {
+  try { window.localStorage.setItem(HINT_KEY, username); } catch { /* storage unavailable */ }
+}
+
 const API_SCOPES = [`api://${CLIENT_ID}/access_as_user`];
 
 const msal = AUTH_ENABLED
@@ -42,13 +53,17 @@ export async function initAuth(): Promise<AccountInfo | null> {
   await msal.initialize();
   const result = await msal.handleRedirectPromise();
   const account = result?.account ?? msal.getActiveAccount() ?? msal.getAllAccounts()[0] ?? null;
-  if (account !== null) msal.setActiveAccount(account);
+  if (account !== null) {
+    msal.setActiveAccount(account);
+    saveHint(account.username);
+  }
   return account;
 }
 
 export function signIn(): Promise<void> {
   if (msal === null) return Promise.resolve();
-  return msal.loginRedirect({ scopes: API_SCOPES });
+  const loginHint = readHint();
+  return msal.loginRedirect({ scopes: API_SCOPES, ...(loginHint !== undefined && { loginHint }) });
 }
 
 export function signOut(): Promise<void> {
