@@ -5,7 +5,7 @@
  * Unauthenticated — must be mounted BEFORE the API auth middleware.
  *
  * GET  /auth/graph          → redirects browser to Microsoft consent page
- * GET  /auth/graph/callback → exchanges code for tokens, saves refresh token to .env
+ * GET  /auth/graph/callback → exchanges code for tokens, saves the refresh token (database + .env)
  */
 
 import { Router } from 'express';
@@ -13,6 +13,7 @@ import type { Request, Response } from 'express';
 import { writeFileSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { env } from '../config/env.js';
+import { saveGraphRefreshToken } from '../integrations/graph/graphClient.js';
 
 export const graphAuthRouter = Router();
 
@@ -88,7 +89,9 @@ graphAuthRouter.get('/callback', (req: Request, res: Response): void => {
         return;
       }
 
-      // Persist into .env
+      // Persist in the database (shared by local dev and prod, rotated on every refresh)…
+      await saveGraphRefreshToken(tokens.refresh_token);
+      // …and into .env
       const envPath = resolve(process.cwd(), '.env');
       let envContent = readFileSync(envPath, 'utf8');
       if (envContent.includes('GRAPH_REFRESH_TOKEN=')) {
@@ -101,7 +104,7 @@ graphAuthRouter.get('/callback', (req: Request, res: Response): void => {
 
       res.send(`
         <h2>✅ Microsoft Graph authorised successfully!</h2>
-        <p>Refresh token saved to <code>.env</code>.</p>
+        <p>Sign-in saved — Athena keeps it renewed automatically.</p>
         <p>Mail, Calendar and Tasks sync will now work for <strong>richard.hogan@themicrosoftcloudblog.com</strong>.</p>
         <p>You can close this tab.</p>
       `);

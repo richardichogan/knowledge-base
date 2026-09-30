@@ -1,4 +1,7 @@
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { env } from '../../config/env.js';
+import { getDb } from '../../db/db.js';
+import { getSyncState, upsertSyncState } from '../../db/queries.js';
 import { EXTERNAL_FETCH_TIMEOUT_MS } from '../../config/constants.js';
 import { IntegrationError, UnauthorisedError } from '../../types/errors.js';
 import { MS_PER_SECOND } from '../../config/constants.js';
@@ -8,6 +11,47 @@ interface TokenResponse {
   refresh_token?: string;
   expires_in: number;
   token_type: string;
+}
+
+// ── Refresh token storage ─────────────────────────────────────────────────────
+// Microsoft returns a new refresh token on every refresh; the old one expires
+// after 90 days. It's kept in the database (AES-256-GCM, key = SHA-256 of the
+// client secret) so each new one is saved and the sign-in never lapses.
+// GRAPH_REFRESH_TOKEN in the environment is only the initial fallback.
+
+const TOKEN_STATE_KEY = 'graph-auth';
+
+function tokenKey(): Buffer {
+  return createHash('sha256').update(env.GRAPH_CLIENT_SECRET ?? '').digest();
+}
+
+function encrypt(plain: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', tokenKey(), iv);
+  const data = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), data]).toString('base64');
+}
+
+function decrypt(encoded: string): string {
+  const raw = Buffer.from(encoded, 'base64');
+  const decipher = createDecipheriv('aes-256-gcm', tokenKey(), raw.subarray(0, 12));
+  decipher.setAuthTag(raw.subarray(12, 28));
+  return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8');
+}
+
+async function loadRefreshToken(): Promise<string | undefined> {
+  try {
+    const state = await getSyncState(getDb(), TOKEN_STATE_KEY);
+    if (state?.lastCursor != null && state.lastCursor !== '') return decrypt(state.lastCursor);
+  } catch {
+    // Unreadable (secret changed) — fall back to the environment value.
+  }
+  return env.GRAPH_REFRESH_TOKEN;
+}
+
+/** Saves a refresh token (from sign-in or a refresh) so the next refresh uses it. */
+export async function saveGraphRefreshToken(refreshToken: string): Promise<void> {
+  await upsertSyncState(getDb(), TOKEN_STATE_KEY, { lastSyncAt: new Date(), lastCursor: encrypt(refreshToken), lastError: null });
 }
 
 /**
@@ -30,7 +74,8 @@ export class GraphClient {
       return this.accessToken;
     }
 
-    if (!env.GRAPH_REFRESH_TOKEN) {
+    const refreshToken = await loadRefreshToken();
+    if (!refreshToken) {
       throw new UnauthorisedError(
         'Microsoft Graph refresh token not configured. Complete the OAuth2 flow first.',
       );
@@ -40,7 +85,7 @@ export class GraphClient {
     const params = new URLSearchParams({
       client_id: env.GRAPH_CLIENT_ID ?? '',
       client_secret: env.GRAPH_CLIENT_SECRET ?? '',
-      refresh_token: env.GRAPH_REFRESH_TOKEN,
+      refresh_token: refreshToken,
       grant_type: 'refresh_token',
       scope: 'Calendars.Read Tasks.ReadWrite Mail.Read offline_access',
     });
@@ -58,6 +103,9 @@ export class GraphClient {
     }
 
     const token = await response.json() as TokenResponse;
+    if (token.refresh_token !== undefined && token.refresh_token !== refreshToken) {
+      await saveGraphRefreshToken(token.refresh_token);
+    }
     this.accessToken = token.access_token;
     this.tokenExpiresAt = nowMs + token.expires_in * MS_PER_SECOND;
 
