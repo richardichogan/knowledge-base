@@ -30,6 +30,7 @@ import { isIcaEnabled, icaChat } from './icaClient.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
 import { getLearnMcpTools, isLearnMcpTool, callLearnMcpTool } from './learnMcpClient.js';
 import { getTavilyMcpTools, isTavilyMcpTool, callTavilyMcpTool } from './tavilyMcpClient.js';
+import { resolveMapChanges, type MapChangeProposal } from './mapEdits.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -232,6 +233,49 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'propose_map_changes',
+        description:
+          "Proposes changes to the mind map open next to this chat (outline under 'Mind map in view'). Use it whenever " +
+          "Richard asks you to expand, add ideas/branches to, restructure, rename, prune or link ideas on the map. Refer " +
+          "to existing ideas by their alias exactly as in the outline (n1 is the central idea). When you add an idea you " +
+          "can give it a 'key' (e.g. k1) and use that key as the parent of later additions, to build several levels at " +
+          "once. Keep labels short (2–8 words); put detail in 'note'. The changes are shown as a preview with " +
+          "Apply/Discard — after calling it, reply in one or two short lines; do not repeat the ideas in your reply.",
+        parameters: {
+          type: 'object',
+          properties: {
+            changes: {
+              type: 'array',
+              description: 'Changes, applied in order.',
+              items: {
+                type: 'object',
+                properties: {
+                  action: {
+                    type: 'string',
+                    enum: ['add', 'rename', 'describe', 'move', 'delete', 'link'],
+                    description: 'add = new idea under parent; rename = new label; describe = set its note; move = re-parent; ' +
+                      'delete = remove the idea and its branch; link = cross-link node to "to".',
+                  },
+                  node: { type: 'string', description: 'Alias of the idea to change (rename/describe/move/delete) or link from (link).' },
+                  parent: { type: 'string', description: 'add/move: alias or key of the new parent idea.' },
+                  to: { type: 'string', description: 'link: alias or key of the idea to link to.' },
+                  label: { type: 'string', description: 'add/rename: the idea text; link: optional relationship label, e.g. "supports".' },
+                  note: { type: 'string', description: 'add/describe: optional detail shown with the idea.' },
+                  key: { type: 'string', description: 'add: your own key for this new idea so later changes can use it as a parent.' },
+                  side: { type: 'string', enum: ['left', 'right'], description: 'add/move under the central idea: which side.' },
+                  summary: { type: 'string', description: 'One short line describing this change.' },
+                },
+                required: ['action', 'summary'],
+              },
+            },
+          },
+          required: ['changes'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'propose_note_edit',
         description:
           "Proposes changes to the Think note that is open next to this chat (shown under 'Document in view'). " +
@@ -356,7 +400,11 @@ export async function executeToolCall(
   name: string,
   argsJson: string,
   activeProjectId?: string,
-  turn: { sessionId?: string | undefined; noteId?: string | undefined; noteEdits?: NoteEditProposal[] } = {},
+  turn: {
+    sessionId?: string | undefined; noteId?: string | undefined; noteEdits?: NoteEditProposal[];
+    /** Open mind map: outline alias (n1 …) → idea id, and a collector for proposed changes. */
+    mapAliases?: Map<string, string> | undefined; mapChanges?: MapChangeProposal[];
+  } = {},
 ): Promise<unknown> {
   let args: Record<string, unknown> = {};
   try {
@@ -384,13 +432,20 @@ export async function executeToolCall(
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
     case 'remember':              return rememberInstruction(db, args, turn.sessionId);
     case 'propose_note_edit': {
-      if (turn.noteId === undefined || turn.noteId === '' || turn.noteId.startsWith('doc:')) {
+      if (turn.noteId === undefined || turn.noteId === '' || turn.noteId.startsWith('doc:') || turn.noteId.startsWith('map:')) {
         return { error: 'No editable Think note is open next to this chat. Library documents are read-only.' };
       }
       const { edits, problems } = validateNoteEdits(args['edits']);
       if (edits.length === 0) return { error: `No valid edits: ${problems.join('; ') || 'edits array was empty'}` };
       turn.noteEdits?.push(...edits);
       return { proposed: edits.length, ...(problems.length > 0 && { skipped: problems }), note: 'Shown to the user as a preview with Apply/Discard.' };
+    }
+    case 'propose_map_changes': {
+      if (turn.mapAliases === undefined) return { error: 'No mind map is open next to this chat.' };
+      const { proposals, problems } = resolveMapChanges(args['changes'], turn.mapAliases);
+      if (proposals.length === 0) return { error: `No valid changes: ${problems.join('; ') || 'changes array was empty'}` };
+      turn.mapChanges?.push(...proposals);
+      return { proposed: proposals.length, ...(problems.length > 0 && { skipped: problems }), note: 'Shown to the user as a preview with Apply/Discard.' };
     }
     case 'list_memories':         return { memories: (await listMemories(db)).filter((m) => m.kind === 'instruction' && m.status === 'active').map((m) => ({ id: m.id, instruction: m.content, scope: m.scopeType, scopeValue: m.scopeValue })) };
     case 'forget_memory': {

@@ -1,3 +1,4 @@
+import type { MapOp } from '../services/api';
 /**
  * AI conversation types — mirrors backend aiContext types.
  */
@@ -13,6 +14,8 @@ export interface ChatPageContext {
   type: string;
   title: string;
   detail?: string;
+  /** Mind map: the selected idea. */
+  selectedId?: string;
 }
 
 export interface ChatRequest {
@@ -53,6 +56,16 @@ export interface ChatMessage {
   noteEdits?: NoteEdit[];
   /** The note those edits were written for. */
   noteEditsFor?: string;
+  /** Changes Athena proposed to the open mind map (previewed; applied on click). */
+  mapChanges?: MapChange[];
+  /** The map those changes were written for. */
+  mapChangesFor?: string;
+}
+
+/** One change Athena proposes to the open mind map (a summary plus the ops that make it). */
+export interface MapChange {
+  summary: string;
+  ops: MapOp[];
 }
 
 /** One edit Athena proposes to the open Think note. */
@@ -115,6 +128,8 @@ export interface ChatResponse {
   memoriesCreated?: SavedMemory[];
   noteEdits?: NoteEdit[];
   noteEditsFor?: string | null;
+  mapChanges?: MapChange[];
+  mapChangesFor?: string | null;
   pendingActions: WriteActionProposal[];
 }
 

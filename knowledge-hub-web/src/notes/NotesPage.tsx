@@ -17,7 +17,7 @@ import { fetchNotes, fetchNote, createNote, deleteNote, extractNoteBlockText, bu
 import type { NoteContentBlock } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
-import { CanvasEditor } from '../features/canvas/CanvasEditor';
+import { MindMapEditor } from '../features/canvas/MindMapEditor';
 import { api } from '../services/api';
 import { useAthenaContext } from '../context/AthenaContext';
 import { usePersistedBoolean } from '../hooks/usePersistedState';
@@ -85,6 +85,12 @@ export const NotesPage: React.FC = () => {
   });
 
   useEffect(() => {
+    const linkedMapId = searchParams.get('mapId');
+    if (linkedMapId !== null) {
+      openMap(linkedMapId);
+      searchParams.delete('mapId');
+      setSearchParams(searchParams, { replace: true });
+    }
     const linkedId = searchParams.get('noteId');
     if (linkedId !== null) {
       void handleSelectNote(linkedId);
@@ -148,11 +154,41 @@ export const NotesPage: React.FC = () => {
   }
 
   async function handleCreateCanvas(): Promise<void> {
-    const r = await api.createCanvas('Untitled Canvas');
-    if (r.success && r.data) {
+    const r = await api.createCanvas({ title: 'Untitled map', rootLabel: 'Central idea' });
+    if (r.success) {
       await queryClient.invalidateQueries({ queryKey: ['canvases'] });
       setSelectedCanvasId(r.data.id);
     }
+  }
+
+  function openMap(mapId: string): void {
+    setMode('canvas');
+    setSelectedCanvasId(mapId);
+  }
+
+  /** "Map this note": opens the note's map, or creates one seeded from its headings. */
+  async function mapNote(noteId: string): Promise<void> {
+    const existing = await api.listCanvases(noteId);
+    const first = existing.success ? existing.data[0] : undefined;
+    if (first !== undefined) { openMap(first.id); return; }
+    const r = await api.createCanvas({ noteId, seedFromHeadings: true });
+    if (r.success) {
+      await queryClient.invalidateQueries({ queryKey: ['canvases'] });
+      openMap(r.data.id);
+    }
+  }
+
+  /** Opens a note from a map (switches Think back to Notes). */
+  function openNoteFromMap(noteId: string): void {
+    setMode('notes');
+    setSelectedId(null);
+    void handleSelectNote(noteId);
+  }
+
+  /** A note changed on the server (a map branch was added to it): reload it if it's the open one. */
+  function refreshNoteIfOpen(noteId: string): void {
+    if (openDoc?.id !== noteId) return;
+    void fetchNote(noteId).then((doc) => { if (doc !== null && latestSelectRef.current === noteId) setOpenDoc(doc); });
   }
 
   function handleNoteSaved(updated: NoteDocument): void {
@@ -199,9 +235,6 @@ export const NotesPage: React.FC = () => {
   const noteTitle = mode === 'notes' ? openDoc?.title ?? null : null;
   const noteContentType = mode === 'notes' ? openDoc?.contentType ?? null : null;
   const noteProjectId = mode === 'notes' ? openDoc?.projectId ?? null : null;
-  const selectedCanvas = selectedCanvasId !== null ? canvases.find((c) => c.id === selectedCanvasId) ?? null : null;
-  const selectedCanvasTitle = selectedCanvas?.title ?? null;
-  const selectedCanvasUpdatedAt = selectedCanvas?.updatedAt ?? null;
 
   useEffect(() => {
     if (mode === 'notes' && openDoc !== null) {
@@ -257,14 +290,6 @@ export const NotesPage: React.FC = () => {
 
       return () => { cancelled = true; setAthenaContext(null); };
     }
-    if (mode === 'canvas' && selectedCanvasTitle !== null && selectedCanvasUpdatedAt !== null) {
-      setAthenaContext({
-        type: 'canvas',
-        title: selectedCanvasTitle,
-        detail: `Updated: ${new Date(selectedCanvasUpdatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
-      });
-      return () => { setAthenaContext(null); };
-    }
     setAthenaContext(null);
     return undefined;
     // Depend on primitive fields, not the `openDoc` object reference — autosave
@@ -272,7 +297,7 @@ export const NotesPage: React.FC = () => {
     // nothing changed, which would otherwise refire this effect (and the image
     // lookup fetch inside it) in a tight loop on a timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, selectedCanvasTitle, selectedCanvasUpdatedAt, setAthenaContext]);
+  }, [mode, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
 
   if (isLoading) return <InlineLoading description="Loading documents…" />;
   if (isError) return (
@@ -323,7 +348,7 @@ export const NotesPage: React.FC = () => {
             }}
           >
             <Add size={20} />
-            {mode === 'canvas' ? 'New canvas' : mode === 'sparks' ? 'New spark' : 'New note'}
+            {mode === 'canvas' ? 'New map' : mode === 'sparks' ? 'New spark' : 'New note'}
           </button>
         </div>
       </div>
@@ -412,6 +437,9 @@ export const NotesPage: React.FC = () => {
                       onKeyDown={(e) => { if (e.key === 'Enter') setSelectedCanvasId(c.id); }}
                     >
                       <p className="notes-list-item-title">{c.title}</p>
+                      {c.linkedNotes.length > 0 && (
+                        <p className="notes-list-item-preview mm-list-notes">↳ {c.linkedNotes.map((n) => n.title).join(', ')}</p>
+                      )}
                       <div className="notes-list-item-bottom">
                         <span className="notes-list-item-date">
                           {new Date(c.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -420,12 +448,12 @@ export const NotesPage: React.FC = () => {
                     </div>
                   ))}
                   {canvases.length === 0 && (
-                    <p className="notes-list-empty">No canvases yet</p>
+                    <p className="notes-list-empty">No maps yet. Start one here, or use “Map” on any note.</p>
                   )}
                 </div>
               )}
               <div className="notes-list-footer">
-                <button className="kh-btn-accent" onClick={() => { void handleCreateCanvas(); }}>+ New canvas</button>
+                <button className="kh-btn-accent" onClick={() => { void handleCreateCanvas(); }}>+ New map</button>
               </div>
             </>
           )}
@@ -436,17 +464,22 @@ export const NotesPage: React.FC = () => {
         {mode === 'sparks' ? (
           <div className="notes-editor-area"><SparkPanel /></div>
         ) : mode === 'canvas' ? (
-          <div className="notes-editor-area">
+          <div className="notes-editor-area notes-editor-area--map">
             {selectedCanvasId !== null ? (
-              <CanvasEditor canvasId={selectedCanvasId} />
+              <MindMapEditor
+                canvasId={selectedCanvasId}
+                onOpenNote={openNoteFromMap}
+                onNoteChanged={refreshNoteIfOpen}
+                onDeleted={() => { setSelectedCanvasId(null); }}
+              />
             ) : (
-              <div className="notes-empty-state">Select a canvas or create a new one</div>
+              <div className="notes-empty-state">Select a map, start a new one, or use “Map” on any note</div>
             )}
           </div>
         ) : (
           <div className="notes-editor-area">
             {openDoc !== null ? (
-              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} />
+              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>
             )}

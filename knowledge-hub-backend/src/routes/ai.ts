@@ -8,6 +8,7 @@ import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingPr
 import { textToBlocks } from '../ai/chatTools.js';
 import { memoriesCreatedSince } from '../ai/athenaMemory.js';
 import type { NoteEditProposal } from '../ai/noteEdits.js';
+import type { MapChangeProposal } from '../ai/mapEdits.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
 import { createNoteRecord } from './notes.js';
 import { env } from '../config/env.js';
@@ -79,11 +80,12 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       const turnStartedAt = new Date();
       const toolsUsed = new Set<string>();
       const noteEdits: NoteEditProposal[] = [];
+      const mapChanges: MapChangeProposal[] = [];
       const openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
       const reply = await handleConversationTurn(
         db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext,
         (toolName) => { toolsUsed.add(toolName); },
-        { noteId: openNoteId, noteEdits },
+        { noteId: openNoteId, noteEdits, mapChanges },
       );
       const sources = [...toolsUsed];
 
@@ -123,12 +125,14 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
         ? (await memoriesCreatedSince(db, effectiveSessionId, turnStartedAt)).map((m) => ({ id: m.id, content: m.content, scopeType: m.scopeType, scopeValue: m.scopeValue }))
         : [];
 
-      const body: ApiSuccess<{ reply: string; sessionId: string; persona: string; sources: string[]; pendingActions: typeof pending; memoriesCreated: typeof memoriesCreated; noteEdits: NoteEditProposal[]; noteEditsFor: string | null }> = {
+      const body: ApiSuccess<{ reply: string; sessionId: string; persona: string; sources: string[]; pendingActions: typeof pending; memoriesCreated: typeof memoriesCreated; noteEdits: NoteEditProposal[]; noteEditsFor: string | null; mapChanges: MapChangeProposal[]; mapChangesFor: string | null }> = {
         success: true,
         data: {
           reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated,
           // Proposed edits to the open note, applied client-side on "Apply".
           noteEdits, noteEditsFor: noteEdits.length > 0 ? openNoteId ?? null : null,
+          // Proposed changes to the open mind map, applied on "Apply".
+          mapChanges, mapChangesFor: mapChanges.length > 0 && openNoteId?.startsWith('map:') === true ? openNoteId.slice('map:'.length) : null,
         },
       };
       res.status(HTTP_STATUS.OK).json(body);

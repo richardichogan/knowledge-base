@@ -216,28 +216,14 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
   const canvases: CanvasSummaryApi[] = data?.success ? data.data : [];
 
   const { mutate: addNode, isPending } = useMutation({
-    mutationFn: (canvasId: string) => {
-      // Backend NodeType only accepts 'hub_ref' | 'text' | 'ai_output'
-      // Any item with a refId is a reference — use hub_ref.
-      // Fall back to 'text' for plain freeform items.
-      const rawType = item.nodeType;
-      const nodeType: 'hub_ref' | 'text' | 'ai_output' =
-        rawType === 'ai_output' ? 'ai_output'
-        : (item.refId || rawType === 'hub_ref') ? 'hub_ref'
-        : 'text';
-      return api.createCanvasNode(canvasId, {
-        nodeType,
-        label: item.title,
-        ...(item.body    ? { body:    item.body    } : {}),
-        ...(item.url     ? { url:     item.url     } : {}),
-        ...(item.refId   ? { refId:   item.refId   } : {}),
-        ...(item.refType ? { refType: item.refType } : {}),
-        ...(item.tags?.length ? { tags: item.tags } : {}),
-        x: 100 + Math.random() * 180,
-        y: 100 + Math.random() * 180,
-        width: 300,
-      });
-    },
+    mutationFn: (canvasId: string) => api.addToCanvas(canvasId, {
+      // Added as a branch of the map's central idea.
+      label: item.title,
+      ...(item.body    ? { body:    item.body    } : {}),
+      ...(item.url     ? { url:     item.url     } : {}),
+      ...(item.refId   ? { refId:   item.refId   } : {}),
+      ...(item.refType ? { refType: item.refType } : {}),
+    }),
     onSuccess: (_res, canvasId) => {
       setSent(true);
       void qc.invalidateQueries({ queryKey: ['canvases-list'] });
@@ -245,7 +231,7 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
       setTimeout(onClose, 1400);
     },
     onError: (err) => {
-      console.error('[GlobalContextMenu] createCanvasNode failed:', err);
+      console.error('[GlobalContextMenu] add to map failed:', err);
     },
   });
 

@@ -1070,15 +1070,15 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  // ── Canvas ──────────────────────────────────────────────────────────────────
+  // ── Mind maps (Think → Canvas) ──────────────────────────────────────────────
 
-  async listCanvases(): Promise<ApiResponse<CanvasSummaryApi[]>> {
-    const r = await this.client.get<ApiResponse<CanvasSummaryApi[]>>('/api/canvases');
+  async listCanvases(noteId?: string): Promise<ApiResponse<CanvasSummaryApi[]>> {
+    const r = await this.client.get<ApiResponse<CanvasSummaryApi[]>>('/api/canvases', { params: noteId !== undefined ? { noteId } : {} });
     return r.data;
   }
 
-  async createCanvas(title?: string, description?: string, project?: string): Promise<ApiResponse<CanvasFullApi>> {
-    const r = await this.client.post<ApiResponse<CanvasFullApi>>('/api/canvases', { title, description, project });
+  async createCanvas(input: { title?: string; rootLabel?: string; noteId?: string; seedFromHeadings?: boolean; project?: string } = {}): Promise<ApiResponse<CanvasFullApi>> {
+    const r = await this.client.post<ApiResponse<CanvasFullApi>>('/api/canvases', input);
     return r.data;
   }
 
@@ -1087,7 +1087,7 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string; viewport?: object }): Promise<ApiResponse<CanvasSummaryApi>> {
+  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; viewport?: object }): Promise<ApiResponse<CanvasSummaryApi>> {
     const r = await this.client.patch<ApiResponse<CanvasSummaryApi>>(`/api/canvases/${id}`, patch);
     return r.data;
   }
@@ -1096,27 +1096,57 @@ export class KnowledgeHubApi {
     await this.client.delete(`/api/canvases/${id}`);
   }
 
-  async createCanvasNode(canvasId: string, input: CanvasNodeInput): Promise<ApiResponse<CanvasNodeApi>> {
-    const r = await this.client.post<ApiResponse<CanvasNodeApi>>(`/api/canvases/${canvasId}/nodes`, input);
+  /** Applies changes to a map (all-or-nothing); returns the updated map. */
+  async applyCanvasOps(id: string, ops: MapOp[]): Promise<ApiResponse<CanvasFullApi>> {
+    const r = await this.client.post<ApiResponse<CanvasFullApi>>(`/api/canvases/${id}/ops`, { ops });
     return r.data;
   }
 
-  async updateCanvasNode(canvasId: string, nodeId: string, patch: Partial<CanvasNodeInput>): Promise<ApiResponse<CanvasNodeApi>> {
-    const r = await this.client.patch<ApiResponse<CanvasNodeApi>>(`/api/canvases/${canvasId}/nodes/${nodeId}`, patch);
+  /** Adds an item as a branch of the map's central idea (e.g. "Send to Canvas"). */
+  async addToCanvas(id: string, item: { label: string; body?: string; url?: string; refType?: string; refId?: string }): Promise<ApiResponse<CanvasFullApi>> {
+    const map = await this.getCanvas(id);
+    if (!map.success) return map;
+    const root = map.data.nodes.find((n) => n.parentId === null);
+    if (root === undefined) return map;
+    const refType = MAP_REF_TYPES.find((t) => t === item.refType);
+    const sides = map.data.nodes.filter((n) => n.parentId === root.id);
+    return this.applyCanvasOps(id, [{
+      op: 'add', id: crypto.randomUUID(), parentId: root.id, label: item.label,
+      side: sides.filter((n) => n.side === 'right').length <= sides.filter((n) => n.side === 'left').length ? 'right' : 'left',
+      ...(item.body !== undefined && { body: item.body }),
+      ...(item.url !== undefined && { url: item.url }),
+      ...(refType !== undefined && item.refId !== undefined && { refType, refId: item.refId }),
+    }]);
+  }
+
+  async linkCanvasNote(id: string, noteId: string): Promise<ApiResponse<CanvasFullApi>> {
+    const r = await this.client.post<ApiResponse<CanvasFullApi>>(`/api/canvases/${id}/notes`, { noteId });
     return r.data;
   }
 
-  async deleteCanvasNode(canvasId: string, nodeId: string): Promise<void> {
-    await this.client.delete(`/api/canvases/${canvasId}/nodes/${nodeId}`);
-  }
-
-  async createCanvasEdge(canvasId: string, sourceId: string, targetId: string, edgeType?: string, label?: string): Promise<ApiResponse<CanvasEdgeApi>> {
-    const r = await this.client.post<ApiResponse<CanvasEdgeApi>>(`/api/canvases/${canvasId}/edges`, { sourceId, targetId, edgeType, label });
+  async unlinkCanvasNote(id: string, noteId: string): Promise<ApiResponse<CanvasFullApi>> {
+    const r = await this.client.delete<ApiResponse<CanvasFullApi>>(`/api/canvases/${id}/notes/${noteId}`);
     return r.data;
   }
 
-  async deleteCanvasEdge(canvasId: string, edgeId: string): Promise<void> {
-    await this.client.delete(`/api/canvases/${canvasId}/edges/${edgeId}`);
+  /** Related content for an idea; its current text is sent so unsaved edits count. */
+  async getCanvasSuggestions(id: string, idea: { nodeId?: string; label?: string; body?: string; parentLabel?: string } = {}): Promise<ApiResponse<MapSuggestionApi[]>> {
+    const r = await this.client.get<ApiResponse<MapSuggestionApi[]>>(`/api/canvases/${id}/suggestions`, {
+      params: idea, timeout: CHAT_TIMEOUT_MS,
+    });
+    return r.data;
+  }
+
+  /** Turns a branch into a new note (linked to the map), or adds it to `noteId`. */
+  async canvasBranchToNote(id: string, nodeId: string, noteId?: string): Promise<ApiResponse<{ noteId: string; created: boolean }>> {
+    const r = await this.client.post<ApiResponse<{ noteId: string; created: boolean }>>(
+      `/api/canvases/${id}/nodes/${nodeId}/to-note`, noteId !== undefined ? { noteId } : {});
+    return r.data;
+  }
+
+  async getCanvasMarkdown(id: string): Promise<ApiResponse<{ markdown: string }>> {
+    const r = await this.client.get<ApiResponse<{ markdown: string }>>(`/api/canvases/${id}/markdown`);
+    return r.data;
   }
 
   // ─── Today dashboard ───────────────────────────────────────────────────────
@@ -1149,25 +1179,31 @@ export class KnowledgeHubApi {
 /** Singleton instance — used by all React Query hooks. */
 export const api = new KnowledgeHubApi();
 
-// ── Canvas API types ──────────────────────────────────────────────────────────
+// ── Mind map API types ────────────────────────────────────────────────────────
+
+export const MAP_REF_TYPES = ['discover_item', 'spark', 'note', 'content_item', 'ai_session'] as const;
+export type MapRefType = typeof MAP_REF_TYPES[number];
+export type MapSide = 'left' | 'right';
 
 export interface CanvasSummaryApi {
   id: string; title: string; description: string | null;
   project: string | null; createdAt: string; updatedAt: string;
+  linkedNotes: Array<{ id: string; title: string }>;
+  nodeCount: number;
 }
 
 export interface CanvasNodeApi {
   id: string; canvasId: string; nodeType: string;
-  refType: string | null; refId: string | null;
+  refType: MapRefType | null; refId: string | null;
   label: string | null; body: string | null;
   url: string | null; tags: string[] | null;
-  x: number; y: number; width: number; height: number;
-  colour: string | null; createdAt: string;
+  parentId: string | null; sortOrder: number; side: MapSide | null; collapsed: boolean;
+  createdAt: string;
 }
 
 export interface CanvasEdgeApi {
   id: string; canvasId: string; sourceId: string; targetId: string;
-  edgeType: string; label: string | null; createdAt: string;
+  label: string | null; createdAt: string;
 }
 
 export interface CanvasFullApi extends CanvasSummaryApi {
@@ -1176,10 +1212,26 @@ export interface CanvasFullApi extends CanvasSummaryApi {
   edges: CanvasEdgeApi[];
 }
 
-export interface CanvasNodeInput {
-  nodeType: string; refType?: string; refId?: string;
-  label?: string; body?: string; url?: string; tags?: string[];
-  x: number; y: number; width?: number; height?: number; colour?: string;
+/** One change to a map (ids are client-generated UUIDs). */
+export type MapOp =
+  | { op: 'add'; id: string; parentId: string; index?: number; side?: MapSide; label?: string; body?: string;
+      nodeType?: string; refType?: MapRefType; refId?: string; url?: string }
+  | { op: 'update'; id: string; label?: string; body?: string; collapsed?: boolean }
+  | { op: 'move'; id: string; parentId: string; index?: number; side?: MapSide }
+  | { op: 'delete'; id: string }
+  | { op: 'link'; id: string; sourceId: string; targetId: string; label?: string }
+  | { op: 'relabel_link'; id: string; label: string }
+  | { op: 'unlink'; id: string };
+
+export interface MapSuggestionApi {
+  kind: 'note' | 'document' | 'meeting' | 'post' | 'article' | 'chat';
+  refType: MapRefType;
+  refId: string;
+  title: string;
+  excerpt: string;
+  date: string | null;
+  url: string | null;
+  via: 'search' | 'graph';
 }
 
 // ── Today dashboard API types ─────────────────────────────────────────────────

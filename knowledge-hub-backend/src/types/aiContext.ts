@@ -34,6 +34,8 @@ export interface ChatPageContext {
    * Kept separate from `detail` so long-document excerpting never trims them.
    */
   images?: string;
+  /** Mind map: the id of the selected idea (the map outline marks it). */
+  selectedId?: string;
 }
 
 export type MessageRole = 'system' | 'user' | 'assistant';

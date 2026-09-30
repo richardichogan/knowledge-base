@@ -31,7 +31,7 @@ import {
 } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
@@ -39,6 +39,7 @@ import { ReplyMeta } from '../components/athena/ReplyMeta';
 import { RememberedNotice } from '../components/athena/RememberedNotice';
 import { ReplyFeedback } from '../components/athena/ReplyFeedback';
 import { NoteEditCard } from '../components/athena/NoteEditCard';
+import { MapChangeCard } from '../components/athena/MapChangeCard';
 import { PERSONAS, getPersona } from '../components/athena/personas';
 
 type AthenaThinkContentType = Extract<ContentType, 'blog' | 'newsletter'>;
@@ -214,7 +215,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // session state with the floating widget / full-page chat.
   const isNoteLinkedPanel = compact && compactVariant === 'narrow';
   // Think notes and Library documents each keep their own linked conversation.
-  const currentNoteId = isNoteLinkedPanel && (pageContext?.type === 'note' || pageContext?.type === 'document') ? pageContext.id : undefined;
+  // Mind maps too (id "map:<id>"), so each map keeps its own chat and Athena can propose map changes.
+  const currentNoteId = isNoteLinkedPanel && (pageContext?.type === 'note' || pageContext?.type === 'document' || pageContext?.type === 'map') ? pageContext.id : undefined;
   // In Think, the open note's project grounds the chat (no project chip there).
   const noteProjectId = isNoteLinkedPanel ? pageContext?.projectId : undefined;
 
@@ -582,6 +584,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         memoriesCreated: result.data.memoriesCreated,
         noteEdits: result.data.noteEdits,
         noteEditsFor: result.data.noteEditsFor,
+        mapChanges: result.data.mapChanges,
+        mapChangesFor: result.data.mapChangesFor,
       });
       playReply(result.data.reply);
       refreshSessionList();
@@ -654,6 +658,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       memoriesCreated?: SavedMemory[] | undefined;
       noteEdits?: NoteEdit[] | undefined;
       noteEditsFor?: string | null | undefined;
+      mapChanges?: MapChange[] | undefined;
+      mapChangesFor?: string | null | undefined;
     } = {},
   ): void {
     setMessages((prev) => [
@@ -666,6 +672,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         ...(meta.sources !== undefined && meta.sources.length > 0 && { sources: meta.sources }),
         ...(meta.memoriesCreated !== undefined && meta.memoriesCreated.length > 0 && { memoriesCreated: meta.memoriesCreated }),
         ...(meta.noteEdits !== undefined && meta.noteEdits.length > 0 && typeof meta.noteEditsFor === 'string' && { noteEdits: meta.noteEdits, noteEditsFor: meta.noteEditsFor }),
+        ...(meta.mapChanges !== undefined && meta.mapChanges.length > 0 && typeof meta.mapChangesFor === 'string' && { mapChanges: meta.mapChanges, mapChangesFor: meta.mapChangesFor }),
       },
     ]);
     if (role === 'user') {
@@ -1511,6 +1518,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               {msg.role === 'assistant' && <ReplyMeta persona={msg.persona} sources={msg.sources} />}
               {msg.role === 'assistant' && msg.noteEdits !== undefined && msg.noteEditsFor !== undefined && (
                 <NoteEditCard edits={msg.noteEdits} noteId={msg.noteEditsFor} />
+              )}
+              {msg.role === 'assistant' && msg.mapChanges !== undefined && msg.mapChangesFor !== undefined && (
+                <MapChangeCard changes={msg.mapChanges} mapId={msg.mapChangesFor} />
               )}
               {msg.role === 'assistant' && msg.memoriesCreated !== undefined && <RememberedNotice memories={msg.memoriesCreated} />}
               {msg.role === 'assistant' && !/^(Error:|⏹️|⚠️)/.test(msg.content) && (

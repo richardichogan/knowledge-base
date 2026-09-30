@@ -1,65 +1,83 @@
 /**
  * routes/canvasRoutes.ts
- * REST endpoints for the custom canvas.
+ * REST endpoints for mind maps (the Think "Canvas" view).
  *
- * GET    /api/canvases                          list canvases
- * POST   /api/canvases                          create canvas
- * GET    /api/canvases/:id                      full canvas (nodes + edges)
- * PATCH  /api/canvases/:id                      update title / description / project / viewport
- * DELETE /api/canvases/:id                      delete canvas (cascades)
- *
- * POST   /api/canvases/:id/nodes                add node
- * PATCH  /api/canvases/:id/nodes/:nodeId        update node
- * DELETE /api/canvases/:id/nodes/:nodeId        delete node
- *
- * POST   /api/canvases/:id/edges                add edge
- * DELETE /api/canvases/:id/edges/:edgeId        delete edge
+ * GET    /api/canvases[?noteId=]                   list maps (optionally those linked to a note)
+ * POST   /api/canvases                             create { title?, rootLabel?, noteId?, seedFromHeadings?, project? }
+ * GET    /api/canvases/:id                         full map (ideas, cross-links, linked notes)
+ * PATCH  /api/canvases/:id                         update title / description / project / viewport
+ * DELETE /api/canvases/:id                         delete map
+ * POST   /api/canvases/:id/ops                     apply changes { ops: MapOp[] } → full map
+ * POST   /api/canvases/:id/notes                   link a note { noteId }
+ * DELETE /api/canvases/:id/notes/:noteId           unlink a note
+ * GET    /api/canvases/:id/suggestions[?nodeId=&label=&body=&parentLabel=]  related content for an idea
+ * POST   /api/canvases/:id/nodes/:nodeId/to-note   branch → new note, or { noteId } to add to a note
+ * GET    /api/canvases/:id/markdown                the map as a Markdown outline
  */
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { HTTP_STATUS } from '../config/constants.js';
+import { getDb } from '../db/db.js';
+import { ValidationError, NotFoundError } from '../types/errors.js';
 import {
   createCanvas, listCanvases, getCanvas, updateCanvas, deleteCanvas,
-  createNode, updateNode, deleteNodeById,
-  createEdge, deleteEdge,
-  type CreateNodeInput, type UpdateNodeInput, type EdgeType,
+  applyOps, linkNote, unlinkNote, branchBlocks, mapMarkdown, MapOpError,
+  type MapOp, type CreateMapInput,
 } from '../services/canvasService.js';
+import { suggestionsFor } from '../services/mapSuggestions.js';
+import { createNoteRecord, appendBlocksToNoteRecord } from './notes.js';
 
 export const canvasRouter = Router();
 
-// ── Canvas ────────────────────────────────────────────────────────────────────
+const MAX_OPS_PER_REQUEST = 200;
 
-canvasRouter.get('/', (_req: Request, res: Response, next: NextFunction): void => {
+function param(req: Request, name: string): string {
+  return req.params[name] as string;
+}
+
+async function requireMap(id: string): Promise<NonNullable<Awaited<ReturnType<typeof getCanvas>>>> {
+  const map = await getCanvas(id);
+  if (map === null) throw new NotFoundError('Map not found');
+  return map;
+}
+
+canvasRouter.get('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
-    try { res.json({ success: true, data: await listCanvases() }); }
-    catch (err) { next(err); }
+    try {
+      const noteId = typeof req.query['noteId'] === 'string' && req.query['noteId'] !== '' ? req.query['noteId'] : undefined;
+      res.json({ success: true, data: await listCanvases(noteId) });
+    } catch (err) { next(err); }
   })();
 });
 
 canvasRouter.post('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const { title, description, project } = req.body as Record<string, string | undefined>;
-      res.status(HTTP_STATUS.CREATED).json({ success: true, data: await createCanvas(title, description, project) });
+      const b = req.body as CreateMapInput;
+      const input: CreateMapInput = {
+        ...(typeof b.title === 'string' && b.title.trim() !== '' && { title: b.title.trim() }),
+        ...(typeof b.rootLabel === 'string' && b.rootLabel.trim() !== '' && { rootLabel: b.rootLabel.trim() }),
+        ...(typeof b.noteId === 'string' && b.noteId !== '' && { noteId: b.noteId }),
+        ...(b.seedFromHeadings === true && { seedFromHeadings: true }),
+        ...(typeof b.project === 'string' && b.project !== '' && { project: b.project }),
+      };
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: await createCanvas(input) });
     } catch (err) { next(err); }
   })();
 });
 
 canvasRouter.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
-    try {
-      const canvas = await getCanvas(req.params['id'] as string);
-      if (!canvas) { res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: 'Canvas not found' }); return; }
-      res.json({ success: true, data: canvas });
-    } catch (err) { next(err); }
+    try { res.json({ success: true, data: await requireMap(param(req, 'id')) }); }
+    catch (err) { next(err); }
   })();
 });
 
 canvasRouter.patch('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const patch = req.body as { title?: string; description?: string; project?: string; viewport?: object };
-      const updated = await updateCanvas(req.params['id'] as string, patch);
-      if (!updated) { res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: 'Canvas not found' }); return; }
+      const patch = req.body as { title?: string; description?: string; project?: string | null; viewport?: object };
+      const updated = await updateCanvas(param(req, 'id'), patch);
+      if (!updated) throw new NotFoundError('Map not found');
       res.json({ success: true, data: updated });
     } catch (err) { next(err); }
   })();
@@ -67,68 +85,92 @@ canvasRouter.patch('/:id', (req: Request, res: Response, next: NextFunction): vo
 
 canvasRouter.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
-    try { await deleteCanvas(req.params['id'] as string); res.status(HTTP_STATUS.NO_CONTENT).send(); }
+    try { await deleteCanvas(param(req, 'id')); res.status(HTTP_STATUS.NO_CONTENT).send(); }
     catch (err) { next(err); }
   })();
 });
 
-// ── Nodes ─────────────────────────────────────────────────────────────────────
-
-canvasRouter.post('/:id/nodes', (req: Request, res: Response, next: NextFunction): void => {
+canvasRouter.post('/:id/ops', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const input = req.body as CreateNodeInput;
-      if (!input.nodeType || input.x === undefined || input.y === undefined) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: 'nodeType, x, y required' }); return;
+      const { ops } = req.body as { ops?: MapOp[] };
+      if (!Array.isArray(ops) || ops.length === 0 || ops.length > MAX_OPS_PER_REQUEST) {
+        throw new ValidationError('ops must be a non-empty array', { ops: 'required' });
       }
-      const node = await createNode(req.params['id'] as string, input);
-      res.status(HTTP_STATUS.CREATED).json({ success: true, data: node });
+      res.json({ success: true, data: await applyOps(param(req, 'id'), ops) });
+    } catch (err) {
+      next(err instanceof MapOpError ? new ValidationError(err.message, { ops: err.message }) : err);
+    }
+  })();
+});
+
+canvasRouter.post('/:id/notes', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { noteId } = req.body as { noteId?: string };
+      if (typeof noteId !== 'string' || noteId === '') throw new ValidationError('noteId required', { noteId: 'required' });
+      await requireMap(param(req, 'id'));
+      await linkNote(param(req, 'id'), noteId);
+      res.json({ success: true, data: await requireMap(param(req, 'id')) });
     } catch (err) { next(err); }
   })();
 });
 
-canvasRouter.patch('/:id/nodes/:nodeId', (req: Request, res: Response, next: NextFunction): void => {
+canvasRouter.delete('/:id/notes/:noteId', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const patch = req.body as UpdateNodeInput;
-      const node = await updateNode(req.params['id'] as string, req.params['nodeId'] as string, patch);
-      if (!node) { res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: 'Node not found' }); return; }
-      res.json({ success: true, data: node });
+      await unlinkNote(param(req, 'id'), param(req, 'noteId'));
+      res.json({ success: true, data: await requireMap(param(req, 'id')) });
     } catch (err) { next(err); }
   })();
 });
 
-canvasRouter.delete('/:id/nodes/:nodeId', (req: Request, res: Response, next: NextFunction): void => {
+canvasRouter.get('/:id/suggestions', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      await deleteNodeById(req.params['id'] as string, req.params['nodeId'] as string);
-      res.status(HTTP_STATUS.NO_CONTENT).send();
+      const map = await requireMap(param(req, 'id'));
+      const q = (k: string): string | undefined => (typeof req.query[k] === 'string' ? req.query[k] : undefined);
+      const label = q('label');
+      const body = q('body');
+      const parentLabel = q('parentLabel');
+      res.json({ success: true, data: await suggestionsFor(map, q('nodeId'), {
+        ...(label !== undefined && { label }), ...(body !== undefined && { body }), ...(parentLabel !== undefined && { parentLabel }),
+      }) });
     } catch (err) { next(err); }
   })();
 });
 
-// ── Edges ─────────────────────────────────────────────────────────────────────
-
-canvasRouter.post('/:id/edges', (req: Request, res: Response, next: NextFunction): void => {
+canvasRouter.post('/:id/nodes/:nodeId/to-note', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const { sourceId, targetId, edgeType, label } = req.body as {
-        sourceId?: string; targetId?: string; edgeType?: EdgeType; label?: string;
-      };
-      if (!sourceId || !targetId) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: 'sourceId, targetId required' }); return;
+      const map = await requireMap(param(req, 'id'));
+      const { noteId } = req.body as { noteId?: string };
+      const db = getDb();
+      if (typeof noteId === 'string' && noteId !== '') {
+        const { blocks } = branchBlocks(map, param(req, 'nodeId'), true);
+        await appendBlocksToNoteRecord(db, noteId, blocks);
+        res.json({ success: true, data: { noteId, created: false } });
+        return;
       }
-      const edge = await createEdge(req.params['id'] as string, sourceId, targetId, edgeType, label);
-      res.status(HTTP_STATUS.CREATED).json({ success: true, data: edge });
-    } catch (err) { next(err); }
+      const { title, blocks } = branchBlocks(map, param(req, 'nodeId'), false);
+      const note = await createNoteRecord(db, {
+        content: JSON.stringify({ title, contentType: 'note', contentJson: JSON.stringify(blocks) }),
+        tags: [],
+        ...(map.project !== null && { projectId: map.project }),
+      });
+      await linkNote(map.id, note.id);
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: { noteId: note.id, created: true } });
+    } catch (err) {
+      next(err instanceof MapOpError ? new ValidationError(err.message, {}) : err);
+    }
   })();
 });
 
-canvasRouter.delete('/:id/edges/:edgeId', (req: Request, res: Response, next: NextFunction): void => {
+canvasRouter.get('/:id/markdown', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      await deleteEdge(req.params['id'] as string, req.params['edgeId'] as string);
-      res.status(HTTP_STATUS.NO_CONTENT).send();
+      const map = await requireMap(param(req, 'id'));
+      res.json({ success: true, data: { markdown: mapMarkdown(map) } });
     } catch (err) { next(err); }
   })();
 });

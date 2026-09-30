@@ -10,6 +10,8 @@ import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
 import { selectRequiredToolChoice } from './toolRouting.js';
+import { getCanvas, mapOutline } from '../services/canvasService.js';
+import type { MapChangeProposal } from './mapEdits.js';
 import { looksLikeMeetingList, importMeetingList, buildTodayScheduleBlock } from '../integrations/ibm/ibmMeetings.js';
 
 /**
@@ -34,8 +36,12 @@ export async function handleConversationTurn(
   /** Called with each tool name the model invokes — lets the caller report the reply's sources. */
   onToolCall?: (toolName: string) => void,
   /** Per-turn tool context: the open Think note, and a collector for proposed edits to it. */
-  toolContext: { noteId?: string | undefined; noteEdits?: NoteEditProposal[] } = {},
+  toolContext: { noteId?: string | undefined; noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[] } = {},
 ): Promise<string> {
+  // A mind map open beside the chat (noteId "map:<id>"): Athena gets its outline and can propose changes.
+  const mapId = toolContext.noteId?.startsWith('map:') === true ? toolContext.noteId.slice('map:'.length) : undefined;
+  const openMap = mapId !== undefined ? await getCanvas(mapId).catch(() => null) : null;
+  const mapOutlineResult = openMap !== null ? mapOutline(openMap, pageContext?.selectedId) : null;
   const context = await buildAiContext(db, userMessage, history, sessionId);
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
   // Learned standing instructions + liked examples for this persona/project.
@@ -61,7 +67,12 @@ export async function handleConversationTurn(
   // Today's date and meetings (personal calendar + pasted IBM diary), always.
   const scheduleBlock = await buildTodayScheduleBlock(db)
     .catch((err: unknown) => { console.error('[meetings] schedule block failed:', err); return ''; });
-  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote].filter((b) => b !== '').join('\n\n---\n\n');
+  const mapBlock = mapOutlineResult === null ? '' : [
+    '## Mind map in view (the user is working on this map)',
+    'Ideas are shown with aliases in brackets; n1 is the central idea. Use propose_map_changes to change the map.',
+    mapOutlineResult.text,
+  ].join('\n');
+  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
@@ -72,7 +83,8 @@ export async function handleConversationTurn(
     tools,
     context.projectReferences,
     context.activeProjectName,
-    toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:'),
+    toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined,
+    mapOutlineResult !== null,
   );
   const maxTokens = model === 'gpt-5.4' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
 
@@ -122,7 +134,7 @@ export async function handleConversationTurn(
       let result: unknown;
       onToolCall?.(call.function.name);
       try {
-        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext });
+        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, mapAliases: mapOutlineResult?.aliases });
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }

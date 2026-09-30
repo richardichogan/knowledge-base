@@ -11,7 +11,7 @@ import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
 import { setActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
-import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub } from '@carbon/icons-react';
+import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram } from '@carbon/icons-react';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import { api } from '../services/api';
@@ -36,6 +36,10 @@ interface NoteEditorProps {
   onDelete?: (id: string) => void;
   /** Page command-bar element to render the note actions (Export, Push, Delete) into. */
   actionsSlot?: HTMLElement | null;
+  /** "Map": open this note's mind map, or create one from its headings. */
+  onMapNote?: (noteId: string) => void;
+  /** Open one of the note's mind maps (listed in the Connections tab). */
+  onOpenMap?: (mapId: string) => void;
 }
 
 /** Renders `node` into `slot` via a portal when one is provided, otherwise in place. */
@@ -109,7 +113,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
@@ -516,6 +520,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
               </ul>
             )}
           </div>
+          {onMapNote && (
+            <button className="kb-import-btn" title="Open this note's mind map, or start one from its headings" onClick={() => { onMapNote(doc.id); }}>
+              <Diagram size={16} /> Map
+            </button>
+          )}
           <button className="kb-import-btn" onClick={() => { setGithubModalOpen(true); }}>
             <LogoGithub size={16} /> Push to GitHub
           </button>
@@ -667,6 +676,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         ghDotColor={ghDotColor}
         githubPath={githubPath}
         onPushToGitHub={() => { setGithubModalOpen(true); }}
+        {...(onOpenMap !== undefined && { onOpenMap })}
+        {...(onMapNote !== undefined && { onMapNote })}
       />
 
       <GitHubModal

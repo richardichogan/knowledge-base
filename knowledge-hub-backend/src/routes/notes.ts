@@ -527,6 +527,47 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
   })();
 });
 
+/**
+ * Appends BlockNote blocks to the end of an existing note (e.g. a mind-map
+ * branch sent to a linked note). Same save + settle-then-index path as PATCH.
+ */
+export async function appendBlocksToNoteRecord(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  blocks: unknown[],
+): Promise<Note> {
+  const current = await db.query<{ content: string }>(`SELECT content FROM notes WHERE id = $1 AND status = 'active'`, [id]);
+  const existing = current.rows[0];
+  if (existing === undefined) throw new NotFoundError(`Note ${id} not found or archived`);
+  let wrapper: { title?: string; contentType?: string; contentJson?: string } = {};
+  try { wrapper = JSON.parse(existing.content) as typeof wrapper; } catch { wrapper = { title: 'Untitled', contentType: 'note', contentJson: '[]' }; }
+  let body: unknown[] = [];
+  try { const parsed: unknown = JSON.parse(wrapper.contentJson ?? '[]'); body = Array.isArray(parsed) ? parsed : []; } catch { body = []; }
+  const content = JSON.stringify({ ...wrapper, contentJson: JSON.stringify([...body, ...blocks]) });
+  const result = await db.query<{
+    id: string; content: string; created_at: string; updated_at: string;
+    tags: string[]; linked_items: string[]; status: string; project_id: string | null;
+  }>(
+    `UPDATE notes SET content = $1, updated_at = NOW() WHERE id = $2 AND status = 'active'
+     RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`,
+    [content, id],
+  );
+  const row = result.rows[0];
+  if (row === undefined) throw new NotFoundError(`Note ${id} not found or archived`);
+  const note: Note = {
+    id: row.id,
+    content: row.content,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    tags: row.tags,
+    linkedItems: row.linked_items,
+    status: row.status as Note['status'],
+    ...(row.project_id !== null && { projectId: row.project_id }),
+  };
+  scheduleNoteIndexing(db, note);
+  return note;
+}
+
 // ── DELETE /api/notes/:id (soft archive) ──────────────────────────────────────
 
 router.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {

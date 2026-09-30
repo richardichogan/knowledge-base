@@ -5,6 +5,9 @@ const NOTE_EDIT_PATTERN =
   /\b(?:add|insert|append|prepend|put|write|update|edit|rewrite|re-?word|fix|tidy|clean\s+up|restructure|reformat|reorgani[sz]e|turn|convert|replace|remove|delete|expand|shorten|condense|correct)\b[\s\S]{0,120}\b(?:note|section|paragraph|heading|intro(?:duction)?|conclusion|summary|bullets?|list|checklist|table|action\s+items?|next\s+steps|this|it|top|bottom|end|start)\b/i;
 // Requests that mention another destination are not edits to the note.
 const NOT_A_NOTE_EDIT_PATTERN = /\b(?:tasks?|plan\s+board|to-?do|calendar|e-?mail|remember|from\s+now\s+on|always|never)\b/i;
+// Asked to change the open mind map (ideas, branches, links).
+const MAP_EDIT_PATTERN =
+  /\b(?:add|expand|extend|grow|develop|brainstorm|suggest|generate|break\s+down|flesh\s+out|restructure|reorgani[sz]e|regroup|rename|remove|delete|prune|link|connect|move)\b[\s\S]{0,120}\b(?:map|idea|ideas|branch(?:es)?|node|nodes|sub-?ideas?|children|this|it|them)\b/i;
 const STANDING_INSTRUCTION_PATTERN =
   /\b(?:from\s+now\s+on|going\s+forward|in\s+future\s*,|remember\s+(?:that|to|this)|(?:please\s+)?always\s+(?:include|use|add|end|start|write|put|give|mention|keep|format)|never\s+(?:include|use|add|write|mention|say|start)|(?:don'?t|do\s+not)\s+ever|stop\s+(?:doing|adding|including|using|writing))\b/i;
 const EXPLICIT_WEB_LOOKUP_PATTERN =
@@ -37,6 +40,8 @@ export function selectRequiredToolChoice(
   activeProjectName: string | null = null,
   /** A Think note is open beside the chat and can be edited. */
   hasEditableNote = false,
+  /** A mind map is open beside the chat and can be changed. */
+  hasEditableMap = false,
 ): LlmToolChoice | undefined {
   // A lasting preference/correction must be saved, not just acknowledged —
   // left to choose, the model often replies "Remembered" without saving.
@@ -53,6 +58,14 @@ export function selectRequiredToolChoice(
     const editToolName = findToolName(tools, (name) => name === 'propose_note_edit');
     if (editToolName !== undefined) {
       return { type: 'function', function: { name: editToolName } };
+    }
+  }
+
+  // Asked to change the open map: propose changes (previewed, applied by the user).
+  if (hasEditableMap && MAP_EDIT_PATTERN.test(userMessage) && !NOT_A_NOTE_EDIT_PATTERN.test(userMessage)) {
+    const mapToolName = findToolName(tools, (name) => name === 'propose_map_changes');
+    if (mapToolName !== undefined) {
+      return { type: 'function', function: { name: mapToolName } };
     }
   }
 

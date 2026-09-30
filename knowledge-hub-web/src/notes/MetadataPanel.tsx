@@ -12,6 +12,7 @@ import type { NoteDocument } from './types';
 import { TagPicker } from '../components/TagPicker';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { NoteMaps } from '../features/canvas/NoteMaps';
 import type { Project } from '../services/api';
 import { useAthenaContext } from '../context/AthenaContext';
 import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
@@ -54,6 +55,10 @@ interface MetadataPanelProps {
   ghDotColor: string;
   githubPath: string | undefined;
   onPushToGitHub: () => void;
+  /** Open one of this note's mind maps. */
+  onOpenMap?: (mapId: string) => void;
+  /** Create (or open) this note's mind map. */
+  onMapNote?: (noteId: string) => void;
 }
 
 /** Formats an ISO timestamp as "DD Mon YYYY, HH:MM" for Created/Modified. */
@@ -80,6 +85,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   ghDotColor,
   githubPath,
   onPushToGitHub,
+  onOpenMap,
+  onMapNote,
 }) => {
   const { pageContext } = useAthenaContext();
   const showAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
@@ -269,6 +276,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
         {tab === 'connections' && (
           <div role="tabpanel" id="think-side-panel-connections" aria-labelledby="think-side-tab-connections" className="notes-meta-tabpanel">
+            {onOpenMap !== undefined && <NoteMaps noteId={doc.id} onOpenMap={onOpenMap} {...(onMapNote !== undefined && { onMapNote })} />}
             <ConnectionsPanel refId={doc.id} refType="note" headerless />
           </div>
         )}

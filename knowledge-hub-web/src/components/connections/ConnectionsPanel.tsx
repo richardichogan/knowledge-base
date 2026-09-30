@@ -22,6 +22,7 @@ interface ConnectionsPanelProps {
 
 /** Edge type display order (top to bottom as per spec). */
 const EDGE_ORDER = [
+  'on_map',
   'has_spark',
   'references',
   'tag_overlap',
@@ -35,6 +36,7 @@ function routeForNode(refType: string, refId: string): string {
   if (refType === 'task')        return '/plan';
   if (refType === 'discover_item' || refType === 'cfp_item') return '/discover';
   if (refType === 'spark')       return '/think';
+  if (refType === 'canvas')      return `/think?mapId=${refId}`;
   return `/my-work?highlight=${refId}`;
 }
 
@@ -54,7 +56,8 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ refId, refTy
   const orderedKeys = [
     ...EDGE_ORDER.filter((k) => k in grouped),
     ...Object.keys(grouped).filter((k) => !EDGE_ORDER.includes(k)),
-  ];
+  // A note's maps are already listed above its connections (NoteMaps).
+  ].filter((k) => !(refType === 'note' && k === 'on_map'));
 
   const handleItemClick = (edge: ConnectionEdge): void => {
     const route = routeForNode(edge.connectedNode.refType, edge.connectedNode.refId);

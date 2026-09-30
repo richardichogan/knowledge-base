@@ -31,6 +31,7 @@ export type {
   MemoryStatus,
   SavedMemory,
   NoteEdit,
+  MapChange,
 } from './ai';
 
 export type { TaskDestination, CreateTaskInput } from './task';

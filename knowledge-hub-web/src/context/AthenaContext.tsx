@@ -36,6 +36,8 @@ export interface AthenaPageContext {
    * Sent alongside `detail`, never trimmed by the backend's excerpting.
    */
   images?: string;
+  /** Mind map: the selected idea (Athena's map outline marks it). */
+  selectedId?: string;
 }
 
 interface AthenaContextValue {
