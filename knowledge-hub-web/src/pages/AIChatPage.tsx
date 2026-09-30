@@ -17,7 +17,7 @@ import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, Volume
 import { api } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
-import { encodeWav, blobToBase64, stripMarkdownForSpeech } from '../components/athena/speech';
+import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
 import { CHAT_IMAGE_TYPES, isChatImage, clipboardImageName } from '../components/athena/attachments';
 import { createNote } from '../notes/noteStorage';
 import { markdownToNoteBlocks } from '../notes/markdownToBlocks';
@@ -279,6 +279,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const pcmChunksRef = useRef<Float32Array[]>([]);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Bumped on every new reply / stop so an older reply's remaining chunks never play.
+  const ttsRunRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatAbortControllerRef = useRef<AbortController | null>(null);
@@ -509,6 +511,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   function stopTts(): void {
+    ttsRunRef.current++;
     const audio = ttsAudioRef.current;
     if (audio) {
       audio.pause();
@@ -517,22 +520,37 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     }
   }
 
+  /**
+   * Speaks the reply progressively: every chunk is synthesised at once (in
+   * parallel), and playback starts as soon as the short first chunk is ready.
+   */
   function playReply(text: string): void {
     if (!voiceOutputOn) return;
     const clean = stripMarkdownForSpeech(text);
     if (clean === '') return;
     stopTts();
-    void api.synthesizeVoice(clean).then((result) => {
-      if (!result.success) return;
-      const audio = new Audio(`data:${result.data.mimeType};base64,${result.data.audioBase64}`);
-      ttsAudioRef.current = audio;
-      void audio.play().catch(() => {
-        // Autoplay can be blocked without a user gesture — non-fatal, text reply still shown.
-      });
-      audio.onended = () => { ttsAudioRef.current = null; };
-    }).catch(() => {
-      // Voice output is a nice-to-have — fail silently rather than surfacing an error bubble.
-    });
+    const run = ttsRunRef.current;
+    const pending = splitForSpeech(clean).map((chunk) => api.synthesizeVoice(chunk).catch(() => null));
+    void (async () => {
+      for (const next of pending) {
+        const result = await next;
+        if (ttsRunRef.current !== run) return;
+        // Voice output is a nice-to-have — skip a failed chunk rather than surfacing an error.
+        if (result === null || !result.success) continue;
+        const audio = new Audio(`data:${result.data.mimeType};base64,${result.data.audioBase64}`);
+        ttsAudioRef.current = audio;
+        const finished = new Promise<void>((resolve) => { audio.onended = () => { resolve(); }; audio.onerror = () => { resolve(); }; });
+        try {
+          await audio.play();
+        } catch {
+          // Autoplay can be blocked without a user gesture — non-fatal, text reply still shown.
+          return;
+        }
+        await finished;
+        if (ttsRunRef.current !== run) return;
+        ttsAudioRef.current = null;
+      }
+    })();
   }
 
   const chatMutation = useMutation({

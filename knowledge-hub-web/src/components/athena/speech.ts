@@ -87,3 +87,26 @@ export function stripMarkdownForSpeech(md: string): string {
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
+
+// First spoken chunk is kept short so audio starts quickly; the rest is
+// synthesised in larger chunks while the first one plays.
+const FIRST_SPEECH_CHUNK_CHARS = 160;
+const SPEECH_CHUNK_CHARS = 600;
+
+/** Splits text into sentence-aligned chunks for progressive speech. */
+export function splitForSpeech(text: string): string[] {
+  const sentences = text.match(/[^.!?\n]+(?:[.!?]+["')\]]*|\n+|$)/g)?.map((s) => s.trim()).filter((s) => s !== '') ?? [text];
+  const chunks: string[] = [];
+  let current = '';
+  for (const sentence of sentences) {
+    const limit = chunks.length === 0 ? FIRST_SPEECH_CHUNK_CHARS : SPEECH_CHUNK_CHARS;
+    if (current !== '' && current.length + sentence.length + 1 > limit) {
+      chunks.push(current);
+      current = sentence;
+    } else {
+      current = current === '' ? sentence : `${current} ${sentence}`;
+    }
+  }
+  if (current !== '') chunks.push(current);
+  return chunks;
+}
