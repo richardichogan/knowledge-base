@@ -7,7 +7,9 @@ const NOTE_EDIT_PATTERN =
 const NOT_A_NOTE_EDIT_PATTERN = /\b(?:tasks?|plan\s+board|to-?do|calendar|e-?mail|remember|from\s+now\s+on|always|never)\b/i;
 // Asked to change the open mind map (ideas, branches, links).
 const MAP_EDIT_PATTERN =
-  /\b(?:add|expand|extend|grow|develop|brainstorm|suggest|generate|break\s+down|flesh\s+out|restructure|reorgani[sz]e|regroup|rename|remove|delete|prune|link|connect|move)\b[\s\S]{0,120}\b(?:map|canvas|idea|ideas|branch(?:es)?|node|nodes|sub-?ideas?|children|this|it|them)\b/i;
+  /\b(?:add|expand|extend|grow|develop|brainstorm|suggest|generate|flesh\s+out|pull|bring|put|place|restructure|reorgani[sz]e|regroup|rename|annotate|retype|remove|delete|prune|link(?:ed)?|connect(?:ed)?|disconnect)\b[\s\S]{0,120}\b(?:canvas|map|cards?|c\d+|ideas?|connections?|links?|notes?|documents?|this|it|them)\b/i;
+const NEEDS_SEARCH_FIRST_PATTERN = /\b(?:find|search|look\s+(?:for|up)|pull\s+in|bring\s+in|anything\s+(?:about|on)|related|relevant)\b/i;
+const LIBRARY_REQUEST_PATTERN = /\b(?:library|documents?|docs?|pdfs?|specs?|prds?|decks?|slides?|files?)\b/i;
 const STANDING_INSTRUCTION_PATTERN =
   /\b(?:from\s+now\s+on|going\s+forward|in\s+future\s*,|remember\s+(?:that|to|this)|(?:please\s+)?always\s+(?:include|use|add|end|start|write|put|give|mention|keep|format)|never\s+(?:include|use|add|write|mention|say|start)|(?:don'?t|do\s+not)\s+ever|stop\s+(?:doing|adding|including|using|writing))\b/i;
 const EXPLICIT_WEB_LOOKUP_PATTERN =
@@ -62,10 +64,22 @@ export function selectRequiredToolChoice(
   }
 
   // Asked to change the open map: propose changes (previewed, applied by the user).
-  if (hasEditableMap && MAP_EDIT_PATTERN.test(userMessage) && !NOT_A_NOTE_EDIT_PATTERN.test(userMessage)) {
+  // Not when the request needs a search first ("find … and pull it in"): the
+  // model must look the content up before it can propose adding it.
+  if (hasEditableMap && MAP_EDIT_PATTERN.test(userMessage) && !NOT_A_NOTE_EDIT_PATTERN.test(userMessage) && !NEEDS_SEARCH_FIRST_PATTERN.test(userMessage)) {
     const mapToolName = findToolName(tools, (name) => name === 'propose_map_changes');
     if (mapToolName !== undefined) {
       return { type: 'function', function: { name: mapToolName } };
+    }
+  }
+
+  // Asked to find content and put it on the canvas: search first (documents →
+  // the Library, anything else → the knowledge base), then propose adding it.
+  if (hasEditableMap && MAP_EDIT_PATTERN.test(userMessage) && NEEDS_SEARCH_FIRST_PATTERN.test(userMessage)) {
+    const wanted = LIBRARY_REQUEST_PATTERN.test(userMessage) ? 'search_library' : 'search_knowledge_base';
+    const searchToolName = findToolName(tools, (name) => name === wanted);
+    if (searchToolName !== undefined) {
+      return { type: 'function', function: { name: searchToolName } };
     }
   }
 

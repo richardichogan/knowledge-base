@@ -17,7 +17,7 @@ import { fetchNotes, fetchNote, createNote, deleteNote, extractNoteBlockText, bu
 import type { NoteContentBlock } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
-import { MindMapEditor } from '../features/canvas/MindMapEditor';
+import { CanvasEditor } from '../features/canvas/CanvasEditor';
 import { api } from '../services/api';
 import { useAthenaContext } from '../context/AthenaContext';
 import { usePersistedBoolean } from '../hooks/usePersistedState';
@@ -154,7 +154,7 @@ export const NotesPage: React.FC = () => {
   }
 
   async function handleCreateCanvas(): Promise<void> {
-    const r = await api.createCanvas({ title: 'Untitled canvas', rootLabel: 'Central idea' });
+    const r = await api.createCanvas({ title: 'Untitled canvas', rootLabel: 'New idea' });
     if (r.success) {
       await queryClient.invalidateQueries({ queryKey: ['canvases'] });
       setSelectedCanvasId(r.data.id);
@@ -176,27 +176,30 @@ export const NotesPage: React.FC = () => {
   }
   async function createPinnedMap(noteId: string): Promise<void> {
     setNewMapMenu(null);
-    const r = await api.createCanvas({ noteId, seedFromHeadings: true });
+    const r = await api.createCanvas({ noteId });
     if (r.success) {
       await queryClient.invalidateQueries({ queryKey: ['canvases'] });
-      openMap(r.data.id);
+      openMap(r.data.id, 'suggestions');
     }
   }
 
-  function openMap(mapId: string): void {
+  // Side-panel tab a canvas opens on (Suggestions for a new one, so related content is one drag away).
+  const [canvasOpenTab, setCanvasOpenTab] = useState<string | undefined>(undefined);
+  function openMap(mapId: string, tab?: string): void {
     setMode('canvas');
+    setCanvasOpenTab(tab);
     setSelectedCanvasId(mapId);
   }
 
-  /** "Map this note": opens the note's map, or creates one seeded from its headings. */
+  /** "Canvas" on a note: opens the note's canvas, or creates one with the note as its first card. */
   async function mapNote(noteId: string): Promise<void> {
     const existing = await api.listCanvases(noteId);
     const first = existing.success ? existing.data[0] : undefined;
     if (first !== undefined) { openMap(first.id); return; }
-    const r = await api.createCanvas({ noteId, seedFromHeadings: true });
+    const r = await api.createCanvas({ noteId });
     if (r.success) {
       await queryClient.invalidateQueries({ queryKey: ['canvases'] });
-      openMap(r.data.id);
+      openMap(r.data.id, 'suggestions');
     }
   }
 
@@ -207,7 +210,7 @@ export const NotesPage: React.FC = () => {
     void handleSelectNote(noteId);
   }
 
-  /** A note changed on the server (a map branch was added to it): reload it if it's the open one. */
+  /** A note changed on the server (a canvas summary was added to it): reload it if it’s the open one. */
   function refreshNoteIfOpen(noteId: string): void {
     if (openDoc?.id !== noteId) return;
     void fetchNote(noteId).then((doc) => { if (doc !== null && latestSelectRef.current === noteId) setOpenDoc(doc); });
@@ -516,8 +519,9 @@ export const NotesPage: React.FC = () => {
         ) : mode === 'canvas' ? (
           <div className="notes-editor-area notes-editor-area--map">
             {selectedCanvasId !== null ? (
-              <MindMapEditor
+              <CanvasEditor
                 canvasId={selectedCanvasId}
+                openTab={canvasOpenTab}
                 onOpenNote={openNoteFromMap}
                 onNoteChanged={refreshNoteIfOpen}
                 onDeleted={() => { setSelectedCanvasId(null); }}
@@ -562,11 +566,11 @@ const NewMapMenu: React.FC<{ noteTitle: string; onPin: () => void; onBlank: () =
     <div ref={ref} className="mm-newmap-menu" role="menu" aria-label="New canvas">
       <button type="button" role="menuitem" className="mm-newmap-menu__item" autoFocus onClick={onPin}>
         <span className="mm-newmap-menu__title">Pin to “{noteTitle}”</span>
-        <span className="mm-newmap-menu__desc">Recommended — the note is the central idea, its headings become branches, and the canvas joins the note in the knowledge graph.</span>
+        <span className="mm-newmap-menu__desc">Recommended — the note is the first card; pull related notes, documents, meetings and chats in around it. The canvas joins the note in the knowledge graph.</span>
       </button>
       <button type="button" role="menuitem" className="mm-newmap-menu__item" onClick={onBlank}>
         <span className="mm-newmap-menu__title">Blank canvas</span>
-        <span className="mm-newmap-menu__desc">Start from an empty central idea and link notes later.</span>
+        <span className="mm-newmap-menu__desc">Start from a single idea card and pin notes later.</span>
       </button>
     </div>
   );

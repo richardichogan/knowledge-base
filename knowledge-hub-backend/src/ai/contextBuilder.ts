@@ -865,7 +865,7 @@ function selectExcerptByKeywords(chunks: string[], query: string, maxChunks: num
  * "commercialisation" can still match a chunk about "pricing" or "how a
  * client would buy this" even without exact word overlap.
  */
-async function selectExcerptBySemanticSearch(chunks: string[], query: string): Promise<number[]> {
+async function selectExcerptBySemanticSearch(chunks: string[], query: string, budget = EXCERPT_CHAR_BUDGET): Promise<number[]> {
   const vectors = await embedBatch([query, ...chunks]);
   const queryVector = vectors[0]!;
   const chunkVectors = vectors.slice(1);
@@ -876,7 +876,7 @@ async function selectExcerptBySemanticSearch(chunks: string[], query: string): P
   let usedChars = chunks[0]!.length;
   for (const { i } of scored) {
     if (selected.includes(i)) continue;
-    if (usedChars + chunks[i]!.length > EXCERPT_CHAR_BUDGET) continue;
+    if (usedChars + chunks[i]!.length > budget) continue;
     selected.push(i);
     usedChars += chunks[i]!.length;
   }
@@ -897,13 +897,19 @@ async function selectExcerptBySemanticSearch(chunks: string[], query: string): P
  * limited to literal keyword overlap; falls back to keyword-overlap scoring
  * only if the embedding call fails (e.g. embeddings misconfigured/down).
  */
-async function selectRelevantExcerpt(text: string, query: string): Promise<{ excerpt: string; wasExcerpted: boolean }> {
-  if (text.length <= FULL_DOCUMENT_CHAR_THRESHOLD) {
+export async function selectRelevantExcerpt(
+  text: string,
+  query: string,
+  /** Smaller budgets let several documents share the context (e.g. every card on a canvas). */
+  budget = EXCERPT_CHAR_BUDGET,
+  fullThreshold = FULL_DOCUMENT_CHAR_THRESHOLD,
+): Promise<{ excerpt: string; wasExcerpted: boolean }> {
+  if (text.length <= fullThreshold) {
     return { excerpt: text, wasExcerpted: false };
   }
 
   const chunks = splitIntoChunks(text);
-  const maxChunksByBudget = Math.max(1, Math.floor(EXCERPT_CHAR_BUDGET / CHUNK_TARGET_CHARS));
+  const maxChunksByBudget = Math.max(1, Math.floor(budget / CHUNK_TARGET_CHARS));
   if (chunks.length <= maxChunksByBudget) {
     return { excerpt: text, wasExcerpted: false };
   }
@@ -911,7 +917,7 @@ async function selectRelevantExcerpt(text: string, query: string): Promise<{ exc
   let selectedIndices: number[];
   if (isEmbeddingConfigured()) {
     try {
-      selectedIndices = await selectExcerptBySemanticSearch(chunks, query);
+      selectedIndices = await selectExcerptBySemanticSearch(chunks, query, budget);
     } catch (err) {
       console.error('[contextBuilder] Semantic excerpt selection failed, falling back to keyword search:', err);
       selectedIndices = selectExcerptByKeywords(chunks, query, maxChunksByBudget);

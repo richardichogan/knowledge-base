@@ -31,6 +31,7 @@ import { renderNoteAsText } from '../services/noteTextService.js';
 import { getLearnMcpTools, isLearnMcpTool, callLearnMcpTool } from './learnMcpClient.js';
 import { getTavilyMcpTools, isTavilyMcpTool, callTavilyMcpTool } from './tavilyMcpClient.js';
 import { resolveMapChanges, type MapChangeProposal } from './mapEdits.js';
+import type { CanvasFull } from '../services/canvasService.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -235,12 +236,16 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       function: {
         name: 'propose_map_changes',
         description:
-          "Proposes changes to the canvas (mind map) open next to this chat (outline under 'Canvas in view'). Use it whenever " +
-          "Richard asks you to expand, add ideas/branches to, restructure, rename, prune or link ideas on the canvas. Refer " +
-          "to existing ideas by their alias exactly as in the outline (n1 is the central idea). When you add an idea you " +
-          "can give it a 'key' (e.g. k1) and use that key as the parent of later additions, to build several levels at " +
-          "once. Keep labels short (2–8 words); put detail in 'note'. The changes are shown as a preview with " +
-          "Apply/Discard — after calling it, reply in one or two short lines; do not repeat the ideas in your reply.",
+          "Proposes changes to the canvas open next to this chat (outline under 'Canvas in view'). A canvas is a set of " +
+          "cards (Think notes, documents, meetings, chats, and Richard's own ideas) joined by typed connections. Use it " +
+          "whenever Richard asks you to add ideas, pull related content onto the canvas, connect/link cards, change a " +
+          "connection's type, annotate, rename or remove cards. Refer to cards by their alias exactly as in the outline " +
+          "(c1, c2 …). To put notes, documents, meetings or chats on the canvas, first find them with search_library or " +
+          "search_knowledge_base, then use add_content with content_id = the item's id from the search result — never " +
+          "represent a found item as an add_idea card. add_idea is only for Richard's own new ideas. Give new cards a " +
+          "'key' (e.g. k1) to connect later changes to them. Connection types: related, " +
+          "supports, contradicts, depends on, part of, leads to, example of (or a short custom type). The changes are " +
+          "shown as a preview with Apply/Discard — after calling it, reply in one or two short lines; don't repeat them.",
         parameters: {
           type: 'object',
           properties: {
@@ -252,17 +257,20 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
                 properties: {
                   action: {
                     type: 'string',
-                    enum: ['add', 'rename', 'describe', 'move', 'delete', 'link'],
-                    description: 'add = new idea under parent; rename = new label; describe = set its note; move = re-parent; ' +
-                      'delete = remove the idea and its branch; link = cross-link node to "to".',
+                    enum: ['add_idea', 'add_content', 'connect', 'retype', 'disconnect', 'annotate', 'rename', 'remove'],
+                    description: 'add_idea = new idea card; add_content = put a found note/document/meeting/chat on the canvas; ' +
+                      'connect = link two cards; retype = change the type of the connection between from and to; ' +
+                      'disconnect = remove that connection; annotate = set a card\'s note; rename = change a card\'s title; remove = delete a card.',
                   },
-                  node: { type: 'string', description: 'Alias of the idea to change (rename/describe/move/delete) or link from (link).' },
-                  parent: { type: 'string', description: 'add/move: alias or key of the new parent idea.' },
-                  to: { type: 'string', description: 'link: alias or key of the idea to link to.' },
-                  label: { type: 'string', description: 'add/rename: the idea text; link: optional relationship label, e.g. "supports".' },
-                  note: { type: 'string', description: 'add/describe: optional detail shown with the idea.' },
-                  key: { type: 'string', description: 'add: your own key for this new idea so later changes can use it as a parent.' },
-                  side: { type: 'string', enum: ['left', 'right'], description: 'add/move under the central idea: which side.' },
+                  card: { type: 'string', description: 'annotate/rename/remove: the card alias.' },
+                  connect_to: { type: 'string', description: 'add_idea/add_content: alias or key of the card to connect the new card to.' },
+                  from: { type: 'string', description: 'connect/retype/disconnect: alias or key of one card.' },
+                  to: { type: 'string', description: 'connect/retype/disconnect: alias or key of the other card.' },
+                  type: { type: 'string', description: 'Connection type for connect/retype/add_*, e.g. "supports".' },
+                  content_id: { type: 'string', description: 'add_content: the id of the item from a search result.' },
+                  label: { type: 'string', description: 'add_idea/rename: card title; connect: optional connection label.' },
+                  note: { type: 'string', description: 'add_idea/add_content/annotate: the card\'s note (why it matters here).' },
+                  key: { type: 'string', description: 'add_*: your own key for the new card so later changes can refer to it.' },
                   summary: { type: 'string', description: 'One short line describing this change.' },
                 },
                 required: ['action', 'summary'],
@@ -403,7 +411,7 @@ export async function executeToolCall(
   turn: {
     sessionId?: string | undefined; noteId?: string | undefined; noteEdits?: NoteEditProposal[];
     /** Open mind map: outline alias (n1 …) → idea id, and a collector for proposed changes. */
-    mapAliases?: Map<string, string> | undefined; mapChanges?: MapChangeProposal[];
+    mapAliases?: Map<string, string> | undefined; mapCanvas?: CanvasFull | undefined; mapChanges?: MapChangeProposal[];
   } = {},
 ): Promise<unknown> {
   let args: Record<string, unknown> = {};
@@ -423,10 +431,11 @@ export async function executeToolCall(
       : args;
 
   switch (name) {
-    case 'search_knowledge_base': return searchKnowledgeBase(db, contextualArgs);
+    // With a canvas open, searches are usually for picking items to put on it — short extracts are enough.
+    case 'search_knowledge_base': return searchKnowledgeBase(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : undefined);
     case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
     case 'list_tasks':            return listTasks(db, args);
-    case 'search_library':        return searchLibrary(db, contextualArgs);
+    case 'search_library':        return searchLibrary(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : LIBRARY_RESULT_CONTENT_CHARS);
     case 'create_task':           return createTask(db, args);
     case 'update_task':           return updateTask(db, args);
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
@@ -441,8 +450,8 @@ export async function executeToolCall(
       return { proposed: edits.length, ...(problems.length > 0 && { skipped: problems }), note: 'Shown to the user as a preview with Apply/Discard.' };
     }
     case 'propose_map_changes': {
-      if (turn.mapAliases === undefined) return { error: 'No canvas is open next to this chat.' };
-      const { proposals, problems } = resolveMapChanges(args['changes'], turn.mapAliases);
+      if (turn.mapAliases === undefined || turn.mapCanvas === undefined) return { error: 'No canvas is open next to this chat.' };
+      const { proposals, problems } = await resolveMapChanges(db, args['changes'], turn.mapCanvas, turn.mapAliases);
       if (proposals.length === 0) return { error: `No valid changes: ${problems.join('; ') || 'changes array was empty'}` };
       turn.mapChanges?.push(...proposals);
       return { proposed: proposals.length, ...(problems.length > 0 && { skipped: problems }), note: 'Shown to the user as a preview with Apply/Discard.' };
@@ -510,7 +519,7 @@ export async function getKnowledgeBaseItems(db: Pool, query: string, limit: numb
   ].slice(0, limit);
 }
 
-async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>, contentChars?: number): Promise<unknown> {
   const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
   if (query === '') return { error: 'query is required' };
   const rawLimit = Number(args['limit']);
@@ -521,6 +530,8 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
 
   const items = await getKnowledgeBaseItems(db, query, limit, projectId);
   const results = await Promise.all(items.map(async (item) => ({
+    // Lets Athena put the item on a canvas (propose_map_changes add_content).
+    id: item.id,
     source: item.source,
     title: item.title,
     summary: item.summary,
@@ -531,7 +542,7 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>): Pro
     // images entirely. Without this, Athena can find that a note like
     // "Supply Chain Demo" exists but has no way to say what its diagram
     // actually shows.
-    ...(item.source === 'note' && { content: await buildNoteContentForAI(db, item.body) }),
+    ...(item.source === 'note' && { content: (await buildNoteContentForAI(db, item.body)).slice(0, contentChars ?? Infinity) }),
     // For ica-document items, item.body IS the actual extracted plain-text
     // content of the real file (ICA pre-parses PPTX/XLSX server-side) — not
     // just evidence that a document exists. Without this the model only saw
@@ -676,6 +687,8 @@ async function listTasks(db: Pool, args: Record<string, unknown>): Promise<unkno
 // Library content per result. Enough for the model to reason over a PRD or
 // design doc section, bounded so several results fit comfortably in context.
 const LIBRARY_RESULT_CONTENT_CHARS = 6_000;
+/** Search result text per item when a canvas is open (enough to choose what to add; the canvas reads it in full). */
+const CANVAS_SEARCH_CONTENT_CHARS = 1_200;
 
 /**
  * search_library — searches every Library document (project repo docs, the
@@ -686,7 +699,7 @@ const LIBRARY_RESULT_CONTENT_CHARS = 6_000;
  * and matched the whole query as one exact substring — so multi-word questions
  * found nothing even when PRDs and design docs clearly covered them.
  */
-async function searchLibrary(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+async function searchLibrary(db: Pool, args: Record<string, unknown>, contentChars = LIBRARY_RESULT_CONTENT_CHARS): Promise<unknown> {
   const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
   const projectId = typeof args['projectId'] === 'string' ? args['projectId'].trim() : '';
   const rawLimit = Number(args['limit']);
@@ -757,13 +770,14 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>): Promise<u
       ? r.metadata['path'] as string
       : (typeof r.metadata?.['filename'] === 'string' ? r.metadata['filename'] : r.title);
     return {
+      id: r.id,
       title: r.title,
       project: r.project_name ?? r.project_context ?? 'personal',
       repo: repo === CONTENT_STORE ? 'Content Store' : repo,
       path,
       url: r.url ?? '',
       excerpt: r.excerpt,
-      content: (r.body ?? '').slice(0, LIBRARY_RESULT_CONTENT_CHARS),
+      content: (r.body ?? '').slice(0, contentChars),
     };
   });
 

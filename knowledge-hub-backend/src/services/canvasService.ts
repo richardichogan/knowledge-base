@@ -1,11 +1,13 @@
 /**
  * services/canvasService.ts
- * Mind maps (the Think "Canvas" view).
+ * Canvases (Think → Canvas): a network of cards joined by typed connections.
  *
- * A map is a tree of ideas: one central idea (parent_id NULL) with branches
- * ordered by sort_order; the central idea's children sit on a side (left /
- * right). Layout is computed in the app, so x/y are unused. canvas_edges are
- * cross-links between any two ideas. canvas_notes links a map to Think notes.
+ * Cards are either content (a Think note, Library document, meeting, post,
+ * Discover article or Athena chat — ref_type/ref_id) or your own ideas (text).
+ * Each card has an optional annotation (body). Positions (x, y) are saved once
+ * a card is placed; unplaced cards are auto-arranged in the app. Connections
+ * (canvas_edges) have a type (edge_type: related, supports, contradicts …, or
+ * your own) and an optional label. canvas_notes pins a canvas to Think notes.
  *
  * Tables: canvases, canvas_nodes, canvas_edges, canvas_notes
  */
@@ -17,7 +19,6 @@ import { upsertNode } from './nodeService.js';
 
 export type NodeType = 'hub_ref' | 'text' | 'ai_output';
 export type RefType  = 'discover_item' | 'spark' | 'note' | 'content_item' | 'ai_session';
-export type Side = 'left' | 'right';
 
 export interface LinkedNote { id: string; title: string }
 
@@ -39,13 +40,14 @@ export interface CanvasNode {
   refType: RefType | null;
   refId: string | null;
   label: string | null;
+  /** Your annotation on the card. */
   body: string | null;
   url: string | null;
   tags: string[] | null;
-  parentId: string | null;
-  sortOrder: number;
-  side: Side | null;
-  collapsed: boolean;
+  x: number;
+  y: number;
+  /** True once the card has a saved position. */
+  placed: boolean;
   createdAt: string;
 }
 
@@ -54,6 +56,8 @@ export interface CanvasEdge {
   canvasId: string;
   sourceId: string;
   targetId: string;
+  /** Connection type, e.g. "supports". */
+  type: string;
   label: string | null;
   createdAt: string;
 }
@@ -64,26 +68,30 @@ export interface CanvasFull extends CanvasSummary {
   edges: CanvasEdge[];
 }
 
-/** One change to a map. Ids are client-generated UUIDs, so changes apply optimistically. */
+/** One change to a canvas. Ids are client-generated UUIDs, so changes apply optimistically. */
 export type MapOp =
-  | { op: 'add'; id: string; parentId: string; index?: number; side?: Side; label?: string; body?: string;
-      nodeType?: NodeType; refType?: RefType; refId?: string; url?: string }
-  | { op: 'update'; id: string; label?: string; body?: string; collapsed?: boolean }
-  | { op: 'move'; id: string; parentId: string; index?: number; side?: Side }
+  | { op: 'add'; id: string; label?: string; body?: string; nodeType?: NodeType; refType?: RefType; refId?: string; url?: string;
+      /** e.g. ['Meeting'] — the card's kind, shown on the card. */
+      tags?: string[];
+      x?: number; y?: number; connectTo?: { nodeId: string; edgeId: string; type?: string } }
+  | { op: 'update'; id: string; label?: string; body?: string }
+  | { op: 'position'; id: string; x: number; y: number }
   | { op: 'delete'; id: string }
-  | { op: 'link'; id: string; sourceId: string; targetId: string; label?: string }
-  | { op: 'relabel_link'; id: string; label: string }
+  | { op: 'link'; id: string; sourceId: string; targetId: string; type?: string; label?: string }
+  | { op: 'update_link'; id: string; type?: string; label?: string }
   | { op: 'unlink'; id: string };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_SEED_HEADINGS = 30;
-/** Headings at or above this level become the central idea's branches. */
-const TOP_HEADING_LEVEL = 2;
 const LABEL_MAX_CHARS = 500;
+const TYPE_MAX_CHARS = 40;
 const BODY_PREVIEW_CHARS = 200;
 const GRAPH_TAG_LABELS = 10;
-const HALVES = 2;
-const isEven = (n: number): boolean => n % HALVES === 0;
+const MAX_CARD_TAGS = 5;
+export const DEFAULT_LINK_TYPE = 'related';
+// Heading levels for the summary note: title, then one heading per connection type.
+const H1 = 1;
+const H2 = 2;
+const H3 = 3;
 
 export class MapOpError extends Error {}
 
@@ -122,10 +130,9 @@ function rowToNode(r: Record<string, unknown>): CanvasNode {
     body:      (r['body'] as string | null) ?? null,
     url:       (r['url'] as string | null) ?? null,
     tags,
-    parentId:  (r['parent_id'] as string | null) ?? null,
-    sortOrder: Number(r['sort_order'] ?? 0),
-    side:      (r['side'] as Side | null) ?? null,
-    collapsed: r['collapsed'] === true,
+    x:         Number(r['x'] ?? 0),
+    y:         Number(r['y'] ?? 0),
+    placed:    r['placed'] === true,
     createdAt: r['created_at'] as string,
   };
 }
@@ -136,6 +143,7 @@ function rowToEdge(r: Record<string, unknown>): CanvasEdge {
     canvasId:  r['canvas_id'] as string,
     sourceId:  r['source_id'] as string,
     targetId:  r['target_id'] as string,
+    type:      (r['edge_type'] as string | null) ?? DEFAULT_LINK_TYPE,
     label:     (r['label'] as string | null) ?? null,
     createdAt: r['created_at'] as string,
   };
@@ -151,31 +159,20 @@ const SUMMARY_SQL = `
          ), '[]'::json) AS linked_notes
     FROM canvases c`;
 
-// ─── Notes helpers ────────────────────────────────────────────────────────────
-
-interface NoteBlock { type?: string; props?: { level?: number }; content?: unknown; children?: NoteBlock[] }
-
-function blockText(block: NoteBlock): string {
-  const content = block.content;
-  if (!Array.isArray(content)) return '';
-  return content.map((c: { text?: string }) => c.text ?? '').join('').trim();
-}
-
-async function loadNote(db: Pool | PoolClient, noteId: string): Promise<{ title: string; blocks: NoteBlock[]; projectId: string | null } | null> {
+async function noteTitle(db: Pool | PoolClient, noteId: string): Promise<{ title: string; projectId: string | null } | null> {
   const r = await db.query<{ content: string; project_id: string | null }>(
     `SELECT content, project_id FROM notes WHERE id::text = $1 AND status = 'active'`, [noteId]);
   const row = r.rows[0];
   if (row === undefined) return null;
   try {
-    const wrapper = JSON.parse(row.content) as { title?: string; contentJson?: string };
-    const blocks: unknown = JSON.parse(wrapper.contentJson ?? '[]');
-    return { title: wrapper.title ?? 'Untitled', blocks: Array.isArray(blocks) ? blocks as NoteBlock[] : [], projectId: row.project_id };
+    const wrapper = JSON.parse(row.content) as { title?: string };
+    return { title: wrapper.title ?? 'Untitled', projectId: row.project_id };
   } catch {
-    return { title: 'Untitled', blocks: [], projectId: row.project_id };
+    return { title: 'Untitled', projectId: row.project_id };
   }
 }
 
-// ─── Maps ─────────────────────────────────────────────────────────────────────
+// ─── Canvases ─────────────────────────────────────────────────────────────────
 
 export async function listCanvases(noteId?: string): Promise<CanvasSummary[]> {
   const db = getDb();
@@ -189,11 +186,10 @@ export async function listCanvases(noteId?: string): Promise<CanvasSummary[]> {
 
 export interface CreateMapInput {
   title?: string;
+  /** Label of the first card on a blank canvas. */
   rootLabel?: string;
-  /** Link the map to this note; the note becomes the central idea. */
+  /** Pin the canvas to this note; the note is its first card. */
   noteId?: string;
-  /** With noteId: the note's headings become the first branches. */
-  seedFromHeadings?: boolean;
   project?: string;
 }
 
@@ -203,53 +199,22 @@ export async function createCanvas(input: CreateMapInput = {}): Promise<CanvasFu
   let canvasId = '';
   try {
     await client.query('BEGIN');
-    const note = input.noteId !== undefined ? await loadNote(client, input.noteId) : null;
+    const note = input.noteId !== undefined ? await noteTitle(client, input.noteId) : null;
     const title = input.title ?? note?.title ?? 'Untitled canvas';
     const res = await client.query<{ id: string }>(
       `INSERT INTO canvases (title, project) VALUES ($1, $2) RETURNING id`,
       [title, input.project ?? note?.projectId ?? null],
     );
     canvasId = res.rows[0]!.id;
-    const root = await client.query<{ id: string }>(
-      `INSERT INTO canvas_nodes (canvas_id, node_type, ref_type, ref_id, label)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    await client.query(
+      `INSERT INTO canvas_nodes (canvas_id, node_type, ref_type, ref_id, label, x, y, placed)
+       VALUES ($1, $2, $3, $4, $5, 0, 0, TRUE)`,
       note !== null && input.noteId !== undefined
         ? [canvasId, 'hub_ref', 'note', input.noteId, note.title]
         : [canvasId, 'text', null, null, input.rootLabel ?? title],
     );
-    const rootId = root.rows[0]!.id;
-
     if (note !== null && input.noteId !== undefined) {
       await client.query(`INSERT INTO canvas_notes (canvas_id, note_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [canvasId, input.noteId]);
-      if (input.seedFromHeadings === true) {
-        // Headings become branches: level 1–2 under the central idea, level 3 under the last of those.
-        const headings = note.blocks
-          .filter((b) => b.type === 'heading' && blockText(b) !== '')
-          .map((b) => ({ level: Number(b.props?.level ?? 1), text: blockText(b) }))
-          .filter((h, i) => !(i === 0 && h.text.toLowerCase() === note.title.toLowerCase()))
-          .slice(0, MAX_SEED_HEADINGS);
-        let lastTop: string | null = null;
-        let topCount = 0;
-        const childCount = new Map<string, number>();
-        for (const h of headings) {
-          if (h.level <= TOP_HEADING_LEVEL || lastTop === null) {
-            const r = await client.query<{ id: string }>(
-              `INSERT INTO canvas_nodes (canvas_id, node_type, label, parent_id, sort_order, side)
-               VALUES ($1, 'text', $2, $3, $4, $5) RETURNING id`,
-              [canvasId, h.text.slice(0, LABEL_MAX_CHARS), rootId, topCount, isEven(topCount) ? 'right' : 'left'],
-            );
-            lastTop = r.rows[0]!.id;
-            topCount++;
-          } else {
-            const n = childCount.get(lastTop) ?? 0;
-            await client.query(
-              `INSERT INTO canvas_nodes (canvas_id, node_type, label, parent_id, sort_order) VALUES ($1, 'text', $2, $3, $4)`,
-              [canvasId, h.text.slice(0, LABEL_MAX_CHARS), lastTop, n],
-            );
-            childCount.set(lastTop, n + 1);
-          }
-        }
-      }
     }
     await client.query('COMMIT');
   } catch (err) {
@@ -267,8 +232,8 @@ export async function getCanvas(id: string): Promise<CanvasFull | null> {
   const db = getDb();
   const [canvasRes, nodesRes, edgesRes] = await Promise.all([
     db.query<Record<string, unknown>>(`${SUMMARY_SQL} WHERE c.id = $1`, [id]),
-    db.query<Record<string, unknown>>(`SELECT * FROM canvas_nodes WHERE canvas_id = $1 ORDER BY sort_order, created_at`, [id]),
-    db.query<Record<string, unknown>>(`SELECT * FROM canvas_edges WHERE canvas_id = $1 ORDER BY created_at`, [id]),
+    db.query<Record<string, unknown>>(`SELECT * FROM canvas_nodes WHERE canvas_id = $1 ORDER BY created_at, id`, [id]),
+    db.query<Record<string, unknown>>(`SELECT * FROM canvas_edges WHERE canvas_id = $1 ORDER BY created_at, id`, [id]),
   ]);
   const row = canvasRes.rows[0];
   if (row === undefined) return null;
@@ -307,7 +272,7 @@ export async function deleteCanvas(id: string): Promise<void> {
   await db.query(`DELETE FROM nodes WHERE ref_id = $1 AND ref_type = 'canvas'`, [id]);
 }
 
-// ─── Note links ───────────────────────────────────────────────────────────────
+// ─── Pinned notes ─────────────────────────────────────────────────────────────
 
 export async function linkNote(canvasId: string, noteId: string): Promise<void> {
   const db = getDb();
@@ -323,108 +288,93 @@ export async function unlinkNote(canvasId: string, noteId: string): Promise<void
   scheduleGraphSync(canvasId);
 }
 
-// ─── Changes (tree edits, cross-links) ────────────────────────────────────────
-
-/** Re-numbers a parent's children 0..n, placing `movingId` at `index` (end if undefined). */
-async function renumber(client: PoolClient, canvasId: string, parentId: string, movingId?: string, index?: number): Promise<void> {
-  const r = await client.query<{ id: string }>(
-    `SELECT id FROM canvas_nodes WHERE canvas_id = $1 AND parent_id = $2 ORDER BY sort_order, created_at`,
-    [canvasId, parentId],
-  );
-  const ids = r.rows.map((x) => x.id).filter((x) => x !== movingId);
-  if (movingId !== undefined) {
-    const at = index === undefined ? ids.length : Math.max(0, Math.min(index, ids.length));
-    ids.splice(at, 0, movingId);
-  }
-  for (let i = 0; i < ids.length; i++) {
-    await client.query(`UPDATE canvas_nodes SET sort_order = $1 WHERE id = $2`, [i, ids[i]]);
-  }
-}
-
-async function nodeRow(client: PoolClient, canvasId: string, id: string): Promise<{ id: string; parent_id: string | null } | undefined> {
-  const r = await client.query<{ id: string; parent_id: string | null }>(
-    `SELECT id, parent_id FROM canvas_nodes WHERE canvas_id = $1 AND id = $2`, [canvasId, id]);
-  return r.rows[0];
-}
-
-async function isDescendant(client: PoolClient, ancestorId: string, nodeId: string): Promise<boolean> {
-  const r = await client.query(
-    `WITH RECURSIVE sub AS (
-       SELECT id FROM canvas_nodes WHERE id = $1
-       UNION ALL SELECT c.id FROM canvas_nodes c JOIN sub ON c.parent_id = sub.id)
-     SELECT 1 FROM sub WHERE id = $2`, [ancestorId, nodeId]);
-  return (r.rowCount ?? 0) > 0;
-}
+// ─── Changes ──────────────────────────────────────────────────────────────────
 
 function requireId(id: unknown, what: string): string {
   if (typeof id !== 'string' || !UUID_RE.test(id)) throw new MapOpError(`${what}: invalid id`);
   return id;
 }
 
+function linkType(type: unknown): string {
+  return typeof type === 'string' && type.trim() !== '' ? type.trim().toLowerCase().slice(0, TYPE_MAX_CHARS) : DEFAULT_LINK_TYPE;
+}
+
+function finite(n: unknown): number | null {
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
+}
+
+async function cardExists(client: PoolClient, canvasId: string, id: string): Promise<boolean> {
+  const r = await client.query(`SELECT 1 FROM canvas_nodes WHERE canvas_id = $1 AND id = $2`, [canvasId, id]);
+  return (r.rowCount ?? 0) > 0;
+}
+
+async function insertLink(client: PoolClient, canvasId: string, id: string, sourceId: string, targetId: string, type: unknown, label?: string): Promise<void> {
+  if (sourceId === targetId) throw new MapOpError('link: a card can’t be connected to itself');
+  if (!(await cardExists(client, canvasId, sourceId)) || !(await cardExists(client, canvasId, targetId))) {
+    throw new MapOpError('link: card not found');
+  }
+  const cleanLabel = label !== undefined && label.trim() !== '' ? label.trim() : null;
+  await client.query(
+    `INSERT INTO canvas_edges (id, canvas_id, source_id, target_id, edge_type, label)
+     VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
+    [requireId(id, 'link'), canvasId, sourceId, targetId, linkType(type), cleanLabel],
+  );
+}
+
 async function applyOne(client: PoolClient, canvasId: string, op: MapOp): Promise<void> {
   switch (op.op) {
     case 'add': {
       const id = requireId(op.id, 'add');
-      const parent = await nodeRow(client, canvasId, requireId(op.parentId, 'add parent'));
-      if (parent === undefined) throw new MapOpError('add: parent idea not found');
+      const x = finite(op.x);
+      const y = finite(op.y);
       await client.query(
-        `INSERT INTO canvas_nodes (id, canvas_id, node_type, ref_type, ref_id, label, body, url, parent_id, side, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 999999)
+        `INSERT INTO canvas_nodes (id, canvas_id, node_type, ref_type, ref_id, label, body, url, x, y, placed, meta_tags)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (id) DO NOTHING`,
         [id, canvasId, op.nodeType ?? (op.refType !== undefined ? 'hub_ref' : 'text'), op.refType ?? null, op.refId ?? null,
-          (op.label ?? '').slice(0, LABEL_MAX_CHARS), op.body ?? null, op.url ?? null, parent.id,
-          parent.parent_id === null ? (op.side ?? 'right') : null],
+          (op.label ?? '').slice(0, LABEL_MAX_CHARS), op.body ?? null, op.url ?? null, x ?? 0, y ?? 0, x !== null && y !== null,
+          Array.isArray(op.tags) ? JSON.stringify(op.tags.filter((t) => typeof t === 'string').slice(0, MAX_CARD_TAGS)) : null],
       );
-      await renumber(client, canvasId, parent.id, id, op.index);
+      if (op.connectTo !== undefined) {
+        await insertLink(client, canvasId, op.connectTo.edgeId, requireId(op.connectTo.nodeId, 'add connectTo'), id, op.connectTo.type);
+      }
       return;
     }
     case 'update': {
       const sets: string[] = [];
       const vals: unknown[] = [];
       if (op.label !== undefined) { vals.push(op.label.slice(0, LABEL_MAX_CHARS)); sets.push(`label = $${vals.length.toString()}`); }
-      if (op.body !== undefined) { vals.push(op.body); sets.push(`body = $${vals.length.toString()}`); }
-      if (op.collapsed !== undefined) { vals.push(op.collapsed); sets.push(`collapsed = $${vals.length.toString()}`); }
+      if (op.body !== undefined) { vals.push(op.body.trim() === '' ? null : op.body); sets.push(`body = $${vals.length.toString()}`); }
       if (sets.length === 0) return;
       vals.push(requireId(op.id, 'update'), canvasId);
       await client.query(`UPDATE canvas_nodes SET ${sets.join(', ')} WHERE id = $${(vals.length - 1).toString()} AND canvas_id = $${vals.length.toString()}`, vals);
       return;
     }
-    case 'move': {
-      const node = await nodeRow(client, canvasId, requireId(op.id, 'move'));
-      const parent = await nodeRow(client, canvasId, requireId(op.parentId, 'move parent'));
-      if (node === undefined || parent === undefined) throw new MapOpError('move: idea not found');
-      if (node.parent_id === null) throw new MapOpError('move: the central idea cannot be moved');
-      if (await isDescendant(client, node.id, parent.id)) throw new MapOpError('move: cannot move an idea into its own branch');
-      const oldParent = node.parent_id;
-      await client.query(`UPDATE canvas_nodes SET parent_id = $1, side = $2 WHERE id = $3`,
-        [parent.id, parent.parent_id === null ? (op.side ?? 'right') : null, node.id]);
-      await renumber(client, canvasId, parent.id, node.id, op.index);
-      if (oldParent !== parent.id) await renumber(client, canvasId, oldParent);
+    case 'position': {
+      const x = finite(op.x);
+      const y = finite(op.y);
+      if (x === null || y === null) throw new MapOpError('position: x and y must be numbers');
+      await client.query(`UPDATE canvas_nodes SET x = $1, y = $2, placed = TRUE WHERE id = $3 AND canvas_id = $4`,
+        [x, y, requireId(op.id, 'position'), canvasId]);
       return;
     }
-    case 'delete': {
-      const node = await nodeRow(client, canvasId, requireId(op.id, 'delete'));
-      if (node === undefined) return;
-      if (node.parent_id === null) throw new MapOpError('delete: the central idea cannot be deleted');
-      await client.query(`DELETE FROM canvas_nodes WHERE id = $1`, [node.id]); // branch cascades
-      await renumber(client, canvasId, node.parent_id);
+    case 'delete':
+      // Its connections go with it (canvas_edges cascade on the card).
+      await client.query(`DELETE FROM canvas_nodes WHERE id = $1 AND canvas_id = $2`, [requireId(op.id, 'delete'), canvasId]);
+      return;
+    case 'link':
+      await insertLink(client, canvasId, op.id, requireId(op.sourceId, 'link from'), requireId(op.targetId, 'link to'), op.type, op.label);
+      return;
+    case 'update_link': {
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      if (op.type !== undefined) { vals.push(linkType(op.type)); sets.push(`edge_type = $${vals.length.toString()}`); }
+      if (op.label !== undefined) { vals.push(op.label.trim() === '' ? null : op.label); sets.push(`label = $${vals.length.toString()}`); }
+      if (sets.length === 0) return;
+      vals.push(requireId(op.id, 'update_link'), canvasId);
+      await client.query(`UPDATE canvas_edges SET ${sets.join(', ')} WHERE id = $${(vals.length - 1).toString()} AND canvas_id = $${vals.length.toString()}`, vals);
       return;
     }
-    case 'link': {
-      const source = await nodeRow(client, canvasId, requireId(op.sourceId, 'link from'));
-      const target = await nodeRow(client, canvasId, requireId(op.targetId, 'link to'));
-      if (source === undefined || target === undefined) throw new MapOpError('link: idea not found');
-      if (source.id === target.id) throw new MapOpError('link: cannot link an idea to itself');
-      await client.query(
-        `INSERT INTO canvas_edges (id, canvas_id, source_id, target_id, edge_type, label)
-         VALUES ($1, $2, $3, $4, 'relates-to', $5) ON CONFLICT (id) DO NOTHING`,
-        [requireId(op.id, 'link'), canvasId, source.id, target.id, op.label ?? null]);
-      return;
-    }
-    case 'relabel_link':
-      await client.query(`UPDATE canvas_edges SET label = $1 WHERE id = $2 AND canvas_id = $3`,
-        [op.label.trim() === '' ? null : op.label, requireId(op.id, 'relabel_link'), canvasId]);
-      return;
     case 'unlink':
       await client.query(`DELETE FROM canvas_edges WHERE id = $1 AND canvas_id = $2`, [requireId(op.id, 'unlink'), canvasId]);
       return;
@@ -433,14 +383,14 @@ async function applyOne(client: PoolClient, canvasId: string, op: MapOp): Promis
   }
 }
 
-/** Applies changes in order, all-or-nothing. Returns the updated map. */
+/** Applies changes in order, all-or-nothing. Returns the updated canvas. */
 export async function applyOps(canvasId: string, ops: MapOp[]): Promise<CanvasFull> {
   const db = getDb();
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const exists = await client.query(`SELECT 1 FROM canvases WHERE id = $1 FOR UPDATE`, [canvasId]);
-    if (exists.rowCount === 0) throw new MapOpError('Map not found');
+    if (exists.rowCount === 0) throw new MapOpError('Canvas not found');
     for (const op of ops) await applyOne(client, canvasId, op);
     await client.query(`UPDATE canvases SET updated_at = NOW() WHERE id = $1`, [canvasId]);
     await client.query('COMMIT');
@@ -454,90 +404,98 @@ export async function applyOps(canvasId: string, ops: MapOp[]): Promise<CanvasFu
   return (await getCanvas(canvasId))!;
 }
 
-// ─── Outline (Athena context, export, branch → note) ─────────────────────────
-
-function childrenOf(nodes: CanvasNode[], parentId: string): CanvasNode[] {
-  return nodes.filter((n) => n.parentId === parentId).sort((a, b) => a.sortOrder - b.sortOrder);
-}
+// ─── Outline (Athena context, export, summary note) ──────────────────────────
 
 const REF_LABEL: Record<RefType, string> = {
-  note: 'Think note', content_item: 'linked item', spark: 'Spark', discover_item: 'Discover article', ai_session: 'Athena chat',
+  note: 'Think note', content_item: 'document/meeting/post', spark: 'Spark', discover_item: 'Discover article', ai_session: 'Athena chat',
 };
 
+export function cardKind(node: Pick<CanvasNode, 'refType'>): string {
+  return node.refType !== null ? REF_LABEL[node.refType] : 'idea';
+}
+
 /**
- * The map as an indented outline with short aliases (n1, n2 … in reading
- * order) that Athena uses to refer to ideas. Returns the alias → id map too.
+ * The canvas as text: cards with short aliases (c1, c2 … in creation order)
+ * that Athena uses to refer to them, then the connections. Returns the
+ * alias → id map too.
  */
 export function mapOutline(map: CanvasFull, selectedId?: string): { text: string; aliases: Map<string, string> } {
   const aliases = new Map<string, string>();
-  const lines: string[] = [];
-  const root = map.nodes.find((n) => n.parentId === null);
-  const walk = (node: CanvasNode, depth: number): void => {
-    const alias = `n${(aliases.size + 1).toString()}`;
-    aliases.set(alias, node.id);
-    const ref = node.refType !== null ? ` (${REF_LABEL[node.refType]})` : '';
-    const side = node.side !== null ? ` [${node.side}]` : '';
-    const selected = node.id === selectedId ? '  ← SELECTED' : '';
-    const body = node.body !== null && node.body.trim() !== '' ? ` — ${node.body.replace(/\s+/g, ' ').slice(0, BODY_PREVIEW_CHARS)}` : '';
-    lines.push(`${'  '.repeat(depth)}- [${alias}] ${node.label ?? '(untitled)'}${ref}${side}${body}${selected}`);
-    for (const c of childrenOf(map.nodes, node.id)) walk(c, depth + 1);
-  };
-  if (root !== undefined) walk(root, 0);
-  const idToAlias = new Map([...aliases].map(([a, id]) => [id, a]));
-  const links = map.edges.map((e) => `- ${idToAlias.get(e.sourceId) ?? '?'} ↔ ${idToAlias.get(e.targetId) ?? '?'}${e.label !== null ? ` ("${e.label}")` : ''}`);
+  const idToAlias = new Map<string, string>();
+  map.nodes.forEach((n, i) => {
+    const alias = `c${(i + 1).toString()}`;
+    aliases.set(alias, n.id);
+    idToAlias.set(n.id, alias);
+  });
+  const pinned = new Set(map.linkedNotes.map((n) => n.id));
+  const cards = map.nodes.map((n) => {
+    const tags = [cardKind(n), n.refType === 'note' && n.refId !== null && pinned.has(n.refId) ? 'pinned note' : ''].filter(Boolean).join(', ');
+    const note = n.body !== null && n.body.trim() !== '' ? ` — note: ${n.body.replace(/\s+/g, ' ').slice(0, BODY_PREVIEW_CHARS)}` : '';
+    return `- [${idToAlias.get(n.id) ?? '?'}] ${n.label ?? '(untitled)'} (${tags})${note}${n.id === selectedId ? '  ← SELECTED' : ''}`;
+  });
+  const links = map.edges.map((e) =>
+    `- ${idToAlias.get(e.sourceId) ?? '?'} —${e.type}→ ${idToAlias.get(e.targetId) ?? '?'}${e.label !== null ? ` ("${e.label}")` : ''}`);
   const text = [
-    `Canvas "${map.title}"${map.linkedNotes.length > 0 ? ` — linked to notes: ${map.linkedNotes.map((n) => `"${n.title}"`).join(', ')}` : ''}`,
-    ...lines,
-    ...(links.length > 0 ? ['Cross-links:', ...links] : []),
+    `Canvas "${map.title}"${map.linkedNotes.length > 0 ? ` — pinned to notes: ${map.linkedNotes.map((n) => `"${n.title}"`).join(', ')}` : ''}`,
+    'Cards:',
+    ...cards,
+    ...(links.length > 0 ? ['Connections:', ...links] : ['Connections: none yet']),
   ].join('\n');
   return { text, aliases };
 }
 
 type Inline = Array<{ type: 'text'; text: string; styles: Record<string, never> }>;
 interface OutBlock { type: string; props?: Record<string, unknown>; content: Inline; children: OutBlock[] }
+const inline = (t: string): Inline => [{ type: 'text', text: t, styles: {} }];
 
-const text = (t: string): Inline => [{ type: 'text', text: t, styles: {} }];
-
-function bulletTree(nodes: CanvasNode[], parentId: string): OutBlock[] {
-  return childrenOf(nodes, parentId).map((c) => ({
-    type: 'bulletListItem',
-    content: text(c.body !== null && c.body.trim() !== '' ? `${c.label ?? ''} — ${c.body}` : c.label ?? ''),
-    children: bulletTree(nodes, c.id),
-  }));
+function connectionsOf(map: CanvasFull, id: string): Array<{ type: string; label: string | null; other: CanvasNode }> {
+  return map.edges.flatMap((e) => {
+    const otherId = e.sourceId === id ? e.targetId : e.targetId === id ? e.sourceId : null;
+    const other = otherId !== null ? map.nodes.find((n) => n.id === otherId) : undefined;
+    return other !== undefined ? [{ type: e.type, label: e.label, other }] : [];
+  });
 }
 
-/** A branch as note blocks: its sub-ideas as sections, deeper ideas as nested bullets. */
-export function branchBlocks(map: CanvasFull, nodeId: string, asSection: boolean): { title: string; blocks: OutBlock[] } {
+/**
+ * A card and everything connected to it, as note blocks: the card's
+ * annotation, then its connections grouped by type (with each card's kind and
+ * annotation). `asSection` adds it to an existing note under a heading.
+ */
+export function cardSummaryBlocks(map: CanvasFull, nodeId: string, asSection: boolean): { title: string; blocks: OutBlock[] } {
   const node = map.nodes.find((n) => n.id === nodeId);
-  if (node === undefined) throw new MapOpError('Idea not found');
+  if (node === undefined) throw new MapOpError('Card not found');
   const title = node.label ?? 'Untitled';
-  // A new note opens with its title as a level-1 heading (Think takes the title from it).
-  const blocks: OutBlock[] = [{ type: 'heading', props: { level: asSection ? 2 : 1 }, content: text(title), children: [] }];
-  if (node.body !== null && node.body.trim() !== '') blocks.push({ type: 'paragraph', content: text(node.body), children: [] });
-  for (const c of childrenOf(map.nodes, node.id)) {
-    if (asSection) {
-      blocks.push({ type: 'bulletListItem', content: text(c.label ?? ''), children: bulletTree(map.nodes, c.id) });
-    } else {
-      blocks.push({ type: 'heading', props: { level: 2 }, content: text(c.label ?? ''), children: [] });
-      if (c.body !== null && c.body.trim() !== '') blocks.push({ type: 'paragraph', content: text(c.body), children: [] });
-      blocks.push(...bulletTree(map.nodes, c.id));
+  const blocks: OutBlock[] = [{ type: 'heading', props: { level: asSection ? H2 : H1 }, content: inline(title), children: [] }];
+  if (node.body !== null && node.body.trim() !== '') blocks.push({ type: 'paragraph', content: inline(node.body), children: [] });
+  const byType = new Map<string, ReturnType<typeof connectionsOf>>();
+  for (const c of connectionsOf(map, node.id)) byType.set(c.type, [...(byType.get(c.type) ?? []), c]);
+  for (const [type, conns] of byType) {
+    blocks.push({ type: 'heading', props: { level: asSection ? H3 : H2 }, content: inline(type.charAt(0).toUpperCase() + type.slice(1)), children: [] });
+    for (const c of conns) {
+      const note = c.other.body !== null && c.other.body.trim() !== '' ? ` — ${c.other.body}` : '';
+      blocks.push({
+        type: 'bulletListItem',
+        content: inline(`${c.other.label ?? 'Untitled'} (${cardKind(c.other)})${c.label !== null ? ` [${c.label}]` : ''}${note}`),
+        children: [],
+      });
     }
   }
   return { title, blocks };
 }
 
-/** The whole map as a Markdown outline (export). */
+/** The whole canvas as Markdown (export). */
 export function mapMarkdown(map: CanvasFull): string {
-  const root = map.nodes.find((n) => n.parentId === null);
-  const out: string[] = [`# ${map.title}`, ''];
-  const walk = (node: CanvasNode, depth: number): void => {
-    out.push(`${'  '.repeat(depth)}- ${node.label ?? ''}${node.body !== null && node.body.trim() !== '' ? ` — ${node.body}` : ''}`);
-    for (const c of childrenOf(map.nodes, node.id)) walk(c, depth + 1);
-  };
-  if (root !== undefined) {
-    for (const c of childrenOf(map.nodes, root.id)) walk(c, 0);
-  }
-  return out.join('\n');
+  const title = new Map(map.nodes.map((n) => [n.id, n.label ?? 'Untitled']));
+  return [
+    `# ${map.title}`,
+    '',
+    '## Cards',
+    ...map.nodes.map((n) => `- **${n.label ?? 'Untitled'}** (${cardKind(n)})${n.body !== null && n.body.trim() !== '' ? ` — ${n.body}` : ''}`),
+    '',
+    '## Connections',
+    ...(map.edges.length === 0 ? ['- none'] : map.edges.map((e) =>
+      `- ${title.get(e.sourceId) ?? '?'} → *${e.type}* → ${title.get(e.targetId) ?? '?'}${e.label !== null ? ` (${e.label})` : ''}`)),
+  ].join('\n');
 }
 
 // ─── Knowledge graph ──────────────────────────────────────────────────────────
@@ -547,8 +505,8 @@ const pendingGraphSync = new Map<string, ReturnType<typeof setTimeout>>();
 const GRAPH_REF: Partial<Record<RefType, string>> = { note: 'note', content_item: 'document', spark: 'spark', discover_item: 'discover_item' };
 
 /**
- * Mirrors a map into the knowledge graph: a 'canvas' node with 'on_map'
- * edges to its linked notes and to every item placed on it. Debounced.
+ * Mirrors a canvas into the knowledge graph: a 'canvas' node with 'on_map'
+ * edges to its pinned notes and to every item placed on it. Debounced.
  */
 function scheduleGraphSync(canvasId: string): void {
   const existing = pendingGraphSync.get(canvasId);
@@ -556,7 +514,7 @@ function scheduleGraphSync(canvasId: string): void {
   pendingGraphSync.set(canvasId, setTimeout(() => {
     pendingGraphSync.delete(canvasId);
     void syncMapToGraph(canvasId).catch((err: unknown) => {
-      console.error('[maps] graph sync failed:', err instanceof Error ? err.message : String(err));
+      console.error('[canvas] graph sync failed:', err instanceof Error ? err.message : String(err));
     });
   }, GRAPH_SYNC_DELAY_MS));
 }
@@ -567,14 +525,14 @@ async function syncMapToGraph(canvasId: string): Promise<void> {
   if (map === null) return;
   const labels = map.nodes.map((n) => n.label ?? '').filter((l) => l !== '');
   const graphId = await upsertNode(db, canvasId, 'canvas', map.title, labels.slice(0, GRAPH_TAG_LABELS));
-  const refs = new Map<string, string>(); // `${refType}:${refId}` → graph ref type
-  for (const n of map.linkedNotes) refs.set(`note:${n.id}`, 'note');
+  const refs = new Set<string>(); // `${graphRefType}:${refId}`
+  for (const n of map.linkedNotes) refs.add(`note:${n.id}`);
   for (const n of map.nodes) {
     const g = n.refType !== null ? GRAPH_REF[n.refType] : undefined;
-    if (g !== undefined && n.refId !== null) refs.set(`${g}:${n.refId}`, g);
+    if (g !== undefined && n.refId !== null) refs.add(`${g}:${n.refId}`);
   }
   await db.query(`DELETE FROM edges WHERE source_node_id = $1 AND edge_type = 'on_map'`, [graphId]);
-  for (const key of refs.keys()) {
+  for (const key of refs) {
     const [refType, ...rest] = key.split(':');
     const target = await db.query<{ id: string }>(`SELECT id FROM nodes WHERE ref_id = $1 AND ref_type = $2`, [rest.join(':'), refType]);
     const targetId = target.rows[0]?.id;

@@ -1,5 +1,5 @@
 /**
- * features/canvas/NoteMaps.tsx — the mind maps linked to a note, shown at the
+ * features/canvas/NoteMaps.tsx — the canvases pinned to a note, shown at the
  * top of the note's Connections tab.
  */
 import React from 'react';

@@ -36,9 +36,9 @@ interface NoteEditorProps {
   onDelete?: (id: string) => void;
   /** Page command-bar element to render the note actions (Export, Push, Delete) into. */
   actionsSlot?: HTMLElement | null;
-  /** "Map": open this note's mind map, or create one from its headings. */
+  /** "Canvas": open this note's canvas, or create one with the note as its first card. */
   onMapNote?: (noteId: string) => void;
-  /** Open one of the note's mind maps (listed in the Connections tab). */
+  /** Open one of the note's canvases (listed in the Connections tab). */
   onOpenMap?: (mapId: string) => void;
 }
 
@@ -521,7 +521,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             )}
           </div>
           {onMapNote && (
-            <button className="kb-import-btn" title="Open this note's canvas, or start one from its headings" onClick={() => { onMapNote(doc.id); }}>
+            <button className="kb-import-btn" title="Open this note's canvas, or start one with this note as its first card" onClick={() => { onMapNote(doc.id); }}>
               <Diagram size={16} /> Canvas
             </button>
           )}

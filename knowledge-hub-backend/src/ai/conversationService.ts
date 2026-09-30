@@ -10,7 +10,8 @@ import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
 import { selectRequiredToolChoice } from './toolRouting.js';
-import { getCanvas, mapOutline } from '../services/canvasService.js';
+import { getCanvas } from '../services/canvasService.js';
+import { buildCanvasContext } from '../services/canvasContent.js';
 import type { MapChangeProposal } from './mapEdits.js';
 import { looksLikeMeetingList, importMeetingList, buildTodayScheduleBlock } from '../integrations/ibm/ibmMeetings.js';
 
@@ -41,7 +42,12 @@ export async function handleConversationTurn(
   // A mind map open beside the chat (noteId "map:<id>"): Athena gets its outline and can propose changes.
   const mapId = toolContext.noteId?.startsWith('map:') === true ? toolContext.noteId.slice('map:'.length) : undefined;
   const openMap = mapId !== undefined ? await getCanvas(mapId).catch(() => null) : null;
-  const mapOutlineResult = openMap !== null ? mapOutline(openMap, pageContext?.selectedId) : null;
+  const mapOutlineResult = openMap !== null
+    ? await buildCanvasContext(db, openMap, userMessage, pageContext?.selectedId).catch((err: unknown) => {
+      console.error('[canvas] context failed:', err);
+      return null;
+    })
+    : null;
   const context = await buildAiContext(db, userMessage, history, sessionId);
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
   // Learned standing instructions + liked examples for this persona/project.
@@ -68,8 +74,9 @@ export async function handleConversationTurn(
   const scheduleBlock = await buildTodayScheduleBlock(db)
     .catch((err: unknown) => { console.error('[meetings] schedule block failed:', err); return ''; });
   const mapBlock = mapOutlineResult === null ? '' : [
-    '## Canvas in view (a mind map the user is working on — call it a "canvas" when talking to the user)',
-    'Ideas are shown with aliases in brackets; n1 is the central idea. Use propose_map_changes to change the canvas.',
+    '## Canvas in view (the user is working on this canvas: cards of related content joined by typed connections)',
+    'Cards are shown with aliases in brackets (c1, c2 …), followed by the content behind each card. Treat this as the ' +
+      'primary material for questions about the canvas, and cite cards by title. Use propose_map_changes to change it.',
     mapOutlineResult.text,
   ].join('\n');
   const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock].filter((b) => b !== '').join('\n\n---\n\n');
@@ -134,7 +141,7 @@ export async function handleConversationTurn(
       let result: unknown;
       onToolCall?.(call.function.name);
       try {
-        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, mapAliases: mapOutlineResult?.aliases });
+        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined });
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }

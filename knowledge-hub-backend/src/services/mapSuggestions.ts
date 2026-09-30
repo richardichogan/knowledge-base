@@ -51,25 +51,28 @@ function terms(text: string): string[] {
     .filter((t) => t.length >= MIN_TERM_LENGTH && !STOPWORDS.has(t)))].slice(0, MAX_TERMS);
 }
 
-/** The idea's text as the user sees it (it may not be saved yet). */
-export interface SuggestionText { label?: string; body?: string; parentLabel?: string }
+/** The card's text as the user sees it (it may not be saved yet), plus what it's connected to. */
+export interface SuggestionText { label?: string; body?: string; contextLabels?: string }
 
 export async function suggestionsFor(map: CanvasFull, nodeId: string | undefined, text: SuggestionText = {}): Promise<MapSuggestion[]> {
   const db = getDb();
-  const root = map.nodes.find((n) => n.parentId === null);
-  const saved = map.nodes.find((n) => n.id === nodeId) ?? (text.label === undefined ? root : undefined);
+  // Default focus: the first card (usually the pinned note).
+  const first = map.nodes[0];
+  const saved = map.nodes.find((n) => n.id === nodeId) ?? (text.label === undefined ? first : undefined);
   const node = saved !== undefined
     ? { ...saved, label: text.label ?? saved.label, body: text.body ?? saved.body }
-    : { id: nodeId ?? '', parentId: null, refType: null, refId: null, label: text.label ?? '', body: text.body ?? null };
-  if (node.label === null && root === undefined) return [];
-  const parentLabel = text.parentLabel ?? map.nodes.find((n) => n.id === node.parentId)?.label ?? '';
+    : { id: nodeId ?? '', refType: null, refId: null, label: text.label ?? '', body: text.body ?? null };
+  if (node.label === null) return [];
+  // Cards connected to this one give the search its context.
+  const connectedIds = new Set(map.edges.flatMap((e) => (e.sourceId === node.id ? [e.targetId] : e.targetId === node.id ? [e.sourceId] : [])));
+  const contextLabels = text.contextLabels ?? map.nodes.filter((n) => connectedIds.has(n.id)).map((n) => n.label ?? '').join(' ');
 
   // Placeholder labels ("Central idea", "New idea") aren't worth searching for.
   if (PLACEHOLDER_LABELS.has((node.label ?? '').trim().toLowerCase()) && (node.body ?? '').trim() === '') return [];
 
   const onMap = new Set(map.nodes.filter((n) => n.refId !== null).map((n) => n.refId as string));
   const focus = terms(`${node.label ?? ''} ${node.body ?? ''}`);
-  const context = terms(`${parentLabel} ${root?.id !== node.id ? root?.label ?? '' : ''}`).filter((t) => !focus.includes(t));
+  const context = terms(`${contextLabels} ${first?.id !== node.id ? first?.label ?? '' : ''}`).filter((t) => !focus.includes(t));
   const results: Array<MapSuggestion & { score: number }> = [];
 
   if (focus.length > 0) {

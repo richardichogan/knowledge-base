@@ -32,9 +32,11 @@ interface SideTabsPanelProps {
   defaultTab: string;
   width: PaneWidthOptions;
   label: string;
+  /** Switch to a tab from outside (e.g. Preview when a card is opened); bump `seq` to re-request. */
+  selectTab?: { id: string; seq: number } | undefined;
 }
 
-export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, defaultTab, width: widthOptions, label }) => {
+export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, defaultTab, width: widthOptions, label, selectTab }) => {
   const tabIds = tabs.map((t) => t.id);
   const [storedTab, setTab] = usePersistedChoice<string>(`kh_${storageKey}_tab`, tabIds, defaultTab);
   const tab = tabIds.includes(storedTab) ? storedTab : (tabIds[0] ?? defaultTab);
@@ -51,6 +53,13 @@ export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, 
     window.addEventListener('keydown', onKey);
     return () => { window.removeEventListener('keydown', onKey); };
   }, [setCollapsed]);
+
+  useEffect(() => {
+    if (selectTab === undefined) return;
+    setTab(selectTab.id);
+    setCollapsed(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectTab?.seq]);
 
   const busyTab = tabs.find((t) => t.dot === 'busy');
 

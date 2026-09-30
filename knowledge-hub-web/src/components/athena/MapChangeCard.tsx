@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { MapChange } from '../../types';
 import { api } from '../../services/api';
-import { getActiveMindMap } from '../../features/canvas/activeMindMap';
+import { getActiveCanvas } from '../../features/canvas/activeCanvas';
 
 type Status = 'pending' | 'applying' | 'applied' | 'discarded' | 'failed';
 
@@ -18,7 +18,7 @@ export const MapChangeCard: React.FC<{ changes: MapChange[]; mapId: string }> = 
 
   async function apply(): Promise<void> {
     const ops = changes.flatMap((c) => c.ops);
-    const editor = getActiveMindMap(mapId);
+    const editor = getActiveCanvas(mapId);
     if (editor !== null) {
       editor.commit(ops);
       setStatus('applied');
