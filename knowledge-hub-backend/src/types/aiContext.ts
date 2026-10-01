@@ -13,9 +13,10 @@ export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
  * Athena persona — selectable per chat session. "general" is the default
  * operational assistant (tasks, drafting, execution). "brainstorming" is the
  * ideas sounding board persona, "copilot_coach" guides Copilot usage, and
- * "blog_post" produces a CMS-ready package for The Microsoft Cloud Blog.
+ * "blog_post" produces a CMS-ready package for The Microsoft Cloud Blog, and
+ * "demo_designer" shapes application demos, user stories and UI screens.
  */
-export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post';
+export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer';
 
 /**
  * What the user is currently viewing in the Knowledge Hub UI (e.g. a note,

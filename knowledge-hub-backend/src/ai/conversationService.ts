@@ -286,7 +286,9 @@ export async function formatSessionForThink(
       ? 'This was a brainstorming/sounding-board session — organise the note around the idea explored, the load-bearing question(s) raised, and where the thinking landed, not as a task log.'
       : persona === 'blog_post'
         ? 'This was a blog post drafting session for The Microsoft Cloud Blog — organise the note around the finished CMS package (title, content, excerpt, key takeaways, etc.) and social posts, preserving them as delivered rather than summarising them away.'
-        : 'This was a general working session — organise the note around what was discussed, decided, and any follow-ups.';
+        : persona === 'demo_designer'
+          ? 'This was a demo design session — organise the note as a demo spec (audience and storyline, users, user stories with acceptance criteria, screens, demo script and sample data, open questions), preserving the stories and screen specs as delivered rather than summarising them away.'
+          : 'This was a general working session — organise the note around what was discussed, decided, and any follow-ups.';
 
   const messages: ConversationMessage[] = [
     {

@@ -73,9 +73,9 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
       }
       const persona = requestedPersona ?? (await getSessionPersona(db, effectiveSessionId));
 
-      // The brainstorming and blog_post personas use the deployed reasoning
+      // The brainstorming, blog_post and demo_designer personas use the deployed reasoning
       // model route by default.
-      const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' ? 'gpt-5.4' : 'gpt-4o');
+      const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' || persona === 'demo_designer' ? 'gpt-5.4' : 'gpt-4o');
 
       const turnStartedAt = new Date();
       const toolsUsed = new Set<string>();
