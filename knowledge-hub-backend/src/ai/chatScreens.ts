@@ -87,8 +87,8 @@ async function getRow(db: Pool, id: string): Promise<ScreenRow | null> {
 }
 
 /**
- * Stores a screenshot in a chat and reads it (a detailed design read for
- * Demo Designer). Returns the screen and its read.
+ * Stores a screenshot in a chat and reads it in detail (the reasoning model,
+ * every visible word; any persona). Returns the screen and its read.
  */
 export async function addScreen(
   db: Pool,
@@ -96,7 +96,7 @@ export async function addScreen(
   input: { buffer: Buffer; contentType: string; name: string; persona?: string | undefined; question?: string | undefined },
 ): Promise<{ screen: ChatScreen; reading: string }> {
   const blobName = await uploadBlob(input.buffer, input.contentType);
-  const reading = await analyzeImageWithVision(input.buffer, input.contentType, input.question, { designReview: input.persona === 'demo_designer' });
+  const reading = await analyzeImageWithVision(input.buffer, input.contentType, input.question, { designReview: true });
   await db.query(`INSERT INTO ai_chat_sessions (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, [sessionId]);
   const { rows } = await db.query<ScreenRow>(
     `INSERT INTO chat_screens (session_id, blob_name, content_type, name, position, reading)

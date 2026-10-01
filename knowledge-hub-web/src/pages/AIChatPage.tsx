@@ -1913,7 +1913,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           <div className="ai-upload-progress" role="status">
             <div className="ai-upload-progress-label">
               {uploadProgress.startedAt !== undefined
-                ? `${persona === 'demo_designer' ? 'Reading the screen in detail (usually 15–30s)' : 'Analysing'} ${uploadProgress.filename}… ${Math.max(0, Math.round((nowTick - uploadProgress.startedAt) / 1000)).toString()}s`
+                ? `Reading the screenshot in detail (usually 15–30s) ${uploadProgress.filename}… ${Math.max(0, Math.round((nowTick - uploadProgress.startedAt) / 1000)).toString()}s`
                 : `Uploading ${uploadProgress.filename}… ${uploadProgress.percent.toString()}%`}
             </div>
             <div className="ai-upload-progress-track">

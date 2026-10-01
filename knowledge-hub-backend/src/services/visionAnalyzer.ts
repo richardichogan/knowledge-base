@@ -66,7 +66,7 @@ export async function analyzeImageWithVision(
             ],
           },
         ],
-        max_completion_tokens: 1000,
+        max_completion_tokens: 3000,
       }),
     });
 
@@ -77,7 +77,7 @@ export async function analyzeImageWithVision(
     }
 
     const data = (await response.json()) as {
-      choices: Array<{ message: { content: string } }>;
+      choices: Array<{ message: { content: string }; finish_reason?: string }>;
     };
     const content = data.choices?.[0]?.message?.content;
 
@@ -86,7 +86,7 @@ export async function analyzeImageWithVision(
       return '';
     }
 
-    return content;
+    return data.choices[0]?.finish_reason === 'length' ? `${content}\n\n${CUT_OFF_NOTE}` : content;
   } catch (err) {
     console.error('[visionAnalyzer] Vision analysis failed:', err);
     // Return empty string on failure so processing continues with OCR fallback
@@ -112,7 +112,7 @@ async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, 
           {
             type: 'text',
             text: [
-              'You are reading an application screen so a UX and demo designer can review it without seeing it.',
+              'You are reading a screenshot (usually an application screen) so someone can work with it, and a UX or demo designer can review it, without seeing it.',
               'Be exhaustive and exact. Cover, in this order:',
               '1) Screen identity: product, screen name, which journey step it appears to be.',
               '2) Layout: regions (header, nav, main, side panels, footer), their position and relative size, and what the eye lands on first, second and third.',
@@ -135,9 +135,13 @@ async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, 
     console.error('[visionAnalyzer] Design-review read failed:', response.status, await response.text());
     return '';
   }
-  const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
-  return data.choices?.[0]?.message?.content ?? '';
+  const data = (await response.json()) as { choices: Array<{ message: { content: string }; finish_reason?: string }> };
+  const content = data.choices?.[0]?.message?.content ?? '';
+  return content !== '' && data.choices[0]?.finish_reason === 'length' ? `${content}\n\n${CUT_OFF_NOTE}` : content;
 }
+
+/** Added when a read hit its length limit, so Athena says so instead of guessing what's missing. */
+const CUT_OFF_NOTE = '[This read was cut off before the end of the screenshot — anything after this point is missing. Say so and ask him to crop or split the screenshot if it matters.]';
 
 /** One screen sent to reviewScreensWithVision. */
 export interface ScreenImage {
