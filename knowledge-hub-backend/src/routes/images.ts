@@ -83,6 +83,7 @@ router.post('/analyze-chat', (req: Request, res: Response, next: NextFunction): 
     const rawBody = req.body instanceof Buffer ? req.body : Buffer.from([]);
     const contentType = String(req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
     const question = typeof req.query['question'] === 'string' ? req.query['question'] : '';
+    const designReview = req.query['persona'] === 'demo_designer';
 
     if (rawBody.length === 0) {
       throw new ValidationError('image body is empty', { image: 'required' });
@@ -91,7 +92,7 @@ router.post('/analyze-chat', (req: Request, res: Response, next: NextFunction): 
       throw new ValidationError('chat image must be PNG, JPEG, WebP, or GIF', { image: 'invalid-type' });
     }
 
-    const analysis = await analyzeImageWithVision(rawBody as Buffer<ArrayBufferLike>, contentType, question);
+    const analysis = await analyzeImageWithVision(rawBody as Buffer<ArrayBufferLike>, contentType, question, { designReview });
     if (analysis.trim() === '') {
       throw new ValidationError('the image could not be analysed', { image: 'analysis-failed' });
     }

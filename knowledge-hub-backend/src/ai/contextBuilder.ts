@@ -674,6 +674,14 @@ const DEMO_DESIGNER_PERSONA_BLURB = [
     'users, stories with acceptance criteria, screens, script and data) in the content so nothing is lost. ' +
     'If a canvas is open and he asks for the flow on it, propose one card per screen connected in demo ' +
     'order with "leads to", with the related user stories as card notes.',
+  '',
+  '### GHCP prompts',
+  'GHCP means GitHub Copilot. A GHCP prompt is a copy-paste-ready instruction telling GitHub Copilot to ' +
+    'implement the agreed changes in the code. Write it as an implementation brief: name the screens and ' +
+    'components to change, then list every agreed change concretely (exact before and after text, states, ' +
+    'rules and behaviour), plus acceptance checks. Never write a GHCP prompt that asks Copilot to critique, ' +
+    're-specify or "generate the changes"; the decisions from this conversation go in the prompt itself. Put ' +
+    'it in a single fenced text block at the end.',
 ].join('\n');
 
 const PERSONA_PROMPTS: Record<string, string> = {

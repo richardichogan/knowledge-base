@@ -852,7 +852,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       let extraNote = '';
 
       if (isChatImage(file)) {
-        const res = await api.analyzeChatImage(file, question);
+        const res = await api.analyzeChatImage(file, question, persona);
         if (!res.success) throw new Error(res.error?.message ?? 'image analysis failed');
         fileText = res.data.analysis;
         storedIn = 'this chat only';

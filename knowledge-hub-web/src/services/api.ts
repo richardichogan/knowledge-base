@@ -409,6 +409,7 @@ export class KnowledgeHubApi {
   async analyzeChatImage(
     file: File,
     question?: string,
+    persona?: string,
   ): Promise<ApiResponse<{ analysis: string }>> {
     const buffer = await file.arrayBuffer();
     const r = await this.client.post<ApiResponse<{ analysis: string }>>(
@@ -416,8 +417,9 @@ export class KnowledgeHubApi {
       buffer,
       {
         headers: { 'Content-Type': file.type },
-        params: question?.trim() ? { question: question.trim() } : undefined,
-        timeout: IMAGE_UPLOAD_TIMEOUT_MS,
+        params: { ...(question?.trim() && { question: question.trim() }), ...(persona !== undefined && { persona }) },
+        // Demo Designer's detailed screen read uses the slower reasoning model.
+        timeout: persona === 'demo_designer' ? 2 * IMAGE_UPLOAD_TIMEOUT_MS : IMAGE_UPLOAD_TIMEOUT_MS,
       },
     );
     return r.data;
