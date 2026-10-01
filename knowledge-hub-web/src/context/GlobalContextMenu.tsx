@@ -52,6 +52,9 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
   // meant to act on. Capture the selection on mousedown (capture phase, which
   // runs before that collapse) so we can fall back to it.
   const lastMouseDownSelection = useRef<string>('');
+  // Right-clicks left to the browser: in editable text with nothing selected
+  // (so spell-check suggestions work), or with Shift held.
+  const nativeMenuForThisClick = useRef(false);
 
   const openMenu = useCallback((e: MouseEvent | React.MouseEvent, item: CtxItemData) => {
     e.preventDefault();
@@ -62,6 +65,12 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
     function onMouseDown(e: MouseEvent) {
       if (e.button === 2) {
         const sel = window.getSelection()?.toString().trim() ?? '';
+        const inEditable = (e.target as HTMLElement | null)?.closest('[contenteditable="true"], input, textarea') != null;
+        const hasSelection = sel.length > 2 || getActiveBlockNoteSelectedText().length > 2;
+        nativeMenuForThisClick.current = e.shiftKey || (inEditable && !hasSelection);
+        // Let the browser place the caret on the word under the cursor, which is
+        // what its context menu needs to offer spelling corrections.
+        if (nativeMenuForThisClick.current) return;
         lastMouseDownSelection.current = sel;
         // Freeze the BlockNote selection snapshot right now, before the
         // browser's native "select word under cursor to build its context
@@ -91,6 +100,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
 
   useEffect(() => {
     function onContextMenu(e: MouseEvent) {
+      if (nativeMenuForThisClick.current || e.shiftKey) { nativeMenuForThisClick.current = false; return; }
       const target = e.target as HTMLElement;
       const liveSel = window.getSelection()?.toString().trim() ?? '';
       // BlockNote/ProseMirror table cell-range selections don't populate the

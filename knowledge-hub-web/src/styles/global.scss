@@ -13027,3 +13027,12 @@ $interactive:      #0f62fe;
   }
 }
 .mm-chip__icon { margin-left: 0.5rem; color: var(--kh-accent); }
+
+// Today: morning briefing
+.today-briefing {
+  &__actions { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; }
+  &__time { font-size: 0.75rem; color: var(--cds-text-helper); }
+  &__empty { margin: 0.5rem 0 0; font-size: 0.875rem; color: var(--cds-text-secondary); }
+  &__body { margin-top: 0.5rem; font-size: 0.875rem; line-height: 1.55; color: var(--cds-text-primary); }
+  .today-section-card__header { display: flex; align-items: center; gap: 0.75rem; }
+}

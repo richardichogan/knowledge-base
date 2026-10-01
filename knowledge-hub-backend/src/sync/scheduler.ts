@@ -6,6 +6,7 @@ import { runTier1Sync, isSyncInProgress } from './syncOrchestrator.js';
 import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
 import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
+import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
 
 /**
  * Scheduler for sync jobs.
@@ -26,6 +27,9 @@ const timers: ReturnType<typeof setInterval>[] = [];
 let lastSyncHour = -1; // Track the last hour we ran sync to avoid double-runs
 let lastEdgeDay = -1;  // Track the last day we ran inferred edges
 let lastMemoryReviewWeek = ''; // Week key of the last weekly memory review
+let briefingRunning = false;
+/** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
+const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
 
 function isWithinWorkingHours(): boolean {
@@ -112,6 +116,21 @@ export function startSyncScheduler(): void {
         console.warn('[Scheduler] Running daily inferred edge job...');
         void runInferredEdgeJob(db).catch((err: unknown) => {
           console.error('[Scheduler] Inferred edge job failed:', err instanceof Error ? err.message : String(err));
+        });
+      }
+
+      // Morning briefing — production only, from 09:00 UK time once the
+      // morning sync has finished (so overnight GitHub activity is in).
+      if (!env.isDevelopment && !briefingRunning && !isSyncInProgress() && workHour() < BRIEFING_LATEST_HOUR) {
+        void briefingDue(db).then((due) => {
+          if (!due || briefingRunning) return;
+          briefingRunning = true;
+          console.warn('[Scheduler] Generating morning briefing...');
+          return generateMorningBriefing(db)
+            .then(() => { console.warn('[Scheduler] Morning briefing ready.'); })
+            .finally(() => { briefingRunning = false; });
+        }).catch((err: unknown) => {
+          console.error('[Scheduler] Morning briefing failed:', err instanceof Error ? err.message : String(err));
         });
       }
 

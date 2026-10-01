@@ -40,6 +40,7 @@ import { RememberedNotice } from '../components/athena/RememberedNotice';
 import { ReplyFeedback } from '../components/athena/ReplyFeedback';
 import { NoteEditCard } from '../components/athena/NoteEditCard';
 import { MapChangeCard } from '../components/athena/MapChangeCard';
+import { briefingSeenToday, markBriefingSeen } from '../utils/morningBriefing';
 import { PERSONAS, getPersona } from '../components/athena/personas';
 
 type AthenaThinkContentType = Extract<ContentType, 'blog' | 'newsletter'>;
@@ -500,6 +501,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       setIsRestoringHistory(false);
     });
   }
+
+  // The first time Athena is opened each day she opens on the morning briefing
+  // (not in the per-note/canvas panels, which keep their own chats).
+  useEffect(() => {
+    if (isNoteLinkedPanel) return undefined;
+    let cancelled = false;
+    void api.getMorningBriefing().then((r) => {
+      if (cancelled || !r.success || r.data === null || briefingSeenToday(r.data.date)) return;
+      markBriefingSeen(r.data.date);
+      if (r.data.sessionId !== sessionId) handleSelectSession(r.data.sessionId);
+    }).catch(() => { /* no briefing — open as usual */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleDeleteSession(id: string, e: React.MouseEvent): void {
     e.stopPropagation();

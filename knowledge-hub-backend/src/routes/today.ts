@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { getDb } from '../db/db.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
+import { getTodaysBriefing, generateMorningBriefing, type Briefing } from '../ai/morningBriefing.js';
 
 export const todayRouter = Router();
 
@@ -65,6 +66,35 @@ todayRouter.get('/github-activity', (_req: Request, res: Response, next: NextFun
         data: { hasMappings: true, items: result.rows },
       };
       res.json(out);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * GET  /api/today/briefing — today's morning briefing (null before 09:00 UK / if not made yet)
+ * POST /api/today/briefing — make (or remake) today's briefing now
+ */
+let briefingInFlight: Promise<Briefing> | null = null;
+
+todayRouter.get('/briefing', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const body: ApiSuccess<Briefing | null> = { success: true, data: await getTodaysBriefing(getDb()) };
+      res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+todayRouter.post('/briefing', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      briefingInFlight ??= generateMorningBriefing(getDb()).finally(() => { briefingInFlight = null; });
+      const body: ApiSuccess<Briefing> = { success: true, data: await briefingInFlight };
+      res.json(body);
     } catch (err) {
       next(err);
     }

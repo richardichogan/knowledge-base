@@ -1070,6 +1070,20 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  // ── Morning briefing ────────────────────────────────────────────────────────
+
+  /** Today's morning briefing (null before 09:00 UK time, or if not made yet). */
+  async getMorningBriefing(): Promise<ApiResponse<MorningBriefingApi | null>> {
+    const r = await this.client.get<ApiResponse<MorningBriefingApi | null>>('/api/today/briefing');
+    return r.data;
+  }
+
+  /** Makes (or remakes) today's briefing now. */
+  async generateMorningBriefing(): Promise<ApiResponse<MorningBriefingApi>> {
+    const r = await this.client.post<ApiResponse<MorningBriefingApi>>('/api/today/briefing', {}, { timeout: CHAT_TIMEOUT_MS });
+    return r.data;
+  }
+
   // ── Mind maps (Think → Canvas) ──────────────────────────────────────────────
 
   async listCanvases(noteId?: string): Promise<ApiResponse<CanvasSummaryApi[]>> {
@@ -1178,6 +1192,14 @@ export class KnowledgeHubApi {
 
 /** Singleton instance — used by all React Query hooks. */
 export const api = new KnowledgeHubApi();
+
+/** Athena's morning briefing (also saved as a pinned Athena chat). */
+export interface MorningBriefingApi {
+  date: string;
+  sessionId: string;
+  markdown: string;
+  generatedAt: string;
+}
 
 // ── Mind map API types ────────────────────────────────────────────────────────
 
