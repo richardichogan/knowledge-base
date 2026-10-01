@@ -24,7 +24,7 @@ import { api } from '../services/api';
 import type { CanvasSummaryApi } from '../services/api';
 import { extractTasksWithAI } from '../utils/aiTaskExtraction';
 import { addWorkingDays, toISODateString } from '../utils/dates';
-import { getActiveBlockNoteSelectedText, clearActiveBlockNoteSelectionSnapshot, suspendBlockNoteSelectionCapture, resumeBlockNoteSelectionCapture } from '../utils/activeBlockNoteEditor';
+import { getActiveBlockNoteSelectedText, clearActiveBlockNoteSelectionSnapshot, suspendBlockNoteSelectionCapture, resumeBlockNoteSelectionCapture, hasBlockNoteCellSelection } from '../utils/activeBlockNoteEditor';
 
 export interface CtxItemData {
   title: string;
@@ -43,6 +43,8 @@ interface MenuState { x: number; y: number; item: CtxItemData; }
 interface GlobalCtxMenuCtx { openMenu: (e: MouseEvent | React.MouseEvent, item: CtxItemData) => void; }
 
 const Ctx = createContext<GlobalCtxMenuCtx>({ openMenu: () => {} });
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export function useGlobalContextMenu() { return useContext(Ctx); }
 
 export function GlobalContextMenuProvider({ children }: { children: React.ReactNode }) {
@@ -63,10 +65,13 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
-      if (e.button === 2) {
+      // A right-click: the right button, or Ctrl+click on a Mac.
+      if (e.button === 2 || (e.button === 0 && e.ctrlKey && IS_MAC)) {
         const sel = window.getSelection()?.toString().trim() ?? '';
         const inEditable = (e.target as HTMLElement | null)?.closest('[contenteditable="true"], input, textarea') != null;
-        const hasSelection = sel.length > 2 || getActiveBlockNoteSelectedText().length > 2;
+        // What is visibly selected right now (the editor's own state can lag a
+        // click behind, and it remembers old selections).
+        const hasSelection = sel.length > 2 || hasBlockNoteCellSelection();
         nativeMenuForThisClick.current = e.shiftKey || (inEditable && !hasSelection);
         // Let the browser place the caret on the word under the cursor, which is
         // what its context menu needs to offer spelling corrections.

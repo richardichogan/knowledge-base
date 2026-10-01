@@ -57,6 +57,10 @@ function computeSelectedText(editor: BlockNoteEditor<any, any, any>): string {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pmState = (editor as any)._tiptapEditor?.state;
     const pmSelection = pmState?.selection;
+    // Just a caret, nothing selected. (The block fallback below would
+    // otherwise return the whole paragraph the caret is in, making every
+    // click look like a selection — which hid the browser's spell-check menu.)
+    if (pmSelection?.empty === true) return '';
     if (pmSelection instanceof CellSelection) {
       // Walk up from the anchor cell to find the enclosing `table` node and
       // the doc position right before its content (rows) start — TableMap
@@ -146,6 +150,16 @@ export function getActiveBlockNoteSelectedText(): string {
   if (lastSelectionSnapshot.length > 2) return lastSelectionSnapshot;
   if (!activeEditor) return '';
   return computeSelectedText(activeEditor);
+}
+
+/**
+ * True when table cells are selected in the editor (a cell-range selection
+ * doesn't show up in the browser's own selection, unlike ordinary text).
+ */
+export function hasBlockNoteCellSelection(): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const selection = (activeEditor as any)?._tiptapEditor?.state?.selection;
+  return selection instanceof CellSelection;
 }
 
 /** Clears the cached snapshot — call once the selection has been consumed (e.g. after creating a task) so a stale selection isn't reused next time. */
