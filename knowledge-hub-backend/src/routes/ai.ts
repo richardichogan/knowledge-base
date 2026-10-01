@@ -3,10 +3,12 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { handleConversationTurn, type TurnHooks, summariseSession, rollUpConversationSummary, formatSessionForThink, summarizeNoteContent, generateSessionTitle } from '../ai/conversationService.js';
-import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessionIds, setPendingTurn, getPendingTurn } from '../ai/chatSessionStore.js';
+import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessionIds, setPendingTurn, getPendingTurn, setNextSteps } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { outputsChangedSince } from '../ai/chatOutputs.js';
+import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
+import { suggestNextSteps } from '../ai/nextSteps.js';
 import { deleteSessionScreenBlobs, reviewScreens } from '../ai/chatScreens.js';
 import { isTrackingDecisions, updateDecisionsFromExchange } from '../ai/chatDecisions.js';
 import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type TurnEvent } from '../ai/turnJobs.js';
@@ -49,6 +51,10 @@ export interface ChatTurnResult {
   outputsChanged: Array<{ id: string; title: string; version: number }>;
   /** The saved reply's id (for "Ask another model"). */
   assistantMessageId: string;
+  /** What the reply drew on (the "Used:" line). */
+  contextUsed: ContextUsed;
+  /** Suggested next steps (buttons). */
+  nextSteps: string[];
 }
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
@@ -118,12 +124,16 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   const noteEdits: NoteEditProposal[] = [];
   const mapChanges: MapChangeProposal[] = [];
   const openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
+  const contextUsed = emptyContextUsed();
   const reply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext,
     (toolName) => { toolsUsed.add(toolName); },
     { noteId: openNoteId, noteEdits, mapChanges },
-    hooks,
+    { ...hooks, contextUsed },
   );
+  // Suggested next steps, made while the reply is saved (a few seconds at most).
+  hooks.onActivity?.('Finishing up');
+  const nextStepsPromise = suggestNextSteps(persona, message, reply);
   const sources = [...toolsUsed];
 
   // Store only a compact marker for the viewed document in history — not its
@@ -134,7 +144,7 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   const historyMessage = pageContext
     ? `[Viewing ${pageContext.type}: "${pageContext.title}"]\n${message}`
     : message;
-  const { assistantMessageId } = await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources });
+  const { assistantMessageId } = await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources, contextUsed });
   if (isFirstMessage) await setSessionTitleIfMissing(db, effectiveSessionId, message);
   // Fire-and-forget AI title from the opening exchange (re-run on the
   // second turn, since first messages are often just "hello"). Never
@@ -163,6 +173,10 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   const outputsChanged = (await outputsChangedSince(db, effectiveSessionId, turnStartedAt))
     .map((o) => ({ id: o.id, title: o.title, version: o.version }));
 
+  const nextSteps = await nextStepsPromise;
+  if (nextSteps.length > 0 && assistantMessageId !== '') {
+    await setNextSteps(db, assistantMessageId, nextSteps).catch(() => { /* buttons are a convenience */ });
+  }
   const pending = getPendingProposals(effectiveSessionId);
   // Instructions saved via the remember tool this turn — the UI confirms them with Undo.
   const memoriesCreated = toolsUsed.has('remember')
@@ -170,7 +184,7 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
     : [];
 
   return {
-      reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated, outputsChanged, assistantMessageId,
+      reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated, outputsChanged, assistantMessageId, contextUsed, nextSteps,
       // Proposed edits to the open note, applied client-side on "Apply".
       noteEdits, noteEditsFor: noteEdits.length > 0 ? openNoteId ?? null : null,
       // Proposed changes to the open mind map, applied on "Apply".

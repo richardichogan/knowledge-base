@@ -43,6 +43,8 @@ export type {
   ChatScreen,
   ModelChoiceApi,
   ChatAlternate,
+  UsedSourceApi,
+  ContextUsedApi,
 } from './ai';
 
 export type { TaskDestination, CreateTaskInput } from './task';

@@ -19,6 +19,7 @@ import type {
   ChatScreen,
   ModelChoiceApi,
   ChatAlternate,
+  UsedSourceApi,
   ChatMessage,
   ChatSessionSummary,
   AthenaPersona,
@@ -632,6 +633,23 @@ export class KnowledgeHubApi {
   /** Makes an alternative the answer the chat continues from. */
   async useAlternate(alternateId: string): Promise<ApiResponse<{ messageId: string; content: string }>> {
     const r = await this.client.post<ApiResponse<{ messageId: string; content: string }>>(`/api/ai/alternates/${alternateId}/use`);
+    return r.data;
+  }
+
+  // ─── "Don't use this" (per chat) ────────────────────────────────────────────
+
+  async listExclusions(sessionId: string): Promise<ApiResponse<UsedSourceApi[]>> {
+    const r = await this.client.get<ApiResponse<UsedSourceApi[]>>(`/api/ai/session/${sessionId}/exclusions`);
+    return r.data;
+  }
+
+  async excludeSource(sessionId: string, source: UsedSourceApi): Promise<ApiResponse<UsedSourceApi[]>> {
+    const r = await this.client.post<ApiResponse<UsedSourceApi[]>>(`/api/ai/session/${sessionId}/exclusions`, source);
+    return r.data;
+  }
+
+  async includeSource(sessionId: string, sourceId: string): Promise<ApiResponse<UsedSourceApi[]>> {
+    const r = await this.client.delete<ApiResponse<UsedSourceApi[]>>(`/api/ai/session/${sessionId}/exclusions/${sourceId}`);
     return r.data;
   }
 

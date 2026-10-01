@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 import { getFoundryClient, AiStoppedError } from './foundryClient.js';
 import { describeToolActivity } from './turnActivity.js';
 import type { ModelRoute } from './modelChoices.js';
+import { getExcludedSources, filterExcluded, recordToolSources, type ContextUsed } from './contextUsage.js';
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
 import { buildScreensBlock } from './chatScreens.js';
@@ -33,6 +34,8 @@ export interface TurnHooks {
   modelRoute?: ModelRoute;
   /** Only tools that read — for re-answering, so nothing is created twice. */
   readOnlyTools?: boolean;
+  /** Filled in with what the reply drew on (the "Used:" line). */
+  contextUsed?: ContextUsed;
 }
 
 /** Tools that change something; left out when a turn must only read. */
@@ -78,6 +81,12 @@ export async function handleConversationTurn(
     })
     : null;
   const context = await buildAiContext(db, userMessage, history, sessionId);
+  // "Don't use this" items stay out of auto-retrieval and search results for this chat.
+  const excluded = new Set(sessionId !== undefined
+    ? (await getExcludedSources(db, sessionId).catch(() => [])).map((s) => s.id)
+    : []);
+  if (excluded.size > 0) context.ragItems = context.ragItems.filter((item) => !excluded.has(item.id));
+  const used = hooks.contextUsed;
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
   // Learned standing instructions + liked examples for this persona/project.
   const standingBlock = await buildStandingInstructionsBlock(db, { persona, projectId: activeProjectId })
@@ -118,6 +127,15 @@ export async function handleConversationTurn(
   const screensBlock = sessionId !== undefined
     ? await buildScreensBlock(db, sessionId).catch((err: unknown) => { console.error('[screens] context failed:', err); return ''; })
     : '';
+  if (used !== undefined) {
+    used.project = context.activeProjectName;
+    used.instructions = (standingBlock.match(/^- /gm) ?? []).length;
+    used.inView = pageContext?.title ?? null;
+    used.auto = context.ragItems.slice(0, 10).map((item) => ({ id: item.id, kind: item.source === 'note' ? 'note' : 'item', title: item.title, url: item.url ?? null }));
+    used.outputs = (outputsBlock.match(/^### /gm) ?? []).length;
+    used.decisions = (decisionsBlock.match(/^- /gm) ?? []).length;
+    used.screens = (screensBlock.match(/^### /gm) ?? []).length;
+  }
   const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
@@ -185,7 +203,11 @@ export async function handleConversationTurn(
       onToolCall?.(call.function.name);
       hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
       try {
-        result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined });
+        result = filterExcluded(
+          await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
+          excluded,
+        );
+        if (used !== undefined) recordToolSources(used, call.function.name, result);
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }

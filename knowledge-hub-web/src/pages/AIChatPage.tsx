@@ -24,6 +24,7 @@ import { ChatDecisionsTab } from '../components/athena/ChatDecisionsTab';
 import { ChatScreensTab } from '../components/athena/ChatScreensTab';
 import { ReplyAlternates } from '../components/athena/ReplyAlternates';
 import { CompareWithPanel } from '../components/athena/CompareWithPanel';
+import { UsedLine } from '../components/athena/UsedLine';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
 import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
@@ -39,7 +40,7 @@ import {
   COMPOSER_ACTION_LABELS, stripActionDirective } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi, ContextUsedApi } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
@@ -317,6 +318,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [alternatesByMessage, setAlternatesByMessage] = useState<Record<string, ChatAlternate[]>>({});
   const [modelChoices, setModelChoices] = useState<ModelChoiceApi[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
+  // "Don't use this" items for the open chat.
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   // A message whose turn was cut off by a server restart (offered for resend).
   const [interruptedTurn, setInterruptedTurn] = useState<{ sessionId: string; message: string } | null>(null);
 
@@ -694,6 +697,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         mapChangesFor: result.data.mapChangesFor,
         outputsChanged: result.data.outputsChanged,
         id: result.data.assistantMessageId,
+        contextUsed: result.data.contextUsed,
+        nextSteps: result.data.nextSteps,
       });
       // Athena saved or revised an output: refresh the panel and open it there.
       const changed = result.data.outputsChanged ?? [];
@@ -829,6 +834,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   /** After opening a chat: reattach to a turn still running there, or offer to resend one cut off by a restart. */
   function resumeSessionTurn(id: string): void {
     loadAlternates(id);
+    setExcludedIds(new Set());
+    void api.listExclusions(id).then((r) => { if (r.success) setExcludedIds(new Set(r.data.map((x) => x.id))); }).catch(() => { /* none */ });
     void api.getSessionTurn(id).then((r) => {
       if (!r.success || r.data === null) return;
       if (r.data.status === 'running') {
@@ -894,6 +901,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       mapChangesFor?: string | null | undefined;
       outputsChanged?: OutputChange[] | undefined;
       id?: string | undefined;
+      contextUsed?: ContextUsedApi | undefined;
+      nextSteps?: string[] | undefined;
     } = {},
   ): void {
     setMessages((prev) => [
@@ -909,6 +918,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         ...(meta.mapChanges !== undefined && meta.mapChanges.length > 0 && typeof meta.mapChangesFor === 'string' && { mapChanges: meta.mapChanges, mapChangesFor: meta.mapChangesFor }),
         ...(meta.outputsChanged !== undefined && meta.outputsChanged.length > 0 && { outputsChanged: meta.outputsChanged }),
         ...(meta.id !== undefined && meta.id !== '' && { id: meta.id }),
+        ...(meta.contextUsed !== undefined && { contextUsed: meta.contextUsed }),
+        ...(meta.nextSteps !== undefined && meta.nextSteps.length > 0 && { nextSteps: meta.nextSteps }),
       },
     ]);
     if (role === 'user') {
@@ -1761,6 +1772,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 />
               )}
               {msg.role === 'assistant' && <ReplyMeta persona={msg.persona} sources={msg.sources} />}
+              {msg.role === 'assistant' && msg.contextUsed !== undefined && sessionId !== null && (
+                <UsedLine
+                  used={msg.contextUsed}
+                  excluded={excludedIds}
+                  onExclude={(source) => {
+                    void api.excludeSource(sessionId, source).then((r) => { if (r.success) setExcludedIds(new Set(r.data.map((x) => x.id))); });
+                  }}
+                  onInclude={(sourceId) => {
+                    void api.includeSource(sessionId, sourceId).then((r) => { if (r.success) setExcludedIds(new Set(r.data.map((x) => x.id))); });
+                  }}
+                />
+              )}
               {msg.role === 'assistant' && msg.noteEdits !== undefined && msg.noteEditsFor !== undefined && (
                 <NoteEditCard edits={msg.noteEdits} noteId={msg.noteEditsFor} />
               )}
@@ -1837,6 +1860,24 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               </div>
             </div>
           ))}
+          {!chatMutation.isPending && (() => {
+            const last = messages[messages.length - 1];
+            if (last?.role !== 'assistant' || last.nextSteps === undefined) return null;
+            return (
+              <div className="ai-next-steps" aria-label="Suggested next steps">
+                {last.nextSteps.map((step) => (
+                  <button
+                    key={step}
+                    type="button"
+                    className="ai-next-step"
+                    onClick={() => { appendMessage('user', step); chatMutation.mutate({ text: step }); }}
+                  >
+                    {step}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
           {chatMutation.isPending && (liveTurn !== null ? (
             <LiveReply activity={liveTurn.activity} text={liveTurn.text} startedAt={liveTurn.startedAt} renderContext={{ projectNameById }} />
           ) : (

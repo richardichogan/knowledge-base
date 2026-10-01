@@ -66,6 +66,31 @@ export interface ChatMessage {
   mapChangesFor?: string;
   /** Outputs Athena saved or revised in this reply (chips that open the Outputs panel). */
   outputsChanged?: OutputChange[];
+  /** What the reply drew on (the "Used:" line). */
+  contextUsed?: ContextUsedApi;
+  /** Suggested next steps (buttons under the latest reply). */
+  nextSteps?: string[];
+}
+
+/** An item a reply drew on. */
+export interface UsedSourceApi {
+  id: string;
+  /** note | document | item | node */
+  kind: string;
+  title: string;
+  url?: string | null;
+}
+
+/** What a reply drew on (the "Used:" line under it). */
+export interface ContextUsedApi {
+  project: string | null;
+  instructions: number;
+  inView: string | null;
+  found: UsedSourceApi[];
+  auto: UsedSourceApi[];
+  outputs: number;
+  decisions: number;
+  screens: number;
 }
 
 /** An output saved or revised in a turn. */
@@ -203,6 +228,8 @@ export interface ChatResponse {
   outputsChanged?: OutputChange[];
   /** The saved reply's id (for "Ask another model"). */
   assistantMessageId?: string;
+  contextUsed?: ContextUsedApi;
+  nextSteps?: string[];
   pendingActions: WriteActionProposal[];
 }
 

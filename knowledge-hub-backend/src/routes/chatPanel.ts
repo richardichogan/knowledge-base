@@ -25,6 +25,9 @@
  * POST   /session/:sessionId/messages/:messageId/alternates  { model } — re-answer in the background → { turnId }
  * GET    /session/:sessionId/alternates       alternatives, by reply
  * POST   /alternates/:alternateId/use         swap it into the chat
+ * GET    /session/:sessionId/exclusions       items not to use in this chat
+ * POST   /session/:sessionId/exclusions       { id, kind, title, url? } — "Don't use this"
+ * DELETE /session/:sessionId/exclusions/:sourceId
  */
 import express, { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
@@ -38,6 +41,7 @@ import { getTurnForAlternate, replaceMessageContent } from '../ai/chatSessionSto
 import { startTurnJob } from '../ai/turnJobs.js';
 import { MODEL_CHOICES, findModelChoice } from '../ai/modelChoices.js';
 import { AI_BACKGROUND_TURN_BUDGET_MS } from '../config/constants.js';
+import { getExcludedSources, excludeSource, includeSource } from '../ai/contextUsage.js';
 import { addScreen, listScreens, getScreenImage, updateScreen, reorderScreens, setAnnotation, clearAnnotation, deleteScreen } from '../ai/chatScreens.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { createNoteRecord } from './notes.js';
@@ -285,6 +289,24 @@ router.post('/alternates/:alternateId/use', route(async (req, res) => {
   await replaceMessageContent(db, alt.message_id, alt.content);
   await db.query(`DELETE FROM chat_alternates WHERE id = $1`, [param(req, 'alternateId')]);
   ok(res, { messageId: alt.message_id, content: alt.content });
+}));
+
+// ── "Don't use this" ──────────────────────────────────────────────────────────
+
+router.get('/session/:sessionId/exclusions', route(async (req, res) => {
+  ok(res, await getExcludedSources(getDb(), param(req, 'sessionId')));
+}));
+
+router.post('/session/:sessionId/exclusions', route(async (req, res) => {
+  const { id, kind, title, url } = req.body as { id?: unknown; kind?: unknown; title?: unknown; url?: unknown };
+  if (typeof id !== 'string' || id === '') throw new ValidationError('id required', { id: 'required' });
+  ok(res, await excludeSource(getDb(), param(req, 'sessionId'), {
+    id, kind: typeof kind === 'string' ? kind : 'item', title: typeof title === 'string' ? title : 'Untitled', url: typeof url === 'string' ? url : null,
+  }));
+}));
+
+router.delete('/session/:sessionId/exclusions/:sourceId', route(async (req, res) => {
+  ok(res, await includeSource(getDb(), param(req, 'sessionId'), param(req, 'sourceId')));
 }));
 
 export { router as chatPanelRouter };

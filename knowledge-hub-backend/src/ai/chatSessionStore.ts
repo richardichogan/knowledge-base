@@ -30,6 +30,10 @@ export interface StoredChatMessage {
   persona?: string;
   /** Tool names the reply drew on, e.g. ['list_tasks'] (assistant turns only). */
   sources?: string[];
+  /** What the reply drew on (the "Used:" line). */
+  contextUsed?: unknown;
+  /** Suggested next steps shown as buttons. */
+  nextSteps?: string[];
 }
 
 interface StoredChatMessageRow extends Omit<StoredChatMessage, 'id'> {
@@ -101,8 +105,10 @@ export async function getSessionHistory(db: Pool, sessionId: string): Promise<St
     created_at: string;
     persona: string | null;
     sources: string[] | null;
+    context_used: unknown;
+    next_steps: string[] | null;
   }>(
-    `SELECT id::text, role, content, created_at, persona, sources FROM ai_chat_messages
+    `SELECT id::text, role, content, created_at, persona, sources, context_used, next_steps FROM ai_chat_messages
       WHERE session_id = $1 ORDER BY created_at ASC, id ASC`,
     [sessionId],
   );
@@ -113,6 +119,8 @@ export async function getSessionHistory(db: Pool, sessionId: string): Promise<St
     timestamp: r.created_at,
     ...(r.persona !== null && { persona: r.persona }),
     ...(r.sources !== null && r.sources.length > 0 && { sources: r.sources }),
+    ...(r.context_used !== null && { contextUsed: r.context_used }),
+    ...(r.next_steps !== null && r.next_steps.length > 0 && { nextSteps: r.next_steps }),
   }));
 }
 
@@ -122,13 +130,14 @@ export async function appendTurn(
   sessionId: string,
   userMessage: string,
   assistantReply: string,
-  replyMeta: { persona?: string; sources?: string[] } = {},
+  replyMeta: { persona?: string; sources?: string[]; contextUsed?: unknown } = {},
 ): Promise<{ assistantMessageId: string }> {
   const { rows } = await db.query<{ id: string; role: string }>(
-    `INSERT INTO ai_chat_messages (session_id, role, content, persona, sources)
-       VALUES ($1, 'user', $2, NULL, NULL), ($1, 'assistant', $3, $4, $5)
+    `INSERT INTO ai_chat_messages (session_id, role, content, persona, sources, context_used)
+       VALUES ($1, 'user', $2, NULL, NULL, NULL), ($1, 'assistant', $3, $4, $5, $6)
      RETURNING id::text, role`,
-    [sessionId, userMessage, assistantReply, replyMeta.persona ?? null, replyMeta.sources ?? null],
+    [sessionId, userMessage, assistantReply, replyMeta.persona ?? null, replyMeta.sources ?? null,
+      replyMeta.contextUsed !== undefined ? JSON.stringify(replyMeta.contextUsed) : null],
   );
   await db.query(`UPDATE ai_chat_sessions SET updated_at = NOW() WHERE id = $1`, [sessionId]);
   return { assistantMessageId: rows.find((r) => r.role === 'assistant')?.id ?? '' };
@@ -153,6 +162,11 @@ export async function getTurnForAlternate(
   if (last?.id !== assistantMessageId || last.role !== 'assistant' || user?.role !== 'user') return null;
   const history = rows.slice(Math.max(0, rows.length - 2 - 20), rows.length - 2).map((r) => ({ role: r.role, content: r.content }));
   return { userMessage: user.content.replace(/^\[Viewing [^\]]*\]\n/, ''), history, persona: last.persona ?? 'general' };
+}
+
+/** Saves the suggested next steps shown under a reply. */
+export async function setNextSteps(db: Pool, messageId: string, steps: string[]): Promise<void> {
+  await db.query(`UPDATE ai_chat_messages SET next_steps = $2 WHERE id = $1`, [messageId, JSON.stringify(steps)]);
 }
 
 /** Replaces a stored message's text (an alternative answer chosen with "Use this one"). */

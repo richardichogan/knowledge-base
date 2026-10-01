@@ -7,6 +7,7 @@
 import React, { useState } from 'react';
 import { ThumbsUp, ThumbsDown } from '@carbon/icons-react';
 import { api } from '../../services/api';
+import { getPersona } from './personas';
 import type { AthenaMemory, AthenaPersona } from '../../types';
 
 interface ReplyFeedbackProps {
@@ -17,7 +18,7 @@ interface ReplyFeedbackProps {
 
 type State =
   | { step: 'idle' }
-  | { step: 'liked' }
+  | { step: 'liked'; memoryId: string | null }
   | { step: 'asking'; note: string; sending: boolean }
   | { step: 'suggested'; memory: AthenaMemory }
   | { step: 'done'; message: string };
@@ -26,9 +27,14 @@ export const ReplyFeedback: React.FC<ReplyFeedbackProps> = ({ reply, persona, se
   const [state, setState] = useState<State>({ step: 'idle' });
 
   function like(): void {
-    setState({ step: 'liked' });
+    setState({ step: 'liked', memoryId: null });
     void api.sendReplyFeedback({ sessionId, rating: 'up', replyContent: reply, persona: persona ?? 'general' })
+      .then((r) => { if (r.success && r.data.memory !== null) setState({ step: 'liked', memoryId: r.data.memory.id }); })
       .catch(() => { setState({ step: 'idle' }); });
+  }
+
+  function undoLike(memoryId: string): void {
+    void api.deleteMemory(memoryId).then(() => { setState({ step: 'done', message: 'Removed — not kept as an example.' }); });
   }
 
   function sendDown(note: string): void {
@@ -73,7 +79,14 @@ export const ReplyFeedback: React.FC<ReplyFeedbackProps> = ({ reply, persona, se
               <ThumbsDown size={14} />
             </button>
           )}
-          {state.step === 'liked' && <span className="ai-feedback__msg">Saved as an example for this persona.</span>}
+          {state.step === 'liked' && (
+            <span className="ai-feedback__msg">
+              Saved as an example of a good {getPersona(persona).label} reply — Athena follows its style.
+              {state.memoryId !== null && (
+                <button type="button" className="ai-feedback__action ai-feedback__action--quiet" onClick={() => { undoLike(state.memoryId!); }}>Undo</button>
+              )}
+            </span>
+          )}
         </div>
       )}
 
