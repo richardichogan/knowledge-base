@@ -236,7 +236,16 @@ export function renderAssistantMessage(raw: string, ctx: RenderContext): string 
   };
 
   let i = 0;
+  let inFence = false;
   while (i < lines.length) {
+    // Inside a fenced code block (e.g. a copy-paste prompt) nothing becomes a
+    // card — splitting the block there breaks it out of its code box.
+    if (/^\s*(```|~~~)/.test(lines[i] ?? '')) inFence = !inFence;
+    if (inFence || /^\s*(```|~~~)/.test(lines[i] ?? '')) {
+      textBuf.push(lines[i] ?? '');
+      i += 1;
+      continue;
+    }
     let idx = i;
     let overdue = false;
     if (TASK_OVERDUE_RE.test((lines[idx] ?? '').trim())) {
