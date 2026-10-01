@@ -142,8 +142,11 @@ export class FoundryClient {
   ): Promise<ChatCompletionResponse> {
     const deployment = this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
-    const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
     const timeoutMs = timeoutMsOverride ?? this.getDefaultTimeoutMs(model);
+    if (model === 'gpt-5.4' && env.AZURE_OPENAI_GPT54_API === 'responses') {
+      return this.requestViaResponses(model, deployment, endpoint, apiKey, messages, tools, maxTokens, toolChoice, timeoutMs);
+    }
+    const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
 
     let response: Response;
     try {
@@ -182,6 +185,96 @@ export class FoundryClient {
 
 
     return response.json() as Promise<ChatCompletionResponse>;
+  }
+
+  /**
+   * Same request via the Responses API, for deployments that only accept
+   * function tools there (gpt-6-astra). Translates chat-completions messages
+   * and tools in, and the output back into the chat-completions shape, so
+   * callers are unchanged. Stateless: store=false, full history each turn.
+   */
+  private async requestViaResponses(
+    model: AiModel,
+    deployment: string,
+    endpoint: string | undefined,
+    apiKey: string | undefined,
+    messages: ConversationMessage[] | LlmMessage[],
+    tools: LlmToolDefinition[] | undefined,
+    maxTokens: number,
+    toolChoice: LlmToolChoice,
+    timeoutMs: number,
+  ): Promise<ChatCompletionResponse> {
+    const input: Array<Record<string, unknown>> = [];
+    for (const m of messages as LlmMessage[]) {
+      if (m.role === 'tool') {
+        input.push({ type: 'function_call_output', call_id: m.tool_call_id, output: m.content });
+      } else if (m.role === 'assistant') {
+        if (m.content !== null && m.content !== '') input.push({ role: 'assistant', content: m.content });
+        for (const call of m.tool_calls ?? []) {
+          input.push({ type: 'function_call', call_id: call.id, name: call.function.name, arguments: call.function.arguments });
+        }
+      } else {
+        input.push({ role: m.role, content: m.content });
+      }
+    }
+    const hasTools = tools !== undefined && tools.length > 0;
+
+    let response: Response;
+    try {
+      response = await fetch(`${endpoint}/openai/v1/responses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey !== undefined && { 'api-key': apiKey }),
+        } as Record<string, string>,
+        body: JSON.stringify({
+          model: deployment,
+          input,
+          max_output_tokens: maxTokens,
+          store: false,
+          ...(hasTools && {
+            tools: tools.map((t) => ({ type: 'function', name: t.function.name, description: t.function.description, parameters: t.function.parameters, strict: false })),
+            tool_choice: toolChoice === 'auto' ? 'auto' : { type: 'function', name: toolChoice.function.name },
+          }),
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'TimeoutError';
+      throw new AiError(
+        isTimeout
+          ? `Request to ${model} timed out after ${timeoutMs}ms`
+          : `Request to ${model} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new AiError(`${response.status} ${response.statusText}: ${text}`);
+    }
+
+    const data = await response.json() as {
+      status?: string;
+      incomplete_details?: { reason?: string } | null;
+      output?: Array<{ type: string; content?: Array<{ type: string; text?: string }>; call_id?: string; name?: string; arguments?: string }>;
+      usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+    };
+    const output = data.output ?? [];
+    const text = output
+      .filter((o) => o.type === 'message')
+      .flatMap((o) => o.content ?? [])
+      .filter((c) => c.type === 'output_text')
+      .map((c) => c.text ?? '')
+      .join('');
+    const toolCalls: LlmToolCall[] = output
+      .filter((o) => o.type === 'function_call')
+      .map((o) => ({ id: o.call_id ?? '', type: 'function', function: { name: o.name ?? '', arguments: o.arguments ?? '{}' } }));
+    const finishReason = toolCalls.length > 0
+      ? 'tool_calls'
+      : data.status === 'incomplete' && data.incomplete_details?.reason === 'max_output_tokens' ? 'length' : 'stop';
+    return {
+      choices: [{ message: { role: 'assistant', content: text === '' ? null : text, ...(toolCalls.length > 0 && { tool_calls: toolCalls }) }, finish_reason: finishReason }],
+      usage: { prompt_tokens: data.usage?.input_tokens ?? 0, completion_tokens: data.usage?.output_tokens ?? 0, total_tokens: data.usage?.total_tokens ?? 0 },
+    };
   }
 }
 
