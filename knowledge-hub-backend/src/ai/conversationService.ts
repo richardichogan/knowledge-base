@@ -5,6 +5,7 @@ import { getFoundryClient, AiStoppedError } from './foundryClient.js';
 import { describeToolActivity } from './turnActivity.js';
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
+import { buildScreensBlock } from './chatScreens.js';
 import type { LlmMessage } from './foundryClient.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
@@ -106,7 +107,10 @@ export async function handleConversationTurn(
   const decisionsBlock = sessionId !== undefined
     ? await buildDecisionsBlock(db, sessionId).catch((err: unknown) => { console.error('[decisions] context failed:', err); return ''; })
     : '';
-  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock].filter((b) => b !== '').join('\n\n---\n\n');
+  const screensBlock = sessionId !== undefined
+    ? await buildScreensBlock(db, sessionId).catch((err: unknown) => { console.error('[screens] context failed:', err); return ''; })
+    : '';
+  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 

@@ -7,6 +7,7 @@ import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationM
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { outputsChangedSince } from '../ai/chatOutputs.js';
+import { deleteSessionScreenBlobs, reviewScreens } from '../ai/chatScreens.js';
 import { isTrackingDecisions, updateDecisionsFromExchange } from '../ai/chatDecisions.js';
 import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type TurnEvent } from '../ai/turnJobs.js';
 import { memoriesCreatedSince } from '../ai/athenaMemory.js';
@@ -50,7 +51,7 @@ export interface ChatTurnResult {
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
 async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}): Promise<ChatTurnResult> {
-  const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext, noteId } = reqBody as {
+  const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview } = reqBody as {
     sessionId?: string;
     message?: string;
     model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
@@ -58,11 +59,26 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
     projectId?: string | null;
     pageContext?: ChatPageContext;
     noteId?: string;
+    /** Look at the chat's screens together first: the journey, or the marked areas of some screens. */
+    screenReview?: { mode?: 'journey' | 'focus'; screenIds?: string[] };
   };
 
   if (!message) throw new ValidationError('message required', { message: 'required' });
 
   const effectiveSessionId = providedSessionId ?? randomUUID();
+  let pageContext = requestedPageContext;
+  if (screenReview !== undefined && message !== undefined) {
+    const mode = screenReview.mode === 'focus' ? 'focus' : 'journey';
+    hooks.onActivity?.(mode === 'journey' ? 'Looking at the journey screens together' : 'Looking closely at the marked areas');
+    const review = await reviewScreens(getDb(), effectiveSessionId, mode, screenReview.screenIds, message);
+    if (review !== null) {
+      pageContext = {
+        type: 'screens',
+        title: review.title,
+        detail: `A close look at the screenshots themselves (by the vision model), for his question:\n\n${review.review}`,
+      };
+    }
+  }
   const db = getDb();
   const fullHistory = await getOrCreateSessionHistory(db, effectiveSessionId);
   const isFirstMessage = fullHistory.length === 0;
@@ -458,6 +474,8 @@ router.delete('/session/:sessionId', (req: Request, res: Response, next: NextFun
     try {
       const { sessionId } = req.params as { sessionId: string };
       const db = getDb();
+      // Its screenshots live in blob storage, not the database — remove them first.
+      await deleteSessionScreenBlobs(db, sessionId).catch((err: unknown) => { console.error('[screens] could not delete images:', err); });
       await deleteSession(db, sessionId);
       const body: ApiSuccess<{ deleted: true }> = { success: true, data: { deleted: true } };
       res.status(HTTP_STATUS.OK).json(body);

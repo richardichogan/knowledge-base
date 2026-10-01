@@ -21,6 +21,7 @@ import { LiveReply } from '../components/athena/LiveReply';
 import { SideTabsPanel } from '../components/SideTabsPanel';
 import { ChatOutputsTab } from '../components/athena/ChatOutputsTab';
 import { ChatDecisionsTab } from '../components/athena/ChatDecisionsTab';
+import { ChatScreensTab } from '../components/athena/ChatScreensTab';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
 import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
@@ -36,7 +37,7 @@ import {
   COMPOSER_ACTION_LABELS, stripActionDirective } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, OutputChange } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, OutputChange, ChatScreen, ChatRequest } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
@@ -280,9 +281,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string | null>(null);
   const [activeImageContext, setActiveImageContext] = useState<AthenaPageContext | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ filename: string; percent: number; startedAt?: number } | null>(null);
-  // Demo Designer's detailed screen read takes ~20s, so it starts as soon as an
-  // image is attached (while the question is typed) rather than on Send.
-  const imageReadRef = useRef<{ file: File; persona: string; startedAt: number; result: ReturnType<typeof api.analyzeChatImage> } | null>(null);
+  // A pasted screenshot is stored with the chat and read as soon as it's
+  // attached (while the question is typed) rather than on Send — Demo
+  // Designer's detailed read takes ~20s.
+  const imageReadRef = useRef<{ file: File; persona: string; startedAt: number; result: ReturnType<typeof api.uploadChatScreen> } | null>(null);
+  // A new chat's id, chosen here when a screenshot is stored before the first message.
+  const pendingSessionIdRef = useRef<string | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [uploadProjectId, setUploadProjectId] = useState('personal');
   const [isRecording, setIsRecording] = useState(false);
@@ -342,16 +346,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }, [pendingFile]);
 
   useEffect(() => {
-    if (pendingFile === null || !isChatImage(pendingFile) || persona !== 'demo_designer') {
-      imageReadRef.current = null;
-      return;
-    }
-    const current = imageReadRef.current;
-    if (current?.file === pendingFile && current.persona === persona) return;
-    const result = api.analyzeChatImage(pendingFile, undefined, persona);
+    if (pendingFile === null || !isChatImage(pendingFile)) return;
+    if (imageReadRef.current?.file === pendingFile) return;
+    const result = api.uploadChatScreen(chatIdForUploads(), pendingFile, persona);
     result.catch(() => { /* surfaced when the message is sent */ });
     imageReadRef.current = { file: pendingFile, persona, startedAt: Date.now(), result };
-  }, [pendingFile, persona]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFile]);
 
   useEffect(() => {
     if (uploadProgress?.startedAt === undefined) return;
@@ -532,6 +533,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     if (id === sessionId) return;
     stopTts();
     detachLiveTurn();
+    pendingSessionIdRef.current = null;
     persistSessionId(id);
     setMessages([]);
     setPendingActions([]);
@@ -621,7 +623,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // Fresh controller per turn — Stop only ever aborts the request that's actually in flight.
       chatAbortControllerRef.current = new AbortController();
     },
-    mutationFn: async ({ text, pageContext: ctx, resumeTurnId, resumeStartedAt }: { text: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string }) => {
+    mutationFn: async ({ text, pageContext: ctx, resumeTurnId, resumeStartedAt, screenReview }: { text: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string; screenReview?: ChatRequest['screenReview'] }) => {
       // Runs on the server in the background; this view follows it live and
       // can let go (switching chats) without losing the answer.
       const run = ++turnRunRef.current;
@@ -645,9 +647,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             message: text,
             persona,
             projectId: noteProjectId ?? (activeProjectId !== '' ? activeProjectId : null),
-            ...(sessionId !== null && { sessionId }),
+            ...(sessionId !== null ? { sessionId } : pendingSessionIdRef.current !== null && { sessionId: pendingSessionIdRef.current }),
             ...(ctx && { pageContext: ctx }),
             ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
+            ...(screenReview !== undefined && { screenReview }),
           },
           handlers,
           signal,
@@ -739,6 +742,37 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       return;
     }
     void api.cancelChatTurn(turnId).catch(() => { chatAbortControllerRef.current?.abort(); });
+  }
+
+  /** The chat id to store screenshots under — chosen now for a chat that hasn't started yet. */
+  function chatIdForUploads(): string {
+    if (sessionId !== null) return sessionId;
+    pendingSessionIdRef.current ??= crypto.randomUUID();
+    return pendingSessionIdRef.current;
+  }
+
+  /** Removes the pending attachment; a screenshot already stored for it is deleted. */
+  function discardPendingFile(): void {
+    const early = imageReadRef.current;
+    imageReadRef.current = null;
+    if (early !== null && early.file === pendingFile) {
+      void early.result.then((r) => { if (r.success) void api.deleteChatScreen(r.data.screen.id); }).catch(() => { /* nothing stored */ });
+    }
+    setPendingFile(null);
+  }
+
+  /** "Review this journey" in the Screens panel. */
+  function handleReviewJourney(question: string): void {
+    const text = question.trim() !== '' ? question.trim() : 'Review this journey: what should change between the steps, and what doesn’t?';
+    appendMessage('user', `🧭 ${text}`);
+    chatMutation.mutate({ text, screenReview: { mode: 'journey' } });
+  }
+
+  /** "Ask about the marked areas" on a screen. */
+  function handleAskAboutMarked(screen: ChatScreen): void {
+    const text = `Look at the areas I marked on "${screen.name}"${screen.annotationNote !== null ? `: ${screen.annotationNote}` : ''}`;
+    appendMessage('user', `🔍 ${text}`);
+    chatMutation.mutate({ text, screenReview: { mode: 'focus', screenIds: [screen.id] } });
   }
 
   /** Opens the side panel on an output (a reply's chip, or after Athena saves one). */
@@ -997,12 +1031,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
       if (isChatImage(file)) {
         const early = imageReadRef.current;
-        const useEarly = early?.file === file && early.persona === persona;
+        const useEarly = early?.file === file;
         setUploadProgress({ filename: file.name, percent: 0, startedAt: useEarly ? early.startedAt : Date.now() });
-        const res = await (useEarly ? early.result : api.analyzeChatImage(file, question, persona));
+        const res = await (useEarly ? early.result : api.uploadChatScreen(chatIdForUploads(), file, persona, question));
+        imageReadRef.current = null;
         if (!res.success) throw new Error(res.error?.message ?? 'image analysis failed');
-        fileText = res.data.analysis;
-        storedIn = 'this chat only';
+        fileText = res.data.reading;
+        storedIn = `this chat's Screens panel as "${res.data.screen.name}"`;
+        setPanelRefresh((n) => n + 1);
       } else if (/\.(md|markdown)$/i.test(file.name)) {
         fileText = (await file.text()).trim();
         if (fileText === '') throw new Error('the file is empty');
@@ -1040,7 +1076,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         type: isChatImage(file) ? 'image' : 'document',
         title: file.name,
         detail: isChatImage(file)
-          ? `Ephemeral image pasted into this chat (not stored). Visual analysis:\n\n${fileText}`
+          ? `Screenshot pasted into this chat, kept in ${storedIn}. Visual analysis:\n\n${fileText}`
           : `Stored in ${storedIn}.${extraNote} Full content:\n\n${fileText.slice(0, ATTACHED_FILE_CONTEXT_CHAR_LIMIT)}`,
       };
       if (isChatImage(file)) setActiveImageContext(attachedContext);
@@ -1060,6 +1096,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   function handleNewChat(): void {
     setIsMobileSidebarOpen(false);
     detachLiveTurn();
+    pendingSessionIdRef.current = null;
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
@@ -1068,7 +1105,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setActiveProjectId('');
     setActionOverride(null);
     setProjectError(null);
-    setPendingFile(null);
+    discardPendingFile();
     setActiveImageContext(null);
     if (SESSION_STORAGE_KEY !== '') {
       try {
@@ -1815,7 +1852,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               type="button"
               className="ai-pending-file__remove"
               aria-label={`Remove ${pendingFile.name}`}
-              onClick={() => { setPendingFile(null); }}
+              onClick={() => { discardPendingFile(); }}
             >
               <Close size={14} />
             </button>
@@ -1911,6 +1948,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           tabs={[
             { id: 'outputs', label: 'Outputs', content: <ChatOutputsTab sessionId={sessionId} refreshKey={panelRefresh} focus={outputFocus} /> },
             { id: 'decisions', label: 'Decisions', content: <ChatDecisionsTab sessionId={sessionId} refreshKey={panelRefresh} /> },
+            {
+              id: 'screens', label: 'Screens',
+              content: (
+                <ChatScreensTab
+                  sessionId={sessionId}
+                  refreshKey={panelRefresh}
+                  busy={chatMutation.isPending}
+                  onReviewJourney={handleReviewJourney}
+                  onAskAboutMarked={handleAskAboutMarked}
+                />
+              ),
+            },
           ]}
         />
       )}

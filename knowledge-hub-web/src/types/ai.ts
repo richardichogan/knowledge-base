@@ -40,6 +40,8 @@ export interface ChatRequest {
    * restore the right conversation when the user switches back to it later.
    */
   noteId?: string;
+  /** Look at the chat's screens together first: the journey, or the marked areas of some screens. */
+  screenReview?: { mode: 'journey' | 'focus'; screenIds?: string[] };
 }
 
 export interface ChatMessage {
@@ -103,6 +105,22 @@ export interface ChatDecision {
   source: 'auto' | 'user';
   createdAt: string;
   updatedAt: string;
+}
+
+/** A screenshot kept with a chat (the Screens panel). */
+export interface ChatScreen {
+  id: string;
+  sessionId: string;
+  /** Step name in the journey. */
+  name: string;
+  contentType: string;
+  position: number;
+  inJourney: boolean;
+  hasReading: boolean;
+  /** Has a marked-up copy (boxes drawn on it). */
+  annotated: boolean;
+  annotationNote: string | null;
+  createdAt: string;
 }
 
 export interface DecisionTracking {

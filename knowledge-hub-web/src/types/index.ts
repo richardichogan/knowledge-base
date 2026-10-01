@@ -40,6 +40,7 @@ export type {
   ChatOutput,
   ChatDecision,
   DecisionTracking,
+  ChatScreen,
 } from './ai';
 
 export type { TaskDestination, CreateTaskInput } from './task';

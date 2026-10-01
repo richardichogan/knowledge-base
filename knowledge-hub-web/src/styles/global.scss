@@ -13354,3 +13354,196 @@ $interactive:      #0f62fe;
   padding-top: 0.5rem;
   border-top: 1px solid var(--cds-border-subtle-01);
 }
+
+// ── Screens tab: screenshots kept with a chat, as journey steps ─────────────
+.ai-screens { display: flex; flex-direction: column; gap: 0.75rem; }
+.ai-screens__list { display: flex; flex-direction: column; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+
+.ai-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.5rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 0.375rem;
+  background: var(--cds-layer-01);
+}
+
+.ai-screen--out { opacity: 0.6; }
+.ai-screen__top { display: flex; align-items: center; gap: 0.25rem; }
+
+.ai-screen__step {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--kh-accent);
+  color: var(--cds-text-on-color, #fff);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.ai-screen__name {
+  flex: 1;
+  min-width: 0;
+  padding: 0.25rem 0.375rem;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--cds-text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+
+  &:hover { border-color: var(--cds-border-subtle-01); }
+  &:focus { border-color: var(--kh-accent); outline: none; background: var(--cds-field-01, var(--cds-layer-01)); }
+}
+
+.ai-screen__thumb {
+  display: block;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 0.25rem;
+  background: var(--cds-background);
+  cursor: crosshair;
+
+  img { display: block; width: 100%; height: auto; }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 1px; }
+}
+
+.ai-screen__note { margin: 0; color: var(--cds-text-secondary); font-size: 0.75rem; line-height: 1.4; }
+.ai-screen__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; font-size: 0.8125rem; }
+.ai-screen__journey { display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; }
+
+.ai-screen__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0;
+  border: none;
+  background: transparent;
+  color: var(--kh-accent);
+  font: inherit;
+  cursor: pointer;
+
+  &:disabled { color: var(--cds-text-disabled); cursor: default; }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 1px; }
+}
+
+.ai-screen__link--quiet { color: var(--cds-text-secondary); }
+
+.ai-screens__review {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--cds-border-subtle-01);
+
+  input {
+    flex: 1 1 12rem;
+    min-width: 0;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--cds-border-subtle-01);
+    border-radius: 0.25rem;
+    background: var(--cds-field-01, var(--cds-layer-01));
+    color: var(--cds-text-primary);
+    font: inherit;
+    font-size: 0.8125rem;
+
+    &:focus { outline: 2px solid var(--kh-accent); outline-offset: -1px; }
+  }
+}
+
+.ai-screens__hint { flex-basis: 100%; color: var(--cds-text-secondary); font-size: 0.75rem; }
+
+// Mark-up editor: draw numbered boxes on a screenshot.
+.ai-markup {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.ai-markup__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: min(1200px, 100%);
+  max-height: 100%;
+  padding: 1rem;
+  overflow: auto;
+  border-radius: 0.5rem;
+  background: var(--cds-layer-01);
+  color: var(--cds-text-primary);
+}
+
+.ai-markup__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.75rem; }
+.ai-markup__title { margin: 0; font-size: 1rem; font-weight: 600; }
+.ai-markup__hint { color: var(--cds-text-secondary); font-size: 0.8125rem; }
+.ai-markup__stage { display: flex; justify-content: center; }
+
+.ai-markup__area {
+  position: relative;
+  max-width: 100%;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.ai-markup__img { display: block; max-width: 100%; max-height: 62vh; }
+
+.ai-markup__box {
+  position: absolute;
+  border: 3px solid #ff832b;
+  background: rgba(255, 131, 43, 0.12);
+  pointer-events: none;
+}
+
+.ai-markup__num {
+  position: absolute;
+  top: -0.75rem;
+  left: -0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: #ff832b;
+  color: #000;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ai-markup__note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+
+  textarea {
+    padding: 0.5rem;
+    border: 1px solid var(--cds-border-subtle-01);
+    border-radius: 0.25rem;
+    background: var(--cds-field-01, var(--cds-background));
+    color: var(--cds-text-primary);
+    font: inherit;
+    resize: vertical;
+
+    &:focus { outline: 2px solid var(--kh-accent); outline-offset: -1px; }
+  }
+}
+
+.ai-markup__error { margin: 0; color: var(--cds-support-error); font-size: 0.8125rem; }
+.ai-markup__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.ai-markup__spacer { flex: 1; }

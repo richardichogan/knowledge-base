@@ -13,13 +13,22 @@
  * PUT    /session/:sessionId/decision-tracking { enabled: boolean | null }
  * PATCH  /decisions/:decisionId               { status?, text? }
  * DELETE /decisions/:decisionId
+ * POST   /session/:sessionId/screens          raw image; ?name=&persona=&question= — store + read
+ * GET    /session/:sessionId/screens          list
+ * PUT    /session/:sessionId/screens/order    { ids } — journey order
+ * GET    /screens/:screenId/image             ?annotated=1 for the marked-up copy
+ * PATCH  /screens/:screenId                   { name?, inJourney? }
+ * PUT    /screens/:screenId/annotation        raw PNG; ?note= — the marked-up copy
+ * DELETE /screens/:screenId/annotation
+ * DELETE /screens/:screenId
  */
-import { Router } from 'express';
+import express, { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { listOutputs, getOutput, saveOutputVersion, renameOutput, deleteOutput } from '../ai/chatOutputs.js';
 import { listDecisions, addDecision, updateDecision, deleteDecision, isTrackingDecisions, setTrackingDecisions, type DecisionStatus } from '../ai/chatDecisions.js';
 import { getSessionProjectId } from '../ai/chatSessionStore.js';
+import { addScreen, listScreens, getScreenImage, updateScreen, reorderScreens, setAnnotation, clearAnnotation, deleteScreen } from '../ai/chatScreens.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { createNoteRecord } from './notes.js';
 import { env } from '../config/env.js';
@@ -134,6 +143,72 @@ router.patch('/decisions/:decisionId', route(async (req, res) => {
 
 router.delete('/decisions/:decisionId', route(async (req, res) => {
   await deleteDecision(getDb(), param(req, 'decisionId'));
+  ok(res, { deleted: true });
+}));
+
+// ── Screens ───────────────────────────────────────────────────────────────────
+
+const SCREEN_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const rawImage = express.raw({ type: 'image/*', limit: '20mb' });
+function query(req: Request, name: string): string {
+  const v = req.query[name];
+  return typeof v === 'string' ? v : '';
+}
+
+router.post('/session/:sessionId/screens', rawImage, route(async (req, res) => {
+  const body = req.body instanceof Buffer ? req.body : Buffer.alloc(0);
+  const contentType = String(req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+  if (body.length === 0) throw new ValidationError('image body is empty', { image: 'required' });
+  if (!SCREEN_TYPES.has(contentType)) throw new ValidationError('screenshot must be PNG, JPEG, WebP or GIF', { image: 'invalid-type' });
+  const result = await addScreen(getDb(), param(req, 'sessionId'), {
+    buffer: body, contentType, name: query(req, 'name') || 'Screen', persona: query(req, 'persona'), question: query(req, 'question'),
+  });
+  if (result.reading.trim() === '') throw new ValidationError('the screenshot could not be read', { image: 'analysis-failed' });
+  ok(res, result, HTTP_STATUS.CREATED);
+}));
+
+router.get('/session/:sessionId/screens', route(async (req, res) => {
+  ok(res, await listScreens(getDb(), param(req, 'sessionId')));
+}));
+
+router.put('/session/:sessionId/screens/order', route(async (req, res) => {
+  const { ids } = req.body as { ids?: unknown };
+  if (!Array.isArray(ids) || !ids.every((x) => typeof x === 'string')) throw new ValidationError('ids must be a list of screen ids', { ids: 'invalid' });
+  await reorderScreens(getDb(), param(req, 'sessionId'), ids as string[]);
+  ok(res, { reordered: true });
+}));
+
+router.get('/screens/:screenId/image', route(async (req, res) => {
+  const image = await getScreenImage(getDb(), param(req, 'screenId'), query(req, 'annotated') === '1');
+  if (image === null) throw new NotFoundError('Screen');
+  res.setHeader('Content-Type', image.contentType);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.status(HTTP_STATUS.OK).send(image.buffer);
+}));
+
+router.patch('/screens/:screenId', route(async (req, res) => {
+  const { name, inJourney } = req.body as { name?: unknown; inJourney?: unknown };
+  await updateScreen(getDb(), param(req, 'screenId'), {
+    name: typeof name === 'string' ? name : undefined,
+    inJourney: typeof inJourney === 'boolean' ? inJourney : undefined,
+  });
+  ok(res, { updated: true });
+}));
+
+router.put('/screens/:screenId/annotation', express.raw({ type: 'image/png', limit: '20mb' }), route(async (req, res) => {
+  const body = req.body instanceof Buffer ? req.body : Buffer.alloc(0);
+  if (body.length === 0) throw new ValidationError('marked-up image is empty', { image: 'required' });
+  await setAnnotation(getDb(), param(req, 'screenId'), body, query(req, 'note'));
+  ok(res, { saved: true });
+}));
+
+router.delete('/screens/:screenId/annotation', route(async (req, res) => {
+  await clearAnnotation(getDb(), param(req, 'screenId'));
+  ok(res, { cleared: true });
+}));
+
+router.delete('/screens/:screenId', route(async (req, res) => {
+  await deleteScreen(getDb(), param(req, 'screenId'));
   ok(res, { deleted: true });
 }));
 

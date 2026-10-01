@@ -16,6 +16,7 @@ import type {
   ChatOutput,
   ChatDecision,
   DecisionTracking,
+  ChatScreen,
   ChatMessage,
   ChatSessionSummary,
   AthenaPersona,
@@ -557,6 +558,55 @@ export class KnowledgeHubApi {
 
   async setDecisionTracking(sessionId: string, enabled: boolean | null): Promise<void> {
     await this.client.put(`/api/ai/session/${sessionId}/decision-tracking`, { enabled });
+  }
+
+  /** Stores a screenshot with a chat and reads it (a detailed read for Demo Designer). */
+  async uploadChatScreen(sessionId: string, file: File, persona: string, question?: string): Promise<ApiResponse<{ screen: ChatScreen; reading: string }>> {
+    const r = await this.client.post<ApiResponse<{ screen: ChatScreen; reading: string }>>(
+      `/api/ai/session/${sessionId}/screens`,
+      await file.arrayBuffer(),
+      {
+        headers: { 'Content-Type': file.type },
+        params: { name: file.name.replace(/\.[a-z0-9]+$/i, ''), persona, ...(question?.trim() && { question: question.trim() }) },
+        timeout: 2 * IMAGE_UPLOAD_TIMEOUT_MS,
+      },
+    );
+    return r.data;
+  }
+
+  async listChatScreens(sessionId: string): Promise<ApiResponse<ChatScreen[]>> {
+    const r = await this.client.get<ApiResponse<ChatScreen[]>>(`/api/ai/session/${sessionId}/screens`);
+    return r.data;
+  }
+
+  /** The screenshot (or its marked-up copy) as a blob, fetched with sign-in. */
+  async fetchChatScreenImage(screenId: string, annotated: boolean): Promise<Blob> {
+    const r = await this.client.get<Blob>(`/api/ai/screens/${screenId}/image`, {
+      params: annotated ? { annotated: 1 } : {}, responseType: 'blob', timeout: IMAGE_UPLOAD_TIMEOUT_MS,
+    });
+    return r.data;
+  }
+
+  async updateChatScreen(screenId: string, patch: { name?: string; inJourney?: boolean }): Promise<void> {
+    await this.client.patch(`/api/ai/screens/${screenId}`, patch);
+  }
+
+  async reorderChatScreens(sessionId: string, ids: string[]): Promise<void> {
+    await this.client.put(`/api/ai/session/${sessionId}/screens/order`, { ids });
+  }
+
+  async saveScreenAnnotation(screenId: string, png: Blob, note: string): Promise<void> {
+    await this.client.put(`/api/ai/screens/${screenId}/annotation`, png, {
+      headers: { 'Content-Type': 'image/png' }, params: { note }, timeout: IMAGE_UPLOAD_TIMEOUT_MS,
+    });
+  }
+
+  async clearScreenAnnotation(screenId: string): Promise<void> {
+    await this.client.delete(`/api/ai/screens/${screenId}/annotation`);
+  }
+
+  async deleteChatScreen(screenId: string): Promise<void> {
+    await this.client.delete(`/api/ai/screens/${screenId}`);
   }
 
   async chat(request: ChatRequest, signal?: AbortSignal): Promise<ApiResponse<ChatResponse>> {

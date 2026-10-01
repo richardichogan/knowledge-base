@@ -138,3 +138,65 @@ async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, 
   const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
   return data.choices?.[0]?.message?.content ?? '';
 }
+
+/** One screen sent to reviewScreensWithVision. */
+export interface ScreenImage {
+  buffer: Buffer;
+  mimeType: string;
+  /** Step name, e.g. "Case detail". */
+  label: string;
+  /** What he wrote about the areas he marked on this screen (marked as numbered orange boxes). */
+  note?: string | undefined;
+}
+
+const SCREEN_REVIEW_TIMEOUT_MS = 150_000;
+
+/**
+ * Looks at several screens together (the reasoning model sees the images
+ * themselves): a journey review focused on what changes between steps, or a
+ * focused look at the areas he marked. Returns '' if it can't run.
+ */
+export async function reviewScreensWithVision(
+  screens: ScreenImage[],
+  mode: 'journey' | 'focus',
+  question: string,
+): Promise<string> {
+  if (!env.AZURE_OPENAI_ENDPOINT_GPT54 || screens.length === 0) return '';
+  const brief = mode === 'journey'
+    ? [
+        `These ${screens.length.toString()} screenshots are one user journey, in order: ${screens.map((s, i) => `${(i + 1).toString()}. ${s.label}`).join(', ')}.`,
+        'Review it as a senior UX and demo designer. Be concrete: cite screen numbers and the exact on-screen text.',
+        '1) For each transition (1→2, 2→3 …): what the user just did, what should visibly change as a result (state, status, ownership, confirmation, what is no longer actionable), what actually changes, and what is missing or contradictory.',
+        '2) Consistency across the screens: names, status labels, data values, terminology.',
+        '3) The top issues for a live demo, ranked, each with the specific fix.',
+        'Orange numbered boxes are areas he marked; give them particular attention, with his notes.',
+      ]
+    : [
+        'He marked areas on this screen as numbered orange boxes and wants them looked at closely.',
+        'Describe exactly what is inside each marked area (all text verbatim, state, what it implies), then answer his note and question with specific fixes.',
+      ];
+  const content: Array<Record<string, unknown>> = [
+    { type: 'text', text: [...brief, question.trim() !== '' ? `His question: ${question.trim()}` : ''].filter(Boolean).join('\n') },
+  ];
+  screens.forEach((s, i) => {
+    content.push({ type: 'text', text: `Screen ${(i + 1).toString()}: ${s.label}${s.note ? ` — his note on the marked areas: ${s.note}` : ''}` });
+    content.push({ type: 'image_url', image_url: { url: `data:${s.mimeType};base64,${s.buffer.toString('base64')}`, detail: 'high' } });
+  });
+  try {
+    const response = await fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+      method: 'POST',
+      headers: { 'api-key': env.AZURE_OPENAI_API_KEY_GPT54 ?? '', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content }], max_completion_tokens: 10_000 }),
+      signal: AbortSignal.timeout(SCREEN_REVIEW_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.error('[visionAnalyzer] Screen review failed:', response.status, await response.text());
+      return '';
+    }
+    const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
+    return data.choices?.[0]?.message?.content ?? '';
+  } catch (err) {
+    console.error('[visionAnalyzer] Screen review failed:', err);
+    return '';
+  }
+}
