@@ -12,6 +12,10 @@ import type {
   ChatResponse,
   ChatTurnEvent,
   SessionTurnState,
+  ChatOutputSummary,
+  ChatOutput,
+  ChatDecision,
+  DecisionTracking,
   ChatMessage,
   ChatSessionSummary,
   AthenaPersona,
@@ -501,6 +505,58 @@ export class KnowledgeHubApi {
 
   async dismissSessionTurn(sessionId: string): Promise<void> {
     await this.client.delete(`/api/ai/session/${sessionId}/turn`);
+  }
+
+  // ─── Chat side panel: Outputs and Decisions ─────────────────────────────────
+
+  async listChatOutputs(sessionId: string): Promise<ApiResponse<ChatOutputSummary[]>> {
+    const r = await this.client.get<ApiResponse<ChatOutputSummary[]>>(`/api/ai/session/${sessionId}/outputs`);
+    return r.data;
+  }
+
+  async getChatOutput(outputId: string): Promise<ApiResponse<ChatOutput>> {
+    const r = await this.client.get<ApiResponse<ChatOutput>>(`/api/ai/outputs/${outputId}`);
+    return r.data;
+  }
+
+  /** Saves the user's edit as a new version. */
+  async addChatOutputVersion(outputId: string, content: string): Promise<ApiResponse<{ id: string; version: number }>> {
+    const r = await this.client.post<ApiResponse<{ id: string; version: number }>>(`/api/ai/outputs/${outputId}/versions`, { content });
+    return r.data;
+  }
+
+  async renameChatOutput(outputId: string, title: string): Promise<void> {
+    await this.client.patch(`/api/ai/outputs/${outputId}`, { title });
+  }
+
+  async deleteChatOutput(outputId: string): Promise<void> {
+    await this.client.delete(`/api/ai/outputs/${outputId}`);
+  }
+
+  async saveChatOutputToThink(outputId: string, version: number): Promise<ApiResponse<{ noteId: string; title: string; url: string }>> {
+    const r = await this.client.post<ApiResponse<{ noteId: string; title: string; url: string }>>(`/api/ai/outputs/${outputId}/save-to-think`, { version });
+    return r.data;
+  }
+
+  async getChatDecisions(sessionId: string): Promise<ApiResponse<{ tracking: DecisionTracking; decisions: ChatDecision[] }>> {
+    const r = await this.client.get<ApiResponse<{ tracking: DecisionTracking; decisions: ChatDecision[] }>>(`/api/ai/session/${sessionId}/decisions`);
+    return r.data;
+  }
+
+  async addChatDecision(sessionId: string, status: ChatDecision['status'], text: string): Promise<void> {
+    await this.client.post(`/api/ai/session/${sessionId}/decisions`, { status, text });
+  }
+
+  async updateChatDecision(decisionId: string, patch: { status?: ChatDecision['status']; text?: string }): Promise<void> {
+    await this.client.patch(`/api/ai/decisions/${decisionId}`, patch);
+  }
+
+  async deleteChatDecision(decisionId: string): Promise<void> {
+    await this.client.delete(`/api/ai/decisions/${decisionId}`);
+  }
+
+  async setDecisionTracking(sessionId: string, enabled: boolean | null): Promise<void> {
+    await this.client.put(`/api/ai/session/${sessionId}/decision-tracking`, { enabled });
   }
 
   async chat(request: ChatRequest, signal?: AbortSignal): Promise<ApiResponse<ChatResponse>> {

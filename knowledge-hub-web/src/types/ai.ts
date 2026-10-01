@@ -60,6 +60,56 @@ export interface ChatMessage {
   mapChanges?: MapChange[];
   /** The map those changes were written for. */
   mapChangesFor?: string;
+  /** Outputs Athena saved or revised in this reply (chips that open the Outputs panel). */
+  outputsChanged?: OutputChange[];
+}
+
+/** An output saved or revised in a turn. */
+export interface OutputChange {
+  id: string;
+  title: string;
+  version: number;
+}
+
+/** A deliverable kept with a chat (the Outputs panel). */
+export interface ChatOutputSummary {
+  id: string;
+  sessionId: string;
+  title: string;
+  kind: string;
+  /** markdown = rendered; text = one copyable block (e.g. a prompt). */
+  format: 'markdown' | 'text';
+  version: number;
+  updatedAt: string;
+}
+
+export interface ChatOutputVersion {
+  version: number;
+  content: string;
+  author: 'athena' | 'user';
+  note: string | null;
+  createdAt: string;
+}
+
+export interface ChatOutput extends ChatOutputSummary {
+  versions: ChatOutputVersion[];
+}
+
+/** A decided or still-open point in a chat (the Decisions panel). */
+export interface ChatDecision {
+  id: string;
+  status: 'decided' | 'open';
+  text: string;
+  source: 'auto' | 'user';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DecisionTracking {
+  enabled: boolean;
+  /** The chat's own setting; null = the persona default. */
+  explicit: boolean | null;
+  personaDefault: boolean;
 }
 
 /** One change Athena proposes to the open mind map (a summary plus the ops that make it). */
@@ -130,6 +180,7 @@ export interface ChatResponse {
   noteEditsFor?: string | null;
   mapChanges?: MapChange[];
   mapChangesFor?: string | null;
+  outputsChanged?: OutputChange[];
   pendingActions: WriteActionProposal[];
 }
 

@@ -617,8 +617,10 @@ const BLOG_POST_PERSONA_BLURB = [
     'the tone is grounded, direct, and free of hype.',
   '',
   '### Saving the result',
-  'Deliver the full package directly in your response, this is the point of the conversation, not an ' +
-    'unsolicited action. Do not save it anywhere unless he explicitly asks. If he does ask you to save it, ' +
+  'Deliver the full package with save_output (kind "document", format "markdown", titled with the CMS title) so ' +
+    'it lands in the chat\'s Outputs panel, and revise it there as a new version when he asks for changes. That is ' +
+    'part of the chat, not an unsolicited action. Your reply then says briefly what you produced or changed. Do not ' +
+    'save it anywhere else unless he explicitly asks. If he does ask you to save it to Think, ' +
     'use create_note_draft with contentType "blog" and the CMS title, and put the entire package (all 10 ' +
     'CMS fields plus both social posts) in the content so nothing is lost.',
 ].join('\n');
@@ -669,8 +671,11 @@ const DEMO_DESIGNER_PERSONA_BLURB = [
     'shows features the audience will not care about.',
   '',
   '### Saving the result',
-  'Deliver the work directly in your response. Do not save it anywhere unless he explicitly asks. If he asks ' +
-    'you to save it, use create_note_draft with a title starting "Demo spec:" and put the full spec (story, ' +
+  'Put each deliverable (demo storyline, user stories, screen list, demo script, spec, GHCP prompt) in the ' +
+    'chat\'s Outputs panel with save_output, and revise it there as a new version (pass its output_id) when he asks ' +
+    'for changes, rather than re-pasting it. Your reply says briefly what you produced or changed. Short answers, ' +
+    'reviews and opinions stay in the reply. Do not save anything elsewhere unless he explicitly asks. If he asks ' +
+    'you to save it to Think, use create_note_draft with a title starting "Demo spec:" and put the full spec (story, ' +
     'users, stories with acceptance criteria, screens, script and data) in the content so nothing is lost. ' +
     'If a canvas is open and he asks for the flow on it, propose one card per screen connected in demo ' +
     'order with "leads to", with the related user stories as card notes.',
@@ -680,8 +685,8 @@ const DEMO_DESIGNER_PERSONA_BLURB = [
     'implement the agreed changes in the code. Write it as an implementation brief: name the screens and ' +
     'components to change, then list every agreed change concretely (exact before and after text, states, ' +
     'rules and behaviour), plus acceptance checks. Never write a GHCP prompt that asks Copilot to critique, ' +
-    're-specify or "generate the changes"; the decisions from this conversation go in the prompt itself. Put ' +
-    'it in a single fenced text block at the end.',
+    're-specify or "generate the changes"; the decisions from this conversation (see the Decisions list) go in ' +
+    'the prompt itself. Save it with save_output (kind "prompt", format "text").',
 ].join('\n');
 
 const PERSONA_PROMPTS: Record<string, string> = {

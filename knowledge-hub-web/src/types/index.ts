@@ -34,6 +34,12 @@ export type {
   MapChange,
   ChatTurnEvent,
   SessionTurnState,
+  OutputChange,
+  ChatOutputSummary,
+  ChatOutputVersion,
+  ChatOutput,
+  ChatDecision,
+  DecisionTracking,
 } from './ai';
 
 export type { TaskDestination, CreateTaskInput } from './task';

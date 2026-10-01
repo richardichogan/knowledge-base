@@ -18,6 +18,7 @@ import { validateNoteEdits } from './noteEdits.js';
 import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
+import { saveOutputVersion } from './chatOutputs.js';
 import type { LlmToolDefinition } from './foundryClient.js';
 import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db/queries.js';
 import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
@@ -234,6 +235,36 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'save_output',
+        description:
+          "Saves a DELIVERABLE to this chat's Outputs panel, where Richard can read, copy, edit and version it. Use it " +
+          "whenever you produce or revise something he will copy or reuse — a GHCP (GitHub Copilot) prompt, a demo spec, " +
+          "user stories, a screen list, a demo script, a CMS package, a draft document — instead of pasting the whole thing " +
+          "into your reply. Pass the FULL content every time. To revise an existing output, pass its output_id (listed " +
+          "under 'Outputs in this chat') to save a new version; omit it to create a new output. Then keep your reply short: " +
+          "say what you produced or changed, in a few lines — the panel shows the full text. This is part of the chat, not " +
+          "saving elsewhere, so it needs no permission. Not for short answers, explanations or opinions.",
+        parameters: {
+          type: 'object',
+          properties: {
+            output_id: { type: 'string', description: 'Existing output to add a version to. Omit for a new output.' },
+            title: { type: 'string', description: 'Short name, e.g. "GHCP prompt — decision queue state changes". Required for a new output.' },
+            kind: { type: 'string', enum: ['prompt', 'spec', 'stories', 'screens', 'script', 'document'] },
+            format: {
+              type: 'string',
+              enum: ['markdown', 'text'],
+              description: "'text' for a prompt or anything pasted elsewhere verbatim (shown as one copyable block); 'markdown' otherwise.",
+            },
+            content: { type: 'string', description: 'The complete deliverable.' },
+            change_note: { type: 'string', description: 'For a revision: what changed, in one line.' },
+          },
+          required: ['content'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'propose_map_changes',
         description:
           "Proposes changes to the canvas open next to this chat (outline under 'Canvas in view'). A canvas is a set of " +
@@ -440,6 +471,24 @@ export async function executeToolCall(
     case 'update_task':           return updateTask(db, args);
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
     case 'remember':              return rememberInstruction(db, args, turn.sessionId);
+    case 'save_output': {
+      if (turn.sessionId === undefined) return { error: 'No chat to save the output in.' };
+      if (typeof args['content'] !== 'string' || args['content'].trim() === '') return { error: 'content is required.' };
+      try {
+        const saved = await saveOutputVersion(db, turn.sessionId, {
+          outputId: typeof args['output_id'] === 'string' && args['output_id'] !== '' ? args['output_id'] : undefined,
+          title: typeof args['title'] === 'string' ? args['title'] : undefined,
+          kind: typeof args['kind'] === 'string' ? args['kind'] : undefined,
+          format: typeof args['format'] === 'string' ? args['format'] : undefined,
+          content: args['content'],
+          author: 'athena',
+          note: typeof args['change_note'] === 'string' ? args['change_note'] : undefined,
+        });
+        return { saved: true, output_id: saved.id, title: saved.title, version: saved.version, note: 'Shown in the Outputs panel. Reply briefly with what you produced or changed.' };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : 'Could not save the output.' };
+      }
+    }
     case 'propose_note_edit': {
       if (turn.noteId === undefined || turn.noteId === '' || turn.noteId.startsWith('doc:') || turn.noteId.startsWith('map:')) {
         return { error: 'No editable Think note is open next to this chat. Library documents are read-only.' };

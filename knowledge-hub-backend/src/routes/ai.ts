@@ -6,6 +6,8 @@ import { handleConversationTurn, type TurnHooks, summariseSession, rollUpConvers
 import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessionIds, setPendingTurn, getPendingTurn } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
+import { outputsChangedSince } from '../ai/chatOutputs.js';
+import { isTrackingDecisions, updateDecisionsFromExchange } from '../ai/chatDecisions.js';
 import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type TurnEvent } from '../ai/turnJobs.js';
 import { memoriesCreatedSince } from '../ai/athenaMemory.js';
 import type { NoteEditProposal } from '../ai/noteEdits.js';
@@ -42,6 +44,8 @@ export interface ChatTurnResult {
   noteEditsFor: string | null;
   mapChanges: MapChangeProposal[];
   mapChangesFor: string | null;
+  /** Outputs saved or revised this turn (chips on the reply, opening the Outputs panel). */
+  outputsChanged: Array<{ id: string; title: string; version: number }>;
 }
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
@@ -134,6 +138,13 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
     // roll-up just means this session keeps replaying full recent history a bit longer.
   });
 
+  // Keep the chat's Decisions list up to date (specialist personas, or when turned on).
+  void isTrackingDecisions(db, effectiveSessionId).then((t) => (t.enabled
+    ? updateDecisionsFromExchange(db, effectiveSessionId, message, reply)
+    : false)).catch(() => { /* convenience only */ });
+  const outputsChanged = (await outputsChangedSince(db, effectiveSessionId, turnStartedAt))
+    .map((o) => ({ id: o.id, title: o.title, version: o.version }));
+
   const pending = getPendingProposals(effectiveSessionId);
   // Instructions saved via the remember tool this turn — the UI confirms them with Undo.
   const memoriesCreated = toolsUsed.has('remember')
@@ -141,7 +152,7 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
     : [];
 
   return {
-      reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated,
+      reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated, outputsChanged,
       // Proposed edits to the open note, applied client-side on "Apply".
       noteEdits, noteEditsFor: noteEdits.length > 0 ? openNoteId ?? null : null,
       // Proposed changes to the open mind map, applied on "Apply".

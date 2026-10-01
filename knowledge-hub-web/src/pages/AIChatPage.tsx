@@ -13,11 +13,15 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Export, Copy, View, OverflowMenuHorizontal } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Export, Copy, View, OverflowMenuHorizontal, Document as DocumentIcon } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
 import { LiveReply } from '../components/athena/LiveReply';
+import { SideTabsPanel } from '../components/SideTabsPanel';
+import { ChatOutputsTab } from '../components/athena/ChatOutputsTab';
+import { ChatDecisionsTab } from '../components/athena/ChatDecisionsTab';
+import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
 import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
 import { CHAT_IMAGE_TYPES, isChatImage, clipboardImageName } from '../components/athena/attachments';
@@ -32,7 +36,7 @@ import {
   COMPOSER_ACTION_LABELS, stripActionDirective } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, OutputChange } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
@@ -203,6 +207,9 @@ function useIsMobile(): boolean {
   return isMobile;
 }
 
+
+/** The Outputs / Decisions panel beside the standalone chat. */
+const CHAT_PANEL_WIDTH: PaneWidthOptions = { compact: 380, wide: 460, min: 300, max: (viewport) => Math.round(viewport * 0.45) };
 export const AIChatPage: React.FC<AIChatPageProps> = ({
   compact = false,
   compactVariant = 'default',
@@ -296,6 +303,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [liveTurn, setLiveTurn] = useState<{ activity: string; text: string; startedAt: number } | null>(null);
   const liveTurnIdRef = useRef<string | null>(null);
   const turnRunRef = useRef(0);
+  // Outputs / Decisions side panel: refresh after replies, open on a changed output.
+  const [panelRefresh, setPanelRefresh] = useState(0);
+  const [outputFocus, setOutputFocus] = useState<{ id: string; seq: number } | undefined>(undefined);
+  const [panelTab, setPanelTab] = useState<{ id: string; seq: number } | undefined>(undefined);
   // A message whose turn was cut off by a server restart (offered for resend).
   const [interruptedTurn, setInterruptedTurn] = useState<{ sessionId: string; message: string } | null>(null);
 
@@ -672,7 +683,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         noteEditsFor: result.data.noteEditsFor,
         mapChanges: result.data.mapChanges,
         mapChangesFor: result.data.mapChangesFor,
+        outputsChanged: result.data.outputsChanged,
       });
+      // Athena saved or revised an output: refresh the panel and open it there.
+      const changed = result.data.outputsChanged ?? [];
+      setPanelRefresh((n) => n + 1);
+      if (changed.length > 0) openOutput(changed[changed.length - 1]!.id);
+      // The Decisions list is updated just after the reply — pick that up.
+      window.setTimeout(() => { setPanelRefresh((n) => n + 1); }, 5_000);
+      window.setTimeout(() => { setPanelRefresh((n) => n + 1); }, 12_000);
       playReply(result.data.reply);
       refreshSessionList();
       if (result.data.pendingActions.length > 0) {
@@ -720,6 +739,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       return;
     }
     void api.cancelChatTurn(turnId).catch(() => { chatAbortControllerRef.current?.abort(); });
+  }
+
+  /** Opens the side panel on an output (a reply's chip, or after Athena saves one). */
+  function openOutput(id: string): void {
+    setOutputFocus((f) => ({ id, seq: (f?.seq ?? 0) + 1 }));
+    setPanelTab((t) => ({ id: 'outputs', seq: (t?.seq ?? 0) + 1 }));
   }
 
   /** Stops following the current turn without stopping it (it lands in its own chat). */
@@ -792,6 +817,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       noteEditsFor?: string | null | undefined;
       mapChanges?: MapChange[] | undefined;
       mapChangesFor?: string | null | undefined;
+      outputsChanged?: OutputChange[] | undefined;
     } = {},
   ): void {
     setMessages((prev) => [
@@ -805,6 +831,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         ...(meta.memoriesCreated !== undefined && meta.memoriesCreated.length > 0 && { memoriesCreated: meta.memoriesCreated }),
         ...(meta.noteEdits !== undefined && meta.noteEdits.length > 0 && typeof meta.noteEditsFor === 'string' && { noteEdits: meta.noteEdits, noteEditsFor: meta.noteEditsFor }),
         ...(meta.mapChanges !== undefined && meta.mapChanges.length > 0 && typeof meta.mapChangesFor === 'string' && { mapChanges: meta.mapChanges, mapChangesFor: meta.mapChangesFor }),
+        ...(meta.outputsChanged !== undefined && meta.outputsChanged.length > 0 && { outputsChanged: meta.outputsChanged }),
       },
     ]);
     if (role === 'user') {
@@ -1658,6 +1685,24 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               {msg.role === 'assistant' && msg.mapChanges !== undefined && msg.mapChangesFor !== undefined && (
                 <MapChangeCard changes={msg.mapChanges} mapId={msg.mapChangesFor} />
               )}
+              {msg.role === 'assistant' && msg.outputsChanged !== undefined && (
+                <div className="ai-output-chips">
+                  {msg.outputsChanged.map((o) => (
+                    <button
+                      key={`${o.id}-${o.version.toString()}`}
+                      type="button"
+                      className="ai-output-chip"
+                      onClick={() => { if (standalone) openOutput(o.id); }}
+                      disabled={!standalone}
+                      title={standalone ? 'Open in the Outputs panel' : 'Open the full Athena window to see Outputs'}
+                    >
+                      <DocumentIcon size={14} aria-hidden="true" />
+                      {o.version > 1 ? 'Updated' : 'Saved'}: {o.title} · v{o.version}
+                      {standalone && <span className="ai-output-chip__open">Open</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
               {msg.role === 'assistant' && msg.memoriesCreated !== undefined && <RememberedNotice memories={msg.memoriesCreated} />}
               {msg.role === 'assistant' && !/^(Error:|⏹️|⚠️)/.test(msg.content) && (
                 <ReplyFeedback reply={msg.content} persona={msg.persona ?? persona} sessionId={sessionId} />
@@ -1855,6 +1900,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         </div>
       </div>
       </div>
+      {standalone && !isMobile && (
+        <SideTabsPanel
+          storageKey="athena-chat-side"
+          label="Outputs and decisions"
+          defaultTab="outputs"
+          defaultCollapsed
+          width={CHAT_PANEL_WIDTH}
+          selectTab={panelTab}
+          tabs={[
+            { id: 'outputs', label: 'Outputs', content: <ChatOutputsTab sessionId={sessionId} refreshKey={panelRefresh} focus={outputFocus} /> },
+            { id: 'decisions', label: 'Decisions', content: <ChatDecisionsTab sessionId={sessionId} refreshKey={panelRefresh} /> },
+          ]}
+        />
+      )}
     </div>
   );
 };

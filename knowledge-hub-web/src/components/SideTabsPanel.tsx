@@ -34,13 +34,15 @@ interface SideTabsPanelProps {
   label: string;
   /** Switch to a tab from outside (e.g. Preview when a card is opened); bump `seq` to re-request. */
   selectTab?: { id: string; seq: number } | undefined;
+  /** Start collapsed until the user (or selectTab) opens it. */
+  defaultCollapsed?: boolean;
 }
 
-export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, defaultTab, width: widthOptions, label, selectTab }) => {
+export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, defaultTab, width: widthOptions, label, selectTab, defaultCollapsed = false }) => {
   const tabIds = tabs.map((t) => t.id);
   const [storedTab, setTab] = usePersistedChoice<string>(`kh_${storageKey}_tab`, tabIds, defaultTab);
   const tab = tabIds.includes(storedTab) ? storedTab : (tabIds[0] ?? defaultTab);
-  const [collapsed, setCollapsed] = usePersistedBoolean(`kh_${storageKey}_collapsed`, false);
+  const [collapsed, setCollapsed] = usePersistedBoolean(`kh_${storageKey}_collapsed`, defaultCollapsed);
   const [width, setWidth] = usePersistedPaneWidth(storageKey, widthOptions);
 
   useEffect(() => {

@@ -11,6 +11,7 @@ import { timelineRouter } from './routes/timeline.js';
 import { searchRouter } from './routes/search.js';
 import { sourcesRouter } from './routes/sources.js';
 import { aiRouter } from './routes/ai.js';
+import { chatPanelRouter } from './routes/chatPanel.js';
 import { tasksRouter } from './routes/tasks.js';
 import { captureRouter } from './routes/capture.js';
 import { notesRouter } from './routes/notes.js';
@@ -97,6 +98,7 @@ export function createApp(): express.Application {
   app.use('/api/search', searchRouter);
   app.use('/api/sources', sourcesRouter);
   app.use('/api/ai', aiRouter);
+  app.use('/api/ai', chatPanelRouter);
   app.use('/api/voice', voiceRouter);
   app.use('/api/tasks', tasksRouter);
   app.use('/api/capture', captureRouter);

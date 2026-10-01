@@ -17,6 +17,7 @@ const LABELS: Record<string, string> = {
   propose_note_edit: 'Drafting changes to the note',
   propose_map_changes: 'Drafting changes to the canvas',
   remember: 'Saving to memory',
+  save_output: 'Saving to Outputs',
   forget_memory: 'Updating memory',
   list_memories: 'Checking what I remember',
 };

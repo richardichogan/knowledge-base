@@ -3,6 +3,8 @@ import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { getFoundryClient, AiStoppedError } from './foundryClient.js';
 import { describeToolActivity } from './turnActivity.js';
+import { buildOutputsBlock } from './chatOutputs.js';
+import { buildDecisionsBlock } from './chatDecisions.js';
 import type { LlmMessage } from './foundryClient.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
@@ -97,7 +99,14 @@ export async function handleConversationTurn(
       'primary material for questions about the canvas, and cite cards by title. Use propose_map_changes to change it.',
     mapOutlineResult.text,
   ].join('\n');
-  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock].filter((b) => b !== '').join('\n\n---\n\n');
+  // The chat's Outputs and Decisions panels.
+  const outputsBlock = sessionId !== undefined
+    ? await buildOutputsBlock(db, sessionId).catch((err: unknown) => { console.error('[outputs] context failed:', err); return ''; })
+    : '';
+  const decisionsBlock = sessionId !== undefined
+    ? await buildDecisionsBlock(db, sessionId).catch((err: unknown) => { console.error('[decisions] context failed:', err); return ''; })
+    : '';
+  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
