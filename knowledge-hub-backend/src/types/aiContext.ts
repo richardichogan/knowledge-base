@@ -14,9 +14,10 @@ export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
  * operational assistant (tasks, drafting, execution). "brainstorming" is the
  * ideas sounding board persona, "copilot_coach" guides Copilot usage, and
  * "blog_post" produces a CMS-ready package for The Microsoft Cloud Blog, and
- * "demo_designer" shapes application demos, user stories and UI screens.
+ * "demo_designer" shapes application demos, user stories and UI screens, and
+ * "podcast_prep" prepares his segments of Cloudy with a Chance of Insights.
  */
-export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer';
+export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep';
 
 /**
  * What the user is currently viewing in the Knowledge Hub UI (e.g. a note,

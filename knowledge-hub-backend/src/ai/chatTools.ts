@@ -223,7 +223,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             scope: {
               type: 'string',
               enum: ['global', 'persona', 'project', 'output'],
-              description: "'global' = everywhere; 'persona' = one persona (general, brainstorming, copilot_coach, blog_post, demo_designer); " +
+              description: "'global' = everywhere; 'persona' = one persona (general, brainstorming, copilot_coach, blog_post, demo_designer, podcast_prep); " +
                 "'project' = one project id; 'output' = one kind of output (e.g. 'blog post', 'newsletter', 'task summary', 'meeting notes').",
             },
             scopeValue: { type: 'string', description: "Persona id, project id, or output type. Omit for 'global'." },

@@ -23,12 +23,13 @@ export const MODEL_CHOICES: readonly ModelChoice[] = [
   { id: 'gpt-6-astra', label: 'GPT-6 Astra', model: 'gpt-5.4', route: { deployment: 'gpt-6-astra', api: 'responses' } },
 ];
 
-/**
- * The model for General (and other non-specialist) chats: GPT-5.4 — better
- * reasoning than gpt-4o, and much quicker than GPT-6 Astra for everyday use.
- * Change to 'gpt-4o' to go back.
- */
-export const GENERAL_CHAT_MODEL = 'gpt-5.4';
+/** The model for General (and other everyday) chats — the cheaper one. */
+export const GENERAL_CHAT_MODEL = 'gpt-4o';
+
+/** Personas that use a specific model (a MODEL_CHOICES id) rather than the defaults. */
+export const PERSONA_MODELS: Record<string, string> = {
+  podcast_prep: 'gpt-5.4',
+};
 
 export function findModelChoice(id: string): ModelChoice | undefined {
   return MODEL_CHOICES.find((c) => c.id === id);
