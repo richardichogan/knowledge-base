@@ -24,6 +24,17 @@ function readHint(): string | undefined {
   try { return window.localStorage.getItem(HINT_KEY) ?? undefined; } catch { return undefined; }
 }
 
+const RENEW_KEY = 'kh_token_renew_redirect_at';
+const RENEW_GUARD_MS = 120_000;
+
+function renewRedirectAttemptedRecently(): boolean {
+  try { return Date.now() - Number(window.sessionStorage.getItem(RENEW_KEY) ?? '0') < RENEW_GUARD_MS; } catch { return false; }
+}
+
+function markRenewRedirect(): void {
+  try { window.sessionStorage.setItem(RENEW_KEY, Date.now().toString()); } catch { /* storage unavailable */ }
+}
+
 function saveHint(username: string): void {
   try { window.localStorage.setItem(HINT_KEY, username); } catch { /* storage unavailable */ }
 }
@@ -86,8 +97,14 @@ export async function getApiToken(): Promise<string> {
     const result = await msal.acquireTokenSilent({ scopes: API_SCOPES, account });
     return result.accessToken;
   } catch (err) {
-    if (err instanceof InteractionRequiredAuthError) {
-      await msal.acquireTokenRedirect({ scopes: API_SCOPES, account });
+    // Any failure to renew quietly (expired session, blocked iframe/cookies on
+    // a managed PC, timeout) — sign in again rather than failing every request.
+    // Guarded so a sign-in that keeps failing can't loop.
+    console.warn('[auth] Silent token renewal failed; signing in again.', err);
+    if (err instanceof InteractionRequiredAuthError || !renewRedirectAttemptedRecently()) {
+      markRenewRedirect();
+      const loginHint = readHint();
+      await msal.acquireTokenRedirect({ scopes: API_SCOPES, account, ...(loginHint !== undefined && { loginHint }) });
       return '';
     }
     throw err;
