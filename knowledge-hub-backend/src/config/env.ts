@@ -73,6 +73,8 @@ export const env = {
   AZURE_OPENAI_DEPLOYMENT_GPT54: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT54', 'gpt-5.4'),
   // 'responses' for deployments (e.g. gpt-6-astra) that only accept tools via the Responses API.
   AZURE_OPENAI_GPT54_API: optionalWithDefault('AZURE_OPENAI_GPT54_API', 'chat'),
+  // Demo Designer screen reads; defaults to the reasoning deployment. Same endpoint/key.
+  AZURE_OPENAI_DEPLOYMENT_SCREEN_READ: optional('AZURE_OPENAI_DEPLOYMENT_SCREEN_READ'),
 
   // Azure Speech (voice chat) — same pattern as client-demo's voiceProvider.ts.
   // The Azure AI Services multi-service key also covers the Speech REST API, so

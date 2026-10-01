@@ -18,7 +18,12 @@ export async function analyzeImageWithVision(
 ): Promise<string> {
   try {
     if (options.designReview === true && env.AZURE_OPENAI_ENDPOINT_GPT54) {
-      return await readScreenForDesignReview(imageBuffer, mimeType, userQuestion);
+      // Falls back to the quick read below if the detailed one fails or runs long.
+      const detailed = await readScreenForDesignReview(imageBuffer, mimeType, userQuestion).catch((err: unknown) => {
+        console.warn('[visionAnalyzer] Design-review read failed; using the quick read.', err);
+        return '';
+      });
+      if (detailed !== '') return detailed;
     }
     if (!env.AZURE_OPENAI_ENDPOINT || !env.AZURE_OPENAI_API_KEY) {
       console.warn('[visionAnalyzer] Azure OpenAI credentials not configured, skipping vision analysis');
@@ -94,8 +99,10 @@ export async function analyzeImageWithVision(
  * with a design-review brief and a much larger budget, so the review is based
  * on layout, hierarchy, states and every label, not a short general summary.
  */
+const SCREEN_READ_TIMEOUT_MS = 75_000;
+
 async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, userQuestion?: string): Promise<string> {
-  const response = await fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_GPT54}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+  const response = await fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
     method: 'POST',
     headers: { 'api-key': env.AZURE_OPENAI_API_KEY_GPT54 ?? '', 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -122,6 +129,7 @@ async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, 
       }],
       max_completion_tokens: 8000,
     }),
+    signal: AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS),
   });
   if (!response.ok) {
     console.error('[visionAnalyzer] Design-review read failed:', response.status, await response.text());
