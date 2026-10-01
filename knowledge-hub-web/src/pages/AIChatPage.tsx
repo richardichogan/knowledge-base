@@ -13,7 +13,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Export, Copy, View, OverflowMenuHorizontal, Document as DocumentIcon } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Export, Copy, View, OverflowMenuHorizontal, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
@@ -22,6 +22,8 @@ import { SideTabsPanel } from '../components/SideTabsPanel';
 import { ChatOutputsTab } from '../components/athena/ChatOutputsTab';
 import { ChatDecisionsTab } from '../components/athena/ChatDecisionsTab';
 import { ChatScreensTab } from '../components/athena/ChatScreensTab';
+import { ReplyAlternates } from '../components/athena/ReplyAlternates';
+import { CompareWithPanel } from '../components/athena/CompareWithPanel';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
 import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
@@ -37,7 +39,7 @@ import {
   COMPOSER_ACTION_LABELS, stripActionDirective } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, OutputChange, ChatScreen, ChatRequest } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
@@ -311,6 +313,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [panelRefresh, setPanelRefresh] = useState(0);
   const [outputFocus, setOutputFocus] = useState<{ id: string; seq: number } | undefined>(undefined);
   const [panelTab, setPanelTab] = useState<{ id: string; seq: number } | undefined>(undefined);
+  // Second opinions: other models' answers per reply, and the "Compare with…" box.
+  const [alternatesByMessage, setAlternatesByMessage] = useState<Record<string, ChatAlternate[]>>({});
+  const [modelChoices, setModelChoices] = useState<ModelChoiceApi[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
   // A message whose turn was cut off by a server restart (offered for resend).
   const [interruptedTurn, setInterruptedTurn] = useState<{ sessionId: string; message: string } | null>(null);
 
@@ -687,6 +693,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         mapChanges: result.data.mapChanges,
         mapChangesFor: result.data.mapChangesFor,
         outputsChanged: result.data.outputsChanged,
+        id: result.data.assistantMessageId,
       });
       // Athena saved or revised an output: refresh the panel and open it there.
       const changed = result.data.outputsChanged ?? [];
@@ -761,6 +768,35 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setPendingFile(null);
   }
 
+  /** Other models' answers for this chat's replies (tabs under each reply). */
+  function loadAlternates(id: string): void {
+    setAlternatesByMessage({});
+    void api.listAlternates(id).then((r) => {
+      if (!r.success) return;
+      const byMessage: Record<string, ChatAlternate[]> = {};
+      for (const a of r.data) (byMessage[a.messageId] ??= []).push(a);
+      setAlternatesByMessage(byMessage);
+    }).catch(() => { /* none */ });
+  }
+
+  /** "Compare with…": the other AI's answer goes in as the document in view. */
+  function handleCompare(source: string, answer: string): void {
+    setCompareOpen(false);
+    appendMessage('user', `⚖️ Compare with ${source}`);
+    chatMutation.mutate({
+      text: [
+        `Compare your previous answer with ${source}'s answer (the document in view). Be specific and fair:`,
+        '1. What both caught.',
+        `2. What only ${source} caught that you missed, and whether it matters.`,
+        '3. What only you caught.',
+        '4. Where you disagree, who is right, and why.',
+        '5. A merged best version that keeps the best of both. If it is a deliverable (a prompt, spec, user stories, ' +
+          'script …), save it with save_output — as a new version of the existing output if there is one.',
+      ].join('\n'),
+      pageContext: { type: 'comparison', title: `${source}'s answer`, detail: answer },
+    });
+  }
+
   /** "Review this journey" in the Screens panel. */
   function handleReviewJourney(question: string): void {
     const text = question.trim() !== '' ? question.trim() : 'Review this journey: what should change between the steps, and what doesn’t?';
@@ -792,6 +828,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   /** After opening a chat: reattach to a turn still running there, or offer to resend one cut off by a restart. */
   function resumeSessionTurn(id: string): void {
+    loadAlternates(id);
     void api.getSessionTurn(id).then((r) => {
       if (!r.success || r.data === null) return;
       if (r.data.status === 'running') {
@@ -817,6 +854,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     void api.dismissSessionTurn(interruptedTurn.sessionId).catch(() => { /* cosmetic */ });
     setInterruptedTurn(null);
   }
+
+  useEffect(() => {
+    void api.listModelChoices().then((r) => { if (r.success) setModelChoices(r.data); }).catch(() => { /* menu stays empty */ });
+  }, []);
 
   useEffect(() => {
     onBusyChange?.(chatMutation.isPending);
@@ -852,6 +893,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       mapChanges?: MapChange[] | undefined;
       mapChangesFor?: string | null | undefined;
       outputsChanged?: OutputChange[] | undefined;
+      id?: string | undefined;
     } = {},
   ): void {
     setMessages((prev) => [
@@ -866,6 +908,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         ...(meta.noteEdits !== undefined && meta.noteEdits.length > 0 && typeof meta.noteEditsFor === 'string' && { noteEdits: meta.noteEdits, noteEditsFor: meta.noteEditsFor }),
         ...(meta.mapChanges !== undefined && meta.mapChanges.length > 0 && typeof meta.mapChangesFor === 'string' && { mapChanges: meta.mapChanges, mapChangesFor: meta.mapChangesFor }),
         ...(meta.outputsChanged !== undefined && meta.outputsChanged.length > 0 && { outputsChanged: meta.outputsChanged }),
+        ...(meta.id !== undefined && meta.id !== '' && { id: meta.id }),
       },
     ]);
     if (role === 'user') {
@@ -1097,6 +1140,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setIsMobileSidebarOpen(false);
     detachLiveTurn();
     pendingSessionIdRef.current = null;
+    setCompareOpen(false);
+    setAlternatesByMessage({});
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
@@ -1741,6 +1786,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 </div>
               )}
               {msg.role === 'assistant' && msg.memoriesCreated !== undefined && <RememberedNotice memories={msg.memoriesCreated} />}
+              {msg.role === 'assistant' && msg.id !== undefined && sessionId !== null && modelChoices.length > 0 && !/^(Error:|⏹️|⚠️)/.test(msg.content) && (
+                <ReplyAlternates
+                  sessionId={sessionId}
+                  messageId={msg.id}
+                  alternates={alternatesByMessage[msg.id] ?? []}
+                  models={modelChoices}
+                  renderContext={{ projectNameById }}
+                  onAdded={(alt) => { setAlternatesByMessage((m) => ({ ...m, [alt.messageId]: [...(m[alt.messageId] ?? []), alt] })); }}
+                  onUsed={(messageId, content) => {
+                    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, content } : m)));
+                    loadAlternates(sessionId);
+                  }}
+                />
+              )}
               {msg.role === 'assistant' && !/^(Error:|⏹️|⚠️)/.test(msg.content) && (
                 <ReplyFeedback reply={msg.content} persona={msg.persona ?? persona} sessionId={sessionId} />
               )}
@@ -1799,6 +1858,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         )}
 
         <div className="ai-composer">
+        {compareOpen && <CompareWithPanel onSend={handleCompare} onClose={() => { setCompareOpen(false); }} />}
         {interruptedTurn !== null && interruptedTurn.sessionId === sessionId && !chatMutation.isPending && (
           <div className="ai-interrupted" role="status">
             <span className="ai-interrupted__text">
@@ -1882,6 +1942,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               onClick={handleAttachClick}
               disabled={chatMutation.isPending}
             />
+            {messages.some((m) => m.role === 'assistant') && (
+              <Button
+                type="button"
+                kind="ghost"
+                hasIconOnly
+                size="sm"
+                renderIcon={Compare}
+                iconDescription="Compare with another AI's answer"
+                tooltipPosition="top"
+                className="ai-attach-button ai-attach-button--inline"
+                onClick={() => { setCompareOpen((o) => !o); }}
+                disabled={chatMutation.isPending}
+              />
+            )}
             <textarea
               ref={textareaRef}
               id="ai-chat-input"

@@ -45,6 +45,8 @@ export interface ChatRequest {
 }
 
 export interface ChatMessage {
+  /** Saved message id (assistant replies) — for "Ask another model". */
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
@@ -199,7 +201,25 @@ export interface ChatResponse {
   mapChanges?: MapChange[];
   mapChangesFor?: string | null;
   outputsChanged?: OutputChange[];
+  /** The saved reply's id (for "Ask another model"). */
+  assistantMessageId?: string;
   pendingActions: WriteActionProposal[];
+}
+
+/** A model offered for "Ask another model". */
+export interface ModelChoiceApi {
+  id: string;
+  label: string;
+}
+
+/** Another model's answer to one of Athena's replies ('original' = an answer replaced by "Use this one"). */
+export interface ChatAlternate {
+  id: string;
+  messageId: string;
+  model: string;
+  label: string;
+  content: string;
+  createdAt: string;
 }
 
 /** Live events for a chat turn running on the server (GET /api/ai/chat/turns/:id/events). */

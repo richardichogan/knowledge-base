@@ -17,6 +17,8 @@ import type {
   ChatDecision,
   DecisionTracking,
   ChatScreen,
+  ModelChoiceApi,
+  ChatAlternate,
   ChatMessage,
   ChatSessionSummary,
   AthenaPersona,
@@ -607,6 +609,30 @@ export class KnowledgeHubApi {
 
   async deleteChatScreen(screenId: string): Promise<void> {
     await this.client.delete(`/api/ai/screens/${screenId}`);
+  }
+
+  // ─── Second opinions: "Ask another model" ──────────────────────────────────
+
+  async listModelChoices(): Promise<ApiResponse<ModelChoiceApi[]>> {
+    const r = await this.client.get<ApiResponse<ModelChoiceApi[]>>('/api/ai/models');
+    return r.data;
+  }
+
+  /** Re-answers a reply with another model, in the background; follow it with followChatTurn. */
+  async askAnotherModel(sessionId: string, messageId: string, model: string): Promise<ApiResponse<{ turnId: string }>> {
+    const r = await this.client.post<ApiResponse<{ turnId: string }>>(`/api/ai/session/${sessionId}/messages/${messageId}/alternates`, { model });
+    return r.data;
+  }
+
+  async listAlternates(sessionId: string): Promise<ApiResponse<ChatAlternate[]>> {
+    const r = await this.client.get<ApiResponse<ChatAlternate[]>>(`/api/ai/session/${sessionId}/alternates`);
+    return r.data;
+  }
+
+  /** Makes an alternative the answer the chat continues from. */
+  async useAlternate(alternateId: string): Promise<ApiResponse<{ messageId: string; content: string }>> {
+    const r = await this.client.post<ApiResponse<{ messageId: string; content: string }>>(`/api/ai/alternates/${alternateId}/use`);
+    return r.data;
   }
 
   async chat(request: ChatRequest, signal?: AbortSignal): Promise<ApiResponse<ChatResponse>> {

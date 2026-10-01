@@ -21,6 +21,8 @@ import {
 import type { ConversationMessage } from '../types/aiContext.js';
 
 export interface StoredChatMessage {
+  /** Row id (as text) — lets the UI refer to a reply (e.g. "Ask another model"). */
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
@@ -30,7 +32,7 @@ export interface StoredChatMessage {
   sources?: string[];
 }
 
-interface StoredChatMessageRow extends StoredChatMessage {
+interface StoredChatMessageRow extends Omit<StoredChatMessage, 'id'> {
   id: number;
 }
 
@@ -93,17 +95,19 @@ export async function setSessionProjectId(db: Pool, sessionId: string, projectId
 /** Reads a session's full message history in chronological order — used for display, not for the model call. */
 export async function getSessionHistory(db: Pool, sessionId: string): Promise<StoredChatMessage[]> {
   const { rows } = await db.query<{
+    id: string;
     role: 'user' | 'assistant';
     content: string;
     created_at: string;
     persona: string | null;
     sources: string[] | null;
   }>(
-    `SELECT role, content, created_at, persona, sources FROM ai_chat_messages
+    `SELECT id::text, role, content, created_at, persona, sources FROM ai_chat_messages
       WHERE session_id = $1 ORDER BY created_at ASC, id ASC`,
     [sessionId],
   );
   return rows.map((r) => ({
+    id: r.id,
     role: r.role,
     content: r.content,
     timestamp: r.created_at,
@@ -119,13 +123,41 @@ export async function appendTurn(
   userMessage: string,
   assistantReply: string,
   replyMeta: { persona?: string; sources?: string[] } = {},
-): Promise<void> {
-  await db.query(
+): Promise<{ assistantMessageId: string }> {
+  const { rows } = await db.query<{ id: string; role: string }>(
     `INSERT INTO ai_chat_messages (session_id, role, content, persona, sources)
-       VALUES ($1, 'user', $2, NULL, NULL), ($1, 'assistant', $3, $4, $5)`,
+       VALUES ($1, 'user', $2, NULL, NULL), ($1, 'assistant', $3, $4, $5)
+     RETURNING id::text, role`,
     [sessionId, userMessage, assistantReply, replyMeta.persona ?? null, replyMeta.sources ?? null],
   );
   await db.query(`UPDATE ai_chat_sessions SET updated_at = NOW() WHERE id = $1`, [sessionId]);
+  return { assistantMessageId: rows.find((r) => r.role === 'assistant')?.id ?? '' };
+}
+
+/**
+ * For re-answering one of Athena's replies: the user message it answered,
+ * the conversation before that (most recent turns), and the reply's persona.
+ */
+export async function getTurnForAlternate(
+  db: Pool,
+  sessionId: string,
+  assistantMessageId: string,
+): Promise<{ userMessage: string; history: ConversationMessage[]; persona: string } | null> {
+  const { rows } = await db.query<{ id: string; role: 'user' | 'assistant'; content: string; persona: string | null }>(
+    `SELECT id::text, role, content, persona FROM ai_chat_messages
+      WHERE session_id = $1 AND id <= $2 ORDER BY created_at ASC, id ASC`,
+    [sessionId, assistantMessageId],
+  );
+  const last = rows[rows.length - 1];
+  const user = rows[rows.length - 2];
+  if (last?.id !== assistantMessageId || last.role !== 'assistant' || user?.role !== 'user') return null;
+  const history = rows.slice(Math.max(0, rows.length - 2 - 20), rows.length - 2).map((r) => ({ role: r.role, content: r.content }));
+  return { userMessage: user.content.replace(/^\[Viewing [^\]]*\]\n/, ''), history, persona: last.persona ?? 'general' };
+}
+
+/** Replaces a stored message's text (an alternative answer chosen with "Use this one"). */
+export async function replaceMessageContent(db: Pool, messageId: string, content: string): Promise<void> {
+  await db.query(`UPDATE ai_chat_messages SET content = $2 WHERE id = $1`, [messageId, content]);
 }
 
 /** Converts stored history into the plain {role, content} shape the LLM/conversation service expects. */

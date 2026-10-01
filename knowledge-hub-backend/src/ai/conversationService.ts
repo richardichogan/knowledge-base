@@ -3,6 +3,7 @@ import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { getFoundryClient, AiStoppedError } from './foundryClient.js';
 import { describeToolActivity } from './turnActivity.js';
+import type { ModelRoute } from './modelChoices.js';
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
 import { buildScreensBlock } from './chatScreens.js';
@@ -28,7 +29,14 @@ export interface TurnHooks {
   onActivity?: (line: string) => void;
   signal?: AbortSignal;
   budgetMs?: number;
+  /** A specific deployment for the reasoning slot ("Ask another model"; streaming turns only). */
+  modelRoute?: ModelRoute;
+  /** Only tools that read — for re-answering, so nothing is created twice. */
+  readOnlyTools?: boolean;
 }
+
+/** Tools that change something; left out when a turn must only read. */
+const WRITE_TOOLS = new Set(['create_task', 'update_task', 'create_note_draft', 'propose_note_edit', 'propose_map_changes', 'remember', 'forget_memory', 'save_output']);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -115,7 +123,8 @@ export async function handleConversationTurn(
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
   const client = getFoundryClient();
-  const tools = await getToolDefinitions();
+  const allTools = await getToolDefinitions();
+  const tools = hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools;
   const requiredFirstTool = selectRequiredToolChoice(
     userMessage,
     tools,
@@ -148,7 +157,7 @@ export async function handleConversationTurn(
     const roundToolChoice = i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto';
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
     const response = hooks.onDelta !== undefined
-      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta, hooks.signal)
+      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta, hooks.signal, hooks.modelRoute)
       : await client.chatWithTools(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs);
 
     if (response.toolCalls.length === 0) {

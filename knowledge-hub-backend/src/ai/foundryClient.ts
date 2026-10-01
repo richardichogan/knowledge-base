@@ -6,6 +6,7 @@ import {
   AI_REASONING_MODEL_REQUEST_TIMEOUT_MS,
 } from '../config/constants.js';
 import type { ConversationMessage, AiModel } from '../types/aiContext.js';
+import type { ModelRoute } from './modelChoices.js';
 
 /** A single tool call the model wants the caller to execute. */
 export interface LlmToolCall {
@@ -136,10 +137,12 @@ export class FoundryClient {
     timeoutMs: number,
     onDelta: (text: string) => void,
     signal?: AbortSignal,
+    /** Another deployment on the reasoning endpoint (e.g. "Ask another model"). */
+    route?: ModelRoute,
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
-    const deployment = this.getDeployment(model);
+    const deployment = route?.deployment ?? this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
-    const viaResponses = model === 'gpt-5.4' && env.AZURE_OPENAI_GPT54_API === 'responses';
+    const viaResponses = model === 'gpt-5.4' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses';
     const url = viaResponses
       ? `${endpoint}/openai/v1/responses`
       : `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;

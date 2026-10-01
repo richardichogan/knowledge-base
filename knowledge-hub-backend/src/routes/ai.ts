@@ -47,6 +47,8 @@ export interface ChatTurnResult {
   mapChangesFor: string | null;
   /** Outputs saved or revised this turn (chips on the reply, opening the Outputs panel). */
   outputsChanged: Array<{ id: string; title: string; version: number }>;
+  /** The saved reply's id (for "Ask another model"). */
+  assistantMessageId: string;
 }
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
@@ -132,7 +134,7 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   const historyMessage = pageContext
     ? `[Viewing ${pageContext.type}: "${pageContext.title}"]\n${message}`
     : message;
-  await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources });
+  const { assistantMessageId } = await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources });
   if (isFirstMessage) await setSessionTitleIfMissing(db, effectiveSessionId, message);
   // Fire-and-forget AI title from the opening exchange (re-run on the
   // second turn, since first messages are often just "hello"). Never
@@ -168,7 +170,7 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
     : [];
 
   return {
-      reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated, outputsChanged,
+      reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated, outputsChanged, assistantMessageId,
       // Proposed edits to the open note, applied client-side on "Apply".
       noteEdits, noteEditsFor: noteEdits.length > 0 ? openNoteId ?? null : null,
       // Proposed changes to the open mind map, applied on "Apply".

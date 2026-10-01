@@ -21,6 +21,10 @@
  * PUT    /screens/:screenId/annotation        raw PNG; ?note= — the marked-up copy
  * DELETE /screens/:screenId/annotation
  * DELETE /screens/:screenId
+ * GET    /models                              models offered for "Ask another model"
+ * POST   /session/:sessionId/messages/:messageId/alternates  { model } — re-answer in the background → { turnId }
+ * GET    /session/:sessionId/alternates       alternatives, by reply
+ * POST   /alternates/:alternateId/use         swap it into the chat
  */
 import express, { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
@@ -28,6 +32,12 @@ import { getDb } from '../db/db.js';
 import { listOutputs, getOutput, saveOutputVersion, renameOutput, deleteOutput } from '../ai/chatOutputs.js';
 import { listDecisions, addDecision, updateDecision, deleteDecision, isTrackingDecisions, setTrackingDecisions, type DecisionStatus } from '../ai/chatDecisions.js';
 import { getSessionProjectId } from '../ai/chatSessionStore.js';
+import { randomUUID } from 'node:crypto';
+import { handleConversationTurn } from '../ai/conversationService.js';
+import { getTurnForAlternate, replaceMessageContent } from '../ai/chatSessionStore.js';
+import { startTurnJob } from '../ai/turnJobs.js';
+import { MODEL_CHOICES, findModelChoice } from '../ai/modelChoices.js';
+import { AI_BACKGROUND_TURN_BUDGET_MS } from '../config/constants.js';
 import { addScreen, listScreens, getScreenImage, updateScreen, reorderScreens, setAnnotation, clearAnnotation, deleteScreen } from '../ai/chatScreens.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { createNoteRecord } from './notes.js';
@@ -210,6 +220,71 @@ router.delete('/screens/:screenId/annotation', route(async (req, res) => {
 router.delete('/screens/:screenId', route(async (req, res) => {
   await deleteScreen(getDb(), param(req, 'screenId'));
   ok(res, { deleted: true });
+}));
+
+// ── Ask another model ─────────────────────────────────────────────────────────
+
+router.get('/models', route(async (_req, res) => {
+  ok(res, MODEL_CHOICES.map((c) => ({ id: c.id, label: c.label })));
+}));
+
+router.post('/session/:sessionId/messages/:messageId/alternates', route(async (req, res) => {
+  const choice = findModelChoice(String((req.body as { model?: unknown }).model ?? ''));
+  if (choice === undefined) throw new ValidationError('unknown model', { model: 'invalid' });
+  const db = getDb();
+  const sessionId = param(req, 'sessionId');
+  const messageId = param(req, 'messageId');
+  const turn = await getTurnForAlternate(db, sessionId, messageId);
+  if (turn === null) throw new NotFoundError('Reply');
+  const turnId = randomUUID();
+  startTurnJob(
+    turnId, sessionId, turn.userMessage,
+    async (hooks) => {
+      const reply = await handleConversationTurn(
+        db, turn.history, turn.userMessage, choice.model, turn.persona, sessionId, undefined, undefined, {},
+        { ...hooks, budgetMs: AI_BACKGROUND_TURN_BUDGET_MS, readOnlyTools: true, ...(choice.route !== undefined && { modelRoute: choice.route }) },
+      );
+      const { rows } = await db.query<{ id: string }>(
+        `INSERT INTO chat_alternates (session_id, message_id, model, content) VALUES ($1, $2, $3, $4) RETURNING id::text`,
+        [sessionId, messageId, choice.id, reply],
+      );
+      return { id: rows[0]!.id, messageId, model: choice.id, label: choice.label, content: reply };
+    },
+    () => { /* nothing to clear */ },
+    false,
+  );
+  ok(res, { turnId });
+}));
+
+router.get('/session/:sessionId/alternates', route(async (req, res) => {
+  const { rows } = await getDb().query<{ id: string; message_id: string; model: string; content: string; created_at: Date }>(
+    `SELECT id::text, message_id::text, model, content, created_at FROM chat_alternates WHERE session_id = $1 ORDER BY created_at`,
+    [param(req, 'sessionId')],
+  );
+  ok(res, rows.map((r) => ({
+    id: r.id, messageId: r.message_id, model: r.model,
+    label: r.model === 'original' ? 'Original' : findModelChoice(r.model)?.label ?? r.model,
+    content: r.content, createdAt: r.created_at.toISOString(),
+  })));
+}));
+
+router.post('/alternates/:alternateId/use', route(async (req, res) => {
+  const db = getDb();
+  const { rows } = await db.query<{ session_id: string; message_id: string; content: string; current: string }>(
+    `SELECT a.session_id::text, a.message_id::text, a.content, m.content AS current
+       FROM chat_alternates a JOIN ai_chat_messages m ON m.id = a.message_id WHERE a.id = $1`,
+    [param(req, 'alternateId')],
+  );
+  const alt = rows[0];
+  if (alt === undefined) throw new NotFoundError('Alternative answer');
+  // Keep the answer being replaced, then swap; the used one leaves the alternatives.
+  await db.query(
+    `INSERT INTO chat_alternates (session_id, message_id, model, content) VALUES ($1, $2, 'original', $3)`,
+    [alt.session_id, alt.message_id, alt.current],
+  );
+  await replaceMessageContent(db, alt.message_id, alt.content);
+  await db.query(`DELETE FROM chat_alternates WHERE id = $1`, [param(req, 'alternateId')]);
+  ok(res, { messageId: alt.message_id, content: alt.content });
 }));
 
 export { router as chatPanelRouter };

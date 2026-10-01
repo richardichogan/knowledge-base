@@ -41,6 +41,8 @@ export type {
   ChatDecision,
   DecisionTracking,
   ChatScreen,
+  ModelChoiceApi,
+  ChatAlternate,
 } from './ai';
 
 export type { TaskDestination, CreateTaskInput } from './task';

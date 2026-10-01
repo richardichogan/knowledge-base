@@ -39,12 +39,15 @@ export async function sendChatTurn(
   return followChatTurn(start.data.turnId, handlers, signal);
 }
 
-/** Follows a running turn to its end. Rejects with TurnStoppedError or TurnDetachedError. */
-export async function followChatTurn(
+/**
+ * Follows a running turn to its end. Rejects with TurnStoppedError or
+ * TurnDetachedError. T is the finished payload (a chat reply by default).
+ */
+export async function followChatTurn<T = ChatResponse>(
   turnId: string,
   handlers: LiveTurnHandlers,
   signal: AbortSignal,
-): Promise<ApiResponse<ChatResponse>> {
+): Promise<ApiResponse<T>> {
   let text = '';
   for (let attempt = 0; attempt < MAX_RECONNECTS; attempt++) {
     let outcome: ChatTurnEvent | null = null;
@@ -71,7 +74,7 @@ export async function followChatTurn(
     }
     if (signal.aborted) throw new TurnDetachedError();
     const ended = outcome as ChatTurnEvent | null;
-    if (ended?.type === 'done') return { success: true, data: ended.data };
+    if (ended?.type === 'done') return { success: true, data: ended.data as unknown as T };
     if (ended?.type === 'error') {
       if (ended.stopped) throw new TurnStoppedError();
       return { success: false, error: { code: 'AI_ERROR', message: ended.message } };

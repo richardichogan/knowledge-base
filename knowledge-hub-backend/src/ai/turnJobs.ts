@@ -51,13 +51,15 @@ export function startTurnJob(
   message: string,
   run: (hooks: TurnHooks) => Promise<unknown>,
   onFinished: () => void,
+  /** false for side jobs (e.g. "Ask another model") that aren't the chat's current turn. */
+  trackForSession = true,
 ): { id: string; startedAt: string } {
   const job: TurnJob = {
     id, sessionId, message, startedAt: new Date().toISOString(),
     activity: 'Thinking', text: '', outcome: null, listeners: new Set(), controller: new AbortController(),
   };
   jobs.set(job.id, job);
-  jobBySession.set(sessionId, job.id);
+  if (trackForSession) jobBySession.set(sessionId, job.id);
 
   const hooks: TurnHooks = {
     onDelta: (text) => { emit(job, { type: 'delta', text }); },
