@@ -9,6 +9,7 @@ import {
   PublicClientApplication,
   InteractionRequiredAuthError,
   BrowserCacheLocation,
+  CacheLookupPolicy,
   type AccountInfo,
 } from '@azure/msal-browser';
 
@@ -86,7 +87,16 @@ export function signOut(): Promise<void> {
  * Access token for the Athena API ('' when sign-in is disabled). Renews
  * silently; if Microsoft needs you to sign in again, redirects to do so.
  */
-export async function getApiToken(): Promise<string> {
+export function getApiToken(): Promise<string> {
+  // One renewal shared by every request on the page, so a dozen parallel calls
+  // don't each try to renew and then race each other to the sign-in page.
+  inFlight ??= renewToken().finally(() => { inFlight = null; });
+  return inFlight;
+}
+
+let inFlight: Promise<string> | null = null;
+
+async function renewToken(): Promise<string> {
   if (msal === null) return '';
   const account = msal.getActiveAccount();
   if (account === null) {
@@ -94,12 +104,19 @@ export async function getApiToken(): Promise<string> {
     return '';
   }
   try {
-    const result = await msal.acquireTokenSilent({ scopes: API_SCOPES, account });
+    // Saved token, else the saved refresh token. No hidden-iframe fallback: a
+    // managed work PC blocks it, so once the 24-hour sign-in expires every
+    // request would hang and fail instead of going to the sign-in page.
+    const result = await msal.acquireTokenSilent({
+      scopes: API_SCOPES,
+      account,
+      cacheLookupPolicy: CacheLookupPolicy.AccessTokenAndRefreshToken,
+    });
     return result.accessToken;
   } catch (err) {
-    // Any failure to renew quietly (expired session, blocked iframe/cookies on
-    // a managed PC, timeout) — sign in again rather than failing every request.
-    // Guarded so a sign-in that keeps failing can't loop.
+    // Expired sign-in (or any other failure to renew quietly) — sign in again
+    // rather than failing every request. Guarded so a sign-in that keeps
+    // failing can't loop.
     console.warn('[auth] Silent token renewal failed; signing in again.', err);
     if (err instanceof InteractionRequiredAuthError || !renewRedirectAttemptedRecently()) {
       markRenewRedirect();
