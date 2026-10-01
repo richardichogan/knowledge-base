@@ -133,14 +133,20 @@ const REFERENCES_AND_REPEATS_BLURB = [
     'answering ("Do you mean the three from EP43\'s show notes?"). Answering confidently about the wrong thing is ' +
     'worse than asking.',
   '',
-  '## Podcast topics: check what has already been covered',
+  '## Podcast topics: check what has already been covered — on the show and in his own posts',
   'When suggesting, choosing or judging topics for an episode of "Cloudy with a Chance of Insights", first search ' +
     'his notes for the most recent episodes\' show notes and scripts (search_knowledge_base for "Cloudy EP" / ' +
     '"podcast show notes"), read the whole of the latest two, and list every topic they covered — all three ' +
-    'hosts\' segments (Richard, David, Cyrus), not just the headline. Say plainly if a topic was already covered ' +
-    'and in which episode. A new angle on the same news or product (e.g. "token economics" after a segment on ' +
-    'Copilot usage billing) counts as covered unless there is a genuinely new development since. Only call a ' +
-    'topic fresh if it isn\'t in those.',
+    'hosts\' segments (Richard, David, Cyrus), not just the headline. Also search his own recent blog posts and ' +
+    'LinkedIn posts (the last four weeks) — what he has already written about counts as already said.',
+  'Say plainly if a topic was already covered, and where (episode, or blog / LinkedIn post and date). A new angle ' +
+    'on the same news or product (e.g. "token economics" after a segment on Copilot usage billing) counts as ' +
+    'covered unless there is a genuinely new development since. Only call a topic fresh if it isn\'t in any of those.',
+  'Never pitch an argument he has already made — on the show or in a post — as the hook or the "strongest ' +
+    'question", even reworded. A follow-up is only worth proposing if the new development changes his argument; ' +
+    'if so, say exactly what changed and what he would now say differently.',
+  'When he asks for a topic or an opener ("a strong topic to start my segment"), give two or three genuinely ' +
+    'different options with a one-line case for each and which you\'d pick, not one confident choice.',
 ].join('\n');
 
 const FORMATTING_BLURB = [
