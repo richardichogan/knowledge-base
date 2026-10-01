@@ -271,7 +271,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string | null>(null);
   const [activeImageContext, setActiveImageContext] = useState<AthenaPageContext | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<{ filename: string; percent: number } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ filename: string; percent: number; startedAt?: number } | null>(null);
+  // Demo Designer's detailed screen read takes ~20s, so it starts as soon as an
+  // image is attached (while the question is typed) rather than on Send.
+  const imageReadRef = useRef<{ file: File; persona: string; startedAt: number; result: ReturnType<typeof api.analyzeChatImage> } | null>(null);
+  const [nowTick, setNowTick] = useState(Date.now());
   const [uploadProjectId, setUploadProjectId] = useState('personal');
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -318,6 +322,25 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setPendingImagePreviewUrl(previewUrl);
     return () => { URL.revokeObjectURL(previewUrl); };
   }, [pendingFile]);
+
+  useEffect(() => {
+    if (pendingFile === null || !isChatImage(pendingFile) || persona !== 'demo_designer') {
+      imageReadRef.current = null;
+      return;
+    }
+    const current = imageReadRef.current;
+    if (current?.file === pendingFile && current.persona === persona) return;
+    const result = api.analyzeChatImage(pendingFile, undefined, persona);
+    result.catch(() => { /* surfaced when the message is sent */ });
+    imageReadRef.current = { file: pendingFile, persona, startedAt: Date.now(), result };
+  }, [pendingFile, persona]);
+
+  useEffect(() => {
+    if (uploadProgress?.startedAt === undefined) return;
+    setNowTick(Date.now());
+    const timer = window.setInterval(() => { setNowTick(Date.now()); }, 1000);
+    return () => { window.clearInterval(timer); };
+  }, [uploadProgress?.startedAt]);
   /** Prevents the Android Share auto-send from firing more than once per page load. */
   const shareProcessedRef = useRef(false);
   /** Tracks the last pageContext payload we've already injected into a message, so
@@ -852,7 +875,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       let extraNote = '';
 
       if (isChatImage(file)) {
-        const res = await api.analyzeChatImage(file, question, persona);
+        const early = imageReadRef.current;
+        const useEarly = early?.file === file && early.persona === persona;
+        setUploadProgress({ filename: file.name, percent: 0, startedAt: useEarly ? early.startedAt : Date.now() });
+        const res = await (useEarly ? early.result : api.analyzeChatImage(file, question, persona));
         if (!res.success) throw new Error(res.error?.message ?? 'image analysis failed');
         fileText = res.data.analysis;
         storedIn = 'this chat only';
@@ -1597,10 +1623,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         {uploadProgress && (
           <div className="ai-upload-progress" role="status">
             <div className="ai-upload-progress-label">
-              {pendingFile !== null && isChatImage(pendingFile) ? 'Analysing' : 'Uploading'} {uploadProgress.filename}… {uploadProgress.percent}%
+              {uploadProgress.startedAt !== undefined
+                ? `${persona === 'demo_designer' ? 'Reading the screen in detail (usually 15–30s)' : 'Analysing'} ${uploadProgress.filename}… ${Math.max(0, Math.round((nowTick - uploadProgress.startedAt) / 1000)).toString()}s`
+                : `Uploading ${uploadProgress.filename}… ${uploadProgress.percent.toString()}%`}
             </div>
             <div className="ai-upload-progress-track">
-              <div className="ai-upload-progress-fill" style={{ width: `${uploadProgress.percent}%` }} />
+              <div className="ai-upload-progress-fill" style={{ width: `${uploadProgress.startedAt !== undefined ? Math.min(90, (nowTick - uploadProgress.startedAt) / 300).toString() : uploadProgress.percent.toString()}%` }} />
             </div>
           </div>
         )}
