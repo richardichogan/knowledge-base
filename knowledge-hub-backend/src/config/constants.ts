@@ -147,6 +147,12 @@ export const AI_REASONING_MODEL_REQUEST_TIMEOUT_MS = 100_000;
 export const AI_CONVERSATION_TURN_BUDGET_MS = 110_000;
 /** Minimum time left in the turn budget to justify starting another tool round instead of giving up early. */
 export const AI_MIN_TOOL_ROUND_BUDGET_MS = 20_000;
+
+/**
+ * Background turns (POST /api/ai/chat/turns) aren't bound by the browser's
+ * request timeout, so a deep multi-tool answer gets a longer budget.
+ */
+export const AI_BACKGROUND_TURN_BUDGET_MS = 300_000;
 // External HTTP fetches (blog admin API) must also time out.
 export const EXTERNAL_FETCH_TIMEOUT_MS = 20_000;
 

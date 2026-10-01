@@ -17,6 +17,8 @@ import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, Volume
 import { api } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
+import { LiveReply } from '../components/athena/LiveReply';
+import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
 import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
 import { CHAT_IMAGE_TYPES, isChatImage, clipboardImageName } from '../components/athena/attachments';
 import { createNote } from '../notes/noteStorage';
@@ -27,8 +29,7 @@ import {
   composeMessageText,
   stripProjectMentions,
   COMPOSER_ACTIONS,
-  COMPOSER_ACTION_LABELS,
-} from '../chat/composerIntent';
+  COMPOSER_ACTION_LABELS, stripActionDirective } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange } from '../types';
@@ -291,6 +292,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatAbortControllerRef = useRef<AbortController | null>(null);
+  // The reply being worked on server-side: live activity line + streamed text.
+  const [liveTurn, setLiveTurn] = useState<{ activity: string; text: string; startedAt: number } | null>(null);
+  const liveTurnIdRef = useRef<string | null>(null);
+  const turnRunRef = useRef(0);
+  // A message whose turn was cut off by a server restart (offered for resend).
+  const [interruptedTurn, setInterruptedTurn] = useState<{ sessionId: string; message: string } | null>(null);
 
   const projectsQuery = useQuery({
     queryKey: ['projects', 'athena-upload'],
@@ -370,6 +377,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       }
       if (result.success) setActiveProjectId(result.data.projectId ?? '');
       setIsRestoringHistory(false);
+      resumeSessionTurn(sessionId);
     }).catch(() => {
       if (!cancelled) setIsRestoringHistory(false);
     });
@@ -402,6 +410,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     noteSwitchTrackingRef.current = currentNoteId;
 
     let cancelled = false;
+    detachLiveTurn();
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
@@ -421,6 +430,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           setActiveProjectId(history.data.projectId ?? '');
         }
         setIsRestoringHistory(false);
+        resumeSessionTurn(linkedSessionId);
       } else {
         setIsRestoringHistory(false);
         await loadNoteSummary(pageContext?.title ?? 'Untitled', pageContext?.detail ?? '');
@@ -510,6 +520,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setIsMobileSidebarOpen(false);
     if (id === sessionId) return;
     stopTts();
+    detachLiveTurn();
     persistSessionId(id);
     setMessages([]);
     setPendingActions([]);
@@ -520,6 +531,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (result.success && result.data.persona) setPersona(result.data.persona);
       if (result.success) setActiveProjectId(result.data.projectId ?? '');
       setIsRestoringHistory(false);
+      resumeSessionTurn(id);
     }).catch(() => {
       setIsRestoringHistory(false);
     });
@@ -598,19 +610,55 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // Fresh controller per turn — Stop only ever aborts the request that's actually in flight.
       chatAbortControllerRef.current = new AbortController();
     },
-    mutationFn: ({ text, pageContext: ctx }: { text: string; pageContext?: AthenaPageContext }) =>
-      api.chat(
-        {
-          message: text,
-          persona,
-          projectId: noteProjectId ?? (activeProjectId !== '' ? activeProjectId : null),
-          ...(sessionId !== null && { sessionId }),
-          ...(ctx && { pageContext: ctx }),
-          ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
+    mutationFn: async ({ text, pageContext: ctx, resumeTurnId, resumeStartedAt }: { text: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string }) => {
+      // Runs on the server in the background; this view follows it live and
+      // can let go (switching chats) without losing the answer.
+      const run = ++turnRunRef.current;
+      const signal = (chatAbortControllerRef.current ?? new AbortController()).signal;
+      const startedAt = resumeStartedAt !== undefined ? Date.parse(resumeStartedAt) : Date.now();
+      setLiveTurn({ activity: 'Sending', text: '', startedAt });
+      liveTurnIdRef.current = resumeTurnId ?? null;
+      const handlers: LiveTurnHandlers = {
+        onStarted: (turnId, newSessionId) => {
+          if (turnRunRef.current !== run) return;
+          liveTurnIdRef.current = turnId;
+          if (sessionId === null) persistSessionId(newSessionId);
         },
-        chatAbortControllerRef.current?.signal,
-      ),
+        onActivity: (activity) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, activity })); },
+        onText: (liveText) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, text: liveText })); },
+      };
+      try {
+        if (resumeTurnId !== undefined) return await followChatTurn(resumeTurnId, handlers, signal);
+        return await sendChatTurn(
+          {
+            message: text,
+            persona,
+            projectId: noteProjectId ?? (activeProjectId !== '' ? activeProjectId : null),
+            ...(sessionId !== null && { sessionId }),
+            ...(ctx && { pageContext: ctx }),
+            ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
+          },
+          handlers,
+          signal,
+        );
+      } finally {
+        if (turnRunRef.current === run) {
+          setLiveTurn(null);
+          liveTurnIdRef.current = null;
+        }
+      }
+    },
     onSuccess: (result) => {
+      if (!result.success && result.error.code === 'TURN_GONE' && sessionId !== null) {
+        // Finished while we were reconnecting (it's in the saved history), or
+        // lost in a server restart (the interrupted notice offers a resend).
+        const id = sessionId;
+        void api.getSessionHistory(id).then((h) => {
+          if (h.success) setMessages(stripHistoryContextPrefixes(h.data.messages));
+          resumeSessionTurn(id);
+        });
+        return;
+      }
       if (!result.success) {
         appendMessage('assistant', `Error: ${result.error.message}`);
         return;
@@ -639,6 +687,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       }, 50);
     },
     onError: (err: unknown) => {
+      // This view let go of the turn (switched chats) — it finishes in its own chat.
+      if (err instanceof TurnDetachedError) return;
       // User pressed Stop — the request was deliberately aborted client-side. Not a real
       // failure, but confirm it visibly so it's clear Stop actually did something. The reply
       // (if the backend finishes generating it anyway) is simply discarded from here on.
@@ -662,7 +712,51 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   /** Aborts the in-flight chat request. The backend keeps running to completion, but the UI stops waiting and discards whatever comes back. */
   function handleStopGenerating(): void {
+    const turnId = liveTurnIdRef.current;
+    if (turnId === null) {
+      // Not accepted by the server yet — just stop waiting.
+      chatAbortControllerRef.current?.abort();
+      appendMessage('assistant', '⏹️ Stopped.');
+      return;
+    }
+    void api.cancelChatTurn(turnId).catch(() => { chatAbortControllerRef.current?.abort(); });
+  }
+
+  /** Stops following the current turn without stopping it (it lands in its own chat). */
+  function detachLiveTurn(): void {
+    turnRunRef.current += 1;
     chatAbortControllerRef.current?.abort();
+    setLiveTurn(null);
+    liveTurnIdRef.current = null;
+    setInterruptedTurn(null);
+  }
+
+  /** After opening a chat: reattach to a turn still running there, or offer to resend one cut off by a restart. */
+  function resumeSessionTurn(id: string): void {
+    void api.getSessionTurn(id).then((r) => {
+      if (!r.success || r.data === null) return;
+      if (r.data.status === 'running') {
+        appendMessage('user', stripActionDirective(r.data.message));
+        chatMutation.mutate({ text: r.data.message, resumeTurnId: r.data.turnId, resumeStartedAt: r.data.startedAt });
+      } else {
+        setInterruptedTurn({ sessionId: id, message: r.data.message });
+      }
+    }).catch(() => { /* nothing to resume */ });
+  }
+
+  function handleResendInterrupted(): void {
+    if (interruptedTurn === null) return;
+    const { sessionId: id, message } = interruptedTurn;
+    setInterruptedTurn(null);
+    void api.dismissSessionTurn(id).catch(() => { /* cosmetic */ });
+    appendMessage('user', stripActionDirective(message));
+    chatMutation.mutate({ text: message });
+  }
+
+  function handleDismissInterrupted(): void {
+    if (interruptedTurn === null) return;
+    void api.dismissSessionTurn(interruptedTurn.sessionId).catch(() => { /* cosmetic */ });
+    setInterruptedTurn(null);
   }
 
   useEffect(() => {
@@ -938,6 +1032,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   function handleNewChat(): void {
     setIsMobileSidebarOpen(false);
+    detachLiveTurn();
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
@@ -1601,11 +1696,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               </div>
             </div>
           ))}
-          {chatMutation.isPending && (
+          {chatMutation.isPending && (liveTurn !== null ? (
+            <LiveReply activity={liveTurn.activity} text={liveTurn.text} startedAt={liveTurn.startedAt} renderContext={{ projectNameById }} />
+          ) : (
             <div className="ai-bubble ai-bubble--ai ai-bubble--thinking">
               <InlineLoading description="Athena is thinking…" />
             </div>
-          )}
+          ))}
           <div ref={bottomRef} />
         </div>
 
@@ -1620,6 +1717,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         )}
 
         <div className="ai-composer">
+        {interruptedTurn !== null && interruptedTurn.sessionId === sessionId && !chatMutation.isPending && (
+          <div className="ai-interrupted" role="status">
+            <span className="ai-interrupted__text">
+              Your last message didn&apos;t get an answer — the server restarted while Athena was working on it.
+            </span>
+            <button type="button" className="ai-interrupted__btn" onClick={handleResendInterrupted}>Resend</button>
+            <button type="button" className="ai-interrupted__btn ai-interrupted__btn--quiet" onClick={handleDismissInterrupted}>Dismiss</button>
+          </div>
+        )}
         {uploadProgress && (
           <div className="ai-upload-progress" role="status">
             <div className="ai-upload-progress-label">

@@ -32,6 +32,8 @@ export type {
   SavedMemory,
   NoteEdit,
   MapChange,
+  ChatTurnEvent,
+  SessionTurnState,
 } from './ai';
 
 export type { TaskDestination, CreateTaskInput } from './task';

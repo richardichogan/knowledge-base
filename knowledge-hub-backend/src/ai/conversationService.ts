@@ -1,7 +1,8 @@
 import type { NoteEditProposal } from './noteEdits.js';
 import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
-import { getFoundryClient } from './foundryClient.js';
+import { getFoundryClient, AiStoppedError } from './foundryClient.js';
+import { describeToolActivity } from './turnActivity.js';
 import type { LlmMessage } from './foundryClient.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
@@ -14,6 +15,21 @@ import { getCanvas } from '../services/canvasService.js';
 import { buildCanvasContext } from '../services/canvasContent.js';
 import type { MapChangeProposal } from './mapEdits.js';
 import { looksLikeMeetingList, importMeetingList, buildTodayScheduleBlock } from '../integrations/ibm/ibmMeetings.js';
+
+
+/** Live hooks for a background chat turn. */
+export interface TurnHooks {
+  onDelta?: (text: string) => void;
+  /** The text streamed so far was a preamble to tool calls — clear it. */
+  onReset?: () => void;
+  onActivity?: (line: string) => void;
+  signal?: AbortSignal;
+  budgetMs?: number;
+}
+
+function isStopped(hooks: TurnHooks): boolean {
+  return hooks.signal?.aborted === true;
+}
 
 /**
  * Handles a single conversation turn.
@@ -38,6 +54,8 @@ export async function handleConversationTurn(
   onToolCall?: (toolName: string) => void,
   /** Per-turn tool context: the open Think note, and a collector for proposed edits to it. */
   toolContext: { noteId?: string | undefined; noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[] } = {},
+  /** Live turn hooks (background turns): streamed text, activity lines, Stop, a longer time budget. */
+  hooks: TurnHooks = {},
 ): Promise<string> {
   // A mind map open beside the chat (noteId "map:<id>"): Athena gets its outline and can propose changes.
   const mapId = toolContext.noteId?.startsWith('map:') === true ? toolContext.noteId.slice('map:'.length) : undefined;
@@ -103,22 +121,22 @@ export async function handleConversationTurn(
   // in time is never started, and clamp each round's own request timeout to
   // whatever's left so we always have time to return a clear message.
   const turnStart = Date.now();
+  const turnBudgetMs = hooks.budgetMs ?? AI_CONVERSATION_TURN_BUDGET_MS;
 
   for (let i = 0; i < AI_MAX_TOOL_ITERATIONS; i++) {
-    const remainingBudgetMs = AI_CONVERSATION_TURN_BUDGET_MS - (Date.now() - turnStart);
+    if (isStopped(hooks)) throw new AiStoppedError();
+    hooks.onActivity?.(i === 0 ? 'Thinking' : 'Reading what I found');
+    const remainingBudgetMs = turnBudgetMs - (Date.now() - turnStart);
     if (i > 0 && remainingBudgetMs < AI_MIN_TOOL_ROUND_BUDGET_MS) {
       console.warn(`[ai] Stopping tool loop after ${i} round(s) — turn budget exhausted`);
       return "This is taking longer than expected — could you try again, or ask a more specific question?";
     }
 
-    const response = await client.chatWithTools(
-      model,
-      messages,
-      tools,
-      maxTokens,
-      i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto',
-      Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS),
-    );
+    const roundToolChoice = i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto';
+    const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
+    const response = hooks.onDelta !== undefined
+      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta, hooks.signal)
+      : await client.chatWithTools(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs);
 
     if (response.toolCalls.length === 0) {
       if (response.content && response.content.trim() !== '') {
@@ -136,10 +154,14 @@ export async function handleConversationTurn(
     }
 
     messages.push({ role: 'assistant', content: response.content, tool_calls: response.toolCalls });
+    // Any text streamed this round was a preamble to tool calls, not the answer.
+    if (response.content !== null && response.content !== '') hooks.onReset?.();
 
     for (const call of response.toolCalls) {
       let result: unknown;
+      if (isStopped(hooks)) throw new AiStoppedError();
       onToolCall?.(call.function.name);
+      hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
       try {
         result = await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined });
       } catch (err) {

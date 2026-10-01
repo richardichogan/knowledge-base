@@ -10,6 +10,8 @@ import type {
   ContentItemSummary,
   ChatRequest,
   ChatResponse,
+  ChatTurnEvent,
+  SessionTurnState,
   ChatMessage,
   ChatSessionSummary,
   AthenaPersona,
@@ -59,6 +61,40 @@ function makeClient(baseURL: string, token: string): AxiosInstance {
     return config;
   });
   return client;
+}
+
+/**
+ * Reads a chat turn's live events (server-sent events over fetch, so the
+ * sign-in header can be sent). Resolves when the stream ends; the caller
+ * decides whether to reconnect.
+ */
+export async function readChatTurnEvents(
+  turnId: string,
+  onEvent: (e: ChatTurnEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const signedIn = await getApiToken();
+  const auth = signedIn !== '' ? signedIn : TOKEN;
+  const response = await fetch(`${BASE_URL}/api/ai/chat/turns/${turnId}/events`, {
+    headers: auth !== '' ? { Authorization: `Bearer ${auth}` } : {},
+    signal,
+  });
+  if (!response.ok || response.body === null) throw new Error(`Turn events failed: ${response.status.toString()}`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      const block = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trimStart()).join('\n');
+      if (data !== '') onEvent(JSON.parse(data) as ChatTurnEvent);
+    }
+  }
 }
 
 export interface TimelineQuery {
@@ -445,6 +481,27 @@ export class KnowledgeHubApi {
   }
 
   // ─── AI Chat ──────────────────────────────────────────────────────────────
+
+  /** Starts a chat turn that runs on the server in the background (see services/chatTurns.ts). */
+  async startChatTurn(request: ChatRequest): Promise<ApiResponse<{ turnId: string; sessionId: string }>> {
+    const r = await this.client.post<ApiResponse<{ turnId: string; sessionId: string }>>('/api/ai/chat/turns', request);
+    return r.data;
+  }
+
+  /** Stops a running chat turn (the Stop button). */
+  async cancelChatTurn(turnId: string): Promise<void> {
+    await this.client.post(`/api/ai/chat/turns/${turnId}/cancel`);
+  }
+
+  /** A turn still running for this chat (to reattach to) or one interrupted by a restart. */
+  async getSessionTurn(sessionId: string): Promise<ApiResponse<SessionTurnState>> {
+    const r = await this.client.get<ApiResponse<SessionTurnState>>(`/api/ai/session/${sessionId}/turn`);
+    return r.data;
+  }
+
+  async dismissSessionTurn(sessionId: string): Promise<void> {
+    await this.client.delete(`/api/ai/session/${sessionId}/turn`);
+  }
 
   async chat(request: ChatRequest, signal?: AbortSignal): Promise<ApiResponse<ChatResponse>> {
     const r = await this.client.post<ApiResponse<ChatResponse>>(

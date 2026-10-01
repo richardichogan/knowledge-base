@@ -189,3 +189,8 @@ export function composeMessageText(text: string, action: ComposerAction | undefi
   if (action === undefined || text === '') return text;
   return `${text}\n\n(Requested action — ${action}: ${ACTION_DIRECTIVES[action]}.)`;
 }
+
+/** The message as the user typed it, without the action note composeMessageText adds. */
+export function stripActionDirective(text: string): string {
+  return text.replace(/\n\n\(Requested action — [^)]*\.\)$/, '');
+}

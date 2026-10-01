@@ -133,6 +133,22 @@ export interface ChatResponse {
   pendingActions: WriteActionProposal[];
 }
 
+/** Live events for a chat turn running on the server (GET /api/ai/chat/turns/:id/events). */
+export type ChatTurnEvent =
+  | { type: 'snapshot'; message: string; activity: string; text: string }
+  | { type: 'activity'; text: string }
+  | { type: 'delta'; text: string }
+  | { type: 'reset' }
+  | { type: 'done'; data: ChatResponse }
+  | { type: 'error'; message: string; stopped: boolean }
+  | { type: 'gone' };
+
+/** A chat's turn still running on the server, or one cut off by a restart. */
+export type SessionTurnState =
+  | { status: 'running'; turnId: string; message: string; startedAt: string }
+  | { status: 'interrupted'; message: string; startedAt: string }
+  | null;
+
 export interface ChatSessionSummary {
   id: string;
   title: string;

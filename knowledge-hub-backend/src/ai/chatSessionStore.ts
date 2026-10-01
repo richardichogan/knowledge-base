@@ -346,3 +346,32 @@ export async function rollUpSummaryIfNeeded(
     [sessionId, updatedSummary, newSummarizedThroughId],
   );
 }
+
+/** A chat turn that was running on the server when last recorded (see 042_chat_pending_turn.sql). */
+export interface PendingTurn {
+  turnId: string;
+  message: string;
+  startedAt: string;
+}
+
+/** Records (or clears, with null) the turn currently running for a session. */
+export async function setPendingTurn(db: Pool, sessionId: string, turn: PendingTurn | null): Promise<void> {
+  if (turn === null) {
+    // UPDATE, not upsert: clearing must not recreate a chat deleted mid-turn.
+    await db.query(`UPDATE ai_chat_sessions SET pending_turn = NULL WHERE id = $1`, [sessionId]);
+    return;
+  }
+  await db.query(
+    `INSERT INTO ai_chat_sessions (id, pending_turn) VALUES ($1, $2)
+     ON CONFLICT (id) DO UPDATE SET pending_turn = EXCLUDED.pending_turn`,
+    [sessionId, JSON.stringify(turn)],
+  );
+}
+
+export async function getPendingTurn(db: Pool, sessionId: string): Promise<PendingTurn | null> {
+  const { rows } = await db.query<{ pending_turn: PendingTurn | null }>(
+    `SELECT pending_turn FROM ai_chat_sessions WHERE id = $1`,
+    [sessionId],
+  );
+  return rows[0]?.pending_turn ?? null;
+}
