@@ -9,6 +9,7 @@ import { textToBlocks } from '../ai/chatTools.js';
 import { outputsChangedSince } from '../ai/chatOutputs.js';
 import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
+import { findModelChoice, GENERAL_CHAT_MODEL } from '../ai/modelChoices.js';
 import { deleteSessionScreenBlobs, reviewScreens } from '../ai/chatScreens.js';
 import { isTrackingDecisions, updateDecisionsFromExchange } from '../ai/chatDecisions.js';
 import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type TurnEvent } from '../ai/turnJobs.js';
@@ -117,7 +118,11 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
 
   // The brainstorming, blog_post and demo_designer personas use the deployed reasoning
   // model route by default.
-  const effectiveModel = model ?? (persona === 'brainstorming' || persona === 'blog_post' || persona === 'demo_designer' ? 'gpt-5.4' : 'gpt-4o');
+  const specialist = persona === 'brainstorming' || persona === 'blog_post' || persona === 'demo_designer';
+  // Everyday chats use GENERAL_CHAT_MODEL (a specific deployment on the reasoning endpoint).
+  const generalChoice = model === undefined && !specialist ? findModelChoice(GENERAL_CHAT_MODEL) : undefined;
+  const effectiveModel = model ?? (specialist ? 'gpt-5.4' : generalChoice?.model ?? 'gpt-4o');
+  if (generalChoice?.route !== undefined && hooks.modelRoute === undefined) hooks = { ...hooks, modelRoute: generalChoice.route };
 
   const turnStartedAt = new Date();
   const toolsUsed = new Set<string>();

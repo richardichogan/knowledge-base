@@ -174,8 +174,9 @@ export async function handleConversationTurn(
 
     const roundToolChoice = i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto';
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
-    const response = hooks.onDelta !== undefined
-      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta, hooks.signal, hooks.modelRoute)
+    // Streams when someone is following live, or when a specific deployment is chosen (only the streaming call takes one).
+    const response = hooks.onDelta !== undefined || hooks.modelRoute !== undefined
+      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta ?? (() => { /* not followed live */ }), hooks.signal, hooks.modelRoute)
       : await client.chatWithTools(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs);
 
     if (response.toolCalls.length === 0) {

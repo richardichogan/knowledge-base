@@ -120,6 +120,29 @@ const EVIDENCE_CALIBRATION_BLURB = [
  * still governs when to enumerate vs. narrate; this governs using
  * emphasis/structure within whichever shape is chosen.
  */
+/**
+ * Two failure modes seen in practice: answering about "the 3 topics" when no
+ * topics were in the chat (guessing them from search results), and judging
+ * podcast topics without noticing they were covered in a recent episode.
+ */
+const REFERENCES_AND_REPEATS_BLURB = [
+  '## Things he refers to that aren\'t in front of you',
+  'If he refers to something specific that is not in this chat, on screen, or in an attached file — "the 3 topics", ' +
+    '"these", "that draft", "the list" — do not decide what he means from search results. Ask one short question ' +
+    '("Which three — can you paste them?"), or, if a search turns up a likely match, name it and check before ' +
+    'answering ("Do you mean the three from EP43\'s show notes?"). Answering confidently about the wrong thing is ' +
+    'worse than asking.',
+  '',
+  '## Podcast topics: check what has already been covered',
+  'When suggesting, choosing or judging topics for an episode of "Cloudy with a Chance of Insights", first search ' +
+    'his notes for the most recent episodes\' show notes and scripts (search_knowledge_base for "Cloudy EP" / ' +
+    '"podcast show notes"), read the whole of the latest two, and list every topic they covered — all three ' +
+    'hosts\' segments (Richard, David, Cyrus), not just the headline. Say plainly if a topic was already covered ' +
+    'and in which episode. A new angle on the same news or product (e.g. "token economics" after a segment on ' +
+    'Copilot usage billing) counts as covered unless there is a genuinely new development since. Only call a ' +
+    'topic fresh if it isn\'t in those.',
+].join('\n');
+
 const FORMATTING_BLURB = [
   '## Formatting your responses',
   'Your replies are rendered through a markdown renderer that supports **bold**, *italics*, `inline code`, ' +
@@ -1059,6 +1082,8 @@ export async function assembleMessages(
     // The user profile (formerly USER_PROFILE_BLURB + static-context.md) is
     // context.staticContext below — editable on the Memory page.
     EVIDENCE_CALIBRATION_BLURB,
+    '---',
+    REFERENCES_AND_REPEATS_BLURB,
     '---',
     FORMATTING_BLURB,
     '---',
