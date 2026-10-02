@@ -1187,7 +1187,11 @@ export async function assembleMessages(
   // framed as the primary source; RAG/memory are separate, lower-priority
   // background that must not be blended into claims about it.
   const dynamicBlocks = [pageContextBlock, ragBlock, memoryBlock].filter((b) => b !== '').join('\n\n---\n\n');
-  const userMessageWithContext = dynamicBlocks === '' ? userMessage : `${dynamicBlocks}\n\n---\n\n${userMessage}`;
+  // His actual message is marked as the thing to answer, so material placed above it
+  // (background search results above all) is never mistaken for the request.
+  const userMessageWithContext = dynamicBlocks === ''
+    ? userMessage
+    : `${dynamicBlocks}\n\n---\n\n## His message — answer this. Everything above is reference material for it, not the request.\n\n${userMessage}`;
 
   return [
     { role: 'system', content: systemPrompt },

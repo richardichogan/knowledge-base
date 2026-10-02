@@ -171,6 +171,9 @@ export function formatRagContext(items: ContentItem[], query = ''): string {
       'about, a different document already provided to you. Never claim the user provided, pasted, or ' +
       'attached this content, and never refer to it in your reply as "snippets", "background context", or ' +
       'similar meta-language — synthesize it into your actual answer as if you simply knew it.',
+    'It is optional reference, never the subject: do not summarise, review or describe these items unless his ' +
+      'message asks about them. A word match is not relevance (e.g. "clouds" matching a podcast called "Cloudy"). ' +
+      'If his message does not need them, ignore them completely and just answer what he asked.',
     '',
     lines.join('\n\n---\n\n'),
   ].join('\n');
