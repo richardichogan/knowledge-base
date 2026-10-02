@@ -134,6 +134,12 @@ function applyOne(editor: Editor, edit: NoteEdit): void {
       editor.removeBlocks([blocks[i], ...sectionBody(blocks, i)]);
       return;
     }
+    case 'replace_all': {
+      // A full redraft: the whole note body becomes the new content (one ⌘Z step with the rest).
+      const replacement = parse(editor, md);
+      if (replacement.length > 0) editor.replaceBlocks(blocks, replacement);
+      return;
+    }
     case 'replace_text': {
       const find = edit.find ?? '';
       const target = flatten(blocks).find((b) => inlineText(b).includes(find))

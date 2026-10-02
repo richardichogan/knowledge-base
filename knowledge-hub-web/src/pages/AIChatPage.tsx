@@ -1791,7 +1791,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
         <div
           ref={messagesRef}
-          className={compact ? 'ai-messages ai-messages--compact' : 'ai-messages cds--tile'}
+          className={`${compact ? 'ai-messages ai-messages--compact' : 'ai-messages cds--tile'}${showJumpToLatest || promptCount > 1 ? ' ai-messages--with-tools' : ''}`}
           onClick={handleThreadClick}
           onScroll={(e) => {
             const el = e.currentTarget;
@@ -1981,7 +1981,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             {promptCount > 1 && (
               <div className="ai-prompt-nav" role="group" aria-label="Jump between your messages">
                 <button type="button" onClick={() => { jumpToPrompt('prev'); }} title="Previous message you sent (Alt+↑)" aria-label="Previous message you sent">↑</button>
-                <span className="ai-prompt-nav__label">Your messages</span>
+                {!compact && <span className="ai-prompt-nav__label">Your messages</span>}
                 <button type="button" onClick={() => { jumpToPrompt('next'); }} title="Next message you sent (Alt+↓)" aria-label="Next message you sent">↓</button>
               </div>
             )}

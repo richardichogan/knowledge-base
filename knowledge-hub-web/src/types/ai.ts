@@ -167,7 +167,7 @@ export interface MapChange {
 
 /** One edit Athena proposes to the open Think note. */
 export interface NoteEdit {
-  action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' | 'replace_text';
+  action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' | 'replace_text' | 'replace_all';
   heading?: string;
   find?: string;
   markdown?: string;

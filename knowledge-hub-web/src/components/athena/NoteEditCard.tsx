@@ -16,6 +16,7 @@ const ACTION_LABEL: Record<NoteEdit['action'], string> = {
   replace_section: 'Rewrite section',
   delete_section: 'Remove section',
   replace_text: 'Replace text',
+  replace_all: 'Rewrite the whole note',
 };
 
 type Status = { state: 'pending' } | { state: 'applied'; failed: string[] } | { state: 'discarded' };

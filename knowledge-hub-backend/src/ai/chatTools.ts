@@ -14,7 +14,7 @@
  * CMS publish, MS Todo push), which still require explicit confirmation.
  */
 
-import { validateNoteEdits } from './noteEdits.js';
+import { validateNoteEdits, checkEditsAgainstNote, noteHeadings } from './noteEdits.js';
 import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
@@ -365,10 +365,11 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
                 properties: {
                   action: {
                     type: 'string',
-                    enum: ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text'],
+                    enum: ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all'],
                     description: "append = end of note; prepend = top (after the title); add_to_section = end of the section under 'heading'; " +
                       "replace_section = replace the content under 'heading'; delete_section = remove 'heading' and its content; " +
-                      "replace_text = replace the exact existing text 'find' with 'markdown'.",
+                      "replace_text = replace the exact existing text 'find' with 'markdown'; replace_all = rewrite the WHOLE note " +
+                      "with 'markdown' — use this for a full redraft or rewrite instead of many separate edits.",
                   },
                   heading: { type: 'string', description: 'Exact heading text of the target section (section actions only).' },
                   find: { type: 'string', description: 'Exact existing text to replace (replace_text only) — a sentence or phrase copied from the note.' },
@@ -463,6 +464,20 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   ];
 }
 
+/** The open note's saved BlockNote blocks (for checking proposed edits), or null if unavailable. */
+async function loadNoteBlocks(db: Pool, noteId: string): Promise<Array<Record<string, unknown>> | null> {
+  try {
+    const { rows } = await db.query<{ content: unknown }>(`SELECT content FROM notes WHERE id::text = $1`, [noteId]);
+    let content = rows[0]?.content;
+    if (typeof content === 'string') content = JSON.parse(content);
+    let blocks = (content as { contentJson?: unknown } | undefined)?.contentJson;
+    if (typeof blocks === 'string') blocks = JSON.parse(blocks);
+    return Array.isArray(blocks) ? blocks as Array<Record<string, unknown>> : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Dispatches a single tool call by name, returning a JSON-serialisable result. */
 export async function executeToolCall(
   db: Pool,
@@ -526,6 +541,18 @@ export async function executeToolCall(
       }
       const { edits, problems } = validateNoteEdits(args['edits']);
       if (edits.length === 0) return { error: `No valid edits: ${problems.join('; ') || 'edits array was empty'}` };
+      // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.
+      const blocks = await loadNoteBlocks(db, turn.noteId);
+      if (blocks !== null) {
+        const mismatches = checkEditsAgainstNote(edits, blocks);
+        if (mismatches.length > 0) {
+          return {
+            error: `Not proposed — these edits don't match the note: ${mismatches.join('; ')}. Call propose_note_edit again ` +
+              'using the exact headings below, copying any "find" text exactly from one paragraph — or use replace_all for a full rewrite.',
+            headingsInNote: noteHeadings(blocks),
+          };
+        }
+      }
       turn.noteEdits?.push(...edits);
       return { proposed: edits.length, ...(problems.length > 0 && { skipped: problems }), note: 'Shown to the user as a preview with Apply/Discard.' };
     }

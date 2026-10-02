@@ -11,7 +11,8 @@ export type NoteEditAction =
   | 'add_to_section'   // add at the end of the section under `heading`
   | 'replace_section'  // replace the content under `heading` (heading kept unless markdown starts with one)
   | 'delete_section'   // remove `heading` and its content
-  | 'replace_text';    // replace exact text `find` with `markdown`
+  | 'replace_text'     // replace exact text `find` with `markdown`
+  | 'replace_all';     // rewrite the whole note body with `markdown` (a full redraft)
 
 export interface NoteEditProposal {
   action: NoteEditAction;
@@ -21,7 +22,7 @@ export interface NoteEditProposal {
   summary: string;
 }
 
-const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text'];
+const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all'];
 
 /** Validates the model's proposed edits; returns cleaned edits plus any problems to report back. */
 export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; problems: string[] } {
@@ -55,4 +56,51 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
     });
   });
   return { edits, problems };
+}
+
+// ── Checking proposals against the note as saved ─────────────────────────────
+// Mirrors the matching in the web app's noteEditApplier, so anything that
+// passes here can be applied when he clicks Apply.
+
+interface NoteBlock { type?: string; props?: { level?: number }; content?: unknown; children?: NoteBlock[] }
+
+function blockText(b: NoteBlock): string {
+  return Array.isArray(b.content) ? (b.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('') : '';
+}
+
+function norm(s: string): string {
+  return s.toLowerCase().replace(/^#+\s*/, '').replace(/[“”"'’:.\-–—*_`]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function flattenBlocks(blocks: NoteBlock[]): NoteBlock[] {
+  return blocks.flatMap((b) => [b, ...flattenBlocks(Array.isArray(b.children) ? b.children : [])]);
+}
+
+/** The note's top-level headings, as the applier sees them. */
+export function noteHeadings(blocks: NoteBlock[]): string[] {
+  return blocks.filter((b) => b.type === 'heading').map(blockText).filter((t) => t.trim() !== '');
+}
+
+/**
+ * Problems with proposed edits against the note's current blocks: section
+ * headings that aren't in the note, and "find" text that isn't in it.
+ */
+export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlock[]): string[] {
+  const headings = noteHeadings(blocks).map((h) => norm(h));
+  const texts = flattenBlocks(blocks).map(blockText);
+  const problems: string[] = [];
+  edits.forEach((e, i) => {
+    const n = String(i + 1);
+    if (e.heading !== undefined && (e.action === 'add_to_section' || e.action === 'replace_section' || e.action === 'delete_section')) {
+      const target = norm(e.heading);
+      const found = headings.some((h) => h === target || h.includes(target) || (target.includes(h) && h !== ''));
+      if (!found) problems.push(`edit ${n}: there is no heading "${e.heading}" in the note`);
+    }
+    if (e.action === 'replace_text' && e.find !== undefined) {
+      const find = e.find;
+      const found = texts.some((t) => t.includes(find)) || texts.some((t) => norm(t).includes(norm(find)));
+      if (!found) problems.push(`edit ${n}: the text to replace ("${find.slice(0, 80)}") is not in the note — "find" must be copied exactly from a single paragraph`);
+    }
+  });
+  return problems;
 }

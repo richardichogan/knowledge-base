@@ -12066,6 +12066,9 @@ $interactive:      #0f62fe;
 }
 
 // Floats over the bottom of the thread, just above the composer.
+// Room at the bottom so the last items (next steps, chips) can scroll clear of the floating pills.
+.ai-messages--with-tools { padding-bottom: 3.25rem; }
+
 .ai-scroll-tools {
   align-self: center;
   position: relative;
