@@ -174,6 +174,8 @@ export async function buildOutputsBlock(db: Pool, sessionId: string): Promise<st
 const OUTPUT_PERSONAS = new Set(['demo_designer', 'blog_post', 'podcast_prep']);
 const MIN_FENCED_CHARS = 400;
 const MIN_DOCUMENT_CHARS = 1_500;
+/** His message asks for a deliverable (not a review, opinion or question). */
+const DELIVERABLE_ASK = /\b(prompts?|ghcp|specs?|specification|user stor(y|ies)|stories|script|storyline|talk track|draft|write|rewrite|blog|post|synopsis|outline|wireframes?|screen list|acceptance criteria|show notes)\b/i;
 
 /**
  * Safety net for when the model writes a deliverable into its reply but
@@ -182,7 +184,7 @@ const MIN_DOCUMENT_CHARS = 1_500;
  * with the same title in this chat, else a new one. Returns true if saved.
  */
 export async function saveMissedDeliverable(db: Pool, sessionId: string, persona: string, userMessage: string, reply: string): Promise<boolean> {
-  if (!OUTPUT_PERSONAS.has(persona)) return false;
+  if (!OUTPUT_PERSONAS.has(persona) || !DELIVERABLE_ASK.test(userMessage)) return false;
   const fenced = [...reply.matchAll(/```[\w-]*\n([\s\S]*?)\n```/g)].map((m) => m[1]!.trim()).sort((a, b) => b.length - a.length)[0] ?? '';
   const headings = (reply.match(/^#{1,3} \S/gm) ?? []).length;
   let content = '';
