@@ -279,13 +279,19 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           properties: {
             output_id: { type: 'string', description: 'Existing output to add a version to. Omit for a new output.' },
             title: { type: 'string', description: 'Short name, e.g. "GHCP prompt — decision queue state changes". Required for a new output.' },
-            kind: { type: 'string', enum: ['prompt', 'spec', 'stories', 'screens', 'script', 'document'] },
+            kind: { type: 'string', enum: ['prompt', 'spec', 'stories', 'screens', 'script', 'document', 'mockup'] },
             format: {
               type: 'string',
-              enum: ['markdown', 'text'],
-              description: "'text' for a prompt or anything pasted elsewhere verbatim (shown as one copyable block); 'markdown' otherwise.",
+              enum: ['markdown', 'text', 'html'],
+              description: "'text' for a prompt or anything pasted elsewhere verbatim (shown as one copyable block); 'html' for a " +
+                "visual mock-up (kind 'mockup'), shown rendered at desktop/tablet/mobile widths; 'markdown' otherwise.",
             },
-            content: { type: 'string', description: 'The complete deliverable.' },
+            content: {
+              type: 'string',
+              description: 'The complete deliverable. For an html mock-up: ONE complete, self-contained page starting with ' +
+                '<!doctype html> — styles in a <style> tag (or Tailwind via <script src="https://cdn.tailwindcss.com"></script>), ' +
+                'responsive, realistic invented content, placeholder images as CSS shapes/gradients or inline SVG, no other external files.',
+            },
             change_note: { type: 'string', description: 'For a revision: what changed, in one line.' },
           },
           required: ['content'],

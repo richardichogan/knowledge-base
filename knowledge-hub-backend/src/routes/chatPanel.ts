@@ -112,7 +112,7 @@ router.post('/outputs/:outputId/save-to-think', route(async (req, res) => {
   const wanted = (req.body as { version?: unknown }).version;
   const version = output.versions.find((v) => v.version === wanted) ?? output.versions[output.versions.length - 1];
   if (version === undefined) throw new ValidationError('output has no content', { output: 'empty' });
-  const markdown = output.format === 'text' ? `\`\`\`text\n${version.content}\n\`\`\`` : version.content;
+  const markdown = output.format === 'markdown' ? version.content : `\`\`\`${output.format}\n${version.content}\n\`\`\``;
   const blocks = textToBlocks(markdown);
   const projectId = await getSessionProjectId(db, output.sessionId);
   const note = await createNoteRecord(db, {

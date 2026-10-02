@@ -14,6 +14,7 @@ import { renderMarkdown } from '../../utils/markdown';
 import { sanitizeHtml } from '../../utils/sanitizeHtml';
 import { diffLines } from '../../utils/lineDiff';
 import { handleCodeCopyClick } from './renderReply';
+import { MockupPreview } from './MockupPreview';
 
 interface ChatOutputsTabProps {
   sessionId: string | null;
@@ -24,7 +25,7 @@ interface ChatOutputsTabProps {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  prompt: 'Prompt', spec: 'Spec', stories: 'User stories', screens: 'Screens', script: 'Script', document: 'Document',
+  prompt: 'Prompt', spec: 'Spec', stories: 'User stories', screens: 'Screens', script: 'Script', document: 'Document', mockup: 'Mock-up',
 };
 
 export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refreshKey, focus }) => {
@@ -34,6 +35,7 @@ export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refre
   const [showChanges, setShowChanges] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showCode, setShowCode] = useState(false);
 
   const list = useQuery({
     queryKey: ['chat-outputs', sessionId, refreshKey],
@@ -130,6 +132,12 @@ export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refre
                 ))}
               </select>
             </label>
+            {output.format === 'html' && (
+              <label className="ai-output__changes">
+                <input type="checkbox" checked={showCode} onChange={(e) => { setShowCode(e.target.checked); }} />
+                Code
+              </label>
+            )}
             <label className={`ai-output__changes${previous === undefined ? ' ai-output__changes--off' : ''}`}>
               <input
                 type="checkbox"
@@ -213,7 +221,9 @@ export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refre
                 </div>
               ))}
             </pre>
-          ) : output.format === 'text' ? (
+          ) : output.format === 'html' && !showCode ? (
+            <MockupPreview key={`${output.id}-${shown.version.toString()}`} html={shown.content} title={output.title} />
+          ) : output.format !== 'markdown' ? (
             <pre className="ai-output__pre">{shown.content}</pre>
           ) : (
             <div

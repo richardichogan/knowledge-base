@@ -6,7 +6,7 @@
 import type { Pool } from 'pg';
 import { getFoundryClient } from './foundryClient.js';
 
-export type OutputFormat = 'markdown' | 'text';
+export type OutputFormat = 'markdown' | 'text' | 'html';
 
 export interface ChatOutputSummary {
   id: string;
@@ -30,7 +30,7 @@ export interface ChatOutput extends ChatOutputSummary {
   versions: ChatOutputVersion[];
 }
 
-const KINDS = new Set(['prompt', 'spec', 'stories', 'screens', 'script', 'document']);
+const KINDS = new Set(['prompt', 'spec', 'stories', 'screens', 'script', 'document', 'mockup']);
 
 function toSummary(r: Record<string, unknown>): ChatOutputSummary {
   return {
@@ -91,12 +91,12 @@ export async function saveOutputVersion(
       );
       if (existing.rows[0] === undefined) throw new Error(`No output ${id} in this chat`);
       title = existing.rows[0].title;
-      if (existing.rows[0].format === 'text') content = unwrapFence(content);
+      if (existing.rows[0].format !== 'markdown') content = unwrapFence(content);
     } else {
       if (title === '') throw new Error('title is required for a new output');
       const kind = input.kind !== undefined && KINDS.has(input.kind) ? input.kind : 'document';
-      const format = input.format === 'text' ? 'text' : 'markdown';
-      if (format === 'text') content = unwrapFence(content);
+      const format: OutputFormat = input.format === 'text' || input.format === 'html' ? input.format : 'markdown';
+      if (format !== 'markdown') content = unwrapFence(content);
       await client.query(`INSERT INTO ai_chat_sessions (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, [sessionId]);
       const created = await client.query<{ id: string }>(
         `INSERT INTO chat_outputs (session_id, title, kind, format) VALUES ($1, $2, $3, $4) RETURNING id::text`,
@@ -172,11 +172,13 @@ export async function buildOutputsBlock(db: Pool, sessionId: string): Promise<st
 }
 
 /** Personas whose deliverables belong in the Outputs panel. */
-const OUTPUT_PERSONAS = new Set(['demo_designer', 'blog_post', 'podcast_prep']);
+const OUTPUT_PERSONAS = new Set(['demo_designer', 'blog_post', 'podcast_prep', 'web_designer']);
 const MIN_FENCED_CHARS = 400;
 const MIN_DOCUMENT_CHARS = 1_500;
 /** His message asks for a deliverable (not a review, opinion or question). */
-const DELIVERABLE_ASK = /\b(prompts?|ghcp|specs?|specification|user stor(y|ies)|stories|script|storyline|talk track|draft|write|rewrite|blog|post|synopsis|outline|wireframes?|screen list|acceptance criteria|show notes)\b/i;
+const DELIVERABLE_ASK = /\b(prompts?|ghcp|specs?|specification|user stor(y|ies)|stories|script|storyline|talk track|draft|write|rewrite|blog|post|synopsis|outline|wireframes?|screen list|acceptance criteria|show notes|mock-?ups?|options?|html|landing page|hero)\b/i;
+/** A fenced block that is a whole web page (a mock-up) — always belongs in Outputs. */
+const HTML_PAGE = /```html\n\s*(<!doctype html|<html)/i;
 
 /**
  * Names a deliverable found in a reply and decides whether it revises one of
@@ -225,16 +227,17 @@ async function nameDeliverable(
  * show and store (unchanged when nothing was saved).
  */
 export async function moveDeliverableToOutputs(db: Pool, sessionId: string, persona: string, userMessage: string, reply: string): Promise<string> {
-  if (!OUTPUT_PERSONAS.has(persona) || !DELIVERABLE_ASK.test(userMessage)) return reply;
-  const blocks = [...reply.matchAll(/```[\w-]*\n([\s\S]*?)\n```/g)];
-  const biggest = blocks.sort((a, b) => b[1]!.length - a[1]!.length)[0];
+  const isPage = HTML_PAGE.test(reply);
+  if (!OUTPUT_PERSONAS.has(persona) || (!isPage && !DELIVERABLE_ASK.test(userMessage))) return reply;
+  const blocks = [...reply.matchAll(/```([\w-]*)\n([\s\S]*?)\n```/g)].map((m) => Object.assign([m[0], m[2]] as [string, string], { lang: m[1] ?? '' }));
+  const biggest = blocks.sort((a, b) => b[1].length - a[1].length)[0];
   const headings = (reply.match(/^#{1,3} \S/gm) ?? []).length;
   let content: string;
   let format: OutputFormat;
   let rest: string;
-  if (biggest !== undefined && biggest[1]!.trim().length >= MIN_FENCED_CHARS) {
-    content = biggest[1]!.trim();
-    format = 'text';
+  if (biggest !== undefined && biggest[1].trim().length >= MIN_FENCED_CHARS) {
+    content = biggest[1].trim();
+    format = biggest.lang.toLowerCase() === 'html' && /^(<!doctype html|<html)/i.test(content) ? 'html' : 'text';
     rest = reply.replace(biggest[0], '').trim();
   } else if (reply.length >= MIN_DOCUMENT_CHARS && headings >= 2) {
     content = reply.trim();
@@ -243,8 +246,8 @@ export async function moveDeliverableToOutputs(db: Pool, sessionId: string, pers
   } else {
     return reply;
   }
-  const wantsPrompt = /\b(prompt|ghcp|copilot)\b/i.test(userMessage);
-  const kind = wantsPrompt ? 'prompt' : persona === 'demo_designer' ? 'spec' : 'document';
+  const wantsPrompt = format !== 'html' && /\b(prompt|ghcp|copilot)\b/i.test(userMessage);
+  const kind = format === 'html' ? 'mockup' : wantsPrompt ? 'prompt' : persona === 'demo_designer' ? 'spec' : 'document';
   const { title, reviseId } = await nameDeliverable(userMessage, content, kind, await listOutputs(db, sessionId));
   const saved = await saveOutputVersion(db, sessionId, { outputId: reviseId, title, kind, format, content, author: 'athena', note: 'Saved from the reply' });
   const where = `Saved **${saved.title}** in Outputs${saved.version > 1 ? ` as version ${saved.version.toString()}` : ''} — open it there to copy or edit.`;

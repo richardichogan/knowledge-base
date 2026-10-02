@@ -109,7 +109,7 @@ export interface ChatOutputSummary {
   title: string;
   kind: string;
   /** markdown = rendered; text = one copyable block (e.g. a prompt). */
-  format: 'markdown' | 'text';
+  format: 'markdown' | 'text' | 'html';
   version: number;
   updatedAt: string;
 }

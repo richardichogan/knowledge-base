@@ -13857,3 +13857,55 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
   tbody tr:last-child td { border-bottom: none; }
   tbody tr:hover td { background: var(--cds-layer-hover-01); }
 }
+
+// ── Mock-up preview (Outputs panel) ─────────────────────────────────────────
+.ai-mockup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  &__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  &__device,
+  &__open {
+    padding: 0.25rem 0.625rem;
+    border: 1px solid var(--cds-border-subtle-01);
+    border-radius: 1rem;
+    background: none;
+    color: var(--cds-text-secondary);
+    font-size: 0.75rem;
+    cursor: pointer;
+
+    &:hover { color: var(--cds-text-primary); border-color: var(--kh-accent); }
+  }
+
+  &__device--on {
+    border-color: var(--kh-accent);
+    color: var(--cds-text-primary);
+  }
+
+  &__open { margin-left: auto; }
+
+  &__stage {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    border: 1px solid var(--cds-border-subtle-01);
+    border-radius: 0.375rem;
+    background: #fff;
+  }
+
+  &__frame {
+    position: absolute;
+    top: 0;
+    left: 0;
+    border: 0;
+    transform-origin: top left;
+    background: #fff;
+  }
+}
