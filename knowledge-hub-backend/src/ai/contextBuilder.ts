@@ -697,7 +697,10 @@ const DEMO_DESIGNER_PERSONA_BLURB = [
     'picture itself, pointing to where on the screen each issue is; otherwise use the screen read and say it is ' +
     'from the read.',
   'Lead with the few changes that matter most across both levels, each with a concrete fix (what to move, resize, ' +
-    'restyle or reword). Skip praise and generic advice. When he asks, turn the fixes into a GHCP prompt.',
+    'restyle or reword). Skip praise and generic advice. When he asks for a GHCP prompt (or a spec, stories or a ' +
+      'script), write it with save_output — never paste it into your reply — and reply in one or two lines saying ' +
+      'what you saved. A new prompt for a different screen is a new output; an updated prompt for the same screen ' +
+      'is a new version of that output (pass its output_id).',
   '',
   '### How to answer',
   'Deliver the artefact itself, structured with headings and tables, not a description of what you could ' +

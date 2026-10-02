@@ -4,6 +4,7 @@
  * tool; the user can edit them (a new version Athena then builds on).
  */
 import type { Pool } from 'pg';
+import { getFoundryClient } from './foundryClient.js';
 
 export type OutputFormat = 'markdown' | 'text';
 
@@ -178,44 +179,76 @@ const MIN_DOCUMENT_CHARS = 1_500;
 const DELIVERABLE_ASK = /\b(prompts?|ghcp|specs?|specification|user stor(y|ies)|stories|script|storyline|talk track|draft|write|rewrite|blog|post|synopsis|outline|wireframes?|screen list|acceptance criteria|show notes)\b/i;
 
 /**
- * Safety net for when the model writes a deliverable into its reply but
- * doesn't save it: a sizeable copy-paste block (a GHCP prompt, say) or a
- * long structured document becomes an Output — a new version of an output
- * with the same title in this chat, else a new one. Returns true if saved.
+ * Names a deliverable found in a reply and decides whether it revises one of
+ * this chat's existing outputs (same deliverable, updated) or is a new one.
+ * A small gpt-4o call; falls back to a plain title if it fails or is slow.
  */
-export async function saveMissedDeliverable(db: Pool, sessionId: string, persona: string, userMessage: string, reply: string): Promise<boolean> {
-  if (!OUTPUT_PERSONAS.has(persona) || !DELIVERABLE_ASK.test(userMessage)) return false;
-  const fenced = [...reply.matchAll(/```[\w-]*\n([\s\S]*?)\n```/g)].map((m) => m[1]!.trim()).sort((a, b) => b.length - a.length)[0] ?? '';
+async function nameDeliverable(
+  userMessage: string,
+  content: string,
+  kind: string,
+  existing: ChatOutputSummary[],
+): Promise<{ title: string; reviseId: string | undefined }> {
+  const fallbackHeading = /^#{1,3} (.+)$/m.exec(content)?.[1]?.trim();
+  const fallback = { title: (kind === 'prompt' ? 'GHCP prompt' : fallbackHeading ?? 'Spec').slice(0, 100), reviseId: undefined };
+  try {
+    const list = existing.map((o, i) => `o${(i + 1).toString()}: ${o.title}`).join('\n') || '(none)';
+    const raw = await Promise.race([
+      getFoundryClient().chat('gpt-4o', [
+        {
+          role: 'system',
+          content: 'You name deliverables saved to a chat\'s Outputs panel. Return ONLY JSON: {"title": "...", "revises": "o2" | null}. ' +
+            'title: specific, under 70 characters, naming what it is for (for a coding prompt: "GHCP prompt: <screen or feature>"). ' +
+            'revises: the id of an existing output ONLY if this is an updated version of that same deliverable (same screen/feature and purpose); otherwise null.',
+        },
+        { role: 'user', content: `Existing outputs:\n${list}\n\nHis request: ${userMessage.slice(0, 500)}\n\nKind: ${kind}\n\nDeliverable (start):\n${content.slice(0, 2_500)}` },
+      ], 200),
+      new Promise<string>((_r, reject) => { setTimeout(() => { reject(new Error('naming timed out')); }, 8_000); }),
+    ]);
+    const parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) as { title?: string; revises?: string | null };
+    const index = typeof parsed.revises === 'string' ? Number(parsed.revises.replace(/\D/g, '')) - 1 : -1;
+    const revise = index >= 0 ? existing[index] : undefined;
+    const title = (parsed.title ?? '').trim();
+    return { title: revise?.title ?? (title !== '' ? title.slice(0, 100) : fallback.title), reviseId: revise?.id };
+  } catch (err) {
+    console.warn('[outputs] naming failed; using a plain title:', err);
+    return fallback;
+  }
+}
+
+/**
+ * Safety net for when the model writes a deliverable he asked for into its
+ * reply instead of saving it: the deliverable (a sizeable copy-paste block, or
+ * a long structured document) is saved to Outputs — as a new version of the
+ * same deliverable or a new output — and taken out of the reply, which keeps
+ * any short framing plus a line saying where it went. Returns the reply to
+ * show and store (unchanged when nothing was saved).
+ */
+export async function moveDeliverableToOutputs(db: Pool, sessionId: string, persona: string, userMessage: string, reply: string): Promise<string> {
+  if (!OUTPUT_PERSONAS.has(persona) || !DELIVERABLE_ASK.test(userMessage)) return reply;
+  const blocks = [...reply.matchAll(/```[\w-]*\n([\s\S]*?)\n```/g)];
+  const biggest = blocks.sort((a, b) => b[1]!.length - a[1]!.length)[0];
   const headings = (reply.match(/^#{1,3} \S/gm) ?? []).length;
-  let content = '';
-  let format: OutputFormat = 'markdown';
-  if (fenced.length >= MIN_FENCED_CHARS) {
-    content = fenced;
+  let content: string;
+  let format: OutputFormat;
+  let rest: string;
+  if (biggest !== undefined && biggest[1]!.trim().length >= MIN_FENCED_CHARS) {
+    content = biggest[1]!.trim();
     format = 'text';
+    rest = reply.replace(biggest[0], '').trim();
   } else if (reply.length >= MIN_DOCUMENT_CHARS && headings >= 2) {
     content = reply.trim();
+    format = 'markdown';
+    rest = '';
   } else {
-    return false;
+    return reply;
   }
-  const wantsPrompt = /\b(prompt|ghcp|copilot)\b/i.test(userMessage) || (format === 'text' && /\b(implement|build|refine|add|create)\b/i.test(content.slice(0, 200)));
-  const kind = wantsPrompt ? 'prompt' : persona === 'blog_post' ? 'document' : persona === 'podcast_prep' ? 'document' : 'spec';
-  const { rows } = await db.query<{ title: string | null }>(`SELECT title FROM ai_chat_sessions WHERE id = $1`, [sessionId]);
-  const topic = (rows[0]?.title ?? '').trim();
-  const heading = /^#{1,3} (.+)$/m.exec(content)?.[1]?.trim();
-  const base = wantsPrompt ? 'GHCP prompt' : heading ?? (kind === 'spec' ? 'Spec' : 'Draft');
-  const title = (wantsPrompt && topic !== '' ? `${base} — ${topic}` : base).slice(0, 120);
-  const same = await db.query<{ id: string }>(
-    `SELECT id::text FROM chat_outputs WHERE session_id = $1 AND lower(title) = lower($2) ORDER BY updated_at DESC LIMIT 1`,
-    [sessionId, title],
-  );
-  await saveOutputVersion(db, sessionId, {
-    outputId: same.rows[0]?.id,
-    title,
-    kind,
-    format,
-    content,
-    author: 'athena',
-    note: 'Saved from the reply',
-  });
-  return true;
+  const wantsPrompt = /\b(prompt|ghcp|copilot)\b/i.test(userMessage);
+  const kind = wantsPrompt ? 'prompt' : persona === 'demo_designer' ? 'spec' : 'document';
+  const { title, reviseId } = await nameDeliverable(userMessage, content, kind, await listOutputs(db, sessionId));
+  const saved = await saveOutputVersion(db, sessionId, { outputId: reviseId, title, kind, format, content, author: 'athena', note: 'Saved from the reply' });
+  const where = `Saved **${saved.title}** in Outputs${saved.version > 1 ? ` as version ${saved.version.toString()}` : ''} — open it there to copy or edit.`;
+  // Keep a short lead-in (what it covers); drop long leftovers that would repeat it.
+  const lead = rest.length > 0 && rest.length <= 1_200 ? `${rest}\n\n` : '';
+  return `${lead}${where}`;
 }

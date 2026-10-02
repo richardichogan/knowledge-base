@@ -6,7 +6,7 @@ import { handleConversationTurn, type TurnHooks, summariseSession, rollUpConvers
 import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessionIds, setPendingTurn, getPendingTurn, setNextSteps } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
-import { outputsChangedSince, saveMissedDeliverable } from '../ai/chatOutputs.js';
+import { outputsChangedSince, moveDeliverableToOutputs } from '../ai/chatOutputs.js';
 import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
 import { findModelChoice, GENERAL_CHAT_MODEL, PERSONA_MODELS } from '../ai/modelChoices.js';
@@ -157,15 +157,23 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   const mapChanges: MapChangeProposal[] = [];
   const openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
   const contextUsed = emptyContextUsed();
-  const reply = await handleConversationTurn(
+  const modelReply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext,
     (toolName) => { toolsUsed.add(toolName); },
     { noteId: openNoteId, noteEdits, mapChanges },
     { ...hooks, contextUsed },
   );
+  // He asked for a deliverable and the model wrote it into the reply instead of saving it:
+  // it goes to Outputs and the reply just says so (only where the Outputs panel is shown).
+  const reply = outputsPanel !== false && !toolsUsed.has('save_output')
+    ? await moveDeliverableToOutputs(db, effectiveSessionId, persona, message, modelReply).catch((err: unknown) => {
+      console.warn('[outputs] could not move the deliverable to Outputs:', err);
+      return modelReply;
+    })
+    : modelReply;
   // Suggested next steps, made while the reply is saved (a few seconds at most).
   hooks.onActivity?.('Finishing up');
-  const nextStepsPromise = suggestNextSteps(persona, message, reply);
+  const nextStepsPromise = suggestNextSteps(persona, message, modelReply);
   const sources = [...toolsUsed];
 
   // Store only a compact marker for the viewed document in history — not its
@@ -200,14 +208,8 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
 
   // Keep the chat's Decisions list up to date (specialist personas, or when turned on).
   void isTrackingDecisions(db, effectiveSessionId).then((t) => (t.enabled
-    ? updateDecisionsFromExchange(db, effectiveSessionId, message, reply)
+    ? updateDecisionsFromExchange(db, effectiveSessionId, message, modelReply)
     : false)).catch(() => { /* convenience only */ });
-  // The model wrote a deliverable into the reply without saving it: put it in Outputs anyway
-  // (only where the Outputs panel is shown).
-  if (outputsPanel !== false && !toolsUsed.has('save_output')) {
-    await saveMissedDeliverable(db, effectiveSessionId, persona, message, reply)
-      .catch((err: unknown) => { console.warn('[outputs] could not save the reply as an output:', err); });
-  }
   const outputsChanged = (await outputsChangedSince(db, effectiveSessionId, turnStartedAt))
     .map((o) => ({ id: o.id, title: o.title, version: o.version }));
 
