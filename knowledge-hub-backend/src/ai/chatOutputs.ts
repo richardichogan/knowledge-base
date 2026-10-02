@@ -252,3 +252,31 @@ export async function moveDeliverableToOutputs(db: Pool, sessionId: string, pers
   const lead = rest.length > 0 && rest.length <= 1_200 ? `${rest}\n\n` : '';
   return `${lead}${where}`;
 }
+
+/**
+ * Athena saved to Outputs this turn but also pasted the deliverable into her
+ * reply: take the pasted copy out (any sizeable copy-paste block, and the text
+ * of anything saved this turn), so the reply only says what was saved.
+ * Returns the reply to show and store.
+ */
+export async function removeSavedCopiesFromReply(db: Pool, sessionId: string, since: Date, reply: string): Promise<string> {
+  const { rows } = await db.query<{ title: string; version: number; content: string }>(
+    `SELECT o.title, v.version, v.content FROM chat_output_versions v JOIN chat_outputs o ON o.id = v.output_id
+      WHERE o.session_id = $1 AND v.created_at >= $2 ORDER BY v.created_at`,
+    [sessionId, since],
+  );
+  if (rows.length === 0) return reply;
+  let out = reply.replace(/```[\w-]*\n([\s\S]*?)\n```/g, (block, inner: string) => (inner.trim().length >= MIN_FENCED_CHARS ? '' : block));
+  // An unfenced copy of a saved deliverable: cut from where it starts.
+  for (const r of rows) {
+    const start = r.content.trim().slice(0, 160);
+    const at = start.length >= 60 ? out.indexOf(start) : -1;
+    if (at >= 0) out = out.slice(0, at);
+  }
+  out = out.replace(/\n{3,}/g, '\n\n').trim();
+  if (out === reply.trim()) return reply;
+  const saved = rows[rows.length - 1]!;
+  const line = `Saved **${saved.title}** in Outputs${saved.version > 1 ? ` as version ${saved.version.toString()}` : ''} — open it there to copy or edit.`;
+  if (out.length > 1_200) out = out.slice(0, 1_200).replace(/\s+\S*$/, '…');
+  return out === '' ? line : /outputs/i.test(out) ? out : `${out}\n\n${line}`;
+}

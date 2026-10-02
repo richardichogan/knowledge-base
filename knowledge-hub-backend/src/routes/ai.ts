@@ -6,7 +6,7 @@ import { handleConversationTurn, type TurnHooks, summariseSession, rollUpConvers
 import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessionIds, setPendingTurn, getPendingTurn, setNextSteps } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
-import { outputsChangedSince, moveDeliverableToOutputs } from '../ai/chatOutputs.js';
+import { outputsChangedSince, moveDeliverableToOutputs, removeSavedCopiesFromReply } from '../ai/chatOutputs.js';
 import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
 import { findModelChoice, GENERAL_CHAT_MODEL, PERSONA_MODELS } from '../ai/modelChoices.js';
@@ -165,12 +165,18 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   );
   // He asked for a deliverable and the model wrote it into the reply instead of saving it:
   // it goes to Outputs and the reply just says so (only where the Outputs panel is shown).
-  const reply = outputsPanel !== false && !toolsUsed.has('save_output')
-    ? await moveDeliverableToOutputs(db, effectiveSessionId, persona, message, modelReply).catch((err: unknown) => {
-      console.warn('[outputs] could not move the deliverable to Outputs:', err);
+  // Deliverables live in Outputs, never also in the reply: if Athena saved one this turn, any pasted
+  // copy is taken out of the reply; if she didn't but wrote one he asked for, it's moved to Outputs.
+  // (Only where the Outputs panel is shown.)
+  const reply = outputsPanel === false
+    ? modelReply
+    : await (toolsUsed.has('save_output')
+      ? removeSavedCopiesFromReply(db, effectiveSessionId, turnStartedAt, modelReply)
+      : moveDeliverableToOutputs(db, effectiveSessionId, persona, message, modelReply)
+    ).catch((err: unknown) => {
+      console.warn('[outputs] could not keep the deliverable out of the reply:', err);
       return modelReply;
-    })
-    : modelReply;
+    });
   // Suggested next steps, made while the reply is saved (a few seconds at most).
   hooks.onActivity?.('Finishing up');
   const nextStepsPromise = suggestNextSteps(persona, message, modelReply);
