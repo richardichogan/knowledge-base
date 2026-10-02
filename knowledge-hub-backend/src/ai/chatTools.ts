@@ -27,6 +27,8 @@ import { rowToTask, type Task } from '../routes/tasks.js';
 import { CONTENT_STORE } from '../routes/documents.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
 import { env } from '../config/env.js';
+import { takeScreenshots, isScreenshotServiceConfigured, type ShotDevice } from '../services/screenshotClient.js';
+import { addScreenUnread } from './chatScreens.js';
 import { isIcaEnabled, icaChat } from './icaClient.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
 import { getLearnMcpTools, isLearnMcpTool, callLearnMcpTool } from './learnMcpClient.js';
@@ -132,6 +134,27 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             tag: { type: 'string', description: 'Only tasks with this Plan tag, e.g. "use-case" for the use-case (demo) backlog.' },
             includeBody: { type: 'boolean', description: "If true, include each task's description (trimmed) — e.g. to read a use case's pitch and spec." },
             limit: { type: 'integer', description: `Max results (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'screenshot_page',
+        description:
+          'Takes screenshots of a public web page (url) — or of a mock-up saved in this chat (output_id) — at desktop, ' +
+          'tablet and/or mobile size, and shows you the pictures so you can judge the actual layout, visual hierarchy, ' +
+          'spacing and responsiveness. Use it when he asks you to look at, review or compare a website, or to check a ' +
+          'mock-up you made. Captures cover the top of the page (about three screens). The pictures are also added to ' +
+          'the chat\'s Screens panel. Public pages only — no logins.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'The page to capture, e.g. "https://themicrosoftcloudblog.com".' },
+            output_id: { type: 'string', description: 'Instead of a url: an html mock-up output in this chat to render.' },
+            devices: { type: 'array', items: { type: 'string', enum: ['desktop', 'tablet', 'mobile'] }, description: 'Defaults to desktop and mobile.' },
           },
           required: [],
         },
@@ -518,6 +541,7 @@ export async function executeToolCall(
     case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
     case 'list_tasks':            return listTasks(db, args);
     case 'find_files':            return findFiles(db, args);
+    case 'screenshot_page':       return screenshotPage(db, args, turn.sessionId);
     case 'search_library':        return searchLibrary(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : LIBRARY_RESULT_CONTENT_CHARS);
     case 'create_task':           return createTask(db, args, turn.sessionId);
     case 'update_task':           return updateTask(db, args, turn.sessionId);
@@ -838,6 +862,55 @@ async function listTasks(db: Pool, args: Record<string, unknown>): Promise<unkno
       ...(includeBody && { body: t.body.length > TASK_BODY_CHARS ? `${t.body.slice(0, TASK_BODY_CHARS)}…` : t.body }),
     })),
   };
+}
+
+// ── screenshot_page ─────────────────────────────────────────────────────────
+
+/**
+ * Pictures to show the model after this round of tool calls. A tool result
+ * can carry `__images` (data URLs with labels); the conversation loop takes
+ * them out of the text result and adds them as a picture message.
+ */
+export interface ToolImages { __images?: Array<{ label: string; url: string }> }
+
+async function screenshotPage(db: Pool, args: Record<string, unknown>, sessionId: string | undefined): Promise<unknown> {
+  if (!isScreenshotServiceConfigured()) return { error: 'Screenshots are not available (the screenshot service is not configured).' };
+  const devices = (Array.isArray(args['devices']) ? args['devices'] : ['desktop', 'mobile'])
+    .filter((d): d is ShotDevice => d === 'desktop' || d === 'tablet' || d === 'mobile').slice(0, 3);
+  const outputId = typeof args['output_id'] === 'string' ? args['output_id'].trim() : '';
+  let url = typeof args['url'] === 'string' ? args['url'].trim() : '';
+  let html: string | undefined;
+  let label = url;
+  if (outputId !== '') {
+    const output = /^[0-9a-f-]{36}$/i.test(outputId) ? await getOutput(db, outputId) : null;
+    if (output === null || output.sessionId !== sessionId || output.format !== 'html') return { error: 'No html mock-up with that output_id in this chat.' };
+    html = output.versions[output.versions.length - 1]!.content;
+    label = `${output.title} (v${output.versions.length.toString()})`;
+  } else {
+    if (url === '') return { error: 'Give a url or an output_id.' };
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+    label = url;
+  }
+  try {
+    const shot = await takeScreenshots({ ...(html !== undefined ? { html } : { url }), devices: devices.length > 0 ? devices : ['desktop', 'mobile'], fullPage: true });
+    const name = html !== undefined ? label : (shot.title !== '' ? shot.title : new URL(shot.finalUrl || url).hostname);
+    if (sessionId !== undefined) {
+      for (const img of shot.images) {
+        await addScreenUnread(db, sessionId, { buffer: Buffer.from(img.base64, 'base64'), contentType: img.mimeType, name: `${name} — ${img.device}`.slice(0, 120) })
+          .catch((err: unknown) => { console.warn('[screenshot] could not add to Screens:', err); });
+      }
+    }
+    const result: Record<string, unknown> & ToolImages = {
+      captured: shot.images.map((i) => `${i.device} (${i.width.toString()}px wide, top ${i.height.toString()}px of the page)`),
+      title: shot.title,
+      ...(html === undefined && { finalUrl: shot.finalUrl }),
+      note: 'The screenshots are attached for you to look at now, and added to the chat\'s Screens panel. Judge the layout from the pictures.',
+      __images: shot.images.map((i) => ({ label: `${name} — ${i.device}`, url: `data:${i.mimeType};base64,${i.base64}` })),
+    };
+    return result;
+  } catch (err) {
+    return { error: `Could not capture ${label}: ${err instanceof Error ? err.message : String(err)}. Tell him plainly; don't describe the page from memory.` };
+  }
 }
 
 // ── find_files ──────────────────────────────────────────────────────────────

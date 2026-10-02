@@ -75,6 +75,9 @@ export const env = {
   AZURE_OPENAI_GPT54_API: optionalWithDefault('AZURE_OPENAI_GPT54_API', 'chat'),
   // Demo Designer screen reads; defaults to the reasoning deployment. Same endpoint/key.
   AZURE_OPENAI_DEPLOYMENT_SCREEN_READ: optional('AZURE_OPENAI_DEPLOYMENT_SCREEN_READ'),
+  /** Internal screenshot service (kh-prod-shot): renders pages / mock-ups to images for Athena. */
+  SCREENSHOT_SERVICE_URL: optional('SCREENSHOT_SERVICE_URL'),
+  SCREENSHOT_SERVICE_KEY: optional('SCREENSHOT_SERVICE_KEY'),
 
   // Azure Speech (voice chat) — same pattern as client-demo's voiceProvider.ts.
   // The Azure AI Services multi-service key also covers the Speech REST API, so

@@ -10,6 +10,7 @@ import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
 import { buildScreensBlock } from './chatScreens.js';
 import type { LlmMessage } from './foundryClient.js';
+import type { ToolImages } from './chatTools.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
 import { AI_MAX_TOOL_ITERATIONS, AI_DEFAULT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
@@ -236,6 +237,7 @@ export async function handleConversationTurn(
     // Any text streamed this round was a preamble to tool calls, not the answer.
     if (response.content !== null && response.content !== '') hooks.onReset?.();
 
+    const roundImages: Array<{ label: string; url: string }> = [];
     for (const call of response.toolCalls) {
       let result: unknown;
       if (isStopped(hooks)) throw new AiStoppedError();
@@ -250,7 +252,25 @@ export async function handleConversationTurn(
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }
+      // Pictures a tool captured (screenshots) go to the model as images, not as text.
+      if (result !== null && typeof result === 'object' && '__images' in result) {
+        const { __images, ...rest } = result as Record<string, unknown> & ToolImages;
+        roundImages.push(...(__images ?? []));
+        result = rest;
+      }
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
+    }
+    if (roundImages.length > 0) {
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: '[Screenshots you just captured — look at them and use them in your answer. This is not a new request from him.]' },
+          ...roundImages.slice(0, 6).flatMap((img) => [
+            { type: 'text' as const, text: img.label },
+            { type: 'image_url' as const, image_url: { url: img.url, detail: 'high' as const } },
+          ]),
+        ],
+      });
     }
   }
 

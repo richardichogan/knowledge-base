@@ -258,3 +258,16 @@ export async function screensToShow(db: Pool, sessionId: string, message: string
   }
   return shown;
 }
+
+/** Stores an image in the chat's Screens panel without reading it (e.g. a page Athena captured and is looking at herself). */
+export async function addScreenUnread(db: Pool, sessionId: string, input: { buffer: Buffer; contentType: string; name: string }): Promise<ChatScreen> {
+  const blobName = await uploadBlob(input.buffer, input.contentType);
+  await db.query(`INSERT INTO ai_chat_sessions (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, [sessionId]);
+  const { rows } = await db.query<ScreenRow>(
+    `INSERT INTO chat_screens (session_id, blob_name, content_type, name, position, reading)
+     VALUES ($1, $2, $3, $4, (SELECT COALESCE(MAX(position), 0) + 1 FROM chat_screens WHERE session_id = $1), NULL)
+     RETURNING ${COLUMNS}`,
+    [sessionId, blobName, input.contentType, input.name.trim() || 'Screen'],
+  );
+  return toScreen(rows[0]!);
+}
