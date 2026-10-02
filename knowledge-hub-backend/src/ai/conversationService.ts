@@ -413,6 +413,8 @@ export async function formatSessionForThink(
         ? 'This was a blog post drafting session for The Microsoft Cloud Blog — organise the note around the finished CMS package (title, content, excerpt, key takeaways, etc.) and social posts, preserving them as delivered rather than summarising them away.'
         : persona === 'podcast_prep'
           ? 'This was a podcast prep session for Cloudy with a Chance of Insights — organise the note around the chosen topics, the opener, the running order and segment notes, plus what was ruled out as already covered.'
+        : persona === 'web_designer'
+          ? 'This was a website design session — organise the note around the agreed design direction (audience and goals, page structure, visual choices, accessibility and performance points), the options considered and the one chosen, and the build prompt, preserving specs as delivered.'
         : persona === 'demo_designer'
           ? 'This was a demo design session — organise the note as a demo spec (audience and storyline, users, user stories with acceptance criteria, screens, demo script and sample data, open questions), preserving the stories and screen specs as delivered rather than summarising them away.'
           : 'This was a general working session — organise the note around what was discussed, decided, and any follow-ups.';

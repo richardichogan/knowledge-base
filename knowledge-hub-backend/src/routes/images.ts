@@ -83,7 +83,7 @@ router.post('/analyze-chat', (req: Request, res: Response, next: NextFunction): 
     const rawBody = req.body instanceof Buffer ? req.body : Buffer.from([]);
     const contentType = String(req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
     const question = typeof req.query['question'] === 'string' ? req.query['question'] : '';
-    const designReview = req.query['persona'] === 'demo_designer';
+    const designReview = req.query['persona'] === 'demo_designer' || req.query['persona'] === 'web_designer';
 
     if (rawBody.length === 0) {
       throw new ValidationError('image body is empty', { image: 'required' });

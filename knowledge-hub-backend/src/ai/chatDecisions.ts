@@ -20,7 +20,7 @@ export interface ChatDecision {
 }
 
 /** Personas where decisions are tracked unless the chat turns it off. */
-const TRACKED_BY_DEFAULT = new Set(['demo_designer', 'brainstorming', 'blog_post', 'podcast_prep']);
+const TRACKED_BY_DEFAULT = new Set(['demo_designer', 'brainstorming', 'blog_post', 'podcast_prep', 'web_designer']);
 const MAX_DECISIONS = 40;
 
 function toDecision(r: { id: string; status: DecisionStatus; text: string; source: 'auto' | 'user'; created_at: Date; updated_at: Date }): ChatDecision {

@@ -463,7 +463,7 @@ export class KnowledgeHubApi {
         headers: { 'Content-Type': file.type },
         params: { ...(question?.trim() && { question: question.trim() }), ...(persona !== undefined && { persona }) },
         // Demo Designer's detailed screen read uses the slower reasoning model.
-        timeout: persona === 'demo_designer' ? 2 * IMAGE_UPLOAD_TIMEOUT_MS : IMAGE_UPLOAD_TIMEOUT_MS,
+        timeout: persona === 'demo_designer' || persona === 'web_designer' ? 2 * IMAGE_UPLOAD_TIMEOUT_MS : IMAGE_UPLOAD_TIMEOUT_MS,
       },
     );
     return r.data;

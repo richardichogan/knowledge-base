@@ -7,6 +7,7 @@ import { getFoundryClient } from './foundryClient.js';
 
 const PERSONA_HINTS: Record<string, string> = {
   demo_designer: 'Typical next steps here: write the GHCP prompt for the agreed changes; save a demo spec; review the screens against the user stories; draft the demo script.',
+  web_designer: 'Typical next steps here: show me 2–3 options as mock-ups; check the mock-up on mobile; review the live site; write the GHCP prompt for the approved design.',
   podcast_prep: 'Typical next steps here: go with option 1; write the segment prep notes; check whether David or Cyrus already has it.',
   blog_post: 'Typical next steps here: tighten the intro; adjust the social posts; check the sources.',
   brainstorming: 'Typical next steps here: stress-test the riskiest assumption; turn it into a one-page outline; name the first experiment.',

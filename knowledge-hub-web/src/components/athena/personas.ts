@@ -3,7 +3,7 @@
  * Every persona picker (chip, menus) and label reads from here, so adding a
  * persona is one entry rather than edits in several components.
  */
-import { Blog, Compass, Idea, Notebook, Screen, Microphone } from '@carbon/icons-react';
+import { Blog, Compass, Idea, Notebook, Screen, Microphone, ColorPalette } from '@carbon/icons-react';
 import type { AthenaPersona } from '../../types';
 
 export interface PersonaDefinition {
@@ -19,6 +19,7 @@ export const PERSONAS: readonly PersonaDefinition[] = [
   { id: 'copilot_coach', label: 'Copilot Coach', description: 'Expert guide on GitHub Copilot agents, skills and workflows', Icon: Compass },
   { id: 'blog_post', label: 'Blog Post', description: 'Produces a full CMS-ready package for The Microsoft Cloud Blog', Icon: Blog },
   { id: 'demo_designer', label: 'Demo Designer', description: 'Shapes application demos, user stories and UI screens for a project or industry', Icon: Screen },
+  { id: 'web_designer', label: 'Web Designer', description: 'Designs and reviews websites and pages: mock-ups you can see, live-site reviews, build prompts', Icon: ColorPalette },
   { id: 'podcast_prep', label: 'Podcast Prep', description: 'Prepares your Cloudy segments: fresh topics, openers, running order and notes', Icon: Microphone },
 ];
 

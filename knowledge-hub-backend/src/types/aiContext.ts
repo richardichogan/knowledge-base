@@ -17,7 +17,7 @@ export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
  * "demo_designer" shapes application demos, user stories and UI screens, and
  * "podcast_prep" prepares his segments of Cloudy with a Chance of Insights.
  */
-export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep';
+export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep' | 'web_designer';
 
 /**
  * What the user is currently viewing in the Knowledge Hub UI (e.g. a note,
