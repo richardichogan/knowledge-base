@@ -1042,10 +1042,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     e.target.value = ''; // allow re-selecting the same file later
     if (!file) return;
 
-    if (!isChatImage(file) && !/\.(md|markdown|txt|docx|xlsx|pptx|pdf)$/i.test(file.name)) {
+    if (!isChatImage(file) && !/\.(md|markdown|txt|docx|xlsx|csv|pptx|pdf)$/i.test(file.name)) {
       appendMessage(
         'assistant',
-        '⚠️ Please attach an image (PNG, JPEG, WebP, or GIF), Markdown, text, Word, Excel, PowerPoint, or PDF file.',
+        '⚠️ Please attach an image (PNG, JPEG, WebP, or GIF), Markdown, text, Word, Excel, CSV, PowerPoint, or PDF file.',
       );
       return;
     }
@@ -1106,12 +1106,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         if (!note) throw new Error('could not save the file to Think');
         storedIn = `Think under ${uploadProjectName}`;
       } else {
+        // Spreadsheets are linked to the chat, so Athena can calculate with them.
+        const isSheet = /\.(xlsx|csv)$/i.test(file.name);
         const res = await api.uploadDocument(file, uploadProjectId, undefined, uploadProjectName, (percent) => {
           setUploadProgress({ filename: file.name, percent });
-        });
+        }, isSheet ? chatIdForUploads() : undefined);
         if (!res.success) throw new Error(res.error?.message ?? 'upload failed');
         fileText = res.data.text;
-        storedIn = `the Documents library under ${res.data.projectName}`;
+        storedIn = `the Documents library under ${res.data.projectName}${isSheet ? ' (and loaded into the calculator for this chat)' : ''}`;
         if (res.data.truncated) extraNote = ' The extract below is truncated because the file is large.';
       }
 
@@ -1966,7 +1968,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif,.md,.markdown,.txt,text/markdown,text/plain,.docx,.xlsx,.pptx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf"
+            accept="image/png,image/jpeg,image/webp,image/gif,.md,.markdown,.txt,text/markdown,text/plain,.docx,.xlsx,.csv,text/csv,.pptx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf"
             className="ai-file-input-hidden"
             onChange={handleFileSelected}
           />

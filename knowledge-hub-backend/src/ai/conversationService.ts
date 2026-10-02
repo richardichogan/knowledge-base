@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 import { getFoundryClient, AiStoppedError } from './foundryClient.js';
 import { describeToolActivity } from './turnActivity.js';
 import type { ModelRoute } from './modelChoices.js';
+import { spreadsheetsBlock } from './chatFiles.js';
 import { getExcludedSources, filterExcluded, recordToolSources, type ContextUsed } from './contextUsage.js';
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
@@ -36,6 +37,8 @@ export interface TurnHooks {
   readOnlyTools?: boolean;
   /** Filled in with what the reply drew on (the "Used:" line). */
   contextUsed?: ContextUsed;
+  /** Spreadsheets loaded into the model's code tool (needs the Responses API route). */
+  codeFiles?: { ids: string[]; names: string[] };
 }
 
 /** Tools that change something; left out when a turn must only read. */
@@ -136,7 +139,8 @@ export async function handleConversationTurn(
     used.decisions = (decisionsBlock.match(/^- /gm) ?? []).length;
     used.screens = (screensBlock.match(/^### /gm) ?? []).length;
   }
-  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock].filter((b) => b !== '').join('\n\n---\n\n');
+  const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
+  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
 
@@ -176,7 +180,12 @@ export async function handleConversationTurn(
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
     // Streams when someone is following live, or when a specific deployment is chosen (only the streaming call takes one).
     const response = hooks.onDelta !== undefined || hooks.modelRoute !== undefined
-      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta ?? (() => { /* not followed live */ }), hooks.signal, hooks.modelRoute)
+      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta ?? (() => { /* not followed live */ }), hooks.signal, hooks.modelRoute, {
+        ...(hooks.codeFiles !== undefined && hooks.codeFiles.ids.length > 0 && {
+          builtInTools: [{ type: 'code_interpreter', container: { type: 'auto', file_ids: hooks.codeFiles.ids } }],
+        }),
+        ...(hooks.onActivity !== undefined && { onActivity: hooks.onActivity }),
+      })
       : await client.chatWithTools(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs);
 
     if (response.toolCalls.length === 0) {

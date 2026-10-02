@@ -11,6 +11,7 @@ import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
 import { findModelChoice, GENERAL_CHAT_MODEL, PERSONA_MODELS } from '../ai/modelChoices.js';
 import { deleteSessionScreenBlobs, reviewScreens } from '../ai/chatScreens.js';
+import { listChatFiles, ensureModelFiles, deleteSessionModelFiles } from '../ai/chatFiles.js';
 import { isTrackingDecisions, updateDecisionsFromExchange } from '../ai/chatDecisions.js';
 import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type TurnEvent } from '../ai/turnJobs.js';
 import { memoriesCreatedSince } from '../ai/athenaMemory.js';
@@ -121,8 +122,22 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   // everything else uses GENERAL_CHAT_MODEL.
   const specialist = persona === 'brainstorming' || persona === 'blog_post' || persona === 'demo_designer';
   const choice = model === undefined && !specialist ? findModelChoice(PERSONA_MODELS[persona] ?? GENERAL_CHAT_MODEL) : undefined;
-  const effectiveModel = model ?? (specialist ? 'gpt-5.4' : choice?.model ?? 'gpt-4o');
+  let effectiveModel = model ?? (specialist ? 'gpt-5.4' : choice?.model ?? 'gpt-4o');
   if (choice?.route !== undefined && hooks.modelRoute === undefined) hooks = { ...hooks, modelRoute: choice.route };
+
+  // Spreadsheets in this chat: load them into the model's code tool (the calculator).
+  // That needs the Responses API, so gpt-4o / chat-API turns move to GPT-5.4 via Responses.
+  const sheets = await listChatFiles(db, effectiveSessionId);
+  if (sheets.length > 0) {
+    hooks.onActivity?.('Loading the spreadsheet');
+    const ids = await ensureModelFiles(db, sheets);
+    if (ids.length > 0) {
+      const deployment = hooks.modelRoute?.deployment
+        ?? (effectiveModel === 'gpt-5.4' && model === undefined && specialist ? env.AZURE_OPENAI_DEPLOYMENT_GPT54 : 'gpt-5.4');
+      hooks = { ...hooks, modelRoute: { deployment, api: 'responses' }, codeFiles: { ids, names: sheets.map((f) => f.filename) } };
+      effectiveModel = 'gpt-5.4';
+    }
+  }
 
   const turnStartedAt = new Date();
   const toolsUsed = new Set<string>();
@@ -495,6 +510,7 @@ router.delete('/session/:sessionId', (req: Request, res: Response, next: NextFun
     try {
       const { sessionId } = req.params as { sessionId: string };
       const db = getDb();
+      await deleteSessionModelFiles(db, sessionId).catch((err: unknown) => { console.error('[chat-files] could not delete model files:', err); });
       // Its screenshots live in blob storage, not the database — remove them first.
       await deleteSessionScreenBlobs(db, sessionId).catch((err: unknown) => { console.error('[screens] could not delete images:', err); });
       await deleteSession(db, sessionId);

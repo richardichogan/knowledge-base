@@ -9,6 +9,7 @@
  */
 
 import { sanitizeHtml } from './sanitizeHtml';
+import { installTableExport } from './tableExport';
 
 function escapeHtml(s: string): string {
   return s
@@ -27,7 +28,30 @@ function inlineMarkdown(text: string): string {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
 }
 
+const TABLE_SEPARATOR = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+
+function isTableRow(line: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
+
+/** "| a | b \\| c |" → ['a', 'b | c']. */
+function splitTableRow(line: string): string[] {
+  const inner = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  return inner.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
+}
+
+/** A table with a "Download as Excel" button (handled page-wide by tableExport.ts). */
+function renderTable(rows: string[][]): string {
+  const [head, ...body] = rows;
+  const cells = (r: string[], tag: 'th' | 'td'): string => r.map((c) => `<${tag}>${inlineMarkdown(c)}</${tag}>`).join('');
+  return '<div class="kh-table-block">'
+    + '<button type="button" class="kh-table-xlsx-btn" data-xlsx-table>Download as Excel</button>'
+    + `<div class="kh-table-scroll"><table><thead><tr>${cells(head ?? [], 'th')}</tr></thead>`
+    + `<tbody>${body.map((r) => `<tr>${cells(r, 'td')}</tr>`).join('')}</tbody></table></div></div>`;
+}
+
 export function renderMarkdown(md: string): string {
+  installTableExport();
   const lines = md.split('\n');
   const html: string[] = [];
   let inCode = false;
@@ -47,7 +71,8 @@ export function renderMarkdown(md: string): string {
   let olCount = 0;
   let olResume = 0;
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     const fence = /^(\s*)```(.*)$/.exec(line);
     if (fence && (!inCode || fence[1]!.length <= fenceIndent + 3)) {
       if (!inCode && listType === 'ol') olResume = olCount + 1;
@@ -63,6 +88,17 @@ export function renderMarkdown(md: string): string {
     if (inCode) {
       const stripped = line.slice(Math.min(fenceIndent, line.length - line.trimStart().length));
       html.push(escapeHtml(stripped));
+      continue;
+    }
+    // A pipe table: header row, separator row (|---|), then rows.
+    if (isTableRow(line) && TABLE_SEPARATOR.test(lines[i + 1] ?? '')) {
+      closeList();
+      olResume = 0;
+      const rows: string[][] = [splitTableRow(line)];
+      let j = i + 2;
+      while (j < lines.length && isTableRow(lines[j]!)) { rows.push(splitTableRow(lines[j]!)); j += 1; }
+      html.push(renderTable(rows));
+      i = j - 1;
       continue;
     }
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {

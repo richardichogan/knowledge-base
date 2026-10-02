@@ -8,6 +8,7 @@
 import { createRequire } from 'module';
 import * as mammoth from 'mammoth';
 import JSZip from 'jszip';
+import { readXlsx, readCsv, formatSheets } from './xlsxReader.js';
 
 // pdf-parse is CommonJS-only; this package runs under "type": "module", so a
 // bare top-level `require` throws at real ESM runtime (tsx's dev loader
@@ -231,79 +232,16 @@ export async function extractPptxText(buffer: Buffer): Promise<ExtractionResult>
   }
 }
 
-const XLSX_MAX_ROWS_PER_SHEET = 500;
-
 /**
- * Extract text from an XLSX buffer.
- * XLSX is a ZIP archive: `xl/sharedStrings.xml` holds the deduplicated string
- * table, and each `xl/worksheets/sheetN.xml` holds cell references into it
- * (or inline strings/numbers). We regex-parse both — enough fidelity for
- * RAG ingestion without pulling in the unpatched-on-npm `xlsx` package.
+ * Extract text from an XLSX buffer: each sheet as a table with column letters
+ * and row numbers, values in their real columns, dates as dates and formulas
+ * beside their results (see xlsxReader.ts).
  */
 export async function extractXlsxText(buffer: Buffer): Promise<ExtractionResult> {
   try {
-    const zip = await JSZip.loadAsync(buffer);
-
-    // Shared string table: each <si> block may contain one or more <t> runs
-    // (rich text splits a single cell's text across multiple runs).
-    const sharedStrings: string[] = [];
-    const sharedStringsFile = zip.files['xl/sharedStrings.xml'];
-    if (sharedStringsFile) {
-      const xml = await sharedStringsFile.async('text');
-      const siBlocks = [...xml.matchAll(/<si>(.*?)<\/si>/gs)];
-      for (const block of siBlocks) {
-        const runs = [...block[1]!.matchAll(/<t[^>]*>(.*?)<\/t>/gs)].map((m) => decodeXmlEntities(m[1] ?? ''));
-        sharedStrings.push(runs.join(''));
-      }
-    }
-
-    // Sheet display names, in workbook order, mapped from workbook.xml.
-    const workbookFile = zip.files['xl/workbook.xml'];
-    const sheetNames: string[] = workbookFile
-      ? [...(await workbookFile.async('text')).matchAll(/<sheet[^>]*name="([^"]*)"[^>]*\/>/g)].map((m) =>
-          decodeXmlEntities(m[1] ?? ''),
-        )
-      : [];
-
-    const sheetFileNames = sortByTrailingNumber(
-      Object.keys(zip.files).filter((name) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name)),
-    );
-    if (sheetFileNames.length === 0) {
-      return { text: '', error: 'XLSX extraction failed: no worksheets found' };
-    }
-
-    const sheetTexts: string[] = [];
-    for (const [i, sheetFileName] of sheetFileNames.entries()) {
-      const sheetFile = zip.files[sheetFileName];
-      if (!sheetFile) continue;
-      const xml = await sheetFile.async('text');
-      const rowBlocks = [...xml.matchAll(/<row[^>]*>(.*?)<\/row>/gs)].slice(0, XLSX_MAX_ROWS_PER_SHEET);
-      const rowLines: string[] = [];
-      for (const rowBlock of rowBlocks) {
-        const cells = [...rowBlock[1]!.matchAll(/<c\s+([^>]*?)\/?>(?:(.*?)<\/c>)?/gs)];
-        const cellValues = cells.map((cell) => {
-          const attrs = cell[1] ?? '';
-          const cellType = attrs.match(/\bt="([^"]*)"/)?.[1];
-          const cellInner = cell[2] ?? '';
-          if (cellType === 's') {
-            const idx = parseInt(cellInner.match(/<v>(\d+)<\/v>/)?.[1] ?? '-1', 10);
-            return sharedStrings[idx] ?? '';
-          }
-          if (cellType === 'inlineStr') {
-            return decodeXmlEntities(cellInner.match(/<t[^>]*>(.*?)<\/t>/s)?.[1] ?? '');
-          }
-          return decodeXmlEntities(cellInner.match(/<v>(.*?)<\/v>/s)?.[1] ?? '');
-        });
-        const line = cellValues.join('\t').trim();
-        if (line) rowLines.push(line);
-      }
-      if (rowLines.length > 0) {
-        const sheetName = sheetNames[i] ?? `Sheet ${i + 1}`;
-        sheetTexts.push(`Sheet: ${sheetName}\n${rowLines.join('\n')}`);
-      }
-    }
-
-    return { text: sheetTexts.join('\n\n'), error: undefined };
+    const grids = await readXlsx(buffer);
+    if (grids.length === 0) return { text: '', error: 'XLSX extraction failed: no worksheets found' };
+    return { text: formatSheets(grids), error: undefined };
   } catch (err) {
     return {
       text: '',
@@ -312,10 +250,6 @@ export async function extractXlsxText(buffer: Buffer): Promise<ExtractionResult>
   }
 }
 
-/**
- * Dispatch extraction based on file extension.
- * Returns empty text if format is unsupported.
- */
 export async function extractDocumentText(
   buffer: Buffer,
   filename: string,
@@ -331,6 +265,8 @@ export async function extractDocumentText(
       return extractPptxText(buffer);
     case 'xlsx':
       return extractXlsxText(buffer);
+    case 'csv':
+      return { text: formatSheets([readCsv(buffer.toString('utf8'), filename.replace(/\.csv$/i, ''))]), error: undefined };
     case 'md':
     case 'markdown':
     case 'txt':

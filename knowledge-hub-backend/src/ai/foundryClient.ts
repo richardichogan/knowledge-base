@@ -139,6 +139,8 @@ export class FoundryClient {
     signal?: AbortSignal,
     /** Another deployment on the reasoning endpoint (e.g. "Ask another model"). */
     route?: ModelRoute,
+    /** Responses API only: built-in tools (e.g. code_interpreter) and progress lines for them. */
+    extras: { builtInTools?: Array<Record<string, unknown>>; onActivity?: (line: string) => void } = {},
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
     const deployment = route?.deployment ?? this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
@@ -147,7 +149,7 @@ export class FoundryClient {
       ? `${endpoint}/openai/v1/responses`
       : `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
     const body = viaResponses
-      ? { ...responsesBody(deployment, messages, tools, maxTokens, toolChoice), stream: true }
+      ? { ...responsesBody(deployment, messages, tools, maxTokens, toolChoice, extras.builtInTools), stream: true }
       : {
           messages,
           max_completion_tokens: maxTokens,
@@ -194,6 +196,8 @@ export class FoundryClient {
           if (item?.type === 'function_call') {
             toolCalls.push({ id: item.call_id ?? '', type: 'function', function: { name: item.name ?? '', arguments: item.arguments ?? '{}' } });
           }
+        } else if (type === 'response.code_interpreter_call.in_progress') {
+          extras.onActivity?.('Running a calculation on the spreadsheet');
         } else if (type === 'response.completed' || type === 'response.incomplete') {
           const r = evt['response'] as { status?: string; incomplete_details?: { reason?: string } | null } | undefined;
           finishReason = r?.status === 'incomplete' && r.incomplete_details?.reason === 'max_output_tokens' ? 'length' : 'stop';
@@ -399,6 +403,7 @@ function responsesBody(
   tools: LlmToolDefinition[] | undefined,
   maxTokens: number,
   toolChoice: LlmToolChoice,
+  builtInTools: Array<Record<string, unknown>> = [],
 ): Record<string, unknown> {
   const input: Array<Record<string, unknown>> = [];
   for (const m of messages as LlmMessage[]) {
@@ -413,15 +418,16 @@ function responsesBody(
       input.push({ role: m.role, content: m.content });
     }
   }
-  const hasTools = tools !== undefined && tools.length > 0;
+  const functionTools = (tools ?? []).map((t) => ({ type: 'function', name: t.function.name, description: t.function.description, parameters: t.function.parameters, strict: false }));
+  const allTools = [...functionTools, ...builtInTools];
   return {
     model: deployment,
     input,
     max_output_tokens: maxTokens,
     store: false,
-    ...(hasTools && {
-      tools: tools.map((t) => ({ type: 'function', name: t.function.name, description: t.function.description, parameters: t.function.parameters, strict: false })),
-      tool_choice: toolChoice === 'auto' ? 'auto' : { type: 'function', name: toolChoice.function.name },
+    ...(allTools.length > 0 && {
+      tools: allTools,
+      tool_choice: toolChoice === 'auto' || functionTools.length === 0 ? 'auto' : { type: 'function', name: toolChoice.function.name },
     }),
   };
 }

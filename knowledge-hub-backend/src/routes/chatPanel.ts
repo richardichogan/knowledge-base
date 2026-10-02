@@ -28,6 +28,7 @@
  * GET    /session/:sessionId/exclusions       items not to use in this chat
  * POST   /session/:sessionId/exclusions       { id, kind, title, url? } — "Don't use this"
  * DELETE /session/:sessionId/exclusions/:sourceId
+ * POST   /export/xlsx                         { filename?, sheets: [{ name, rows }] } → .xlsx download
  */
 import express, { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
@@ -42,6 +43,7 @@ import { startTurnJob } from '../ai/turnJobs.js';
 import { MODEL_CHOICES, findModelChoice } from '../ai/modelChoices.js';
 import { AI_BACKGROUND_TURN_BUDGET_MS } from '../config/constants.js';
 import { getExcludedSources, excludeSource, includeSource } from '../ai/contextUsage.js';
+import { writeXlsx, type SheetRows } from '../integrations/github/xlsxWriter.js';
 import { addScreen, listScreens, getScreenImage, updateScreen, reorderScreens, setAnnotation, clearAnnotation, deleteScreen } from '../ai/chatScreens.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { createNoteRecord } from './notes.js';
@@ -307,6 +309,23 @@ router.post('/session/:sessionId/exclusions', route(async (req, res) => {
 
 router.delete('/session/:sessionId/exclusions/:sourceId', route(async (req, res) => {
   ok(res, await includeSource(getDb(), param(req, 'sessionId'), param(req, 'sourceId')));
+}));
+
+// ── Export a table as Excel ───────────────────────────────────────────────────
+
+router.post('/export/xlsx', route(async (req, res) => {
+  const { filename, sheets } = req.body as { filename?: unknown; sheets?: unknown };
+  const valid = Array.isArray(sheets) && sheets.length > 0 && sheets.length <= 10 && sheets.every((s: unknown) => {
+    const sheet = s as { name?: unknown; rows?: unknown };
+    return typeof sheet.name === 'string' && Array.isArray(sheet.rows) && sheet.rows.length <= 5_000
+      && (sheet.rows as unknown[]).every((r) => Array.isArray(r) && r.length <= 100 && r.every((c) => typeof c === 'string'));
+  });
+  if (!valid) throw new ValidationError('sheets must be up to 10 sheets of up to 5,000 rows of text', { sheets: 'invalid' });
+  const buffer = await writeXlsx(sheets as SheetRows[]);
+  const name = (typeof filename === 'string' && filename.trim() !== '' ? filename.trim() : 'Athena table').replace(/[^\w .-]/g, '').slice(0, 80) || 'Athena table';
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${name}.xlsx"`);
+  res.status(HTTP_STATUS.OK).send(buffer);
 }));
 
 export { router as chatPanelRouter };

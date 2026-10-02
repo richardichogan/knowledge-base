@@ -653,6 +653,12 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /** A table (rows of text) as an .xlsx download. */
+  async exportXlsx(filename: string, sheets: Array<{ name: string; rows: string[][] }>): Promise<Blob> {
+    const r = await this.client.post<Blob>('/api/ai/export/xlsx', { filename, sheets }, { responseType: 'blob', timeout: IMAGE_UPLOAD_TIMEOUT_MS });
+    return r.data;
+  }
+
   async chat(request: ChatRequest, signal?: AbortSignal): Promise<ApiResponse<ChatResponse>> {
     const r = await this.client.post<ApiResponse<ChatResponse>>(
       '/api/ai/chat',
@@ -1101,9 +1107,12 @@ export class KnowledgeHubApi {
     title?: string,
     projectName?: string,
     onProgress?: (percent: number) => void,
+    /** Chat to link a spreadsheet to (for the calculator). */
+    chatSessionId?: string,
   ): Promise<ApiResponse<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string; projectId: string; projectName: string }>> {
     const formData = new FormData();
     formData.append('file', file);
+    if (chatSessionId !== undefined) formData.append('sessionId', chatSessionId);
     formData.append('projectId', projectId);
     if (projectName !== undefined && projectName.trim() !== '') formData.append('projectName', projectName.trim());
     if (title !== undefined && title.trim() !== '') formData.append('title', title.trim());

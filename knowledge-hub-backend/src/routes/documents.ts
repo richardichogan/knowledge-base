@@ -24,6 +24,7 @@ import type { ApiSuccess } from '../types/apiResponse.js';
 import { loadConceptTags, invalidateConceptTagCache } from '../services/taxonomyService.js';
 import { FoundryClient } from '../ai/foundryClient.js';
 import { extractDocumentText } from '../integrations/github/documentExtractor.js';
+import { addChatFile, SPREADSHEET_EXTENSIONS } from '../ai/chatFiles.js';
 import { upsertContentItem } from '../db/queries.js';
 import { indexContentItem } from '../ai/foundryIqIndexer.js';
 
@@ -700,7 +701,7 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
 });
 
 const EXTRACTED_TEXT_MAX_CHARS = 50_000;
-const UPLOAD_ALLOWED_EXTS = ['pdf', 'docx', 'pptx', 'xlsx', 'md', 'markdown', 'txt'];
+const UPLOAD_ALLOWED_EXTS = ['pdf', 'docx', 'pptx', 'xlsx', 'csv', 'md', 'markdown', 'txt'];
 
 /**
  * POST /api/documents/upload
@@ -737,7 +738,7 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
       if (!UPLOAD_ALLOWED_EXTS.includes(ext)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({
           success: false,
-          error: { message: `Unsupported file type: .${ext}. Supported: PDF, DOCX, PPTX, XLSX, MD, TXT` },
+          error: { message: `Unsupported file type: .${ext}. Supported: PDF, DOCX, PPTX, XLSX, CSV, MD, TXT` },
         });
         return;
       }
@@ -821,6 +822,13 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
       }).catch((err: unknown) => {
         console.error('[documents] Foundry IQ index push failed for upload', err instanceof Error ? err.message : err);
       });
+
+      // A spreadsheet attached in a chat is linked to it for the calculator.
+      const chatSessionId = typeof req.body['sessionId'] === 'string' ? req.body['sessionId'].trim() : '';
+      if (chatSessionId !== '' && SPREADSHEET_EXTENSIONS.has(ext)) {
+        await addChatFile(db, chatSessionId, { contentItemId, filename, blobPath: blobName, contentType: file.mimetype ?? '' })
+          .catch((err: unknown) => { console.error('[documents] could not link spreadsheet to chat:', err); });
+      }
 
       const body: ApiSuccess<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string; projectId: string; projectName: string }> = {
         success: true,

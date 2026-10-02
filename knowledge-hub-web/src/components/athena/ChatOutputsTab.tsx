@@ -13,6 +13,7 @@ import { api } from '../../services/api';
 import { renderMarkdown } from '../../utils/markdown';
 import { sanitizeHtml } from '../../utils/sanitizeHtml';
 import { diffLines } from '../../utils/lineDiff';
+import { handleCodeCopyClick } from './renderReply';
 
 interface ChatOutputsTabProps {
   sessionId: string | null;
@@ -217,6 +218,7 @@ export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refre
           ) : (
             <div
               className="ai-output__md ai-bubble-text--md"
+              onClick={handleCodeCopyClick}
               // eslint-disable-next-line react/no-danger
               dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(shown.content)) }}
             />
