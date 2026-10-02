@@ -169,3 +169,51 @@ export async function buildOutputsBlock(db: Pool, sessionId: string): Promise<st
   }
   return parts.join('\n\n');
 }
+
+/** Personas whose deliverables belong in the Outputs panel. */
+const OUTPUT_PERSONAS = new Set(['demo_designer', 'blog_post', 'podcast_prep']);
+const MIN_FENCED_CHARS = 400;
+const MIN_DOCUMENT_CHARS = 1_500;
+
+/**
+ * Safety net for when the model writes a deliverable into its reply but
+ * doesn't save it: a sizeable copy-paste block (a GHCP prompt, say) or a
+ * long structured document becomes an Output — a new version of an output
+ * with the same title in this chat, else a new one. Returns true if saved.
+ */
+export async function saveMissedDeliverable(db: Pool, sessionId: string, persona: string, userMessage: string, reply: string): Promise<boolean> {
+  if (!OUTPUT_PERSONAS.has(persona)) return false;
+  const fenced = [...reply.matchAll(/```[\w-]*\n([\s\S]*?)\n```/g)].map((m) => m[1]!.trim()).sort((a, b) => b.length - a.length)[0] ?? '';
+  const headings = (reply.match(/^#{1,3} \S/gm) ?? []).length;
+  let content = '';
+  let format: OutputFormat = 'markdown';
+  if (fenced.length >= MIN_FENCED_CHARS) {
+    content = fenced;
+    format = 'text';
+  } else if (reply.length >= MIN_DOCUMENT_CHARS && headings >= 2) {
+    content = reply.trim();
+  } else {
+    return false;
+  }
+  const wantsPrompt = /\b(prompt|ghcp|copilot)\b/i.test(userMessage) || (format === 'text' && /\b(implement|build|refine|add|create)\b/i.test(content.slice(0, 200)));
+  const kind = wantsPrompt ? 'prompt' : persona === 'blog_post' ? 'document' : persona === 'podcast_prep' ? 'document' : 'spec';
+  const { rows } = await db.query<{ title: string | null }>(`SELECT title FROM ai_chat_sessions WHERE id = $1`, [sessionId]);
+  const topic = (rows[0]?.title ?? '').trim();
+  const heading = /^#{1,3} (.+)$/m.exec(content)?.[1]?.trim();
+  const base = wantsPrompt ? 'GHCP prompt' : heading ?? (kind === 'spec' ? 'Spec' : 'Draft');
+  const title = (wantsPrompt && topic !== '' ? `${base} — ${topic}` : base).slice(0, 120);
+  const same = await db.query<{ id: string }>(
+    `SELECT id::text FROM chat_outputs WHERE session_id = $1 AND lower(title) = lower($2) ORDER BY updated_at DESC LIMIT 1`,
+    [sessionId, title],
+  );
+  await saveOutputVersion(db, sessionId, {
+    outputId: same.rows[0]?.id,
+    title,
+    kind,
+    format,
+    content,
+    author: 'athena',
+    note: 'Saved from the reply',
+  });
+  return true;
+}

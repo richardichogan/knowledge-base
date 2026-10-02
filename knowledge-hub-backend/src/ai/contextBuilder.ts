@@ -1191,7 +1191,7 @@ export async function assembleMessages(
   // (background search results above all) is never mistaken for the request.
   const userMessageWithContext = dynamicBlocks === ''
     ? userMessage
-    : `${dynamicBlocks}\n\n---\n\n## His message — answer this. Everything above is reference material for it, not the request.\n\n${userMessage}`;
+    : `${dynamicBlocks}\n\n---\n\n## His message (the material above is reference for it, not the request itself)\n\n${userMessage}`;
 
   return [
     { role: 'system', content: systemPrompt },
