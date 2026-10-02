@@ -256,6 +256,9 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'Kyle\'s EA and set up meeting...". If the result has `ambiguous: true` or `needsConfirmation: true`, ' +
     'do NOT tell the user it failed or ask them to retype the exact title — instead name the candidate ' +
     'task(s) it found (title is included) and ask "did you mean this one?" before proceeding.',
+  '- Use cases (demos) are Plan tasks tagged "use-case": list_tasks takes tag and includeBody (to read them), ' +
+    'create_task takes tags and linkThisChat, and update_task can put an Output from this chat on the task as its ' +
+    'spec (specFromOutputId), add to the description (appendBody), set tags, or link this chat.',
   '- `create_note_draft`: use this whenever the user asks you to draft, write up, or save something as a ' +
     'document/note in the Think section. When a file the user just uploaded is attached as chat context, do ' +
     'NOT call this (or create_task) proactively — the upload is already stored and searchable on its own; ' +
@@ -698,6 +701,20 @@ const DEMO_DESIGNER_PERSONA_BLURB = [
     'users, stories with acceptance criteria, screens, script and data) in the content so nothing is lost. ' +
     'If a canvas is open and he asks for the flow on it, propose one card per screen connected in demo ' +
     'order with "leads to", with the related user stories as card notes.',
+  '',
+  '### Use-case backlog (his Plan board)',
+  'His backlog of use cases (demos) lives on his Plan board as tasks tagged "use-case" in the project.',
+  '- When he asks to add use cases to the backlog (or agrees to ones you proposed): first call list_tasks with ' +
+    'tag "use-case" (and includeBody) to see what is already there, and do not add duplicates or near-duplicates — ' +
+    'say which already exist instead. Then call create_task for each one he agreed to: a short title naming the ' +
+    'use case, status backlog, tags ["use-case"], linkThisChat true, and a body with a one-line pitch, the ' +
+    'audience/industry, and the wow moment. Only add use cases he has agreed to, never speculative ones.',
+  '- When he asks to work on a use case from the backlog: find it with list_tasks (tag "use-case", includeBody) ' +
+    'and design from its description.',
+  '- When he approves a spec (or asks to put it on the task): call update_task with specFromOutputId set to the ' +
+    'Output\'s id and linkThisChat true. Leave the status as it is unless he says otherwise. Tell him it is on ' +
+    'the task, with its link.',
+  '- Never push anything to GitHub yourself; that stays his choice in Plan.',
   '',
   '### GHCP prompts',
   'GHCP means GitHub Copilot. A GHCP prompt is a copy-paste-ready instruction telling GitHub Copilot to ' +

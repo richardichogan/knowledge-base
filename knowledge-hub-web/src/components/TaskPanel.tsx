@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Close, Edit, TrashCan, Document, Notebook } from '@carbon/icons-react';
+import { Close, Edit, TrashCan, Document, Notebook, Chat } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { ContentItemSummary } from '../types/contentItem';
 
@@ -35,9 +35,10 @@ interface TaskNote {
 interface TaskLink {
   id: string;
   taskId: string;
-  targetType: 'note' | 'document';
+  targetType: 'note' | 'document' | 'chat';
   targetId: string;
   targetTitle: string;
+  targetUrl?: string;
   createdAt: string;
 }
 
@@ -178,11 +179,15 @@ const LinkedItems: React.FC<{ taskId: string }> = ({ taskId }) => {
         <div className="tp-links">
           {links.map((l) => (
             <div key={l.id} className="tp-link-chip">
-              {l.targetType === 'note'
-                ? <Notebook size={12} className="tp-link-chip__icon" />
-                : <Document size={12} className="tp-link-chip__icon" />
+              {l.targetType === 'chat'
+                ? <Chat size={12} className="tp-link-chip__icon" />
+                : l.targetType === 'note'
+                  ? <Notebook size={12} className="tp-link-chip__icon" />
+                  : <Document size={12} className="tp-link-chip__icon" />
               }
-              <span className="tp-link-chip__title">{l.targetTitle || l.targetId}</span>
+              {l.targetType === 'chat'
+                ? <a className="tp-link-chip__title" href={l.targetUrl || `/chat?session=${encodeURIComponent(l.targetId)}`} title="Open this Athena chat">{l.targetTitle || 'Athena chat'}</a>
+                : <span className="tp-link-chip__title">{l.targetTitle || l.targetId}</span>}
               <button
                 className="tp-link-chip__remove"
                 title="Remove link"

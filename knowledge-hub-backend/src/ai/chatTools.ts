@@ -18,7 +18,7 @@ import { validateNoteEdits } from './noteEdits.js';
 import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
-import { saveOutputVersion } from './chatOutputs.js';
+import { saveOutputVersion, getOutput } from './chatOutputs.js';
 import type { LlmToolDefinition } from './foundryClient.js';
 import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db/queries.js';
 import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
@@ -129,6 +129,8 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             overdueOnly: { type: 'boolean', description: 'If true, only tasks with a due date strictly before today that are not completed.' },
             projectId: { type: 'string', description: 'Filter to a specific project id. If this conversation has an active project, omit this (it defaults automatically) or pass that same project id — do not broaden to another project unless the user explicitly asked to.' },
             includeCompleted: { type: 'boolean', description: 'If true, include completed tasks too. Defaults to false.' },
+            tag: { type: 'string', description: 'Only tasks with this Plan tag, e.g. "use-case" for the use-case (demo) backlog.' },
+            includeBody: { type: 'boolean', description: "If true, include each task's description (trimmed) — e.g. to read a use case's pitch and spec." },
             limit: { type: 'integer', description: `Max results (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: [],
@@ -173,6 +175,8 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             priority: { type: 'string', enum: [...TASK_PRIORITIES], description: 'Defaults to "normal".' },
             projectId: { type: 'string', description: 'Project id to file this under (e.g. "personal", "ibm-msft-practice"). Defaults to "personal" if unsure.' },
             dueDate: { type: 'string', description: 'ISO date YYYY-MM-DD, optional.' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Plan tags, e.g. ["use-case"] for a use case (demo) in the backlog.' },
+            linkThisChat: { type: 'boolean', description: 'If true, links this chat to the task so he can open it from Plan.' },
           },
           required: ['title'],
         },
@@ -200,6 +204,10 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             status: { type: 'string', enum: [...TASK_STATUSES] },
             priority: { type: 'string', enum: [...TASK_PRIORITIES] },
             dueDate: { type: 'string', description: 'ISO date YYYY-MM-DD, or null to clear it.' },
+            appendBody: { type: 'string', description: 'Text to add to the end of the description (keeps what is there).' },
+            specFromOutputId: { type: 'string', description: "Id of an Output in this chat: its latest version goes into the task description under a '## Spec' heading, replacing any earlier Spec section and keeping the rest." },
+            tags: { type: 'array', items: { type: 'string' }, description: "Replaces the task's Plan tags." },
+            linkThisChat: { type: 'boolean', description: 'If true, links this chat to the task.' },
           },
           required: [],
         },
@@ -467,8 +475,8 @@ export async function executeToolCall(
     case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
     case 'list_tasks':            return listTasks(db, args);
     case 'search_library':        return searchLibrary(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : LIBRARY_RESULT_CONTENT_CHARS);
-    case 'create_task':           return createTask(db, args);
-    case 'update_task':           return updateTask(db, args);
+    case 'create_task':           return createTask(db, args, turn.sessionId);
+    case 'update_task':           return updateTask(db, args, turn.sessionId);
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
     case 'remember':              return rememberInstruction(db, args, turn.sessionId);
     case 'save_output': {
@@ -709,6 +717,12 @@ async function listTasks(db: Pool, args: Record<string, unknown>): Promise<unkno
     conditions.push(`project_id = $${params.length}`);
   }
 
+  if (typeof args['tag'] === 'string' && args['tag'].trim() !== '') {
+    params.push(args['tag'].trim());
+    conditions.push(`id IN (SELECT tt.task_id FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
+                            WHERE g.slug = lower(regexp_replace($${params.length}, '\\s+', '-', 'g')) OR lower(g.name) = lower($${params.length}))`);
+  }
+
   if (overdueOnly) {
     conditions.push(`due_date IS NOT NULL AND due_date < CURRENT_DATE`);
   } else if (typeof args['dueOnOrBefore'] === 'string' && args['dueOnOrBefore'].trim() !== '') {
@@ -728,7 +742,16 @@ async function listTasks(db: Pool, args: Record<string, unknown>): Promise<unkno
   );
 
   const tasks = result.rows.map(rowToTask);
-  return { resultCount: tasks.length, tasks: tasks.map(summariseTask) };
+  const tagNames = await taskTagNames(db, tasks.map((t) => t.id));
+  const includeBody = args['includeBody'] === true;
+  return {
+    resultCount: tasks.length,
+    tasks: tasks.map((t) => ({
+      ...summariseTask(t),
+      tags: tagNames.get(t.id) ?? [],
+      ...(includeBody && { body: t.body.length > TASK_BODY_CHARS ? `${t.body.slice(0, TASK_BODY_CHARS)}…` : t.body }),
+    })),
+  };
 }
 
 // ── search_library ──────────────────────────────────────────────────────────
@@ -877,7 +900,7 @@ function summariseTask(task: Task): Record<string, unknown> {
   };
 }
 
-async function createTask(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+async function createTask(db: Pool, args: Record<string, unknown>, sessionId: string | undefined): Promise<unknown> {
   const title = typeof args['title'] === 'string' ? args['title'].trim() : '';
   if (title === '') return { error: 'title is required' };
 
@@ -946,7 +969,9 @@ async function createTask(db: Pool, args: Record<string, unknown>): Promise<unkn
   if (row === undefined) return { error: 'Insert returned no rows' };
 
   const task = rowToTask(row);
-  return { success: true, task: summariseTask(task) };
+  const tags = Array.isArray(args['tags']) ? await setTaskTags(db, task.id, args['tags']) : [];
+  const linkedChat = args['linkThisChat'] === true && sessionId !== undefined ? await linkChat(db, task.id, sessionId) : false;
+  return { success: true, task: { ...summariseTask(task), tags }, ...(linkedChat && { linkedChat: true }) };
 }
 
 // Common English filler words to strip when tokenizing a matchTitle for fuzzy
@@ -1041,7 +1066,7 @@ async function resolveTask(
   return { error: 'Provide either taskId or matchTitle' };
 }
 
-async function updateTask(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: string | undefined): Promise<unknown> {
   const resolved = await resolveTask(db, args['taskId'], args['matchTitle']);
   if ('error' in resolved) return resolved;
   if ('notFound' in resolved) {
@@ -1079,7 +1104,36 @@ async function updateTask(db: Pool, args: Record<string, unknown>): Promise<unkn
   if (TASK_PRIORITIES.includes(args['priority'] as typeof TASK_PRIORITIES[number])) add('priority', args['priority']);
   if ('dueDate' in args) add('due_date', args['dueDate'] === null ? null : (typeof args['dueDate'] === 'string' ? args['dueDate'] : null));
 
-  if (fields.length === 0) return { error: 'No fields to update were provided.' };
+  // Description changes that build on what's there: an appended note, or a spec from Outputs.
+  const appendBody = typeof args['appendBody'] === 'string' ? args['appendBody'].trim() : '';
+  const specOutputId = typeof args['specFromOutputId'] === 'string' ? args['specFromOutputId'].trim() : '';
+  let specTitle: string | null = null;
+  if (appendBody !== '' || specOutputId !== '') {
+    let body = typeof args['body'] === 'string'
+      ? args['body']
+      : ((await db.query<{ body: string | null }>(`SELECT body FROM tasks WHERE id = $1`, [resolved.id])).rows[0]?.body ?? '');
+    if (specOutputId !== '') {
+      const output = /^[0-9a-f-]{36}$/i.test(specOutputId) ? await getOutput(db, specOutputId) : null;
+      if (output === null || output.sessionId !== sessionId) return { error: 'No Output with that id in this chat — check the Outputs list and use its id.' };
+      const latest = output.versions[output.versions.length - 1];
+      if (latest === undefined) return { error: 'That Output has no content yet.' };
+      specTitle = `${output.title} (v${latest.version.toString()})`;
+      body = withSpecSection(body, output.title, latest.version, latest.content);
+    }
+    if (appendBody !== '') {
+      // Notes go above the Spec section, so replacing the spec later keeps them.
+      const spec = /^## Spec\b/m.exec(body);
+      const head = (spec === null ? body : body.slice(0, spec.index)).trimEnd();
+      const tail = spec === null ? '' : `\n\n${body.slice(spec.index)}`;
+      body = `${head === '' ? appendBody : `${head}\n\n${appendBody}`}${tail}`;
+    }
+    if (typeof args['body'] === 'string') params[fields.findIndex((f) => f.startsWith('body ='))] = body;
+    else add('body', body);
+  }
+
+  const wantsTags = Array.isArray(args['tags']);
+  const wantsLink = args['linkThisChat'] === true && sessionId !== undefined;
+  if (fields.length === 0 && !wantsTags && !wantsLink) return { error: 'No fields to update were provided.' };
 
   fields.push('updated_at = NOW()');
   params.push(resolved.id);
@@ -1091,7 +1145,79 @@ async function updateTask(db: Pool, args: Record<string, unknown>): Promise<unkn
   if (row === undefined) return { error: 'Update returned no rows' };
 
   const task = rowToTask(row);
-  return { success: true, task: summariseTask(task) };
+  const tags = wantsTags ? await setTaskTags(db, task.id, args['tags'] as unknown[]) : (await taskTagNames(db, [task.id])).get(task.id) ?? [];
+  const linkedChat = wantsLink ? await linkChat(db, task.id, sessionId) : false;
+  return {
+    success: true,
+    task: { ...summariseTask(task), tags },
+    ...(specTitle !== null && { specAdded: specTitle }),
+    ...(linkedChat && { linkedChat: true }),
+  };
+}
+
+// ── Plan task helpers: tags, chat links, spec section ──────────────────────────
+
+const TASK_BODY_CHARS = 1_500;
+
+async function taskTagNames(db: Pool, taskIds: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (taskIds.length === 0) return map;
+  const { rows } = await db.query<{ task_id: string; name: string }>(
+    `SELECT tt.task_id::text, g.name FROM task_tags tt JOIN tags g ON g.id = tt.tag_id WHERE tt.task_id::text = ANY($1) ORDER BY g.name`,
+    [taskIds],
+  );
+  for (const r of rows) map.set(r.task_id, [...(map.get(r.task_id) ?? []), r.name]);
+  return map;
+}
+
+/** Sets a task's Plan tags by name (existing tags matched by name or slug; missing ones created as top-level filing tags). */
+async function setTaskTags(db: Pool, taskId: string, raw: unknown[]): Promise<string[]> {
+  const names = [...new Set(raw.filter((t): t is string => typeof t === 'string').map((t) => t.trim()).filter(Boolean))].slice(0, 10);
+  const ids: string[] = [];
+  const out: string[] = [];
+  for (const name of names) {
+    const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (slug === '') continue;
+    const found = await db.query<{ id: string; name: string }>(
+      `SELECT id::text, name FROM tags WHERE slug = $1 OR lower(name) = lower($2) ORDER BY (slug = $1) DESC LIMIT 1`,
+      [slug, name],
+    );
+    const tag = found.rows[0] ?? (await db.query<{ id: string; name: string }>(
+      `INSERT INTO tags (name, slug, role) VALUES ($1, $2, 'filing')
+       ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug RETURNING id::text, name`,
+      [name, slug],
+    )).rows[0];
+    if (tag === undefined) continue;
+    ids.push(tag.id);
+    out.push(tag.name);
+  }
+  await db.query(`DELETE FROM task_tags WHERE task_id = $1`, [taskId]);
+  if (ids.length > 0) {
+    await db.query(`INSERT INTO task_tags (task_id, tag_id) SELECT $1, unnest($2::uuid[]) ON CONFLICT DO NOTHING`, [taskId, ids]);
+  }
+  return out;
+}
+
+/** Links this chat to a task (shown under Linked items in Plan; opens the chat). */
+async function linkChat(db: Pool, taskId: string, sessionId: string): Promise<boolean> {
+  const { rows } = await db.query<{ title: string | null }>(`SELECT title FROM ai_chat_sessions WHERE id = $1`, [sessionId]);
+  const title = rows[0]?.title ?? 'Athena chat';
+  await db.query(
+    `INSERT INTO task_links (task_id, target_type, target_id, target_title, target_url)
+     VALUES ($1, 'chat', $2, $3, $4)
+     ON CONFLICT (task_id, target_type, target_id) DO UPDATE SET target_title = EXCLUDED.target_title`,
+    [taskId, sessionId, title, `/chat?session=${encodeURIComponent(sessionId)}`],
+  );
+  return true;
+}
+
+/** Puts a spec under a '## Spec' heading at the end of the description, replacing an earlier one. */
+function withSpecSection(body: string, title: string, version: number, content: string): string {
+  const marker = /^## Spec\b.*$/m;
+  const match = marker.exec(body);
+  const before = (match === null ? body : body.slice(0, match.index)).trimEnd();
+  const section = `## Spec — ${title} (v${version.toString()})\n\n${content.trim()}`;
+  return before === '' ? section : `${before}\n\n${section}`;
 }
 
 // ── create_note_draft ────────────────────────────────────────────────────────

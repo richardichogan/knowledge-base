@@ -258,6 +258,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [sessionId, setSessionId] = useState<string | null>(() => {
     if (isNoteLinkedPanel) return null;
     try {
+      // /chat?session=<id> — opens that chat (e.g. from a Plan task's linked chat).
+      const linked = standalone ? new URLSearchParams(window.location.search).get('session') : null;
+      if (linked !== null && linked !== '') {
+        window.localStorage.setItem(SESSION_STORAGE_KEY, linked);
+        return linked;
+      }
       return window.localStorage.getItem(SESSION_STORAGE_KEY);
     } catch {
       return null;
@@ -282,7 +288,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [pendingThinkSave, setPendingThinkSave] = useState<PendingThinkSave | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string | null>(null);
-  const [activeImageContext, setActiveImageContext] = useState<AthenaPageContext | null>(null);
+  // The screenshot this chat is about, with the chat it belongs to — it is only ever sent with that chat's messages.
+  const [activeImage, setActiveImage] = useState<{ chatId: string; context: AthenaPageContext } | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ filename: string; percent: number; startedAt?: number } | null>(null);
   // A pasted screenshot is stored with the chat and read as soon as it's
   // attached (while the question is typed) rather than on Send — Demo
@@ -542,6 +549,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     if (id === sessionId) return;
     stopTts();
     detachLiveTurn();
+    setActiveImage(null);
     pendingSessionIdRef.current = null;
     persistSessionId(id);
     setMessages([]);
@@ -650,8 +658,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         onText: (liveText) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, text: liveText })); },
       };
       try {
-        if (resumeTurnId !== undefined) return await followChatTurn(resumeTurnId, handlers, signal);
-        return await sendChatTurn(
+        const result = resumeTurnId !== undefined
+          ? await followChatTurn(resumeTurnId, handlers, signal)
+          : await sendChatTurn(
           {
             message: text,
             persona,
@@ -664,6 +673,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           handlers,
           signal,
         );
+        // He switched chats while it finished: it's saved in its own chat — never show it in this one.
+        if (turnRunRef.current !== run) throw new TurnDetachedError();
+        return result;
       } finally {
         if (turnRunRef.current === run) {
           setLiveTurn(null);
@@ -761,6 +773,27 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     if (sessionId !== null) return sessionId;
     pendingSessionIdRef.current ??= crypto.randomUUID();
     return pendingSessionIdRef.current;
+  }
+
+  /**
+   * The chat a message is being sent from, captured before any wait (upload,
+   * screenshot read, project change). If he switches chats during the wait,
+   * the message still goes to — and is answered in — the chat it was written in.
+   */
+  function captureSendTarget(): { view: number; request: Pick<ChatRequest, 'persona' | 'projectId' | 'sessionId'> } {
+    return {
+      view: turnRunRef.current,
+      request: { persona, projectId: noteProjectId ?? (activeProjectId !== '' ? activeProjectId : null), sessionId: chatIdForUploads() },
+    };
+  }
+
+  /** True (and the turn is started in its own chat, in the background) when he has switched chats since `target` was captured. */
+  function sentFromAnotherChat(target: ReturnType<typeof captureSendTarget>, message: string, ctx?: AthenaPageContext): boolean {
+    if (turnRunRef.current === target.view) return false;
+    void api.startChatTurn({ ...target.request, message, ...(ctx && { pageContext: ctx }) })
+      .then(() => { refreshSessionList(); })
+      .catch(() => { /* the chat shows nothing new; he can resend there */ });
+    return true;
   }
 
   /** Removes the pending attachment; a screenshot already stored for it is deleted. */
@@ -999,11 +1032,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
     // An `@project` mention grounds the whole conversation, so persist it via the
     // same path the project chip uses before the turn goes out.
+    const outgoing = composeMessageText(text, intent.effectiveAction);
     if (intent.explicitProjectId !== undefined && intent.explicitProjectId !== activeProjectId) {
+      const target = captureSendTarget();
       await handleProjectChange(intent.explicitProjectId);
+      if (sentFromAnotherChat({ ...target, request: { ...target.request, projectId: intent.explicitProjectId } }, outgoing)) return;
     }
 
-    const outgoing = composeMessageText(text, intent.effectiveAction);
     appendMessage('user', outgoing);
     setInput('');
     setActionOverride(null);
@@ -1023,6 +1058,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // In Think the chat is about the open note, so send it with every message
     // — otherwise follow-up questions reached Athena without the note (or its
     // images) at all, since history only keeps a short "[Viewing …]" marker.
+    const activeImageContext = activeImage !== null && activeImage.chatId === (sessionId ?? pendingSessionIdRef.current) ? activeImage.context : null;
     if (activeImageContext !== null) {
       chatMutation.mutate({ text: outgoing, pageContext: activeImageContext });
     } else if ((isFirstMessage || contextChanged || isNoteLinkedPanel) && pageContext && !isContextDismissed) {
@@ -1078,6 +1114,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   async function uploadAttachedFile(file: File, question: string): Promise<void> {
     setUploadProgress({ filename: file.name, percent: 0 });
+    const target = captureSendTarget();
     try {
       let fileText: string;
       let storedIn: string;
@@ -1119,8 +1156,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
       setUploadProgress({ filename: file.name, percent: 100 });
       setPendingFile(null);
-      setInput('');
-      appendMessage('user', `${question}\n\n${isChatImage(file) ? '🖼️' : '📎'} ${file.name}`);
       // Send the attached file's content as pageContext (not glued into the message
       // text) for the same reason as viewed-note context: gluing a large document
       // into the message meant the auto-RAG search ran full-text search using the
@@ -1135,7 +1170,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           ? `Screenshot pasted into this chat, kept in ${storedIn}. Visual analysis:\n\n${fileText}`
           : `Stored in ${storedIn}.${extraNote} Full content:\n\n${fileText.slice(0, ATTACHED_FILE_CONTEXT_CHAR_LIMIT)}`,
       };
-      if (isChatImage(file)) setActiveImageContext(attachedContext);
+      // Switched chats while it uploaded/read: answer it in the chat it was sent from.
+      if (sentFromAnotherChat(target, question, attachedContext)) return;
+      setInput('');
+      appendMessage('user', `${question}\n\n${isChatImage(file) ? '🖼️' : '📎'} ${file.name}`);
+      if (isChatImage(file) && target.request.sessionId !== undefined && target.request.sessionId !== null) {
+        setActiveImage({ chatId: target.request.sessionId, context: attachedContext });
+      }
       chatMutation.mutate({
         text: question,
         pageContext: attachedContext,
@@ -1164,7 +1205,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setActionOverride(null);
     setProjectError(null);
     discardPendingFile();
-    setActiveImageContext(null);
+    setActiveImage(null);
     if (SESSION_STORAGE_KEY !== '') {
       try {
         window.localStorage.removeItem(SESSION_STORAGE_KEY);

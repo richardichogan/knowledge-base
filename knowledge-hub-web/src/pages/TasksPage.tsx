@@ -340,7 +340,7 @@ const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) => {
                   <a
                     className="kb-task-activity__link-title"
                     href={l.targetUrl || '#'}
-                    target="_blank"
+                    target={l.targetType === 'chat' ? undefined : '_blank'}
                     rel="noopener noreferrer"
                   >
                     {l.targetTitle || l.targetId}
