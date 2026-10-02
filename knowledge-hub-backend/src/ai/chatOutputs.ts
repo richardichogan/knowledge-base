@@ -174,9 +174,8 @@ export async function buildOutputsBlock(db: Pool, sessionId: string): Promise<st
 /** Personas whose deliverables belong in the Outputs panel. */
 const OUTPUT_PERSONAS = new Set(['demo_designer', 'blog_post', 'podcast_prep', 'web_designer']);
 const MIN_FENCED_CHARS = 400;
-const MIN_DOCUMENT_CHARS = 1_500;
-/** His message asks for a deliverable (not a review, opinion or question). */
-const DELIVERABLE_ASK = /\b(prompts?|ghcp|specs?|specification|user stor(y|ies)|stories|script|storyline|talk track|draft|write|rewrite|blog|post|synopsis|outline|wireframes?|screen list|acceptance criteria|show notes|mock-?ups?|options?|html|landing page|hero)\b/i;
+/** He asked for a copy-paste prompt (the only non-page deliverable moved out of a reply). */
+const PROMPT_ASK = /\b(prompts?|ghcp)\b/i;
 /** A fenced block that is a whole web page (a mock-up) — always belongs in Outputs. */
 const HTML_PAGE = /```html\n\s*(<!doctype html|<html)/i;
 
@@ -220,30 +219,28 @@ async function nameDeliverable(
 
 /**
  * Safety net for when the model writes a deliverable he asked for into its
- * reply instead of saving it: the deliverable (a sizeable copy-paste block, or
- * a long structured document) is saved to Outputs — as a new version of the
+ * reply instead of saving it: the deliverable (a sizeable copy-paste block,
+ * such as a GHCP prompt, or an HTML mock-up page) is saved to Outputs — as a new version of the
  * same deliverable or a new output — and taken out of the reply, which keeps
  * any short framing plus a line saying where it went. Returns the reply to
  * show and store (unchanged when nothing was saved).
  */
 export async function moveDeliverableToOutputs(db: Pool, sessionId: string, persona: string, userMessage: string, reply: string): Promise<string> {
   const isPage = HTML_PAGE.test(reply);
-  if (!OUTPUT_PERSONAS.has(persona) || (!isPage && !DELIVERABLE_ASK.test(userMessage))) return reply;
+  if (!OUTPUT_PERSONAS.has(persona) || (!isPage && !PROMPT_ASK.test(userMessage))) return reply;
   const blocks = [...reply.matchAll(/```([\w-]*)\n([\s\S]*?)\n```/g)].map((m) => Object.assign([m[0], m[2]] as [string, string], { lang: m[1] ?? '' }));
   const biggest = blocks.sort((a, b) => b[1].length - a[1].length)[0];
-  const headings = (reply.match(/^#{1,3} \S/gm) ?? []).length;
   let content: string;
   let format: OutputFormat;
   let rest: string;
   if (biggest !== undefined && biggest[1].trim().length >= MIN_FENCED_CHARS) {
     content = biggest[1].trim();
     format = biggest.lang.toLowerCase() === 'html' && /^(<!doctype html|<html)/i.test(content) ? 'html' : 'text';
+    // A code example in an ordinary answer stays put unless he asked for a prompt.
+    if (format === 'text' && !PROMPT_ASK.test(userMessage)) return reply;
     rest = reply.replace(biggest[0], '').trim();
-  } else if (reply.length >= MIN_DOCUMENT_CHARS && headings >= 2) {
-    content = reply.trim();
-    format = 'markdown';
-    rest = '';
   } else {
+    // Long answers stay in the chat, however structured — only copy-paste blocks and pages are moved.
     return reply;
   }
   const wantsPrompt = format !== 'html' && /\b(prompt|ghcp|copilot)\b/i.test(userMessage);
