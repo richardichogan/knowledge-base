@@ -7,6 +7,7 @@
 const LABELS: Record<string, string> = {
   search_knowledge_base: 'Searching your notes and synced content',
   search_library: 'Searching your Library',
+  find_files: 'Looking through your files',
   search_knowledge_graph: 'Looking through the knowledge graph',
   search_ica: 'Searching the ICA document collections',
   fetch_web_page: 'Reading a web page',

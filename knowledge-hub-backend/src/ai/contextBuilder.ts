@@ -132,6 +132,10 @@ const REFERENCES_AND_REPEATS_BLURB = [
     '("Which three — can you paste them?"), or, if a search turns up a likely match, name it and check before ' +
     'answering ("Do you mean the three from EP43\'s show notes?"). Answering confidently about the wrong thing is ' +
     'worse than asking.',
+  'When he names or describes a specific file or document and your searches do not return one with that name, say ' +
+    'plainly that you cannot find it and what you looked for. Never present a different document as the one he means, ' +
+    'and never claim two differently named files are the same. If he shows or gives a file name, look it up by that name ' +
+    '(find_files) before answering.',
   '',
   '## Podcast planning outside Podcast Prep',
   'If he is planning the podcast in another persona, suggest switching to Podcast Prep (it checks past episodes ' +
@@ -242,6 +246,9 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'search_knowledge_base\'s text matching, since two items can be genuinely connected without sharing any ' +
     'words. Call it whenever the user asks how things relate/connect to each other, or to check what else a ' +
     'relevant note/document/task is explicitly linked to after finding it via search_knowledge_base.',
+  '- `find_files`: use this when he describes a FILE rather than its content — by folder ("the Excel in Internal", ' +
+    '"my Imagine OneDrive"), type (Excel, deck, PDF) or file name (including one visible in a screenshot). It lists ' +
+    'matching OneDrive/uploaded/repo files with where they are, and includes the content when one file matches.',
   '- `search_library`: covers ONLY formal documentation, specs, READMEs, or architecture docs stored in a ' +
     'project\'s GitHub repos — it has no knowledge of notes, discovered articles, tasks, or anything else in ' +
     'search_knowledge_base. Never call this alone for a project/brainstorming question and treat its results ' +

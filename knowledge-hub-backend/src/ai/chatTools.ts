@@ -140,6 +140,28 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'find_files',
+        description:
+          "Lists his files by WHERE they are and WHAT they are — OneDrive files (synced from his OneDrive folders, e.g. " +
+          '"Internal", "Imagine", "Reckitt"), uploaded Library files and repo docs — by folder, file type and/or words in ' +
+          'the file name. Use this whenever he describes a file rather than its content: "the Excel in the Internal folder", ' +
+          '"the deck in my Imagine OneDrive", "Microsoft Help Needed.xlsx", a filename in a screenshot. When exactly one ' +
+          'file matches, its extracted content is included.',
+        parameters: {
+          type: 'object',
+          properties: {
+            folder: { type: 'string', description: 'Folder name or path, e.g. "Internal" or "Imagine". Matches any folder level.' },
+            fileType: { type: 'string', enum: ['excel', 'word', 'powerpoint', 'pdf', 'image', 'drawio', 'markdown', 'any'], description: 'Kind of file. "excel" covers .xlsx/.xls/.csv.' },
+            name: { type: 'string', description: 'Words from the file name, e.g. "help needed".' },
+            includeContent: { type: 'boolean', description: 'Include each matching file\'s extracted content (trimmed). Always included when only one file matches.' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'search_library',
         description:
           "Searches ONLY the Library section — formal markdown documents (specs, READMEs, docs/ folders) " +
@@ -474,6 +496,7 @@ export async function executeToolCall(
     case 'search_knowledge_base': return searchKnowledgeBase(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : undefined);
     case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
     case 'list_tasks':            return listTasks(db, args);
+    case 'find_files':            return findFiles(db, args);
     case 'search_library':        return searchLibrary(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : LIBRARY_RESULT_CONTENT_CHARS);
     case 'create_task':           return createTask(db, args, turn.sessionId);
     case 'update_task':           return updateTask(db, args, turn.sessionId);
@@ -576,6 +599,35 @@ export async function getKnowledgeBaseItems(db: Pool, query: string, limit: numb
   ].slice(0, limit);
 }
 
+/**
+ * For a project-scoped search: documents in OTHER projects whose title matches
+ * the query, so a file he names that is filed elsewhere is reported (with where
+ * it is) instead of being missed or swapped for a different document.
+ */
+async function matchesInOtherProjects(db: Pool, projectId: string, query: string): Promise<Record<string, unknown>> {
+  const terms = [...new Set((query.toLowerCase().match(/[a-z0-9][a-z0-9_-]{1,}/g) ?? [])
+    .flatMap((t) => t.replace(/[-_]+/g, ' ').split(' ')).filter((t) => t.length >= 3))];
+  if (terms.length === 0) return {};
+  const { rows } = await db.query<{ title: string; project: string; path: string | null }>(
+    `SELECT COALESCE(NULLIF(ci.title, ''), 'Untitled Document') AS title, COALESCE(p.name, ci.project_context, 'personal') AS project,
+            COALESCE(ci.metadata->>'path', ci.metadata->>'filename') AS path
+       FROM content_items ci LEFT JOIN projects p ON p.id = ci.project_context
+      WHERE ci.source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')
+        AND ci.project_context IS DISTINCT FROM $1
+        AND to_tsvector('english', coalesce(ci.title, '') || ' ' || coalesce(ci.metadata->>'filename', '')) @@ to_tsquery('english', $2)
+      ORDER BY ts_rank_cd(to_tsvector('english', coalesce(ci.title, '')), to_tsquery('english', $2)) DESC, ci.updated_at DESC
+      LIMIT 5`,
+    [projectId, terms.join(' | ')],
+  );
+  if (rows.length === 0) return {};
+  return {
+    inOtherProjects: rows.map((r) => ({ title: r.title, project: r.project, path: r.path ?? '' })),
+    otherProjectsNote: 'These documents match by title but are filed in OTHER projects, so this project-scoped search did not ' +
+      'include them. If he is asking about one of them, tell him which project and folder it is in and ask whether to ' +
+      'use it — never substitute a different document from this project for it.',
+  };
+}
+
 async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>, contentChars?: number): Promise<unknown> {
   const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
   if (query === '') return { error: 'query is required' };
@@ -619,7 +671,8 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>, cont
     url: item.url ?? null,
   })));
 
-  return { resultCount: results.length, results };
+  const elsewhere = projectId !== '' ? await matchesInOtherProjects(db, projectId, query) : {};
+  return { resultCount: results.length, results, ...elsewhere };
 }
 
 // ── search_knowledge_graph ───────────────────────────────────────────────────
@@ -754,6 +807,73 @@ async function listTasks(db: Pool, args: Record<string, unknown>): Promise<unkno
   };
 }
 
+// ── find_files ──────────────────────────────────────────────────────────────
+
+const FILE_TYPE_EXTENSIONS: Record<string, string[]> = {
+  excel: ['xlsx', 'xls', 'xlsm', 'csv'],
+  word: ['docx', 'doc'],
+  powerpoint: ['pptx', 'ppt'],
+  pdf: ['pdf'],
+  image: ['png', 'jpg', 'jpeg', 'gif', 'webp'],
+  drawio: ['drawio'],
+  markdown: ['md', 'markdown'],
+};
+const FIND_FILES_LIMIT = 25;
+const FIND_FILES_CONTENT_CHARS = 8_000;
+
+/** find_files — his files by folder, type and name (OneDrive, uploads, repo docs), with content for a single match. */
+async function findFiles(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  const folder = typeof args['folder'] === 'string' ? args['folder'].trim().replace(/^\/+|\/+$/g, '') : '';
+  const fileType = typeof args['fileType'] === 'string' ? args['fileType'] : 'any';
+  const nameWords = typeof args['name'] === 'string'
+    ? args['name'].toLowerCase().replace(/\.[a-z0-9]{2,5}$/, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 2)
+    : [];
+  const params: unknown[] = [];
+  const where = [`ci.source IN ('onedrive-document', 'user-upload', 'github-doc', 'github-content-store')`];
+  const pathExpr = `lower(COALESCE(ci.metadata->>'path', ci.metadata->>'filename', ci.title, ''))`;
+  if (folder !== '') {
+    params.push(folder.toLowerCase());
+    where.push(`(${pathExpr} LIKE $${params.length.toString()} || '/%' OR ${pathExpr} LIKE '%/' || $${params.length.toString()} || '/%')`);
+  }
+  const exts = FILE_TYPE_EXTENSIONS[fileType];
+  if (exts !== undefined) {
+    params.push(exts);
+    where.push(`(lower(COALESCE(ci.metadata->>'fileType', '')) = ANY($${params.length.toString()}) OR substring(${pathExpr} from '\\.([a-z0-9]+)$') = ANY($${params.length.toString()}))`);
+  }
+  for (const w of nameWords) {
+    params.push(`%${w}%`);
+    where.push(`(lower(COALESCE(ci.title, '')) LIKE $${params.length.toString()} OR ${pathExpr} LIKE $${params.length.toString()})`);
+  }
+  params.push(FIND_FILES_LIMIT);
+  const { rows } = await db.query<{ id: string; title: string; source: string; path: string | null; project: string | null; url: string | null; updated_at: Date; body: string | null }>(
+    `SELECT ci.id::text, COALESCE(NULLIF(ci.title, ''), 'Untitled') AS title, ci.source,
+            COALESCE(ci.metadata->>'path', ci.metadata->>'filename') AS path, COALESCE(p.name, ci.project_context) AS project,
+            ci.url, ci.updated_at, ci.body
+       FROM content_items ci LEFT JOIN projects p ON p.id = ci.project_context
+      WHERE ${where.join(' AND ')}
+      ORDER BY ci.updated_at DESC
+      LIMIT $${params.length.toString()}`,
+    params,
+  );
+  const withContent = rows.length === 1 || args['includeContent'] === true;
+  const files = rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    where: r.source === 'onedrive-document' ? `OneDrive: ${r.path ?? r.title}` : r.source === 'user-upload' ? `Uploaded: ${r.path ?? r.title}` : `Repo doc: ${r.path ?? r.title}`,
+    project: r.project ?? 'personal',
+    modified: r.updated_at.toISOString().slice(0, 10),
+    url: r.url ?? '',
+    ...(withContent && { content: (r.body ?? '').slice(0, FIND_FILES_CONTENT_CHARS) }),
+  }));
+  return {
+    resultCount: files.length,
+    files,
+    ...(files.length === 0 && {
+      hint: 'No file matched. Tell him plainly that you cannot find it (and what you looked for) — do not offer a different file as if it were the one he means. OneDrive files appear here after the hourly sync.',
+    }),
+  };
+}
+
 // ── search_library ──────────────────────────────────────────────────────────
 
 // Library content per result. Enough for the model to reason over a PRD or
@@ -853,10 +973,12 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>, contentCha
     };
   });
 
+  const elsewhere = projectId !== '' ? await matchesInOtherProjects(db, projectId, query) : {};
   return {
     resultCount: documents.length,
     matchedTerms: terms,
     documents,
+    ...elsewhere,
     ...(documents.length === 0 && {
       hint: projectId !== ''
         ? 'No Library documents matched in this project. Try broader or different terms, or search without the project filter.'
