@@ -39,6 +39,8 @@ export interface TurnHooks {
   contextUsed?: ContextUsed;
   /** Spreadsheets loaded into the model's code tool (needs the Responses API route). */
   codeFiles?: { ids: string[]; names: string[] };
+  /** Screenshots from this chat to show the model with this message (it sees the pictures, not just their reads). */
+  screenImages?: Array<{ label: string; url: string }>;
 }
 
 /** Tools that change something; left out when a turn must only read. */
@@ -143,6 +145,21 @@ export async function handleConversationTurn(
   const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
+  const images = hooks.screenImages ?? [];
+  const lastUser = messages.map((m) => m.role).lastIndexOf('user');
+  if (images.length > 0 && lastUser !== -1) {
+    const text = messages[lastUser]!.content as string;
+    messages[lastUser] = {
+      role: 'user',
+      content: [
+        { type: 'text', text },
+        ...images.flatMap((img) => [
+          { type: 'text' as const, text: `[The screen "${img.label}" from this chat, attached so you can see it — judge its layout and visual design from the picture itself.]` },
+          { type: 'image_url' as const, image_url: { url: img.url, detail: 'high' as const } },
+        ]),
+      ],
+    };
+  }
 
   const client = getFoundryClient();
   const allTools = await getToolDefinitions();

@@ -180,6 +180,7 @@ export async function buildScreensBlock(db: Pool, sessionId: string): Promise<st
   const journey = rows.filter((r) => r.in_journey).map((r) => r.name);
   return [
     '## Screens in this chat (the Screens panel — screenshots kept with this chat, read once)',
+    'When a screen\'s picture is attached to his message, judge layout and visual design from the picture itself, not only from these reads.',
     journey.length > 1 ? `Journey order: ${journey.join(' → ')}. He can run "Review this journey" to have them looked at together.` : '',
     ...rows.map((r, i) => {
       const reading = (r.reading ?? '').trim();
@@ -223,4 +224,37 @@ export async function reviewScreens(
     title,
     review: chosen.map((r, i) => `Screen ${(i + 1).toString()}: ${r.name}${r.annotation_note !== null ? ` (his note: ${r.annotation_note})` : ''}\n${r.reading ?? ''}`).join('\n\n'),
   };
+}
+
+/** Words that mean the question is about how a screen looks or is laid out. */
+const VISUAL_QUESTION = /\b(layout|looks?|looking|design|visual(ly)?|ui|ux|screens?|screenshot|page|spacing|spaced|align(ed|ment)?|clutter(ed)?|busy|crowded|hierarchy|colou?rs?|fonts?|typography|contrast|white ?space|density|dense|icons?|buttons?|cards?|wireframe|mock-?up|prototype|readab(le|ility)|accessib(le|ility)|prominen(t|ce)|emphasis|polish)\b/i;
+/** A screenshot added this recently is the one his message is about. */
+const JUST_ADDED_MS = 3 * 60_000;
+const MAX_SHOWN = 2;
+
+/**
+ * The screenshots to show the chat model with this message, so it judges
+ * layout and visual design from the pictures rather than only their reads:
+ * screens he names, else the latest one when it was just added or the
+ * question is about how something looks. Marked-up copies are preferred.
+ */
+export async function screensToShow(db: Pool, sessionId: string, message: string): Promise<Array<{ label: string; url: string }>> {
+  const { rows } = await db.query<ScreenRow>(`SELECT ${COLUMNS} FROM chat_screens WHERE session_id = $1 ORDER BY created_at DESC`, [sessionId]);
+  if (rows.length === 0) return [];
+  const lower = message.toLowerCase();
+  const named = rows.filter((r) => r.name.trim().length >= 4 && lower.includes(r.name.trim().toLowerCase())).slice(0, MAX_SHOWN);
+  const latest = rows[0]!;
+  const justAdded = Date.now() - latest.created_at.getTime() < JUST_ADDED_MS;
+  const chosen = named.length > 0 ? named : justAdded || VISUAL_QUESTION.test(message) ? [latest] : [];
+  const shown: Array<{ label: string; url: string }> = [];
+  for (const r of chosen) {
+    try {
+      const buffer = await downloadBlob(r.annotated_blob_name ?? r.blob_name);
+      const mime = r.annotated_blob_name !== null ? 'image/png' : r.content_type;
+      shown.push({ label: r.annotation_note !== null ? `${r.name} (his marks: ${r.annotation_note})` : r.name, url: `data:${mime};base64,${buffer.toString('base64')}` });
+    } catch (err) {
+      console.warn('[screens] could not load a screen to show:', err);
+    }
+  }
+  return shown;
 }

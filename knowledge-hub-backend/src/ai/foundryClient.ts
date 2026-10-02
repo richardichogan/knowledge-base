@@ -34,8 +34,14 @@ export type LlmToolChoice =
  * Message shape used internally for tool-calling turns — a superset of
  * ConversationMessage that also allows assistant tool_calls and tool results.
  */
+/** A user message can carry pictures (e.g. a screenshot being reviewed) alongside its text. */
+export type LlmContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } };
+
 export type LlmMessage =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string | LlmContentPart[] }
   | { role: 'assistant'; content: string | null; tool_calls?: LlmToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string };
 
@@ -415,7 +421,14 @@ function responsesBody(
         input.push({ type: 'function_call', call_id: call.id, name: call.function.name, arguments: call.function.arguments });
       }
     } else {
-      input.push({ role: m.role, content: m.content });
+      input.push({
+        role: m.role,
+        content: typeof m.content === 'string'
+          ? m.content
+          : m.content.map((p) => (p.type === 'text'
+            ? { type: 'input_text', text: p.text }
+            : { type: 'input_image', image_url: p.image_url.url, detail: p.image_url.detail ?? 'high' })),
+      });
     }
   }
   const functionTools = (tools ?? []).map((t) => ({ type: 'function', name: t.function.name, description: t.function.description, parameters: t.function.parameters, strict: false }));

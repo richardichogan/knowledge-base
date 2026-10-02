@@ -10,7 +10,7 @@ import { outputsChangedSince } from '../ai/chatOutputs.js';
 import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
 import { findModelChoice, GENERAL_CHAT_MODEL, PERSONA_MODELS } from '../ai/modelChoices.js';
-import { deleteSessionScreenBlobs, reviewScreens } from '../ai/chatScreens.js';
+import { deleteSessionScreenBlobs, reviewScreens, screensToShow } from '../ai/chatScreens.js';
 import { listChatFiles, ensureModelFiles, deleteSessionModelFiles } from '../ai/chatFiles.js';
 import { isTrackingDecisions, updateDecisionsFromExchange } from '../ai/chatDecisions.js';
 import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type TurnEvent } from '../ai/turnJobs.js';
@@ -136,6 +136,15 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
         ?? (effectiveModel === 'gpt-5.4' && model === undefined && specialist ? env.AZURE_OPENAI_DEPLOYMENT_GPT54 : 'gpt-5.4');
       hooks = { ...hooks, modelRoute: { deployment, api: 'responses' }, codeFiles: { ids, names: sheets.map((f) => f.filename) } };
       effectiveModel = 'gpt-5.4';
+    }
+  }
+
+  // Screenshots his message is about go to the model as pictures (layout and visual design), unless a screen review just looked at them.
+  if (screenReview === undefined) {
+    const screenImages = await screensToShow(db, effectiveSessionId, message).catch(() => []);
+    if (screenImages.length > 0) {
+      hooks.onActivity?.(screenImages.length === 1 ? 'Looking at the screen' : 'Looking at the screens');
+      hooks = { ...hooks, screenImages };
     }
   }
 
