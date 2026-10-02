@@ -303,6 +303,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceOutputOn, setVoiceOutputOn] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -571,6 +572,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // (not in the per-note/canvas panels, which keep their own chats).
   useEffect(() => {
     if (isNoteLinkedPanel) return undefined;
+    // Opened on a specific chat (e.g. from a Plan task) — that chat wins.
+    if (standalone && new URLSearchParams(window.location.search).get('session')) return undefined;
     let cancelled = false;
     void api.getMorningBriefing().then((r) => {
       if (cancelled || !r.success || r.data === null || briefingSeenToday(r.data.date)) return;
@@ -728,8 +731,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // refresh the relevant lists so they show up without a manual reload.
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
       void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+      // Open the reply at its first line, so it reads top-down (not at its last line).
       setTimeout(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const replies = messagesRef.current?.querySelectorAll<HTMLElement>('.ai-bubble--ai');
+        const reply = replies !== undefined && replies.length > 0 ? replies[replies.length - 1] : undefined;
+        if (reply !== undefined) scrollMessagesTo(reply);
+        else bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 50);
     },
     onError: (err: unknown) => {
@@ -965,6 +972,40 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       }, 50);
     }
   }
+
+  /** Scrolls the thread so `el` sits just below its top edge. */
+  function scrollMessagesTo(el: HTMLElement): void {
+    const box = messagesRef.current;
+    if (box === null) return;
+    const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 8;
+    box.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
+
+  /** Jumps to the previous or next of his own messages in the thread. */
+  function jumpToPrompt(direction: 'prev' | 'next'): void {
+    const box = messagesRef.current;
+    if (box === null) return;
+    const prompts = [...box.querySelectorAll<HTMLElement>('.ai-bubble--user')];
+    const boxTop = box.getBoundingClientRect().top;
+    const offsets = prompts.map((el) => el.getBoundingClientRect().top - boxTop);
+    const target = direction === 'prev'
+      ? prompts.filter((_el, i) => offsets[i]! < -4).pop()
+      : prompts.find((_el, i) => offsets[i]! > 12);
+    if (target !== undefined) scrollMessagesTo(target);
+  }
+
+  // Alt+↑ / Alt+↓ jump between his prompts.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+      e.preventDefault();
+      jumpToPrompt(e.key === 'ArrowUp' ? 'prev' : 'next');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); };
+  }, []);
+
+  const promptCount = messages.filter((m) => m.role === 'user').length;
 
   function handleSend(e: React.FormEvent): void {
     e.preventDefault();
@@ -1748,6 +1789,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         ))}
 
         <div
+          ref={messagesRef}
           className={compact ? 'ai-messages ai-messages--compact' : 'ai-messages cds--tile'}
           onClick={handleThreadClick}
           onScroll={(e) => {
@@ -1931,14 +1973,25 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           <div ref={bottomRef} />
         </div>
 
-        {showJumpToLatest && (
-          <button
-            type="button"
-            className="ai-jump-latest"
-            onClick={() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
-          >
-            ↓ Latest
-          </button>
+        {(showJumpToLatest || promptCount > 1) && (
+          <div className="ai-scroll-tools">
+            {promptCount > 1 && (
+              <div className="ai-prompt-nav" role="group" aria-label="Jump between your messages">
+                <button type="button" onClick={() => { jumpToPrompt('prev'); }} title="Previous message you sent (Alt+↑)" aria-label="Previous message you sent">↑</button>
+                <span className="ai-prompt-nav__label">Your messages</span>
+                <button type="button" onClick={() => { jumpToPrompt('next'); }} title="Next message you sent (Alt+↓)" aria-label="Next message you sent">↓</button>
+              </div>
+            )}
+            {showJumpToLatest && (
+              <button
+                type="button"
+                className="ai-jump-latest"
+                onClick={() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
+              >
+                ↓ Latest
+              </button>
+            )}
+          </div>
         )}
 
         <div className="ai-composer">
