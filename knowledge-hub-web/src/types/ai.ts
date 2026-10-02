@@ -42,6 +42,8 @@ export interface ChatRequest {
   noteId?: string;
   /** Look at the chat's screens together first: the journey, or the marked areas of some screens. */
   screenReview?: { mode: 'journey' | 'focus'; screenIds?: string[] };
+  /** False when this view has no Outputs panel (Think, the floating chat, mobile): deliverables go in the reply. */
+  outputsPanel?: boolean;
 }
 
 export interface ChatMessage {

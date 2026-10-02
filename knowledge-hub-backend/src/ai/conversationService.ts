@@ -41,7 +41,18 @@ export interface TurnHooks {
   codeFiles?: { ids: string[]; names: string[] };
   /** Screenshots from this chat to show the model with this message (it sees the pictures, not just their reads). */
   screenImages?: Array<{ label: string; url: string }>;
+  /** This view shows no Outputs panel: deliverables go in the reply, not save_output. */
+  noOutputsPanel?: boolean;
 }
+
+const NO_OUTPUTS_PANEL_NOTE = [
+  '## Where he is reading this chat',
+  'He is in a compact Athena panel (Think, the floating chat, or his phone) that has NO Outputs panel, Decisions ' +
+    'panel or Screens panel visible. Ignore any instruction to save deliverables with save_output: put the full ' +
+    'deliverable (spec, stories, prompt, draft) in your reply itself, with prompts and code in a fenced code block ' +
+    'so he can copy them. Do not say you saved anything to Outputs. If an earlier deliverable is listed under ' +
+    'Outputs below, he cannot see it here — give him its content in the reply when he needs it.',
+].join('\n');
 
 /** Tools that change something; left out when a turn must only read. */
 const WRITE_TOOLS = new Set(['create_task', 'update_task', 'create_note_draft', 'propose_note_edit', 'propose_map_changes', 'remember', 'forget_memory', 'save_output']);
@@ -142,7 +153,7 @@ export async function handleConversationTurn(
     used.screens = (screensBlock.match(/^### /gm) ?? []).length;
   }
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
-  const systemExtras = [standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock].filter((b) => b !== '').join('\n\n---\n\n');
+  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
   const images = hooks.screenImages ?? [];
@@ -163,7 +174,8 @@ export async function handleConversationTurn(
 
   const client = getFoundryClient();
   const allTools = await getToolDefinitions();
-  const tools = hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools;
+  const tools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
+    .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output');
   const requiredFirstTool = selectRequiredToolChoice(
     userMessage,
     tools,

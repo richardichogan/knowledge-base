@@ -61,7 +61,7 @@ export interface ChatTurnResult {
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
 async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}): Promise<ChatTurnResult> {
-  const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview } = reqBody as {
+  const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview, outputsPanel } = reqBody as {
     sessionId?: string;
     message?: string;
     model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
@@ -71,7 +71,10 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
     noteId?: string;
     /** Look at the chat's screens together first: the journey, or the marked areas of some screens. */
     screenReview?: { mode?: 'journey' | 'focus'; screenIds?: string[] };
+    /** False when the view has no Outputs panel (Think, floating chat, mobile). */
+    outputsPanel?: boolean;
   };
+  if (outputsPanel === false) hooks = { ...hooks, noOutputsPanel: true };
 
   if (!message) throw new ValidationError('message required', { message: 'required' });
 

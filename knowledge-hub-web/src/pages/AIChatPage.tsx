@@ -672,6 +672,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             ...(ctx && { pageContext: ctx }),
             ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
             ...(screenReview !== undefined && { screenReview }),
+            outputsPanel: standalone && !isMobile,
           },
           handlers,
           signal,
@@ -1882,13 +1883,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                       key={`${o.id}-${o.version.toString()}`}
                       type="button"
                       className="ai-output-chip"
-                      onClick={() => { if (standalone) openOutput(o.id); }}
-                      disabled={!standalone}
-                      title={standalone ? 'Open in the Outputs panel' : 'Open the full Athena window to see Outputs'}
+                      onClick={() => {
+                        if (standalone && !isMobile) openOutput(o.id);
+                        else if (sessionId !== null) window.open(`/chat?session=${encodeURIComponent(sessionId)}`, '_blank', 'noopener');
+                      }}
+                      title={standalone && !isMobile ? 'Open in the Outputs panel' : 'Open this chat in the full Athena window, where Outputs are shown'}
                     >
                       <DocumentIcon size={14} aria-hidden="true" />
                       {o.version > 1 ? 'Updated' : 'Saved'}: {o.title} · v{o.version}
-                      {standalone && <span className="ai-output-chip__open">Open</span>}
+                      <span className="ai-output-chip__open">{standalone && !isMobile ? 'Open' : 'Open in Athena'}</span>
                     </button>
                   ))}
                 </div>
