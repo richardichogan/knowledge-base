@@ -708,8 +708,9 @@ export class KnowledgeHubApi {
   }
 
   /** Lists past chat sessions for the sidebar, most recently active first. */
+  /** The main chat list: chats started from a Think note stay with their note, not here. */
   async listChatSessions(): Promise<ApiResponse<{ sessions: ChatSessionSummary[] }>> {
-    const r = await this.client.get<ApiResponse<{ sessions: ChatSessionSummary[] }>>('/api/ai/sessions');
+    const r = await this.client.get<ApiResponse<{ sessions: ChatSessionSummary[] }>>('/api/ai/sessions', { params: { excludeThink: '1' } });
     return r.data;
   }
 

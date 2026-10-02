@@ -398,11 +398,11 @@ router.patch('/session/:sessionId/project', (req: Request, res: Response, next: 
  * GET /api/ai/sessions
  * Lists past chat sessions for the sidebar, most recently active first.
  */
-router.get('/sessions', (_req: Request, res: Response, next: NextFunction): void => {
+router.get('/sessions', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
     try {
       const db = getDb();
-      const sessions = await listSessions(db);
+      const sessions = await listSessions(db, undefined, req.query['excludeThink'] === '1');
       const body: ApiSuccess<{ sessions: typeof sessions }> = { success: true, data: { sessions } };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {

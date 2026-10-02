@@ -255,7 +255,8 @@ export async function searchSessionIds(db: Pool, query: string, limit = 50): Pro
 }
 
 /** Lists sessions for the chat history sidebar: pinned first, then most recently active. */
-export async function listSessions(db: Pool, limit = 50): Promise<SessionListItem[]> {
+/** Chats for the sidebar; `excludeThink` leaves out chats started from a Think note (they live with their note). */
+export async function listSessions(db: Pool, limit = 50, excludeThink = false): Promise<SessionListItem[]> {
   const { rows } = await db.query<{
     id: string;
     title: string | null;
@@ -270,9 +271,10 @@ export async function listSessions(db: Pool, limit = 50): Promise<SessionListIte
             (SELECT content FROM ai_chat_messages m WHERE m.session_id = s.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS preview
        FROM ai_chat_sessions s
       WHERE EXISTS (SELECT 1 FROM ai_chat_messages m WHERE m.session_id = s.id)
+        AND ($2::boolean = false OR s.from_think = false)
       ORDER BY s.pinned DESC, s.updated_at DESC
       LIMIT $1`,
-    [limit],
+    [limit, excludeThink],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -315,8 +317,8 @@ export async function getSessionIdForNote(db: Pool, noteId: string): Promise<str
 export async function linkSessionToNote(db: Pool, sessionId: string, noteId: string): Promise<void> {
   await db.query(`UPDATE ai_chat_sessions SET note_id = NULL WHERE note_id = $1 AND id != $2`, [noteId, sessionId]);
   await db.query(
-    `INSERT INTO ai_chat_sessions (id, note_id) VALUES ($1, $2)
-       ON CONFLICT (id) DO UPDATE SET note_id = EXCLUDED.note_id`,
+    `INSERT INTO ai_chat_sessions (id, note_id, from_think) VALUES ($1, $2, true)
+       ON CONFLICT (id) DO UPDATE SET note_id = EXCLUDED.note_id, from_think = true`,
     [sessionId, noteId],
   );
 }
