@@ -1,0 +1,9 @@
+{
+  "name": "kh-screenshot-service",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Renders public web pages (or an HTML mock-up) to images for Athena. Internal only.",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": { "playwright": "1.63.0" }
+}
