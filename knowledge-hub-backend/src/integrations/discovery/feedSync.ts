@@ -133,7 +133,7 @@ export async function shelveStaleArticles(db: Pool): Promise<number> {
       WHERE source = 'discovered-article'
         AND workflow_state = 'to-review'
         AND GREATEST(indexed_at, COALESCE(NULLIF(metadata->>'restoredAt', '')::timestamptz, 'epoch'::timestamptz))
-            < now() - (CASE WHEN COALESCE(relevance_score, 0) >= $1 THEN $2 ELSE $3 END) * interval '1 day'`,
+            < now() - (CASE WHEN COALESCE(relevance_score, 0) >= $1::real THEN $2::int ELSE $3::int END) * interval '1 day'`,
     [STRONG_SCORE, SHELVE_AFTER_DAYS_STRONG, SHELVE_AFTER_DAYS],
   );
   return (low.rowCount ?? 0) + (result.rowCount ?? 0);
