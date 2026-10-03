@@ -4,7 +4,7 @@
  * the floating chat widget (FloatingAIChat.tsx) — same logic, lighter chrome.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
@@ -304,6 +304,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [voiceOutputOn, setVoiceOutputOn] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  /** After he sends, room below the thread so his prompt can sit at the top while the reply comes in. */
+  const [holdPromptTop, setHoldPromptTop] = useState(false);
+  const promptRoomRef = useRef<HTMLDivElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -732,13 +735,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // refresh the relevant lists so they show up without a manual reload.
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
       void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
-      // Open the reply at its first line, so it reads top-down (not at its last line).
-      setTimeout(() => {
-        const replies = messagesRef.current?.querySelectorAll<HTMLElement>('.ai-bubble--ai');
-        const reply = replies !== undefined && replies.length > 0 ? replies[replies.length - 1] : undefined;
-        if (reply !== undefined) scrollMessagesTo(reply);
-        else bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 50);
+      // No scroll here: his prompt stays at the top of the view with the reply beneath it.
     },
     onError: (err: unknown) => {
       // This view let go of the turn (switched chats) — it finishes in its own chat.
@@ -964,13 +961,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       },
     ]);
     if (role === 'user') {
-      // Scroll immediately so the user's own message (and the "thinking"
-      // indicator) is visible right away, rather than only once the reply
-      // arrives — a reply can take 10-60s, during which the view previously
-      // stayed scrolled to wherever it was before sending.
-      setTimeout(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 50);
+      // Bring his prompt to the top of the view and keep it there while the reply
+      // arrives beneath it (the space below the thread makes room for that).
+      setHoldPromptTop(true);
+      window.setTimeout(() => {
+        const prompts = messagesRef.current?.querySelectorAll<HTMLElement>('.ai-bubble--user');
+        const last = prompts !== undefined && prompts.length > 0 ? prompts[prompts.length - 1] : undefined;
+        if (last !== undefined) scrollMessagesTo(last);
+      }, 80);
     }
   }
 
@@ -1007,6 +1005,37 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }, []);
 
   const promptCount = messages.filter((m) => m.role === 'user').length;
+
+  // Size the room below the thread to just what keeps his last prompt at the top of
+  // the view — it shrinks to nothing as the reply fills the screen.
+  useLayoutEffect(() => {
+    const box = messagesRef.current;
+    const room = promptRoomRef.current;
+    if (!holdPromptTop || box === null || room === null) return;
+    const prompts = box.querySelectorAll<HTMLElement>('.ai-bubble--user');
+    const last = prompts.length > 0 ? prompts[prompts.length - 1] : undefined;
+    if (last === undefined) return;
+    const boxTop = box.getBoundingClientRect().top;
+    const promptTop = last.getBoundingClientRect().top - boxTop + box.scrollTop;
+    const roomTop = room.getBoundingClientRect().top - boxTop + box.scrollTop;
+    room.style.height = `${Math.max(0, box.clientHeight - (roomTop - promptTop) - 8).toString()}px`;
+  });
+
+  // Opening a chat (its history just loaded): jump straight to the last message.
+  const wasRestoringRef = useRef(isRestoringHistory);
+  useEffect(() => {
+    if (wasRestoringRef.current && !isRestoringHistory) {
+      setHoldPromptTop(false);
+      const toEnd = (): void => {
+        const box = messagesRef.current;
+        if (box !== null) box.scrollTop = box.scrollHeight;
+      };
+      // Once rendered, and again shortly after in case late content (images, cards) changes the height.
+      window.setTimeout(toEnd, 0);
+      window.setTimeout(toEnd, 400);
+    }
+    wasRestoringRef.current = isRestoringHistory;
+  }, [isRestoringHistory]);
 
   function handleSend(e: React.FormEvent): void {
     e.preventDefault();
@@ -1973,6 +2002,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               <InlineLoading description="Athena is thinking…" />
             </div>
           ))}
+          {holdPromptTop && <div ref={promptRoomRef} className="ai-prompt-room" aria-hidden="true" />}
           <div ref={bottomRef} />
         </div>
 

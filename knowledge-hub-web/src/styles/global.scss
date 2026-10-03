@@ -12069,6 +12069,9 @@ $interactive:      #0f62fe;
 // Room at the bottom so the last items (next steps, chips) can scroll clear of the floating pills.
 .ai-messages--with-tools { padding-bottom: 3.25rem; }
 
+// Space under the thread after he sends, so his prompt can sit at the top while the reply arrives.
+.ai-prompt-room { flex-shrink: 0; height: 0; }
+
 .ai-scroll-tools {
   align-self: center;
   position: relative;
