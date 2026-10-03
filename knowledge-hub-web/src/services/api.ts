@@ -638,8 +638,8 @@ export class KnowledgeHubApi {
 
   // ─── Second opinions: "Ask another model" ──────────────────────────────────
 
-  async listModelChoices(): Promise<ApiResponse<ModelChoiceApi[]>> {
-    const r = await this.client.get<ApiResponse<ModelChoiceApi[]>>('/api/ai/models');
+  async listModelChoices(persona?: string): Promise<ApiResponse<ModelChoiceApi[]>> {
+    const r = await this.client.get<ApiResponse<ModelChoiceApi[]>>('/api/ai/models', { params: persona !== undefined ? { persona } : undefined });
     return r.data;
   }
 

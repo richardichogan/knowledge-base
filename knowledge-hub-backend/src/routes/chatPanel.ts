@@ -40,7 +40,7 @@ import { randomUUID } from 'node:crypto';
 import { handleConversationTurn } from '../ai/conversationService.js';
 import { getTurnForAlternate, replaceMessageContent } from '../ai/chatSessionStore.js';
 import { startTurnJob } from '../ai/turnJobs.js';
-import { MODEL_CHOICES, findModelChoice } from '../ai/modelChoices.js';
+import { MODEL_CHOICES, findModelChoice, defaultModelIdForPersona } from '../ai/modelChoices.js';
 import { AI_BACKGROUND_TURN_BUDGET_MS } from '../config/constants.js';
 import { getExcludedSources, excludeSource, includeSource } from '../ai/contextUsage.js';
 import { writeXlsx, type SheetRows } from '../integrations/github/xlsxWriter.js';
@@ -230,8 +230,10 @@ router.delete('/screens/:screenId', route(async (req, res) => {
 
 // ── Ask another model ─────────────────────────────────────────────────────────
 
-router.get('/models', route(async (_req, res) => {
-  ok(res, MODEL_CHOICES.map((c) => ({ id: c.id, label: c.label })));
+router.get('/models', route(async (req, res) => {
+  // `current` marks the model that wrote this persona's replies: asking it again just repeats the reply.
+  const current = defaultModelIdForPersona(typeof req.query['persona'] === 'string' ? req.query['persona'] : 'general');
+  ok(res, MODEL_CHOICES.map((c) => ({ id: c.id, label: c.label, current: c.id === current })));
 }));
 
 router.post('/session/:sessionId/messages/:messageId/alternates', route(async (req, res) => {

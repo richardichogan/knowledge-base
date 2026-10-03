@@ -96,7 +96,15 @@ export const ReplyAlternates: React.FC<ReplyAlternatesProps> = ({ sessionId, mes
             <ul className="ai-alts__menu" role="menu">
               {models.map((m) => (
                 <li key={m.id} role="none">
-                  <button type="button" role="menuitem" onClick={() => { ask(m); }}>{m.label}</button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={m.current === true}
+                    title={m.current === true ? 'This model wrote the reply above — pick a different one to compare' : undefined}
+                    onClick={() => { ask(m); }}
+                  >
+                    {m.label}{m.current === true && <span className="ai-alts__menu-note"> — wrote this reply</span>}
+                  </button>
                 </li>
               ))}
             </ul>

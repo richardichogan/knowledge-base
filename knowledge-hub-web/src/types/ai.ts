@@ -239,6 +239,8 @@ export interface ChatResponse {
 export interface ModelChoiceApi {
   id: string;
   label: string;
+  /** This is the model that wrote the persona's replies, so asking it again would just repeat the reply. */
+  current?: boolean;
 }
 
 /** Another model's answer to one of Athena's replies ('original' = an answer replaced by "Use this one"). */

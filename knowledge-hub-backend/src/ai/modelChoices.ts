@@ -4,6 +4,7 @@
  * API to use (both live on the reasoning endpoint).
  */
 import type { AiModel } from '../types/aiContext.js';
+import { env } from '../config/env.js';
 
 export interface ModelRoute {
   deployment: string;
@@ -33,4 +34,20 @@ export const PERSONA_MODELS: Record<string, string> = {
 
 export function findModelChoice(id: string): ModelChoice | undefined {
   return MODEL_CHOICES.find((c) => c.id === id);
+}
+
+/** Personas that run on the reasoning slot, whose deployment (and API) the environment decides. */
+const REASONING_SLOT_PERSONAS = new Set(['brainstorming', 'blog_post', 'demo_designer', 'web_designer']);
+
+/**
+ * The MODEL_CHOICES id a persona's replies normally come from — so "Ask another model" can say which one
+ * would just repeat the reply it is under. Mirrors the routing in routes/ai.ts.
+ */
+export function defaultModelIdForPersona(persona: string): string {
+  if (REASONING_SLOT_PERSONAS.has(persona)) {
+    const byEnv = MODEL_CHOICES.find((c) => c.route?.deployment === env.AZURE_OPENAI_DEPLOYMENT_GPT54
+      && (c.route.api === 'responses') === (env.AZURE_OPENAI_GPT54_API === 'responses'));
+    return byEnv?.id ?? 'gpt-5.4';
+  }
+  return PERSONA_MODELS[persona] ?? GENERAL_CHAT_MODEL;
 }

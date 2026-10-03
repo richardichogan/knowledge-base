@@ -907,8 +907,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   useEffect(() => {
-    void api.listModelChoices().then((r) => { if (r.success) setModelChoices(r.data); }).catch(() => { /* menu stays empty */ });
-  }, []);
+    void api.listModelChoices(persona).then((r) => { if (r.success) setModelChoices(r.data); }).catch(() => { /* menu stays empty */ });
+  }, [persona]);
 
   useEffect(() => {
     onBusyChange?.(chatMutation.isPending);

@@ -1,5 +1,5 @@
 /**
- * components/athena/MoveToThink.tsx — the chat's "move to Think" button. When a chat has become a spec,
+ * components/athena/MoveToThink.tsx — the chat's "Continue in Think" button. When a chat has become a spec,
  * it makes a structured first-draft note from the conversation (what was established, decisions, open
  * questions, sources — nothing invented), opens it in Think, and moves the conversation in alongside
  * it so Athena keeps everything discussed while you iterate on the note. The other option keeps the
@@ -63,16 +63,17 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
         type="button"
         className="ai-move__button"
         aria-expanded={open}
-        aria-label="Move to Think"
-        title="Move this chat to a Think note"
+        aria-label="Continue in Think"
+        title="Continue this in a Think note — a structured spec you can keep refining with Athena"
         disabled={disabled}
         onClick={() => { setOpen((o) => !o); setError(null); }}
       >
         <Export size={16} aria-hidden="true" />
+        <span className="ai-move__label">Continue in Think</span>
       </button>
       {open && (
-        <div className="ai-move__panel" role="dialog" aria-label="Move to Think">
-          <h3 className="ai-move__title">Move this chat to Think</h3>
+        <div className="ai-move__panel" role="dialog" aria-label="Continue in Think">
+          <h3 className="ai-move__title">Continue in Think</h3>
           <label className="ai-move__option">
             <input type="radio" name="move-kind" checked={kind === 'spec'} onChange={() => { setKind('spec'); }} disabled={busy !== null} />
             <span>
