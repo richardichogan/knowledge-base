@@ -70,8 +70,16 @@ const ACTION_PATTERNS: Array<{ action: ComposerAction; pattern: RegExp }> = [
   { action: 'critique', pattern: /\b(critique|poke holes|tear apart|sanity check|challenge this|weak points|feedback on)\b/i },
   { action: 'code', pattern: /\b(refactor|stack trace|typescript|javascript|regex|compile error|unit test|this function|code sample)\b/i },
   { action: 'note', pattern: /\b(think note|jot down|capture this|save this as a note|make a note)\b/i },
-  { action: 'draft', pattern: /\b(draft|write (me )?(a|an|the)|blog post|newsletter|article|outline)\b/i },
+  // Only creation verbs count. Nouns like "article", "blog post" or "newsletter" are everywhere in
+  // ordinary questions ("review the attached article", "the newsletter is due Friday").
+  { action: 'draft', pattern: /\b(draft (me |up |a |an |the |my |some )|write (me |up |out )?(a|an|the|my|some|up)\b|compose (a|an|the)\b|put together (a|an|the)\b|outline (a|an|the|for)\b)/i },
 ];
+
+/**
+ * A message that asks for a view on something — a review, an assessment, an explanation, a comparison —
+ * is a question, never a request to produce something, whatever else it mentions.
+ */
+const QUESTION_INTENT = /\b(review|assess|evaluate|analy[sz]e|summari[sz]e|explain|compare|what do you think|does (this|it|that)|is (this|it|that)|am i|are (we|they)|should (i|we)|why|how (does|do|would|can))\b/i;
 
 const SLASH_COMMAND_RE = /^\/([a-z]+)(?=\s|$)/i;
 const MENTION_RE = /(^|\s)@([a-z0-9][a-z0-9-]*)/gi;
@@ -108,7 +116,10 @@ function inferProject(text: string, projects: ComposerProject[]): ComposerProjec
 }
 
 function inferAction(text: string): ComposerAction | undefined {
-  return ACTION_PATTERNS.find(({ pattern }) => pattern.test(text))?.action;
+  const found = ACTION_PATTERNS.find(({ pattern }) => pattern.test(text))?.action;
+  // A draft is never inferred for a question or review; an explicit "critique" or "task" still is.
+  if (found === 'draft' && QUESTION_INTENT.test(text)) return undefined;
+  return found;
 }
 
 /**
