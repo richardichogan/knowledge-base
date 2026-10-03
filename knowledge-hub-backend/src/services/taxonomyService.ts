@@ -47,15 +47,12 @@ const POLICY_BY_TYPE: Record<string, TaggingPolicy> = {
   // Think and Plan: tagged by id through autoTagging.ts (notes carry their own project field)
   note: { mode: 'ai', mayPropose: true, projectTag: false },
   task: { mode: 'ai', mayPropose: false, projectTag: false },
-  // My Work: items worth reading get AI tags from the existing taxonomy plus the project tag
-  'github-pr': AI_EXISTING, 'github-issue': AI_EXISTING, 'github-release': AI_EXISTING,
-  'gitlab-mr': AI_EXISTING, 'gitlab-issue': AI_EXISTING, 'gitlab-release': AI_EXISTING,
+  // My Work: calendar, to-dos and the user's own published content
   'cms-blog': AI_EXISTING, 'cms-newsletter': AI_EXISTING, 'cms-podcast-show-notes': AI_EXISTING, 'cms-session-summary': AI_EXISTING,
   'graph-calendar': AI_EXISTING, 'graph-todo': AI_EXISTING,
-  // My Work: build and delivery activity is tagged by project only
-  'github-commit': PROJECT_ONLY, 'github-action': PROJECT_ONLY, 'github-deployment': PROJECT_ONLY, 'github-pr-review': PROJECT_ONLY,
-  'gitlab-commit': PROJECT_ONLY, 'gitlab-deployment': PROJECT_ONLY, 'gitlab-pipeline': PROJECT_ONLY,
-  // Library and Projects: nothing new
+  // Library and Projects (GitHub and GitLab items belong to Projects): never tagged
+  'github-pr': NONE, 'github-issue': NONE, 'github-release': NONE, 'github-commit': NONE, 'github-action': NONE, 'github-deployment': NONE, 'github-pr-review': NONE,
+  'gitlab-mr': NONE, 'gitlab-issue': NONE, 'gitlab-release': NONE, 'gitlab-commit': NONE, 'gitlab-deployment': NONE, 'gitlab-pipeline': NONE,
   'github-doc': NONE, 'github-content-store': NONE, 'onedrive-document': NONE, 'user-upload': NONE, 'ica-document': NONE, image: NONE,
 };
 
