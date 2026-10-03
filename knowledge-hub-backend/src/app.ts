@@ -68,6 +68,10 @@ export function createApp(): express.Application {
   // Document uploads — multipart/form-data for PDF/DOCX/PPTX/XLSX
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
   app.use('/api/documents/upload', upload.single('file'));
+  // Large notes: BlockNote's JSON is several times the size of the text, so a long note (or a big
+  // edit applied to one) is well past 1mb. Chat turns carry the open note's text too.
+  app.use('/api/notes', express.json({ limit: '25mb' }));
+  app.use('/api/ai', express.json({ limit: '8mb' }));
   app.use(express.json({ limit: '1mb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────

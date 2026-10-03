@@ -14003,3 +14003,91 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
 @media (max-width: 720px) {
   .dc-sources__item { grid-template-columns: auto 1fr auto; .dc-sources__status { grid-column: 2 / 4; white-space: normal; } }
 }
+
+// Long edit previews are clamped; "Show all" expands them.
+.note-edit-card__size { font-weight: 400; color: var(--cds-text-helper); }
+.note-edit-card__preview--clamped {
+  max-height: 13rem;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+.note-edit-card__more {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--kh-accent);
+  font-size: 0.75rem;
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+}
+
+// ── Move to Think (chat header) ──────────────────────────────────────────────
+.ai-move {
+  position: relative;
+  display: inline-flex;
+
+  &__button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 0;
+    border-radius: 0.25rem;
+    background: none;
+    color: var(--cds-icon-primary);
+    cursor: pointer;
+
+    &:hover:not(:disabled) { background: var(--cds-layer-hover-01); }
+    &:disabled { opacity: 0.4; cursor: default; }
+  }
+
+  &__panel {
+    position: absolute;
+    top: 2.25rem;
+    right: 0;
+    z-index: 30;
+    width: min(26rem, 88vw);
+    padding: 1rem;
+    border: 1px solid var(--cds-border-subtle-01);
+    border-radius: 0.5rem;
+    background: var(--cds-layer-02);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    text-align: left;
+  }
+
+  &__title { margin: 0 0 0.75rem; font-size: 0.9375rem; font-weight: 600; }
+
+  &__option {
+    display: flex;
+    gap: 0.625rem;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
+
+    input { margin-top: 0.2rem; }
+    strong { display: block; }
+  }
+
+  &__hint { display: block; margin-top: 0.125rem; color: var(--cds-text-secondary); line-height: 1.4; }
+  &__status { margin: 0.25rem 0 0.5rem; font-size: 0.8125rem; color: var(--kh-accent); }
+  &__error { margin: 0.25rem 0 0.5rem; font-size: 0.8125rem; color: #fa4d56; }
+  &__actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+
+  &__cancel, &__go {
+    padding: 0.375rem 0.875rem;
+    border: 1px solid var(--cds-border-subtle-01);
+    border-radius: 1rem;
+    background: none;
+    color: var(--cds-text-primary);
+    font-size: 0.8125rem;
+    cursor: pointer;
+
+    &:disabled { opacity: 0.5; cursor: default; }
+  }
+  &__go { background: var(--kh-accent); border-color: var(--kh-accent); color: #000; }
+}

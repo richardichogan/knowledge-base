@@ -85,22 +85,52 @@ export function noteHeadings(blocks: NoteBlock[]): string[] {
  * Problems with proposed edits against the note's current blocks: section
  * headings that aren't in the note, and "find" text that isn't in it.
  */
-export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlock[]): string[] {
-  const headings = noteHeadings(blocks).map((h) => norm(h));
-  const texts = flattenBlocks(blocks).map(blockText);
+/** Headings written in a block of markdown ("## Title" lines), in order. */
+function markdownHeadings(markdown: string | undefined): string[] {
+  return (markdown ?? '').split('\n').map((l) => /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(l)?.[1]).filter((h): h is string => h !== undefined).map((h) => norm(h));
+}
+
+/**
+ * Problems with proposed edits against the note's current blocks: section headings that aren't in
+ * the note, and "find" text that isn't in it. Edits apply in order, so each is checked against the
+ * note as the EARLIER edits will have left it — a section renamed or added by edit 1 can be the
+ * target of edit 2, and one removed by edit 1 can't.
+ */
+export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlock[], alreadyProposed = 0): string[] {
+  let headings = noteHeadings(blocks).map((h) => norm(h));
+  let texts = flattenBlocks(blocks).map(blockText);
   const problems: string[] = [];
+  // `alreadyProposed` edits (earlier calls this turn) shape the headings but aren't reported on again; numbering restarts after them.
+  const label = (i: number): string => String(i - alreadyProposed + 1);
+  const hasHeading = (target: string): boolean => headings.some((h) => h === target || h.includes(target) || (target.includes(h) && h !== ''));
   edits.forEach((e, i) => {
-    const n = String(i + 1);
-    if (e.heading !== undefined && (e.action === 'add_to_section' || e.action === 'replace_section' || e.action === 'delete_section')) {
-      const target = norm(e.heading);
-      const found = headings.some((h) => h === target || h.includes(target) || (target.includes(h) && h !== ''));
-      if (!found) problems.push(`edit ${n}: there is no heading "${e.heading}" in the note`);
+    const n = label(i);
+    const reported = i >= alreadyProposed;
+    const wanted = e.heading !== undefined ? norm(e.heading) : '';
+    if (reported && wanted !== '' && (e.action === 'add_to_section' || e.action === 'replace_section' || e.action === 'delete_section') && !hasHeading(wanted)) {
+      problems.push(`edit ${n}: there is no heading "${e.heading ?? ''}" in the note${i > 0 ? ' (as it will be after the edits before this one)' : ''}`);
     }
-    if (e.action === 'replace_text' && e.find !== undefined) {
+    if (reported && e.action === 'replace_text' && e.find !== undefined) {
       const find = e.find;
       const found = texts.some((t) => t.includes(find)) || texts.some((t) => norm(t).includes(norm(find)));
       if (!found) problems.push(`edit ${n}: the text to replace ("${find.slice(0, 80)}") is not in the note — "find" must be copied exactly from a single paragraph`);
     }
+    // Carry this edit's effect on the headings forward.
+    const written = markdownHeadings(e.markdown);
+    if (e.action === 'replace_all') {
+      headings = written;
+      texts = (e.markdown ?? '').split('\n').filter((l) => l.trim() !== '');
+    } else if (e.action === 'replace_section' && wanted !== '') {
+      const at = headings.findIndex((h) => h === wanted || h.includes(wanted) || (wanted.includes(h) && h !== ''));
+      // A replacement that brings its own heading replaces the heading too; otherwise the heading stays.
+      if (at >= 0 && written.length > 0 && !written.includes(wanted)) headings.splice(at, 1, ...written);
+      else if (written.length > 0) headings.push(...written.filter((h) => !headings.includes(h)));
+    } else if (e.action === 'delete_section' && wanted !== '') {
+      headings = headings.filter((h) => !(h === wanted || h.includes(wanted)));
+    } else if (written.length > 0) {
+      headings.push(...written);
+    }
+    if (e.action !== 'replace_all' && e.markdown !== undefined) texts = [...texts, ...e.markdown.split('\n').filter((l) => l.trim() !== '')];
   });
   return problems;
 }

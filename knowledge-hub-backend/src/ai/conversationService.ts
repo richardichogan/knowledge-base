@@ -9,7 +9,7 @@ import { getExcludedSources, filterExcluded, recordToolSources, type ContextUsed
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
 import { buildScreensBlock } from './chatScreens.js';
-import type { LlmMessage } from './foundryClient.js';
+import type { LlmMessage, LlmToolChoice } from './foundryClient.js';
 import type { ToolImages } from './chatTools.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
@@ -54,6 +54,9 @@ const NO_OUTPUTS_PANEL_NOTE = [
     'so he can copy them. Do not say you saved anything to Outputs. If an earlier deliverable is listed under ' +
     'Outputs below, he cannot see it here — give him its content in the reply when he needs it.',
 ].join('\n');
+
+/** Output budget for a turn that edits the open note: a long redraft must not be cut off. */
+const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
 const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'propose_note_edit', 'propose_map_changes', 'remember', 'forget_memory', 'save_output']);
@@ -185,7 +188,15 @@ export async function handleConversationTurn(
     toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined,
     mapOutlineResult !== null,
   );
-  const maxTokens = model === 'gpt-5.4' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
+  // Asked to change the open note: she may need to write a lot (a full redraft, a long spec), so the
+  // output budget is raised well above the chat default — otherwise a long edit is cut off mid-call.
+  const editsOpenNote = requiredFirstTool !== undefined && requiredFirstTool !== 'auto'
+    && requiredFirstTool.function.name === 'propose_note_edit';
+  const maxTokens = editsOpenNote
+    ? NOTE_EDIT_MAX_TOKENS
+    : model === 'gpt-5.4' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
+  let editRescued = false;
+  let nextRoundTool: LlmToolChoice | undefined;
 
   // Reasoning-model turns that also call tools can take long enough,
   // round after round, that the frontend's own request timeout fires first
@@ -206,7 +217,8 @@ export async function handleConversationTurn(
       return "This is taking longer than expected — could you try again, or ask a more specific question?";
     }
 
-    const roundToolChoice = i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto';
+    const roundToolChoice = nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
+    nextRoundTool = undefined;
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
     // Streams when someone is following live, or when a specific deployment is chosen (only the streaming call takes one).
     const response = hooks.onDelta !== undefined || hooks.modelRoute !== undefined
@@ -219,6 +231,26 @@ export async function handleConversationTurn(
       : await client.chatWithTools(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs);
 
     if (response.toolCalls.length === 0) {
+      // Asked to edit the open note but nothing was proposed: she wrote the content into the reply, or her
+      // edit call failed and she carried on as if it hadn't. One retry with the edit forced; if that fails
+      // too, say so plainly rather than let her claim an edit that doesn't exist.
+      if (editsOpenNote && (toolContext.noteEdits?.length ?? 0) === 0 && response.content !== null && response.content.trim() !== ''
+        && (response.content.length > 900 || /\b(propos|apply|preview)/i.test(response.content))) {
+        if (!editRescued) {
+          editRescued = true;
+          hooks.onReset?.();
+          hooks.onActivity?.('Putting that into a proposed edit');
+          messages.push({ role: 'assistant', content: response.content });
+          messages.push({
+            role: 'user',
+            content: 'No edit has been proposed to the note yet. Call propose_note_edit now with the content you wrote (replace_all for a complete redraft, or section by section for a long one — several calls are fine), then reply in one short line. Do not paste the content in your reply.',
+          });
+          const forced = tools.find((t) => t.function.name === 'propose_note_edit');
+          if (forced !== undefined) nextRoundTool = { type: 'function', function: { name: 'propose_note_edit' } };
+          continue;
+        }
+        return "I couldn't put that edit together — it was probably too large for one go. Try asking for it a section at a time (for example \"rewrite the Users section\"), and I'll propose each one for you to apply.";
+      }
       if (response.content && response.content.trim() !== '') {
         return response.content;
       }
@@ -251,6 +283,9 @@ export async function handleConversationTurn(
         if (used !== undefined) recordToolSources(used, call.function.name, result);
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
+      }
+      if (result !== null && typeof result === 'object' && 'error' in result) {
+        console.warn(`[ai] tool ${call.function.name} returned an error: ${String((result as { error: unknown }).error).slice(0, 400)}`);
       }
       // Pictures a tool captured (screenshots) go to the model as images, not as text.
       if (result !== null && typeof result === 'object' && '__images' in result) {

@@ -42,7 +42,7 @@ const VIEW_MODES: { key: ViewMode; label: string; Icon: typeof Document }[] = [
 // bounded so a huge document doesn't blow the model's context window.
 // Was 20,000 — too small for full meeting transcripts, which caused Athena to
 // answer as if the back half of a note (e.g. the Q&A section) didn't exist.
-const NOTE_CONTEXT_MAX_CHARS = 100_000;
+const NOTE_CONTEXT_MAX_CHARS = 150_000;
 
 // Per-image cap on the vision description passed to Athena. Was 600, which
 // cut most descriptions off before any of the slide/diagram detail.

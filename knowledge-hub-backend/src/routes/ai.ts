@@ -6,6 +6,7 @@ import { handleConversationTurn, type TurnHooks, summariseSession, rollUpConvers
 import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessionIds, setPendingTurn, getPendingTurn, setNextSteps } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
+import { draftSpecFromSession } from '../ai/specDraft.js';
 import { outputsChangedSince, moveDeliverableToOutputs, removeSavedCopiesFromReply } from '../ai/chatOutputs.js';
 import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
@@ -613,6 +614,59 @@ router.post('/session/:sessionId/export-to-think', (req: Request, res: Response,
         },
       };
       res.status(HTTP_STATUS.CREATED).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * POST /api/ai/session/:sessionId/spec-draft
+ * Drafts a structured spec note from the conversation (not a transcript): summary, why it fits, users,
+ * what it does, decisions, open questions, sources. Returns the title and Markdown; the web app turns the
+ * Markdown into editor blocks, creates the note and links the chat to it (/link-note).
+ */
+router.post('/session/:sessionId/spec-draft', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { sessionId } = req.params as { sessionId: string };
+      const draft = await draftSpecFromSession(getDb(), sessionId);
+      const body: ApiSuccess<{ title: string; markdown: string }> = { success: true, data: draft };
+      res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * POST /api/ai/session/:sessionId/link-note   Body: { noteId, title }
+ * The chat moves in alongside the note: the Think panel for that note shows this conversation (so Athena keeps
+ * everything discussed), it leaves the main chat list, any Plan task linked to the chat gets a link to the
+ * note, and the chat records where it went.
+ */
+router.post('/session/:sessionId/link-note', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { sessionId } = req.params as { sessionId: string };
+      const { noteId, title } = req.body as { noteId?: string; title?: string };
+      if (typeof noteId !== 'string' || noteId.trim() === '') throw new ValidationError('noteId required', { noteId: 'required' });
+      const db = getDb();
+      await linkSessionToNote(db, sessionId, noteId.trim());
+      const noteTitle = typeof title === 'string' && title.trim() !== '' ? title.trim() : 'the new note';
+      const tasks = await db.query<{ task_id: string }>(`SELECT task_id::text FROM task_links WHERE target_type = 'chat' AND target_id = $1`, [sessionId]);
+      for (const t of tasks.rows) {
+        await db.query(
+          `INSERT INTO task_links (task_id, target_type, target_id, target_title, target_url) VALUES ($1, 'note', $2, $3, $4)
+           ON CONFLICT (task_id, target_type, target_id) DO NOTHING`,
+          [t.task_id, noteId.trim(), noteTitle, `/think?noteId=${noteId.trim()}`],
+        );
+      }
+      await db.query(
+        `INSERT INTO ai_chat_messages (session_id, role, content, persona, sources) VALUES ($1, 'assistant', $2, $3, $4)`,
+        [sessionId, `📓 This conversation now lives with the note **${noteTitle}** in Think — open the note and we carry on there, with everything discussed so far.`, await getSessionPersona(db, sessionId), ['moved_to_note']],
+      );
+      res.json({ success: true, data: { linkedTasks: tasks.rows.length } });
     } catch (err) {
       next(err);
     }

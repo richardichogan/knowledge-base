@@ -412,8 +412,14 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           "Use it whenever Richard asks you to add to, write into, update, rewrite, restructure, tidy, fix or remove " +
           "content in the open note. The edits are shown to him as a preview with Apply/Discard — they are not saved " +
           "until he applies them. Reference headings EXACTLY as they appear in the note. Write content as Markdown " +
-          "(headings, lists, checklists '- [ ]', tables). Prefer the smallest edit that does the job: add_to_section or " +
-          "replace_text over replacing whole sections. After calling it, reply in one or two short lines saying what " +
+          "(headings, lists, checklists '- [ ]', tables). A SMALL request gets the smallest edit that does the job " +
+          "(add_to_section or replace_text). But when he asks for a whole-note or many-section change — rewrite, redraft, expand " +
+          "every section, restructure, turn it into a fuller spec — do ALL of it in this turn: never change one section and offer " +
+          "to do the rest later, and never ask permission to continue. BIG changes: write them section by section (one edit per section, each " +
+          "under about 1,200 words). A very long rewrite can be several propose_note_edit calls in the same turn — each adds to " +
+          "the same preview — so never try to fit more than about 2,500 words in one call (it gets cut off). Use replace_all only " +
+          "for a complete redraft. If the tool returns an error, fix it and call again; do not tell him you have proposed " +
+          "anything until the tool says it was proposed. After it succeeds, reply in one or two short lines saying what " +
           "you've proposed and that he can review and Apply it — do not paste the content again in your reply.",
         parameters: {
           type: 'object',
@@ -555,7 +561,11 @@ export async function executeToolCall(
   try {
     args = JSON.parse(argsJson || '{}') as Record<string, unknown>;
   } catch {
-    return { error: 'Malformed tool arguments — could not parse JSON.' };
+    return {
+      error: 'Malformed tool arguments — could not parse JSON.' + (name === 'propose_note_edit'
+        ? ' The call was most likely cut off because it was too long. Split it: send the edits one section at a time, each in its own propose_note_edit call (under about 1,200 words each).'
+        : ''),
+    };
   }
   // When this conversation has an active project, that project is a hard scope, not a
   // suggestion the model can override: force projectId to it for every project-scoped
@@ -626,7 +636,8 @@ export async function executeToolCall(
       // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.
       const blocks = await loadNoteBlocks(db, turn.noteId);
       if (blocks !== null) {
-        const mismatches = checkEditsAgainstNote(edits, blocks);
+        const prior = turn.noteEdits ?? [];
+        const mismatches = checkEditsAgainstNote([...prior, ...edits], blocks, prior.length);
         if (mismatches.length > 0) {
           return {
             error: `Not proposed — these edits don't match the note: ${mismatches.join('; ')}. Call propose_note_edit again ` +

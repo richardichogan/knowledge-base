@@ -836,6 +836,16 @@ export class KnowledgeHubApi {
   }
 
   /** Formats a session's conversation into a note and saves it to Think, returning a deep link. */
+  /** A structured first draft of a spec note from the conversation (title + Markdown). */
+  async draftSpecFromSession(sessionId: string): Promise<ApiResponse<{ title: string; markdown: string }>> {
+    return (await this.client.post<ApiResponse<{ title: string; markdown: string }>>(`/api/ai/session/${sessionId}/spec-draft`, {}, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+
+  /** Moves the chat in alongside a note: Think shows this conversation for that note. */
+  async linkSessionToNote(sessionId: string, noteId: string, title: string): Promise<ApiResponse<{ linkedTasks: number }>> {
+    return (await this.client.post<ApiResponse<{ linkedTasks: number }>>(`/api/ai/session/${sessionId}/link-note`, { noteId, title })).data;
+  }
+
   async exportSessionToThink(sessionId: string): Promise<ApiResponse<ExportToThinkResponse>> {
     const r = await this.client.post<ApiResponse<ExportToThinkResponse>>(
       `/api/ai/session/${sessionId}/export-to-think`,

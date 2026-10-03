@@ -24,6 +24,7 @@ import { ChatDecisionsTab } from '../components/athena/ChatDecisionsTab';
 import { ChatScreensTab } from '../components/athena/ChatScreensTab';
 import { ReplyAlternates } from '../components/athena/ReplyAlternates';
 import { CompareWithPanel } from '../components/athena/CompareWithPanel';
+import { MoveToThink } from '../components/athena/MoveToThink';
 import { UsedLine } from '../components/athena/UsedLine';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
@@ -471,7 +472,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (!cancelled) setIsRestoringHistory(false);
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // If this run is cancelled (the effect re-runs, or the panel is remounted on the same note), the next run
+      // must load the conversation again — otherwise the "already handled this note" guard leaves it stuck.
+      if (noteSwitchTrackingRef.current === currentNoteId) noteSwitchTrackingRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentNoteId]);
 
@@ -1688,7 +1694,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   const actionButtons = (
     <>
-      {messages.length > 0 && sessionId !== null && (
+      {messages.length > 0 && sessionId !== null && !isNoteLinkedPanel && (
+        <MoveToThink
+          sessionId={sessionId}
+          projectId={activeProjectId}
+          disabled={isExporting || chatMutation.isPending}
+          onExportSummary={handleExportToThink}
+        />
+      )}
+      {messages.length > 0 && sessionId !== null && isNoteLinkedPanel && (
         <Button
           size="sm"
           kind="ghost"
