@@ -1,7 +1,7 @@
 /**
  * ai/contentSchedule.ts — when the next podcast recording and newsletter are due.
- * Two independent fortnightly cycles whose dates move (he records on Mondays now,
- * the newsletter goes out Friday or Monday). Each date rolls forward once it has
+ * Two independent fortnightly cycles whose dates move (he records on Fridays and releases the
+ * following Monday; the newsletter goes out Friday or Monday). Each date rolls forward once it has
  * passed; a "Podcast Record" calendar event overrides the podcast date; a newsletter
  * published near its due date counts as that issue done.
  */
