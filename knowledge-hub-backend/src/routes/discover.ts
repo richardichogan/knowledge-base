@@ -86,7 +86,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       );
       const offset = (page - 1) * pageSize;
 
-      const conditions: string[] = [`source = 'discovered-article'`];
+      const conditions: string[] = [`ci.source = 'discovered-article'`];
       const params: unknown[] = [];
       let p = 1;
 
@@ -122,7 +122,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
            * (${typeWeightExpr})`;
 
       const [countResult, dataResult] = await Promise.all([
-        db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ${where}`, params.slice(0, halfLifeParamIndex - 1)),
+        db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ci ${where}`, params.slice(0, halfLifeParamIndex - 1)),
         db.query<{
           id: string;
           source_id: string;
