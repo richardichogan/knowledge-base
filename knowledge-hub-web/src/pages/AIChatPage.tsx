@@ -1011,6 +1011,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }, []);
 
   const promptCount = messages.filter((m) => m.role === 'user').length;
+  const lastAssistantIndex = messages.reduce((last, m, idx) => (m.role === 'assistant' ? idx : last), -1);
 
   // Size the room below the thread to just what keeps his last prompt at the top of
   // the view — it shrinks to nothing as the reply fills the screen.
@@ -1940,6 +1941,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 </div>
               )}
               {msg.role === 'assistant' && msg.memoriesCreated !== undefined && <RememberedNotice memories={msg.memoriesCreated} />}
+              {/* "Continue in Think" under the latest reply, where he is reading — always offered, never guessed. */}
+              {msg.role === 'assistant' && i === lastAssistantIndex && sessionId !== null && !isNoteLinkedPanel && messages.length >= 3
+                && !chatMutation.isPending && !/^(Error:|⏹️|⚠️|📓)/.test(msg.content) && (
+                <div className="ai-reply-think">
+                  <MoveToThink
+                    variant="inline"
+                    sessionId={sessionId}
+                    projectId={activeProjectId}
+                    disabled={isExporting}
+                    onExportSummary={handleExportToThink}
+                  />
+                </div>
+              )}
               {msg.role === 'assistant' && msg.id !== undefined && sessionId !== null && modelChoices.length > 0 && !/^(Error:|⏹️|⚠️)/.test(msg.content) && (
                 <ReplyAlternates
                   sessionId={sessionId}

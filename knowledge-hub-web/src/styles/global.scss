@@ -14103,3 +14103,12 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
 
 .ai-alts__menu-note { font-size: 0.6875rem; color: var(--cds-text-helper); }
 .ai-alts__menu button:disabled { opacity: 0.55; cursor: default; }
+
+// "Continue in Think" under the latest reply: small, beside "Ask another model", panel opens upwards.
+.ai-reply-think { position: relative; margin: 0.5rem 0 0; }
+.ai-move--inline {
+  position: static; // the panel is sized against the reply, so it fits a narrow chat column
+  .ai-move__button { height: 1.75rem; padding: 0 0.75rem; font-size: 0.75rem; border-color: var(--kh-accent); color: var(--kh-accent); }
+  .ai-move__label { display: inline; }
+  .ai-move__panel { top: auto; bottom: 2.25rem; left: 0; right: 0; width: auto; max-width: 26rem; }
+}
