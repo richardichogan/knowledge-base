@@ -16,7 +16,7 @@ const PERSONA_HINTS: Record<string, string> = {
 const TIMEOUT_MS = 6_000;
 
 export async function suggestNextSteps(persona: string, userMessage: string, reply: string): Promise<string[]> {
-  const call = getFoundryClient().chat('gpt-4o', [
+  const call = getFoundryClient('next-steps').chat('standard', [
     {
       role: 'system',
       content: [

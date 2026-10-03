@@ -5,9 +5,10 @@
 import type { ContentItem } from './contentItem.js';
 import type { MemoryItem } from '../ai/memoryRetriever.js';
 
-// 'gpt-5.4' is the deployed reasoning-model route used by personas that need
-// deeper critique/long-form generation than the main conversational model.
-export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
+// Model slots, named for the job rather than a model (the deployment behind each is set in the
+// environment): 'standard' = everyday chat and writing, 'light' = small background calls (titles,
+// summaries, helpers), 'reasoning' = specialist personas needing deeper critique and long-form work.
+export type AiModel = 'standard' | 'light' | 'reasoning';
 
 /**
  * Athena persona — selectable per chat session. "general" is the default

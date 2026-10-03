@@ -179,8 +179,8 @@ export async function generateMorningBriefing(db: Pool): Promise<Briefing> {
     ? new Date(Math.max(new Date(previous.generatedAt).getTime(), now.getTime() - MAX_LOOKBACK_MS))
     : new Date(now.getTime() - DEFAULT_LOOKBACK_MS);
   const facts = `${await gatherFacts(db, since)}\n\n${await buildContentPickFacts(db).catch((err: unknown) => { console.warn('[Briefing] content pick failed:', err); return ''; })}`;
-  const markdown = await getFoundryClient().chat(
-    'gpt-4o',
+  const markdown = await getFoundryClient('morning-brief').chat(
+    'standard',
     [{ role: 'system', content: BRIEFING_PROMPT }, { role: 'user', content: facts }],
     BRIEFING_MAX_TOKENS,
   );

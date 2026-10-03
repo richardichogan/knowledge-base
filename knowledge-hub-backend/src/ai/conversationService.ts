@@ -13,7 +13,7 @@ import type { LlmMessage, LlmToolChoice } from './foundryClient.js';
 import type { ToolImages } from './chatTools.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
-import { AI_MAX_TOOL_ITERATIONS, AI_DEFAULT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
+import { AI_MAX_TOOL_ITERATIONS, AI_CHAT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
@@ -80,7 +80,7 @@ export async function handleConversationTurn(
   db: Pool,
   history: ConversationMessage[],
   userMessage: string,
-  model: AiModel = 'gpt-4o',
+  model: AiModel = 'standard',
   persona?: string,
   sessionId?: string,
   pageContext?: ChatPageContext,
@@ -176,7 +176,7 @@ export async function handleConversationTurn(
     };
   }
 
-  const client = getFoundryClient();
+  const client = getFoundryClient('chat').scoped({ persona, sessionId });
   const allTools = await getToolDefinitions();
   const tools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output');
@@ -194,7 +194,7 @@ export async function handleConversationTurn(
     && requiredFirstTool.function.name === 'propose_note_edit';
   const maxTokens = editsOpenNote
     ? NOTE_EDIT_MAX_TOKENS
-    : model === 'gpt-5.4' ? AI_REASONING_MODEL_MAX_TOKENS : AI_DEFAULT_MAX_TOKENS;
+    : model === 'reasoning' ? AI_REASONING_MODEL_MAX_TOKENS : AI_CHAT_MAX_TOKENS;
   let editRescued = false;
   let nextRoundTool: LlmToolChoice | undefined;
 
@@ -319,7 +319,7 @@ export async function handleConversationTurn(
  * look at instead of a blank composer.
  */
 export async function summarizeNoteContent(title: string, content: string): Promise<string> {
-  const client = getFoundryClient();
+  const client = getFoundryClient('note-summary');
   const NOTE_SUMMARY_CONTENT_CHAR_LIMIT = 12_000;
   const trimmed = content.length > NOTE_SUMMARY_CONTENT_CHAR_LIMIT
     ? `${content.slice(0, NOTE_SUMMARY_CONTENT_CHAR_LIMIT)}\n\n[truncated]`
@@ -338,7 +338,7 @@ export async function summarizeNoteContent(title: string, content: string): Prom
     },
   ];
 
-  return client.chat('gpt-4o-mini', messages, 400);
+  return client.chat('light', messages, 400);
 }
 
 /**
@@ -347,9 +347,9 @@ export async function summarizeNoteContent(title: string, content: string): Prom
  * produced a sidebar full of chats called "hello".
  */
 export async function generateSessionTitle(userMessage: string, reply: string): Promise<string> {
-  const client = getFoundryClient();
+  const client = getFoundryClient('chat-title');
   return client.chat(
-    'gpt-4o-mini',
+    'light',
     [
       {
         role: 'system',
@@ -371,7 +371,7 @@ export async function generateSessionTitle(userMessage: string, reply: string): 
 export async function summariseSession(
   history: ConversationMessage[],
 ): Promise<string> {
-  const client = getFoundryClient();
+  const client = getFoundryClient('chat-summary');
   const messages: ConversationMessage[] = [
     {
       role: 'system',
@@ -388,7 +388,7 @@ export async function summariseSession(
     },
   ];
 
-  return client.chat('gpt-4o-mini', messages, 1_000);
+  return client.chat('light', messages, 1_000);
 }
 
 /**
@@ -404,7 +404,7 @@ export async function rollUpConversationSummary(
   previousSummary: string | null,
   batch: ConversationMessage[],
 ): Promise<string> {
-  const client = getFoundryClient();
+  const client = getFoundryClient('chat-rollup');
   const messages: ConversationMessage[] = [
     {
       role: 'system',
@@ -426,7 +426,7 @@ export async function rollUpConversationSummary(
     },
   ];
 
-  return client.chat('gpt-4o-mini', messages, 400);
+  return client.chat('light', messages, 400);
 }
 
 /**
@@ -440,7 +440,7 @@ export async function formatSessionForThink(
   history: ConversationMessage[],
   persona?: string,
 ): Promise<{ title: string; bodyMarkdown: string }> {
-  const client = getFoundryClient();
+  const client = getFoundryClient('chat-to-think');
   const framing =
     persona === 'brainstorming'
       ? 'This was a brainstorming/sounding-board session — organise the note around the idea explored, the load-bearing question(s) raised, and where the thinking landed, not as a task log.'
@@ -472,7 +472,7 @@ export async function formatSessionForThink(
     },
   ];
 
-  const raw = await client.chat('gpt-4o-mini', messages, 1_500);
+  const raw = await client.chat('light', messages, 1_500);
   const separatorIndex = raw.indexOf('---');
   const titleLine = separatorIndex === -1 ? raw.split('\n')[0] ?? 'Athena export' : raw.slice(0, separatorIndex);
   const body = separatorIndex === -1 ? raw : raw.slice(separatorIndex + 3);

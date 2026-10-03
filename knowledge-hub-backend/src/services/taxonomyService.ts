@@ -197,7 +197,7 @@ export async function tagContent(
     const conceptTags = await loadConceptTags(db);
     if (conceptTags.length === 0 || text.trim().length < 20) return { appliedTagIds: applied, suggestedNewTags: [] };
 
-    const client = new FoundryClient();
+    const client = new FoundryClient('auto-tagging');
     const raw = await client.chatBulk([
       { role: 'system', content: systemPrompt(policy.mayPropose) },
       { role: 'user', content: `Item:\n${text.slice(0, options.maxChars ?? 3_000)}\n\nExisting concept tags, by group:\n${buildTaxonomyListing(conceptTags)}` },

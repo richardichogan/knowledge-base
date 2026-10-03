@@ -10,6 +10,7 @@
  */
 
 import { env } from '../../config/env.js';
+import { recordAiUsage, tokenUsageFrom } from '../../ai/aiUsage.js';
 import { HTTP_STATUS } from '../../config/constants.js';
 
 interface EmailMeta {
@@ -63,7 +64,9 @@ Index corresponds to the number before each email. Include ALL emails in your re
   const timeoutHandle = setTimeout(() => { controller.abort(); }, FETCH_TIMEOUT_MS);
 
   let response: Response;
+  let t0 = Date.now();
   try {
+    t0 = Date.now();
     response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -92,7 +95,9 @@ Index corresponds to the number before each email. Include ALL emails in your re
 
   const data = (await response.json()) as {
     choices: Array<{ message: { content: string } }>;
+    usage?: Record<string, unknown>;
   };
+  recordAiUsage({ feature: 'email-importance', slot: 'light', deployment, api: 'chat', durationMs: Date.now() - t0, ok: true, ...tokenUsageFrom(data.usage) });
 
   const content = data.choices[0]?.message?.content ?? '[]';
   const match = content.match(/\[[\s\S]*\]/);

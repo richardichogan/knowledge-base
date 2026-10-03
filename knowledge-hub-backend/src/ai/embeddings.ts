@@ -7,6 +7,7 @@
  */
 
 import { env } from '../config/env.js';
+import { recordAiUsage, tokenUsageFrom } from './aiUsage.js';
 
 const EMBEDDING_DEPLOYMENT = 'text-embedding-3-small';
 const EMBEDDING_API_VERSION = '2024-06-01';
@@ -23,6 +24,7 @@ export function isEmbeddingConfigured(): boolean {
  */
 export async function embedBatch(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
+  const startedAt = Date.now();
   const res = await fetch(
     `${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${EMBEDDING_DEPLOYMENT}/embeddings?api-version=${EMBEDDING_API_VERSION}`,
     {
@@ -32,7 +34,8 @@ export async function embedBatch(texts: string[]): Promise<number[][]> {
     },
   );
   if (!res.ok) throw new Error(`Embedding request failed: ${res.status} ${await res.text()}`);
-  const data = (await res.json()) as { data: { index: number; embedding: number[] }[] };
+  const data = (await res.json()) as { data: { index: number; embedding: number[] }[]; usage?: Record<string, unknown> };
+  recordAiUsage({ feature: 'embeddings', slot: 'embeddings', deployment: EMBEDDING_DEPLOYMENT, api: 'chat', durationMs: Date.now() - startedAt, ok: true, ...tokenUsageFrom(data.usage) });
   const byIndex = new Map(data.data.map((d) => [d.index, d.embedding]));
   return texts.map((_, i) => {
     const embedding = byIndex.get(i);

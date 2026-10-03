@@ -5,6 +5,7 @@
  */
 
 import { env } from '../config/env.js';
+import { recordAiUsage, tokenUsageFrom } from '../ai/aiUsage.js';
 
 /**
  * Analyze an image buffer using GPT-4V vision capabilities via Azure OpenAI.
@@ -33,6 +34,7 @@ export async function analyzeImageWithVision(
     const base64Image = imageBuffer.toString('base64');
 
     // Use Azure OpenAI REST API directly to avoid SDK version issues
+    const t0 = Date.now();
     const response = await fetch(`${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_GPT4O}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
       method: 'POST',
       headers: {
@@ -78,7 +80,9 @@ export async function analyzeImageWithVision(
 
     const data = (await response.json()) as {
       choices: Array<{ message: { content: string }; finish_reason?: string }>;
+      usage?: Record<string, unknown>;
     };
+    recordAiUsage({ feature: 'image-description', slot: 'standard', deployment: env.AZURE_OPENAI_DEPLOYMENT_GPT4O, api: 'chat', durationMs: Date.now() - t0, ok: true, ...tokenUsageFrom(data.usage) });
     const content = data.choices?.[0]?.message?.content;
 
     if (!content || typeof content !== 'string') {
@@ -102,6 +106,7 @@ export async function analyzeImageWithVision(
 const SCREEN_READ_TIMEOUT_MS = 75_000;
 
 async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, userQuestion?: string): Promise<string> {
+  const t0 = Date.now();
   const response = await fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
     method: 'POST',
     headers: { 'api-key': env.AZURE_OPENAI_API_KEY_GPT54 ?? '', 'Content-Type': 'application/json' },
@@ -143,7 +148,8 @@ async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, 
     console.error('[visionAnalyzer] Design-review read failed:', response.status, await response.text());
     return '';
   }
-  const data = (await response.json()) as { choices: Array<{ message: { content: string }; finish_reason?: string }> };
+  const data = (await response.json()) as { choices: Array<{ message: { content: string }; finish_reason?: string }>; usage?: Record<string, unknown> };
+  recordAiUsage({ feature: 'screen-read', slot: 'bulk', deployment: env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54, api: 'chat', durationMs: Date.now() - t0, ok: true, ...tokenUsageFrom(data.usage) });
   const content = data.choices?.[0]?.message?.content ?? '';
   return content !== '' && data.choices[0]?.finish_reason === 'length' ? `${content}\n\n${CUT_OFF_NOTE}` : content;
 }
@@ -195,6 +201,7 @@ export async function reviewScreensWithVision(
     content.push({ type: 'image_url', image_url: { url: `data:${s.mimeType};base64,${s.buffer.toString('base64')}`, detail: 'high' } });
   });
   try {
+    const t0 = Date.now();
     const response = await fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
       method: 'POST',
       headers: { 'api-key': env.AZURE_OPENAI_API_KEY_GPT54 ?? '', 'Content-Type': 'application/json' },
@@ -205,7 +212,8 @@ export async function reviewScreensWithVision(
       console.error('[visionAnalyzer] Screen review failed:', response.status, await response.text());
       return '';
     }
-    const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
+    const data = (await response.json()) as { choices: Array<{ message: { content: string } }>; usage?: Record<string, unknown> };
+    recordAiUsage({ feature: 'screen-review', slot: 'bulk', deployment: env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54, api: 'chat', durationMs: Date.now() - t0, ok: true, ...tokenUsageFrom(data.usage) });
     return data.choices?.[0]?.message?.content ?? '';
   } catch (err) {
     console.error('[visionAnalyzer] Screen review failed:', err);

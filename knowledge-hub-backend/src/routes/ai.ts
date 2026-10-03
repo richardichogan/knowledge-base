@@ -10,7 +10,7 @@ import { draftSpecFromSession } from '../ai/specDraft.js';
 import { outputsChangedSince, moveDeliverableToOutputs, removeSavedCopiesFromReply } from '../ai/chatOutputs.js';
 import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
-import { findModelChoice, GENERAL_CHAT_MODEL, PERSONA_MODELS } from '../ai/modelChoices.js';
+import { findModelChoice, PERSONA_MODELS } from '../ai/modelChoices.js';
 import { deleteSessionScreenBlobs, reviewScreens, screensToShow } from '../ai/chatScreens.js';
 import { listChatFiles, ensureModelFiles, deleteSessionModelFiles } from '../ai/chatFiles.js';
 import { isTrackingDecisions, updateDecisionsFromExchange } from '../ai/chatDecisions.js';
@@ -24,7 +24,7 @@ import { env } from '../config/env.js';
 import { HTTP_STATUS, AI_BACKGROUND_TURN_BUDGET_MS } from '../config/constants.js';
 import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
-import type { ChatPageContext, WriteActionType, WriteActionPayload } from '../types/aiContext.js';
+import type { AiModel, ChatPageContext, WriteActionType, WriteActionPayload } from '../types/aiContext.js';
 
 const router = Router();
 
@@ -35,7 +35,7 @@ const router = Router();
  * restarts/redeploys and can be restored by the frontend after a reload.
  * The model only ever sees a rolling summary + recent messages, not the
  * full raw history, so long-running sessions stay cheap (see chatSessionStore).
- * Body: { sessionId?: string, message: string, model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4' }
+ * Body: { sessionId?: string, message: string, model?: 'standard' | 'light' | 'reasoning' }
  * If sessionId is omitted, a new session is created and its ID returned.
  */
 /** The reply payload for one chat turn (POST /chat response data and a background turn's result). */
@@ -65,7 +65,7 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview, outputsPanel } = reqBody as {
     sessionId?: string;
     message?: string;
-    model?: 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
+    model?: 'standard' | 'light' | 'reasoning';
     persona?: string;
     projectId?: string | null;
     pageContext?: ChatPageContext;
@@ -125,8 +125,9 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   // is configured); personas listed in PERSONA_MODELS use a specific model;
   // everything else uses GENERAL_CHAT_MODEL.
   const specialist = persona === 'brainstorming' || persona === 'blog_post' || persona === 'demo_designer' || persona === 'web_designer';
-  const choice = model === undefined && !specialist ? findModelChoice(PERSONA_MODELS[persona] ?? GENERAL_CHAT_MODEL) : undefined;
-  let effectiveModel = model ?? (specialist ? 'gpt-5.4' : choice?.model ?? 'gpt-4o');
+  const personaChoice = PERSONA_MODELS[persona];
+  const choice = model === undefined && !specialist && personaChoice !== undefined ? findModelChoice(personaChoice) : undefined;
+  let effectiveModel: AiModel = model ?? (specialist ? 'reasoning' : choice?.model ?? 'standard');
   if (choice?.route !== undefined && hooks.modelRoute === undefined) hooks = { ...hooks, modelRoute: choice.route };
 
   // Spreadsheets in this chat: load them into the model's code tool (the calculator).
@@ -137,9 +138,9 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
     const ids = await ensureModelFiles(db, sheets);
     if (ids.length > 0) {
       const deployment = hooks.modelRoute?.deployment
-        ?? (effectiveModel === 'gpt-5.4' && model === undefined && specialist ? env.AZURE_OPENAI_DEPLOYMENT_GPT54 : 'gpt-5.4');
+        ?? (effectiveModel === 'reasoning' && model === undefined && specialist ? env.AZURE_OPENAI_DEPLOYMENT_GPT54 : 'gpt-5.4');
       hooks = { ...hooks, modelRoute: { deployment, api: 'responses' }, codeFiles: { ids, names: sheets.map((f) => f.filename) } };
-      effectiveModel = 'gpt-5.4';
+      effectiveModel = 'reasoning';
     }
   }
 
@@ -238,6 +239,38 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
     mapChanges, mapChangesFor: mapChanges.length > 0 && openNoteId?.startsWith('map:') === true ? openNoteId.slice('map:'.length) : null,
   };
 }
+
+/**
+ * GET /api/ai/usage-summary?days=7
+ * Model calls and tokens by feature and deployment, from ai_usage_log: where the tokens actually go.
+ */
+router.get('/usage-summary', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const days = Math.min(Math.max(Number(req.query['days'] ?? 7) || 7, 1), 90);
+      const { rows } = await getDb().query(
+        `SELECT feature, slot, deployment,
+                COUNT(*)::int AS calls,
+                COUNT(*) FILTER (WHERE NOT ok)::int AS failures,
+                SUM(prompt_tokens)::bigint AS prompt_tokens,
+                SUM(cached_tokens)::bigint AS cached_tokens,
+                SUM(completion_tokens)::bigint AS completion_tokens,
+                SUM(reasoning_tokens)::bigint AS reasoning_tokens,
+                ROUND(AVG(prompt_tokens))::int AS avg_prompt,
+                ROUND(AVG(duration_ms))::int AS avg_ms
+           FROM ai_usage_log
+          WHERE at > now() - ($1::int * interval '1 day') AND environment = 'prod'
+          GROUP BY feature, slot, deployment
+          ORDER BY SUM(prompt_tokens + completion_tokens) DESC`,
+        [days],
+      );
+      const body: ApiSuccess<{ days: number; rows: unknown[] }> = { success: true, data: { days, rows } };
+      res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
 
 router.post('/chat', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {

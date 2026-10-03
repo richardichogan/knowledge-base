@@ -248,7 +248,7 @@ async function persistCfps(db: Pool, items: NormalisedCfp[]): Promise<number> {
 
 /** Scores a batch of unscored CFP items and auto-archives low-relevance ones. */
 async function scoreUnscored(db: Pool): Promise<void> {
-  const foundry = new FoundryClient();
+  const foundry = new FoundryClient('cfp-sync');
 
   const { rows } = await db.query<{
     id: string; conference_name: string; description: string | null;
@@ -274,7 +274,7 @@ async function scoreUnscored(db: Pool): Promise<void> {
       ].filter(Boolean).join('\n');
 
       const raw = await foundry.chat(
-        'gpt-4o-mini',
+        'light',
         [
           { role: 'system', content: SCORING_SYSTEM_PROMPT },
           { role: 'user', content: userMsg },

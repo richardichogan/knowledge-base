@@ -60,7 +60,7 @@ Valid types (choose the single best match):
 
 async function classifyArticleType(client: FoundryClient, title: string, description: string): Promise<ArticleType> {
   const raw = await client.chat(
-    'gpt-4o-mini',
+    'light',
     [
       { role: 'system', content: ARTICLE_TYPE_CLASSIFY_PROMPT },
       { role: 'user', content: `Title: ${title}\nDescription: ${description || '(none)'}` },
@@ -102,7 +102,7 @@ function reconstructScoringResult(meta: Record<string, unknown>, articleType: Ar
 
 async function run(): Promise<void> {
   const db = getDb();
-  const client = new FoundryClient();
+  const client = new FoundryClient('ranking-weights');
 
   const scored = await db.query<Row>(
     `SELECT id, url, title, body, relevance_score, workflow_state, metadata FROM content_items

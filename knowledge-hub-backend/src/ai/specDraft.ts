@@ -12,7 +12,8 @@ import { listOutputs } from './chatOutputs.js';
 
 const MAX_MESSAGE_CHARS = 3_500;
 const MAX_TRANSCRIPT_CHARS = 90_000;
-const SPEC_MAX_TOKENS = 7_000;
+/** The spec itself is up to ~7k tokens; medium reasoning effort needs room on top, as its thinking counts against the same limit. */
+const SPEC_MAX_TOKENS = 14_000;
 
 const SYSTEM = `You turn a working conversation between Richard and his assistant Athena into the FIRST DRAFT of a spec note that they will keep refining. Write Markdown for UK English readers.
 
@@ -67,13 +68,14 @@ export async function draftSpecFromSession(db: Pool, sessionId: string): Promise
     outputs.length > 0 ? `Outputs saved in the chat: ${outputs.map((o) => o.title).join('; ')}` : '',
   ].filter(Boolean).join('\n\n');
 
-  const raw = await getFoundryClient().chatBulk(
+  const raw = await getFoundryClient('spec-draft').chatBulk(
     [
       { role: 'system', content: SYSTEM },
       { role: 'user', content: `${extras !== '' ? `${extras}\n\n---\n\n` : ''}Conversation:\n\n${kept.join('\n\n')}` },
     ],
     SPEC_MAX_TOKENS,
-    180_000,
+    240_000,
+    'medium',
   );
   const markdown = raw.trim().replace(/^```(?:markdown|md)?\n/, '').replace(/\n```$/, '').trim();
   const title = /^#\s+(.+)$/m.exec(markdown)?.[1]?.trim() ?? 'Spec';

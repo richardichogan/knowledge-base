@@ -181,7 +181,7 @@ export async function runDeepDive(db: Pool, article: ArticleRow, ctx?: { schedul
     ? '\n\nNOTE: only the short feed summary is available — the site would not give up the full article. Judge significance from the title and summary alone, do not invent any detail beyond them, say plainly in "risks" that the full text could not be read, and do not give a worth above 60.'
     : '';
   const user = `Article: ${article.title}\nSource: ${String(article.metadata['sourceTitle'] ?? '')}\nPublished: ${published}\nURL: ${article.url ?? ''}\nTriage verdict: ${String(article.metadata['relevanceExplanation'] ?? '')}\n\nText:\n${text.slice(0, DEEP_DIVE_ARTICLE_CHARS)}${limited}`;
-  const raw = await getFoundryClient().chatBulk(
+  const raw = await getFoundryClient('deep-dive').chatBulk(
     [{ role: 'system', content: divePrompt(context.schedule, context.own, context.episodes) }, { role: 'user', content: user }],
     3_000,
     150_000,

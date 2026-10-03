@@ -45,7 +45,7 @@ export async function runInferredEdgeJob(db: Pool): Promise<void> {
       [recentCutoff],
     );
 
-    const client = new FoundryClient();
+    const client = new FoundryClient('edge-inference');
 
     for (const source of sources.rows) {
       try {
@@ -109,7 +109,7 @@ async function processNode(
     candidates: candidateList,
   });
 
-  const raw = await client.chat('gpt-4o-mini', [
+  const raw = await client.chat('light', [
     {
       role: 'system',
       content: `You are a thematic relationship analyst. Given a source content item and a list of candidate items from a personal knowledge hub, identify which candidates are meaningfully related to the source — not by surface keyword match but by underlying intellectual connection. Return only candidates where the relationship would be useful to surface to the user.\n\nReturn ONLY valid JSON. No preamble, no explanation, no markdown fences.\n\nFormat:\n{\n  "related": [\n    {\n      "candidate_id": "uuid-from-input",\n      "confidence": 0.0,\n      "reason": "One sentence explaining the connection."\n    }\n  ]\n}\n\nConfidence scoring:\n- 0.8–1.0: Strong intellectual connection.\n- 0.5–0.79: Useful adjacency.\n- Below 0.5: Do not include.`,

@@ -7,6 +7,8 @@ import {
 } from '../config/constants.js';
 import type { ConversationMessage, AiModel } from '../types/aiContext.js';
 import type { ModelRoute } from './modelChoices.js';
+import { recordAiUsage, tokenUsageFrom } from './aiUsage.js';
+import type { TokenUsage } from './aiUsage.js';
 
 /** A single tool call the model wants the caller to execute. */
 export interface LlmToolCall {
@@ -50,7 +52,11 @@ interface ChatCompletionResponse {
     message: { role: string; content: string | null; tool_calls?: LlmToolCall[] };
     finish_reason: string;
   }>;
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  usage: {
+    prompt_tokens: number; completion_tokens: number; total_tokens: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
+  };
 }
 
 /**
@@ -61,23 +67,45 @@ interface ChatCompletionResponse {
  * No Anthropic API — Azure AI Foundry only.
  */
 export class FoundryClient {
+  private context: { persona?: string | undefined; sessionId?: string | undefined } = {};
+
+  /** `feature` names what the calls are for ('decisions', 'article-scoring', …) in the usage log. */
+  constructor(private readonly feature = 'unlabelled') {}
+
+  /** A copy of this client whose calls are logged against a persona and chat. */
+  public scoped(context: { persona?: string | undefined; sessionId?: string | undefined }): FoundryClient {
+    return Object.assign(Object.create(this) as FoundryClient, { context });
+  }
+
+  private logCall(
+    model: AiModel | 'bulk', deployment: string, api: 'chat' | 'responses', startedAt: number,
+    usage: TokenUsage | undefined, error?: unknown,
+  ): void {
+    recordAiUsage({
+      feature: this.feature, persona: this.context.persona, sessionId: this.context.sessionId,
+      slot: model, deployment, api, durationMs: Date.now() - startedAt, ok: error === undefined,
+      error: error === undefined ? undefined : error instanceof Error ? error.message : String(error),
+      ...usage,
+    });
+  }
+
   private getDeployment(model: AiModel): string {
-    if (model === 'gpt-4o') return env.AZURE_OPENAI_DEPLOYMENT_GPT4O;
-    if (model === 'gpt-5.4') return env.AZURE_OPENAI_DEPLOYMENT_GPT54;
+    if (model === 'standard') return env.AZURE_OPENAI_DEPLOYMENT_GPT4O;
+    if (model === 'reasoning') return env.AZURE_OPENAI_DEPLOYMENT_GPT54;
     return env.AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI;
   }
 
   /** Resolves the endpoint + api key to use for a given model — gpt-5.4 can live on a separate resource. */
   private getConnection(model: AiModel): { endpoint: string | undefined; apiKey: string | undefined } {
-    if (model === 'gpt-5.4' && env.AZURE_OPENAI_ENDPOINT_GPT54) {
+    if (model === 'reasoning' && env.AZURE_OPENAI_ENDPOINT_GPT54) {
       return { endpoint: env.AZURE_OPENAI_ENDPOINT_GPT54, apiKey: env.AZURE_OPENAI_API_KEY_GPT54 };
     }
     return { endpoint: env.AZURE_OPENAI_ENDPOINT, apiKey: env.AZURE_OPENAI_API_KEY };
   }
 
-  /** gpt-5.4 (reasoning) needs a much longer per-request timeout than gpt-4o/gpt-4o mini — see constants.ts. */
+  /** Only the light slot (small background calls) gets the short timeout; chat and reasoning replies can run long — see constants.ts. */
   private getDefaultTimeoutMs(model: AiModel): number {
-    return model === 'gpt-5.4' ? AI_REASONING_MODEL_REQUEST_TIMEOUT_MS : AI_REQUEST_TIMEOUT_MS;
+    return model === 'light' ? AI_REQUEST_TIMEOUT_MS : AI_REASONING_MODEL_REQUEST_TIMEOUT_MS;
   }
 
   /**
@@ -107,27 +135,41 @@ export class FoundryClient {
    * deployment limited to 50,000 tokens a minute, which live chat also depends on, so bulk
    * jobs must never run there. Falls back to gpt-4o mini where that resource isn't configured.
    */
-  public async chatBulk(messages: ConversationMessage[], maxTokens = 1_500, timeoutMs = 120_000): Promise<string> {
+  public async chatBulk(
+    messages: ConversationMessage[],
+    maxTokens = 1_500,
+    timeoutMs = 120_000,
+    /** More effort for work where quality matters (a spec); reasoning tokens count against maxTokens. */
+    reasoningEffort: 'low' | 'medium' | 'high' = 'low',
+  ): Promise<string> {
     const endpoint = env.AZURE_OPENAI_ENDPOINT_GPT54;
     const apiKey = env.AZURE_OPENAI_API_KEY_GPT54;
     if (endpoint === undefined || endpoint === '' || apiKey === undefined || apiKey === '') {
-      return this.chat('gpt-4o-mini', messages, maxTokens);
+      return this.chat('light', messages, maxTokens);
     }
     const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? 'gpt-5.4';
+    const startedAt = Date.now();
     let response: Response;
     try {
       response = await fetch(`${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-        body: JSON.stringify({ messages, max_completion_tokens: maxTokens, reasoning_effort: 'low' }),
+        body: JSON.stringify({ messages, max_completion_tokens: maxTokens, reasoning_effort: reasoningEffort }),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       const isTimeout = err instanceof Error && err.name === 'TimeoutError';
-      throw new AiError(isTimeout ? `Bulk request timed out after ${timeoutMs.toString()}ms` : `Bulk request failed: ${err instanceof Error ? err.message : String(err)}`);
+      const failure = new AiError(isTimeout ? `Bulk request timed out after ${timeoutMs.toString()}ms` : `Bulk request failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logCall('bulk', deployment, 'chat', startedAt, undefined, failure);
+      throw failure;
     }
-    if (!response.ok) throw new AiError(`${response.status.toString()} ${response.statusText}: ${(await response.text()).slice(0, 300)}`);
+    if (!response.ok) {
+      const failure = new AiError(`${response.status.toString()} ${response.statusText}: ${(await response.text()).slice(0, 300)}`);
+      this.logCall('bulk', deployment, 'chat', startedAt, undefined, failure);
+      throw failure;
+    }
     const data = (await response.json()) as ChatCompletionResponse;
+    this.logCall('bulk', deployment, 'chat', startedAt, tokenUsageFrom(data.usage));
     const content = data.choices[0]?.message.content;
     if (!content) throw new AiError('Empty response from the bulk model');
     return content;
@@ -180,9 +222,36 @@ export class FoundryClient {
     /** Responses API only: built-in tools (e.g. code_interpreter) and progress lines for them. */
     extras: { builtInTools?: Array<Record<string, unknown>>; onActivity?: (line: string) => void } = {},
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
+    const startedAt = Date.now();
+    const deployment = route?.deployment ?? this.getDeployment(model);
+    const api = model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses' ? 'responses' : 'chat';
+    try {
+      const { usage, ...result } = await this.streamRound(model, messages, tools, maxTokens, toolChoice, timeoutMs, onDelta, signal, route, extras);
+      this.logCall(model, deployment, api, startedAt, usage);
+      return result;
+    } catch (err) {
+      this.logCall(model, deployment, api, startedAt, undefined, err instanceof AiStoppedError ? undefined : err);
+      throw err;
+    }
+  }
+
+  private async streamRound(
+    model: AiModel,
+    messages: LlmMessage[],
+    tools: LlmToolDefinition[],
+    maxTokens: number,
+    toolChoice: LlmToolChoice,
+    timeoutMs: number,
+    onDelta: (text: string) => void,
+    signal?: AbortSignal,
+    /** Another deployment on the reasoning endpoint (e.g. "Ask another model"). */
+    route?: ModelRoute,
+    /** Responses API only: built-in tools (e.g. code_interpreter) and progress lines for them. */
+    extras: { builtInTools?: Array<Record<string, unknown>>; onActivity?: (line: string) => void } = {},
+  ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined; usage: TokenUsage | undefined }> {
     const deployment = route?.deployment ?? this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
-    const viaResponses = model === 'gpt-5.4' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses';
+    const viaResponses = model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses';
     const url = viaResponses
       ? `${endpoint}/openai/v1/responses`
       : `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
@@ -194,6 +263,7 @@ export class FoundryClient {
           ...(this.supportsCustomTemperature(model) && { temperature: 0.7 }),
           ...(tools.length > 0 && { tools, tool_choice: toolChoice }),
           stream: true,
+          stream_options: { include_usage: true },
         };
     const timeout = AbortSignal.timeout(timeoutMs);
 
@@ -217,12 +287,14 @@ export class FoundryClient {
     }
 
     let content = '';
+    let usage: TokenUsage | undefined;
     let finishReason: string | undefined;
     const toolCalls: LlmToolCall[] = [];
     const partialCalls = new Map<number, LlmToolCall>();
     const handle = (data: string): void => {
       if (data === '[DONE]') return;
       const evt = JSON.parse(data) as Record<string, unknown>;
+      if (!viaResponses && typeof evt['usage'] === 'object' && evt['usage'] !== null) usage = tokenUsageFrom(evt['usage'] as Record<string, unknown>);
       if (viaResponses) {
         const type = evt['type'] as string | undefined;
         if (type === 'response.output_text.delta') {
@@ -237,7 +309,8 @@ export class FoundryClient {
         } else if (type === 'response.code_interpreter_call.in_progress') {
           extras.onActivity?.('Running a calculation on the spreadsheet');
         } else if (type === 'response.completed' || type === 'response.incomplete') {
-          const r = evt['response'] as { status?: string; incomplete_details?: { reason?: string } | null } | undefined;
+          const r = evt['response'] as { status?: string; incomplete_details?: { reason?: string } | null; usage?: Record<string, unknown> } | undefined;
+          if (r?.usage !== undefined) usage = tokenUsageFrom(r.usage);
           finishReason = r?.status === 'incomplete' && r.incomplete_details?.reason === 'max_output_tokens' ? 'length' : 'stop';
         } else if (type === 'response.failed' || type === 'error') {
           throw new AiError(`Model stream failed: ${data.slice(0, 500)}`);
@@ -284,7 +357,7 @@ export class FoundryClient {
 
     toolCalls.push(...[...partialCalls.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c));
     if (toolCalls.length > 0) finishReason = 'tool_calls';
-    return { content: content === '' ? null : content, toolCalls, finishReason };
+    return { content: content === '' ? null : content, toolCalls, finishReason, usage };
   }
 
   /**
@@ -294,7 +367,7 @@ export class FoundryClient {
    * mini. Omit the field entirely for those models instead of sending it.
    */
   private supportsCustomTemperature(model: AiModel): boolean {
-    return model !== 'gpt-5.4';
+    return model !== 'reasoning';
   }
 
   private async request(
@@ -305,10 +378,31 @@ export class FoundryClient {
     toolChoice: LlmToolChoice = 'auto',
     timeoutMsOverride?: number,
   ): Promise<ChatCompletionResponse> {
+    const startedAt = Date.now();
+    const deployment = this.getDeployment(model);
+    const api = model === 'reasoning' && env.AZURE_OPENAI_GPT54_API === 'responses' ? 'responses' : 'chat';
+    try {
+      const data = await this.requestRaw(model, messages, tools, maxTokens, toolChoice, timeoutMsOverride);
+      this.logCall(model, deployment, api, startedAt, tokenUsageFrom(data.usage));
+      return data;
+    } catch (err) {
+      this.logCall(model, deployment, api, startedAt, undefined, err);
+      throw err;
+    }
+  }
+
+  private async requestRaw(
+    model: AiModel,
+    messages: ConversationMessage[] | LlmMessage[],
+    tools: LlmToolDefinition[] | undefined,
+    maxTokens: number,
+    toolChoice: LlmToolChoice = 'auto',
+    timeoutMsOverride?: number,
+  ): Promise<ChatCompletionResponse> {
     const deployment = this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
     const timeoutMs = timeoutMsOverride ?? this.getDefaultTimeoutMs(model);
-    if (model === 'gpt-5.4' && env.AZURE_OPENAI_GPT54_API === 'responses') {
+    if (model === 'reasoning' && env.AZURE_OPENAI_GPT54_API === 'responses') {
       return this.requestViaResponses(model, deployment, endpoint, apiKey, messages, tools, maxTokens, toolChoice, timeoutMs);
     }
     const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
@@ -397,7 +491,7 @@ export class FoundryClient {
       status?: string;
       incomplete_details?: { reason?: string } | null;
       output?: Array<{ type: string; content?: Array<{ type: string; text?: string }>; call_id?: string; name?: string; arguments?: string }>;
-      usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+      usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number; input_tokens_details?: { cached_tokens?: number }; output_tokens_details?: { reasoning_tokens?: number } };
     };
     const output = data.output ?? [];
     const text = output
@@ -414,7 +508,11 @@ export class FoundryClient {
       : data.status === 'incomplete' && data.incomplete_details?.reason === 'max_output_tokens' ? 'length' : 'stop';
     return {
       choices: [{ message: { role: 'assistant', content: text === '' ? null : text, ...(toolCalls.length > 0 && { tool_calls: toolCalls }) }, finish_reason: finishReason }],
-      usage: { prompt_tokens: data.usage?.input_tokens ?? 0, completion_tokens: data.usage?.output_tokens ?? 0, total_tokens: data.usage?.total_tokens ?? 0 },
+      usage: {
+        prompt_tokens: data.usage?.input_tokens ?? 0, completion_tokens: data.usage?.output_tokens ?? 0, total_tokens: data.usage?.total_tokens ?? 0,
+        prompt_tokens_details: { cached_tokens: data.usage?.input_tokens_details?.cached_tokens ?? 0 },
+        completion_tokens_details: { reasoning_tokens: data.usage?.output_tokens_details?.reasoning_tokens ?? 0 },
+      },
     };
   }
 }
@@ -477,11 +575,14 @@ function responsesBody(
   };
 }
 
-let foundryClientInstance: FoundryClient | undefined;
+const foundryClients = new Map<string, FoundryClient>();
 
-export function getFoundryClient(): FoundryClient {
-  if (!foundryClientInstance) {
-    foundryClientInstance = new FoundryClient();
+/** The shared client for a feature; `feature` is how its calls are labelled in the usage log. */
+export function getFoundryClient(feature = 'unlabelled'): FoundryClient {
+  let client = foundryClients.get(feature);
+  if (!client) {
+    client = new FoundryClient(feature);
+    foundryClients.set(feature, client);
   }
-  return foundryClientInstance;
+  return client;
 }

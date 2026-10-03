@@ -195,7 +195,7 @@ async function nameDeliverable(
   try {
     const list = existing.map((o, i) => `o${(i + 1).toString()}: ${o.title}`).join('\n') || '(none)';
     const raw = await Promise.race([
-      getFoundryClient().chat('gpt-4o', [
+      getFoundryClient('output-title').chat('standard', [
         {
           role: 'system',
           content: 'You name deliverables saved to a chat\'s Outputs panel. Return ONLY JSON: {"title": "...", "revises": "o2" | null}. ' +

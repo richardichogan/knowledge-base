@@ -107,7 +107,7 @@ export async function updateDecisionsFromExchange(db: Pool, sessionId: string, u
     const listText = current.length === 0
       ? '(empty)'
       : [...alias.entries()].map(([a, d]) => `${a} [${d.status}${d.source === 'user' ? ', added by him' : ''}] ${d.text}`).join('\n');
-    const raw = await getFoundryClient().chat('gpt-4o', [
+    const raw = await getFoundryClient('decisions').chat('standard', [
       {
         role: 'system',
         content: [

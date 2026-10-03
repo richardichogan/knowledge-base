@@ -502,12 +502,12 @@ router.post('/import', (req: Request, res: Response, next: NextFunction): void =
         throw new ValidationError('AI service not configured', {});
       }
 
-      const client = new FoundryClient();
+      const client = new FoundryClient('task-ai');
       const todayStr = new Date().toISOString().substring(0, 'YYYY-MM-DD'.length);
       const promptTemplate = IMPORT_PROMPTS[type ?? 'general'] ?? IMPORT_PROMPTS['general'] ?? '';
       const systemPrompt = promptTemplate.replace('{{TODAY}}', todayStr);
       const raw = await client.chat(
-        'gpt-4o',
+        'standard',
         [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Here is the markdown document:\n\n${content}` },

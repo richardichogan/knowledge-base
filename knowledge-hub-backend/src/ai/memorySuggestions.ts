@@ -34,8 +34,8 @@ function normaliseDraft(d: Partial<Draft> | null, fallback: string, persona: str
 
 /** Drafts one standing instruction from a 👎 note on a reply. */
 export async function draftInstructionFromFeedback(note: string, reply: string, persona: string): Promise<Draft> {
-  const client = getFoundryClient();
-  const text = await client.chat('gpt-4o-mini', [
+  const client = getFoundryClient('memory-suggestions');
+  const text = await client.chat('light', [
     {
       role: 'system',
       content:
@@ -64,8 +64,8 @@ export async function runWeeklyMemoryReview(db: Pool): Promise<number> {
   const { rows: existing } = await db.query<{ content: string }>(
     `SELECT content FROM athena_memories WHERE kind = 'instruction' AND status IN ('active', 'paused', 'suggested', 'dismissed')`,
   );
-  const client = getFoundryClient();
-  const text = await client.chat('gpt-4o-mini', [
+  const client = getFoundryClient('memory-suggestions');
+  const text = await client.chat('light', [
     {
       role: 'system',
       content:

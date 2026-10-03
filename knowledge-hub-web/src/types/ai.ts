@@ -5,7 +5,7 @@ import type { MapOp } from '../services/api';
 
 // 'gpt-5.4' is used automatically for reasoning personas (backend picks it by
 // default) — not currently selectable from the frontend.
-export type AiModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-5.4';
+export type AiModel = 'standard' | 'light' | 'reasoning';
 
 export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep' | 'web_designer';
 

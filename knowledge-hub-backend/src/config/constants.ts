@@ -194,6 +194,9 @@ export const BLOB_UPLOAD_TIMEOUT_MS = 30_000;
 
 /** Default max tokens for AI completion requests. */
 export const AI_DEFAULT_MAX_TOKENS = 2_000;
+
+/** Output budget for ordinary chat replies (General, Copilot Coach, second opinions) — long answers must not be cut off. */
+export const AI_CHAT_MAX_TOKENS = 6_000;
 /**
  * Max tokens for reasoning-family models (gpt-5.4). These models spend part of
  * the completion-token budget on hidden reasoning tokens before producing any

@@ -646,7 +646,7 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
 
       // Background processing — rate-limited: 1 GitHub call per 500ms to avoid secondary rate limit
       void (async (): Promise<void> => {
-        const client = new FoundryClient();
+        const client = new FoundryClient('document-ai');
         let done = 0;
         const RATE_LIMIT_DELAY_MS = 500;
 
@@ -661,7 +661,7 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
 
             const truncated = content.slice(0, DOC_SUMMARY_CHARS);
 
-            const raw = await client.chat('gpt-4o-mini', [
+            const raw = await client.chat('light', [
               { role: 'system', content: DOC_SYSTEM_PROMPT },
               { role: 'user', content: `Document: ${doc.title}\n\n${truncated}\n\nAvailable concept tags:\n${taxonomyListing}` },
             ], DOC_MAX_TOKENS);

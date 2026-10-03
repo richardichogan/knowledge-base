@@ -839,7 +839,7 @@ export class KnowledgeHubApi {
   /** Formats a session's conversation into a note and saves it to Think, returning a deep link. */
   /** A structured first draft of a spec note from the conversation (title + Markdown). */
   async draftSpecFromSession(sessionId: string): Promise<ApiResponse<{ title: string; markdown: string }>> {
-    return (await this.client.post<ApiResponse<{ title: string; markdown: string }>>(`/api/ai/session/${sessionId}/spec-draft`, {}, { timeout: CHAT_TIMEOUT_MS })).data;
+    return (await this.client.post<ApiResponse<{ title: string; markdown: string }>>(`/api/ai/session/${sessionId}/spec-draft`, {}, { timeout: 2 * CHAT_TIMEOUT_MS })).data;
   }
 
   /** Moves the chat in alongside a note: Think shows this conversation for that note. */

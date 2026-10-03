@@ -101,8 +101,8 @@ async function runAiClustering(db: Pool): Promise<void> {
     const sparks = rows.rows;
     const bodies = sparks.map((s) => s.body);
 
-    const client = new FoundryClient();
-    const raw = await client.chat('gpt-4o-mini', [
+    const client = new FoundryClient('clustering');
+    const raw = await client.chat('light', [
       {
         role: 'system',
         content: `You are a thematic clustering assistant. You will receive a list of brief thoughts captured by a technology professional while reading articles. Your job is to identify thematic groups of three or more sparks that share a meaningful intellectual connection — not just surface keyword similarity.\n\nReturn ONLY valid JSON. No preamble, no explanation, no markdown fences.\n\nFormat:\n{\n  "clusters": [\n    {\n      "theme": "Short theme label, 3-6 words, title case",\n      "spark_indices": [0, 2, 5]\n    }\n  ]\n}\n\nSparks that do not belong to any meaningful cluster should be omitted. A spark can only appear in one cluster.`,

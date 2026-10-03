@@ -124,7 +124,7 @@ export async function scoreUnscored(db: Pool): Promise<number> {
   );
   if (unscored.rows.length === 0) return 0;
 
-  const client = new FoundryClient();
+  const client = new FoundryClient('article-scoring');
   const system = buildRelevanceSystemPrompt(await loadCoveredTitles(db));
   let scored = 0;
   let next = 0;
