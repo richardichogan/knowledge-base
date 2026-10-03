@@ -918,7 +918,8 @@ export async function buildAiContext(
       : Promise.resolve([]),
   ]);
 
-  const projectReferences = activeProject?.links ?? [];
+  // A project's links should be a list, but older rows stored an empty object — never trust the shape.
+  const projectReferences = Array.isArray(activeProject?.links) ? activeProject.links : [];
   const activeProjectContext = activeProject === null
     ? ''
     : [

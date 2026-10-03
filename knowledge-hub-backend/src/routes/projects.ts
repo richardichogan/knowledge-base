@@ -65,7 +65,7 @@ function rowToProject(row: Record<string, unknown>): Project {
     hasIcaDocumentCollection: Boolean(row['has_ica_document_collection']),
     icaDocumentCollectionName: String(row['ica_document_collection_name'] ?? ''),
     icaDocumentCollectionId: String(row['ica_document_collection_id'] ?? ''),
-    links:        row['links'] as ProjectLink[],
+    links:        Array.isArray(row['links']) ? row['links'] as ProjectLink[] : [],
     tags:         row['tags'] as string[],
     createdAt:    String(row['created_at']),
     updatedAt:    String(row['updated_at']),
