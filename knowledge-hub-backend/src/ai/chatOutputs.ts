@@ -172,7 +172,7 @@ export async function buildOutputsBlock(db: Pool, sessionId: string): Promise<st
 }
 
 /** Personas whose deliverables belong in the Outputs panel. */
-const OUTPUT_PERSONAS = new Set(['demo_designer', 'blog_post', 'podcast_prep', 'web_designer']);
+const OUTPUT_PERSONAS = new Set(['demo_designer', 'blog_post', 'podcast_prep', 'web_designer', 'podcast_show_notes']);
 const MIN_FENCED_CHARS = 400;
 /** He asked for a copy-paste prompt (the only non-page deliverable moved out of a reply). */
 const PROMPT_ASK = /\b(prompts?|ghcp)\b/i;

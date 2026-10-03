@@ -48,7 +48,7 @@ export function offeredModelChoices(): ModelChoice[] {
 }
 
 /** Personas that run on the reasoning slot, whose deployment (and API) the environment decides. */
-const REASONING_SLOT_PERSONAS = new Set(['brainstorming', 'blog_post', 'demo_designer', 'web_designer']);
+const REASONING_SLOT_PERSONAS = new Set(['brainstorming', 'blog_post', 'demo_designer', 'web_designer', 'podcast_show_notes']);
 
 /** The deployment a model slot points at in this environment. */
 function slotDeployment(slot: AiModel): string {

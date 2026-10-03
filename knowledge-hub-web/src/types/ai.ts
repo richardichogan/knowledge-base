@@ -7,7 +7,7 @@ import type { MapOp } from '../services/api';
 // default) — not currently selectable from the frontend.
 export type AiModel = 'standard' | 'light' | 'reasoning';
 
-export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep' | 'web_designer';
+export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep' | 'web_designer' | 'podcast_show_notes';
 
 export interface ChatPageContext {
   /** e.g. "content-item", "task", "note", "spark", "document" */

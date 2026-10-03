@@ -3,7 +3,7 @@
  * Every persona picker (chip, menus) and label reads from here, so adding a
  * persona is one entry rather than edits in several components.
  */
-import { Blog, Compass, Idea, Notebook, Screen, Microphone, ColorPalette } from '@carbon/icons-react';
+import { Blog, Compass, Document, Idea, Notebook, Screen, Microphone, ColorPalette } from '@carbon/icons-react';
 import type { AthenaPersona } from '../../types';
 
 export interface PersonaDefinition {
@@ -21,6 +21,7 @@ export const PERSONAS: readonly PersonaDefinition[] = [
   { id: 'demo_designer', label: 'Demo Designer', description: 'Shapes application demos, user stories and UI screens for a project or industry', Icon: Screen },
   { id: 'web_designer', label: 'Web Designer', description: 'Designs and reviews websites and pages: mock-ups you can see, live-site reviews, build prompts', Icon: ColorPalette },
   { id: 'podcast_prep', label: 'Podcast Prep', description: 'Prepares your Cloudy segments: fresh topics, openers, running order and notes', Icon: Microphone },
+  { id: 'podcast_show_notes', label: 'Show Notes', description: 'Turns an episode transcript into show notes, a companion blog post and the social campaign', Icon: Document },
 ];
 
 const BY_ID = new Map(PERSONAS.map((p) => [p.id, p]));

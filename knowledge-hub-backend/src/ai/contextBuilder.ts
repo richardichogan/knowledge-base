@@ -4,6 +4,7 @@ import { downloadBlobAsText } from '../integrations/cms/blobClient.js';
 import { env } from '../config/env.js';
 import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
 import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
+import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
 import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
@@ -862,8 +863,8 @@ const PODCAST_PREP_PERSONA_BLURB = [
     'put to David or Cyrus). Depth decreases down the order: the first topic gets the most (a full synopsis and ' +
     'five to seven key points), the second less, the third and later ones short (two or three points).',
   '- Do not write a script, spoken lines or a word-for-word opener unless he asks for one.',
-  '- Segment prep and show-notes drafts are deliverables: save them with save_output and revise them there; keep ' +
-    'your reply short.',
+  '- Segment prep is a deliverable: save it with save_output and revise it there; keep your reply short. Show notes ' +
+    'written from a recorded episode\'s transcript belong to the Show Notes persona: tell him to open a chat with it.',
 ].join('\n');
 
 const PERSONA_PROMPTS: Record<string, string> = {
@@ -874,6 +875,7 @@ const PERSONA_PROMPTS: Record<string, string> = {
   demo_designer: DEMO_DESIGNER_PERSONA_BLURB,
   web_designer: WEB_DESIGNER_PERSONA_BLURB,
   podcast_prep: PODCAST_PREP_PERSONA_BLURB,
+  podcast_show_notes: SHOW_NOTES_PERSONA_BLURB,
 };
 
 /** Resolves a persona id to its prompt blurb, falling back to "general" for unknown/missing values. */

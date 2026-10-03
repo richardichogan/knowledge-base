@@ -16,9 +16,10 @@ export type AiModel = 'standard' | 'light' | 'reasoning';
  * ideas sounding board persona, "copilot_coach" guides Copilot usage, and
  * "blog_post" produces a CMS-ready package for The Microsoft Cloud Blog, and
  * "demo_designer" shapes application demos, user stories and UI screens, and
- * "podcast_prep" prepares his segments of Cloudy with a Chance of Insights.
+ * "podcast_prep" prepares his segments of Cloudy with a Chance of Insights, and
+ * "podcast_show_notes" turns a recorded episode's transcript into its show notes and social campaign.
  */
-export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep' | 'web_designer';
+export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep' | 'web_designer' | 'podcast_show_notes';
 
 /**
  * What the user is currently viewing in the Knowledge Hub UI (e.g. a note,

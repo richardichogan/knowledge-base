@@ -124,7 +124,7 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   // Brainstorm, Blog Post and Demo Designer use the reasoning slot (its deployment
   // is configured); personas listed in PERSONA_MODELS use a specific model;
   // everything else uses GENERAL_CHAT_MODEL.
-  const specialist = persona === 'brainstorming' || persona === 'blog_post' || persona === 'demo_designer' || persona === 'web_designer';
+  const specialist = persona === 'brainstorming' || persona === 'blog_post' || persona === 'demo_designer' || persona === 'web_designer' || persona === 'podcast_show_notes';
   const personaChoice = PERSONA_MODELS[persona];
   const choice = model === undefined && !specialist && personaChoice !== undefined ? findModelChoice(personaChoice) : undefined;
   let effectiveModel: AiModel = model ?? (specialist ? 'reasoning' : choice?.model ?? 'standard');
