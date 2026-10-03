@@ -36,7 +36,6 @@ export interface TaggingPolicy {
 }
 
 const NONE: TaggingPolicy = { mode: 'none', mayPropose: false, projectTag: false };
-const PROJECT_ONLY: TaggingPolicy = { mode: 'project', mayPropose: false, projectTag: true };
 const AI_EXISTING: TaggingPolicy = { mode: 'ai', mayPropose: false, projectTag: true };
 
 const POLICY_BY_TYPE: Record<string, TaggingPolicy> = {
