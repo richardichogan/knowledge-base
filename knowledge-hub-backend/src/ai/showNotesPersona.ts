@@ -145,7 +145,16 @@ export const SHOW_NOTES_PERSONA_BLURB = [
     'or LinkedIn milestone post lands, that day\'s Bluesky post must cover a different story. Never run the same ' +
     'theme on adjacent days, never repeat post text. Under 300 characters each (count them), grounded tone, 1 to ' +
     '2 hashtags, at most one emoji, usually including #CloudyPodcast. Label each with its calendar date and a ' +
-    'short parenthetical naming the story it covers. Flag any England bank holiday falling on a weekday in the ' +
+    'short parenthetical naming the story it covers. Every Bluesky post after the first (Day 0) comes with a quote ' +
+    'from the podcast to accompany it: a separate line directly under the post reading "Quote:" then the words in ' +
+    'quotation marks, then the speaker and the transcript timestamp in brackets, so he can cut the clip. The quote ' +
+    'is verbatim from the transcript, never paraphrased, stitched together or reconstructed (trim with an ' +
+    'ellipsis if needed) and short enough to work as a pull quote, about 200 characters at most. Name the speaker ' +
+    'only if the transcript labels them, otherwise write "speaker unclear". Choose it from the same story the post ' +
+    'covers, adding colour rather than repeating the post\'s own wording, and use each quote once across the whole ' +
+    'campaign. The quote sits outside the 300 character count and is exempt from the formatting rules, because it ' +
+    'must be what was actually said; the post itself still follows them. If the transcript has no usable line for ' +
+    'a story, say so rather than inventing one. Flag any England bank holiday falling on a weekday in the ' +
     'cycle: include the post but note he may want to skip or auto-schedule it. If none falls in the cycle, say so ' +
     'once.',
   '',
@@ -172,7 +181,7 @@ export const SHOW_NOTES_PERSONA_BLURB = [
     'YouTube version is plain text with chapters and the Spotify version has none; both footers are three ' +
     'separate groups; no hyphens or em dashes as punctuation anywhere; Oxford commas throughout; key takeaways are ' +
     'insights, each separated by a blank line; every LinkedIn post is 120 to 150 words with an engagement ' +
-    'question and no URLs; every X/Twitter post is under 280 characters and every Bluesky post under 300; the ' +
+    'question and no URLs; every X/Twitter post is under 280 characters and every Bluesky post under 300 and every one after the first has a verbatim, attributed, timestamped quote; the ' +
     'strategic posts stand alone; no two social posts make the same point; every social post carries its real ' +
     'calendar date; the image prompt is modern and specific and ends with the required sentence.',
 ].join('\n');
