@@ -178,14 +178,19 @@ export async function handleConversationTurn(
 
   const client = getFoundryClient('chat').scoped({ persona, sessionId });
   const allTools = await getToolDefinitions();
+  const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
+  // The note-edit and map-edit tools are the two largest definitions (about 1,400 tokens between them) and
+  // only make sense with a note or canvas open, so they are not sent otherwise.
   const tools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
-    .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output');
+    .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
+    .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
+    .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
   const requiredFirstTool = selectRequiredToolChoice(
     userMessage,
     tools,
     context.projectReferences,
     context.activeProjectName,
-    toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined,
+    noteOpen,
     mapOutlineResult !== null,
   );
   // Asked to change the open note: she may need to write a lot (a full redraft, a long spec), so the

@@ -38,6 +38,15 @@ export function findModelChoice(id: string): ModelChoice | undefined {
   return MODEL_CHOICES.find((c) => c.id === id);
 }
 
+/**
+ * The choices to show in the menu: if two resolve to the same deployment (for example the light slot
+ * pointing at gpt-5.4), only the one named for it is offered.
+ */
+export function offeredModelChoices(): ModelChoice[] {
+  const key = (c: ModelChoice): string => `${choiceRoute(c).deployment}|${choiceRoute(c).api}`;
+  return MODEL_CHOICES.filter((c) => c.route !== undefined || !MODEL_CHOICES.some((o) => o !== c && o.route !== undefined && key(o) === key(c)));
+}
+
 /** Personas that run on the reasoning slot, whose deployment (and API) the environment decides. */
 const REASONING_SLOT_PERSONAS = new Set(['brainstorming', 'blog_post', 'demo_designer', 'web_designer']);
 
@@ -60,7 +69,7 @@ export function defaultModelIdForPersona(persona: string): string | undefined {
   const target: ModelRoute = REASONING_SLOT_PERSONAS.has(persona)
     ? { deployment: env.AZURE_OPENAI_DEPLOYMENT_GPT54, api: env.AZURE_OPENAI_GPT54_API === 'responses' ? 'responses' : 'chat' }
     : choiceRoute(findModelChoice(PERSONA_MODELS[persona] ?? '') ?? { id: '', label: '', model: 'standard' });
-  return MODEL_CHOICES.find((c) => {
+  return offeredModelChoices().find((c) => {
     const r = choiceRoute(c);
     return r.deployment === target.deployment && r.api === target.api;
   })?.id;

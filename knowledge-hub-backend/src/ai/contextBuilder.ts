@@ -1265,9 +1265,31 @@ export async function assembleMessages(
 
   return [
     { role: 'system', content: systemPrompt },
-    ...history,
+    ...shortenOldLongReplies(history),
     { role: 'user', content: userMessageWithContext },
   ];
+}
+
+/** The latest messages are always sent in full. */
+const KEEP_RECENT_IN_FULL = 6;
+/** An older reply longer than this is shortened in what is sent to the model … */
+const LONG_REPLY_CHARS = 6_000;
+/** … to its opening this long. A single long reply can be 8,000 tokens, replayed on every later turn. */
+const SHORTENED_REPLY_CHARS = 2_000;
+
+/**
+ * Earlier long replies (a full draft, a long analysis) are replayed on every later turn at full length.
+ * Deliverables are kept in Outputs, which is sent separately, so older long replies go as their opening only.
+ * Only what is sent to the model changes; the saved chat is untouched.
+ */
+export function shortenOldLongReplies(history: ConversationMessage[]): ConversationMessage[] {
+  const cutoff = history.length - KEEP_RECENT_IN_FULL;
+  return history.map((m, i) => (i < cutoff && m.role === 'assistant' && m.content.length > LONG_REPLY_CHARS
+    ? {
+        ...m,
+        content: `${m.content.slice(0, SHORTENED_REPLY_CHARS)}\n\n[…the remaining ${(m.content.length - SHORTENED_REPLY_CHARS).toLocaleString('en-GB')} characters of this earlier reply are not repeated here to save space; they are still in the chat. If he asks about that part, say it was shortened and ask him to point to it.]`,
+      }
+    : m));
 }
 
 async function loadBlobText(blobPath: string): Promise<string> {
