@@ -1,9 +1,9 @@
 /**
  * DiscoverPage — AI-curated inbound article feed + CFP speaking opportunities.
  *
- * Articles discovered by the blog's RSS monitor are surfaced here with
- * GPT-4o-mini relevance scores. The user triages each article into one of:
- *   To Review (default) · Saved · Blog · Published · Archived
+ * Articles Athena discovers from its feeds (managed under Sources) are surfaced here with
+ * relevance scores; ones left unactioned for a week are shelved. The user triages each article into one of:
+ *   To Review (default) · Shelved · Saved · Blog · Published · Archived
  *
  * CFPs (Calls for Papers) appear in their own tab — scored, sorted by deadline.
  */
@@ -19,6 +19,7 @@ import { SparkCaptureButton } from '../components/sparks/SparkCaptureButton';
 import { copyItemToCanvas } from '../features/canvas/canvasClipboard';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { DiscoverActions } from '../components/discover/DiscoverActions';
+import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useAthenaContext } from '../context/AthenaContext';
 
@@ -33,6 +34,7 @@ interface TabDef {
 
 const STATE_TABS: TabDef[] = [
   { key: 'to-review',  label: 'To Review' },
+  { key: 'shelved',    label: 'Shelved' },
   { key: 'saved',      label: 'Saved' },
   { key: 'blog',       label: 'Blog' },
   { key: 'published',  label: 'Published' },
@@ -318,6 +320,16 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
       {item.relevanceExplanation !== null && (
         <p className="dc-card-synopsis">{item.relevanceExplanation}</p>
       )}
+      {(item.alreadyCovered ?? 0) > 0 && item.coveredBy !== null && item.coveredBy !== undefined && (
+        <p className="dc-card-covered" title="Athena found one of your own pieces on this">
+          {item.alreadyCovered === 2 ? 'You’ve already covered this' : 'Related to something you’ve written'}: <em>{item.coveredBy}</em>
+        </p>
+      )}
+      {item.workflowState === 'shelved' && item.shelvedAt !== null && item.shelvedAt !== undefined && (
+        <p className="dc-card-shelved">
+          Shelved {formatDate(item.shelvedAt)} — {item.shelvedReason === 'low' ? 'scored low' : 'unactioned for a week'}; still searchable by Athena
+        </p>
+      )}
 
       {/* Published tab: show the blog URL editor */}
       {isPublished && <PublishedUrlEditor item={item} />}
@@ -421,10 +433,21 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
               <Renew size={14} /> Unpublish
             </button>
           )}
-          {item.workflowState === 'archived' && (
-            <button className="dc-action dc-action--restore" onClick={() => { onStateChange(item.id, 'to-review'); }} disabled={isUpdating}>
+          {(item.workflowState === 'archived' || item.workflowState === 'shelved') && (
+            <button className="dc-action dc-action--restore" onClick={() => { onStateChange(item.id, 'to-review'); }} disabled={isUpdating}
+              title={item.workflowState === 'shelved' ? 'Put it back in To Review for another week' : undefined}>
               <ArrowRight size={14} /> Restore
             </button>
+          )}
+          {item.workflowState === 'shelved' && (
+            <>
+              <button className="dc-action dc-action--save" onClick={() => { onStateChange(item.id, 'saved'); }} disabled={isUpdating}>
+                <Bookmark size={14} /> Save
+              </button>
+              <button className="dc-action dc-action--archive" onClick={() => { onStateChange(item.id, 'archived'); }} disabled={isUpdating}>
+                <Archive size={14} /> Archive
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -445,6 +468,7 @@ export const DiscoverPage: React.FC = () => {
   const [titleSearch, setTitleSearch] = useState('');
   const [debouncedTitleSearch, setDebouncedTitleSearch] = useState('');
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const queryClient = useQueryClient();
   const { setAthenaContext } = useAthenaContext();
 
@@ -581,7 +605,11 @@ export const DiscoverPage: React.FC = () => {
               : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`}
           </p>
         </div>
+        <button type="button" className="dc-sources-toggle" aria-expanded={sourcesOpen} onClick={() => { setSourcesOpen((o) => !o); }}>
+          {sourcesOpen ? 'Hide sources' : 'Sources'}
+        </button>
       </div>
+      {sourcesOpen && <DiscoverSources onClose={() => { setSourcesOpen(false); }} />}
 
       {/* ── Combined toolbar: state tabs + optional filters ── */}
       <div className="dc-toolbar">

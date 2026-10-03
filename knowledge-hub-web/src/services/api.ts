@@ -165,7 +165,7 @@ export interface DocumentContent {
   fromIndex?: boolean;
 }
 
-export type DiscoverWorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published';
+export type DiscoverWorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published' | 'shelved';
 
 /** Workflow states for CFP items (separate from article workflow) */
 export type CfpWorkflowState = 'to_review' | 'saved' | 'submitted' | 'archived';
@@ -338,6 +338,30 @@ export interface DiscoverItem {
   sparkReason: string | null;
   /** Composite relevance score 0-10 */
   compositeScore: number | null;
+  /** 0 = not covered, 1 = same story from another angle, 2 = he has already made this argument */
+  alreadyCovered?: number | null;
+  /** Title of his own piece that covers it */
+  coveredBy?: string | null;
+  /** Vendor group of the feed it came from */
+  sourceGroup?: string | null;
+  /** When it was shelved */
+  shelvedAt?: string | null;
+  /** Why: 'low' = scored as not worth content, 'stale' = unactioned for its time in To Review */
+  shelvedReason?: string | null;
+}
+
+/** A feed Athena reads for article discovery. */
+export interface DiscoveryFeed {
+  id: string;
+  title: string;
+  feedUrl: string;
+  groupName: string;
+  isActive: boolean;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  lastNewCount: number;
+  articlesFound: number;
 }
 
 export class KnowledgeHubApi {
@@ -1151,6 +1175,33 @@ export class KnowledgeHubApi {
       params: state ? { state } : undefined,
     });
     return r.data;
+  }
+
+  async listDiscoveryFeeds(): Promise<ApiResponse<DiscoveryFeed[]>> {
+    return (await this.client.get<ApiResponse<DiscoveryFeed[]>>('/api/discover/feeds')).data;
+  }
+
+  /** Adds a feed; the server checks the address first and says if it isn't a working feed. */
+  async addDiscoveryFeed(feed: { title: string; feedUrl: string; groupName: string }): Promise<ApiResponse<DiscoveryFeed & { itemsInFeed: number }>> {
+    try {
+      return (await this.client.post<ApiResponse<DiscoveryFeed & { itemsInFeed: number }>>('/api/discover/feeds', feed)).data;
+    } catch (err) {
+      const body = (err as { response?: { data?: ApiResponse<never> } }).response?.data;
+      if (body !== undefined) return body;
+      throw err;
+    }
+  }
+
+  async updateDiscoveryFeed(id: string, patch: { isActive?: boolean; title?: string; groupName?: string }): Promise<ApiResponse<DiscoveryFeed>> {
+    return (await this.client.patch<ApiResponse<DiscoveryFeed>>(`/api/discover/feeds/${id}`, patch)).data;
+  }
+
+  async deleteDiscoveryFeed(id: string): Promise<ApiResponse<unknown>> {
+    return (await this.client.delete<ApiResponse<unknown>>(`/api/discover/feeds/${id}`)).data;
+  }
+
+  async checkDiscoveryFeeds(): Promise<ApiResponse<{ started: boolean }>> {
+    return (await this.client.post<ApiResponse<{ started: boolean }>>('/api/discover/feeds/check')).data;
   }
 
   async updateDiscoverWorkflow(id: string, state: DiscoverWorkflowState): Promise<ApiResponse<unknown>> {

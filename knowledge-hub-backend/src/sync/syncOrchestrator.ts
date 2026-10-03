@@ -1,7 +1,7 @@
 import { syncOneDriveDocuments } from '../integrations/alliance/oneDriveSync.js';
 import type { Pool } from 'pg';
 import { indexAllPosts } from '../integrations/cms/postIndexer.js';
-import { syncDiscoveredArticles } from '../integrations/cms/discoveredArticlesSync.js';
+import { syncDiscoveryFeeds } from '../integrations/discovery/feedSync.js';
 import { syncGitLabCommits } from '../integrations/gitlab/commitsSync.js';
 import { syncGitLabMergeRequests } from '../integrations/gitlab/mergeRequestsSync.js';
 import { syncGitLabIssues } from '../integrations/gitlab/issuesSync.js';
@@ -95,7 +95,7 @@ export async function runTier1Sync(db: Pool): Promise<OrchestratorResult> {
 async function runTier1SyncInner(db: Pool): Promise<OrchestratorResult> {
   const sources: Array<{ name: string; sync: (db: Pool) => Promise<{ indexed: number; errors: number }> }> = [
     { name: 'cms',              sync: indexAllPosts },
-    { name: 'discovered-articles', sync: syncDiscoveredArticles },
+    { name: 'discovered-articles', sync: syncDiscoveryFeeds },
     { name: 'gitlab-commits',   sync: syncGitLabCommits },
     { name: 'gitlab-mrs',       sync: syncGitLabMergeRequests },
     { name: 'gitlab-issues',    sync: syncGitLabIssues },

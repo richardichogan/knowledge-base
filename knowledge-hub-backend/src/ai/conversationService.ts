@@ -56,7 +56,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 ].join('\n');
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set(['create_task', 'update_task', 'create_note_draft', 'propose_note_edit', 'propose_map_changes', 'remember', 'forget_memory', 'save_output']);
+const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'propose_note_edit', 'propose_map_changes', 'remember', 'forget_memory', 'save_output']);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;

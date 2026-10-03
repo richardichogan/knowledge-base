@@ -246,6 +246,9 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'search_knowledge_base\'s text matching, since two items can be genuinely connected without sharing any ' +
     'words. Call it whenever the user asks how things relate/connect to each other, or to check what else a ' +
     'relevant note/document/task is explicitly linked to after finding it via search_knowledge_base.',
+  '- `get_content_pipeline` / `set_content_plan`: his content plan. The podcast and newsletter alternate fortnights and ' +
+    'the dates move. Use get_content_pipeline when he asks what to write, record or post next or about today\'s pick; use ' +
+    'set_content_plan when he moves a date or answers the pick ("going with it" = done, "not that one" = dropped).',
   '- `find_files`: use this when he describes a FILE rather than its content — by folder ("the Excel in Internal", ' +
     '"my Imagine OneDrive"), type (Excel, deck, PDF) or file name (including one visible in a screenshot). It lists ' +
     'matching OneDrive/uploaded/repo files with where they are, and includes the content when one file matches.',

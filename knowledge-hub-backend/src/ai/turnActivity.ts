@@ -9,6 +9,8 @@ const LABELS: Record<string, string> = {
   search_library: 'Searching your Library',
   find_files: 'Looking through your files',
   screenshot_page: 'Taking screenshots',
+  get_content_pipeline: 'Checking your content plan',
+  set_content_plan: 'Updating your content plan',
   search_knowledge_graph: 'Looking through the knowledge graph',
   search_ica: 'Searching the ICA document collections',
   fetch_web_page: 'Reading a web page',

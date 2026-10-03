@@ -102,6 +102,38 @@ export class FoundryClient {
   }
 
   /**
+   * Background and bulk work (article triage, deep dives): runs on the separate GPT-5.4
+   * resource, which has its own, much larger quota — gpt-4o and gpt-4o mini are one shared
+   * deployment limited to 50,000 tokens a minute, which live chat also depends on, so bulk
+   * jobs must never run there. Falls back to gpt-4o mini where that resource isn't configured.
+   */
+  public async chatBulk(messages: ConversationMessage[], maxTokens = 1_500, timeoutMs = 120_000): Promise<string> {
+    const endpoint = env.AZURE_OPENAI_ENDPOINT_GPT54;
+    const apiKey = env.AZURE_OPENAI_API_KEY_GPT54;
+    if (endpoint === undefined || endpoint === '' || apiKey === undefined || apiKey === '') {
+      return this.chat('gpt-4o-mini', messages, maxTokens);
+    }
+    const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? 'gpt-5.4';
+    let response: Response;
+    try {
+      response = await fetch(`${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({ messages, max_completion_tokens: maxTokens, reasoning_effort: 'low' }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'TimeoutError';
+      throw new AiError(isTimeout ? `Bulk request timed out after ${timeoutMs.toString()}ms` : `Bulk request failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!response.ok) throw new AiError(`${response.status.toString()} ${response.statusText}: ${(await response.text()).slice(0, 300)}`);
+    const data = (await response.json()) as ChatCompletionResponse;
+    const content = data.choices[0]?.message.content;
+    if (!content) throw new AiError('Empty response from the bulk model');
+    return content;
+  }
+
+  /**
    * Sends a chat completion request that may invoke tools (function calling).
    * Returns the assistant's text (may be null when the model only wants to
    * call tools) plus any requested tool calls — the caller is responsible for

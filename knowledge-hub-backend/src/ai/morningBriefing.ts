@@ -15,6 +15,7 @@ import { env } from '../config/env.js';
 import { getFoundryClient } from './foundryClient.js';
 import { setSessionPinned, renameSession } from './chatSessionStore.js';
 import { getSyncState, upsertSyncState } from '../db/queries.js';
+import { buildContentPickFacts } from './contentPick.js';
 import { buildTodayScheduleBlock, workToday, WORK_TIMEZONE } from '../integrations/ibm/ibmMeetings.js';
 
 const STATE_KEY = 'morning-briefing';
@@ -165,8 +166,9 @@ const BRIEFING_PROMPT = [
   '2. "## Overnight on GitHub" — one short line per repo that had activity (what happened, not a list of every commit). Skip repos with only routine CI runs.',
   '3. "## Today" — his meetings (times, and flag clashes or prep), then tasks due today.',
   '4. Optionally "## New documents" if any arrived.',
+  '5. "## Content pick" — from the "Content pick" facts: the ONE suggested topic in the ONE format given, as a short block that opens with the FORMAT and the working title on one bold line (for example "**Blog post: <title>**" or "**Podcast topic: <title>**"), then a line on why it is worth doing now (the dated hook), his angle in one or two sentences, the link, and a closing line saying what is lined up for the next podcast and newsletter with their dates. Offer nothing else: no second format unless the facts give a reason. If a pick is carried over, say he has not acted on it yet. If the facts say there is no pick, write one line saying nothing was strong enough today. Never invent a topic.',
   'If there are more than 5 open PRs, list the 5 most recent and add "and N more".',
-  'Keep it under 250 words. Only use links that appear in the facts — never placeholder links. Never invent anything not in the facts. No greeting line and no sign-off.',
+  'Keep it under 330 words. Only use links that appear in the facts — never placeholder links. Never invent anything not in the facts. No greeting line and no sign-off.',
 ].join('\n');
 
 /** Generates (or regenerates) today's briefing and saves it as the pinned "Morning briefing" chat. */
@@ -176,7 +178,7 @@ export async function generateMorningBriefing(db: Pool): Promise<Briefing> {
   const since = previous !== null && previous.date !== workToday()
     ? new Date(Math.max(new Date(previous.generatedAt).getTime(), now.getTime() - MAX_LOOKBACK_MS))
     : new Date(now.getTime() - DEFAULT_LOOKBACK_MS);
-  const facts = await gatherFacts(db, since);
+  const facts = `${await gatherFacts(db, since)}\n\n${await buildContentPickFacts(db).catch((err: unknown) => { console.warn('[Briefing] content pick failed:', err); return ''; })}`;
   const markdown = await getFoundryClient().chat(
     'gpt-4o',
     [{ role: 'system', content: BRIEFING_PROMPT }, { role: 'user', content: facts }],

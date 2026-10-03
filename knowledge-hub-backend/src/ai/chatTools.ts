@@ -142,6 +142,38 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'get_content_pipeline',
+        description:
+          "Shows his content plan: when the next podcast recording and newsletter are due, today's content pick from article " +
+          'discovery (one topic in one format, with the angle, why now, the coverage check and the link), and what is lined up for ' +
+          'the podcast and newsletter. Use it when he asks what to write, record or post next, what today\'s pick is, or about the ' +
+          'schedule. Not for general article searches.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'set_content_plan',
+        description:
+          "Updates his content plan. Use when he moves a date (\"the newsletter's moved to Monday 12 October\", \"podcast is next Monday\") " +
+          'or answers today\'s pick: he is going with it (pickStatus "done") or does not want it (pickStatus "dropped" — it is never ' +
+          'suggested again and a new pick is chosen). Dates are YYYY-MM-DD.',
+        parameters: {
+          type: 'object',
+          properties: {
+            podcastDate: { type: 'string', description: 'Next podcast recording date, YYYY-MM-DD.' },
+            newsletterDate: { type: 'string', description: 'Next newsletter due date, YYYY-MM-DD.' },
+            note: { type: 'string', description: 'Optional note about the change, e.g. "depends on workload".' },
+            pickStatus: { type: 'string', enum: ['done', 'dropped'], description: "Resolve today's open pick." },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'screenshot_page',
         description:
           'Takes screenshots of a public web page (url) — or of a mock-up saved in this chat (output_id) — at desktop, ' +
@@ -542,6 +574,26 @@ export async function executeToolCall(
     case 'list_tasks':            return listTasks(db, args);
     case 'find_files':            return findFiles(db, args);
     case 'screenshot_page':       return screenshotPage(db, args, turn.sessionId);
+    case 'get_content_pipeline': {
+      const { chooseDailyPick, describePipeline } = await import('./contentPick.js');
+      return { pipeline: describePipeline(await chooseDailyPick(db)) };
+    }
+    case 'set_content_plan': {
+      const { setScheduleDate, getSchedule, describeSchedule } = await import('./contentSchedule.js');
+      const { resolveOpenPick } = await import('./contentPick.js');
+      const done: string[] = [];
+      const note = typeof args['note'] === 'string' ? args['note'] : undefined;
+      try {
+        if (typeof args['podcastDate'] === 'string') { await setScheduleDate(db, 'podcast', args['podcastDate'], note); done.push(`podcast set to ${args['podcastDate']}`); }
+        if (typeof args['newsletterDate'] === 'string') { await setScheduleDate(db, 'newsletter', args['newsletterDate'], note); done.push(`newsletter set to ${args['newsletterDate']}`); }
+      } catch (err) { return { error: err instanceof Error ? err.message : 'Could not set the date.' }; }
+      if (args['pickStatus'] === 'done' || args['pickStatus'] === 'dropped') {
+        const closed = await resolveOpenPick(db, args['pickStatus']);
+        done.push(closed === null ? 'there was no open pick' : `pick "${closed.title}" marked ${args['pickStatus']}`);
+      }
+      if (done.length === 0) return { error: 'Nothing to change: give a podcastDate, newsletterDate or pickStatus.' };
+      return { updated: done, schedule: describeSchedule(await getSchedule(db)) };
+    }
     case 'search_library':        return searchLibrary(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : LIBRARY_RESULT_CONTENT_CHARS);
     case 'create_task':           return createTask(db, args, turn.sessionId);
     case 'update_task':           return updateTask(db, args, turn.sessionId);
@@ -1632,7 +1684,7 @@ function htmlToPlainText(html: string): { title: string | undefined; text: strin
   return { title, text };
 }
 
-async function fetchWebPage(args: Record<string, unknown>): Promise<unknown> {
+export async function fetchWebPage(args: Record<string, unknown>): Promise<unknown> {
   const rawUrl = typeof args['url'] === 'string' ? args['url'].trim() : '';
   if (rawUrl === '') return { error: 'url is required' };
 

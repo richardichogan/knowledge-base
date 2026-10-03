@@ -4,6 +4,8 @@ import { getDb } from '../db/db.js';
 import { HTTP_STATUS, DISCOVER_RECENCY_HALF_LIFE_DAYS } from '../config/constants.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
+import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync.js';
+import { readFeed } from '../integrations/discovery/feedReader.js';
 import { SOURCE_AUTHORITY_WEIGHTS, ARTICLE_TYPE_WEIGHTS } from '../integrations/cms/articleScoringPrompt.js';
 
 /**
@@ -20,7 +22,7 @@ function buildWeightCaseExpr(column: string, weights: Record<string, number>, fa
 
 export const discoverRouter = Router();
 
-export type WorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published';
+export type WorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published' | 'shelved';
 
 export interface DiscoverItem {
   id: string;
@@ -53,9 +55,19 @@ export interface DiscoverItem {
   sourceAuthorityTier: string | null;
   /** Live-computed rank score actually used for ordering (relevance_score with recency decay applied) */
   rankScore: number | null;
+  /** 0 = not covered, 1 = same story from another angle, 2 = he has already made this argument */
+  alreadyCovered: number | null;
+  /** Title of his own piece that covers it */
+  coveredBy: string | null;
+  /** Vendor group of the feed it came from (Microsoft, Google, AWS, OpenAI, IBM…) */
+  sourceGroup: string | null;
+  /** When the article was shelved */
+  shelvedAt: string | null;
+  /** Why: 'low' = scored as not worth content, 'stale' = unactioned past its time in To Review */
+  shelvedReason: string | null;
 }
 
-const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived', 'published'];
+const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived', 'published', 'shelved'];
 const DISCOVER_PAGE_SIZE_DEFAULT = 50;
 const DISCOVER_PAGE_SIZE_MAX = 100;
 
@@ -165,6 +177,11 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         compositeScore: typeof row.metadata['compositeScore'] === 'number' ? row.metadata['compositeScore'] : null,
         sourceAuthorityTier: typeof row.metadata['sourceAuthorityTier'] === 'string' ? row.metadata['sourceAuthorityTier'] : null,
         rankScore: row.rank_score,
+        alreadyCovered: typeof row.metadata['alreadyCovered'] === 'number' ? row.metadata['alreadyCovered'] : null,
+        coveredBy: typeof row.metadata['coveredBy'] === 'string' && row.metadata['coveredBy'] !== '' ? row.metadata['coveredBy'] : null,
+        sourceGroup: typeof row.metadata['sourceGroup'] === 'string' ? row.metadata['sourceGroup'] : null,
+        shelvedAt: typeof row.metadata['shelvedAt'] === 'string' ? row.metadata['shelvedAt'] : null,
+        shelvedReason: typeof row.metadata['shelvedReason'] === 'string' ? row.metadata['shelvedReason'] : null,
       }));
 
       const response: ApiSuccess<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }> = {
@@ -227,8 +244,14 @@ discoverRouter.patch('/:id/workflow', (req: Request, res: Response, next: NextFu
       }
 
       const db = getDb();
+      // Restoring to To Review restarts the shelving clock; shelving by hand is recorded too.
+      const stamp = state === 'to-review'
+        ? `, metadata = metadata || jsonb_build_object('restoredAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))`
+        : state === 'shelved'
+          ? `, metadata = metadata || jsonb_build_object('shelvedAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))`
+          : '';
       const result = await db.query(
-        `UPDATE content_items SET workflow_state = $1 WHERE id = $2 AND source = 'discovered-article' RETURNING id`,
+        `UPDATE content_items SET workflow_state = $1${stamp} WHERE id = $2 AND source = 'discovered-article' RETURNING id`,
         [state, id],
       );
 
@@ -245,6 +268,90 @@ discoverRouter.patch('/:id/workflow', (req: Request, res: Response, next: NextFu
       next(err);
     }
   })();
+});
+
+// ── Feed sources (where discovery looks) ─────────────────────────────────────
+
+const FEED_FIELDS = `id::text, title, feed_url, group_name, is_active, last_checked_at, last_success_at, last_error, last_new_count, articles_found`;
+
+function feedBody(req: Request): { title: string; feedUrl: string; groupName: string } {
+  const b = req.body as { title?: unknown; feedUrl?: unknown; groupName?: unknown };
+  return {
+    title: typeof b.title === 'string' ? b.title.trim() : '',
+    feedUrl: typeof b.feedUrl === 'string' ? b.feedUrl.trim() : '',
+    groupName: typeof b.groupName === 'string' && b.groupName.trim() !== '' ? b.groupName.trim() : 'Other',
+  };
+}
+
+// ── GET /api/discover/feeds ───────────────────────────────────────────────────
+discoverRouter.get('/feeds', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { rows } = await getDb().query(`SELECT ${FEED_FIELDS} FROM discovery_sources ORDER BY group_name, title`);
+      res.json({ success: true, data: rows.map((r) => toSource(r as Parameters<typeof toSource>[0])) });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── POST /api/discover/feeds — add a source (checked first, so a bad address is reported straight away) ──
+discoverRouter.post('/feeds', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { title, feedUrl, groupName } = feedBody(req);
+      if (title === '' || !/^https?:\/\//i.test(feedUrl)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'A name and an http(s) feed address are needed.' } });
+        return;
+      }
+      let articles;
+      try {
+        articles = await readFeed(feedUrl);
+      } catch (err) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_FEED', message: `That address didn't work as a feed: ${err instanceof Error ? err.message : String(err)}` } });
+        return;
+      }
+      const { rows } = await getDb().query(
+        `INSERT INTO discovery_sources (title, feed_url, group_name) VALUES ($1, $2, $3)
+         ON CONFLICT (feed_url) DO UPDATE SET title = EXCLUDED.title, group_name = EXCLUDED.group_name, is_active = true
+         RETURNING ${FEED_FIELDS}`,
+        [title, feedUrl, groupName],
+      );
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: { ...toSource(rows[0] as Parameters<typeof toSource>[0]), itemsInFeed: articles.length } });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── PATCH /api/discover/feeds/:id — switch on/off, rename ───────────────────
+discoverRouter.patch('/feeds/:id', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const b = req.body as { isActive?: unknown; title?: unknown; groupName?: unknown };
+      const { rows } = await getDb().query(
+        `UPDATE discovery_sources
+            SET is_active = COALESCE($2, is_active), title = COALESCE($3, title), group_name = COALESCE($4, group_name),
+                last_error = CASE WHEN $2 = true THEN NULL ELSE last_error END
+          WHERE id::text = $1 RETURNING ${FEED_FIELDS}`,
+        [req.params['id'], typeof b.isActive === 'boolean' ? b.isActive : null, typeof b.title === 'string' && b.title.trim() !== '' ? b.title.trim() : null, typeof b.groupName === 'string' && b.groupName.trim() !== '' ? b.groupName.trim() : null],
+      );
+      if (rows.length === 0) { res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: { code: 'NOT_FOUND', message: 'Source not found' } }); return; }
+      res.json({ success: true, data: toSource(rows[0] as Parameters<typeof toSource>[0]) });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── DELETE /api/discover/feeds/:id — stop reading it (its articles stay) ─────
+discoverRouter.delete('/feeds/:id', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      await getDb().query(`DELETE FROM discovery_sources WHERE id::text = $1`, [req.params['id']]);
+      res.json({ success: true });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── POST /api/discover/feeds/check — read all sources now (runs in the background) ──
+discoverRouter.post('/feeds/check', (_req: Request, res: Response): void => {
+  void syncDiscoveryFeeds(getDb()).catch((err: unknown) => { console.error('[Discovery] manual check failed:', err); });
+  res.status(HTTP_STATUS.ACCEPTED).json({ success: true, data: { started: true } });
 });
 
 // ── PATCH /api/discover/:id/published-url ─────────────────────────────────────
