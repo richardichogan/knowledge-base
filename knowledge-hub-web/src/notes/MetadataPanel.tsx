@@ -195,7 +195,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                   onChange={(e) => { onProjectChange(e.target.value); }}
                 >
                   <option value="">No project</option>
-                  {projects.map((project) => (
+                  {[...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })).map((project) => (
                     <option key={project.id} value={project.id}>{project.name}</option>
                   ))}
                 </select>

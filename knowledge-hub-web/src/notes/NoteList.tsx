@@ -137,7 +137,7 @@ export const NoteList: React.FC<NoteListProps> = ({
     .sort((a, b) => {
       if (a.id === '__none__') return 1;
       if (b.id === '__none__') return -1;
-      return a.label.localeCompare(b.label);
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
     });
   const availableContentTypes = CONTENT_TYPE_OPTIONS.filter((option) =>
     notes.some((note) => note.contentType === option.id),
