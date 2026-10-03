@@ -668,6 +668,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         }}
         taxonomyTagIds={taxonomyTagIds}
         appliedTags={appliedTags}
+        autoTagIds={(noteTagObjects as Array<{ id: string; source?: string }>).filter((t) => t.source === 'auto').map((t) => t.id)}
+        noteId={doc.id}
         onTagIdsChange={(ids) => { void setNoteTagsMutation.mutate(ids); }}
         wordCount={wordCount}
         readingTime={readingTime}

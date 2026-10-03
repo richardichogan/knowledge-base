@@ -8,6 +8,7 @@
  * DELETE /api/notes/:id   — archive (soft delete) a note
  */
 
+import { queueAutoTag } from '../services/autoTagging.js';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { upsertContentItem } from '../db/queries.js';
@@ -221,6 +222,7 @@ function scheduleNoteIndexing(db: ReturnType<typeof getDb>, note: Note): void {
     syncNoteToTimeline(db, note).catch((e: unknown) => {
       console.error('[notes] Failed to sync updated note to timeline:', e);
     });
+    queueAutoTag(db, 'note', note.id, 0); // edits have settled: tag it if its content changed
     void (async (): Promise<void> => {
       try {
         let title = 'Untitled Note';
@@ -419,6 +421,7 @@ export async function createNoteRecord(
   syncNoteToTimeline(db, note).catch((e: unknown) => {
     console.error('[notes] Failed to sync new note to timeline:', e);
   });
+  queueAutoTag(db, 'note', note.id); // tagged once it has settled
   // Upsert graph node so the note appears in the connections graph immediately (fire-and-forget)
   void (async (): Promise<void> => {
     try {

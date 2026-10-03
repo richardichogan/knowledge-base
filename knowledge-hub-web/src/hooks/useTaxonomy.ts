@@ -105,6 +105,8 @@ export function useNoteTags(noteId: string | null) {
     },
     enabled: noteId !== null,
     staleTime: 10_000,
+    // Automatic tags land a short while after the note settles, so keep looking while it is open.
+    refetchInterval: 20_000,
   });
 }
 

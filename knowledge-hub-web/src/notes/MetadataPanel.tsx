@@ -14,6 +14,8 @@ import { CollapsibleSection } from '../components/CollapsibleSection';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { NoteMaps } from '../features/canvas/NoteMaps';
 import type { Project } from '../services/api';
+import { api } from '../services/api';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAthenaContext } from '../context/AthenaContext';
 import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import { ThinkAthenaPanel } from './ThinkAthenaPanel';
@@ -47,6 +49,9 @@ interface MetadataPanelProps {
   onProjectChange: (projectId: string) => void;
   taxonomyTagIds: string[];
   appliedTags: AppliedTag[];
+  /** Ids of tags Athena applied automatically (shown with an 'auto' marker and one-click remove). */
+  autoTagIds: string[];
+  noteId: string;
   onTagIdsChange: (ids: string[]) => void;
   wordCount: number;
   readingTime: number;
@@ -77,6 +82,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   onProjectChange,
   taxonomyTagIds,
   appliedTags,
+  autoTagIds,
+  noteId,
   onTagIdsChange,
   wordCount,
   readingTime,
@@ -89,6 +96,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   onMapNote,
 }) => {
   const { pageContext } = useAthenaContext();
+  const qc = useQueryClient();
+  const [retagging, setRetagging] = useState(false);
   const showAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
   const [athenaBusy, setAthenaBusy] = useState(false);
   const [storedTab, setTab] = usePersistedChoice<SidePanelTab>('kh_think_side_tab', SIDE_PANEL_TABS, 'athena');
@@ -217,13 +226,27 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                 <p className="notes-meta-section-label">Tags</p>
                 <div className="notes-meta-tags-chips">
                   {appliedTags.map((t) => (
-                    <span key={t.id} className="notes-meta-tag-chip">{t.name}</span>
+                    <span key={t.id} className={`notes-meta-tag-chip${autoTagIds.includes(t.id) ? ' notes-meta-tag-chip--auto' : ''}`}>
+                      {t.name}
+                      {autoTagIds.includes(t.id) && (
+                        <>
+                          <span className="notes-meta-tag-auto" title="Added automatically by Athena">auto</span>
+                          <button type="button" className="notes-meta-tag-remove" aria-label={`Remove tag ${t.name}`} title="Remove this tag (Athena won't re-add it)"
+                            onClick={() => onTagIdsChange(taxonomyTagIds.filter((id) => id !== t.id))}>×</button>
+                        </>
+                      )}
+                    </span>
                   ))}
                   <TagPicker
                     selectedIds={taxonomyTagIds}
                     onChange={onTagIdsChange}
                     trigger={<button className="notes-tag-picker-trigger">+ Add tag</button>}
                   />
+                  <button type="button" className="notes-tag-picker-trigger" disabled={retagging}
+                    title="Let Athena suggest tags for this note again"
+                    onClick={() => { setRetagging(true); void api.retagNote(noteId).then(() => qc.invalidateQueries({ queryKey: ['note-tags', noteId] })).finally(() => setRetagging(false)); }}>
+                    {retagging ? 'Tagging…' : 'Re-tag'}
+                  </button>
                 </div>
               </div>
             </CollapsibleSection>

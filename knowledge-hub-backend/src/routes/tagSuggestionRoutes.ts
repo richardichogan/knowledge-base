@@ -12,6 +12,10 @@ import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError, NotFoundError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
+import { tagKey } from '../services/taxonomyService.js';
+
+/** Suggestions seen on fewer items than this are hidden unless the user asks for all of them. */
+const MIN_VISIBLE_COUNT = 3;
 
 const router = Router();
 
@@ -23,6 +27,8 @@ export interface PendingSuggestion {
   status: 'pending' | 'accepted' | 'rejected' | 'merged';
   mergedToId: string | null;
   createdAt: string;
+  /** An existing tag this suggestion is probably the same as — merging is then the better action. */
+  likelyMatch: { id: string; name: string } | null;
 }
 
 function toSlug(name: string): string {
@@ -31,25 +37,48 @@ function toSlug(name: string): string {
 
 // ── GET /api/tag-suggestions ──────────────────────────────────────────────────
 
-router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
+router.get('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const db = getDb();
+      const minCount = req.query['all'] === '1' ? 0 : MIN_VISIBLE_COUNT;
       const rows = await db.query<{
         id: string; suggested_name: string; suggested_count: number;
         example_content: string[]; status: string; merged_to_id: string | null; created_at: string;
       }>(
         `SELECT id, suggested_name, suggested_count, example_content, status, merged_to_id, created_at
          FROM pending_tag_suggestions
-         WHERE status = 'pending'
-         ORDER BY suggested_count DESC, created_at DESC`,
+         WHERE status = 'pending' AND suggested_count >= $1
+         ORDER BY suggested_count DESC, created_at DESC
+         LIMIT 400`, [minCount],
       );
+      const tags = await db.query<{ id: string; name: string }>(`SELECT id, name FROM tags`);
+      const byKey = new Map(tags.rows.map((t) => [tagKey(t.name), t]));
       const data: PendingSuggestion[] = rows.rows.map((r) => ({
         id: r.id, suggestedName: r.suggested_name, suggestedCount: r.suggested_count,
         exampleContent: r.example_content, status: r.status as PendingSuggestion['status'],
         mergedToId: r.merged_to_id, createdAt: r.created_at,
+        likelyMatch: byKey.get(tagKey(r.suggested_name)) ?? null,
       }));
       const body: ApiSuccess<PendingSuggestion[]> = { success: true, data };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── GET /api/tag-suggestions/counts — how many are shown by default vs hidden as weak ──
+
+router.get('/counts', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const r = await getDb().query<{ strong: string; weak: string }>(
+        `SELECT count(*) FILTER (WHERE suggested_count >= $1) AS strong,
+                count(*) FILTER (WHERE suggested_count < $1) AS weak
+         FROM pending_tag_suggestions WHERE status = 'pending'`, [MIN_VISIBLE_COUNT],
+      );
+      const body: ApiSuccess<{ strong: number; weak: number }> = {
+        success: true, data: { strong: Number(r.rows[0]?.strong ?? 0), weak: Number(r.rows[0]?.weak ?? 0) },
+      };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) { next(err); }
   })();
@@ -113,7 +142,8 @@ router.post('/:id/merge', (req: Request, res: Response, next: NextFunction): voi
     try {
       const db = getDb();
       const { id } = req.params;
-      const { mergeToTagId } = req.body as { mergeToTagId?: string };
+      const { mergeToTagId: legacyKey, mergeToId } = req.body as { mergeToTagId?: string; mergeToId?: string };
+      const mergeToTagId = mergeToId ?? legacyKey;
       if (!mergeToTagId) throw new ValidationError('mergeToTagId is required', {});
 
       const existing = await db.query(`SELECT id FROM tags WHERE id = $1`, [mergeToTagId]);
@@ -141,7 +171,7 @@ router.post('/accept-all', (req: Request, res: Response, next: NextFunction): vo
       const { parentId = null, colour = null } = req.body as { parentId?: string | null; colour?: string | null };
 
       const pending = await db.query<{ id: string; suggested_name: string }>(
-        `SELECT id, suggested_name FROM pending_tag_suggestions WHERE status = 'pending'`,
+        `SELECT id, suggested_name FROM pending_tag_suggestions WHERE status = 'pending' AND suggested_count >= $1`, [MIN_VISIBLE_COUNT],
       );
 
       let accepted = 0;
@@ -172,7 +202,8 @@ router.post('/reject-all', (_req: Request, res: Response, next: NextFunction): v
     try {
       const db = getDb();
       const result = await db.query(
-        `UPDATE pending_tag_suggestions SET status = 'rejected', updated_at = now() WHERE status = 'pending'`,
+        `UPDATE pending_tag_suggestions SET status = 'rejected', previous_status = 'pending', dismissed_reason = 'rejected in bulk', updated_at = now()
+         WHERE status = 'pending' AND suggested_count >= $1`, [MIN_VISIBLE_COUNT],
       );
       const body: ApiSuccess<{ rejected: number }> = { success: true, data: { rejected: result.rowCount ?? 0 } };
       res.status(HTTP_STATUS.OK).json(body);

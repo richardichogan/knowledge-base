@@ -15,9 +15,10 @@ export const TagManagerReviewQueue: React.FC = () => {
   const qc = useQueryClient();
   const refresh = (): void => { void qc.invalidateQueries({ queryKey: ['tag-suggestions'] }); };
   const [rejectingAll, setRejectingAll] = React.useState(false);
+  const [showWeak, setShowWeak] = React.useState(false);
 
   const rejectAll = async (): Promise<void> => {
-    if (!confirm(`Reject all pending AI suggestions? This cannot be undone.`)) return;
+    if (!confirm(`Reject the ${aiSuggestions.length} suggestions shown? Weaker ones stay hidden and are not affected.`)) return;
     setRejectingAll(true);
     try {
       await api.rejectAllTagSuggestions();
@@ -28,11 +29,15 @@ export const TagManagerReviewQueue: React.FC = () => {
   };
 
   const { data: aiSuggestions = [], isPending: aiLoading } = useQuery<PendingSuggestion[]>({
-    queryKey: ['tag-suggestions'],
+    queryKey: ['tag-suggestions', showWeak],
     queryFn: async () => {
-      const res = await api.getTagSuggestions();
+      const res = await api.getTagSuggestions(showWeak);
       return res.success ? (res.data as PendingSuggestion[]) : [];
     },
+  });
+  const { data: counts } = useQuery({
+    queryKey: ['tag-suggestions', 'counts'],
+    queryFn: async () => { const res = await api.getTagSuggestionCounts(); return res.success ? res.data : { strong: 0, weak: 0 }; },
   });
 
   // Legacy discover-item suggestions (content_items.tags not yet in taxonomy)
@@ -69,6 +74,9 @@ export const TagManagerReviewQueue: React.FC = () => {
         <section className="tag-review-queue__section">
           <div className="tag-review-queue__section-header">
             <h3 className="tag-review-queue__section-title">AI suggestions ({aiSuggestions.length})</h3>
+            <button type="button" className="tag-suggestion-row__btn" onClick={() => setShowWeak((v) => !v)}>
+              {showWeak ? 'Hide weak suggestions' : `Show ${(counts?.weak ?? 0).toLocaleString()} weak suggestions (seen on 1–2 items)`}
+            </button>
             <button
               type="button"
               className="tag-suggestion-row__btn tag-suggestion-row__btn--reject"
@@ -125,7 +133,10 @@ export const TagManagerReviewQueue: React.FC = () => {
       )}
 
       {aiSuggestions.length === 0 && uniqueLegacy.length === 0 && (
-        <p className="tag-panel-empty-state">No pending suggestions.</p>
+        <p className="tag-panel-empty-state">
+          No suggestions that have shown up on 3 or more items.{' '}
+          {(counts?.weak ?? 0) > 0 && <button type="button" className="tag-suggestion-row__btn" onClick={() => setShowWeak(true)}>Show {(counts?.weak ?? 0).toLocaleString()} weaker ones</button>}
+        </p>
       )}
     </div>
   );

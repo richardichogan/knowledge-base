@@ -81,7 +81,7 @@ export async function upsertContentItem(
     const id = row?.id ?? '';
     if (id && isNew) {
       const summary = `${item.title}\n\n${(item.summary ?? item.body ?? '')}`.slice(0, TAG_SUMMARY_CHARS);
-      void tagContent(db, summary, id, item.source, item.title).catch((err: unknown) => {
+      void tagContent(db, summary, id, item.source, item.title, { projectContext: item.projectContext }).catch((err: unknown) => {
         console.error(`[queries] Auto-tag failed for ${item.source}:${item.sourceId}`, err instanceof Error ? err.message : err);
       });
     }
@@ -132,7 +132,7 @@ export async function upsertContentItem(
   // Fire-and-forget: tag NEW items only.
   if (id && isNew) {
     const summary = `${item.title}\n\n${(item.summary ?? item.body ?? '')}`.slice(0, TAG_SUMMARY_CHARS);
-    void tagContent(db, summary, id, item.source, item.title).catch((err: unknown) => {
+    void (item.source === 'note' ? Promise.resolve() : tagContent(db, summary, id, item.source, item.title, { projectContext: item.projectContext })).catch((err: unknown) => {
       console.error(`[queries] Auto-tag failed for ${item.source}:${item.sourceId}`, err instanceof Error ? err.message : err);
     });
   }

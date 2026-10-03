@@ -245,6 +245,7 @@ export interface PendingSuggestion {
   status: 'pending' | 'accepted' | 'rejected' | 'merged';
   mergedToId: string | null;
   createdAt: string;
+  likelyMatch?: { id: string; name: string } | null;
 }
 
 export interface Spark {
@@ -919,8 +920,13 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async getTagSuggestions(): Promise<ApiResponse<PendingSuggestion[]>> {
-    const r = await this.client.get<ApiResponse<PendingSuggestion[]>>('/api/tag-suggestions');
+  async getTagSuggestions(all = false): Promise<ApiResponse<PendingSuggestion[]>> {
+    const r = await this.client.get<ApiResponse<PendingSuggestion[]>>('/api/tag-suggestions', { params: all ? { all: 1 } : {} });
+    return r.data;
+  }
+
+  async getTagSuggestionCounts(): Promise<ApiResponse<{ strong: number; weak: number }>> {
+    const r = await this.client.get<ApiResponse<{ strong: number; weak: number }>>('/api/tag-suggestions/counts');
     return r.data;
   }
 
@@ -974,6 +980,11 @@ export class KnowledgeHubApi {
 
   async getNoteTags(noteId: string): Promise<ApiResponse<TaxonomyTag[]>> {
     const r = await this.client.get<ApiResponse<TaxonomyTag[]>>(`/api/notes/${noteId}/tags`);
+    return r.data;
+  }
+
+  async retagNote(noteId: string): Promise<ApiResponse<{ applied: number; skipped?: string }>> {
+    const r = await this.client.post<ApiResponse<{ applied: number; skipped?: string }>>(`/api/notes/${noteId}/tags/retag`, {});
     return r.data;
   }
 

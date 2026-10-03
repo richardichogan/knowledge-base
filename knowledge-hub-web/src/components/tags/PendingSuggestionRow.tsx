@@ -27,13 +27,25 @@ export const PendingSuggestionRow: React.FC<Props> = ({ suggestion, onRefresh })
   };
 
   const examples = suggestion.exampleContent.slice(0, 3);
+  const match = suggestion.likelyMatch;
+
+  const mergeIntoMatch = async (): Promise<void> => {
+    if (!match) return;
+    setBusy(true);
+    try { await api.mergeTagSuggestion(suggestion.id, match.id); onRefresh(); }
+    catch { /* user can retry */ }
+    finally { setBusy(false); }
+  };
 
   return (
     <div className="tag-suggestion-row">
       <div className="tag-suggestion-row__header">
         <span className="tag-suggestion-row__name">{suggestion.suggestedName}</span>
-        <span className="tag-suggestion-row__count">{suggestion.suggestedCount}×</span>
+        <span className="tag-suggestion-row__count">{suggestion.suggestedCount} {suggestion.suggestedCount === 1 ? 'item' : 'items'}</span>
       </div>
+      {match !== null && match !== undefined && (
+        <p className="tag-suggestion-row__hint">Looks like your existing tag <strong>{match.name}</strong> — merging is probably right.</p>
+      )}
 
       {examples.length > 0 && (
         <ul className="tag-suggestion-row__examples">
@@ -44,9 +56,15 @@ export const PendingSuggestionRow: React.FC<Props> = ({ suggestion, onRefresh })
       )}
 
       <div className="tag-suggestion-row__actions">
-        <button type="button" className="tag-suggestion-row__btn tag-suggestion-row__btn--accept"
+        {match && (
+          <button type="button" className="tag-suggestion-row__btn tag-suggestion-row__btn--accept"
+            onClick={() => { void mergeIntoMatch(); }} disabled={busy}>
+            Merge into {match.name}
+          </button>
+        )}
+        <button type="button" className={`tag-suggestion-row__btn${match ? '' : ' tag-suggestion-row__btn--accept'}`}
           onClick={() => setAcceptOpen(true)} disabled={busy}>
-          Accept
+          {match ? 'Add as new tag' : 'Accept'}
         </button>
         <button type="button" className="tag-suggestion-row__btn tag-suggestion-row__btn--merge"
           onClick={() => setMergeOpen(true)} disabled={busy}>

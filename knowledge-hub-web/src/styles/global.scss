@@ -14112,3 +14112,9 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
   .ai-move__label { display: inline; }
   .ai-move__panel { top: auto; bottom: 2.25rem; left: 0; right: 0; width: auto; max-width: 26rem; }
 }
+
+.notes-meta-tag-chip--auto { display: inline-flex; align-items: center; gap: 4px; }
+.notes-meta-tag-auto { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; }
+.notes-meta-tag-remove { background: none; border: 0; padding: 0 2px; cursor: pointer; font-size: 0.875rem; line-height: 1; color: inherit; opacity: 0.6; }
+.notes-meta-tag-remove:hover { opacity: 1; }
+.tag-suggestion-row__hint { margin: 4px 0 8px; font-size: 0.75rem; opacity: 0.8; }

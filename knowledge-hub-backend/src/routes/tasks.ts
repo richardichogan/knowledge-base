@@ -1,3 +1,5 @@
+import { queueAutoTag } from '../services/autoTagging.js';
+import { rememberRejection } from '../services/taxonomyService.js';
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { createTodoTask } from '../integrations/graph/todoSync.js';
@@ -169,6 +171,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       const body: ApiSuccess<Task> = { success: true, data: task };
       res.status(HTTP_STATUS.CREATED).json(body);
       syncTaskToTimeline(db, task);
+      queueAutoTag(db, 'task', task.id);
     } catch (err) { next(err); }
   })();
 });
@@ -213,6 +216,10 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
 
       if (syncTags) {
         const tagIds = input.taxonomyTagIds ?? [];
+        // An auto tag he takes off is remembered, so it isn't put back.
+        const autoBefore = await db.query<{ tag_id: string }>(`SELECT tag_id::text FROM task_tags WHERE task_id = $1 AND source = 'auto'`, [id]);
+        const removedAuto = autoBefore.rows.map((r) => r.tag_id).filter((t) => !tagIds.includes(t));
+        if (removedAuto.length > 0) await rememberRejection(db, 'task', String(id), removedAuto);
         await db.query('DELETE FROM task_tags WHERE task_id = $1', [id]);
         if (tagIds.length > 0) {
           const vals = tagIds.map((_, i) => `($1, $${i + 2})`).join(', ');
@@ -220,6 +227,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         }
         task.taxonomyTagIds = tagIds;
       }
+      if (input.title !== undefined || input.body !== undefined) queueAutoTag(db, 'task', String(id));
 
       // Auto-spawn next instance when a recurring task is completed
       if (input.status === 'completed' && task.recurringCadence != null) {

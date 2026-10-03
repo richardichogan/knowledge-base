@@ -27,6 +27,7 @@ import { rowToTask, type Task } from '../routes/tasks.js';
 import { CONTENT_STORE } from '../routes/documents.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
 import { env } from '../config/env.js';
+import { queueAutoTag } from '../services/autoTagging.js';
 import { takeScreenshots, isScreenshotServiceConfigured, type ShotDevice } from '../services/screenshotClient.js';
 import { addScreenUnread } from './chatScreens.js';
 import { isIcaEnabled, icaChat } from './icaClient.js';
@@ -1260,6 +1261,7 @@ async function createTask(db: Pool, args: Record<string, unknown>, sessionId: st
   if (row === undefined) return { error: 'Insert returned no rows' };
 
   const task = rowToTask(row);
+  queueAutoTag(db, 'task', task.id);
   const tags = Array.isArray(args['tags']) ? await setTaskTags(db, task.id, args['tags']) : [];
   const linkedChat = args['linkThisChat'] === true && sessionId !== undefined ? await linkChat(db, task.id, sessionId) : false;
   return { success: true, task: { ...summariseTask(task), tags }, ...(linkedChat && { linkedChat: true }) };
