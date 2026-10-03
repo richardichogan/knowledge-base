@@ -13,6 +13,7 @@
 import type { Pool } from 'pg';
 import { getFoundryClient } from './foundryClient.js';
 import { fetchWebPage } from './chatTools.js';
+import { isTavilyEnabled, getTavilyMcpTools, callTavilyMcpTool } from './tavilyMcpClient.js';
 import { getSchedule, describeSchedule, TOO_LATE_DAYS, type ScheduledFormat } from './contentSchedule.js';
 import { STRONG_SCORE } from '../integrations/discovery/feedSync.js';
 
@@ -25,6 +26,8 @@ export const PICK_MIN_WORTH = 75;
 const CANDIDATE_WINDOW_DAYS = 14;
 /** A pick not acted on for this long is replaced. */
 const PICK_MAX_AGE_DAYS = 10;
+/** A standing pick is replaced when a new candidate is at least this many points stronger. */
+const REPLACE_MARGIN = 12;
 /** Window before a deadline in which suggestions for that format are favoured. */
 const PREP_WINDOW_DAYS = 10;
 const DEEP_DIVE_ARTICLE_CHARS = 8_000;
@@ -32,6 +35,8 @@ const EPISODE_EXCERPT_CHARS = 1_800;
 
 export interface DeepDive {
   at: string;
+  /** Where the article text came from: the page itself, a licensed extraction service for sites that block direct reads, or only the feed summary. */
+  textSource?: 'page' | 'extract' | 'summary';
   news: string;
   angle: string;
   format: ContentFormat;
@@ -132,24 +137,58 @@ function parseDive(raw: string): DeepDive {
   };
 }
 
+/** Extraction output carries site navigation and markdown links; keep the readable article. */
+function cleanExtract(raw: string, title: string): string {
+  let t = raw.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+  const at = t.indexOf(title);
+  if (at > 0 && at < t.length * 0.6) t = t.slice(at);
+  return t.replace(/^[\s*\-]*$/gm, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+const MIN_FULL_TEXT_CHARS = 800;
+
+/** The article's text: read the page; if that fails or is thin, use the extraction service; else the feed summary. */
+async function readArticleText(url: string | null, title: string, summary: string): Promise<{ text: string; source: 'page' | 'extract' | 'summary' }> {
+  if (url !== null) {
+    const page = (await fetchWebPage({ url })) as { success?: boolean; content?: string };
+    if (page.success === true && typeof page.content === 'string' && page.content.length >= MIN_FULL_TEXT_CHARS) return { text: page.content, source: 'page' };
+    if (isTavilyEnabled()) {
+      try {
+        await getTavilyMcpTools();
+        const r = (await callTavilyMcpTool('tavily_extract', { urls: [url], extract_depth: 'basic' })) as { result?: unknown };
+        const parsed = typeof r.result === 'string' ? (JSON.parse(r.result) as { results?: Array<{ raw_content?: string }> }) : {};
+        const raw = parsed.results?.[0]?.raw_content;
+        if (typeof raw === 'string') {
+          const cleaned = cleanExtract(raw, title);
+          if (cleaned.length >= MIN_FULL_TEXT_CHARS) return { text: cleaned, source: 'extract' };
+        }
+      } catch (err) {
+        console.warn(`[ContentPick] extraction failed for ${url}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+  return { text: summary, source: 'summary' };
+}
+
 interface ArticleRow { id: string; title: string; url: string | null; body: string | null; published_at: Date; metadata: Record<string, unknown> }
 
 /** Reads one article in full and stores its assessment on the article. */
 export async function runDeepDive(db: Pool, article: ArticleRow, ctx?: { schedule: string; own: string; episodes: string }): Promise<DeepDive> {
   const context = ctx ?? { schedule: describeSchedule(await getSchedule(db)), ...(await ownContext(db)) };
-  let text = article.body ?? '';
-  if (article.url !== null) {
-    const page = (await fetchWebPage({ url: article.url })) as { success?: boolean; content?: string };
-    if (page.success === true && typeof page.content === 'string' && page.content.length > text.length) text = page.content;
-  }
+  const { text, source } = await readArticleText(article.url, article.title, article.body ?? '');
   const published = article.published_at.toISOString().slice(0, 10);
-  const user = `Article: ${article.title}\nSource: ${String(article.metadata['sourceTitle'] ?? '')}\nPublished: ${published}\nURL: ${article.url ?? ''}\nTriage verdict: ${String(article.metadata['relevanceExplanation'] ?? '')}\n\nText:\n${text.slice(0, DEEP_DIVE_ARTICLE_CHARS)}`;
+  const limited = source === 'summary'
+    ? '\n\nNOTE: only the short feed summary is available — the site would not give up the full article. Judge significance from the title and summary alone, do not invent any detail beyond them, say plainly in "risks" that the full text could not be read, and do not give a worth above 60.'
+    : '';
+  const user = `Article: ${article.title}\nSource: ${String(article.metadata['sourceTitle'] ?? '')}\nPublished: ${published}\nURL: ${article.url ?? ''}\nTriage verdict: ${String(article.metadata['relevanceExplanation'] ?? '')}\n\nText:\n${text.slice(0, DEEP_DIVE_ARTICLE_CHARS)}${limited}`;
   const raw = await getFoundryClient().chatBulk(
     [{ role: 'system', content: divePrompt(context.schedule, context.own, context.episodes) }, { role: 'user', content: user }],
     3_000,
     150_000,
   );
   const dive = parseDive(raw);
+  dive.textSource = source;
+  if (source === 'summary') dive.worth = Math.min(dive.worth, 60);
   await db.query(`UPDATE content_items SET metadata = metadata || jsonb_build_object('deepDive', $2::jsonb) WHERE id = $1`, [article.id, JSON.stringify(dive)]);
   return dive;
 }
@@ -242,8 +281,6 @@ export async function chooseDailyPick(db: Pool): Promise<PipelineSummary> {
     const mine = eligible.filter((c) => c.dive.format === format).sort((a, b) => b.dive.worth - a.dive.worth);
     return { format, deadline: schedule[format].next, daysAway: schedule[format].daysAway, candidates: mine.length, best: mine[0]?.dive.headline || mine[0]?.title || null };
   });
-  if (kept !== null) return { pick: kept, strongConsidered: all.length, linedUp, scheduleText: describeSchedule(schedule) };
-
   // 3. Choose a new one. Formats whose deadline is too close are closed; the soonest open deadline is favoured.
   const closed = new Set<ContentFormat>((['newsletter', 'podcast'] as const).filter((f) => schedule[f].daysAway < TOO_LATE_DAYS));
   const open2 = (['newsletter', 'podcast'] as const).filter((f) => schedule[f].daysAway >= TOO_LATE_DAYS && schedule[f].daysAway <= PREP_WINDOW_DAYS).sort((a, b) => schedule[a].daysAway - schedule[b].daysAway);
@@ -252,6 +289,14 @@ export async function chooseDailyPick(db: Pool): Promise<PipelineSummary> {
     .filter((c) => !closed.has(c.dive.format) && c.dive.worth >= PICK_MIN_WORTH)
     .map((c) => ({ c, rank: c.dive.worth + (due !== undefined && c.dive.format === due ? 10 : 0) }))
     .sort((a, b) => b.rank - a.rank);
+
+  // A standing pick is kept unless something clearly stronger has arrived since.
+  if (kept !== null) {
+    const keptRank = kept.dive.worth + (due !== undefined && kept.dive.format === due ? 10 : 0);
+    const stronger = ranked.find((r) => r.c.id !== kept.articleId && r.rank >= keptRank + REPLACE_MARGIN);
+    if (stronger === undefined) return { pick: kept, strongConsidered: all.length, linedUp, scheduleText: describeSchedule(schedule) };
+    await db.query(`UPDATE content_picks SET status = 'replaced', updated_at = NOW() WHERE id::text = $1`, [kept.pickId]);
+  }
   const best = ranked[0]?.c;
   let pick: DailyPick | null = null;
   if (best !== undefined) {
