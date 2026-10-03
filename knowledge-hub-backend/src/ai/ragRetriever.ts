@@ -1,3 +1,4 @@
+import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import type { Pool } from 'pg';
 import { getProjectContextItems, getLibraryRagItems } from '../db/queries.js';
 import { getKnowledgeBaseItems } from './chatTools.js';
@@ -155,6 +156,7 @@ export function formatRagContext(items: ContentItem[], query = ''): string {
     return [
       `[${index + 1}] ${item.source.toUpperCase()} — ${date}${url}`,
       `Title: ${item.title}`,
+      isCopilotImport(item.title) ? COPILOT_IMPORT_CAUTION : '',
       `Summary: ${item.summary}`,
       excerpt ? `Relevant content: ${excerpt}` : '',
     ]

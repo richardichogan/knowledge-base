@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import { downloadBlobAsText } from '../integrations/cms/blobClient.js';
 import { env } from '../config/env.js';
 import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
+import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
@@ -95,6 +96,9 @@ const EVIDENCE_CALIBRATION_BLURB = [
     'making an attributed claim, silently check: could I point to the actual sentence(s) in this specific ' +
     'source that support this? If not, do not phrase it as a claim about that source — phrase it as your own ' +
     'inference, and flag the gap yourself rather than waiting to be challenged on it.',
+  'A summary written by M365 Copilot (a note titled "M365 Copilot Import:", or pasted in) is a reconstruction of a ' +
+    'conversation, not a primary record: say "the note says", never "the meeting decided", unless a transcript, email ' +
+    'or deck markup records it directly.',
   'Distinguish intent/positioning from proof. If search results show something is being *framed*, ' +
     '*architected*, or *positioned* a certain way (e.g. marketing language, a proposal, an early design doc), ' +
     'say that — do not upgrade it to a claim that it has actually been delivered, adopted, or proven out ' +
@@ -1206,6 +1210,7 @@ async function formatPageContext(pageContext: ChatPageContext | undefined, userM
   return [
     `## Document in view (primary source — the user is asking about this specific ${pageContext.type})`,
     `Title: ${pageContext.title}`,
+    isCopilotImport(pageContext.title) ? COPILOT_IMPORT_CAUTION : '',
     pageContext.images ? `Images embedded in this document (described by vision analysis — treat these as what the images show):\n${pageContext.images}` : '',
     excerpt ? `Content:\n${excerpt}` : '',
     wasExcerpted
