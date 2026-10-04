@@ -172,10 +172,10 @@ export const HomePage: React.FC = () => {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   return (
     <main className="page-root today-brief">
-      <header className="today-brief__header">
-        <div>
-          <h1>Today</h1>
-          <p className="today-brief__greeting">{greeting}, Richard. {attentionLoading ? 'Checking what needs your attention...'
+      <header className="page-header today-brief__header">
+        <div className="page-title-group">
+          <h1 className="page-title">Today</h1>
+          <p className="page-subtitle">{greeting}, Richard. {attentionLoading ? 'Checking what needs your attention...'
             : visibleAttention.length > 0 ? `${visibleAttention.length} ${visibleAttention.length === 1 ? 'thing needs' : 'things need'} your attention${partial ? ' in the available sources' : ''}.`
               : partial ? 'Some sources are unavailable. Review the notices below.' : 'Nothing urgent in the available recent sources. Make space for your next piece of work.'}</p>
         </div>

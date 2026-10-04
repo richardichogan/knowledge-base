@@ -30,7 +30,7 @@ $env:TODAY_BROWSER_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe
 node tests\run-today-browser.mjs
 ```
 
-The browser runner uses a temporary profile, checks 1440px and 390px layouts, and blocks `/api` and `/auth` requests. It does not require a backend or authenticated production session. The fixture covers local loading/failure states, refresh, completion, disclosures and the real popout's prompt/context handoff.
+The browser runner uses a temporary profile, checks 1440px and 390px layouts, and blocks `/api` and `/auth` requests. It does not require a backend or authenticated production session. The fixture covers local loading/failure states, refresh, completion, disclosures and the real popout's prompt/context handoff. It also renders the actual Discover and Think pages with test-only data to compare Today's shared header typography, gutters and divider, Discover body typography and Think note-title typography. Today uses the existing left-aligned page frame, not a separate centred container.
 
 ## Repository structure
 

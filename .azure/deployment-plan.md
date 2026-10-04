@@ -4,7 +4,8 @@
 
 ## 1. Scope
 
-Deploy the existing Today redesign and full saved-Output export to Think to production:
+Deploy the Today visual-consistency corrections to the existing production frontend.
+The backend and database remain unchanged for this deployment:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
 - Frontend: Azure Static Web App `kh-prod-web`
@@ -61,6 +62,17 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Frontend-only correction validated on 2026-10-04 (13:37 BST):
+
+- Frontend `npx tsc --noEmit`, fixture typecheck and `npm run build` passed.
+- Backend `npx tsc --noEmit` passed; no backend changes or deployment required.
+- Actual Discover/Think component comparisons and Today interactions passed at
+  1440px and 390px, using isolated test data.
+- Azure CLI authenticated resource read confirmed the existing `kh-prod-web`
+  target in subscription `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`.
+- Infrastructure, container builds, migrations and RBAC changes are not applicable:
+  only the existing Static Web App's frontend content is being replaced.
 
 Validated on 2026-10-04 (11:10-11:15 BST):
 

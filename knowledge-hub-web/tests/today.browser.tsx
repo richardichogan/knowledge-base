@@ -9,6 +9,8 @@ import { api } from '../src/services/api';
 import { AthenaContextProvider, useAthenaContext } from '../src/context/AthenaContext';
 import { HomePage } from '../src/pages/HomePage';
 import { FloatingAIChat } from '../src/components/FloatingAIChat';
+import { DiscoverPage } from '../src/pages/DiscoverPage';
+import { NotesPage } from '../src/notes/NotesPage';
 import '../src/styles/global.scss';
 
 // Explicit development fixture. No production entry point imports this module.
@@ -17,6 +19,7 @@ const since = new Date(now.getTime() - 60 * 60_000).toISOString();
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
 const paginated = <T,>(items: T[]) => ({ items, total: items.length, page: 1, pageSize: items.length, hasMore: false });
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+const comparisonPage = new URLSearchParams(window.location.search).get('compare');
 let taskReads = 0;
 let tasks: TodayTask[] = Array.from({ length: 8 }, (_, i) => ({
   id: `task-${i}`, title: i === 0 ? 'Review the architecture proposal' : `Review test commitment ${i}`,
@@ -56,8 +59,20 @@ function Probe(): React.ReactElement {
 }
 function Fixture(): React.ReactElement {
   const { pageContext } = useAthenaContext();
-  return <><div className="kh-content" style={{ height: '100%' }}><HomePage /><Probe /></div>
-    <FloatingAIChat pageContext={pageContext ?? undefined} /></>;
+  return <><div className="kh-content" style={{ height: '100%' }}>
+    {comparisonPage === 'discover' ? <DiscoverPage /> : comparisonPage === 'think' ? <NotesPage /> : <HomePage />}
+    <Probe /></div>
+    {!comparisonPage && <FloatingAIChat pageContext={pageContext ?? undefined} />}</>;
+}
+if (comparisonPage === 'discover') api.getDiscoverFeed = async () => success(paginated([{
+  id: 'style-reference', sourceId: 'test-feed', title: 'Reference article for style comparison',
+  url: 'https://example.com', description: 'A test-only article body to compare the existing Discover typography.',
+  publishedAt: since, indexedAt: since, sourceTitle: 'Test feed', workflowState: 'to-review',
+  relevanceScore: null, relevanceExplanation: 'A test-only relevance explanation for the existing Discover typography.', publishedUrl: null, taxonomyTagIds: [],
+  articleType: null, platform: null, sourceType: null, spark: false, sparkReason: null, compositeScore: null,
+}]));
+if (comparisonPage === 'think') {
+  api.getNote = async () => ({ success: false, error: { code: 'NOT_FOUND', message: 'Style fixture has no note body' } });
 }
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={queryClient}>
@@ -88,7 +103,7 @@ export async function runTodayChecks(): Promise<string[]> {
   const results: string[] = [];
   await waitFor(() => document.querySelectorAll('.today-brief__attention article').length === 5);
   check(document.querySelectorAll('.today-brief__continue article').length === 4, 'Continuation cap');
-  check(document.querySelector('.today-brief__greeting')!.textContent!.includes('5 things need'), 'Greeting count');
+  check(document.querySelector('.today-brief .page-subtitle')!.textContent!.includes('5 things need'), 'Greeting count');
   check(document.querySelectorAll('h1').length === 1 && document.querySelectorAll('h2').length === 4, 'Heading hierarchy');
   check(document.querySelector('label[for="today-athena"]') !== null, 'Composer label');
   check(!document.querySelector<HTMLDetailsElement>('.today-brief__full-briefing')!.open, 'Narrative collapsed');
@@ -170,3 +185,24 @@ export async function runTodayChecks(): Promise<string[]> {
 }
 
 Object.assign(window, { runTodayChecks });
+Object.assign(window, { readPageStyle: () => {
+  const title = document.querySelector<HTMLElement>('.page-title');
+  const header = document.querySelector<HTMLElement>('.page-header');
+  if (!title || !header) return null;
+  const style = getComputedStyle(title);
+  const headerStyle = getComputedStyle(header);
+  return {
+    left: title.getBoundingClientRect().left, top: title.getBoundingClientRect().top,
+    rightGutter: document.querySelector('.kh-content')!.clientWidth - header.getBoundingClientRect().right,
+    fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight,
+    lineHeight: style.lineHeight, letterSpacing: style.letterSpacing, color: style.color,
+    headerPadding: headerStyle.paddingBottom,
+    headerBorder: headerStyle.borderBottom,
+  };
+} });
+Object.assign(window, { readTypography: (selector: string) => {
+  const element = document.querySelector(selector);
+  if (!element) return null;
+  const style = getComputedStyle(element);
+  return { fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight, lineHeight: style.lineHeight };
+} });

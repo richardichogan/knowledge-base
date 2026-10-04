@@ -69,6 +69,10 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('document.body.innerText')}`);
+    const todayStyle = await evaluate('window.readPageStyle()');
+    const todayBody = await evaluate('window.readTypography(".today-brief__reason")');
+    const todayNoteTitle = await evaluate('window.readTypography(".today-brief__continue h3")');
+    const todayRefresh = await evaluate('window.readTypography(".today-brief__header .today-brief__quiet")');
     if (process.env.TODAY_ARTIFACT_DIR) {
       await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
       const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
@@ -76,6 +80,41 @@ try {
     }
     const results = await evaluate('window.runTodayChecks()');
     console.log(JSON.stringify({ width, checks: results }, null, 2));
+    for (const comparison of ['discover', 'think']) {
+      await command('Page.navigate', { url: `${fixtureUrl}?compare=${comparison}` });
+      let referenceStyle;
+      for (let i = 0; i < 300; i++) {
+        referenceStyle = await evaluate('typeof window.readPageStyle === "function" ? window.readPageStyle() : null');
+        if (referenceStyle) break;
+        await delay(100);
+      }
+      assert.ok(referenceStyle, `${comparison} page did not render`);
+      assert.deepEqual(todayStyle, referenceStyle, `Today header must match the rendered ${comparison} page at ${width}px`);
+      const referenceSelector = comparison === 'discover' ? '.dc-card-synopsis' : '.notes-list-item-title';
+      let referenceTypography;
+      for (let i = 0; i < 100; i++) {
+        referenceTypography = await evaluate(`window.readTypography(${JSON.stringify(referenceSelector)})`);
+        if (referenceTypography) break;
+        await delay(100);
+      }
+      assert.ok(referenceTypography, `Missing ${comparison} content for typography comparison`);
+      const todayTypography = comparison === 'discover' ? todayBody : todayNoteTitle;
+      // Think's one-line list titles do not prescribe a line-height; Today wraps
+      // titles intentionally. Family, size and weight still use the same style.
+      const { lineHeight: referenceLineHeight, ...referenceType } = referenceTypography;
+      const { lineHeight: todayLineHeight, ...todayType } = todayTypography;
+      assert.deepEqual(todayType, referenceType, `Today content typography must match ${comparison}`);
+      if (comparison === 'discover') assert.equal(todayLineHeight, referenceLineHeight);
+      if (comparison === 'think') {
+        const referenceButton = await evaluate('window.readTypography(".kb-import-btn")');
+        assert.deepEqual(todayRefresh, referenceButton, 'Today Refresh must match Think Import typography');
+      }
+      if (process.env.TODAY_ARTIFACT_DIR) {
+        const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `${comparison}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+      console.log(JSON.stringify({ width, comparedTo: comparison, exactHeaderMatch: referenceStyle }, null, 2));
+    }
   }
 } finally {
   if (socket?.readyState === WebSocket.OPEN) await command('Browser.close');
