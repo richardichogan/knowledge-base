@@ -1,11 +1,7 @@
 /**
  * CommandPalette — Cmd+K global search/navigation overlay.
  *
- * Sections (in order):
- *   Navigation   — the 5 main routes
- *   Notes        — full-text search via /api/search?source=note
- *   Tasks        — tasks from local DB
- *   Documents    — /api/search?source=github-doc
+ * Sections: Main, grouped Tools, and existing knowledge-base search results.
  *
  * Opens on Cmd+K (Mac) / Ctrl+K (Win). Closes on Esc or backdrop click.
  */
@@ -15,10 +11,10 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import {
-  Compass, CalendarTools, Portfolio, Idea, Book,
   Document, Notebook, CheckmarkOutline, ArrowRight,
 } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { PRIMARY_DESTINATIONS, TOOL_GROUPS, type NavigationDestination } from '../navigation/destinations';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,24 +31,15 @@ interface PaletteSection {
   items: PaletteItem[];
 }
 
-// ── Nav items (static) ────────────────────────────────────────────────────────
-
-const NAV_ITEMS = [
-  { path: '/discover', label: 'Discover', Icon: Compass },
-  { path: '/plan',     label: 'Plan',     Icon: CalendarTools },
-  { path: '/my-work',  label: 'My Work',  Icon: Portfolio },
-  { path: '/think',    label: 'Think',    Icon: Idea },
-  { path: '/library',  label: 'Library',  Icon: Book },
-];
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  onNavigationAction?: ((item: NavigationDestination) => void) | undefined;
 }
 
-export const CommandPalette: React.FC<Props> = ({ open, onClose }) => {
+export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAction }) => {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -88,16 +75,20 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose }) => {
   const sections: PaletteSection[] = [];
 
   // Nav section — always shown, filtered by query
-  const navItems = NAV_ITEMS.filter(
-    (n) => query === '' || n.label.toLowerCase().includes(query.toLowerCase()),
-  ).map((n) => ({
-    id: `nav-${n.path}`,
-    label: n.label,
-    icon: <n.Icon size={16} />,
-    action: () => { go(n.path); },
-  }));
-  if (navItems.length > 0) {
-    sections.push({ title: 'Navigate', items: navItems });
+  for (const group of [{ label: 'Main', items: PRIMARY_DESTINATIONS }, ...TOOL_GROUPS]) {
+    const items = group.items.filter((item) =>
+      (item.path !== undefined || onNavigationAction !== undefined) &&
+      (query === '' || item.label.toLowerCase().includes(query.toLowerCase())),
+    ).map((item) => ({
+      id: `nav-${item.id}`, label: item.label,
+      ...(item.description ? { sublabel: item.description } : {}),
+      icon: <item.icon size={16} />,
+      action: () => {
+        if (item.path) go(item.path);
+        else { onNavigationAction?.(item); onClose(); }
+      },
+    }));
+    if (items.length > 0) sections.push({ title: group.label === 'Main' ? 'Main' : `Tools / ${group.label}`, items });
   }
 
   // Search results section

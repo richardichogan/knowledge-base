@@ -18,6 +18,7 @@ const LABELS: Record<string, string> = {
   create_task: 'Preparing a task',
   update_task: 'Updating a task',
   create_note_draft: 'Drafting a Think note',
+  create_spark: 'Saving a Spark',
   propose_note_edit: 'Drafting changes to the note',
   propose_map_changes: 'Drafting changes to the canvas',
   remember: 'Saving to memory',

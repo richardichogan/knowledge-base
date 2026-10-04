@@ -1,0 +1,118 @@
+.kh-header.cds--header {
+  height: var(--kh-header-height);
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 0 16px;
+  overflow: visible;
+  .kh-header__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    color: var(--cds-text-primary);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    span { color: var(--cds-text-secondary); font-weight: 400; }
+  }
+  :is(a, button):focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -3px; }
+}
+.kh-header__primary, .kh-header__utilities { display: flex; align-items: stretch; }
+.kh-header__utilities { margin-left: auto; flex-shrink: 0; gap: 4px; }
+.kh-header__destination, .kh-header__utility {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  position: relative;
+  padding: 0 12px;
+  min-height: 44px;
+  min-width: 44px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--cds-text-secondary);
+  background: transparent;
+  text-decoration: none;
+  cursor: pointer;
+  svg { flex-shrink: 0; }
+  &:hover { color: var(--cds-text-primary); background: var(--cds-layer-hover-01); }
+  &--active { border-bottom-color: var(--kh-accent); color: var(--cds-text-primary); background: var(--kh-accent-bg); font-weight: 600; }
+  &:disabled { opacity: 0.55; cursor: not-allowed; }
+}
+.kh-header__athena { color: var(--kh-accent); }
+.kh-header__dot, .kh-nav-menu__attention {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--kh-accent);
+}
+.kh-nav-menu {
+  position: absolute;
+  top: 100%;
+  right: 16px;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 60px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--cds-layer-01);
+  border: 1px solid var(--cds-border-subtle-01);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 8px 0;
+  z-index: 1;
+}
+.kh-nav-menu__group + .kh-nav-menu__group { border-top: 1px solid var(--cds-border-subtle-01); margin-top: 8px; }
+.kh-nav-menu__heading { color: var(--cds-text-secondary); font-size: 12px; font-weight: 600; padding: 12px 16px 8px; margin: 0; }
+.kh-nav-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 16px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: transparent;
+  color: var(--cds-text-primary);
+  text-decoration: none;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  svg { flex-shrink: 0; }
+  &:hover { background: var(--cds-layer-hover-01); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -3px; background: var(--cds-layer-hover-01); }
+  &--selected { border-left-color: var(--kh-accent); background: var(--kh-accent-bg); font-weight: 600; }
+}
+.kh-nav-menu__text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+  small { color: var(--cds-text-secondary); font-size: 12px; line-height: 1.4; font-weight: 400; }
+}
+.kh-content.kh-content--shell { display: flex; flex-direction: column; overflow: hidden; }
+.kh-shell__page { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: none; }
+.kh-tools-location { flex-shrink: 0; padding: 12px 3rem 0; margin: 0; font-size: 12px; color: var(--cds-text-secondary); line-height: 1.5; }
+.kh-content--tools .kh-shell__page > :is(.page-root, .docs-page, .memory-page) { padding-top: 16px; }
+.kh-content--shell .kh-shell__page > .graph-page { height: 100%; }
+@media (max-width: 1100px) {
+  .kh-header.cds--header { gap: 8px; padding: 0 8px; }
+  .kh-header__destination, .kh-header__utility { padding: 0 10px; }
+}
+@media (max-width: 600px) {
+  .kh-header.cds--header .kh-header__brand span { display: none; }
+  .kh-header__utilities { gap: 0; }
+  .kh-header__utility > span { display: none; }
+  .kh-nav-menu { right: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kh-header :is(a, button) { transition: none; }
+}

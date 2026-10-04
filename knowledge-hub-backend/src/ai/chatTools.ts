@@ -1,15 +1,16 @@
 /**
  * AI chat tools — function-calling handlers the model can invoke mid-conversation.
  *
- * Three capabilities, per product requirement:
+ * Capabilities include:
  *   1. search_knowledge_base — read-only FTS query across everything indexed
  *      in content_items (commits, PRs, issues, releases, emails, calendar,
  *      notes, discovered articles, tasks-adjacent content, etc.).
  *   2. create_task / update_task — Plan board (Kanban) task CRUD.
  *   3. create_note_draft — Think section document draft creation.
+ *   4. create_spark — capture a brief thought in Sparks.
  *
  * These execute immediately (no separate confirm step) — they only ever
- * touch the user's own internal Postgres data (tasks/notes), unlike the
+ * touch the user's own internal Postgres data (tasks/notes/sparks), unlike the
  * higher-risk external write actions in writeActionService.ts (GitHub issues,
  * CMS publish, MS Todo push), which still require explicit confirmation.
  */
@@ -36,6 +37,7 @@ import { getLearnMcpTools, isLearnMcpTool, callLearnMcpTool } from './learnMcpCl
 import { getTavilyMcpTools, isTavilyMcpTool, callTavilyMcpTool } from './tavilyMcpClient.js';
 import { resolveMapChanges, type MapChangeProposal } from './mapEdits.js';
 import type { CanvasFull } from '../services/canvasService.js';
+import { createSpark } from '../services/sparkService.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -475,6 +477,27 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'create_spark',
+        description:
+          'Saves a brief thought or idea as a Spark when the user asks to capture it. ' +
+          'Use this instead of creating a Think note or Plan task for Spark requests. ' +
+          'Creates a standalone Spark unless the user asks to attach it to a known source. ' +
+          'Do not invent source IDs or save Sparks without the user asking.',
+        parameters: {
+          type: 'object',
+          properties: {
+            body: { type: 'string', description: 'The thought to capture. Preserve the user\'s meaning and wording.' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Optional tag names, not tag IDs.' },
+            sourceId: { type: 'string', description: 'Optional source ID from the user or a tool result; requires sourceType.' },
+            sourceType: { type: 'string', description: 'The source type paired with sourceId (e.g. discover_item or note).' },
+          },
+          required: ['body'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'create_note_draft',
         description: 'Creates a new document draft in the Think section (notes).',
         parameters: {
@@ -609,6 +632,7 @@ export async function executeToolCall(
     case 'create_task':           return createTask(db, args, turn.sessionId);
     case 'update_task':           return updateTask(db, args, turn.sessionId);
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
+    case 'create_spark':          return createSparkFromChat(db, args);
     case 'remember':              return rememberInstruction(db, args, turn.sessionId);
     case 'save_output': {
       if (turn.sessionId === undefined) return { error: 'No chat to save the output in.' };
@@ -1511,6 +1535,39 @@ function withSpecSection(body: string, title: string, version: number, content: 
   const before = (match === null ? body : body.slice(0, match.index)).trimEnd();
   const section = `## Spec — ${title} (v${version.toString()})\n\n${content.trim()}`;
   return before === '' ? section : `${before}\n\n${section}`;
+}
+
+async function createSparkFromChat(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  if (typeof args['body'] !== 'string' || args['body'].trim() === '') {
+    return { error: 'body is required: provide the thought to save as a Spark.' };
+  }
+  const tags = args['tags'];
+  const sparkTags: string[] = [];
+  if (tags !== undefined) {
+    if (!Array.isArray(tags)) return { error: 'tags must be an array of non-empty tag names.' };
+    for (const tag of tags) {
+      if (typeof tag !== 'string' || tag.trim() === '') return { error: 'tags must be an array of non-empty tag names.' };
+      sparkTags.push(tag.trim());
+    }
+  }
+  const sourceId = args['sourceId'];
+  const sourceType = args['sourceType'];
+  if ((sourceId == null) !== (sourceType == null)) {
+    return { error: 'sourceId and sourceType must both be present or both absent.' };
+  }
+  if (sourceId != null && (typeof sourceId !== 'string' || sourceId.trim() === '')) {
+    return { error: 'sourceId must be a non-empty string.' };
+  }
+  if (sourceType != null && (typeof sourceType !== 'string' || sourceType.trim() === '')) {
+    return { error: 'sourceType must be a non-empty string.' };
+  }
+  const spark = await createSpark(db, {
+    body: args['body'].trim(),
+    tags: [...new Set(sparkTags)],
+    sourceId: typeof sourceId === 'string' ? sourceId.trim() : null,
+    sourceType: typeof sourceType === 'string' ? sourceType.trim() : null,
+  });
+  return { created: true, spark, note: 'Saved in Sparks in the Think section. Confirm briefly using the saved body.' };
 }
 
 // ── create_note_draft ────────────────────────────────────────────────────────

@@ -12,7 +12,8 @@ const router = Router();
 /**
  * GET /api/timeline
  * Returns paginated timeline items ordered by published_at DESC.
- * Query params: source, projectContext, page, pageSize
+ * Query params: source, projectContext, page, pageSize, before, since
+ * since selects recent activity by source update time and excludes future events.
  */
 router.get('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
@@ -29,6 +30,13 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         ? String(req.query['projectContext'])
         : undefined;
       const before = req.query['before'] ? String(req.query['before']) : undefined;
+      const since = req.query['since'] ? String(req.query['since']) : undefined;
+      if (since !== undefined && !Number.isFinite(Date.parse(since))) {
+        throw new ValidationError('since must be a valid date', { since: 'Must be a valid date' });
+      }
+      if (since !== undefined && before !== undefined) {
+        throw new ValidationError('since and before cannot be combined');
+      }
 
       const { items, total } = await queryTimeline(db, {
         page,
@@ -36,6 +44,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         ...(source !== undefined && { source }),
         ...(projectContext !== undefined && { projectContext }),
         ...(before !== undefined && { before }),
+        ...(since !== undefined && { since }),
       });
 
       const body: ApiSuccess<PaginatedList<ContentItemSummary>> = {

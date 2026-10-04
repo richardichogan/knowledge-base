@@ -1,199 +1,120 @@
-/**
- * AppShell — Carbon UI Shell with Header + SideNav + Content area.
- *
- * Nav structure (job-based):
- *   Discover   — AI-curated inbound content feed
- *   Plan       — Calendar + Tasks (M365 + Planner)
- *   My Work    — Output feed (commits, posts, completed tasks)
- *   Think      — Notes + Canvas scratchpad
- *   Library    — Formal markdown document library
- *
- * AI Chat is a floating popup widget in the bottom-right corner.
- * Search is Cmd+K (command palette — not yet implemented).
- */
-
-import React, { useState, useEffect } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Header,
-  HeaderName,
-  HeaderGlobalBar,
-  HeaderGlobalAction,
-} from '@carbon/react';
-import {
-  MachineLearningModel,
-  Home,
-  Compass,
-  CalendarTools,
-  Portfolio,
-  Idea,
-  Book,
-  Tag,
-  Folder,
-  Flash,
-  Network_3,
-} from '@carbon/icons-react';
+import { Header } from '@carbon/react';
+import { ChatLaunch, Search, Menu, Tools } from '@carbon/icons-react';
 import { FloatingAIChat } from './FloatingAIChat';
 import { CommandPalette } from './CommandPalette';
 import { TagPanel } from './TagPanel';
 import { ProjectsModal } from './ProjectsModal';
 import { QuickSparkModal } from './sparks/QuickSparkModal';
+import { NavigationMenu } from './NavigationMenu';
+import { PRIMARY_DESTINATIONS, TOOL_GROUPS, matchesDestination, selectedTool, type NavigationDestination } from '../navigation/destinations';
 import { usePendingTags } from '../hooks/useTaxonomy';
 import { useGlobalShortcuts } from '../hooks/useGlobalShortcuts';
 import { useAthenaContext } from '../context/AthenaContext';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { api } from '../services/api';
-import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
-
-interface NavItem {
-  path: string;
-  label: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  icon: React.ComponentType<any>;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { path: '/',         label: 'Today',    icon: Home },
-  { path: '/discover', label: 'Discover', icon: Compass },
-  { path: '/plan',     label: 'Plan',     icon: CalendarTools },
-  { path: '/my-work',  label: 'My Work',  icon: Portfolio },
-  { path: '/think',    label: 'Think',    icon: Idea },
-  { path: '/library',  label: 'Library',  icon: Book },
-  { path: '/projects', label: 'Projects', icon: Portfolio },
-];
 
 export const AppShell: React.FC = () => {
-  const [tagPanelOpen, setTagPanelOpen]   = useState(false);
-  const [projectsOpen, setProjectsOpen]   = useState(false);
-  const hasThinkAthenaRail = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
-  const [paletteOpen, setPaletteOpen]     = useState(false);
+  const [tagPanelOpen, setTagPanelOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [sparkModalOpen, setSparkModalOpen] = useState(false);
-  const navigate  = useNavigate();
-  const location  = useLocation();
+  const [menu, setMenu] = useState<'tools' | 'mobile' | null>(null);
+  const [initialFocus, setInitialFocus] = useState<'first' | 'last'>('first');
+  const toolsRef = useRef<HTMLButtonElement>(null);
+  const mobileRef = useRef<HTMLButtonElement>(null);
+  const narrow = useMediaQuery('(max-width: 1100px)');
+  const location = useLocation();
   const { data: pendingTags = [] } = usePendingTags();
-  const { pageContext } = useAthenaContext();
-
-  // Poll for unsurfaced spark clusters to show the Think nav dot
+  const { pageContext, hasEmbeddedAthena, launchAthena } = useAthenaContext();
+  const tool = selectedTool(location.pathname, location.search);
+  const primary = PRIMARY_DESTINATIONS.find((item) => item.path && matchesDestination(location.pathname, item.path));
   const { data: unsurfacedData } = useQuery({
     queryKey: ['unsurfaced-count'],
     queryFn: () => api.getUnsurfacedClusterCount(),
-    refetchInterval: 30_000,
-    staleTime: 30_000,
+    refetchInterval: 30_000, staleTime: 30_000,
   });
-  const unsurfacedCount = unsurfacedData?.success ? unsurfacedData.data.count : 0;
+  const newClusters = unsurfacedData?.success === true && unsurfacedData.data.count > 0;
 
-  // Cmd+K / Ctrl+K listener
+  const closeMenu = useCallback((restoreFocus: boolean): void => {
+    setMenu(null);
+    if (restoreFocus) (narrow ? mobileRef : toolsRef).current?.focus();
+  }, [narrow]);
+  useEffect(() => { setMenu(null); }, [location.pathname, location.search, narrow]);
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
+    const handler = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+        event.preventDefault();
+        setMenu(null);
+        setPaletteOpen((value) => !value);
       }
     };
     window.addEventListener('keydown', handler);
     return () => { window.removeEventListener('keydown', handler); };
   }, []);
-
-  // Cmd+. — open quick spark capture
   useGlobalShortcuts({ onSparkCapture: () => { setSparkModalOpen(true); } });
+
+  function selectAction(item: NavigationDestination): void {
+    closeMenu(true);
+    if (item.action === 'tags') { setTagPanelOpen(true); setProjectsOpen(false); }
+    if (item.action === 'repo-tags') { setProjectsOpen(true); setTagPanelOpen(false); }
+  }
+  function menuKey(event: React.KeyboardEvent<HTMLButtonElement>, type: 'tools' | 'mobile'): void {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      setInitialFocus(event.key === 'ArrowUp' ? 'last' : 'first');
+      setMenu(type);
+    }
+  }
+  const menuGroups = menu === 'mobile'
+    ? [{ label: 'Main', items: PRIMARY_DESTINATIONS }, ...TOOL_GROUPS.map((group) => ({ ...group, label: `Tools / ${group.label}` }))]
+    : TOOL_GROUPS;
 
   return (
     <>
-      <Header aria-label="Athena">
-        <HeaderName href="/discover" prefix="Richard Hogan">
-          Athena
-        </HeaderName>
-        <HeaderGlobalBar>
-          <HeaderGlobalAction
-            aria-label="Repo → Tag Mappings"
-            isActive={projectsOpen}
-            onClick={() => { setProjectsOpen((v) => !v); setTagPanelOpen(false); }}
-          >
-            <Folder size={20} />
-          </HeaderGlobalAction>
-          <HeaderGlobalAction
-            aria-label="Tag Manager"
-            isActive={tagPanelOpen}
-            onClick={() => { setTagPanelOpen((v) => !v); setProjectsOpen(false); }}
-            className="header-action-tag"
-          >
-            <span className="header-action-icon-wrap">
-              <Tag size={20} />
-              {pendingTags.length > 0 && (
-                <span className="header-badge">{pendingTags.length}</span>
-              )}
-            </span>
-          </HeaderGlobalAction>
-          <HeaderGlobalAction
-            aria-label="New Spark"
-            isActive={sparkModalOpen}
-            onClick={() => { setSparkModalOpen((v) => !v); }}
-          >
-            <Flash size={20} />
-          </HeaderGlobalAction>
-          <HeaderGlobalAction
-            aria-label="Athena memory"
-            isActive={location.pathname === '/memory'}
-            onClick={() => { void navigate('/memory'); }}
-          >
-            <MachineLearningModel size={20} />
-          </HeaderGlobalAction>
-          <HeaderGlobalAction
-            aria-label="Knowledge Graph"
-            isActive={location.pathname === '/graph'}
-            onClick={() => { void navigate('/graph'); }}
-          >
-            <Network_3 size={20} />
-          </HeaderGlobalAction>
-        </HeaderGlobalBar>
-      </Header>
-
-      {/* ── Shell: sits below Carbon's fixed header, fills remaining viewport ── */}
-      <div className="kh-shell">
-
-        <nav className="kh-topnav" aria-label="Main navigation">
-          {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
-            const isActive = location.pathname === path || location.pathname.startsWith(path + '/');
-            const showDot = path === '/think' && unsurfacedCount > 0;
-            return (
-              <button
-                key={path}
-                className={`kh-topnav__item${isActive ? ' kh-topnav__item--active' : ''}`}
-                onClick={() => { void navigate(path); }}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                <Icon size={16} />
-                {label}
-                {showDot && <span className="kh-topnav__dot" aria-label="New clusters available" />}
-              </button>
-            );
-          })}
+      <Header aria-label="Athena" className="kh-header">
+        <Link className="kh-header__brand" to="/" aria-label="Athena home"><span>Richard Hogan</span> Athena</Link>
+        <nav className="kh-header__primary" aria-label="Primary navigation">
+          {(narrow ? PRIMARY_DESTINATIONS.filter((item) => item.id === 'today') : PRIMARY_DESTINATIONS).map(({ id, path, label, icon: Icon }) => (
+            <Link key={id} to={path!} className={`kh-header__destination${primary?.id === id ? ' kh-header__destination--active' : ''}`}
+              aria-current={primary?.id === id ? 'page' : undefined}>
+              <Icon size={16} />{label}
+              {id === 'think' && newClusters && <span className="kh-header__dot" aria-label="New clusters available" />}
+            </Link>
+          ))}
         </nav>
-
-        <div className="kh-content">
-          <Outlet />
+        <nav className="kh-header__utilities" aria-label="Utility navigation">
+          <button type="button" className="kh-header__utility" title="Search (Cmd+K / Ctrl+K)" aria-label="Search"
+            onClick={() => { setPaletteOpen(true); setMenu(null); }}><Search size={20} /></button>
+          <button type="button" className="kh-header__utility kh-header__athena" title="Open Athena" aria-label="Open Athena"
+            onClick={() => { setMenu(null); launchAthena(); }}><ChatLaunch size={20} /><span>Athena</span></button>
+          <button type="button" ref={narrow ? mobileRef : toolsRef}
+            className={`kh-header__utility${tool || menu ? ' kh-header__utility--active' : ''}`}
+            title={narrow ? 'Navigation and Tools' : 'Tools'} aria-label={narrow ? 'Navigation and Tools' : 'Tools'}
+            aria-haspopup="menu" aria-expanded={menu !== null} aria-controls={menu ? 'kh-navigation-menu' : undefined}
+            onKeyDown={(event) => { menuKey(event, narrow ? 'mobile' : 'tools'); }}
+            onClick={() => { setInitialFocus('first'); setMenu((value) => value ? null : narrow ? 'mobile' : 'tools'); }}>
+            {narrow ? <Menu size={20} /> : <Tools size={20} />}<span>{narrow ? 'Menu' : 'Tools'}</span>
+          </button>
+        </nav>
+        {menu && <NavigationMenu id="kh-navigation-menu" label={menu === 'mobile' ? 'Navigation and Tools' : 'Tools'}
+          groups={menuGroups} selectedId={tool?.id ?? (menu === 'mobile' ? primary?.id : undefined)}
+          attentionIds={[...(pendingTags.length > 0 ? ['tags'] : []), ...(newClusters ? ['think'] : [])]}
+          onAction={selectAction} onClose={closeMenu} triggerRef={narrow ? mobileRef : toolsRef} initialFocus={initialFocus} />}
+      </Header>
+      <div className="kh-shell">
+        <div className={`kh-content kh-content--shell${tool ? ' kh-content--tools' : ''}`}>
+          {tool && <p className="kh-tools-location">Tools / {tool.label}</p>}
+          <div className="kh-shell__page"><Outlet /></div>
         </div>
-
       </div>
-
-      {/* ── Quick Spark modal ── */}
       <QuickSparkModal open={sparkModalOpen} onClose={() => { setSparkModalOpen(false); }} />
-
-      {/* ── Tag Manager slide-over ── */}
       <TagPanel open={tagPanelOpen} onClose={() => { setTagPanelOpen(false); }} />
-
-      {/* ── Projects slide-over ── */}
       <ProjectsModal open={projectsOpen} onClose={() => { setProjectsOpen(false); }} />
-
-      {/* Think owns a persistent Athena rail when there is enough horizontal
-          room; narrower Think layouts and every other page retain the
-          established floating launcher. */}
-      {!((location.pathname.startsWith('/think') || location.pathname.startsWith('/library')) && hasThinkAthenaRail) && (
-        <FloatingAIChat pageContext={pageContext ?? undefined} />
-      )}
-
-      {/* ── Cmd+K command palette ── */}
-      <CommandPalette open={paletteOpen} onClose={() => { setPaletteOpen(false); }} />
+      {!hasEmbeddedAthena && <FloatingAIChat pageContext={pageContext ?? undefined} />}
+      <CommandPalette open={paletteOpen} onClose={() => { setPaletteOpen(false); }} onNavigationAction={selectAction} />
     </>
   );
 };

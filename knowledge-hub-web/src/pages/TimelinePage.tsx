@@ -19,6 +19,7 @@ import type { ContentItemSummary } from '../types';
 import { inferProjectId, PROJECT_MAP, type Project } from '../config/projects';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { useLocation } from 'react-router-dom';
 
 // ── Source metadata ───────────────────────────────────────────────────────────
 
@@ -244,9 +245,13 @@ const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeSources }) => {
+  const location = useLocation();
   const [enabledGroups, setEnabledGroups] = useState<Set<string>>(new Set(ALL_GROUPS));
   const [notification, setNotification] = useState<{ kind: 'success' | 'error'; msg: string } | null>(null);
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
+  React.useEffect(() => {
+    if (new URLSearchParams(location.search).get('sync') === '1') setSyncPanelOpen(true);
+  }, [location.key, location.search]);
   const [isSyncing, setIsSyncing] = useState(false);
   const queryClient = useQueryClient();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -382,7 +387,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
     <div className="page-root">
       <div className="page-header">
         <div className="page-title-group">
-          <h1 className="page-title">My Work</h1>
+          <h1 className="page-title">Activity</h1>
         </div>
         <div className="page-controls">
           <Button

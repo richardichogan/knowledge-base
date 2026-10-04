@@ -106,6 +106,7 @@ export async function readChatTurnEvents(
 }
 
 export interface TimelineQuery {
+  since?: string; // Recent activity by source update time, excluding future events
   page?: number;
   pageSize?: number;
   source?: string;

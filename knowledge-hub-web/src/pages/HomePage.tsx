@@ -7,8 +7,6 @@ import { useTodayBrief, requireTodayData } from '../services/useTodayBrief';
 import { TODAY_LIMITS, relativeTime, todayContext, type TodayItem } from '../services/todayViewModel';
 import { useAthenaContext } from '../context/AthenaContext';
 import { createNote } from '../notes/noteStorage';
-import { renderMarkdown } from '../utils/markdown';
-import { openBriefingInAthena } from '../utils/morningBriefing';
 
 type SectionQueries = Array<{ name: string; query: {
   isPending: boolean; isError: boolean; error: unknown; refetch: () => Promise<unknown>;
@@ -130,14 +128,11 @@ const PROMPTS = ['What should I focus on?', 'Prepare me for today', 'What am I w
 
 export const HomePage: React.FC = () => {
   const brief = useTodayBrief();
-  const { model, sectionQueries, briefing } = brief;
+  const { model, sectionQueries } = brief;
   const { setAthenaContext, openAthena } = useAthenaContext();
   const [prompt, setPrompt] = useState('');
   const [athenaItem, setAthenaItem] = useState<TodayItem | undefined>();
   const [expandedChanges, setExpandedChanges] = useState(false);
-  const [capture, setCapture] = useState('');
-  const [captureMessage, setCaptureMessage] = useState('');
-  const qc = useQueryClient();
   const context = todayContext(model);
   useEffect(() => {
     setAthenaContext(athenaItem ? {
@@ -155,16 +150,6 @@ export const HomePage: React.FC = () => {
       detail: `Today item:\n${JSON.stringify(item)}\n\nDaily brief:\n${context}`,
     } : { type: 'today', title: 'Today', detail: context });
   }
-  const captureMutation = useMutation({
-    mutationFn: async () => requireTodayData(await api.createSpark({ body: capture.trim(), tags: [] })),
-    onMutate: () => { setCaptureMessage(''); },
-    onSuccess: () => { setCapture(''); setCaptureMessage('Thought captured in Sparks.'); void qc.invalidateQueries({ queryKey: ['today', 'clusters'] }); },
-    onError: (e) => { setCaptureMessage(e instanceof Error ? e.message : 'Could not capture your thought. Try again.'); },
-  });
-  const briefingMutation = useMutation({
-    mutationFn: async () => requireTodayData(await api.generateMorningBriefing()),
-    onSuccess: (result) => { qc.setQueryData(['morning-briefing'], result); void brief.refresh(); },
-  });
   const visibleAttention = model.attention.slice(0, TODAY_LIMITS.attention);
   const attentionLoading = sectionQueries.attention.some(({ query }) => query.isPending);
   const partial = sectionQueries.attention.some(({ query }) => query.isError);
@@ -193,12 +178,12 @@ export const HomePage: React.FC = () => {
         {PROMPTS.map((text) => <button key={text} type="button" onClick={() => { ask(text); }}>{text}</button>)}
       </div>
       <div className="today-brief__briefing-meta">
-        <span>{briefing.data ? `Daily brief generated ${relativeTime(briefing.data.generatedAt)}` : briefing.isPending ? 'Checking daily brief...' : 'Daily brief not generated yet'}</span>
         <span>Changes since {new Date(brief.since).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
       </div>
       {brief.storageError && <p className="today-brief__error" role="status">Your browser cannot save the Today visit time. Changes use the last 24 hours.</p>}
       {brief.projects.isError && <p className="today-brief__error" role="alert">Project names are unavailable. <button type="button" onClick={() => { void brief.projects.refetch(); }}>Retry projects</button></p>}
       <div className="today-brief__grid">
+        <div className="today-brief__column">
         <section className="today-brief__attention" aria-labelledby="today-attention">
           <div className="today-brief__section-heading"><h2 id="today-attention">Needs your attention</h2><Link to="/plan">All tasks in Plan</Link></div>
           <SectionState queries={sectionQueries.attention} hasItems={visibleAttention.length > 0} empty="No deadlines, blockers, or open decisions need attention in the available recent sources." />
@@ -210,14 +195,9 @@ export const HomePage: React.FC = () => {
             }); }}>Review with Athena</button>
           </p>}
         </section>
-        <section className="today-brief__continue" aria-labelledby="today-continue">
-          <div className="today-brief__section-heading"><h2 id="today-continue">Continue working</h2><Link to="/think">Go to Think</Link></div>
-          <SectionState queries={sectionQueries.continuing} hasItems={model.continuing.length > 0} empty="No recent drafts or active work found. Start a note in Think or choose a task in Plan." />
-          {model.continuing.map((item) => <WorkItem key={item.id} item={item} compact ask={(i) => { ask('Help me continue this work from where I left off.', i); }} />)}
-        </section>
         <section className="today-brief__changes" aria-labelledby="today-changes">
           <div className="today-brief__section-heading"><h2 id="today-changes">What changed</h2><Link to="/my-work">Full activity</Link></div>
-          <SectionState queries={sectionQueries.changes} hasItems={model.changes.length > 0} empty="No meaningful changes found since this boundary in the recent activity available." />
+          <SectionState queries={sectionQueries.changes} hasItems={model.changes.length > 0} empty="No changes found in the available sources during this period." />
           <ul className="today-brief__change-list">
             {(expandedChanges ? model.changes : model.changes.slice(0, TODAY_LIMITS.changes)).map((item) => <li key={item.id}>
               <ItemLink item={item}>{item.title}</ItemLink><span className="today-brief__meta">{item.date ? relativeTime(item.date) : item.source}</span>
@@ -226,31 +206,20 @@ export const HomePage: React.FC = () => {
           {model.changes.length > TODAY_LIMITS.changes && <button type="button" className="today-brief__quiet"
             aria-expanded={expandedChanges} onClick={() => { setExpandedChanges((v) => !v); }}>{expandedChanges ? 'Show less' : `Show ${model.changes.length - TODAY_LIMITS.changes} more summaries`}</button>}
         </section>
+        </div>
+        <div className="today-brief__column">
+        <section className="today-brief__continue" aria-labelledby="today-continue">
+          <div className="today-brief__section-heading"><h2 id="today-continue">Continue working</h2><Link to="/think">Go to Think</Link></div>
+          <SectionState queries={sectionQueries.continuing} hasItems={model.continuing.length > 0} empty="No recent drafts or active work found. Start a note in Think or choose a task in Plan." />
+          {model.continuing.map((item) => <WorkItem key={item.id} item={item} compact ask={(i) => { ask('Help me continue this work from where I left off.', i); }} />)}
+        </section>
         <section className="today-brief__explore" aria-labelledby="today-explore">
           <div className="today-brief__section-heading"><h2 id="today-explore">Worth exploring</h2><Link to="/discover">Go to Discover</Link></div>
-          <SectionState queries={sectionQueries.exploration} hasItems={model.exploration.length > 0} empty="No strong suggestions yet. Review Discover or capture a thought for later." />
+          <SectionState queries={sectionQueries.exploration} hasItems={model.exploration.length > 0} empty="No strong suggestions yet. Review Discover or ask Athena to save an idea as a Spark." />
           {model.exploration.map((item) => <WorkItem key={item.id} item={item} compact ask={(i) => { ask('Help me develop this idea and decide whether it is useful.', i); }} />)}
         </section>
+        </div>
       </div>
-      <footer className="today-brief__footer">
-        <form className="today-brief__capture" onSubmit={(e) => { e.preventDefault(); if (capture.trim()) captureMutation.mutate(); }}>
-          <label htmlFor="today-capture">A thought for later</label>
-          <div><input id="today-capture" placeholder="Capture a thought…" value={capture} onChange={(e) => { setCapture(e.target.value); }} />
-            <button type="submit" className="today-brief__quiet" disabled={!capture.trim() || captureMutation.isPending}>{captureMutation.isPending ? 'Capturing...' : 'Capture Spark'}</button></div>
-          {captureMessage && <p role={captureMutation.isError ? 'alert' : 'status'}>{captureMessage}</p>}
-        </form>
-        <details className="today-brief__full-briefing">
-          <summary>View full briefing</summary>
-          {briefing.isError && <p className="today-brief__error" role="alert">Briefing could not be loaded. <button type="button" onClick={() => { void briefing.refetch(); }}>Retry briefing</button></p>}
-          {briefing.data && <div className="ai-bubble-text--md" dangerouslySetInnerHTML={{ __html: renderMarkdown(briefing.data.markdown) }} />}
-          {!briefing.data && !briefing.isPending && <p>No daily briefing has been generated yet.</p>}
-          <div className="today-brief__actions">
-            <button type="button" className="today-brief__quiet" disabled={briefingMutation.isPending} onClick={() => { briefingMutation.mutate(); }}>{briefingMutation.isPending ? 'Generating...' : briefing.data ? 'Regenerate briefing' : 'Generate briefing'}</button>
-            {briefing.data && <button type="button" className="today-brief__quiet" onClick={() => { if (briefing.data) openBriefingInAthena(briefing.data.sessionId); }}>Open briefing chat</button>}
-          </div>
-          {briefingMutation.isError && <p className="today-brief__error" role="alert">{briefingMutation.error.message}</p>}
-        </details>
-      </footer>
     </main>
   );
 };
