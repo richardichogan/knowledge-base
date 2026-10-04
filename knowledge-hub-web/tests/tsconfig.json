@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"],
+    "typeRoots": ["../node_modules/@types", "../node_modules", "../../knowledge-hub-backend/node_modules/@types"]
+  },
+  "include": ["../src", "./*.ts", "./*.tsx"],
+  "references": []
+}

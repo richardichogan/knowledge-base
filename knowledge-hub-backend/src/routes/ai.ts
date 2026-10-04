@@ -7,6 +7,7 @@ import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationM
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { draftSpecFromSession } from '../ai/specDraft.js';
+import { getOutputsForThink } from '../ai/thinkOutputExport.js';
 import { outputsChangedSince, moveDeliverableToOutputs, removeSavedCopiesFromReply } from '../ai/chatOutputs.js';
 import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
@@ -619,8 +620,8 @@ router.get('/session/:sessionId/history', (req: Request, res: Response, next: Ne
 
 /**
  * POST /api/ai/session/:sessionId/export-to-think
- * Formats the session's conversation into a structured note (title, summary,
- * key points/decisions, open questions, full transcript) and saves it to the
+ * Combines the latest saved Outputs verbatim, or formats the conversation
+ * when there are no Outputs, and saves one note to the
  * Think library via the same createNoteRecord path as the create_note_draft
  * tool and POST /api/notes use. Returns the created note's id/url so the
  * frontend can deep-link straight to it.
@@ -638,10 +639,15 @@ router.post('/session/:sessionId/export-to-think', (req: Request, res: Response,
 
       const persona = await getSessionPersona(db, sessionId);
       const projectId = await getSessionProjectId(db, sessionId);
-      const { title, bodyMarkdown } = await formatSessionForThink(toConversationMessages(history), persona);
+      const { title, bodyMarkdown } = await getOutputsForThink(db, sessionId, persona)
+        ?? await formatSessionForThink(toConversationMessages(history), persona);
 
       const blocks = textToBlocks(bodyMarkdown);
-      const wrapper = { title, contentType: 'note', contentJson: JSON.stringify(blocks) };
+      const wrapper = {
+        title,
+        contentType: persona === 'podcast_show_notes' ? 'podcast-show-notes' : 'note',
+        contentJson: JSON.stringify(blocks),
+      };
       const note = await createNoteRecord(db, {
         content: JSON.stringify(wrapper),
         tags: ['athena-export'],

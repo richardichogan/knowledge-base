@@ -2,6 +2,7 @@
 @use '@carbon/react/scss/themes' as *;
 @use '@carbon/react/scss/theme' with ($theme: $g100);
 @use '@carbon/react';
+@use './today';
 
 // ── Layout overrides ──────────────────────────────────────────────────────────
 

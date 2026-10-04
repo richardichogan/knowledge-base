@@ -1516,8 +1516,8 @@ function withSpecSection(body: string, title: string, version: number, content: 
 // ── create_note_draft ────────────────────────────────────────────────────────
 
 interface DraftBlock {
-  type: 'heading' | 'paragraph';
-  props?: { level: number };
+  type: 'heading' | 'paragraph' | 'codeBlock';
+  props?: { level?: number; language?: string };
   content: Array<{ type: 'text'; text: string; styles: Partial<Record<'bold' | 'italic' | 'code', boolean>> }>;
 }
 
@@ -1572,6 +1572,25 @@ function inferAthenaDraftContentType(title: string, content: string): typeof NOT
 
 /** Splits plain/markdown-ish text into simple BlockNote paragraph/heading blocks. */
 export function textToBlocks(text: string): DraftBlock[] {
+  const fencePattern = /^(`{3,}|~{3,})([^\r\n]*)\r?\n([\s\S]*?)^\1[ \t]*(?:\r?\n|$)/gm;
+  const blocks: DraftBlock[] = [];
+  let start = 0;
+  let fence: RegExpExecArray | null;
+  while ((fence = fencePattern.exec(text)) !== null) {
+    const [, , language, content] = fence;
+    blocks.push(...paragraphsToBlocks(text.slice(start, fence.index)));
+    blocks.push({
+      type: 'codeBlock',
+      props: { language: (language ?? '').trim() || 'text' },
+      content: [{ type: 'text', text: (content ?? '').replace(/\r?\n$/, ''), styles: {} }],
+    });
+    start = fencePattern.lastIndex;
+  }
+  blocks.push(...paragraphsToBlocks(text.slice(start)));
+  return blocks;
+}
+
+function paragraphsToBlocks(text: string): DraftBlock[] {
   const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p !== '');
   return paragraphs.map((p) => {
     const headingMatch = /^(#{1,3})\s+(.*)$/.exec(p);

@@ -65,6 +65,7 @@ interface PendingThinkSave {
 }
 
 interface AIChatPageProps {
+  promptRequest?: { prompt: string; sequence: number } | undefined;
   /** Renders without the page header/wrapper padding, for use in a floating widget. */
   compact?: boolean;
   /** Adapts compact controls for constrained embedded surfaces. */
@@ -221,6 +222,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   standalone = false,
   pageContext,
   initialPersona,
+  promptRequest,
   title,
   onBusyChange,
 }) => {
@@ -317,6 +319,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const ttsRunRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const appliedPromptRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (promptRequest === undefined || isRestoringHistory || appliedPromptRef.current === promptRequest.sequence) return;
+    appliedPromptRef.current = promptRequest.sequence;
+    setInput(promptRequest.prompt);
+    setActiveProjectId(pageContext?.projectId ?? '');
+    textareaRef.current?.focus();
+  }, [promptRequest, pageContext?.projectId, isRestoringHistory]);
   const chatAbortControllerRef = useRef<AbortController | null>(null);
   // The reply being worked on server-side: live activity line + streamed text.
   const [liveTurn, setLiveTurn] = useState<{ activity: string; text: string; startedAt: number } | null>(null);
@@ -580,7 +590,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // The first time Athena is opened each day she opens on the morning briefing
   // (not in the per-note/canvas panels, which keep their own chats).
   useEffect(() => {
-    if (isNoteLinkedPanel) return undefined;
+    if (isNoteLinkedPanel || promptRequest !== undefined) return undefined;
     // Opened on a specific chat (e.g. from a Plan task) — that chat wins.
     if (standalone && new URLSearchParams(window.location.search).get('session')) return undefined;
     let cancelled = false;

@@ -10,7 +10,7 @@
  *   setAthenaContext(null);
  */
 
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 
 export interface AthenaPageContext {
   /** e.g. "content-item", "task", "note", "spark", "document" */
@@ -43,18 +43,31 @@ export interface AthenaPageContext {
 interface AthenaContextValue {
   pageContext: AthenaPageContext | null;
   setAthenaContext: (ctx: AthenaPageContext | null) => void;
+  request: { prompt: string; sequence: number } | null;
+  openAthena: (prompt: string, context: AthenaPageContext) => void;
+  clearAthenaRequest: () => void;
 }
 
 const AthenaContext = createContext<AthenaContextValue>({
   pageContext: null,
   setAthenaContext: () => undefined,
+  request: null,
+  openAthena: () => undefined,
+  clearAthenaRequest: () => undefined,
 });
 
 export const AthenaContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [pageContext, setPageContext] = useState<AthenaPageContext | null>(null);
+  const [request, setRequest] = useState<AthenaContextValue['request']>(null);
+  const requestSequence = useRef(0);
+  const openAthena = useCallback((prompt: string, context: AthenaPageContext): void => {
+    setPageContext(context);
+    setRequest({ prompt, sequence: ++requestSequence.current });
+  }, []);
+  const clearAthenaRequest = useCallback(() => { setRequest(null); }, []);
 
   return (
-    <AthenaContext.Provider value={{ pageContext, setAthenaContext: setPageContext }}>
+    <AthenaContext.Provider value={{ pageContext, setAthenaContext: setPageContext, request, openAthena, clearAthenaRequest }}>
       {children}
     </AthenaContext.Provider>
   );

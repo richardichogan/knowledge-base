@@ -6,6 +6,32 @@ A unified personal intelligence layer that aggregates content, code activity, ca
 
 ---
 
+## Athena export to Think
+
+**Export chat to Think** saves one note containing the full latest version of every saved Output, without AI summarisation or a generation-token limit. Separate Outputs remain unchanged. Show Notes packages follow the podcast section order; YouTube plain text and Spotify HTML are preserved in code blocks. Chats without Outputs retain the structured conversation export.
+
+## Today
+
+Today prioritises overdue, blocked, urgent and near-due Plan tasks, failed connections/automation, and open Athena decisions. Recent Think notes, canvases, in-progress tasks and saved Outputs form a separate continuation list; routine activity is grouped rather than shown as a feed. Discover suggestions require a stored relevance explanation, and Spark clusters need at least four Sparks.
+
+The page initially shows at most five attention items, four continuations, three change summaries and three exploration suggestions. Source failures are local to each section and can be retried independently. Changes use the last browser visit (or the last 24 hours), scanning the latest 100 activity entries. Outputs and decisions cover the four most recent non-briefing Athena chats, not all historical chats. Ask Athena opens the existing popout with the visible context and item project, leaving the prompt editable before sending. Capture and the full narrative morning briefing remain available below the main sections.
+
+Today regression checks use the existing backend `tsx` loader and an isolated browser fixture (not production data):
+
+```powershell
+cd knowledge-hub-backend
+node --import tsx/esm --test ..\knowledge-hub-web\tests\todayViewModel.test.ts
+cd ..\knowledge-hub-web
+npx tsc --noEmit -p tests\tsconfig.json
+# In a separate terminal, after checking that port 5142 is free:
+npm run dev -- --port 5142
+# In the test terminal:
+$env:TODAY_BROWSER_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+node tests\run-today-browser.mjs
+```
+
+The browser runner uses a temporary profile, checks 1440px and 390px layouts, and blocks `/api` and `/auth` requests. It does not require a backend or authenticated production session. The fixture covers local loading/failure states, refresh, completion, disclosures and the real popout's prompt/context handoff.
+
 ## Repository structure
 
 ```

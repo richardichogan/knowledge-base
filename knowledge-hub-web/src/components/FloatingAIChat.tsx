@@ -6,10 +6,11 @@
  * so Athena is primed with context about the item the user is currently viewing.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChatLaunch, Close } from '@carbon/icons-react';
 import { AIChatPage } from '../pages/AIChatPage';
 import type { AthenaPageContext } from '../context/AthenaContext';
+import { useAthenaContext } from '../context/AthenaContext';
 
 interface FloatingAIChatProps {
   pageContext?: AthenaPageContext | undefined;
@@ -17,6 +18,10 @@ interface FloatingAIChatProps {
 
 export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ pageContext }) => {
   const [open, setOpen] = useState(false);
+  const { request, clearAthenaRequest } = useAthenaContext();
+  useEffect(() => {
+    if (request !== null) setOpen(true);
+  }, [request]);
 
   return (
     <>
@@ -33,13 +38,13 @@ export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ pageContext }) =
               type="button"
               className="ai-float-panel__close"
               aria-label="Close AI Chat"
-              onClick={() => setOpen(false)}
+              onClick={() => { clearAthenaRequest(); setOpen(false); }}
             >
               <Close size={16} />
             </button>
           </div>
           <div className="ai-float-panel__body">
-            <AIChatPage compact pageContext={pageContext} />
+            <AIChatPage compact pageContext={pageContext} promptRequest={request ?? undefined} />
           </div>
         </div>
       )}
@@ -47,7 +52,7 @@ export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ pageContext }) =
         type="button"
         className="ai-float-button"
         aria-label={open ? 'Close AI Chat' : 'Open AI Chat'}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => { if (open) clearAthenaRequest(); setOpen((v) => !v); }}
       >
         {open ? <Close size={22} /> : <ChatLaunch size={22} />}
       </button>
