@@ -4,8 +4,9 @@
 
 ## 1. Scope
 
-Deploy Athena Spark creation, Today change-feed/layout corrections and the
-navigation-only redesign to the existing production frontend and backend.
+Deploy the frontend-only Athena launcher cleanup: remove the floating control
+on every screen, disable the toolbar launcher throughout Think, and remove
+Today's redundant prompt box and suggestions. Backend v155 remains unchanged.
 No database schema or infrastructure changes are included:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
@@ -49,6 +50,9 @@ The repository's established production runbook is authoritative:
 
 ## 5. Validation Requirements
 
+- For this frontend-only release, backend build/image/revision steps are not
+  applicable; retain the existing backend. Both TypeScript checks and the
+  frontend production build must pass.
 - `knowledge-hub-backend`: `tsc --noEmit` and `npm run build`
 - `knowledge-hub-web`: `tsc --noEmit` and `npm run build`
 - Confirm branch changes are pushed before ACR remote build.
@@ -63,6 +67,18 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Frontend-only launcher cleanup validated on 2026-10-04 (22:13 BST):
+
+- Frontend and backend `npx tsc --noEmit` passed.
+- Frontend `npm run build` and `git diff --check` passed.
+- Navigation browser checks passed at 1440px, 1024px and 390px, including no
+  floating control and a disabled Think toolbar launcher in every mode.
+- Today browser checks passed at 1440px and 390px, including removal of the
+  redundant prompt area and preservation of item-specific context handoffs.
+- Azure authenticated reads confirmed subscription `Alliance Tenant Reporting`
+  and the existing `kh-prod-web` Static Web App in West Europe.
+- No provisioning, Container App update, RBAC changes or migrations apply.
 
 Deployment completed on 2026-10-04 (21:53 BST):
 

@@ -61,11 +61,12 @@ function Probe(): React.ReactElement {
     data-context={pageContext?.detail ?? ''} />;
 }
 function Fixture(): React.ReactElement {
-  const { pageContext } = useAthenaContext();
+  const { pageContext, launchAthena } = useAthenaContext();
   return <><div className="kh-content" style={{ height: '100%' }}>
     {comparisonPage === 'discover' ? <DiscoverPage /> : comparisonPage === 'think' ? <NotesPage /> : <HomePage />}
     <Probe /></div>
-    {!comparisonPage && <FloatingAIChat pageContext={pageContext ?? undefined} />}</>;
+    {!comparisonPage && <><button type="button" aria-label="Open Athena" onClick={launchAthena}>Athena</button>
+      <FloatingAIChat pageContext={pageContext ?? undefined} /></>}</>;
 }
 if (comparisonPage === 'discover') api.getDiscoverFeed = async () => success(paginated([{
   id: 'style-reference', sourceId: 'test-feed', title: 'Reference article for style comparison',
@@ -108,11 +109,12 @@ export async function runTodayChecks(): Promise<string[]> {
   check(document.querySelectorAll('.today-brief__continue article').length === 4, 'Continuation cap');
   check(document.querySelector('.today-brief .page-subtitle')!.textContent!.includes('5 things need'), 'Greeting count');
   check(document.querySelectorAll('h1').length === 1 && document.querySelectorAll('h2').length === 4, 'Heading hierarchy');
-  check(document.querySelector('label[for="today-athena"]') !== null, 'Composer label');
+  check(document.querySelector('.today-brief__prompt') === null && document.querySelector('.today-brief__suggestions') === null, 'Redundant Today launcher and prompts removed');
+  check(document.querySelector('.ai-float-button') === null, 'No floating Athena control');
   check(document.querySelector('.today-brief__capture') === null && document.querySelector('#today-capture') === null, 'Redundant Spark capture removed');
   check(document.querySelector('.today-brief__full-briefing') === null, 'Full briefing removed');
   check(!buttons().some((b) => /(?:Generate|Regenerate) briefing|Open briefing chat/.test(b.textContent ?? '')), 'Briefing controls removed');
-  results.push('Initial caps, greeting, heading hierarchy, input label, no redundant briefing');
+  results.push('Initial caps, greeting, heading hierarchy, no redundant Athena launcher or briefing');
 
   const attention = document.querySelector<HTMLElement>('.today-brief__attention')!;
   const continuing = document.querySelector<HTMLElement>('.today-brief__continue')!;
@@ -130,9 +132,9 @@ export async function runTodayChecks(): Promise<string[]> {
   }
   results.push('No redundant capture; independent desktop stacks and preserved mobile section order');
 
-  button('What should I focus on?').click();
-  await waitFor(() => document.querySelector('#athena-probe')!.getAttribute('data-prompt') === 'What should I focus on?');
-  await waitFor(() => document.querySelector<HTMLTextAreaElement>('.ai-float-panel textarea')?.value === 'What should I focus on?');
+  document.querySelector<HTMLButtonElement>('[aria-label="Open Athena"]')!.click();
+  await waitFor(() => document.querySelector('.ai-float-panel textarea') !== null);
+  await waitFor(() => document.activeElement === document.querySelector('.ai-float-panel textarea'));
   check(document.activeElement === document.querySelector('.ai-float-panel textarea'), 'Athena composer receives focus');
   check(document.querySelector('#athena-probe')!.getAttribute('data-context')!.includes('attention'), 'Today context handoff');
   document.querySelector<HTMLButtonElement>('.today-brief__attention button[aria-label^="Ask Athena"]')!.click();
@@ -141,7 +143,7 @@ export async function runTodayChecks(): Promise<string[]> {
   await waitFor(() => document.querySelector<HTMLTextAreaElement>('.ai-float-panel textarea')?.value === 'Help me work out the next step for this item.');
   document.querySelector<HTMLButtonElement>('[aria-label="Close AI Chat"]')!.click();
   await waitFor(() => document.querySelector('.ai-float-panel') === null);
-  document.querySelector<HTMLButtonElement>('[aria-label="Open AI Chat"]')!.click();
+  document.querySelector<HTMLButtonElement>('[aria-label="Open Athena"]')!.click();
   await waitFor(() => document.querySelector('.ai-float-panel textarea') !== null);
   check(document.querySelector<HTMLTextAreaElement>('.ai-float-panel textarea')!.value === '', 'A consumed prompt must not replay on reopen');
   document.querySelector<HTMLButtonElement>('[aria-label="Close AI Chat"]')!.click();

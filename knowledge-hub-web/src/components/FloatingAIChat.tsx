@@ -1,13 +1,12 @@
 /**
- * FloatingAIChat — bottom-right floating chat bubble + popup panel.
- * Replaces the old header-dropdown/slide-over AI Chat entry point.
+ * Athena popup panel, opened from the toolbar or a contextual item action.
  *
  * Accepts an optional `pageContext` prop which is passed through to AIChatPage
  * so Athena is primed with context about the item the user is currently viewing.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ChatLaunch, Close } from '@carbon/icons-react';
+import { Close } from '@carbon/icons-react';
 import { AIChatPage } from '../pages/AIChatPage';
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { useAthenaContext } from '../context/AthenaContext';
@@ -57,14 +56,6 @@ export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ pageContext }) =
           </div>
         </div>
       )}
-      <button
-        type="button"
-        className="ai-float-button"
-        aria-label={open ? 'Close AI Chat' : 'Open AI Chat'}
-        onClick={() => { if (open) clearAthenaRequest(); setOpen((v) => !v); }}
-      >
-        {open ? <Close size={22} /> : <ChatLaunch size={22} />}
-      </button>
     </>
   );
 };

@@ -43,6 +43,7 @@
   &:hover { color: var(--cds-text-primary); background: var(--cds-layer-hover-01); }
   &--active { border-bottom-color: var(--kh-accent); color: var(--cds-text-primary); background: var(--kh-accent-bg); font-weight: 600; }
   &:disabled { opacity: 0.55; cursor: not-allowed; }
+  &:disabled:hover { color: var(--cds-text-secondary); background: transparent; }
 }
 .kh-header__athena { color: var(--kh-accent); }
 .kh-header__dot, .kh-nav-menu__attention {

@@ -141,6 +141,7 @@ function assertFrame(): void {
   check(header.height <= 48, 'Header must occupy one row');
   check(selector('.kh-shell').getBoundingClientRect().top >= header.bottom, 'Content must start below header');
   check(selector('.kh-header').scrollWidth <= window.innerWidth + 1, 'Header must not overflow');
+  check(document.querySelector('.ai-float-button') === null, 'Floating Athena control removed on every screen');
   for (const element of document.querySelectorAll<HTMLElement>('.kh-header__destination, .kh-header__utility')) {
     const rect = element.getBoundingClientRect();
     check(rect.top >= header.top && rect.bottom <= header.bottom + 1,
@@ -267,13 +268,15 @@ export async function runNavigationChecks(): Promise<string[]> {
       check(menuItem('Think').getAttribute('aria-current') === 'page', `Think selected in ${mode}`);
       key(document.activeElement!, 'Escape');
     } else check(selector('.kh-header__primary [aria-current="page"]').textContent?.trim() === 'Think', `Think selected in ${mode}`);
-    check(document.querySelector('.ai-float-button') !== null, 'Athena available when no embedded rail exists');
+    check(selector<HTMLButtonElement>('[aria-label="Open Athena"]').disabled, 'Toolbar Athena disabled in every Think mode');
+    selector<HTMLButtonElement>('[aria-label="Open Athena"]').click();
+    check(document.querySelector('.ai-float-panel') === null, 'Disabled Think launcher cannot open a popout');
   }
   document.dispatchEvent(new KeyboardEvent('keydown', { key: '.', metaKey: true, bubbles: true }));
   await waitFor(() => document.querySelector('[aria-label="New Spark"]') !== null);
   key(document, 'Escape');
   await waitFor(() => document.querySelector('[aria-label="New Spark"]') === null);
-  results.push('Think selected in all modes, fallback Athena and quick Spark shortcut preserved');
+  results.push('Think selected in all modes, toolbar Athena disabled and quick Spark shortcut preserved');
 
   if (window.innerWidth >= 1200) {
     await go('/think/fixture-note');
@@ -282,8 +285,10 @@ export async function runNavigationChecks(): Promise<string[]> {
     selector<HTMLButtonElement>('[aria-label="Collapse side panel"]').click();
     await waitFor(() => selector('.notes-meta-panel').hidden);
     selector<HTMLButtonElement>('[aria-label="Open Athena"]').click();
+    check(selector('.notes-meta-panel').hidden, 'Disabled Think toolbar does not change embedded panel');
+    selector<HTMLButtonElement>('[aria-label="Open side panel"]').click();
+    selector<HTMLButtonElement>('#think-side-tab-athena').click();
     await waitFor(() => !selector('.notes-meta-panel').hidden && selector('#think-side-tab-athena').getAttribute('aria-selected') === 'true');
-    await waitFor(() => document.activeElement === document.querySelector('.think-athena-panel textarea'));
     check(selector('#navigation-probe').dataset.context === 'Note context preserved', 'Metadata rail retains note context');
     check(document.querySelector('.ai-float-panel') === null, 'Header must not duplicate embedded conversation');
     await go('/library');
@@ -296,7 +301,7 @@ export async function runNavigationChecks(): Promise<string[]> {
     await waitFor(() => selector('#library-side-tab-athena').getAttribute('aria-selected') === 'true' && !selector('.side-tabs-panel').hidden);
     await waitFor(() => document.activeElement === document.querySelector('.think-athena-panel textarea'));
     check(document.querySelector('.ai-float-panel') === null, 'Source rail must not duplicate Athena');
-    results.push('Header reveals, selects and focuses existing Think and Sources rails without duplicating chat');
+    results.push('Think uses its built-in panel; toolbar reveals Sources rail without duplicating chat');
   }
 
   api.getSources = async () => ({ success: false, error: { code: 'FIXTURE_FAILURE', message: 'Fixture sync unavailable' } });

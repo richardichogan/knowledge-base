@@ -31,6 +31,7 @@ export const AppShell: React.FC = () => {
   const { pageContext, hasEmbeddedAthena, launchAthena } = useAthenaContext();
   const tool = selectedTool(location.pathname, location.search);
   const primary = PRIMARY_DESTINATIONS.find((item) => item.path && matchesDestination(location.pathname, item.path));
+  const isThink = matchesDestination(location.pathname, '/think');
   const { data: unsurfacedData } = useQuery({
     queryKey: ['unsurfaced-count'],
     queryFn: () => api.getUnsurfacedClusterCount(),
@@ -88,7 +89,8 @@ export const AppShell: React.FC = () => {
         <nav className="kh-header__utilities" aria-label="Utility navigation">
           <button type="button" className="kh-header__utility" title="Search (Cmd+K / Ctrl+K)" aria-label="Search"
             onClick={() => { setPaletteOpen(true); setMenu(null); }}><Search size={20} /></button>
-          <button type="button" className="kh-header__utility kh-header__athena" title="Open Athena" aria-label="Open Athena"
+          <button type="button" className="kh-header__utility kh-header__athena"
+            title={isThink ? 'Use Athena in the Think panel' : 'Open Athena'} aria-label="Open Athena" disabled={isThink}
             onClick={() => { setMenu(null); launchAthena(); }}><ChatLaunch size={20} /><span>Athena</span></button>
           <button type="button" ref={narrow ? mobileRef : toolsRef}
             className={`kh-header__utility${tool || menu ? ' kh-header__utility--active' : ''}`}
@@ -113,7 +115,7 @@ export const AppShell: React.FC = () => {
       <QuickSparkModal open={sparkModalOpen} onClose={() => { setSparkModalOpen(false); }} />
       <TagPanel open={tagPanelOpen} onClose={() => { setTagPanelOpen(false); }} />
       <ProjectsModal open={projectsOpen} onClose={() => { setProjectsOpen(false); }} />
-      {!hasEmbeddedAthena && <FloatingAIChat pageContext={pageContext ?? undefined} />}
+      {!isThink && !hasEmbeddedAthena && <FloatingAIChat pageContext={pageContext ?? undefined} />}
       <CommandPalette open={paletteOpen} onClose={() => { setPaletteOpen(false); }} onNavigationAction={selectAction} />
     </>
   );

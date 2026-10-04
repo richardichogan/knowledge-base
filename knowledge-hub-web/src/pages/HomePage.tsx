@@ -124,13 +124,10 @@ function WorkItem({ item, ask, compact = false }: {
   );
 }
 
-const PROMPTS = ['What should I focus on?', 'Prepare me for today', 'What am I waiting for?', 'Continue my latest work'];
-
 export const HomePage: React.FC = () => {
   const brief = useTodayBrief();
   const { model, sectionQueries } = brief;
   const { setAthenaContext, openAthena } = useAthenaContext();
-  const [prompt, setPrompt] = useState('');
   const [athenaItem, setAthenaItem] = useState<TodayItem | undefined>();
   const [expandedChanges, setExpandedChanges] = useState(false);
   const context = todayContext(model);
@@ -168,15 +165,6 @@ export const HomePage: React.FC = () => {
           <Renew size={16} /> {brief.refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
       </header>
-      <form className="today-brief__prompt" onSubmit={(e) => { e.preventDefault(); if (prompt.trim()) { ask(prompt.trim()); setPrompt(''); } }}>
-        <label className="today-brief__sr" htmlFor="today-athena">Ask Athena about today</label>
-        <input id="today-athena" value={prompt} onChange={(e) => { setPrompt(e.target.value); }}
-          placeholder="Ask Athena about today, find something, or start a piece of work…" />
-        <button type="submit" className="today-brief__primary" disabled={!prompt.trim()}>Ask Athena <ArrowRight size={16} /></button>
-      </form>
-      <div className="today-brief__suggestions" aria-label="Suggested Athena prompts">
-        {PROMPTS.map((text) => <button key={text} type="button" onClick={() => { ask(text); }}>{text}</button>)}
-      </div>
       <div className="today-brief__briefing-meta">
         <span>Changes since {new Date(brief.since).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
       </div>
