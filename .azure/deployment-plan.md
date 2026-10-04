@@ -4,8 +4,9 @@
 
 ## 1. Scope
 
-Deploy the Today visual-consistency corrections to the existing production frontend.
-The backend and database remain unchanged for this deployment:
+Deploy Athena Spark creation, Today change-feed/layout corrections and the
+navigation-only redesign to the existing production frontend and backend.
+No database schema or infrastructure changes are included:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
 - Frontend: Azure Static Web App `kh-prod-web`
@@ -62,6 +63,39 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployment completed on 2026-10-04 (21:53 BST):
+
+- Application commit `66a4d32` pushed to `richardichogan-athena-spark-creation`.
+- ACR run `ca4v` successfully built backend image `kh-prod-api:v155`.
+- Container App revision `kh-prod-api-vnet--0000152` is active, `Healthy`,
+  `RunningAtMaxScale`, and receives 100% of production traffic.
+- Startup logs confirm migrations completed and the database pool connected.
+  Existing note-image UUID lookup failures and a proxy/rate-limit configuration
+  warning were observed in unchanged code; they did not prevent startup.
+- Static Web Apps CLI successfully deployed the frontend to production.
+- `https://athena.themicrosoftcloudblog.com/` returned the current build;
+  published JavaScript and CSS SHA-256 hashes match the local build exactly.
+- No resource, RBAC, secret, region or schema changes were made.
+
+Validated on 2026-10-04 (21:49 BST) for the current full deployment:
+
+- Backend `npx tsc --noEmit` and `npm run build` passed.
+- Frontend `npx tsc --noEmit` and `npm run build` passed.
+- Spark, recent activity, Today model and navigation unit tests: 21 passed.
+- Navigation browser checks passed at 1440px, 1024px and 390px; Today browser
+  checks passed at 1440px and 390px before deployment.
+- `git diff --check` passed.
+- Azure CLI authenticated reads confirmed the existing production subscription,
+  resource group, Container App, ACR and Static Web App.
+- Current backend image is `cad79107555facr.azurecr.io/kh-prod-api:v154`;
+  deploy `v155` and retain `v154` as the rollback target.
+- Dockerfile and lockfile verified: ACR will build the pushed branch with locked
+  dependencies, compiled TypeScript and existing migrations.
+- No templates, provisioning, policy changes, region changes, RBAC changes or
+  schema migrations are involved. Existing registry authentication uses a
+  Container App secret reference, not a managed identity; the new-identity
+  AcrPull propagation gate is not applicable.
 
 Frontend-only correction validated on 2026-10-04 (13:37 BST):
 
