@@ -13,7 +13,7 @@ import type { LlmMessage, LlmToolChoice } from './foundryClient.js';
 import type { ToolImages } from './chatTools.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
-import { AI_MAX_TOOL_ITERATIONS, AI_CHAT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
+import { AI_MAX_TOOL_ITERATIONS, SHOW_NOTES_MAX_TOOL_ITERATIONS, AI_CHAT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
@@ -100,7 +100,7 @@ export async function handleConversationTurn(
       return null;
     })
     : null;
-  const context = await buildAiContext(db, userMessage, history, sessionId);
+  const context = await buildAiContext(db, userMessage, history, sessionId, persona);
   // "Don't use this" items stay out of auto-retrieval and search results for this chat.
   const excluded = new Set(sessionId !== undefined
     ? (await getExcludedSources(db, sessionId).catch(() => [])).map((s) => s.id)
@@ -213,7 +213,9 @@ export async function handleConversationTurn(
   const turnStart = Date.now();
   const turnBudgetMs = hooks.budgetMs ?? AI_CONVERSATION_TURN_BUDGET_MS;
 
-  for (let i = 0; i < AI_MAX_TOOL_ITERATIONS; i++) {
+  // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
+  const maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS : AI_MAX_TOOL_ITERATIONS;
+  for (let i = 0; i < maxRounds; i++) {
     if (isStopped(hooks)) throw new AiStoppedError();
     hooks.onActivity?.(i === 0 ? 'Thinking' : 'Reading what I found');
     const remainingBudgetMs = turnBudgetMs - (Date.now() - turnStart);

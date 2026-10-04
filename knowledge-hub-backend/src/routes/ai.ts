@@ -61,7 +61,7 @@ export interface ChatTurnResult {
 }
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
-async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}): Promise<ChatTurnResult> {
+export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}): Promise<ChatTurnResult> {
   const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview, outputsPanel } = reqBody as {
     sessionId?: string;
     message?: string;
@@ -159,8 +159,16 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   const mapChanges: MapChangeProposal[] = [];
   const openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
   const contextUsed = emptyContextUsed();
+  // Show Notes works from a whole transcript over several turns (and revisions afterwards), so the document it
+  // is shown is kept in the chat once; every other persona stores only a marker (see below). When the chat
+  // already holds it, the copy in view is not sent a second time.
+  const documentMarker = pageContext !== undefined ? `[Viewing ${pageContext.type}: "${pageContext.title}"]` : '';
+  const keepsDocument = persona === 'podcast_show_notes' && pageContext?.type === 'document'
+    && typeof pageContext.detail === 'string' && pageContext.detail !== '';
+  const alreadyHeld = keepsDocument
+    && modelHistory.some((m) => m.role === 'user' && m.content.startsWith(documentMarker) && m.content.length > 5_000);
   const modelReply = await handleConversationTurn(
-    db, modelHistory, message, effectiveModel, persona, effectiveSessionId, pageContext,
+    db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
     { noteId: openNoteId, noteEdits, mapChanges },
     { ...hooks, contextUsed },
@@ -189,9 +197,11 @@ async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = 
   // messages) doesn't get re-poisoned by re-injecting a huge document as a
   // full-text search query. The model still sees the full pageContext detail
   // for THIS turn via assembleMessages; it just isn't persisted verbatim.
-  const historyMessage = pageContext
-    ? `[Viewing ${pageContext.type}: "${pageContext.title}"]\n${message}`
-    : message;
+  const historyMessage = keepsDocument && !alreadyHeld
+    ? `${documentMarker}\n${pageContext?.detail ?? ''}\n\n---\n\n${message}`
+    : pageContext
+      ? `${documentMarker}\n${message}`
+      : message;
   const { assistantMessageId } = await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources, contextUsed });
   if (isFirstMessage) await setSessionTitleIfMissing(db, effectiveSessionId, message);
   // Fire-and-forget AI title from the opening exchange (re-run on the

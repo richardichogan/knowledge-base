@@ -906,7 +906,10 @@ export async function buildAiContext(
   userQuery: string,
   history: ConversationMessage[] = [],
   currentSessionId?: string,
+  /** Show Notes works only from its transcript: no background retrieval to blend in or dilute it. */
+  persona?: string,
 ): Promise<AiContext> {
+  const noBackground = persona === 'podcast_show_notes';
   const ragQuery = buildRagQuery(userQuery, history);
   const activeProject = currentSessionId !== undefined
     ? await loadActiveSessionProject(db, currentSessionId)
@@ -918,8 +921,8 @@ export async function buildAiContext(
     getProfileText(db, async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].filter((t) => t.trim() !== '').join('\n\n'))
       .catch(async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].join('\n\n')),
     loadBlobText(PROJECT_CONTEXT_BLOB),
-    isSmallTalk(userQuery) ? Promise.resolve([]) : retrieveRagItems(db, ragQuery, activeProject?.id),
-    currentSessionId !== undefined && !isSmallTalk(userQuery)
+    noBackground || isSmallTalk(userQuery) ? Promise.resolve([]) : retrieveRagItems(db, ragQuery, activeProject?.id),
+    currentSessionId !== undefined && !noBackground && !isSmallTalk(userQuery)
       ? retrieveCrossSessionMemory(db, ragQuery, currentSessionId)
       : Promise.resolve([]),
   ]);

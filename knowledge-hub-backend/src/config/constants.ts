@@ -208,6 +208,9 @@ export const AI_CHAT_MAX_TOKENS = 6_000;
 export const AI_REASONING_MODEL_MAX_TOKENS = 8_000;
 /** Max round-trips of tool calls per chat turn before giving up (prevents infinite loops). */
 export const AI_MAX_TOOL_ITERATIONS = 6;
+
+/** The Show Notes persona makes one round of link checks and three batches of saves, so it needs more rounds. */
+export const SHOW_NOTES_MAX_TOOL_ITERATIONS = 9;
 /** Max search_knowledge_base results the AI chat tool can request in one call. */
 export const AI_TOOL_SEARCH_MAX_LIMIT = 20;
 /** Default search_knowledge_base result count when the AI doesn't specify one. */
