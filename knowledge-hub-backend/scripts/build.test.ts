@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { validateTaskGraph, normaliseDrafts, type TaskDraft } from '../src/build/decompose.js';
 import {
-  runSpecOnce, MAX_FIX_ATTEMPTS, CHECKS_GRACE_MS, NO_PR_TIMEOUT_MS, type RunnerDeps, type RunnerStore,
+  runSpecOnce, ensureWorkBranch, mergeFinalPullRequest, workBranchName,
+  MAX_FIX_ATTEMPTS, CHECKS_GRACE_MS, NO_PR_TIMEOUT_MS, type RunnerDeps, type RunnerStore,
 } from '../src/build/buildRunner.js';
 import type { AgentGitHub, AgentPullRequest, CheckSummary, AgentActivity } from '../src/build/githubAgents.js';
 import type { BuildSpec, BuildTask, TaskStatus } from '../src/build/buildStore.js';
@@ -41,7 +42,8 @@ const T0 = new Date('2026-01-01T00:00:00Z');
 function makeSpec(over: Partial<BuildSpec> = {}): BuildSpec {
   return {
     id: 'spec', projectId: null, noteId: null, chatOutputId: null, title: 'Spec', specMarkdown: 'x', repo: 'o/r',
-    baseBranch: 'main', status: 'running', maxParallel: 2, autoMerge: true, planNotes: '', lastError: null,
+    baseBranch: 'main', useWorkBranch: false, workBranch: null, finalPrNumber: null, finalPrUrl: null, finalPrMergedAt: null,
+    status: 'running', maxParallel: 2, autoMerge: true, planNotes: '', lastError: null,
     createdAt: T0.toISOString(), updatedAt: T0.toISOString(), ...over,
   };
 }
@@ -67,7 +69,7 @@ interface Harness {
   spec: BuildSpec;
   tasks: Map<string, BuildTask>;
   calls: string[];
-  gh: { pr: AgentPullRequest | null; checks: CheckSummary; activity: AgentActivity; mergeFails: boolean };
+  gh: { pr: AgentPullRequest | null; checks: CheckSummary; activity: AgentActivity; mergeFails: boolean; finalPr: { number: number; url: string } | null; baseRefs: string[] };
   clock: { now: Date };
 }
 
@@ -78,17 +80,20 @@ function harness(spec: BuildSpec, tasks: BuildTask[]): Harness {
   const ghState: Harness['gh'] = {
     pr: null, checks: { total: 1, pending: 0, failed: 0, failedNames: [] },
     activity: { working: false, lastFinishedAt: T0.toISOString() }, mergeFails: false,
+    finalPr: { number: 99, url: 'https://github.com/o/r/pull/99' }, baseRefs: [],
   };
   let issueNo = 100;
   const gh: AgentGitHub = {
-    createAgentIssue: (input) => { calls.push(`issue:${input.title}:${input.agent}`); issueNo += 1; return Promise.resolve({ number: issueNo, url: `u/${issueNo.toString()}` }); },
+    createAgentIssue: (input) => { ghState.baseRefs.push(input.baseRef); calls.push(`issue:${input.title}:${input.agent}`); issueNo += 1; return Promise.resolve({ number: issueNo, url: `u/${issueNo.toString()}` }); },
     findPullRequestForIssue: () => Promise.resolve(ghState.pr),
     getPullRequest: () => { if (ghState.pr === null) throw new Error('no pr'); return Promise.resolve(ghState.pr); },
     getAgentActivity: () => Promise.resolve(ghState.activity),
     getChecks: () => Promise.resolve(ghState.checks),
     markReadyForReview: () => { calls.push('ready'); return Promise.resolve(); },
-    mergePullRequest: () => { calls.push('merge'); return ghState.mergeFails ? Promise.reject(new Error('protected')) : Promise.resolve(); },
-    deleteBranch: () => { calls.push('delete-branch'); return Promise.resolve(); },
+    mergePullRequest: (_r, _n, _t, method) => { calls.push(method === 'merge' ? 'merge-commit' : 'merge'); return ghState.mergeFails ? Promise.reject(new Error('protected')) : Promise.resolve(); },
+    deleteBranch: (_r, b) => { calls.push(b.startsWith('build/') ? `delete-branch:${b}` : 'delete-branch'); return Promise.resolve(); },
+    createBranch: (_r, b, from) => { calls.push(`branch:${b}:${from}`); return Promise.resolve(); },
+    createPullRequest: (_r, head, base) => { calls.push(`final-pr:${head}:${base}`); return Promise.resolve(ghState.finalPr); },
     comment: (_r, n, body) => { calls.push(`comment:${n.toString()}:${body}`); return Promise.resolve(); },
     closeIssue: () => Promise.resolve(),
     listAvailableAgents: () => Promise.resolve(['copilot', 'claude']),
@@ -253,4 +258,66 @@ test('externally merged PRs are recorded and the spec completes', async () => {
   await runSpecOnce('spec', h.deps);
   assert.equal(status(h, 'a'), 'merged');
   assert.equal(h.spec.status, 'done');
+});
+
+// ── Integration branch ─────────────────────────────────────────────────────
+
+const WB = 'build/spec-abc123';
+
+test('workBranchName slugs the title and suffixes the id', () => {
+  assert.equal(workBranchName({ id: 'abc123def', title: 'Add OAuth login!  (v2)' }), 'build/add-oauth-login-v2-abc123');
+  assert.equal(workBranchName({ id: 'abc123def', title: '***' }), 'build/spec-abc123');
+});
+
+test('ensureWorkBranch creates the branch from base once', async () => {
+  const h = harness(makeSpec({ id: 'abc123def', title: 'My Spec', useWorkBranch: true }), []);
+  const updated = await ensureWorkBranch(h.spec, h.deps);
+  assert.equal(updated.workBranch, 'build/my-spec-abc123');
+  assert.deepEqual(h.calls, ['branch:build/my-spec-abc123:main']);
+  await ensureWorkBranch(updated, h.deps);
+  assert.equal(h.calls.length, 1);
+
+  const off = harness(makeSpec({ useWorkBranch: false }), []);
+  assert.equal((await ensureWorkBranch(off.spec, off.deps)).workBranch, null);
+  assert.equal(off.calls.length, 0);
+});
+
+test('agents target the integration branch when there is one', async () => {
+  const h = harness(makeSpec({ useWorkBranch: true, workBranch: WB }), [makeTask('a', 1)]);
+  await runSpecOnce('spec', h.deps);
+  assert.deepEqual(h.gh.baseRefs, [WB]);
+});
+
+test('when every task is merged the runner opens one PR into the base branch', async () => {
+  const h = harness(makeSpec({ useWorkBranch: true, workBranch: WB }), [makeTask('a', 1, { status: 'merged', prNumber: 5 })]);
+  await runSpecOnce('spec', h.deps);
+  assert.ok(h.calls.includes(`final-pr:${WB}:main`));
+  assert.equal(h.spec.status, 'done');
+  assert.equal(h.spec.finalPrNumber, 99);
+
+  // Second pass while done: final PR still open → nothing happens.
+  h.gh.pr = makePr({ number: 99 });
+  await runSpecOnce('spec', h.deps);
+  assert.equal(h.spec.finalPrMergedAt, null);
+  // Merged on GitHub → recorded and the integration branch is deleted.
+  h.gh.pr = makePr({ number: 99, merged: true, state: 'closed' });
+  await runSpecOnce('spec', h.deps);
+  assert.notEqual(h.spec.finalPrMergedAt, null);
+  assert.ok(h.calls.includes(`delete-branch:${WB}`));
+});
+
+test('nothing to merge completes the spec without a final PR', async () => {
+  const h = harness(makeSpec({ useWorkBranch: true, workBranch: WB }), [makeTask('a', 1, { status: 'cancelled' })]);
+  h.gh.finalPr = null;
+  await runSpecOnce('spec', h.deps);
+  assert.equal(h.spec.status, 'done');
+  assert.equal(h.spec.finalPrNumber, null);
+});
+
+test('mergeFinalPullRequest uses a merge commit and cleans up', async () => {
+  const h = harness(makeSpec({ status: 'done', workBranch: WB, finalPrNumber: 99 }), []);
+  h.gh.pr = makePr({ number: 99, draft: true });
+  await mergeFinalPullRequest(h.spec, h.deps);
+  assert.deepEqual(h.calls, ['ready', 'merge-commit', `delete-branch:${WB}`]);
+  assert.notEqual(h.spec.finalPrMergedAt, null);
 });

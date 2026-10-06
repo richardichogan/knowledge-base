@@ -30,7 +30,14 @@ export interface BuildSpec {
   title: string;
   specMarkdown: string;
   repo: string;
+  /** Target branch: the integration branch is cut from it and the final PR goes back into it. */
   baseBranch: string;
+  /** Work on a dedicated build/<slug> integration branch (created on start). */
+  useWorkBranch: boolean;
+  workBranch: string | null;
+  finalPrNumber: number | null;
+  finalPrUrl: string | null;
+  finalPrMergedAt: string | null;
   status: SpecStatus;
   maxParallel: number;
   autoMerge: boolean;
@@ -97,6 +104,11 @@ function toSpec(r: Row): BuildSpec {
     specMarkdown: r['spec_markdown'] as string,
     repo: r['repo'] as string,
     baseBranch: r['base_branch'] as string,
+    useWorkBranch: (r['use_work_branch'] as boolean | null) ?? true,
+    workBranch: (r['work_branch'] as string | null) ?? null,
+    finalPrNumber: (r['final_pr_number'] as number | null) ?? null,
+    finalPrUrl: (r['final_pr_url'] as string | null) ?? null,
+    finalPrMergedAt: iso(r['final_pr_merged_at']),
     status: r['status'] as SpecStatus,
     maxParallel: r['max_parallel'] as number,
     autoMerge: r['auto_merge'] as boolean,
@@ -179,15 +191,16 @@ export async function getTask(id: string, db: Db = getDb()): Promise<BuildTask |
 export interface CreateSpecInput {
   title: string; specMarkdown: string; repo: string; baseBranch?: string | undefined;
   projectId?: string | null | undefined; noteId?: string | null | undefined; chatOutputId?: string | null | undefined;
-  maxParallel?: number | undefined; autoMerge?: boolean | undefined;
+  maxParallel?: number | undefined; autoMerge?: boolean | undefined; useWorkBranch?: boolean | undefined;
 }
 
 export async function createSpec(input: CreateSpecInput, db: Db = getDb()): Promise<BuildSpec> {
   const { rows } = await db.query<Row>(
-    `INSERT INTO build_specs (title, spec_markdown, repo, base_branch, project_id, note_id, chat_output_id, max_parallel, auto_merge)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    `INSERT INTO build_specs (title, spec_markdown, repo, base_branch, project_id, note_id, chat_output_id, max_parallel, auto_merge, use_work_branch)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
     [input.title, input.specMarkdown, input.repo, input.baseBranch ?? 'main', input.projectId ?? null,
-      input.noteId ?? null, input.chatOutputId ?? null, input.maxParallel ?? DEFAULT_MAX_PARALLEL, input.autoMerge ?? true],
+      input.noteId ?? null, input.chatOutputId ?? null, input.maxParallel ?? DEFAULT_MAX_PARALLEL, input.autoMerge ?? true,
+      input.useWorkBranch ?? true],
   );
   return toSpec(rows[0] as Row);
 }
@@ -195,7 +208,20 @@ export async function createSpec(input: CreateSpecInput, db: Db = getDb()): Prom
 const SPEC_COLUMNS: Record<string, string> = {
   title: 'title', specMarkdown: 'spec_markdown', repo: 'repo', baseBranch: 'base_branch', projectId: 'project_id',
   status: 'status', maxParallel: 'max_parallel', autoMerge: 'auto_merge', planNotes: 'plan_notes', lastError: 'last_error',
+  useWorkBranch: 'use_work_branch', workBranch: 'work_branch', finalPrNumber: 'final_pr_number', finalPrUrl: 'final_pr_url',
+  finalPrMergedAt: 'final_pr_merged_at',
 };
+
+/** Branch the agents target: the integration branch once created, else the base branch. */
+export const targetBranchOf = (spec: Pick<BuildSpec, 'workBranch' | 'baseBranch'>): string => spec.workBranch ?? spec.baseBranch;
+
+/** Specs that are done but whose final PR hasn't been merged yet (the runner watches these too). */
+export async function listAwaitingFinalMergeIds(db: Db = getDb()): Promise<string[]> {
+  const { rows } = await db.query<{ id: string }>(
+    "SELECT id FROM build_specs WHERE status = 'done' AND final_pr_number IS NOT NULL AND final_pr_merged_at IS NULL ORDER BY updated_at",
+  );
+  return rows.map((r) => r.id);
+}
 
 export async function updateSpec(id: string, patch: Partial<BuildSpec>, db: Db = getDb()): Promise<BuildSpec | null> {
   const sets: string[] = [];

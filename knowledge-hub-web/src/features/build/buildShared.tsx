@@ -65,7 +65,7 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 /**
- * Base branch dropdown, filled from the chosen repo's branches (default first).
+ * Target branch dropdown (the build's integration branch is cut from it and merged back into it), filled from the chosen repo's branches (default first).
  * An empty value is replaced with the repo's default branch once loaded. Falls
  * back to a free-text input if the branches can't be listed.
  */
@@ -89,7 +89,7 @@ export const BranchField: React.FC<{ repo: string; value: string; onChange: (v: 
   if (isError) {
     return (
       <label className="build-field">
-        <span className="build-field__label">Base branch</span>
+        <span className="build-field__label">Target branch</span>
         <input className="build-input" value={value} placeholder="main" disabled={disabled} title="Couldn't list branches for this repository"
           onChange={(e) => { onChange(e.target.value.trim()); }} />
       </label>
@@ -101,7 +101,7 @@ export const BranchField: React.FC<{ repo: string; value: string; onChange: (v: 
   const placeholder = !REPO_PATTERN.test(repo) ? 'Choose a repository first' : isFetching || !enabled ? 'Loading branches…' : 'No branches';
   return (
     <label className="build-field">
-      <span className="build-field__label">Base branch</span>
+      <span className="build-field__label">Target branch</span>
       <select className="build-select" value={value} disabled={disabled || options.length === 0}
         onChange={(e) => { onChange(e.target.value); }}>
         {options.length === 0 && <option value="">{placeholder}</option>}

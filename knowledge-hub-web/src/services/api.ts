@@ -1512,7 +1512,7 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async createBuildSpec(input: { title: string; repo: string; specMarkdown?: string; baseBranch?: string; maxParallel?: number; autoMerge?: boolean }): Promise<ApiResponse<BuildSpecWithTasks>> {
+  async createBuildSpec(input: { title: string; repo: string; specMarkdown?: string; baseBranch?: string; maxParallel?: number; autoMerge?: boolean; useWorkBranch?: boolean }): Promise<ApiResponse<BuildSpecWithTasks>> {
     const r = await this.client.post<ApiResponse<BuildSpecWithTasks>>('/api/build/specs', input);
     return r.data;
   }
@@ -1527,7 +1527,7 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async updateBuildSpec(id: string, patch: Partial<Pick<BuildSpec, 'title' | 'specMarkdown' | 'repo' | 'baseBranch' | 'maxParallel' | 'autoMerge'>>): Promise<ApiResponse<BuildSpecWithTasks>> {
+  async updateBuildSpec(id: string, patch: Partial<Pick<BuildSpec, 'title' | 'specMarkdown' | 'repo' | 'baseBranch' | 'maxParallel' | 'autoMerge' | 'useWorkBranch'>>): Promise<ApiResponse<BuildSpecWithTasks>> {
     const r = await this.client.patch<ApiResponse<BuildSpecWithTasks>>(`/api/build/specs/${id}`, patch);
     return r.data;
   }
@@ -1537,8 +1537,8 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  /** start | pause | sync | decompose */
-  async buildSpecAction(id: string, action: 'decompose' | 'start' | 'pause' | 'sync'): Promise<ApiResponse<BuildSpecWithTasks>> {
+  /** start | pause | sync | decompose | merge-final (merge the integration branch into the target) */
+  async buildSpecAction(id: string, action: 'decompose' | 'start' | 'pause' | 'sync' | 'merge-final'): Promise<ApiResponse<BuildSpecWithTasks>> {
     const r = await this.client.post<ApiResponse<BuildSpecWithTasks>>(`/api/build/specs/${id}/${action}`, {});
     return r.data;
   }
@@ -1581,7 +1581,14 @@ export interface BuildSpec {
   title: string;
   specMarkdown: string;
   repo: string;
+  /** Target branch: the integration branch is cut from it and merged back into it. */
   baseBranch: string;
+  useWorkBranch: boolean;
+  /** build/<slug> integration branch the agents work on (set when the build starts). */
+  workBranch: string | null;
+  finalPrNumber: number | null;
+  finalPrUrl: string | null;
+  finalPrMergedAt: string | null;
   status: BuildSpecStatus;
   maxParallel: number;
   autoMerge: boolean;

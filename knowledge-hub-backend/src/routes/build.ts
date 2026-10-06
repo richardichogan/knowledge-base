@@ -3,15 +3,21 @@
  * The Build pipeline: a GHCP spec → dependency-ordered tasks → GitHub cloud
  * agents (Copilot / Claude) → PRs auto-merged when green.
  *
+ * Branching: by default a build works on its own integration branch
+ * (build/<slug>-<id>) cut from baseBranch when it starts. Agent PRs target and
+ * merge into it; once every task is merged the runner opens one PR from it into
+ * baseBranch, merged with POST /merge-final (or on GitHub).
+ *
  * GET    /api/build/specs                          list specs with task counts
- * POST   /api/build/specs                          create { title, specMarkdown, repo, baseBranch?, projectId?, maxParallel?, autoMerge? }
- * POST   /api/build/specs/from-note                { noteId, repo, baseBranch? } → spec from a Think note
- * POST   /api/build/specs/from-output              { outputId, repo, baseBranch? } → spec from an Athena chat output
+ * POST   /api/build/specs                          create { title, specMarkdown, repo, baseBranch?, projectId?, maxParallel?, autoMerge?, useWorkBranch? }
+ * POST   /api/build/specs/from-note                { noteId, repo, baseBranch?, useWorkBranch? } → spec from a Think note
+ * POST   /api/build/specs/from-output              { outputId, repo, baseBranch?, useWorkBranch? } → spec from an Athena chat output
  * GET    /api/build/specs/:id                      spec + tasks
- * PATCH  /api/build/specs/:id                      update title / spec / repo / branch / maxParallel / autoMerge (not while running)
+ * PATCH  /api/build/specs/:id                      update title / spec / repo / branch / useWorkBranch / maxParallel / autoMerge (not while running)
  * DELETE /api/build/specs/:id                      delete (not while running)
  * POST   /api/build/specs/:id/decompose            AI decomposition → replaces tasks (draft/decomposed/failed only)
- * POST   /api/build/specs/:id/start                decomposed|paused → running
+ * POST   /api/build/specs/:id/start                decomposed|paused → running (creates the integration branch)
+ * POST   /api/build/specs/:id/merge-final          done → merge the integration PR into baseBranch, delete the branch
  * POST   /api/build/specs/:id/pause                running → paused (in-flight agents keep working)
  * POST   /api/build/specs/:id/sync                 run one runner pass now
  * GET    /api/build/specs/:id/events               activity log
@@ -30,7 +36,7 @@ import { renderNoteAsText } from '../services/noteTextService.js';
 import * as store from '../build/buildStore.js';
 import { decomposeSpec, validateTaskGraph, type TaskDraft } from '../build/decompose.js';
 import { BUILD_AGENTS, getAgentGitHub, type BuildAgent } from '../build/githubAgents.js';
-import { runSpecLocked } from '../build/buildRunner.js';
+import { ensureWorkBranch, mergeFinalPullRequest, runSpecLocked } from '../build/buildRunner.js';
 import type { BuildSpec, BuildTask } from '../build/buildStore.js';
 
 export const buildRouter = Router();
@@ -131,6 +137,7 @@ buildRouter.post('/specs', handle(async (req, res) => {
     projectId: str(b['projectId'], 'projectId', { max: 100 }) ?? null,
     maxParallel: maxParallelOf(b['maxParallel']),
     autoMerge: boolOf(b['autoMerge'], 'autoMerge'),
+    useWorkBranch: boolOf(b['useWorkBranch'], 'useWorkBranch'),
   });
   await store.addEvent(spec.id, null, 'created', 'Spec created');
   await sendSpec(res, spec.id, HTTP_STATUS.CREATED);
@@ -149,6 +156,7 @@ buildRouter.post('/specs/from-note', handle(async (req, res) => {
   const spec = await store.createSpec({
     title: firstLine.slice(0, MAX_TITLE_CHARS), specMarkdown: text.slice(0, MAX_SPEC_CHARS),
     repo: repoOf(b['repo'], true) as string, baseBranch: branchOf(b['baseBranch']),
+    useWorkBranch: boolOf(b['useWorkBranch'], 'useWorkBranch'),
     projectId: row.project_id, noteId,
   });
   await store.addEvent(spec.id, null, 'created', 'Spec created from a Think note');
@@ -168,6 +176,7 @@ buildRouter.post('/specs/from-output', handle(async (req, res) => {
   const spec = await store.createSpec({
     title: row.title.slice(0, MAX_TITLE_CHARS), specMarkdown: row.content.slice(0, MAX_SPEC_CHARS),
     repo: repoOf(b['repo'], true) as string, baseBranch: branchOf(b['baseBranch']),
+    useWorkBranch: boolOf(b['useWorkBranch'], 'useWorkBranch'),
     projectId: str(b['projectId'], 'projectId', { max: 100 }) ?? null, chatOutputId: outputId,
   });
   await store.addEvent(spec.id, null, 'created', 'Spec created from an Athena output');
@@ -196,6 +205,16 @@ buildRouter.patch('/specs/:id', handle(async (req, res) => {
   if (repo !== undefined) patch.repo = repo;
   const branch = branchOf(b['baseBranch']);
   if (branch !== undefined) patch.baseBranch = branch;
+  const uwb = boolOf(b['useWorkBranch'], 'useWorkBranch');
+  if (uwb !== undefined) patch.useWorkBranch = uwb;
+  const lockedByWorkBranch = spec.workBranch !== null && (
+    (patch.repo !== undefined && patch.repo !== spec.repo)
+    || (patch.baseBranch !== undefined && patch.baseBranch !== spec.baseBranch)
+    || (patch.useWorkBranch !== undefined && patch.useWorkBranch !== spec.useWorkBranch));
+  if (lockedByWorkBranch) {
+    throw new ConflictError(`The build already works on ${spec.workBranch ?? ''} — repo and branches can't change now`,
+      'BUILD_SPEC_BRANCH_LOCKED', { workBranch: spec.workBranch ?? '' });
+  }
   const mp = maxParallelOf(b['maxParallel']);
   if (mp !== undefined) patch.maxParallel = mp;
   const am = boolOf(b['autoMerge'], 'autoMerge');
@@ -249,9 +268,24 @@ buildRouter.post('/specs/:id/start', handle(async (req, res) => {
       `${missing.join(' and ')} can't be assigned in ${spec.repo} — enable the agent for the repo or switch those tasks`,
       'BUILD_AGENT_UNAVAILABLE', { missing: missing.join(',') });
   }
+  await ensureWorkBranch(spec);
   await store.updateSpec(spec.id, { status: 'running', lastError: null });
   await store.addEvent(spec.id, null, 'started', spec.status === 'paused' ? 'Resumed' : 'Started');
   await runSpecLocked(spec.id);
+  await sendSpec(res, spec.id);
+}));
+
+buildRouter.post('/specs/:id/merge-final', handle(async (req, res) => {
+  const spec = await requireSpec(param(req, 'id'));
+  assertStatus(spec, ['done'], 'merge into the target branch');
+  if (spec.finalPrNumber === null) throw new ConflictError('There is no integration PR to merge', 'BUILD_NO_FINAL_PR');
+  try {
+    await mergeFinalPullRequest(spec);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await store.updateSpec(spec.id, { lastError: `Merge into ${spec.baseBranch} failed: ${message}` });
+    throw new ConflictError(`Merge into ${spec.baseBranch} failed: ${message}`, 'BUILD_FINAL_MERGE_FAILED');
+  }
   await sendSpec(res, spec.id);
 }));
 

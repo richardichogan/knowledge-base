@@ -12,6 +12,7 @@ import { Add, Launch } from '@carbon/icons-react';
 import {
   api,
   type BuildAgent,
+  type BuildSpec,
   type BuildSpecStatus,
   type BuildSpecSummary,
   type BuildSpecWithTasks,
@@ -48,17 +49,66 @@ const StatusPill: React.FC<{ kind: 'spec' | 'task'; status: BuildSpecStatus | Bu
   </span>
 );
 
+// ── Integration branch ───────────────────────────────────────────────────────
+
+const awaitingFinalMerge = (s: BuildSpec | undefined): boolean =>
+  s?.status === 'done' && s.finalPrNumber !== null && s.finalPrMergedAt === null;
+
+const branchUrl = (repo: string, branch: string): string =>
+  `https://github.com/${repo}/tree/${branch.split('/').map(encodeURIComponent).join('/')}`;
+
+const WorkBranchToggle: React.FC<{ checked: boolean; target: string; disabled?: boolean; onChange: (v: boolean) => void }> = ({
+  checked, target, disabled = false, onChange,
+}) => (
+  <label className="build-check build-check--field" title={`Agents merge into a build/… branch; one PR into ${target || 'the target'} at the end`}>
+    <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => { onChange(e.target.checked); }} />
+    <span>Use an integration branch</span>
+  </label>
+);
+
+/** "main ← build/x" in the spec header. */
+const BranchFlow: React.FC<{ spec: BuildSpec }> = ({ spec }) => (
+  <>
+    <span>{spec.baseBranch}</span>
+    {spec.workBranch !== null && (
+      <>
+        <span> ← </span>
+        <a className="build-link" href={branchUrl(spec.repo, spec.workBranch)} target="_blank" rel="noreferrer">{spec.workBranch}<Launch size={12} /></a>
+      </>
+    )}
+    {spec.workBranch === null && spec.useWorkBranch && spec.status !== 'done' && <span className="build-task__note"> (integration branch created on start)</span>}
+  </>
+);
+
+const FinalMergePanel: React.FC<{ spec: BuildSpec; busy: string | null; onMerge: () => void }> = ({ spec, busy, onMerge }) => {
+  if (spec.finalPrNumber === null || spec.finalPrUrl === null) return null;
+  const prLink = <a className="build-link" href={spec.finalPrUrl} target="_blank" rel="noreferrer">PR #{spec.finalPrNumber}<Launch size={12} /></a>;
+  if (spec.finalPrMergedAt !== null) {
+    return <section className="build-panel build-final"><p className="build-hint">Merged into <strong>{spec.baseBranch}</strong> via {prLink}. Integration branch deleted.</p></section>;
+  }
+  return (
+    <section className="build-panel build-final">
+      <p className="build-hint">All tasks are on <strong>{spec.workBranch}</strong>. {prLink} into <strong>{spec.baseBranch}</strong> is ready.</p>
+      <div className="build-row">
+        <button type="button" className="docs-upload-btn" disabled={busy !== null} onClick={onMerge}>
+          {busy === 'merge-final' ? 'Merging…' : `Merge into ${spec.baseBranch}`}
+        </button>
+      </div>
+    </section>
+  );
+};
+
 // ── New spec ─────────────────────────────────────────────────────────────────
 
 const NewSpecForm: React.FC<{ repos: string[]; onCreated: (id: string) => void; onCancel: () => void }> = ({ repos, onCreated, onCancel }) => {
-  const [draft, setDraft] = useState({ title: '', repo: '', baseBranch: '', specMarkdown: '' });
+  const [draft, setDraft] = useState({ title: '', repo: '', baseBranch: '', specMarkdown: '', useWorkBranch: true });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const setBaseBranch = useCallback((baseBranch: string) => { setDraft((d) => ({ ...d, baseBranch })); }, []);
   const create = (): void => {
     setBusy(true); setError(null);
     void api.createBuildSpec({
-      title: draft.title, repo: draft.repo, specMarkdown: draft.specMarkdown,
+      title: draft.title, repo: draft.repo, specMarkdown: draft.specMarkdown, useWorkBranch: draft.useWorkBranch,
       ...(draft.baseBranch.trim() !== '' ? { baseBranch: draft.baseBranch.trim() } : {}),
     }).then((r) => { onCreated(unwrap(r).id); })
       .catch((e: unknown) => { setError(describeBuildError(e)); })
@@ -75,6 +125,8 @@ const NewSpecForm: React.FC<{ repos: string[]; onCreated: (id: string) => void; 
         </label>
         <RepoField value={draft.repo} repos={repos} onChange={(repo) => { setDraft((d) => ({ ...d, repo, baseBranch: '' })); }} />
         <BranchField repo={draft.repo} value={draft.baseBranch} onChange={setBaseBranch} />
+        <WorkBranchToggle checked={draft.useWorkBranch} target={draft.baseBranch}
+          onChange={(useWorkBranch) => { setDraft((d) => ({ ...d, useWorkBranch })); }} />
       </div>
       <label className="build-field build-field--wide">
         <span className="build-field__label">Spec (markdown)</span>
@@ -194,7 +246,7 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
   const { data: spec, isLoading } = useQuery({
     queryKey: ['build-spec', specId],
     queryFn: async () => unwrap(await api.getBuildSpec(specId)),
-    refetchInterval: (q) => (q.state.data?.status === 'running' ? RUNNING_POLL_MS : false),
+    refetchInterval: (q) => (q.state.data?.status === 'running' || awaitingFinalMerge(q.state.data) ? RUNNING_POLL_MS : false),
   });
   const { data: events = [] } = useQuery({
     queryKey: ['build-events', specId, spec?.updatedAt],
@@ -228,6 +280,7 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
   if (isLoading || spec === undefined) return <section className="build-detail"><InlineLoading description="Loading spec…" /></section>;
 
   const editable = EDITABLE.includes(spec.status);
+  const branchLocked = spec.workBranch !== null;
   const current = draft ?? { title: spec.title, repo: spec.repo, baseBranch: spec.baseBranch, specMarkdown: spec.specMarkdown };
   const dirty = draft !== null && (draft.title !== spec.title || draft.repo !== spec.repo || draft.baseBranch !== spec.baseBranch || draft.specMarkdown !== spec.specMarkdown);
   const setBaseBranch = (baseBranch: string): void => { setDraft({ ...current, baseBranch }); };
@@ -248,7 +301,7 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
           <h2 className="build-detail__title">{spec.title}</h2>
           <p className="build-detail__sub">
             <a className="build-link" href={`https://github.com/${spec.repo}`} target="_blank" rel="noreferrer">{spec.repo}<Launch size={12} /></a>
-            <span> · {spec.baseBranch}</span>
+            <span> · </span><BranchFlow spec={spec} />
             {spec.tasks.length > 0 && <span> · {merged}/{spec.tasks.length} done</span>}
             {needsYou > 0 && <span className="build-detail__attention"> · {needsYou} need{needsYou === 1 ? 's' : ''} you</span>}
           </p>
@@ -290,6 +343,12 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
         )}
       </div>
 
+      <FinalMergePanel spec={spec} busy={busy} onMerge={() => {
+        if (window.confirm(`Merge ${spec.workBranch ?? 'the integration branch'} into ${spec.baseBranch}?`)) {
+          act('merge-final', () => api.buildSpecAction(spec.id, 'merge-final'));
+        }
+      }} />
+
       {error !== null && <p className="build-error">{error}</p>}
       {spec.lastError !== null && error === null && <p className="build-error">{spec.lastError}</p>}
 
@@ -300,8 +359,10 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
             <span className="build-field__label">Title</span>
             <input className="build-input" value={current.title} disabled={!editable} onChange={(e) => { setDraft({ ...current, title: e.target.value }); }} />
           </label>
-          <RepoField value={current.repo} repos={repos} disabled={!editable} onChange={(repo) => { setDraft({ ...current, repo, baseBranch: '' }); }} />
-          <BranchField repo={current.repo} value={current.baseBranch} disabled={!editable} onChange={setBaseBranch} />
+          <RepoField value={current.repo} repos={repos} disabled={!editable || branchLocked} onChange={(repo) => { setDraft({ ...current, repo, baseBranch: '' }); }} />
+          <BranchField repo={current.repo} value={current.baseBranch} disabled={!editable || branchLocked} onChange={setBaseBranch} />
+          <WorkBranchToggle checked={spec.useWorkBranch} target={current.baseBranch} disabled={!editable || branchLocked || busy !== null}
+            onChange={(useWorkBranch) => { act('settings', () => api.updateBuildSpec(spec.id, { useWorkBranch })); }} />
           <label className="build-field">
             <span className="build-field__label">Agents at once</span>
             <select className="build-select" value={spec.maxParallel} disabled={!editable || busy !== null}

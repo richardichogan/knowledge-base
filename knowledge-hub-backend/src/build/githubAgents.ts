@@ -54,6 +54,12 @@ export interface CheckSummary {
 }
 
 export interface CreatedIssue { number: number; url: string }
+export interface CreatedPullRequest { number: number; url: string }
+export type MergeMethod = 'squash' | 'merge';
+
+const UNPROCESSABLE = 422;
+const NOT_FOUND = 404;
+const encodeRef = (branch: string): string => branch.split('/').map(encodeURIComponent).join('/');
 
 /** Whether the agent is still working on its PR, read from the PR timeline. */
 export interface AgentActivity { working: boolean; lastFinishedAt: string | null }
@@ -70,8 +76,12 @@ export interface AgentGitHub {
   getAgentActivity(repo: string, prNumber: number): Promise<AgentActivity>;
   getChecks(repo: string, sha: string): Promise<CheckSummary>;
   markReadyForReview(repo: string, prNumber: number): Promise<void>;
-  mergePullRequest(repo: string, prNumber: number, title: string): Promise<void>;
+  mergePullRequest(repo: string, prNumber: number, title: string, method?: MergeMethod): Promise<void>;
   deleteBranch(repo: string, branch: string): Promise<void>;
+  /** Create `branch` from the tip of `fromBranch`; an existing branch is reused. */
+  createBranch(repo: string, branch: string, fromBranch: string): Promise<void>;
+  /** Open (or find the already-open) PR head→base; null when there is nothing to merge. */
+  createPullRequest(repo: string, head: string, base: string, title: string, body: string): Promise<CreatedPullRequest | null>;
   comment(repo: string, issueOrPrNumber: number, body: string): Promise<void>;
   closeIssue(repo: string, issueNumber: number): Promise<void>;
   listAvailableAgents(repo: string): Promise<BuildAgent[]>;
@@ -287,8 +297,25 @@ export class GitHubAgentClient implements AgentGitHub {
     await this.graphql('mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){clientMutationId}}', { id: raw.node_id });
   }
 
-  public async mergePullRequest(repo: string, prNumber: number, title: string): Promise<void> {
-    await this.rest('PUT', `/repos/${repo}/pulls/${prNumber}/merge`, { merge_method: 'squash', commit_title: `${title} (#${prNumber})` });
+  public async mergePullRequest(repo: string, prNumber: number, title: string, method: MergeMethod = 'squash'): Promise<void> {
+    await this.rest('PUT', `/repos/${repo}/pulls/${prNumber}/merge`, { merge_method: method, commit_title: `${title} (#${prNumber})` });
+  }
+
+  public async createBranch(repo: string, branch: string, fromBranch: string): Promise<void> {
+    const ref = await this.rest<{ object: { sha: string } }>('GET', `/repos/${repo}/git/ref/heads/${encodeRef(fromBranch)}`, undefined, [NOT_FOUND]);
+    if (ref === null) throw new IntegrationError('github', `Branch "${fromBranch}" not found in ${repo}`);
+    // 422 = the branch already exists (e.g. a retried start) — reuse it.
+    await this.rest('POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: ref.object.sha }, [UNPROCESSABLE]);
+  }
+
+  public async createPullRequest(repo: string, head: string, base: string, title: string, body: string): Promise<CreatedPullRequest | null> {
+    const created = await this.rest<RawPull>('POST', `/repos/${repo}/pulls`, { head, base, title, body }, [UNPROCESSABLE]);
+    if (created !== null) return { number: created.number, url: created.html_url };
+    // 422: either a PR for head→base is already open, or there is nothing to merge.
+    const { owner } = splitRepo(repo);
+    const open = await this.rest<RawPull[]>('GET', `/repos/${repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`);
+    const existing = open?.[0];
+    return existing === undefined ? null : { number: existing.number, url: existing.html_url };
   }
 
   public async deleteBranch(repo: string, branch: string): Promise<void> {
