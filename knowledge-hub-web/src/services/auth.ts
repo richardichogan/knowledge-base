@@ -25,15 +25,18 @@ function readHint(): string | undefined {
   try { return window.localStorage.getItem(HINT_KEY) ?? undefined; } catch { return undefined; }
 }
 
-const RENEW_KEY = 'kh_token_renew_redirect_at';
-const RENEW_GUARD_MS = 120_000;
+export const AUTH_REQUIRED_EVENT = 'kh-auth-required';
 
-function renewRedirectAttemptedRecently(): boolean {
-  try { return Date.now() - Number(window.sessionStorage.getItem(RENEW_KEY) ?? '0') < RENEW_GUARD_MS; } catch { return false; }
+export class SignInRequiredError extends Error {
+  constructor() {
+    super('Your sign-in has expired. Sign in again above without leaving this page, then retry.');
+    this.name = 'SignInRequiredError';
+  }
 }
 
-function markRenewRedirect(): void {
-  try { window.sessionStorage.setItem(RENEW_KEY, Date.now().toString()); } catch { /* storage unavailable */ }
+function requireSignIn(): never {
+  window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+  throw new SignInRequiredError();
 }
 
 function saveHint(username: string): void {
@@ -83,9 +86,21 @@ export function signOut(): Promise<void> {
   return msal.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
 }
 
+/** Explicit user gesture: renew in a popup without unloading the working app. */
+export async function renewSignIn(): Promise<void> {
+  if (msal === null) return;
+  const loginHint = readHint();
+  const result = await msal.acquireTokenPopup({
+    scopes: API_SCOPES,
+    ...(loginHint !== undefined && { loginHint }),
+  });
+  msal.setActiveAccount(result.account);
+  saveHint(result.account.username);
+}
+
 /**
  * Access token for the Athena API ('' when sign-in is disabled). Renews
- * silently; if Microsoft needs you to sign in again, redirects to do so.
+ * silently; interactive renewal is requested without navigating away.
  */
 export function getApiToken(): Promise<string> {
   // One renewal shared by every request on the page, so a dozen parallel calls
@@ -99,14 +114,11 @@ let inFlight: Promise<string> | null = null;
 async function renewToken(): Promise<string> {
   if (msal === null) return '';
   const account = msal.getActiveAccount();
-  if (account === null) {
-    await signIn();
-    return '';
-  }
+  if (account === null) return requireSignIn();
   try {
     // Saved token, else the saved refresh token. No hidden-iframe fallback: a
     // managed work PC blocks it, so once the 24-hour sign-in expires every
-    // request would hang and fail instead of going to the sign-in page.
+    // request would hang. Interactive renewal is offered in a popup instead.
     const result = await msal.acquireTokenSilent({
       scopes: API_SCOPES,
       account,
@@ -114,16 +126,8 @@ async function renewToken(): Promise<string> {
     });
     return result.accessToken;
   } catch (err) {
-    // Expired sign-in (or any other failure to renew quietly) — sign in again
-    // rather than failing every request. Guarded so a sign-in that keeps
-    // failing can't loop.
-    console.warn('[auth] Silent token renewal failed; signing in again.', err);
-    if (err instanceof InteractionRequiredAuthError || !renewRedirectAttemptedRecently()) {
-      markRenewRedirect();
-      const loginHint = readHint();
-      await msal.acquireTokenRedirect({ scopes: API_SCOPES, account, ...(loginHint !== undefined && { loginHint }) });
-      return '';
-    }
+    console.warn('[auth] Silent token renewal failed; preserving the current page.', err);
+    if (err instanceof InteractionRequiredAuthError) return requireSignIn();
     throw err;
   }
 }

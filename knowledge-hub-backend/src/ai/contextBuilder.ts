@@ -8,6 +8,7 @@ import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
 import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
+import { loadCurrentProjectContext, formatCurrentProjectContext, type CurrentProjectContext } from './projectContext.js';
 import { embedBatch, cosineSimilarity, isEmbeddingConfigured } from './embeddings.js';
 import type { AiContext, ConversationMessage, ChatPageContext } from '../types/aiContext.js';
 
@@ -914,7 +915,7 @@ function resolvePersonaPrompt(persona: string | undefined): string {
  * Layer 1 — Static context: user prefs, code standards, identity rules.
  *            Loaded from blob storage. Updated occasionally.
  * Layer 2 — Project context: architecture decisions, active project state.
- *            Loaded fresh on each session open.
+ *            Loaded fresh on every turn from the saved Projects data.
  * Layer 3 — Dynamic RAG context: top-N relevant items from PostgreSQL FTS
  *            retrieved per turn based on the user query.
  */
@@ -959,11 +960,11 @@ export async function buildAiContext(
     : [
         '## Active conversation project — hard scope',
         `The user has assigned this Athena conversation to project "${activeProject.name}" (id: ${activeProject.id}).`,
-        activeProject.description !== '' ? `Project description: ${activeProject.description}` : '',
-        activeProject.links.length > 0
+        formatCurrentProjectContext(activeProject),
+        projectReferences.length > 0
           ? [
               'Canonical project references:',
-              ...activeProject.links.map((link) => `- ${link.label}: ${link.url}`),
+              ...projectReferences.map((link) => `- ${link.label}: ${link.url}`),
               'These URLs are authoritative starting points for this product. When the question concerns the ' +
                 'product\'s capabilities, terminology, architecture, positioning, or current state, read the ' +
                 'relevant reference with fetch_web_page before answering. Do not infer its contents from the URL.',
@@ -976,7 +977,17 @@ export async function buildAiContext(
           'even if you think it would surface more relevant material — unless the user\'s message explicitly ' +
           'asks you to look outside this project (e.g. "check other projects too", "search everything").',
       ].filter(Boolean).join('\n');
-  const projectContext = [activeProjectContext, storedProjectContext].filter((block) => block !== '').join('\n\n');
+  const projectCatalog = activeProject === null && !noBackground
+    ? await db.query<{ id: string; name: string }>('SELECT id, name FROM projects ORDER BY name')
+    : null;
+  const catalogContext = projectCatalog && projectCatalog.rows.length > 0
+    ? [
+        '## Saved projects',
+        ...projectCatalog.rows.map((project) => `- ${project.name} (id: ${project.id})`),
+        'When discussing a named project, call get_project_details for its current saved goal, role, ownership, dates and expected outputs. Do not substitute old profile text or memories for current project information.',
+      ].join('\n')
+    : '';
+  const projectContext = [activeProjectContext, catalogContext, storedProjectContext].filter((block) => block !== '').join('\n\n');
 
   return {
     staticContext,
@@ -992,25 +1003,13 @@ export async function buildAiContext(
 async function loadActiveSessionProject(
   db: Pool,
   sessionId: string,
-): Promise<{
-  id: string;
-  name: string;
-  description: string;
-  links: Array<{ label: string; url: string }>;
-} | null> {
+): Promise<CurrentProjectContext | null> {
   const projectId = await getSessionProjectId(db, sessionId);
   if (projectId === null) return null;
 
-  const { rows } = await db.query<{
-    id: string;
-    name: string;
-    description: string;
-    links: Array<{ label: string; url: string }>;
-  }>(
-    `SELECT id, name, description, links FROM projects WHERE id = $1`,
-    [projectId],
-  );
-  return rows[0] ?? { id: projectId, name: projectId, description: '', links: [] };
+  const project = await loadCurrentProjectContext(db, projectId);
+  if (project === null) throw new Error(`The conversation's project "${projectId}" no longer exists. Choose another project for this chat.`);
+  return project;
 }
 
 /**

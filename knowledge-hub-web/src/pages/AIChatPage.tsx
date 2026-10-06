@@ -27,6 +27,8 @@ import { CompareWithPanel } from '../components/athena/CompareWithPanel';
 import { MoveToThink } from '../components/athena/MoveToThink';
 import { UsedLine } from '../components/athena/UsedLine';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
+import { useChatDraft } from '../hooks/useChatDraft';
+import { SignInRequiredError } from '../services/auth';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
 import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
 import { CHAT_IMAGE_TYPES, isChatImage, clipboardImageName } from '../components/athena/attachments';
@@ -273,12 +275,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     }
   });
   const [isRestoringHistory, setIsRestoringHistory] = useState(sessionId !== null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [noteSummary, setNoteSummary] = useState<string | null>(null);
   const [isNoteSummaryLoading, setIsNoteSummaryLoading] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   // Shown once the user has scrolled well up from the latest message.
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
-  const [input, setInput] = useState('');
+  const draftPrefix = isNoteLinkedPanel
+    ? `kh-athena-draft-note-${currentNoteId ?? 'unlinked'}`
+    : `${SESSION_STORAGE_KEY}-draft`;
+  const draftKeyForSession = (id: string | null): string => isNoteLinkedPanel ? draftPrefix : `${draftPrefix}-${id ?? 'new'}`;
+  const [input, setInput, moveDraft] = useChatDraft(draftKeyForSession(sessionId));
+  const hasUserWorkRef = useRef(false);
+  hasUserWorkRef.current = sessionId !== null || input !== '' || messages.length > 0;
   const [persona, setPersona] = useState<AthenaPersona>(initialPersona ?? 'general');
   const [activeProjectId, setActiveProjectId] = useState('');
   // Per-message chip override. 'none' = user cleared the action chip, null = let
@@ -412,6 +421,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     let cancelled = false;
     void api.getSessionHistory(sessionId).then((result) => {
       if (cancelled) return;
+      if (!result.success) throw new Error(result.error.message);
       if (result.success && result.data.messages.length > 0) {
         setMessages(stripHistoryContextPrefixes(result.data.messages));
       }
@@ -421,8 +431,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (result.success) setActiveProjectId(result.data.projectId ?? '');
       setIsRestoringHistory(false);
       resumeSessionTurn(sessionId);
-    }).catch(() => {
-      if (!cancelled) setIsRestoringHistory(false);
+    }).catch((error: unknown) => {
+      if (!cancelled) reportHistoryError(error);
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -459,14 +469,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setPendingActions([]);
     setNoteSummary(null);
     setIsRestoringHistory(true);
+    setHistoryError(null);
 
     void api.getSessionIdForNote(currentNoteId).then(async (result) => {
       if (cancelled) return;
+      if (!result.success) throw new Error(result.error.message);
       const linkedSessionId = result.success ? result.data.sessionId : null;
       if (linkedSessionId !== null) {
         setSessionId(linkedSessionId);
         const history = await api.getSessionHistory(linkedSessionId);
         if (cancelled) return;
+        if (!history.success) throw new Error(history.error.message);
         if (history.success) {
           setMessages(stripHistoryContextPrefixes(history.data.messages));
           if (history.data.persona) setPersona(history.data.persona);
@@ -478,8 +491,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         setIsRestoringHistory(false);
         await loadNoteSummary(pageContext?.title ?? 'Untitled', pageContext?.detail ?? '');
       }
-    }).catch(() => {
-      if (!cancelled) setIsRestoringHistory(false);
+    }).catch((error: unknown) => {
+      if (!cancelled) reportHistoryError(error);
     });
 
     return () => {
@@ -491,7 +504,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentNoteId]);
 
-  function persistSessionId(id: string): void {
+  function persistSessionId(id: string, creating = false): void {
+    if (sessionId === null && creating) moveDraft(draftKeyForSession(id));
     setSessionId(id);
     if (SESSION_STORAGE_KEY === '') return; // Think-embedded panel — session tracked via note-linking, not localStorage.
     try {
@@ -564,9 +578,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleSelectSession(id: string): void {
+  function reportHistoryError(error: unknown): void {
+    setIsRestoringHistory(false);
+    setHistoryError(`Could not load the saved conversation. It has not been deleted. ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  function handleSelectSession(id: string, retry = false): void {
     setIsMobileSidebarOpen(false);
-    if (id === sessionId) return;
+    if (id === sessionId && !retry) return;
     stopTts();
     detachLiveTurn();
     setActiveImage(null);
@@ -576,14 +595,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setPendingActions([]);
     setPendingThinkSave(null);
     setIsRestoringHistory(true);
+    setHistoryError(null);
+    const view = turnRunRef.current;
     void api.getSessionHistory(id).then((result) => {
+      if (view !== turnRunRef.current) return;
+      if (!result.success) throw new Error(result.error.message);
       if (result.success) setMessages(stripHistoryContextPrefixes(result.data.messages));
       if (result.success && result.data.persona) setPersona(result.data.persona);
       if (result.success) setActiveProjectId(result.data.projectId ?? '');
       setIsRestoringHistory(false);
       resumeSessionTurn(id);
-    }).catch(() => {
-      setIsRestoringHistory(false);
+    }).catch((error: unknown) => {
+      if (view === turnRunRef.current) reportHistoryError(error);
     });
   }
 
@@ -595,7 +618,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     if (standalone && new URLSearchParams(window.location.search).get('session')) return undefined;
     let cancelled = false;
     void api.getMorningBriefing().then((r) => {
-      if (cancelled || !r.success || r.data === null || briefingSeenToday(r.data.date)) return;
+      if (cancelled || hasUserWorkRef.current || !r.success || r.data === null || briefingSeenToday(r.data.date)) return;
       markBriefingSeen(r.data.date);
       if (r.data.sessionId !== sessionId) handleSelectSession(r.data.sessionId);
     }).catch(() => { /* no briefing — open as usual */ });
@@ -662,19 +685,24 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // Fresh controller per turn — Stop only ever aborts the request that's actually in flight.
       chatAbortControllerRef.current = new AbortController();
     },
-    mutationFn: async ({ text, pageContext: ctx, resumeTurnId, resumeStartedAt, screenReview }: { text: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string; screenReview?: ChatRequest['screenReview'] }) => {
+    mutationFn: async ({ text, composerDraft, pageContext: ctx, resumeTurnId, resumeStartedAt, screenReview }: { text: string; composerDraft?: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string; screenReview?: ChatRequest['screenReview'] }) => {
       // Runs on the server in the background; this view follows it live and
       // can let go (switching chats) without losing the answer.
       const run = ++turnRunRef.current;
       const signal = (chatAbortControllerRef.current ?? new AbortController()).signal;
       const startedAt = resumeStartedAt !== undefined ? Date.parse(resumeStartedAt) : Date.now();
+      // Remember the destination before token renewal/network I/O, not only
+      // after the server response (which a refresh may never receive).
+      const requestSessionId = sessionId ?? pendingSessionIdRef.current ?? crypto.randomUUID();
+      if (resumeTurnId === undefined && sessionId === null) persistSessionId(requestSessionId, true);
       setLiveTurn({ activity: 'Sending', text: '', startedAt });
       liveTurnIdRef.current = resumeTurnId ?? null;
       const handlers: LiveTurnHandlers = {
         onStarted: (turnId, newSessionId) => {
           if (turnRunRef.current !== run) return;
           liveTurnIdRef.current = turnId;
-          if (sessionId === null) persistSessionId(newSessionId);
+          if (sessionId === null) persistSessionId(newSessionId, true);
+          if (composerDraft !== undefined) setInput((current) => current === composerDraft ? '' : current);
         },
         onActivity: (activity) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, activity })); },
         onText: (liveText) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, text: liveText })); },
@@ -687,7 +715,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             message: text,
             persona,
             projectId: noteProjectId ?? (activeProjectId !== '' ? activeProjectId : null),
-            ...(sessionId !== null ? { sessionId } : pendingSessionIdRef.current !== null && { sessionId: pendingSessionIdRef.current }),
+            sessionId: requestSessionId,
             ...(ctx && { pageContext: ctx }),
             ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
             ...(screenReview !== undefined && { screenReview }),
@@ -721,7 +749,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         appendMessage('assistant', `Error: ${result.error.message}`);
         return;
       }
-      if (sessionId === null) persistSessionId(result.data.sessionId);
+      if (sessionId === null) persistSessionId(result.data.sessionId, true);
       appendMessage('assistant', result.data.reply, {
         persona: result.data.persona,
         sources: result.data.sources,
@@ -761,6 +789,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     onError: (err: unknown) => {
       // This view let go of the turn (switched chats) — it finishes in its own chat.
       if (err instanceof TurnDetachedError) return;
+      if (err instanceof SignInRequiredError) {
+        appendMessage('assistant', `${err.message} Your draft has been kept.`);
+        return;
+      }
       // User pressed Stop — the request was deliberately aborted client-side. Not a real
       // failure, but confirm it visibly so it's clear Stop actually did something. The reply
       // (if the backend finishes generating it anyway) is simply discarded from here on.
@@ -1093,6 +1125,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   async function submitMessage(): Promise<void> {
+    if (chatMutation.isPending || isRestoringHistory || historyError !== null || uploadProgress !== null) return;
     const intent = buildComposerIntent({
       input,
       projects: uploadProjectOptions,
@@ -1133,7 +1166,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     }
 
     appendMessage('user', outgoing);
-    setInput('');
     setActionOverride(null);
     // Tell Athena what the user is currently viewing on the first message of a
     // session, or whenever they've navigated to a different note/canvas/item
@@ -1153,12 +1185,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // images) at all, since history only keeps a short "[Viewing …]" marker.
     const activeImageContext = activeImage !== null && activeImage.chatId === (sessionId ?? pendingSessionIdRef.current) ? activeImage.context : null;
     if (activeImageContext !== null) {
-      chatMutation.mutate({ text: outgoing, pageContext: activeImageContext });
+      chatMutation.mutate({ text: outgoing, composerDraft: input, pageContext: activeImageContext });
     } else if ((isFirstMessage || contextChanged || isNoteLinkedPanel) && pageContext && !isContextDismissed) {
       lastInjectedContextKeyRef.current = contextKey;
-      chatMutation.mutate({ text: outgoing, pageContext });
+      chatMutation.mutate({ text: outgoing, composerDraft: input, pageContext });
     } else {
-      chatMutation.mutate({ text: outgoing });
+      chatMutation.mutate({ text: outgoing, composerDraft: input });
     }
   }
 
@@ -1265,13 +1297,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       };
       // Switched chats while it uploaded/read: answer it in the chat it was sent from.
       if (sentFromAnotherChat(target, question, attachedContext)) return;
-      setInput('');
       appendMessage('user', `${question}\n\n${isChatImage(file) ? '🖼️' : '📎'} ${file.name}`);
       if (isChatImage(file) && target.request.sessionId !== undefined && target.request.sessionId !== null) {
         setActiveImage({ chatId: target.request.sessionId, context: attachedContext });
       }
       chatMutation.mutate({
         text: question,
+        composerDraft: input,
         pageContext: attachedContext,
       });
     } catch (err) {
@@ -1284,6 +1316,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
 
   function handleNewChat(): void {
+    setHistoryError(null);
     setIsMobileSidebarOpen(false);
     detachLiveTurn();
     pendingSessionIdRef.current = null;
@@ -1862,7 +1895,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               <InlineLoading description="Restoring conversation…" />
             </div>
           )}
-          {messages.length === 0 && !isRestoringHistory && isNoteLinkedPanel && currentNoteId !== undefined && (
+          {messages.length === 0 && !isRestoringHistory && historyError === null && isNoteLinkedPanel && currentNoteId !== undefined && (
             <div className="ai-note-summary-card">
               <p className="ai-note-summary-card__label">Summary</p>
               {isNoteSummaryLoading ? (
@@ -1876,7 +1909,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               )}
             </div>
           )}
-          {messages.length === 0 && !isRestoringHistory && !(isNoteLinkedPanel && currentNoteId !== undefined) && (
+          {messages.length === 0 && !isRestoringHistory && historyError === null && !(isNoteLinkedPanel && currentNoteId !== undefined) && (
             <div className="ai-empty">
               <ChatLaunch size={28} className="ai-empty__icon" />
               <p className="ai-empty__title">Athena</p>
@@ -2134,6 +2167,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
         {composerChipBar}
 
+        {historyError !== null && <div className="ai-history-error" role="alert">
+          <p>{historyError}</p>
+          {sessionId !== null && <Button kind="ghost" size="sm" onClick={() => handleSelectSession(sessionId, true)}>Retry loading conversation</Button>}
+        </div>}
+
         <form onSubmit={handleSend} className="ai-input-row">
           <input
             ref={fileInputRef}
@@ -2176,7 +2214,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               rows={1}
               placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : pendingFile !== null ? 'Ask a question about the attached file…' : 'Ask Athena…'}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => { hasUserWorkRef.current = true; setInput(e.target.value); }}
               onKeyDown={handleInputKeyDown}
               onPaste={handleInputPaste}
               disabled={chatMutation.isPending}
@@ -2214,7 +2252,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               iconDescription="Send"
               tooltipPosition="top"
               className="ai-send-button"
-              disabled={uploadProgress !== null || (input.trim() === '' && pendingFile === null)}
+              disabled={isRestoringHistory || historyError !== null || uploadProgress !== null || (input.trim() === '' && pendingFile === null)}
             />
           )}
         </form>

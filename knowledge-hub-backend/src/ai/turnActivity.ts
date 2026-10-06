@@ -5,6 +5,7 @@
  */
 
 const LABELS: Record<string, string> = {
+  get_project_details: 'Reading current project details',
   search_knowledge_base: 'Searching your notes and synced content',
   search_library: 'Searching your Library',
   find_files: 'Looking through your files',

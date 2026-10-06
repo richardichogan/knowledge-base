@@ -5659,6 +5659,40 @@ body.kh-pane-resizing {
 }
 
 // ── Projects page ────────────────────────────────────────────────────────────
+.ai-history-error {
+  padding: 12px;
+  background: var(--cds-layer-01);
+  border: 1px solid var(--cds-support-warning);
+  color: var(--cds-text-primary);
+  p { margin: 0; font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
+  .cds--btn { margin-top: 8px; min-height: 44px; color: var(--kh-accent); }
+  .cds--btn:hover { background: var(--cds-layer-hover-01); }
+  .cds--btn:focus-visible { outline: 2px solid var(--kh-accent); }
+}
+
+.kh-auth-renewal {
+  position: fixed;
+  top: 48px;
+  left: 16px;
+  right: 16px;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  background: var(--cds-layer-01);
+  color: var(--cds-text-primary);
+  border: 1px solid var(--cds-support-warning);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  p { margin: 0; line-height: 1.5; }
+  button { min-height: 44px; flex-shrink: 0; }
+  button:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  button:disabled { opacity: 0.6; cursor: wait; }
+  &__error { color: var(--cds-support-error); overflow-wrap: anywhere; }
+}
+
 .proj-page {
   .proj-search {
     flex: 1;

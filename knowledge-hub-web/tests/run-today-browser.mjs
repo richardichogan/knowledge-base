@@ -75,6 +75,19 @@ try {
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('document.body.innerText')}`);
     if (navigationChecks) {
       const results = await evaluate('window.runNavigationChecks()');
+      const recovery = await evaluate(`({
+        sessionId: localStorage.getItem('kh-athena-session-id-standalone'),
+        draft: sessionStorage.getItem('kh-athena-session-id-standalone-draft-' + localStorage.getItem('kh-athena-session-id-standalone'))
+      })`);
+      await command('Page.reload', { ignoreCache: true });
+      let reloaded = false;
+      for (let i = 0; i < 300; i++) {
+        reloaded = await evaluate('typeof window.verifyChatReload === "function" && document.querySelector(".kh-header__primary") !== null');
+        if (reloaded) break;
+        await delay(100);
+      }
+      assert.ok(reloaded, 'Reload fixture did not mount');
+      results.push(await evaluate(`window.verifyChatReload(${JSON.stringify(recovery)})`));
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       if (process.env.TODAY_ARTIFACT_DIR) {

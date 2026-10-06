@@ -13,6 +13,9 @@ import { RepoProjectMappingsPage } from '../src/pages/RepoProjectMappingsPage';
 import { NotesPage } from '../src/notes/NotesPage';
 import { BuildPage } from '../src/features/build/BuildPage';
 import { ProjectsPage } from '../src/pages/ProjectsPage';
+import { AIChatPage } from '../src/pages/AIChatPage';
+import { SignInGate } from '../src/components/SignInGate';
+import { AUTH_REQUIRED_EVENT, SignInRequiredError } from '../src/services/auth';
 import { MetadataPanel } from '../src/notes/MetadataPanel';
 import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types/apiResponse';
@@ -33,6 +36,13 @@ api.listChatSessions = async () => success({ sessions: [] });
 api.listModelChoices = async () => success([]);
 api.getMorningBriefing = async () => success(null);
 api.getSessionIdForNote = async () => success({ sessionId: null });
+api.getSessionHistory = async (sessionId) => success({ sessionId, messages: [], projectId: null });
+api.getSessionTurn = async () => success(null);
+api.listAlternates = async () => success([]);
+api.listExclusions = async () => success([]);
+api.listChatOutputs = async () => success([]);
+api.listChatScreens = async () => success([]);
+api.getChatDecisions = async () => success({ tracking: { enabled: false, explicit: null, personaDefault: false }, decisions: [] });
 api.summarizeNote = async () => success({ summary: 'Fixture context' });
 api.getNoteSummaries = async () => success(paginated([]));
 api.listCanvases = async () => success([]);
@@ -90,8 +100,8 @@ function MetadataFixture(): React.ReactElement {
   </div></div>;
 }
 createRoot(document.getElementById('root')!).render(
-  <Theme theme="g100"><QueryClientProvider client={queryClient}><AthenaContextProvider>
-    <MemoryRouter><Probe /><Routes><Route path="/" element={<AppShell />}>
+  <SignInGate><Theme theme="g100"><QueryClientProvider client={queryClient}><AthenaContextProvider>
+    <MemoryRouter><Probe /><Routes><Route path="/chat" element={<AIChatPage standalone />} /><Route path="/" element={<AppShell />}>
       <Route index element={<Overview title="Today" />} />
       <Route path="discover" element={<Overview title="Discover" />} />
       <Route path="plan" element={<Overview title="Plan" />} />
@@ -105,7 +115,7 @@ createRoot(document.getElementById('root')!).render(
       <Route path="graph" element={<GraphPage />} />
       <Route path="settings/repo-mappings" element={<RepoProjectMappingsPage />} />
     </Route></Routes></MemoryRouter>
-  </AthenaContextProvider></QueryClientProvider></Theme>,
+  </AthenaContextProvider></QueryClientProvider></Theme></SignInGate>,
 );
 
 function check(value: boolean, message: string): void { if (!value) throw new Error(message); }
@@ -377,7 +387,90 @@ export async function runNavigationChecks(): Promise<string[]> {
   await waitFor(() => selector('#navigation-probe').dataset.path === '/');
   assertFrame();
   results.push('Supporting service failures do not affect primary navigation or Tools membership');
+
+  let releaseBriefing = (): void => undefined;
+  const delayedBriefing = new Promise<void>((resolve) => { releaseBriefing = resolve; });
+  api.getMorningBriefing = async () => {
+    await delayedBriefing;
+    return success({ date: '2099-01-01', sessionId: 'late-briefing', markdown: 'A late briefing', generatedAt: '' });
+  };
+  await go('/chat');
+  await waitFor(() => document.querySelector<HTMLTextAreaElement>('#ai-chat-input')?.disabled === false);
+  const recoveryText = 'Do not lose this draft during login: full project question.\nSecond line.';
+  const editDraft = (text: string): void => {
+    const input = selector<HTMLTextAreaElement>('#ai-chat-input');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, text);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  editDraft(recoveryText);
+  await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText);
+  releaseBriefing();
+  await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+  check(window.localStorage.getItem('kh-athena-session-id-standalone') !== 'late-briefing', 'Late morning briefing cannot replace a draft or restored conversation');
+  api.getMorningBriefing = async () => success(null);
+  window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+  await waitFor(() => document.querySelector('.kh-auth-renewal') !== null);
+  check(selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText, 'Renewal banner leaves working chat mounted');
+  await go('/');
+  await go('/chat');
+  await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText);
+  selector<HTMLButtonElement>('.kh-auth-renewal button').click();
+  await waitFor(() => document.querySelector('.kh-auth-renewal') === null);
+  let attemptedSession = '';
+  api.startChatTurn = async (request) => {
+    attemptedSession = request.sessionId ?? '';
+    check(attemptedSession !== '', 'New conversation ID exists before authentication/network');
+    check(window.localStorage.getItem('kh-athena-session-id-standalone') === attemptedSession, 'Conversation ID persisted before send');
+    window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+    throw new SignInRequiredError();
+  };
+  selector<HTMLFormElement>('.ai-input-row').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => attemptedSession !== '' && !selector<HTMLTextAreaElement>('#ai-chat-input').disabled);
+  check(selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText, 'Rejected pre-auth send retains full draft');
+  check(window.sessionStorage.getItem(`kh-athena-session-id-standalone-draft-${attemptedSession}`) === recoveryText, 'Draft follows the new conversation ID durably');
+  await go('/');
+  await go('/chat');
+  await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText && !selector<HTMLTextAreaElement>('#ai-chat-input').disabled);
+  check(window.localStorage.getItem('kh-athena-session-id-standalone') === attemptedSession, 'Remount restores same conversation');
+  selector<HTMLButtonElement>('.kh-auth-renewal button').click();
+  await waitFor(() => document.querySelector('.kh-auth-renewal') === null);
+  await go('/');
+  results.push('Expired sign-in keeps chat mounted; draft and new session survive rejected send and remount without auto-resending');
   return results;
 }
 
-Object.assign(window, { runNavigationChecks });
+async function verifyChatReload(expected: { sessionId: string; draft: string }): Promise<string> {
+  let starts = 0;
+  api.startChatTurn = async () => {
+    starts++;
+    throw new Error('Reload must not automatically resend a draft.');
+  };
+  await go('/chat');
+  await waitFor(() => document.querySelector<HTMLTextAreaElement>('#ai-chat-input')?.disabled === false);
+  check(window.localStorage.getItem('kh-athena-session-id-standalone') === expected.sessionId, 'Actual reload restores the same session ID');
+  check(selector<HTMLTextAreaElement>('#ai-chat-input').value === expected.draft, 'Actual reload restores the complete draft');
+  check(starts === 0, 'Actual reload does not resend or duplicate the prompt');
+  await go('/');
+  api.getSessionHistory = async () => ({ success: false, error: { code: 'FIXTURE_AUTH', message: 'Sign-in required' } });
+  await go('/chat');
+  await waitFor(() => document.querySelector('.ai-history-error') !== null);
+  check(selector<HTMLTextAreaElement>('#ai-chat-input').value === expected.draft, 'History failure cannot discard the draft');
+  check(document.querySelector('.ai-starters') === null, 'Failed restoration is not presented as a new empty chat');
+  api.getSessionHistory = async (sessionId) => success({
+    sessionId, projectId: null,
+    messages: [{ role: 'user', content: 'Previously saved conversation', timestamp: new Date().toISOString() }],
+  });
+  selector<HTMLButtonElement>('.ai-history-error button').click();
+  await waitFor(() => document.querySelector('.ai-history-error') === null && document.body.textContent?.includes('Previously saved conversation') === true);
+  check(selector<HTMLTextAreaElement>('#ai-chat-input').value === expected.draft, 'Retry restores server conversation without changing the draft');
+  // Acceptance, not clicking Send, is the point at which a draft can be cleared.
+  api.startChatTurn = async (request) => success({ turnId: 'accepted-fixture-turn', sessionId: request.sessionId! });
+  api.cancelChatTurn = async () => undefined;
+  selector<HTMLFormElement>('.ai-input-row').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === '');
+  check(window.sessionStorage.getItem(`kh-athena-session-id-standalone-draft-${expected.sessionId}`) === null, 'Accepted turn clears the stored draft');
+  await go('/');
+  return 'Actual reload preserves draft/session; failed history load is visible and retry restores messages; only server acceptance clears draft';
+}
+
+Object.assign(window, { runNavigationChecks, verifyChatReload });

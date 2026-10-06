@@ -100,11 +100,24 @@ Tests: from `knowledge-hub-backend`, `node --import tsx/esm --test scripts\build
 
 ## Project dates and saving
 
+Athena reloads the assigned project's saved goal, role, ownership, state,
+dates, importance and complete expected outputs on every turn. Current
+project fields take precedence over older chat history and memories.
+Unassigned chats have a saved-project catalog and `get_project_details`
+lookup for named projects.
+
 Projects uses the shared primary-page header, gutters and typography. Search
 and filters sit below the header, with a visible result count. Cards show a
 short summary; expandable Project details retains the complete goal, context
 and expected outputs as readable text, not oversized pills. Desktop uses two
 columns and mobile one; editing retains all full-length content.
+
+Chat drafts are saved per conversation in the current browser tab and restored
+after refresh. A draft is cleared only once the server accepts its turn;
+the new conversation ID is saved before authentication or network requests.
+Expired Microsoft sign-in no longer redirects an active page automatically:
+the app stays open and offers **Sign in again** in a popup. If that popup is
+blocked or cancelled, the error is shown and the draft stays available to retry.
 
 Project dates are returned as `YYYY-MM-DD` calendar dates (or `null`), without
 timezone conversion, so editing a dated project preserves its dates. Project

@@ -2,14 +2,13 @@
 
 **Status:** Validated
 
-**Deployment:** Projects layout frontend release deployed and verified.
+**Deployment:** Chat recovery and current project context validated; deployment pending.
 
 ## 1. Scope
 
-Deploy the Projects layout redesign on latest main to the existing frontend.
-The shared primary-page frame, separate filters and expandable full project
-details preserve editing and expected-output content. Backend v164 remains
-unchanged; no backend deployment, migration or infrastructure change is required.
+Deploy chat draft/session recovery and non-navigating sign-in renewal to the
+frontend, plus current saved project metadata and project lookup to the backend.
+No migrations, infrastructure or credential changes are required.
 Retain the current Build credentials/configuration:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
@@ -67,6 +66,20 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Chat recovery and project grounding validated on 2026-10-06 (20:23 BST):
+
+- Fetched origin/main and confirmed it is an ancestor of the release.
+- Both `npx tsc --noEmit` checks, fixture typecheck and production builds passed.
+- Browser checks at 1440/1024/390px cover actual reload, draft/session recovery,
+  rejected pre-auth send, acceptance-only draft clearing and history retry.
+- Ten backend tests passed, including saved project edits reflected in the same
+  session's next model prompt, full outputs, catalog lookup and assigned scope.
+- Backend project helper lint and `git diff --check` passed. Frontend ESLint
+  cannot run because the repository has no frontend ESLint configuration.
+- Existing Azure targets confirmed. Backend currently v164; deploy v165,
+  retain v164 for rollback. No provisioning/RBAC/template changes apply.
+- Backend environment fingerprint recorded before deploy; only image/assets change.
 
 Projects layout deployed and verified on 2026-10-06:
 

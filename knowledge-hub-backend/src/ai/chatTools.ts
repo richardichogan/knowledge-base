@@ -38,6 +38,7 @@ import { getTavilyMcpTools, isTavilyMcpTool, callTavilyMcpTool } from './tavilyM
 import { resolveMapChanges, type MapChangeProposal } from './mapEdits.js';
 import type { CanvasFull } from '../services/canvasService.js';
 import { createSpark } from '../services/sparkService.js';
+import { loadCurrentProjectContext } from './projectContext.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -52,6 +53,17 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const learnTools = await getLearnMcpTools();
   const tavilyTools = await getTavilyMcpTools();
   return [
+    {
+      type: 'function',
+      function: {
+        name: 'get_project_details',
+        description: 'Reads the current saved Projects record: goal, user role, ownership, state, dates, importance, expected outputs, references and repositories. Use this for a named project before relying on older chat history or memories. With an assigned conversation project, lookup stays scoped to it.',
+        parameters: {
+          type: 'object',
+          properties: { projectId: { type: 'string', description: 'Saved project ID from the projects catalog. May be omitted when this chat has an assigned project.' } },
+        },
+      },
+    },
     ...(isIcaEnabled() ? [{
       type: 'function' as const,
       function: {
@@ -602,6 +614,14 @@ export async function executeToolCall(
       : args;
 
   switch (name) {
+    case 'get_project_details': {
+      const id = contextualArgs['projectId'];
+      if (typeof id !== 'string' || id.trim() === '') return { error: 'Provide a saved project ID from the projects catalog.' };
+      const project = await loadCurrentProjectContext(db, id.trim());
+      return project === null
+        ? { error: `Project "${id}" was not found.` }
+        : { project, note: 'Current saved Projects record, read now. Takes precedence over older chat history and memories.' };
+    }
     // With a canvas open, searches are usually for picking items to put on it — short extracts are enough.
     case 'search_knowledge_base': return searchKnowledgeBase(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : undefined);
     case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
