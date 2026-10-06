@@ -1,13 +1,12 @@
 /**
- * FloatingAIChat — bottom-right floating chat bubble + popup panel.
- * Replaces the old header-dropdown/slide-over AI Chat entry point.
+ * Athena popup panel, opened from the toolbar or a contextual item action.
  *
  * Accepts an optional `pageContext` prop which is passed through to AIChatPage
  * so Athena is primed with context about the item the user is currently viewing.
  */
 
-import React, { useEffect, useState } from 'react';
-import { ChatLaunch, Close } from '@carbon/icons-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Close } from '@carbon/icons-react';
 import { AIChatPage } from '../pages/AIChatPage';
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { useAthenaContext } from '../context/AthenaContext';
@@ -18,7 +17,16 @@ interface FloatingAIChatProps {
 
 export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ pageContext }) => {
   const [open, setOpen] = useState(false);
-  const { request, clearAthenaRequest } = useAthenaContext();
+  const { request, clearAthenaRequest, launchSequence } = useAthenaContext();
+  const lastLaunch = useRef(launchSequence);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (lastLaunch.current === launchSequence) return;
+    lastLaunch.current = launchSequence;
+    setOpen(true);
+    const frame = window.requestAnimationFrame(() => { panelRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus(); });
+    return () => { window.cancelAnimationFrame(frame); };
+  }, [launchSequence]);
   useEffect(() => {
     if (request !== null) setOpen(true);
   }, [request]);
@@ -26,7 +34,7 @@ export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ pageContext }) =
   return (
     <>
       {open && (
-        <div className="ai-float-panel" role="dialog" aria-label="AI Chat">
+        <div ref={panelRef} className="ai-float-panel" role="dialog" aria-label="AI Chat">
           <div className="ai-float-panel__header">
             <span className="ai-float-panel__title">Athena</span>
             {pageContext && (
@@ -48,14 +56,6 @@ export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ pageContext }) =
           </div>
         </div>
       )}
-      <button
-        type="button"
-        className="ai-float-button"
-        aria-label={open ? 'Close AI Chat' : 'Open AI Chat'}
-        onClick={() => { if (open) clearAthenaRequest(); setOpen((v) => !v); }}
-      >
-        {open ? <Close size={22} /> : <ChatLaunch size={22} />}
-      </button>
     </>
   );
 };

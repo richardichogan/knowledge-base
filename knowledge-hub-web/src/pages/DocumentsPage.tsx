@@ -256,7 +256,7 @@ export const DocumentsPage: React.FC = () => {
       {/* ── Header ── */}
       <div className="page-header">
         <div className="page-title-group">
-          <h1 className="page-title">Library</h1>
+          <h1 className="page-title">Sources</h1>
           {allDocs.length > 0 && (
             <p className="page-subtitle">
               {allDocs.length} document{allDocs.length !== 1 ? 's' : ''}
@@ -551,7 +551,7 @@ export const DocumentsPage: React.FC = () => {
         <div className="docs-upload-dialog-overlay">
           <div className="docs-upload-dialog">
             <h2 className="docs-upload-dialog__title">Upload Document</h2>
-            <p className="docs-upload-dialog__subtitle">PDF, DOCX, XLSX, or PPTX files will be stored in the Library under the selected project and indexed automatically.</p>
+            <p className="docs-upload-dialog__subtitle">PDF, DOCX, XLSX, or PPTX files will be stored in Sources under the selected project and indexed automatically.</p>
 
             {/* File input */}
             <div className="docs-upload-dialog__section">

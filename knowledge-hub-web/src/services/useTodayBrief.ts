@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { fetchNotes } from '../notes/noteStorage';
-import { buildTodayModel, readTodayTasks, type TodayChatDetails } from './todayViewModel';
+import { buildTodayModel, readTodayTasks, todayChangesSince, type TodayChatDetails } from './todayViewModel';
 import type { ApiResponse } from '../types/apiResponse';
 
 export function requireTodayData<T>(response: ApiResponse<T>): T {
@@ -18,13 +18,10 @@ export function useTodayBrief() {
   const [visit] = useState(() => {
     try {
       const previous = localStorage.getItem(TODAY_VISIT_KEY);
-      if (previous && Number.isFinite(Date.parse(previous)) && Date.parse(previous) <= Date.now()) {
-        return { since: previous, storageError: false };
-      }
+      return { since: todayChangesSince(previous, now), storageError: false };
     } catch {
       return { since: new Date(Date.now() - 86_400_000).toISOString(), storageError: true };
     }
-    return { since: new Date(Date.now() - 86_400_000).toISOString(), storageError: false };
   });
   const { since } = visit;
   const [storageError, setStorageError] = useState(visit.storageError);
@@ -39,8 +36,8 @@ export function useTodayBrief() {
   const notes = useQuery({ queryKey: ['today', 'notes'], queryFn: fetchNotes });
   const projects = useQuery({ queryKey: ['today', 'projects'], queryFn: async () => requireTodayData(await api.getProjects()) });
   const activity = useQuery({
-    queryKey: ['today', 'activity'],
-    queryFn: async () => requireTodayData(await api.getTimeline({ pageSize: 100 })).items,
+    queryKey: ['today', 'activity', since],
+    queryFn: async () => requireTodayData(await api.getTimeline({ pageSize: 100, since })).items,
   });
   const sources = useQuery({ queryKey: ['today', 'sources'], queryFn: async () => requireTodayData(await api.getSources()) });
   const discover = useQuery({
@@ -77,11 +74,6 @@ export function useTodayBrief() {
     ...outputQueries.map((query) => ({ name: 'Athena outputs', query })),
     ...decisionQueries.map((query) => ({ name: 'Athena decisions', query })),
   ];
-  const briefing = useQuery({
-    queryKey: ['morning-briefing'],
-    queryFn: async () => requireTodayData(await api.getMorningBriefing()),
-    staleTime: 300_000,
-  });
   const model = buildTodayModel({
     tasks: tasks.data ?? [], notes: notes.data ?? [], projects: projects.data ?? [],
     activity: activity.data ?? [], sources: sources.data ?? [], discover: discover.data ?? [],
@@ -93,17 +85,15 @@ export function useTodayBrief() {
       { name: 'Athena sessions', query: sessions }, ...decisionQueries.map((query) => ({ name: 'Athena decisions', query }))],
     continuing: [{ name: 'Think notes', query: notes }, { name: 'Canvases', query: canvases }, { name: 'Plan', query: tasks },
       { name: 'Athena sessions', query: sessions }, ...chatQueries],
-    changes: [{ name: 'Activity', query: activity }, { name: 'Athena sessions', query: sessions },
+    changes: [{ name: 'Activity', query: activity }, { name: 'Think notes', query: notes }, { name: 'Plan', query: tasks },
+      { name: 'Athena sessions', query: sessions },
       ...outputQueries.map((query) => ({ name: 'Athena outputs', query }))],
     exploration: [{ name: 'Discover', query: discover }, { name: 'Sparks', query: clusters }],
   };
   async function refresh(): Promise<void> {
     setNow(new Date());
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['today'] }),
-      queryClient.invalidateQueries({ queryKey: ['morning-briefing'] }),
-    ]);
+    await queryClient.invalidateQueries({ queryKey: ['today'] });
   }
-  return { model, now, since, storageError, briefing, projects, sectionQueries, refresh,
-    refreshing: Object.values(sectionQueries).flat().some(({ query }) => query.isFetching) || briefing.isFetching };
+  return { model, now, since, storageError, projects, sectionQueries, refresh,
+    refreshing: Object.values(sectionQueries).flat().some(({ query }) => query.isFetching) };
 }

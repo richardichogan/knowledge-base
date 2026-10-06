@@ -6,6 +6,13 @@ import type { NoteListItem } from '../notes/types';
 export const TODAY_LIMITS = { attention: 5, continue: 4, explore: 3, changes: 3 } as const;
 const DAY_MS = 86_400_000;
 
+export function todayChangesSince(previous: string | null, now: Date): string {
+  const lastDay = now.getTime() - DAY_MS;
+  const visitedAt = previous === null ? NaN : Date.parse(previous);
+  return new Date(Number.isFinite(visitedAt) && visitedAt <= now.getTime()
+    ? Math.min(visitedAt, lastDay) : lastDay).toISOString();
+}
+
 export interface TodayTask {
   id: string;
   title: string;
@@ -77,6 +84,11 @@ export function relativeTime(iso: string, now = new Date()): string {
   return days === 1 ? 'Yesterday' : `${days} days ago`;
 }
 
+function activityDate(event: ContentItemSummary): string {
+  const updatedAt = event.metadata?.['updatedAt'];
+  return typeof updatedAt === 'string' && Number.isFinite(Date.parse(updatedAt)) ? updatedAt : event.publishedAt;
+}
+
 export function readTodayTasks(value: unknown): TodayTask[] {
   if (typeof value !== 'object' || value === null || !('items' in value) || !Array.isArray(value.items)) {
     throw new Error('Plan returned an invalid task list');
@@ -111,7 +123,10 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
     const match = data.projects.find((p) => p.id === id);
     return { projectId: id, ...(match ? { project: match.name } : {}) };
   };
-  const fresh = (date: string): boolean => new Date(date).getTime() > new Date(since).getTime();
+  const fresh = (date: string): boolean => {
+    const time = Date.parse(date);
+    return time > Date.parse(since) && time <= now.getTime();
+  };
   const recentScore = (date: string): number => {
     const savedAt = new Date(date).getTime();
     return Number.isFinite(savedAt) ? Math.max(0, 14 - (now.getTime() - savedAt) / DAY_MS) : 0;
@@ -121,6 +136,14 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
   const changes: TodayItem[] = [];
   const exploration: TodayItem[] = [];
   for (const task of data.tasks) {
+    if (!task.archived && fresh(task.updatedAt)) {
+      changes.push({
+        id: `change:task:${task.id}`, title: `${task.status === 'completed' ? 'Completed' : 'Updated'} task: ${task.title}`,
+        type: 'Task', ...project(task.projectId), reason: 'Recently changed in Plan.',
+        tone: 'normal', date: task.updatedAt, href: `/plan?taskId=${encodeURIComponent(task.id)}`,
+        action: 'Review task', score: 20, source: 'Plan',
+      });
+    }
     if (task.archived || task.status === 'completed') continue;
     const days = task.dueDate === null ? null : Math.round((new Date(`${task.dueDate}T00:00:00Z`).getTime() - day) / DAY_MS);
     const overdue = days !== null && days < 0;
@@ -161,9 +184,11 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
     });
   }
   const incidentKeys = new Set<string>();
-  const sortedActivity = [...data.activity].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+  const sortedActivity = [...data.activity].sort((a, b) => Date.parse(activityDate(b)) - Date.parse(activityDate(a)));
   const changeGroups = new Map<string, { count: number; title: string; date: string }>();
   for (const event of sortedActivity) {
+    const date = activityDate(event);
+    if (!Number.isFinite(Date.parse(date)) || Date.parse(date) > now.getTime()) continue;
     const source = String(event.source);
     const meta = event.metadata;
     const automation = /(?:action|pipeline|deployment)$/.test(source);
@@ -172,20 +197,20 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
     const latestAutomation = !incidentKeys.has(key);
     if (automation) incidentKeys.add(key);
     const failure = automation && ['failure', 'failed', 'error', 'timed_out', 'startup_failure'].includes(state);
-    if (fresh(event.publishedAt) && latestAutomation && failure) {
+    if (fresh(date) && latestAutomation && failure) {
       attention.push({
         id: `activity:${event.id}`, title: event.title, type: 'Automation',
         reason: 'This run failed. Check the failure before relying on its result.',
-        ...project(event.projectContext), status: 'Failed', tone: 'danger', date: event.publishedAt,
+        ...project(event.projectContext), status: 'Failed', tone: 'danger', date,
         href: safeHref(event.url, '/my-work'), action: 'Review failure', score: 96, source,
       });
       continue;
     }
-    if (!fresh(event.publishedAt) || failure) continue;
+    if (!fresh(date) || failure) continue;
     if (source === 'task' || source === 'note' || source === 'discovered-article') continue;
     const name = project(event.projectContext).project;
     const label = automation ? 'Routine automations completed successfully. No action required.'
-      : source === 'onedrive-document' ? `documents updated${name ? ` in ${name}` : ' in Library'}`
+      : source === 'onedrive-document' ? `documents updated${name ? ` in ${name}` : ' in Sources'}`
         : /review|email/.test(source) ? `feedback or messages received${name ? ` in ${name}` : ''}`
           : /commit|pr|mr|issue|release/.test(source) ? `repository updates${name ? ` in ${name}` : ''}`
             : source === 'graph-calendar' ? 'calendar updates' : `${source.replace(/-/g, ' ')} updates`;
@@ -193,14 +218,20 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
     if (automation && !['success', 'succeeded'].includes(state)) continue;
     const groupKey = `${automation ? 'automation' : source}:${automation ? '' : event.projectContext ?? ''}`;
     const group = changeGroups.get(groupKey);
-    changeGroups.set(groupKey, { count: (group?.count ?? 0) + 1, title: label, date: group?.date ?? event.publishedAt });
+    changeGroups.set(groupKey, { count: (group?.count ?? 0) + 1, title: label, date: group?.date ?? date });
   }
   for (const [id, group] of changeGroups) changes.push({
     id: `change:${id}`, title: `${group.count} ${group.title}`, type: 'Activity',
-    reason: 'Since the last Today visit, or the last 24 hours on your first visit.',
-    tone: 'normal', date: group.date, href: '/my-work', action: 'View activity', score: /feedback/.test(group.title) ? 30 : 10, source: 'My Work',
+    reason: 'Since the last Today visit, including at least the last 24 hours.',
+    tone: 'normal', date: group.date, href: '/my-work', action: 'View activity', score: /feedback/.test(group.title) ? 30 : 10, source: 'Activity',
   });
   for (const note of data.notes) {
+    if (fresh(note.updatedAt)) changes.push({
+      id: `change:note:${note.id}`, title: `Updated note: ${note.title}`,
+      type: 'Think note', ...project(note.projectId), reason: 'Recently saved in Think.',
+      tone: 'normal', date: note.updatedAt, href: `/think?noteId=${encodeURIComponent(note.id)}`,
+      action: 'Review note', score: 20, source: 'Think',
+    });
     const score = recentScore(note.updatedAt);
     if (score <= 0) continue;
     continuing.push({

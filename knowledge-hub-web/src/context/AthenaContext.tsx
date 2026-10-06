@@ -46,6 +46,10 @@ interface AthenaContextValue {
   request: { prompt: string; sequence: number } | null;
   openAthena: (prompt: string, context: AthenaPageContext) => void;
   clearAthenaRequest: () => void;
+  launchSequence: number;
+  hasEmbeddedAthena: boolean;
+  launchAthena: () => void;
+  registerAthenaLauncher: (launcher: () => void) => () => void;
 }
 
 const AthenaContext = createContext<AthenaContextValue>({
@@ -54,12 +58,32 @@ const AthenaContext = createContext<AthenaContextValue>({
   request: null,
   openAthena: () => undefined,
   clearAthenaRequest: () => undefined,
+  launchSequence: 0,
+  hasEmbeddedAthena: false,
+  launchAthena: () => undefined,
+  registerAthenaLauncher: () => () => undefined,
 });
 
 export const AthenaContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [pageContext, setPageContext] = useState<AthenaPageContext | null>(null);
   const [request, setRequest] = useState<AthenaContextValue['request']>(null);
   const requestSequence = useRef(0);
+  const [launchSequence, setLaunchSequence] = useState(0);
+  const [hasEmbeddedAthena, setHasEmbeddedAthena] = useState(false);
+  const embeddedLauncher = useRef<(() => void) | null>(null);
+  const registerAthenaLauncher = useCallback((launcher: () => void): (() => void) => {
+    embeddedLauncher.current = launcher;
+    setHasEmbeddedAthena(true);
+    return () => {
+      if (embeddedLauncher.current !== launcher) return;
+      embeddedLauncher.current = null;
+      setHasEmbeddedAthena(false);
+    };
+  }, []);
+  const launchAthena = useCallback((): void => {
+    if (embeddedLauncher.current !== null) embeddedLauncher.current();
+    else setLaunchSequence((value) => value + 1);
+  }, []);
   const openAthena = useCallback((prompt: string, context: AthenaPageContext): void => {
     setPageContext(context);
     setRequest({ prompt, sequence: ++requestSequence.current });
@@ -67,7 +91,8 @@ export const AthenaContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const clearAthenaRequest = useCallback(() => { setRequest(null); }, []);
 
   return (
-    <AthenaContext.Provider value={{ pageContext, setAthenaContext: setPageContext, request, openAthena, clearAthenaRequest }}>
+    <AthenaContext.Provider value={{ pageContext, setAthenaContext: setPageContext, request, openAthena, clearAthenaRequest,
+      launchSequence, hasEmbeddedAthena, launchAthena, registerAthenaLauncher }}>
       {children}
     </AthenaContext.Provider>
   );

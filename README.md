@@ -6,9 +6,21 @@ A unified personal intelligence layer that aggregates content, code activity, ca
 
 ---
 
+## Navigation
+
+The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
+
+Search remains available through the header or Cmd+K / Ctrl+K. Its command palette uses the same destination groups. The toolbar is the only global Athena launcher: it opens the existing popout or reveals and focuses the Sources rail without changing context. It is disabled throughout Think, which uses its built-in Athena panel. There is no floating launcher on any screen. Sparks and Canvas remain Think modes, and quick Spark capture remains available in Think or with Cmd+. / Ctrl+. All existing URLs and redirects are preserved. No global project selector or new administration/search functionality is added.
+
+Navigation regressions use the same isolated fixture server and Chromium executable as the Today checks below. Run `node tests/run-navigation-browser.mjs` from `knowledge-hub-web` with `TODAY_BROWSER_PATH` set. The fixture covers 1440px, 1024px and 390px, keyboard/focus behaviour, supporting routes, existing management panels, embedded Athena launch and failed supporting services. API/auth requests are blocked. Unit tests run with `node --import tsx/esm --test ../knowledge-hub-web/tests/navigation.test.ts` from the backend folder.
+
 ## Athena export to Think
 
 **Export chat to Think** saves one note containing the full latest version of every saved Output, without AI summarisation or a generation-token limit. Separate Outputs remain unchanged. Show Notes packages follow the podcast section order; YouTube plain text and Spotify HTML are preserved in code blocks. Chats without Outputs retain the structured conversation export.
+
+## Capturing Sparks with Athena
+
+Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief thought in **Think > Sparks**, without creating a note or task. Sparks are standalone by default, support optional tag names, and can be attached to a known source when requested. They use the existing Spark clustering pipeline. Athena does not save Sparks unsolicited, and read-only "Ask another model" replies cannot create them.
 
 ## Think canvases
 
@@ -88,7 +100,7 @@ Tests: from `knowledge-hub-backend`, `node --import tsx/esm --test scripts\build
 
 Today prioritises overdue, blocked, urgent and near-due Plan tasks, failed connections/automation, and open Athena decisions. Recent Think notes, canvases, in-progress tasks and saved Outputs form a separate continuation list; routine activity is grouped rather than shown as a feed. Discover suggestions require a stored relevance explanation, and Spark clusters need at least four Sparks.
 
-The page initially shows at most five attention items, four continuations, three change summaries and three exploration suggestions. Source failures are local to each section and can be retried independently. Changes use the last browser visit (or the last 24 hours), scanning the latest 100 activity entries. Outputs and decisions cover the four most recent non-briefing Athena chats, not all historical chats. Ask Athena opens the existing popout with the visible context and item project, leaving the prompt editable before sending. Capture and the full narrative morning briefing remain available below the main sections.
+The page initially shows at most five attention items, four continuations, three change summaries and three exploration suggestions. Each desktop column stacks independently, so Worth exploring follows Continue working without a gap caused by the attention list. Mobile keeps the attention, continuation, changes and exploration order. Source failures are local to each section and can be retried independently. Changes cover at least the last 24 hours (or since the last browser visit when older), so reopening Today does not immediately clear the list. They include saved Think notes, Plan updates/completions, Athena Outputs and the latest 100 activity entries ordered by source update time, excluding future events. Outputs and decisions cover the four most recent non-briefing Athena chats, not all historical chats. Today has no standalone Athena prompt box or suggested-prompt strip; use the toolbar instead. Item-specific Ask Athena actions retain their visible context and project handoff, leaving the prompt editable before sending. Capture thoughts through Athena or Think > Sparks; access the full morning briefing through Athena, not the home page.
 
 Today regression checks use the existing backend `tsx` loader and an isolated browser fixture (not production data):
 

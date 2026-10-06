@@ -3,6 +3,7 @@
 @use '@carbon/react/scss/theme' with ($theme: $g100);
 @use '@carbon/react';
 @use './today';
+@use './navigation';
 
 // ── Layout overrides ──────────────────────────────────────────────────────────
 
@@ -16,30 +17,18 @@ body,
 
 // Carbon renders the Header as position:fixed — we need a flex shell that
 // sits below it and fills the remaining height.
-// Structure:  #root > (Carbon Header fixed 3rem) + .kh-shell
+// Structure: #root > fixed Athena header + .kh-shell
 .kh-shell {
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: 3rem;        // below Carbon header
+  top: var(--kh-header-height);
   left: 0;
   right: 0;
   bottom: 0;
 }
 
-.kh-topnav {
-  height: var(--topnav-height);
-  flex-shrink: 0;
-  background: var(--cds-layer-01);
-  border-bottom: 1px solid var(--cds-border-subtle-01);
-  display: flex;
-  align-items: stretch;
-  padding: 0 2rem;
-  gap: 0;
-  // topnav is INSIDE .kh-shell so no z-index / fixed needed
-}
-
-// The scrollable/fixed content pane — fills everything below the topnav
+// The content pane fills everything below the header.
 .kh-content {
   flex: 1;
   min-height: 0;        // allows shrinking in flex column
@@ -71,9 +60,9 @@ body,
   --color-warning:      var(--cds-support-warning);
   --sidebar-width: 220px;
   --header-height: 52px;
-  --topnav-height: 2.5rem;
-  // Full-page height = viewport minus Carbon header, topnav, content bottom padding, page top padding
-  --full-page-height: calc(100vh - 3rem - 2.5rem - 2rem - 1rem);
+  --kh-header-height: 48px;
+  // Full-page height = viewport minus Carbon header and page padding.
+  --full-page-height: calc(100vh - var(--kh-header-height) - 2rem - 1rem);
 
   // Knowledge Hub accent — IBM Carbon Teal 40
   --kh-accent: #3ddbd9;
@@ -207,64 +196,6 @@ input, textarea {
 
 
 // ── Horizontal top navigation ─────────────────────────────────────────────────
-
-.kh-topnav {
-  position: fixed;
-  top: 3rem;  // directly below Carbon Header
-  left: 0;
-  right: 0;
-  z-index: 8000;
-  height: var(--topnav-height);
-  background: var(--cds-layer-01);
-  border-bottom: 1px solid var(--cds-border-subtle-01);
-  display: flex;
-  align-items: stretch;
-  padding: 0 2rem;
-  gap: 0;
-}
-
-.kh-topnav__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 18px;
-  height: 100%;
-  font-size: 0.875rem;
-  font-family: inherit;
-  color: var(--cds-text-secondary);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color 80ms, background 80ms, border-color 80ms;
-  position: relative;
-
-  svg { flex-shrink: 0; }
-
-  &:hover {
-    color: var(--cds-text-primary);
-    background: var(--cds-layer-hover-01);
-  }
-
-  &--active {
-    color: var(--cds-text-primary);
-    border-bottom-color: var(--kh-accent);
-    font-weight: 600;
-    background: rgba(61, 219, 217, 0.04);
-  }
-}
-
-// Notification dot for Think nav item
-.kh-topnav__dot {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--kh-accent);
-}
 
 // ── Shared page layout ───────────────────────────────────────────────────────
 
@@ -6228,43 +6159,10 @@ body.kh-pane-resizing {
 
 // ── AI Chat floating widget ───────────────────────────────────────────────────
 
-.ai-float-button {
-  position: fixed;
-  right: 1.5rem;
-  bottom: 1.5rem;
-  z-index: 9999;
-  width: 3.25rem;
-  height: 3.25rem;
-  border-radius: 50%;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--cds-interactive);
-  color: var(--cds-text-on-color);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
-  transition: background-color 0.15s ease, transform 0.1s ease;
-
-  &:hover {
-    background: var(--cds-interactive-hover, var(--cds-interactive));
-    transform: scale(1.05);
-  }
-
-  &:active {
-    transform: scale(0.97);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--cds-focus);
-    outline-offset: 2px;
-  }
-}
-
 .ai-float-panel {
   position: fixed;
   right: 1.5rem;
-  bottom: 5.5rem;
+  bottom: 1.5rem;
   z-index: 9999;
   width: 400px;
   max-width: calc(100vw - 2rem);
@@ -6298,10 +6196,6 @@ body.kh-pane-resizing {
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  .ai-float-button {
-    right: 1rem;
-    bottom: calc(1rem + env(safe-area-inset-bottom));
-  }
 }
 
 .ai-float-panel__header {
@@ -8129,7 +8023,7 @@ body.kh-pane-resizing {
 
 .tag-panel {
   position: fixed;
-  top: 3rem;
+  top: var(--kh-header-height);
   right: 0;
   bottom: 0;
   width: 380px;

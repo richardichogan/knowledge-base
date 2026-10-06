@@ -33,17 +33,20 @@ api.updateTask = async (id, patch) => {
   return success(tasks.find((task) => task.id === id));
 };
 api.getProjects = async () => success([]);
-api.getTimeline = async () => success(paginated(Array.from({ length: 5 }, (_, i) => ({
+api.getTimeline = async (query) => {
+  if (!comparisonPage) check(typeof query?.since === 'string', 'Today requests source-update activity within its change window');
+  return success(paginated(Array.from({ length: 5 }, (_, i) => ({
   id: `activity-${i}`, source: (['github-commit', 'github-pr', 'gitlab-mr', 'graph-calendar', 'email'] as const)[i % 5] ?? 'github-commit', sourceId: String(i),
   title: 'A repository update', summary: '', publishedAt: now.toISOString(),
   projectContext: (['personal', 'structara-ai', 'ibm-thought-leadership'] as const)[i % 3] ?? 'personal',
 }))));
+};
 api.getSources = async () => success([]);
 api.getDiscoverFeed = async () => success(paginated([]));
 api.listSparkClusters = async () => success([]);
 api.listCanvases = async () => success([]);
 api.listChatSessions = async () => success({ sessions: [] });
-api.getMorningBriefing = async () => success(null);
+api.getMorningBriefing = async () => { throw new Error('Today must not request the full briefing'); };
 api.listModelChoices = async () => success([]);
 api.getNoteSummaries = async () => success(paginated(Array.from({ length: 6 }, (_, i) => ({
   id: `note-${i}`, title: i === 0 ? 'APAC seller presentation' : `A recent writing project ${i}`,
@@ -58,11 +61,12 @@ function Probe(): React.ReactElement {
     data-context={pageContext?.detail ?? ''} />;
 }
 function Fixture(): React.ReactElement {
-  const { pageContext } = useAthenaContext();
+  const { pageContext, launchAthena } = useAthenaContext();
   return <><div className="kh-content" style={{ height: '100%' }}>
     {comparisonPage === 'discover' ? <DiscoverPage /> : comparisonPage === 'think' ? <NotesPage /> : <HomePage />}
     <Probe /></div>
-    {!comparisonPage && <FloatingAIChat pageContext={pageContext ?? undefined} />}</>;
+    {!comparisonPage && <><button type="button" aria-label="Open Athena" onClick={launchAthena}>Athena</button>
+      <FloatingAIChat pageContext={pageContext ?? undefined} /></>}</>;
 }
 if (comparisonPage === 'discover') api.getDiscoverFeed = async () => success(paginated([{
   id: 'style-reference', sourceId: 'test-feed', title: 'Reference article for style comparison',
@@ -105,13 +109,32 @@ export async function runTodayChecks(): Promise<string[]> {
   check(document.querySelectorAll('.today-brief__continue article').length === 4, 'Continuation cap');
   check(document.querySelector('.today-brief .page-subtitle')!.textContent!.includes('5 things need'), 'Greeting count');
   check(document.querySelectorAll('h1').length === 1 && document.querySelectorAll('h2').length === 4, 'Heading hierarchy');
-  check(document.querySelector('label[for="today-athena"]') !== null, 'Composer label');
-  check(!document.querySelector<HTMLDetailsElement>('.today-brief__full-briefing')!.open, 'Narrative collapsed');
-  results.push('Initial caps, greeting, heading hierarchy, input label, collapsed narrative');
+  check(document.querySelector('.today-brief__prompt') === null && document.querySelector('.today-brief__suggestions') === null, 'Redundant Today launcher and prompts removed');
+  check(document.querySelector('.ai-float-button') === null, 'No floating Athena control');
+  check(document.querySelector('.today-brief__capture') === null && document.querySelector('#today-capture') === null, 'Redundant Spark capture removed');
+  check(document.querySelector('.today-brief__full-briefing') === null, 'Full briefing removed');
+  check(!buttons().some((b) => /(?:Generate|Regenerate) briefing|Open briefing chat/.test(b.textContent ?? '')), 'Briefing controls removed');
+  results.push('Initial caps, greeting, heading hierarchy, no redundant Athena launcher or briefing');
 
-  button('What should I focus on?').click();
-  await waitFor(() => document.querySelector('#athena-probe')!.getAttribute('data-prompt') === 'What should I focus on?');
-  await waitFor(() => document.querySelector<HTMLTextAreaElement>('.ai-float-panel textarea')?.value === 'What should I focus on?');
+  const attention = document.querySelector<HTMLElement>('.today-brief__attention')!;
+  const continuing = document.querySelector<HTMLElement>('.today-brief__continue')!;
+  const changes = document.querySelector<HTMLElement>('.today-brief__changes')!;
+  const exploring = document.querySelector<HTMLElement>('.today-brief__explore')!;
+  if (window.innerWidth > 800) {
+    const gap = parseFloat(getComputedStyle(continuing.parentElement!).gap);
+    check(Math.abs(exploring.getBoundingClientRect().top - continuing.getBoundingClientRect().bottom - gap) <= 1, 'Right sections must stack without shared-row whitespace');
+    check(Math.abs(changes.getBoundingClientRect().top - attention.getBoundingClientRect().bottom - gap) <= 1, 'Left sections must stack independently');
+    check(exploring.getBoundingClientRect().top < attention.getBoundingClientRect().bottom, 'Exploration must not wait for the taller attention section');
+  } else {
+    check(attention.getBoundingClientRect().bottom <= continuing.getBoundingClientRect().top, 'Mobile attention before continuation');
+    check(continuing.getBoundingClientRect().bottom <= changes.getBoundingClientRect().top, 'Mobile continuation before changes');
+    check(changes.getBoundingClientRect().bottom <= exploring.getBoundingClientRect().top, 'Mobile changes before exploration');
+  }
+  results.push('No redundant capture; independent desktop stacks and preserved mobile section order');
+
+  document.querySelector<HTMLButtonElement>('[aria-label="Open Athena"]')!.click();
+  await waitFor(() => document.querySelector('.ai-float-panel textarea') !== null);
+  await waitFor(() => document.activeElement === document.querySelector('.ai-float-panel textarea'));
   check(document.activeElement === document.querySelector('.ai-float-panel textarea'), 'Athena composer receives focus');
   check(document.querySelector('#athena-probe')!.getAttribute('data-context')!.includes('attention'), 'Today context handoff');
   document.querySelector<HTMLButtonElement>('.today-brief__attention button[aria-label^="Ask Athena"]')!.click();
@@ -120,7 +143,7 @@ export async function runTodayChecks(): Promise<string[]> {
   await waitFor(() => document.querySelector<HTMLTextAreaElement>('.ai-float-panel textarea')?.value === 'Help me work out the next step for this item.');
   document.querySelector<HTMLButtonElement>('[aria-label="Close AI Chat"]')!.click();
   await waitFor(() => document.querySelector('.ai-float-panel') === null);
-  document.querySelector<HTMLButtonElement>('[aria-label="Open AI Chat"]')!.click();
+  document.querySelector<HTMLButtonElement>('[aria-label="Open Athena"]')!.click();
   await waitFor(() => document.querySelector('.ai-float-panel textarea') !== null);
   check(document.querySelector<HTMLTextAreaElement>('.ai-float-panel textarea')!.value === '', 'A consumed prompt must not replay on reopen');
   document.querySelector<HTMLButtonElement>('[aria-label="Close AI Chat"]')!.click();
@@ -128,8 +151,11 @@ export async function runTodayChecks(): Promise<string[]> {
   results.push('Existing popout opens, focuses, accepts prompts and closes; item project/context handoff');
 
   check(document.querySelectorAll('.today-brief__change-list li').length === 3, 'Initial changes cap');
-  button('Show 2 more summaries').click();
-  await waitFor(() => document.querySelectorAll('.today-brief__change-list li').length === 5);
+  const expandChanges = buttons().find((b) => /^Show \d+ more summaries$/.test(b.textContent?.trim() ?? ''));
+  check(expandChanges !== undefined, 'Changes expansion is available');
+  expandChanges!.click();
+  await waitFor(() => document.querySelectorAll('.today-brief__change-list li').length === 19);
+  check(document.querySelector('.today-brief__changes')!.textContent!.includes('Updated note: APAC seller presentation'), 'Think edits appear in changes');
   button('Show less').click();
   await waitFor(() => document.querySelectorAll('.today-brief__change-list li').length === 3);
   results.push('Change summaries expand and collapse');
@@ -151,13 +177,14 @@ export async function runTodayChecks(): Promise<string[]> {
 
   await waitFor(() => queryClient.isFetching() === 0 && queryClient.isMutating() === 0);
   const recoveredTasks = tasks;
+  const recoveredNotes = api.getNoteSummaries;
   tasks = [];
   api.getNoteSummaries = async () => success(paginated([]));
   api.getTimeline = async () => success(paginated([]));
   await queryClient.invalidateQueries({ queryKey: ['today'] });
   await waitFor(() => document.querySelector('.today-brief__attention')!.textContent!.includes('No deadlines'));
   check(document.querySelector('.today-brief__continue')!.textContent!.includes('No recent drafts'), 'Continuation empty state');
-  check(document.querySelector('.today-brief__changes')!.textContent!.includes('No meaningful changes'), 'Changes empty state');
+  check(document.querySelector('.today-brief__changes')!.textContent!.includes('No changes found'), 'Changes empty state');
   results.push('Attention, continuation, activity and exploration empty states');
 
   api.getTasks = async () => { throw new Error('Fixture Plan unavailable'); };
@@ -175,6 +202,12 @@ export async function runTodayChecks(): Promise<string[]> {
   finish?.(success(paginated(recoveredTasks)));
   await waitFor(() => document.querySelectorAll('.today-brief__attention article').length === 5);
   results.push('Accessible loading state and recovery');
+
+  api.getNoteSummaries = recoveredNotes;
+  await queryClient.invalidateQueries({ queryKey: ['today', 'notes'] });
+  await waitFor(() => document.querySelector('.today-brief__changes')!.textContent!.includes('Updated note'));
+  window.localStorage.setItem('kh-today-last-visit', new Date().toISOString());
+  results.push('Recently edited notes remain visible independently of synced timeline activity');
 
   const region = document.querySelector<HTMLElement>('.today-brief')!;
   check(region.scrollWidth <= region.clientWidth + 1, 'Today has horizontal overflow');

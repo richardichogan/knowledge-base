@@ -7,6 +7,7 @@ import { join } from 'node:path';
 const browserPath = process.env.TODAY_BROWSER_PATH;
 assert.ok(browserPath, 'Set TODAY_BROWSER_PATH to an installed Chromium browser executable');
 const fixtureUrl = process.env.TODAY_FIXTURE_URL ?? 'http://localhost:5142/tests/today.html';
+const navigationChecks = process.env.ATHENA_BROWSER_CHECKS === 'navigation';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -56,19 +57,33 @@ try {
     else request.resolve(message.result);
   });
   await command('Page.enable');
+  await command('Emulation.setFocusEmulationEnabled', { enabled: true });
   await command('Runtime.enable');
   await command('Network.enable');
   await command('Network.setBlockedURLs', { urls: ['*/api/*', '*/auth/*'] });
-  for (const width of [1440, 390]) {
+  for (const width of navigationChecks ? [1440, 1024, 390] : [1440, 390]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width === 390 });
     await command('Page.navigate', { url: fixtureUrl });
     let ready = false;
     for (let i = 0; i < 300; i++) {
-      ready = await evaluate('typeof window.runTodayChecks === "function" && document.querySelectorAll(".today-brief__attention article").length === 5');
+      ready = await evaluate(navigationChecks
+        ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
+        : 'typeof window.runTodayChecks === "function" && document.querySelectorAll(".today-brief__attention article").length === 5');
       if (ready) break;
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('document.body.innerText')}`);
+    if (navigationChecks) {
+      const results = await evaluate('window.runNavigationChecks()');
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      console.log(JSON.stringify({ width, checks: results }, null, 2));
+      if (process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `navigation-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+      continue;
+    }
     const todayStyle = await evaluate('window.readPageStyle()');
     const todayBody = await evaluate('window.readTypography(".today-brief__reason")');
     const todayNoteTitle = await evaluate('window.readTypography(".today-brief__continue h3")');

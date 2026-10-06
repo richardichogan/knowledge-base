@@ -149,6 +149,7 @@ export async function queryTimeline(
     page?: number;
     pageSize: number;
     before?: string; // ISO date cursor — fetch items published before this datetime
+    since?: string; // Recent activity uses source update time, not original publication time
   },
 ): Promise<{ items: ContentItemSummary[]; total: number }> {
   const conditions: string[] = [];
@@ -166,6 +167,10 @@ export async function queryTimeline(
   if (options.before) {
     conditions.push(`ci.published_at < $${paramIndex++}`);
     params.push(options.before);
+  }
+  if (options.since) {
+    conditions.push(`${ACTIVITY_AT_SQL} > $${paramIndex++}`, `${ACTIVITY_AT_SQL} <= NOW()`);
+    params.push(options.since);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -191,7 +196,7 @@ export async function queryTimeline(
      LEFT JOIN content_item_tags cit ON cit.content_item_id = ci.id
      ${where}
      GROUP BY ci.id
-     ORDER BY ci.published_at DESC
+     ORDER BY ${options.since ? ACTIVITY_AT_SQL : 'ci.published_at'} DESC
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     dataParams,
   );

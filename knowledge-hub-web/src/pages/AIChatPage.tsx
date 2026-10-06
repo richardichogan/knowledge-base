@@ -747,10 +747,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (result.data.pendingActions.length > 0) {
         setPendingActions((prev) => [...prev, ...result.data.pendingActions]);
       }
-      // The AI may have created/updated tasks or notes via tool calls this turn —
+      // The AI may have created/updated tasks, notes or Sparks via tool calls this turn —
       // refresh the relevant lists so they show up without a manual reload.
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
       void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+      void queryClient.invalidateQueries({ queryKey: ['sparks'] });
+      void queryClient.invalidateQueries({ queryKey: ['spark-clusters'] });
+      void queryClient.invalidateQueries({ queryKey: ['unsurfaced-count'] });
+      void queryClient.invalidateQueries({ queryKey: ['today-sparks-recent'] });
+      void queryClient.invalidateQueries({ queryKey: ['today', 'clusters'] });
       // No scroll here: his prompt stays at the top of the view with the reply beneath it.
     },
     onError: (err: unknown) => {

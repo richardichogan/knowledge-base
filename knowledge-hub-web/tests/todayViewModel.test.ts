@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { DiscoverItem } from '../src/services/api';
 import {
-  buildTodayModel, readTodayTasks, relativeTime, safeHref, todayContext, TODAY_LIMITS, workDate,
+  buildTodayModel, readTodayTasks, relativeTime, safeHref, todayContext, todayChangesSince, TODAY_LIMITS, workDate,
   type TodayInputs, type TodayTask,
 } from '../src/services/todayViewModel';
 
@@ -28,6 +28,45 @@ test('semantic priority outranks source order; no due date does not invent urgen
   assert.equal(model.attention.find((i) => i.taskId === 'today')?.tone, 'warning');
   assert.equal(model.attention.find((i) => i.taskId === 'overdue')?.tone, 'danger');
   assert.equal(JSON.parse(todayContext(model)).attention.length, TODAY_LIMITS.attention);
+});
+
+test('reopening Today retains at least 24 hours of changes and preserves older visit boundaries', () => {
+  for (const previous of [null, 'invalid', now.toISOString(), '2026-10-04T09:59:00Z', '2026-10-05T10:00:00Z']) {
+    assert.equal(todayChangesSince(previous, now), new Date(since).toISOString());
+  }
+  assert.equal(todayChangesSince('2026-10-01T10:00:00Z', now), '2026-10-01T10:00:00.000Z');
+});
+
+test('What changed includes recent Think and Plan edits, including completed tasks, without timeline records', () => {
+  const model = buildTodayModel(inputs({
+    notes: [
+      { id: 'recent', title: 'Edited draft', contentType: 'note', updatedAt: now.toISOString() },
+      { id: 'old', title: 'Old draft', contentType: 'note', updatedAt: '2026-09-01' },
+    ],
+    tasks: [
+      task('edited'), task('done', { status: 'completed' }),
+      task('archived', { archived: true }), task('old', { updatedAt: '2026-09-01' }),
+    ],
+  }), now, since);
+  assert.equal(model.changes.length, 3);
+  assert.equal(model.changes.find((i) => i.id === 'change:note:recent')?.href, '/think?noteId=recent');
+  assert.equal(model.changes.find((i) => i.id === 'change:task:done')?.title, 'Completed task: done');
+  assert.equal(model.changes.find((i) => i.id === 'change:task:edited')?.href, '/plan?taskId=edited');
+  assert.ok(!model.attention.some((i) => i.taskId === 'done'));
+});
+
+test('recently updated old PRs use source update time; future calendar events are not changes', () => {
+  const model = buildTodayModel(inputs({ activity: [
+    { id: 'pr', sourceId: 'pr', source: 'github-pr', title: 'An old PR updated today', summary: '',
+      publishedAt: '2026-09-01T10:00:00Z', metadata: { updatedAt: '2026-10-04T09:00:00Z' } },
+    { id: 'future', sourceId: 'future', source: 'graph-calendar', title: 'Next month', summary: '',
+      publishedAt: '2026-11-01T10:00:00Z' },
+    { id: 'past', sourceId: 'past', source: 'github-commit', title: 'An old commit', summary: '',
+      publishedAt: '2026-09-01T10:00:00Z' },
+  ] }), now, since);
+  assert.equal(model.changes.length, 1);
+  assert.match(model.changes[0]!.title, /repository updates/);
+  assert.equal(model.changes[0]!.date, '2026-10-04T09:00:00Z');
 });
 
 test('completed and archived tasks disappear; stale work requires attention without duplicating continuation', () => {

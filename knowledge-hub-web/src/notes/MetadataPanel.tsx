@@ -95,7 +95,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   onOpenMap,
   onMapNote,
 }) => {
-  const { pageContext } = useAthenaContext();
+  const { pageContext, registerAthenaLauncher } = useAthenaContext();
   const qc = useQueryClient();
   const [retagging, setRetagging] = useState(false);
   const showAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
@@ -105,6 +105,15 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const tab: SidePanelTab = !showAthena && storedTab === 'athena' ? 'metadata' : storedTab;
   const [collapsed, setCollapsed] = usePersistedBoolean('kh_think_side_collapsed', false);
   const [width, setWidth] = usePersistedPaneWidth('think-side-panel', SIDE_PANEL_WIDTH);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showAthena) return;
+    return registerAthenaLauncher(() => {
+      setTab('athena');
+      setCollapsed(false);
+      window.requestAnimationFrame(() => { panelRef.current?.querySelector<HTMLTextAreaElement>('.think-athena-panel textarea')?.focus(); });
+    });
+  }, [showAthena, registerAthenaLauncher, setTab, setCollapsed]);
 
   // ⌘J / Ctrl+J toggles the side panel.
   useEffect(() => {
@@ -145,6 +154,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
         <PaneResizer width={width} onResize={setWidth} side="right" label="Resize side panel" />
       )}
       <div
+        ref={panelRef}
         className="notes-meta-panel"
         hidden={collapsed}
         style={{ width: `${String(width)}px`, minWidth: `${String(width)}px` }}

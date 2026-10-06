@@ -12,6 +12,7 @@ import { SidePanelClose, SidePanelOpen } from '@carbon/icons-react';
 import { PaneResizer } from './PaneResizer';
 import { usePersistedBoolean, usePersistedChoice, usePersistedPaneWidth } from '../hooks/usePersistedState';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
+import { useAthenaContext } from '../context/AthenaContext';
 
 export interface SideTab {
   id: string;
@@ -44,6 +45,17 @@ export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, 
   const tab = tabIds.includes(storedTab) ? storedTab : (tabIds[0] ?? defaultTab);
   const [collapsed, setCollapsed] = usePersistedBoolean(`kh_${storageKey}_collapsed`, defaultCollapsed);
   const [width, setWidth] = usePersistedPaneWidth(storageKey, widthOptions);
+  const { registerAthenaLauncher } = useAthenaContext();
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const hasAthena = tabIds.includes('athena');
+  useEffect(() => {
+    if (!hasAthena) return;
+    return registerAthenaLauncher(() => {
+      setTab('athena');
+      setCollapsed(false);
+      window.requestAnimationFrame(() => { panelRef.current?.querySelector<HTMLTextAreaElement>('.think-athena-panel textarea')?.focus(); });
+    });
+  }, [hasAthena, registerAthenaLauncher, setTab, setCollapsed]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -86,6 +98,7 @@ export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, 
         <PaneResizer width={width} onResize={setWidth} side="right" label="Resize side panel" />
       )}
       <div
+        ref={panelRef}
         className="notes-meta-panel side-tabs-panel"
         hidden={collapsed}
         style={{ width: `${String(width)}px`, minWidth: `${String(width)}px` }}

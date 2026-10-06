@@ -4,9 +4,10 @@
 
 ## 1. Scope
 
-Deploy diagram Title/Description properties and bidirectional note links to the
-existing production backend and frontend. Migration 055 is already deployed;
-optional descriptions use existing JSON storage and require no new migration:
+Restore navigation, Today fixes and Spark creation alongside the latest main
+branch's diagrams and GitHub Copilot Build integration. Deploy both existing
+application targets without changing infrastructure or environment settings.
+Retain migrations 055 and 056 and the current Build credentials/configuration:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
 - Frontend: Azure Static Web App `kh-prod-web`
@@ -64,6 +65,68 @@ The repository's established production runbook is authoritative:
 
 ## 7. Validation Proof
 
+Recovery release validated on 2026-10-06 (12:25 BST):
+
+- Merged latest main `c2513f0`, retaining the GitHub Copilot Build pipeline,
+  diagrams, note/output handoffs and migrations 055/056.
+- Both `npx tsc --noEmit` checks, frontend fixture typecheck and both production
+  builds passed.
+- 59 tests passed across Build runner, diagram validation/geometry, Spark
+  creation, recent activity, Today and navigation.
+- Navigation browser checks passed at 1440/1024/390px with Build present in
+  desktop/mobile navigation; Today checks passed at 1440/390px.
+- Azure authenticated read confirmed current backend v158, ready revision
+  `--0000155`. Use v159; retain v158 for rollback.
+- Existing GitHub token secret reference is retained. Deployment only changes
+  the container image and frontend assets; no environment, secret, RBAC or
+  infrastructure settings will be modified.
+- Build implementation files are unchanged from latest main. The recovered
+  shell exposes Build through shared navigation and the command palette.
+
+Frontend-only launcher cleanup validated on 2026-10-04 (22:13 BST):
+
+- Frontend and backend `npx tsc --noEmit` passed.
+- Frontend `npm run build` and `git diff --check` passed.
+- Navigation browser checks passed at 1440px, 1024px and 390px, including no
+  floating control and a disabled Think toolbar launcher in every mode.
+- Today browser checks passed at 1440px and 390px, including removal of the
+  redundant prompt area and preservation of item-specific context handoffs.
+- Azure authenticated reads confirmed subscription `Alliance Tenant Reporting`
+  and the existing `kh-prod-web` Static Web App in West Europe.
+- No provisioning, Container App update, RBAC changes or migrations apply.
+
+Deployment completed on 2026-10-04 (21:53 BST):
+
+- Application commit `66a4d32` pushed to `richardichogan-athena-spark-creation`.
+- ACR run `ca4v` successfully built backend image `kh-prod-api:v155`.
+- Container App revision `kh-prod-api-vnet--0000152` is active, `Healthy`,
+  `RunningAtMaxScale`, and receives 100% of production traffic.
+- Startup logs confirm migrations completed and the database pool connected.
+  Existing note-image UUID lookup failures and a proxy/rate-limit configuration
+  warning were observed in unchanged code; they did not prevent startup.
+- Static Web Apps CLI successfully deployed the frontend to production.
+- `https://athena.themicrosoftcloudblog.com/` returned the current build;
+  published JavaScript and CSS SHA-256 hashes match the local build exactly.
+- No resource, RBAC, secret, region or schema changes were made.
+
+Validated on 2026-10-04 (21:49 BST) for the current full deployment:
+
+- Backend `npx tsc --noEmit` and `npm run build` passed.
+- Frontend `npx tsc --noEmit` and `npm run build` passed.
+- Spark, recent activity, Today model and navigation unit tests: 21 passed.
+- Navigation browser checks passed at 1440px, 1024px and 390px; Today browser
+  checks passed at 1440px and 390px before deployment.
+- `git diff --check` passed.
+- Azure CLI authenticated reads confirmed the existing production subscription,
+  resource group, Container App, ACR and Static Web App.
+- Current backend image is `cad79107555facr.azurecr.io/kh-prod-api:v154`;
+  deploy `v155` and retain `v154` as the rollback target.
+- Dockerfile and lockfile verified: ACR will build the pushed branch with locked
+  dependencies, compiled TypeScript and existing migrations.
+- No templates, provisioning, policy changes, region changes, RBAC changes or
+  schema migrations are involved. Existing registry authentication uses a
+  Container App secret reference, not a managed identity; the new-identity
+  AcrPull propagation gate is not applicable.
 Properties and note-link deployment validated on 2026-10-06 (06:00 BST):
 
 - Backend `npx tsc --noEmit` and `npm run build` passed.

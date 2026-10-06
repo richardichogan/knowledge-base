@@ -4,7 +4,7 @@ const URL_PATTERN = /\bhttps?:\/\/[^\s<>()]+/i;
 const NOTE_EDIT_PATTERN =
   /\b(?:add|insert|append|prepend|put|write|update|edit|rewrite|re-?word|fix|tidy|clean\s+up|restructure|reformat|reorgani[sz]e|turn|convert|replace|remove|delete|expand|shorten|condense|correct)\b[\s\S]{0,120}\b(?:note|section|paragraph|heading|intro(?:duction)?|conclusion|summary|bullets?|list|checklist|table|action\s+items?|next\s+steps|this|it|top|bottom|end|start)\b/i;
 // Requests that mention another destination are not edits to the note.
-const NOT_A_NOTE_EDIT_PATTERN = /\b(?:tasks?|plan\s+board|to-?do|calendar|e-?mail|remember|from\s+now\s+on|always|never)\b/i;
+const NOT_A_NOTE_EDIT_PATTERN = /\b(?:sparks?|tasks?|plan\s+board|to-?do|calendar|e-?mail|remember|from\s+now\s+on|always|never)\b/i;
 // Asked to change the open mind map (ideas, branches, links).
 const MAP_EDIT_PATTERN =
   /\b(?:add|expand|extend|grow|develop|brainstorm|suggest|generate|flesh\s+out|pull|bring|put|place|restructure|reorgani[sz]e|regroup|rename|annotate|retype|remove|delete|prune|link(?:ed)?|connect(?:ed)?|disconnect)\b[\s\S]{0,120}\b(?:canvas|map|cards?|c\d+|ideas?|connections?|links?|notes?|documents?|this|it|them)\b/i;

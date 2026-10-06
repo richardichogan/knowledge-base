@@ -294,6 +294,11 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- Use cases (demos) are Plan tasks tagged "use-case": list_tasks takes tag and includeBody (to read them), ' +
     'create_task takes tags and linkThisChat, and update_task can put an Output from this chat on the task as its ' +
     'spec (specFromOutputId), add to the description (appendBody), set tags, or link this chat.',
+  '- `create_spark`: when the user asks to save/capture a thought or idea as a Spark, use this tool, not ' +
+    'create_note_draft or create_task. Preserve their meaning and wording; save one Spark per requested thought. ' +
+    'Default to standalone; attach to a source only when requested and its actual ID and type are known. ' +
+    'Do not proactively create Sparks from a conversation or upload. Confirm only after the tool succeeds, ' +
+    'briefly quoting what was saved and saying it is in Think > Sparks.',
   '- `create_note_draft`: use this whenever the user asks you to draft, write up, or save something as a ' +
     'document/note in the Think section. When a file the user just uploaded is attached as chat context, do ' +
     'NOT call this (or create_task) proactively — the upload is already stored and searchable on its own; ' +
@@ -308,7 +313,7 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'slug, prior assumptions, or a guessed continuation of the conversation.',
   'After calling a tool, always confirm in plain language what you did (include the task/note title, and ' +
     'ID if useful) — never claim to have done something without actually calling the tool.',
-  'Do not call create_task, update_task, or create_note_draft again for something you already created or ' +
+  'Do not call create_task, update_task, create_note_draft, or create_spark again for something you already created or ' +
     'changed earlier in this same conversation, unless the user explicitly asks for another one. Brief ' +
     'acknowledgements like "thanks", "great", "ok", or "cool" need only a short reply — never trigger a ' +
     'tool call in response to these.',
