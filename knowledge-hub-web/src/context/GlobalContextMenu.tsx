@@ -228,7 +228,7 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
     staleTime: 30_000,
     enabled: panel === 'picker',
   });
-  const canvases: CanvasSummaryApi[] = data?.success ? data.data : [];
+  const canvases: CanvasSummaryApi[] = data?.success ? data.data.filter((c) => c.canvasType !== 'diagram') : [];
 
   const { mutate: addNode, isPending } = useMutation({
     mutationFn: (canvasId: string) => api.addToCanvas(canvasId, {

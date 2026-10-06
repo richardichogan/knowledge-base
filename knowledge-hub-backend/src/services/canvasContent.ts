@@ -10,7 +10,7 @@
  */
 import type { Pool } from 'pg';
 import { renderNoteAsText } from './noteTextService.js';
-import { mapOutline, type CanvasFull, type CanvasNode } from './canvasService.js';
+import { assertBrainstorm, mapOutline, type CanvasFull, type CanvasNode } from './canvasService.js';
 import { selectRelevantExcerpt } from '../ai/contextBuilder.js';
 
 export interface CardContent {
@@ -86,6 +86,7 @@ export async function buildCanvasContext(
   question: string,
   selectedId?: string,
 ): Promise<{ text: string; aliases: Map<string, string> }> {
+  assertBrainstorm(map);
   const outline = mapOutline(map, selectedId);
   const contents = await Promise.all(map.nodes.map(async (n) => {
     try { return await loadCardText(db, n); } catch { return null; }

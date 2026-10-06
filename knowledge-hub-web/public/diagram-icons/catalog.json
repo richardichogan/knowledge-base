@@ -1,0 +1,232 @@
+[
+  {
+    "name": "AI Foundry",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-035746832-icon-service-ai-foundry.svg"
+  },
+  {
+    "name": "API Management Services",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10042-icon-service-api-management-services.svg"
+  },
+  {
+    "name": "App Services",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10035-icon-service-app-services.svg"
+  },
+  {
+    "name": "Application Insights",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-00012-icon-service-application-insights.svg"
+  },
+  {
+    "name": "Azure AD B2C",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10228-icon-service-azure-ad-b2c.svg"
+  },
+  {
+    "name": "Azure AI Foundry IQ",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-038470497-icon-service-azure-ai-foundry-iq.svg"
+  },
+  {
+    "name": "Azure Cosmos DB",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10121-icon-service-azure-cosmos-db.svg"
+  },
+  {
+    "name": "Azure OpenAI",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-03438-icon-service-azure-openai.svg"
+  },
+  {
+    "name": "Azure SQL",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-02390-icon-service-azure-sql.svg"
+  },
+  {
+    "name": "Azure Sentinel",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10248-icon-service-azure-sentinel.svg"
+  },
+  {
+    "name": "Azure Service Bus",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10836-icon-service-azure-service-bus.svg"
+  },
+  {
+    "name": "Event Grid Topics",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10206-icon-service-event-grid-topics.svg"
+  },
+  {
+    "name": "Firewalls",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10084-icon-service-firewalls.svg"
+  },
+  {
+    "name": "Foundry Agent Service",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-038470523-icon-service-foundry-agent-service.svg"
+  },
+  {
+    "name": "Foundry Application",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-036509374-icon-service-foundry-application.svg"
+  },
+  {
+    "name": "Foundry Models",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-038470614-icon-service-foundry-models.svg"
+  },
+  {
+    "name": "Foundry Project",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-036509415-icon-service-foundry-project.svg"
+  },
+  {
+    "name": "Function Apps",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10029-icon-service-function-apps.svg"
+  },
+  {
+    "name": "Key Vaults",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10245-icon-service-key-vaults.svg"
+  },
+  {
+    "name": "Kubernetes Services",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10023-icon-service-kubernetes-services.svg"
+  },
+  {
+    "name": "Log Analytics Workspaces",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-00009-icon-service-log-analytics-workspaces.svg"
+  },
+  {
+    "name": "Logic Apps",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-02631-icon-service-logic-apps.svg"
+  },
+  {
+    "name": "SQL Database",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10130-icon-service-sql-database.svg"
+  },
+  {
+    "name": "Storage Accounts",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10086-icon-service-storage-accounts.svg"
+  },
+  {
+    "name": "Virtual Machine",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10021-icon-service-virtual-machine.svg"
+  },
+  {
+    "name": "Virtual Networks",
+    "family": "Azure",
+    "path": "/diagram-icons/azure-10061-icon-service-virtual-networks.svg"
+  },
+  {
+    "name": "Copilot",
+    "family": "Fabric",
+    "path": "/diagram-icons/fabric-copilot-48-color.svg"
+  },
+  {
+    "name": "Fabric",
+    "family": "Fabric",
+    "path": "/diagram-icons/fabric-fabric-48-color.svg"
+  },
+  {
+    "name": "Power Bi",
+    "family": "Fabric",
+    "path": "/diagram-icons/fabric-power-bi-48-color.svg"
+  },
+  {
+    "name": "Apps",
+    "family": "Microsoft 365 symbols",
+    "path": "/diagram-icons/microsoft-365-symbols-apps.svg"
+  },
+  {
+    "name": "Bot",
+    "family": "Microsoft 365 symbols",
+    "path": "/diagram-icons/microsoft-365-symbols-bot.svg"
+  },
+  {
+    "name": "Building",
+    "family": "Microsoft 365 symbols",
+    "path": "/diagram-icons/microsoft-365-symbols-building.svg"
+  },
+  {
+    "name": "Chat",
+    "family": "Microsoft 365 symbols",
+    "path": "/diagram-icons/microsoft-365-symbols-chat.svg"
+  },
+  {
+    "name": "Cloud",
+    "family": "Microsoft 365 symbols",
+    "path": "/diagram-icons/microsoft-365-symbols-cloud.svg"
+  },
+  {
+    "name": "Database",
+    "family": "Microsoft 365 symbols",
+    "path": "/diagram-icons/microsoft-365-symbols-database.svg"
+  },
+  {
+    "name": "Document",
+    "family": "Microsoft 365 symbols",
+    "path": "/diagram-icons/microsoft-365-symbols-document.svg"
+  },
+  {
+    "name": "Mail",
+    "family": "Microsoft 365 symbols",
+    "path": "/diagram-icons/microsoft-365-symbols-mail.svg"
+  },
+  {
+    "name": "People",
+    "family": "Microsoft 365 symbols",
+    "path": "/diagram-icons/microsoft-365-symbols-people.svg"
+  },
+  {
+    "name": "AIBuilder",
+    "family": "Power Platform",
+    "path": "/diagram-icons/power-platform-aibuilder-scalable.svg"
+  },
+  {
+    "name": "Agent365",
+    "family": "Power Platform",
+    "path": "/diagram-icons/power-platform-agent365-scalable.svg"
+  },
+  {
+    "name": "CopilotStudio",
+    "family": "Power Platform",
+    "path": "/diagram-icons/power-platform-copilotstudio-scalable.svg"
+  },
+  {
+    "name": "Dataverse",
+    "family": "Power Platform",
+    "path": "/diagram-icons/power-platform-dataverse-scalable.svg"
+  },
+  {
+    "name": "PowerApps",
+    "family": "Power Platform",
+    "path": "/diagram-icons/power-platform-powerapps-scalable.svg"
+  },
+  {
+    "name": "PowerAutomate",
+    "family": "Power Platform",
+    "path": "/diagram-icons/power-platform-powerautomate-scalable.svg"
+  },
+  {
+    "name": "PowerPages",
+    "family": "Power Platform",
+    "path": "/diagram-icons/power-platform-powerpages-scalable.svg"
+  },
+  {
+    "name": "PowerPlatform",
+    "family": "Power Platform",
+    "path": "/diagram-icons/power-platform-powerplatform-scalable.svg"
+  }
+]

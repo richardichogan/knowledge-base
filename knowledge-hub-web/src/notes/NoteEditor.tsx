@@ -11,7 +11,8 @@ import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
 import { setActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
-import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram } from '@carbon/icons-react';
+import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code } from '@carbon/icons-react';
+import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import { api } from '../services/api';
@@ -40,6 +41,7 @@ interface NoteEditorProps {
   onMapNote?: (noteId: string) => void;
   /** Open one of the note's canvases (listed in the Connections tab). */
   onOpenMap?: (mapId: string) => void;
+  onCreateDiagram?: (noteId: string) => Promise<void>;
 }
 
 /** Renders `node` into `slot` via a portal when one is provided, otherwise in place. */
@@ -113,10 +115,11 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [buildDialogOpen, setBuildDialogOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -326,8 +329,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     setBlockCount(blocks.length);
   }, []);
 
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null);
   const doSave = useCallback(async () => {
-    if (!isDirtyRef.current) return;
+    while (saveInFlightRef.current !== null) {
+      if (!await saveInFlightRef.current) return false;
+    }
+    if (!isDirtyRef.current) return true;
     isDirtyRef.current = false;
     const currentEditor = editorRef.current;
     const blocks = currentEditor.document as { type: string; content?: unknown }[];
@@ -343,10 +350,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       ...(projectIdRef.current !== '' && { projectId: projectIdRef.current }),
       ...(githubPathRef.current !== undefined && { githubPath: githubPathRef.current }),
     };
-    const ok = await saveNote(updated).catch((err: unknown) => {
+    const saving = saveNote(updated).catch((err: unknown) => {
       console.error('[NoteEditor] save failed:', err);
       return false;
     });
+    saveInFlightRef.current = saving;
+    const ok = await saving;
+    saveInFlightRef.current = null;
     if (ok) {
       savedDocRef.current = updated;
       onSavedRef.current(updated);
@@ -357,7 +367,23 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       setNotification({ kind: 'error', msg: 'Save failed — will retry' });
       setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS * 2);
     }
+    return ok;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [creatingDiagram, setCreatingDiagram] = useState(false);
+  async function createDiagram(): Promise<void> {
+    if (onCreateDiagram === undefined || creatingDiagram) return;
+    setCreatingDiagram(true);
+    try {
+      if (!await doSave()) return;
+      while (isDirtyRef.current) {
+        if (!await doSave()) return;
+      }
+      await onCreateDiagram(doc.id);
+    } catch (err) {
+      setNotification({ kind: 'error', msg: err instanceof Error ? err.message : 'Could not create diagram' });
+    } finally { setCreatingDiagram(false); }
+  }
 
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -525,8 +551,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
               <Diagram size={16} /> Canvas
             </button>
           )}
+          {onCreateDiagram && <button type="button" className="kb-import-btn" disabled={creatingDiagram} onClick={() => { void createDiagram(); }} title="Create an editable diagram linked to this note"><Diagram size={16} /> {creatingDiagram ? 'Creating diagram...' : 'Create diagram'}</button>}
           <button className="kb-import-btn" onClick={() => { setGithubModalOpen(true); }}>
             <LogoGithub size={16} /> Push to GitHub
+          </button>
+          <button className="kb-import-btn" title="Turn this note into a build spec for GitHub cloud coding agents" onClick={() => { setBuildDialogOpen(true); }}>
+            <Code size={16} /> Send to Build
           </button>
           {onDelete && (
             <button
@@ -682,6 +712,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         {...(onMapNote !== undefined && { onMapNote })}
       />
 
+      {buildDialogOpen && <SendToBuildDialog source={{ kind: 'note', noteId: doc.id }} onClose={() => { setBuildDialogOpen(false); }} />}
       <GitHubModal
         open={githubModalOpen}
         defaultFilePath={defaultFilePath}

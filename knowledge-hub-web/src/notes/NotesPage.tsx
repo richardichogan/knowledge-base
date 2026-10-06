@@ -18,10 +18,12 @@ import type { NoteContentBlock } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
 import { CanvasEditor } from '../features/canvas/CanvasEditor';
+import { DiagramEditor } from '../features/diagram/DiagramEditor';
 import { api } from '../services/api';
 import { useAthenaContext } from '../context/AthenaContext';
 import { usePersistedBoolean } from '../hooks/usePersistedState';
-import type { CanvasSummaryApi } from '../services/api';
+import type { CanvasFullApi, CanvasSummaryApi } from '../services/api';
+import '../features/diagram/diagramIntegration.scss';
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
 
@@ -58,6 +60,7 @@ export const NotesPage: React.FC = () => {
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
   const [importModalOpen,  setImportModalOpen]  = useState(false);
   const [sparkModalOpen,   setSparkModalOpen]   = useState(false);
+  const [canvasError, setCanvasError] = useState<string | null>(null);
   const [listCollapsed, setListCollapsed] = usePersistedBoolean('kh_think_list_collapsed', false);
   // Incremented rather than set to `true`, so expanding from the rail's search
   // icon can pull focus into the box every time — a boolean would only fire on
@@ -74,11 +77,12 @@ export const NotesPage: React.FC = () => {
     retry: 1,
   });
 
-  const { data: canvases = NO_CANVASES, isLoading: canvasLoading } = useQuery<CanvasSummaryApi[]>({
+  const { data: canvases = NO_CANVASES, isLoading: canvasLoading, isError: canvasListError } = useQuery<CanvasSummaryApi[]>({
     queryKey: ['canvases'],
     queryFn: async () => {
       const r = await api.listCanvases();
-      return r.success && r.data ? r.data : [];
+      if (!r.success) throw new Error(r.error.message);
+      return r.data;
     },
     enabled: mode === 'canvas',
     staleTime: 30_000,
@@ -153,34 +157,46 @@ export const NotesPage: React.FC = () => {
     }
   }
 
-  async function handleCreateCanvas(): Promise<void> {
-    const r = await api.createCanvas({ title: 'Untitled canvas', rootLabel: 'New idea' });
-    if (r.success) {
+  async function handleCreateCanvas(canvasType: 'brainstorm' | 'diagram' = 'brainstorm', noteId?: string): Promise<boolean> {
+    setNewMapMenu(null);
+    setCanvasError(null);
+    try {
+      const r = await api.createCanvas({
+        title: canvasType === 'diagram' ? (noteId !== undefined && openDoc?.id === noteId ? `${openDoc.title} diagram` : 'Untitled diagram') : 'Untitled brainstorm', canvasType,
+        ...(canvasType === 'brainstorm' ? { rootLabel: 'New idea' } : {}),
+        ...(canvasType === 'diagram' && noteId !== undefined ? { noteId } : {}),
+      });
+      if (!r.success) throw new Error(r.error.message);
       await queryClient.invalidateQueries({ queryKey: ['canvases'] });
-      setSelectedCanvasId(r.data.id);
-    }
+      openMap(r.data.id);
+      return true;
+    } catch (err) { setCanvasError(`Could not create canvas: ${err instanceof Error ? err.message : 'Unknown error'}`); return false; }
   }
 
   async function handleDeleteCanvas(id: string, title: string): Promise<void> {
     if (!window.confirm(`Delete the canvas “${title}”? This cannot be undone.`)) return;
-    await api.deleteCanvas(id);
-    if (selectedCanvasId === id) setSelectedCanvasId(null);
-    await queryClient.invalidateQueries({ queryKey: ['canvases'] });
+    setCanvasError(null);
+    try {
+      await api.deleteCanvas(id);
+      if (selectedCanvasId === id) setSelectedCanvasId(null);
+      await queryClient.invalidateQueries({ queryKey: ['canvases'] });
+    } catch (err) { setCanvasError(`Could not delete canvas: ${err instanceof Error ? err.message : 'Unknown error'}`); }
   }
 
   /** "New canvas": with a note open, offer to pin the map to it (recommended) or start blank. */
   const [newMapMenu, setNewMapMenu] = useState<'header' | 'footer' | null>(null);
   function requestNewMap(where: 'header' | 'footer'): void {
-    if (openDoc !== null) setNewMapMenu(where);
-    else void handleCreateCanvas();
+    setNewMapMenu(where);
   }
   async function createPinnedMap(noteId: string): Promise<void> {
     setNewMapMenu(null);
-    const r = await api.createCanvas({ noteId });
-    if (r.success) {
+    setCanvasError(null);
+    try {
+      const r = await api.createCanvas({ noteId });
+      if (!r.success) throw new Error(r.error.message);
       await queryClient.invalidateQueries({ queryKey: ['canvases'] });
       openMap(r.data.id, 'suggestions');
-    }
+    } catch (err) { setCanvasError(`Could not create brainstorm: ${err instanceof Error ? err.message : 'Unknown error'}`); }
   }
 
   // Side-panel tab a canvas opens on (Suggestions for a new one, so related content is one drag away).
@@ -193,14 +209,14 @@ export const NotesPage: React.FC = () => {
 
   /** "Canvas" on a note: opens the note's canvas, or creates one with the note as its first card. */
   async function mapNote(noteId: string): Promise<void> {
-    const existing = await api.listCanvases(noteId);
-    const first = existing.success ? existing.data[0] : undefined;
-    if (first !== undefined) { openMap(first.id); return; }
-    const r = await api.createCanvas({ noteId });
-    if (r.success) {
-      await queryClient.invalidateQueries({ queryKey: ['canvases'] });
-      openMap(r.data.id, 'suggestions');
-    }
+    setCanvasError(null);
+    try {
+      const existing = await api.listCanvases(noteId);
+      if (!existing.success) throw new Error(existing.error.message);
+      const first = existing.data.find((c) => c.canvasType !== 'diagram');
+      if (first !== undefined) { openMap(first.id); return; }
+      await createPinnedMap(noteId);
+    } catch (err) { setCanvasError(`Could not open brainstorm: ${err instanceof Error ? err.message : 'Unknown error'}`); }
   }
 
   /** Opens a note from a map (switches Think back to Notes). */
@@ -367,7 +383,7 @@ export const NotesPage: React.FC = () => {
             <button
               type="button"
               className="docs-upload-btn notes-header__new"
-              aria-haspopup={mode === 'canvas' && openDoc !== null ? 'menu' : undefined}
+              aria-haspopup={mode === 'canvas' ? 'menu' : undefined}
               onClick={() => {
                 if (mode === 'canvas') requestNewMap('header');
                 else if (mode === 'sparks') setSparkModalOpen(true);
@@ -377,11 +393,12 @@ export const NotesPage: React.FC = () => {
               <Add size={20} />
               {mode === 'canvas' ? 'New canvas' : mode === 'sparks' ? 'New spark' : 'New note'}
             </button>
-            {newMapMenu === 'header' && openDoc !== null && (
+            {newMapMenu === 'header' && (
               <NewMapMenu
-                noteTitle={openDoc.title}
-                onPin={() => { void createPinnedMap(openDoc.id); }}
+                noteTitle={openDoc?.title}
+                onPin={() => { if (openDoc !== null) void createPinnedMap(openDoc.id); }}
                 onBlank={() => { setNewMapMenu(null); void handleCreateCanvas(); }}
+                onDiagram={() => { void handleCreateCanvas('diagram'); }}
                 onClose={() => { setNewMapMenu(null); }}
               />
             )}
@@ -389,6 +406,7 @@ export const NotesPage: React.FC = () => {
         </div>
       </div>
 
+      {canvasError !== null && <p className="mm-canvas-error" role="alert">{canvasError}</p>}
       <div className="notes-root">
         {/* ── Left panel ── */}
         {listCollapsed ? (
@@ -461,6 +479,7 @@ export const NotesPage: React.FC = () => {
                 <div className="notes-list"><InlineLoading description="Loading…" /></div>
               ) : (
                 <div className="notes-list">
+                  {canvasListError && <p className="mm-canvas-error" role="alert">Could not load canvases. <button type="button" onClick={() => { void queryClient.invalidateQueries({ queryKey: ['canvases'] }); }}>Retry</button></p>}
                   {canvases.map((c) => (
                     <div
                       key={c.id}
@@ -484,6 +503,7 @@ export const NotesPage: React.FC = () => {
                         <p className="notes-list-item-preview mm-list-notes">↳ {c.linkedNotes.map((n) => n.title).join(', ')}</p>
                       )}
                       <div className="notes-list-item-bottom">
+                        <span className="mm-canvas-type">{c.canvasType === 'diagram' ? 'Diagram' : 'Brainstorm'}</span>
                         <span className="notes-list-item-date">
                           {new Date(c.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                         </span>
@@ -498,11 +518,12 @@ export const NotesPage: React.FC = () => {
               <div className="notes-list-footer">
                 <div className="mm-newmap-anchor mm-newmap-anchor--up">
                   <button className="kh-btn-accent" onClick={() => { requestNewMap('footer'); }}>+ New canvas</button>
-                  {newMapMenu === 'footer' && openDoc !== null && (
+                  {newMapMenu === 'footer' && (
                     <NewMapMenu
-                      noteTitle={openDoc.title}
-                      onPin={() => { void createPinnedMap(openDoc.id); }}
+                      noteTitle={openDoc?.title}
+                      onPin={() => { if (openDoc !== null) void createPinnedMap(openDoc.id); }}
                       onBlank={() => { setNewMapMenu(null); void handleCreateCanvas(); }}
+                      onDiagram={() => { void handleCreateCanvas('diagram'); }}
                       onClose={() => { setNewMapMenu(null); }}
                     />
                   )}
@@ -519,7 +540,8 @@ export const NotesPage: React.FC = () => {
         ) : mode === 'canvas' ? (
           <div className="notes-editor-area notes-editor-area--map">
             {selectedCanvasId !== null ? (
-              <CanvasEditor
+              <ThinkCanvas
+                key={selectedCanvasId}
                 canvasId={selectedCanvasId}
                 openTab={canvasOpenTab}
                 onOpenNote={openNoteFromMap}
@@ -533,7 +555,7 @@ export const NotesPage: React.FC = () => {
         ) : (
           <div className="notes-editor-area">
             {openDoc !== null ? (
-              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} />
+              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>
             )}
@@ -552,8 +574,25 @@ export const NotesPage: React.FC = () => {
   );
 };
 
+const ThinkCanvas: React.FC<React.ComponentProps<typeof CanvasEditor>> = (props) => {
+  const { data, isLoading, isError, refetch } = useQuery<CanvasFullApi>({
+    queryKey: ['canvas', props.canvasId],
+    queryFn: async () => {
+      const result = await api.getCanvas(props.canvasId);
+      if (!result.success) throw new Error(result.error.message);
+      return result.data;
+    },
+    refetchOnWindowFocus: false,
+  });
+  if (isLoading) return <InlineLoading description="Loading canvas..." />;
+  if (isError || !data) return <p className="mm-canvas-error" role="alert">Could not load canvas. <button type="button" onClick={() => { void refetch(); }}>Retry</button></p>;
+  return data.canvasType === 'diagram'
+    ? <DiagramEditor canvasId={props.canvasId} onDeleted={props.onDeleted} onOpenNote={props.onOpenNote} />
+    : <CanvasEditor {...props} />;
+};
+
 /** The choice offered by "New map" when a note is open. */
-const NewMapMenu: React.FC<{ noteTitle: string; onPin: () => void; onBlank: () => void; onClose: () => void }> = ({ noteTitle, onPin, onBlank, onClose }) => {
+const NewMapMenu: React.FC<{ noteTitle: string | undefined; onPin: () => void; onBlank: () => void; onDiagram: () => void; onClose: () => void }> = ({ noteTitle, onPin, onBlank, onDiagram, onClose }) => {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: MouseEvent): void => { if (ref.current !== null && !ref.current.contains(e.target as Node)) onClose(); };
@@ -564,13 +603,17 @@ const NewMapMenu: React.FC<{ noteTitle: string; onPin: () => void; onBlank: () =
   }, [onClose]);
   return (
     <div ref={ref} className="mm-newmap-menu" role="menu" aria-label="New canvas">
-      <button type="button" role="menuitem" className="mm-newmap-menu__item" autoFocus onClick={onPin}>
-        <span className="mm-newmap-menu__title">Pin to “{noteTitle}”</span>
+      {noteTitle !== undefined && <button type="button" role="menuitem" className="mm-newmap-menu__item" autoFocus onClick={onPin}>
+        <span className="mm-newmap-menu__title">Brainstorm around “{noteTitle}”</span>
         <span className="mm-newmap-menu__desc">Recommended — the note is the first card; pull related notes, documents, meetings and chats in around it. The canvas joins the note in the knowledge graph.</span>
-      </button>
-      <button type="button" role="menuitem" className="mm-newmap-menu__item" onClick={onBlank}>
-        <span className="mm-newmap-menu__title">Blank canvas</span>
+      </button>}
+      <button type="button" role="menuitem" className="mm-newmap-menu__item" autoFocus={noteTitle === undefined} onClick={onBlank}>
+        <span className="mm-newmap-menu__title">Brainstorm</span>
         <span className="mm-newmap-menu__desc">Start from a single idea card and pin notes later.</span>
+      </button>
+      <button type="button" role="menuitem" className="mm-newmap-menu__item" onClick={onDiagram}>
+        <span className="mm-newmap-menu__title">Diagram</span>
+        <span className="mm-newmap-menu__desc">Architecture diagrams and process flows with shapes, containers, arrows and PNG/SVG icons.</span>
       </button>
     </div>
   );

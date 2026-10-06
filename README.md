@@ -8,7 +8,7 @@ A unified personal intelligence layer that aggregates content, code activity, ca
 
 ## Navigation
 
-The single desktop header contains **Today, Discover, Plan, Think and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
+The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
 
 Search remains available through the header or Cmd+K / Ctrl+K. Its command palette uses the same destination groups. The toolbar is the only global Athena launcher: it opens the existing popout or reveals and focuses the Sources rail without changing context. It is disabled throughout Think, which uses its built-in Athena panel. There is no floating launcher on any screen. Sparks and Canvas remain Think modes, and quick Spark capture remains available in Think or with Cmd+. / Ctrl+. All existing URLs and redirects are preserved. No global project selector or new administration/search functionality is added.
 
@@ -21,6 +21,80 @@ Navigation regressions use the same isolated fixture server and Chromium executa
 ## Capturing Sparks with Athena
 
 Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief thought in **Think > Sparks**, without creating a note or task. Sparks are standalone by default, support optional tag names, and can be attached to a known source when requested. They use the existing Spark clustering pipeline. Athena does not save Sparks unsolicited, and read-only "Ask another model" replies cannot create them.
+
+## Think canvases
+
+Select one diagram shape or connector to edit its **Title** and **Description**
+in the right-hand **Properties** panel. Title is the visible label (including
+image captions); Description is stored with the item, up to 10,000 characters,
+but is not printed on the drawing or PNG/SVG exports. Both autosave, participate
+in undo/redo and are preserved when duplicating items. Use the Properties button
+to hide/show the panel. Multi-selection asks you to select a single item.
+Existing diagrams remain compatible and start with empty descriptions.
+
+From a note, **Create diagram** opens a new blank diagram linked to that note;
+it does not automatically generate shapes from the note's prose. In a diagram,
+**Properties → Linked notes → Link a note** associates an existing note, and
+the note's **Connections → Canvases** provides the return link. Linked notes
+can be opened or unlinked from the diagram. These are links to the live,
+editable diagram, not static image embeds.
+
+**New canvas** offers two separate editors:
+
+- **Brainstorm** preserves the existing network of idea cards and linked Think/Library/Athena content.
+- **Diagram** is a visual editor for architecture diagrams and process flows: shapes, text, nested containers/swimlanes, attached straight/right-angle connectors, PNG/SVG icons and compact formatting controls. Diagrams are editable documents, not screenshots. Note-linked diagrams and brainstorms remain separate; the note's brainstorming action still opens a brainstorm.
+
+Paste image data copied from msicons.com, drag an image file onto the diagram, or upload PNG/SVG. Some websites/browsers copy only an image URL rather than image bytes; in that case download the icon and upload it. Imported SVG must be a self-contained, safe image: scripts, external resources and active content are rejected. Icons preserve their aspect ratio.
+
+The **Microsoft icons** picker contains a curated official set from Azure, Power Platform, Fabric and Microsoft 365 architecture symbols. It is bundled locally rather than fetched from third-party sites while drawing. Microsoft 365 symbols are not current product logos. Product marks must not be distorted, recoloured or used as your own branding; sources and permitted-use terms are in `knowledge-hub-web/public/diagram-icons/NOTICE.txt`.
+
+PNG/SVG export includes the full diagram, including objects outside the viewport, and embeds icons. SVG remains scalable; a PNG icon embedded in an SVG remains raster. PNG output is limited to 16,384 pixels per side and 64 megapixels; use SVG for larger drawings. Export fails explicitly if an icon has not loaded rather than silently omitting it.
+
+Diagram checks use the existing TypeScript loader and isolated browser fixture:
+
+```powershell
+cd knowledge-hub-web
+$loader = ([System.Uri](Resolve-Path '..\knowledge-hub-backend\node_modules\tsx\dist\loader.mjs').Path).AbsoluteUri
+node --import $loader --test src\features\diagram\tests\diagramGeometry.test.ts
+npx tsc --noEmit -p tests\tsconfig.json
+# Start Vite on a free port (the runner defaults to 5142); no backend is required.
+$env:TODAY_BROWSER_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+node tests\run-diagram-browser.mjs
+```
+
+The diagram fixture blocks live API/auth requests, uses test-only architecture/process data, and verifies full-bounds embedded SVG export and PNG rendering at desktop and mobile widths.
+
+Diagram documents and their last 50 saved revisions are stored in PostgreSQL. Saves use optimistic revision checks; a conflicting save reports an error instead of overwriting another session. Dedicated canvas-scoped image rows store PNG/SVG bytes without OCR or new blob containers, credentials or environment variables. Deleting a canvas deletes its diagram and assets. Migration `055_diagram_canvases.sql` runs through the normal startup migration path and preserves existing canvases as Brainstorm.
+
+Limits are 1,000 nodes, 2,000 connectors, 100 bends per connector, 200 uploaded assets per canvas and 5 MiB per asset. Uploaded PNGs are limited to 16,384 pixels per side and 40 million pixels. Run backend validation and revision-conflict checks from `knowledge-hub-backend` with `node --import tsx/esm --test scripts\diagram.test.ts`; these include every bundled icon and reject unsafe SVG uploads.
+
+## Build (GitHub cloud coding agents)
+
+**Build** turns a spec into dependency-ordered tasks and runs them on GitHub's cloud-hosted coding agents (Copilot coding agent or Claude), not the local agents in VS Code or the Copilot app.
+
+1. Create a spec on the Build page, or use **Send to Build** on a Think note or a markdown Athena output. Pick the GitHub repo and, optionally, a base branch.
+2. **Decompose**: Athena splits the spec into small tasks, each with dependencies, a size (S/M/L) and a suggested agent with a reason. You can change the agent and dependencies before starting.
+3. **Start**: each ready task becomes a GitHub issue assigned to its agent (at most *max parallel* at once). The agent opens a PR from its own branch.
+4. The runner checks every two minutes; **Check now** runs a pass immediately. It then does the following:
+   - Asks the agent (via a PR comment) to fix failing checks or merge conflicts.
+   - Squash-merges the PR once checks pass, if auto-merge is on.
+
+   A task waits for you (*awaiting approval*, use **Merge now**) when any of these apply:
+   - Auto-merge is off.
+   - No CI checks ran.
+   - The PR changes `.github/workflows/`.
+
+   A task is marked *blocked* after repeated failed fix requests, or if the PR is closed unmerged; **Retry** puts it back in the loop. Merging a task releases the tasks that depend on it.
+
+Setup:
+
+- Enable the agent(s) for the target repo in GitHub (Copilot coding agent and/or the Claude agent). **Start** fails with `BUILD_AGENT_UNAVAILABLE` if a chosen agent isn't assignable.
+- Set `GITHUB_AGENT_TOKEN` to a **user** fine-grained PAT with read/write on contents, issues, pull requests and actions for the target repos. It falls back to `GITHUB_ACCESS_TOKEN`. In production, store it as a Container App secret: `az containerapp secret set ... --secrets github-agent-token=<pat>`, then `--set-env-vars GITHUB_AGENT_TOKEN=secretref:github-agent-token`.
+- Workflows on agent PRs may need **Approve and run workflows** in GitHub before checks run; until they run, the task stays *awaiting approval*.
+- The runner is off in local development so a dev backend never dispatches alongside production; set `BUILD_RUNNER_ENABLED=true` to enable it. Note that the local `.env` points at the production database.
+- Migration `056_build_pipeline.sql` (`build_specs`, `build_tasks`, `build_events`) runs on startup.
+
+Tests: from `knowledge-hub-backend`, `node --import tsx/esm --test scripts\build.test.ts`.
 
 ## Today
 
@@ -170,6 +244,8 @@ All required variables are documented in `knowledge-hub-backend/.env.example`.
 | `GITLAB_USER_ID` | GitLab user ID |
 | `GITHUB_TOKEN` | GitHub personal access token |
 | `GITHUB_USERNAME` | GitHub username |
+| `GITHUB_AGENT_TOKEN` | User fine-grained PAT for the Build pipeline (assign cloud agents, merge PRs); falls back to `GITHUB_ACCESS_TOKEN`. Secret — use `secretref:` |
+| `BUILD_RUNNER_ENABLED` | `true` to run the Build runner in development (always on in production) |
 | `PODCAST_RSS_URL` | Podcast RSS feed URL |
 | `CMS_BLOB_CONTAINER` | Blob container name (default: `blogcontent`) |
 | `CMS_POSTS_PREFIX` | Blob path prefix (default: `posts/`) |

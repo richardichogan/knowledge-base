@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PRIMARY_DESTINATIONS, TOOL_GROUPS, matchesDestination, selectedTool } from '../src/navigation/destinations';
 
-test('five primary workspaces retain their existing routes and order', () => {
+test('primary workspaces retain their routes including GitHub Build', () => {
   assert.deepEqual(PRIMARY_DESTINATIONS.map((item) => [item.label, item.path]), [
-    ['Today', '/'], ['Discover', '/discover'], ['Plan', '/plan'], ['Think', '/think'], ['Projects', '/projects'],
+    ['Today', '/'], ['Discover', '/discover'], ['Plan', '/plan'], ['Think', '/think'], ['Build', '/build'], ['Projects', '/projects'],
   ]);
   assert.ok(!matchesDestination('/graph', '/'));
   assert.ok(matchesDestination('/think', '/think'));

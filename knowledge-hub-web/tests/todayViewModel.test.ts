@@ -85,15 +85,15 @@ test('meaningful recent work is capped; empty canvases and invalid dates never e
     notes: Array.from({ length: 8 }, (_, i) => ({ id: `n${i}`, title: `Draft ${i}`, contentType: 'note',
       updatedAt: i === 0 ? 'invalid' : now.toISOString() })),
     canvases: [
-      { id: 'map', title: 'Ideas', description: null, project: null, createdAt: since, updatedAt: now.toISOString(), nodeCount: 2, linkedNotes: [] },
-      { id: 'empty', title: 'Empty', description: null, project: null, createdAt: since, updatedAt: now.toISOString(), nodeCount: 0, linkedNotes: [] },
+      { id: 'map', title: 'Ideas', canvasType: 'brainstorm', description: null, project: null, createdAt: since, updatedAt: now.toISOString(), nodeCount: 2, linkedNotes: [] },
+      { id: 'empty', title: 'Empty', canvasType: 'brainstorm', description: null, project: null, createdAt: since, updatedAt: now.toISOString(), nodeCount: 0, linkedNotes: [] },
     ],
   }), now, since);
   assert.equal(model.continuing.length, TODAY_LIMITS.continue);
   assert.ok(model.continuing.every((item) => Number.isFinite(item.score)));
   assert.ok(model.continuing.every((item) => item.id !== 'note:n0' && item.id !== 'canvas:empty'));
   const canvas = buildTodayModel(inputs({ canvases: [
-    { id: 'map', title: 'Ideas', description: null, project: null, createdAt: since, updatedAt: now.toISOString(), nodeCount: 2, linkedNotes: [] },
+    { id: 'map', title: 'Ideas', canvasType: 'brainstorm', description: null, project: null, createdAt: since, updatedAt: now.toISOString(), nodeCount: 2, linkedNotes: [] },
   ] }), now, since).continuing[0];
   assert.equal(canvas?.href, '/think?mapId=map');
 });
@@ -103,6 +103,7 @@ test('failed automation promotes attention, a newer success resolves it, and rou
     id, source: 'gitlab-pipeline' as const, sourceId: id, title: 'Build', summary: '', publishedAt: date,
     metadata: { status: state, workflowId: 'build', repo: 'sample' }, url: 'https://example.com/build',
   });
+
   const failure = run('failed', 'failed', '2026-10-04T08:00:00Z');
   assert.equal(buildTodayModel(inputs({ activity: [failure] }), now, since).attention[0]?.status, 'Failed');
   const resolved = buildTodayModel(inputs({ activity: [
@@ -115,6 +116,16 @@ test('failed automation promotes attention, a newer success resolves it, and rou
   assert.match(resolved.changes[0]!.title, /^2 Routine automations completed successfully/);
   assert.equal(resolved.changes[0]!.href, '/my-work');
   assert.equal(buildTodayModel(inputs({ activity: [failure] }), now, now.toISOString()).changes.length, 0);
+});
+
+test('diagram continuation describes diagram objects without claiming they are connected cards', () => {
+  const model = buildTodayModel(inputs({ canvases: [{
+    id: 'architecture', title: 'Enterprise architecture', canvasType: 'diagram', description: null,
+    project: null, createdAt: since, updatedAt: now.toISOString(), nodeCount: 11, linkedNotes: [],
+  }] }), now, since);
+  assert.equal(model.continuing[0]?.type, 'Diagram');
+  assert.equal(model.continuing[0]?.reason, '11 diagram objects to develop in Think.');
+  assert.equal(model.continuing[0]?.href, '/think?mapId=architecture');
 });
 
 test('open decisions suppress the same chat in continuation; saved outputs remain an intentional change summary', () => {

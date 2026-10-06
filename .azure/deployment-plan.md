@@ -4,10 +4,10 @@
 
 ## 1. Scope
 
-Deploy the frontend-only Athena launcher cleanup: remove the floating control
-on every screen, disable the toolbar launcher throughout Think, and remove
-Today's redundant prompt box and suggestions. Backend v155 remains unchanged.
-No database schema or infrastructure changes are included:
+Restore navigation, Today fixes and Spark creation alongside the latest main
+branch's diagrams and GitHub Copilot Build integration. Deploy both existing
+application targets without changing infrastructure or environment settings.
+Retain migrations 055 and 056 and the current Build credentials/configuration:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
 - Frontend: Azure Static Web App `kh-prod-web`
@@ -50,9 +50,6 @@ The repository's established production runbook is authoritative:
 
 ## 5. Validation Requirements
 
-- For this frontend-only release, backend build/image/revision steps are not
-  applicable; retain the existing backend. Both TypeScript checks and the
-  frontend production build must pass.
 - `knowledge-hub-backend`: `tsc --noEmit` and `npm run build`
 - `knowledge-hub-web`: `tsc --noEmit` and `npm run build`
 - Confirm branch changes are pushed before ACR remote build.
@@ -67,6 +64,24 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Recovery release validated on 2026-10-06 (12:25 BST):
+
+- Merged latest main `c2513f0`, retaining the GitHub Copilot Build pipeline,
+  diagrams, note/output handoffs and migrations 055/056.
+- Both `npx tsc --noEmit` checks, frontend fixture typecheck and both production
+  builds passed.
+- 59 tests passed across Build runner, diagram validation/geometry, Spark
+  creation, recent activity, Today and navigation.
+- Navigation browser checks passed at 1440/1024/390px with Build present in
+  desktop/mobile navigation; Today checks passed at 1440/390px.
+- Azure authenticated read confirmed current backend v158, ready revision
+  `--0000155`. Use v159; retain v158 for rollback.
+- Existing GitHub token secret reference is retained. Deployment only changes
+  the container image and frontend assets; no environment, secret, RBAC or
+  infrastructure settings will be modified.
+- Build implementation files are unchanged from latest main. The recovered
+  shell exposes Build through shared navigation and the command palette.
 
 Frontend-only launcher cleanup validated on 2026-10-04 (22:13 BST):
 
@@ -112,6 +127,42 @@ Validated on 2026-10-04 (21:49 BST) for the current full deployment:
   schema migrations are involved. Existing registry authentication uses a
   Container App secret reference, not a managed identity; the new-identity
   AcrPull propagation gate is not applicable.
+Properties and note-link deployment validated on 2026-10-06 (06:00 BST):
+
+- Backend `npx tsc --noEmit` and `npm run build` passed.
+- Frontend `npx tsc --noEmit` and `npm run build` passed.
+- Latest fixture typecheck and desktop/mobile browser checks passed, covering
+  properties, persistence/undo/duplication, linking/opening/unlinking notes,
+  Connections return links and saving pending note edits before diagram creation.
+- Backend document validation tests passed (22).
+- Authenticated reads confirmed the production subscription is Enabled and both
+  existing deployment targets are accessible.
+- Previous backend image is `kh-prod-api:v156`; this deployment uses `v157`.
+- Dockerfile and locked dependency build reviewed. ACR builds the exact pushed
+  commit before the Container App is updated.
+- No infrastructure, RBAC, policy, credentials, environment variables or schema
+  changes: template compilation/what-if/provisioning checks are not applicable.
+
+Two-canvas deployment validated on 2026-10-06 (05:14-05:18 BST):
+
+- Backend `npx tsc --noEmit` and `npm run build` passed.
+- Frontend `npx tsc --noEmit` and `npm run build` passed.
+- Completed implementation verification includes 30 geometry checks, 21 backend
+  validation/conflict checks, 10 Today regression checks and actual editor
+  browser interactions at 1440px/390px (including icon paste/library,
+  save/reopen/conflicts, export and desktop pointer/nesting/resize/connect).
+- Existing resource reads confirmed subscription
+  `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`, resource group `rg-knowledge-hub-prod`
+  in `uksouth`, Container App `kh-prod-api-vnet` and Static Web App `kh-prod-web`.
+- Previous backend image is `kh-prod-api:v155`, ready revision `--0000152`;
+  this deployment uses `v156`.
+- Dockerfile reviewed: locked dependencies, TypeScript build and migration 055
+  copied through `src/db/migrations/*.sql` into the runtime image.
+- No new environment variables or resources are required. Existing registry
+  secret authentication is unchanged; managed-identity AcrPull propagation
+  checks are not applicable. No infrastructure/RBAC/policy templates change,
+  so Bicep/ARM/what-if/provisioning checks are not applicable.
+- ACR will build and verify the exact pushed source before the image update.
 
 Frontend-only correction validated on 2026-10-04 (13:37 BST):
 

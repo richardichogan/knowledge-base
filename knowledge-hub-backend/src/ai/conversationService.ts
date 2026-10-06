@@ -93,7 +93,10 @@ export async function handleConversationTurn(
 ): Promise<string> {
   // A mind map open beside the chat (noteId "map:<id>"): Athena gets its outline and can propose changes.
   const mapId = toolContext.noteId?.startsWith('map:') === true ? toolContext.noteId.slice('map:'.length) : undefined;
-  const openMap = mapId !== undefined ? await getCanvas(mapId).catch(() => null) : null;
+  // A diagram canvas has no brainstorm cards: Athena gets no outline and can't propose map changes to it.
+  const openCanvas = mapId !== undefined ? await getCanvas(mapId).catch(() => null) : null;
+  const openMap = openCanvas !== null && openCanvas.canvasType === 'brainstorm' ? openCanvas : null;
+  const openDiagram = openCanvas !== null && openCanvas.canvasType === 'diagram' ? openCanvas : null;
   const mapOutlineResult = openMap !== null
     ? await buildCanvasContext(db, openMap, userMessage, pageContext?.selectedId).catch((err: unknown) => {
       console.error('[canvas] context failed:', err);
@@ -131,7 +134,12 @@ export async function handleConversationTurn(
   // Today's date and meetings (personal calendar + pasted IBM diary), always.
   const scheduleBlock = await buildTodayScheduleBlock(db)
     .catch((err: unknown) => { console.error('[meetings] schedule block failed:', err); return ''; });
-  const mapBlock = mapOutlineResult === null ? '' : [
+  const mapBlock = openDiagram !== null ? [
+    `## Diagram in view: "${openDiagram.title}"`,
+    'The user has a diagram canvas (shapes and connectors drawn in the diagram editor) open beside the chat. You cannot ' +
+      'see its contents and cannot change it: there are no cards, and propose_map_changes only works on brainstorm ' +
+      'canvases. If asked to read or edit the diagram, say so plainly and suggest they describe it or edit it in the editor.',
+  ].join('\n') : mapOutlineResult === null ? '' : [
     '## Canvas in view (the user is working on this canvas: cards of related content joined by typed connections)',
     'Cards are shown with aliases in brackets (c1, c2 …), followed by the content behind each card. Treat this as the ' +
       'primary material for questions about the canvas, and cite cards by title. Use propose_map_changes to change it.',

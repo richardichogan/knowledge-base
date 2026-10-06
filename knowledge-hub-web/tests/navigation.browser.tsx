@@ -11,6 +11,7 @@ import { MemoryPage } from '../src/pages/MemoryPage';
 import { GraphPage } from '../src/pages/GraphPage';
 import { RepoProjectMappingsPage } from '../src/pages/RepoProjectMappingsPage';
 import { NotesPage } from '../src/notes/NotesPage';
+import { BuildPage } from '../src/features/build/BuildPage';
 import { MetadataPanel } from '../src/notes/MetadataPanel';
 import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types/apiResponse';
@@ -25,6 +26,7 @@ api.getTaxonomy = async () => success([]);
 api.getRepoMappings = async () => success([]);
 api.getUnsurfacedClusterCount = async () => success({ count: 1 });
 api.getProjects = async () => success([]);
+api.listBuildSpecs = async () => success([]);
 api.listChatSessions = async () => success({ sessions: [] });
 api.listModelChoices = async () => success([]);
 api.getMorningBriefing = async () => success(null);
@@ -92,6 +94,7 @@ createRoot(document.getElementById('root')!).render(
       <Route path="discover" element={<Overview title="Discover" />} />
       <Route path="plan" element={<Overview title="Plan" />} />
       <Route path="projects" element={<Overview title="Projects" />} />
+      <Route path="build" element={<BuildPage />} />
       <Route path="think" element={<NotesPage />} />
       <Route path="think/fixture-note" element={<MetadataFixture />} />
       <Route path="my-work" element={<TimelinePage excludeSources={['discovered-article', 'email']} />} />
@@ -156,7 +159,7 @@ export async function runNavigationChecks(): Promise<string[]> {
   await waitFor(() => document.querySelector('main h1')?.textContent === 'Today');
   check(selector<HTMLAnchorElement>('.kh-header__brand').getAttribute('href') === '/', 'Brand returns to Today');
   const primaryLabels = [...document.querySelectorAll('.kh-header__primary a')].map((item) => item.textContent?.trim());
-  check(JSON.stringify(primaryLabels) === JSON.stringify(mobile ? ['Today'] : ['Today', 'Discover', 'Plan', 'Think', 'Projects']), 'Primary labels and order');
+  check(JSON.stringify(primaryLabels) === JSON.stringify(mobile ? ['Today'] : ['Today', 'Discover', 'Plan', 'Think', 'Build', 'Projects']), 'Primary labels and order');
   check(selector('.kh-header__primary [aria-current="page"]').textContent === 'Today', 'Today active');
   check(getComputedStyle(selector('.kh-header__primary [aria-current="page"]')).borderBottomStyle !== 'none', 'Active navigation underline');
   assertFrame();
@@ -255,6 +258,16 @@ export async function runNavigationChecks(): Promise<string[]> {
   selector<HTMLButtonElement>('.ai-float-panel__close').click();
   await waitFor(() => document.querySelector('.ai-float-panel') === null);
   results.push('Existing search/command palette and single contextual Athena popout remain accessible');
+
+  await go('/build');
+  await waitFor(() => document.querySelector('.build-page') !== null);
+  check(document.body.textContent?.includes('Build'), 'GitHub coding agent Build workspace preserved');
+  if (mobile) {
+    await openMenu();
+    check(menuItem('Build').getAttribute('aria-current') === 'page', 'Build selected in mobile navigation');
+    key(document.activeElement!, 'Escape');
+  } else check(selector('.kh-header__primary [aria-current="page"]').textContent?.trim() === 'Build', 'Build selected in desktop navigation');
+  results.push('GitHub Copilot Build workspace remains reachable from desktop and mobile navigation');
 
   await go('/think');
   await waitFor(() => document.querySelector('.notes-page') !== null);

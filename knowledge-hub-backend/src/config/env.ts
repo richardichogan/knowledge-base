@@ -138,6 +138,13 @@ export const env = {
   GITHUB_ACCESS_TOKEN: integrationCredential('GITHUB_ACCESS_TOKEN'),
   GITHUB_USERNAME: integrationCredential('GITHUB_USERNAME'),
   GITHUB_CONTENT_STORE_REPO: optionalWithDefault('GITHUB_CONTENT_STORE_REPO', 'richardichogan/content-store'),
+  /**
+   * Fine-grained user PAT for the Build pipeline (assigning issues to GitHub cloud agents, merging PRs).
+   * Needs read/write on contents, issues, pull requests and actions. Falls back to GITHUB_ACCESS_TOKEN.
+   */
+  GITHUB_AGENT_TOKEN: optional('GITHUB_AGENT_TOKEN'),
+  /** Runs the Build pipeline runner in development too (off by default so a local backend never double-dispatches). */
+  BUILD_RUNNER_ENABLED: optional('BUILD_RUNNER_ENABLED'),
 
   // Podcast — stored in config, never hardcoded in app logic
   PODCAST_RSS_URL: optional('PODCAST_RSS_URL'),

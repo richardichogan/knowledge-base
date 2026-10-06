@@ -9,11 +9,16 @@
  * (canvas_edges) have a type (edge_type: related, supports, contradicts …, or
  * your own) and an optional label. canvas_notes pins a canvas to Think notes.
  *
+ * A canvas is either a 'brainstorm' (everything above) or a 'diagram'
+ * (canvases.canvas_type); diagram documents live in diagramService.ts.
+ *
  * Tables: canvases, canvas_nodes, canvas_edges, canvas_notes
  */
 import type { Pool, PoolClient } from 'pg';
 import { getDb } from '../db/db.js';
 import { upsertNode } from './nodeService.js';
+import { canvasTypeMismatch, initDiagram } from './diagramService.js';
+import type { CanvasType } from '../types/diagram.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,7 +35,9 @@ export interface CanvasSummary {
   createdAt: string;
   updatedAt: string;
   linkedNotes: LinkedNote[];
+  /** Brainstorm cards, or diagram nodes for a diagram canvas. */
   nodeCount: number;
+  canvasType: CanvasType;
 }
 
 export interface CanvasNode {
@@ -111,6 +118,7 @@ function rowToSummary(r: Record<string, unknown>): CanvasSummary {
     updatedAt:   r['updated_at'] as string,
     linkedNotes: (r['linked_notes'] as LinkedNote[] | null) ?? [],
     nodeCount:   Number(r['node_count'] ?? 0),
+    canvasType:  r['canvas_type'] === 'diagram' ? 'diagram' : 'brainstorm',
   };
 }
 
@@ -150,8 +158,11 @@ function rowToEdge(r: Record<string, unknown>): CanvasEdge {
 }
 
 const SUMMARY_SQL = `
-  SELECT c.id, c.title, c.description, c.project, c.created_at, c.updated_at,
-         (SELECT COUNT(*) FROM canvas_nodes x WHERE x.canvas_id = c.id) AS node_count,
+  SELECT c.id, c.title, c.description, c.project, c.created_at, c.updated_at, c.canvas_type,
+         CASE WHEN c.canvas_type = 'diagram'
+              THEN COALESCE((SELECT jsonb_array_length(d.document->'nodes') FROM canvas_diagrams d WHERE d.canvas_id = c.id), 0)
+              ELSE (SELECT COUNT(*) FROM canvas_nodes x WHERE x.canvas_id = c.id)
+         END AS node_count,
          COALESCE((
            SELECT json_agg(json_build_object('id', cn.note_id, 'title', ${NOTE_TITLE_SQL}) ORDER BY cn.created_at)
              FROM canvas_notes cn JOIN notes n ON n.id::text = cn.note_id AND n.status = 'active'
@@ -174,6 +185,16 @@ async function noteTitle(db: Pool | PoolClient, noteId: string): Promise<{ title
 
 // ─── Canvases ─────────────────────────────────────────────────────────────────
 
+/**
+ * Brainstorm-only operations (ops, outline / Athena context, card content,
+ * suggestions, to-note, markdown) call this so a diagram canvas — whose
+ * canvas_nodes are always empty — is refused with 409 CANVAS_TYPE_MISMATCH
+ * rather than treated as an empty brainstorm.
+ */
+export function assertBrainstorm(map: Pick<CanvasSummary, 'canvasType'>): void {
+  if (map.canvasType !== 'brainstorm') throw canvasTypeMismatch(map.canvasType);
+}
+
 export async function listCanvases(noteId?: string): Promise<CanvasSummary[]> {
   const db = getDb();
   const res = noteId === undefined
@@ -191,6 +212,8 @@ export interface CreateMapInput {
   /** Pin the canvas to this note; the note is its first card. */
   noteId?: string;
   project?: string;
+  /** Defaults to 'brainstorm'. A diagram starts empty (no first card). */
+  canvasType?: CanvasType;
 }
 
 export async function createCanvas(input: CreateMapInput = {}): Promise<CanvasFull> {
@@ -200,13 +223,15 @@ export async function createCanvas(input: CreateMapInput = {}): Promise<CanvasFu
   try {
     await client.query('BEGIN');
     const note = input.noteId !== undefined ? await noteTitle(client, input.noteId) : null;
-    const title = input.title ?? note?.title ?? 'Untitled canvas';
+    const canvasType: CanvasType = input.canvasType ?? 'brainstorm';
+    const title = input.title ?? (canvasType === 'diagram' ? 'Untitled diagram' : note?.title ?? 'Untitled canvas');
     const res = await client.query<{ id: string }>(
-      `INSERT INTO canvases (title, project) VALUES ($1, $2) RETURNING id`,
-      [title, input.project ?? note?.projectId ?? null],
+      `INSERT INTO canvases (title, project, canvas_type) VALUES ($1, $2, $3) RETURNING id`,
+      [title, input.project ?? note?.projectId ?? null, canvasType],
     );
     canvasId = res.rows[0]!.id;
-    await client.query(
+    if (canvasType === 'diagram') await initDiagram(client, canvasId);
+    else await client.query(
       `INSERT INTO canvas_nodes (canvas_id, node_type, ref_type, ref_id, label, x, y, placed)
        VALUES ($1, $2, $3, $4, $5, 0, 0, TRUE)`,
       note !== null && input.noteId !== undefined
@@ -389,8 +414,9 @@ export async function applyOps(canvasId: string, ops: MapOp[]): Promise<CanvasFu
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    const exists = await client.query(`SELECT 1 FROM canvases WHERE id = $1 FOR UPDATE`, [canvasId]);
+    const exists = await client.query<{ canvas_type: CanvasType }>(`SELECT canvas_type FROM canvases WHERE id = $1 FOR UPDATE`, [canvasId]);
     if (exists.rowCount === 0) throw new MapOpError('Canvas not found');
+    if (exists.rows[0]!.canvas_type === 'diagram') throw canvasTypeMismatch('diagram');
     for (const op of ops) await applyOne(client, canvasId, op);
     await client.query(`UPDATE canvases SET updated_at = NOW() WHERE id = $1`, [canvasId]);
     await client.query('COMMIT');
@@ -420,6 +446,7 @@ export function cardKind(node: Pick<CanvasNode, 'refType'>): string {
  * alias → id map too.
  */
 export function mapOutline(map: CanvasFull, selectedId?: string): { text: string; aliases: Map<string, string> } {
+  assertBrainstorm(map);
   const aliases = new Map<string, string>();
   const idToAlias = new Map<string, string>();
   map.nodes.forEach((n, i) => {
@@ -462,6 +489,7 @@ function connectionsOf(map: CanvasFull, id: string): Array<{ type: string; label
  * annotation). `asSection` adds it to an existing note under a heading.
  */
 export function cardSummaryBlocks(map: CanvasFull, nodeId: string, asSection: boolean): { title: string; blocks: OutBlock[] } {
+  assertBrainstorm(map);
   const node = map.nodes.find((n) => n.id === nodeId);
   if (node === undefined) throw new MapOpError('Card not found');
   const title = node.label ?? 'Untitled';
@@ -485,6 +513,7 @@ export function cardSummaryBlocks(map: CanvasFull, nodeId: string, asSection: bo
 
 /** The whole canvas as Markdown (export). */
 export function mapMarkdown(map: CanvasFull): string {
+  assertBrainstorm(map);
   const title = new Map(map.nodes.map((n) => [n.id, n.label ?? 'Untitled']));
   return [
     `# ${map.title}`,

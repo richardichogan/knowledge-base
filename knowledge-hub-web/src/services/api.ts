@@ -33,6 +33,7 @@ import type {
   MemoryScopeType,
 } from '../types';
 import { getApiToken } from './auth';
+import type { DiagramAsset, DiagramDocument, DiagramSnapshot } from '../features/diagram/diagramTypes';
 
 // Use relative base URL so all requests go through the Vite dev proxy.
 const BASE_URL = import.meta.env['VITE_API_URL'] as string | undefined ?? '';
@@ -1383,7 +1384,7 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async createCanvas(input: { title?: string; rootLabel?: string; noteId?: string; project?: string } = {}): Promise<ApiResponse<CanvasFullApi>> {
+  async createCanvas(input: { title?: string; rootLabel?: string; noteId?: string; project?: string; canvasType?: 'brainstorm' | 'diagram' } = {}): Promise<ApiResponse<CanvasFullApi>> {
     const r = await this.client.post<ApiResponse<CanvasFullApi>>('/api/canvases', input);
     return r.data;
   }
@@ -1391,6 +1392,24 @@ export class KnowledgeHubApi {
   async getCanvas(id: string): Promise<ApiResponse<CanvasFullApi>> {
     const r = await this.client.get<ApiResponse<CanvasFullApi>>(`/api/canvases/${id}`);
     return r.data;
+  }
+
+  async getDiagram(id: string): Promise<ApiResponse<DiagramSnapshot>> {
+    return (await this.client.get<ApiResponse<DiagramSnapshot>>(`/api/canvases/${id}/diagram`)).data;
+  }
+
+  async saveDiagram(id: string, revision: number, document: DiagramDocument): Promise<ApiResponse<DiagramSnapshot>> {
+    return (await this.client.put<ApiResponse<DiagramSnapshot>>(`/api/canvases/${id}/diagram`, { revision, document })).data;
+  }
+
+  async uploadDiagramAsset(id: string, file: Blob, name: string): Promise<ApiResponse<DiagramAsset>> {
+    return (await this.client.post<ApiResponse<DiagramAsset>>(`/api/canvases/${id}/assets`, file, {
+      headers: { 'Content-Type': file.type }, params: { name }, timeout: IMAGE_UPLOAD_TIMEOUT_MS,
+    })).data;
+  }
+
+  async getDiagramAsset(id: string, assetId: string): Promise<Blob> {
+    return (await this.client.get<Blob>(`/api/canvases/${id}/assets/${assetId}`, { responseType: 'blob' })).data;
   }
 
   async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; viewport?: object }): Promise<ApiResponse<CanvasSummaryApi>> {
@@ -1480,7 +1499,125 @@ export class KnowledgeHubApi {
     );
     return r.data;
   }
+
+  // ─── Build pipeline (spec → tasks → cloud coding agents) ─────────────────
+
+  async listBuildSpecs(): Promise<ApiResponse<BuildSpecSummary[]>> {
+    const r = await this.client.get<ApiResponse<BuildSpecSummary[]>>('/api/build/specs');
+    return r.data;
+  }
+
+  async getBuildSpec(id: string): Promise<ApiResponse<BuildSpecWithTasks>> {
+    const r = await this.client.get<ApiResponse<BuildSpecWithTasks>>(`/api/build/specs/${id}`);
+    return r.data;
+  }
+
+  async createBuildSpec(input: { title: string; repo: string; specMarkdown?: string; baseBranch?: string; maxParallel?: number; autoMerge?: boolean }): Promise<ApiResponse<BuildSpecWithTasks>> {
+    const r = await this.client.post<ApiResponse<BuildSpecWithTasks>>('/api/build/specs', input);
+    return r.data;
+  }
+
+  async createBuildSpecFromNote(input: { noteId: string; repo: string; baseBranch?: string }): Promise<ApiResponse<BuildSpecWithTasks>> {
+    const r = await this.client.post<ApiResponse<BuildSpecWithTasks>>('/api/build/specs/from-note', input);
+    return r.data;
+  }
+
+  async createBuildSpecFromOutput(input: { outputId: string; repo: string; baseBranch?: string }): Promise<ApiResponse<BuildSpecWithTasks>> {
+    const r = await this.client.post<ApiResponse<BuildSpecWithTasks>>('/api/build/specs/from-output', input);
+    return r.data;
+  }
+
+  async updateBuildSpec(id: string, patch: Partial<Pick<BuildSpec, 'title' | 'specMarkdown' | 'repo' | 'baseBranch' | 'maxParallel' | 'autoMerge'>>): Promise<ApiResponse<BuildSpecWithTasks>> {
+    const r = await this.client.patch<ApiResponse<BuildSpecWithTasks>>(`/api/build/specs/${id}`, patch);
+    return r.data;
+  }
+
+  async deleteBuildSpec(id: string): Promise<ApiResponse<{ id: string }>> {
+    const r = await this.client.delete<ApiResponse<{ id: string }>>(`/api/build/specs/${id}`);
+    return r.data;
+  }
+
+  /** start | pause | sync | decompose */
+  async buildSpecAction(id: string, action: 'decompose' | 'start' | 'pause' | 'sync'): Promise<ApiResponse<BuildSpecWithTasks>> {
+    const r = await this.client.post<ApiResponse<BuildSpecWithTasks>>(`/api/build/specs/${id}/${action}`, {});
+    return r.data;
+  }
+
+  async listBuildEvents(id: string): Promise<ApiResponse<BuildEvent[]>> {
+    const r = await this.client.get<ApiResponse<BuildEvent[]>>(`/api/build/specs/${id}/events`);
+    return r.data;
+  }
+
+  async updateBuildTask(id: string, patch: Partial<Pick<BuildTask, 'title' | 'bodyMarkdown' | 'agent' | 'dependsOn'>>): Promise<ApiResponse<BuildSpecWithTasks>> {
+    const r = await this.client.patch<ApiResponse<BuildSpecWithTasks>>(`/api/build/tasks/${id}`, patch);
+    return r.data;
+  }
+
+  async buildTaskAction(id: string, action: 'retry' | 'cancel' | 'merge'): Promise<ApiResponse<BuildSpecWithTasks>> {
+    const r = await this.client.post<ApiResponse<BuildSpecWithTasks>>(`/api/build/tasks/${id}/${action}`, {});
+    return r.data;
+  }
+
+  async listBuildAgents(repo: string): Promise<ApiResponse<BuildAgent[]>> {
+    const r = await this.client.get<ApiResponse<BuildAgent[]>>('/api/build/agents', { params: { repo } });
+    return r.data;
+  }
 }
+
+export type BuildAgent = 'copilot' | 'claude';
+export type BuildSpecStatus = 'draft' | 'decomposing' | 'decomposed' | 'running' | 'paused' | 'done' | 'failed';
+export type BuildTaskStatus = 'pending' | 'dispatched' | 'pr_open' | 'awaiting_approval' | 'merged' | 'blocked' | 'failed' | 'cancelled';
+
+export interface BuildSpec {
+  id: string;
+  projectId: string | null;
+  noteId: string | null;
+  chatOutputId: string | null;
+  title: string;
+  specMarkdown: string;
+  repo: string;
+  baseBranch: string;
+  status: BuildSpecStatus;
+  maxParallel: number;
+  autoMerge: boolean;
+  planNotes: string;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BuildTask {
+  id: string;
+  specId: string;
+  seq: number;
+  title: string;
+  bodyMarkdown: string;
+  agent: BuildAgent;
+  agentReason: string;
+  size: 'S' | 'M' | 'L';
+  dependsOn: string[];
+  status: BuildTaskStatus;
+  issueNumber: number | null;
+  issueUrl: string | null;
+  prNumber: number | null;
+  prUrl: string | null;
+  fixAttempts: number;
+  lastError: string | null;
+  dispatchedAt: string | null;
+  mergedAt: string | null;
+  updatedAt: string;
+}
+
+export interface BuildEvent {
+  id: string;
+  taskId: string | null;
+  kind: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface BuildSpecWithTasks extends BuildSpec { tasks: BuildTask[] }
+export interface BuildSpecSummary extends BuildSpec { taskCounts: Partial<Record<BuildTaskStatus, number>>; taskTotal: number }
 
 /** Singleton instance — used by all React Query hooks. */
 export const api = new KnowledgeHubApi();
@@ -1500,6 +1637,7 @@ export type MapRefType = typeof MAP_REF_TYPES[number];
 
 export interface CanvasSummaryApi {
   id: string; title: string; description: string | null;
+  canvasType: 'brainstorm' | 'diagram';
   project: string | null; createdAt: string; updatedAt: string;
   linkedNotes: Array<{ id: string; title: string }>;
   nodeCount: number;

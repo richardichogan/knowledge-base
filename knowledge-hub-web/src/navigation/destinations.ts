@@ -1,6 +1,6 @@
 import {
   Home, Compass, CalendarTools, Idea, Portfolio, Activity, Book,
-  Network_3, MachineLearningModel, Renew, Tag, Settings,
+  Network_3, MachineLearningModel, Renew, Tag, Settings, Code,
 } from '@carbon/icons-react';
 
 export type NavigationAction = 'tags' | 'repo-tags';
@@ -22,6 +22,7 @@ export const PRIMARY_DESTINATIONS: NavigationDestination[] = [
   { id: 'discover', path: '/discover', label: 'Discover', icon: Compass },
   { id: 'plan', path: '/plan', label: 'Plan', icon: CalendarTools },
   { id: 'think', path: '/think', label: 'Think', icon: Idea },
+  { id: 'build', path: '/build', label: 'Build', icon: Code },
   { id: 'projects', path: '/projects', label: 'Projects', icon: Portfolio },
 ];
 

@@ -36,6 +36,7 @@ import { AIChatPage } from './pages/AIChatPage';
 import { HomePage } from './pages/HomePage';
 import { RepoProjectMappingsPage } from './pages/RepoProjectMappingsPage';
 import { ProjectsPage } from './pages/ProjectsPage';
+import { BuildPage } from './features/build/BuildPage';
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -59,6 +60,7 @@ const App: React.FC = () => {
                 <Route path="my-work"  element={<MyWorkPage />} />
                 <Route path="think"    element={<ThinkPage />} />
                 <Route path="library"  element={<DocumentsPage />} />
+          <Route path="build"    element={<BuildPage />} />
                 <Route path="memory"   element={<MemoryPage />} />
                 <Route path="blog-post" element={<Navigate to="/chat" replace />} />
                 <Route path="graph"    element={<GraphPage />} />
