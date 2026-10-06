@@ -2,7 +2,7 @@
 
 **Status:** Validated
 
-**Deployment:** Projects layout frontend release validated; deployment pending.
+**Deployment:** Projects layout frontend release deployed and verified.
 
 ## 1. Scope
 
@@ -67,6 +67,14 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Projects layout deployed and verified on 2026-10-06:
+
+- Release `2e42f64` pushed to the feature branch and remote main.
+- SWA CLI successfully deployed the existing production frontend.
+- Production custom-domain HTML references the release JS/CSS; both returned
+  HTTP 200 with SHA-256 hashes identical to the local production build.
+- Backend remains `kh-prod-api:v164`; no configuration or credentials changed.
 
 Projects layout release validated on 2026-10-06 (20:04 BST):
 
