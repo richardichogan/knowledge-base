@@ -100,6 +100,12 @@ Tests: from `knowledge-hub-backend`, `node --import tsx/esm --test scripts\build
 
 ## Project dates and saving
 
+Projects uses the shared primary-page header, gutters and typography. Search
+and filters sit below the header, with a visible result count. Cards show a
+short summary; expandable Project details retains the complete goal, context
+and expected outputs as readable text, not oversized pills. Desktop uses two
+columns and mobile one; editing retains all full-length content.
+
 Project dates are returned as `YYYY-MM-DD` calendar dates (or `null`), without
 timezone conversion, so editing a dated project preserves its dates. Project
 save failures display the backend validation message rather than only an HTTP

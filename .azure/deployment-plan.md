@@ -2,15 +2,14 @@
 
 **Status:** Validated
 
-**Deployment:** Project-save fix validated; deployment pending.
+**Deployment:** Projects layout frontend release validated; deployment pending.
 
 ## 1. Scope
 
-Deploy the project expected-output contract correction on latest main.
-Full descriptions and lists longer than 30 entries are supported without
-truncation; remaining context field limits are visible and checked before save.
-Migration 058 is already applied; no new migration is required. Deploy both existing
-application targets without changing infrastructure or environment settings.
+Deploy the Projects layout redesign on latest main to the existing frontend.
+The shared primary-page frame, separate filters and expandable full project
+details preserve editing and expected-output content. Backend v164 remains
+unchanged; no backend deployment, migration or infrastructure change is required.
 Retain the current Build credentials/configuration:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
@@ -68,6 +67,19 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Projects layout release validated on 2026-10-06 (20:04 BST):
+
+- Fetched remote main and confirmed it is an ancestor of the release branch.
+- Frontend `npx tsc --noEmit`, fixture typecheck and `npm run build` passed;
+  backend `npx tsc --noEmit` and `git diff --check` passed.
+- Navigation browser checks passed at 1440/1024/390px, including shared spacing,
+  filters, empty state, complete long outputs, responsive cards and edit-modal
+  overflow. Build navigation and embedded Think Athena remain intact.
+- Authenticated Azure reads confirmed the established production subscription,
+  existing `kh-prod-web` target and backend v164.
+- Frontend assets only: provisioning, RBAC/template validation, container builds,
+  migrations and credential/environment updates do not apply.
 
 Expected-output corrective release validated on 2026-10-06 (19:42 BST):
 

@@ -12,6 +12,7 @@ import { GraphPage } from '../src/pages/GraphPage';
 import { RepoProjectMappingsPage } from '../src/pages/RepoProjectMappingsPage';
 import { NotesPage } from '../src/notes/NotesPage';
 import { BuildPage } from '../src/features/build/BuildPage';
+import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { MetadataPanel } from '../src/notes/MetadataPanel';
 import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types/apiResponse';
@@ -26,6 +27,7 @@ api.getTaxonomy = async () => success([]);
 api.getRepoMappings = async () => success([]);
 api.getUnsurfacedClusterCount = async () => success({ count: 1 });
 api.getProjects = async () => success([]);
+api.getTags = async () => success([]);
 api.listBuildSpecs = async () => success([]);
 api.listChatSessions = async () => success({ sessions: [] });
 api.listModelChoices = async () => success([]);
@@ -93,7 +95,7 @@ createRoot(document.getElementById('root')!).render(
       <Route index element={<Overview title="Today" />} />
       <Route path="discover" element={<Overview title="Discover" />} />
       <Route path="plan" element={<Overview title="Plan" />} />
-      <Route path="projects" element={<Overview title="Projects" />} />
+      <Route path="projects" element={<ProjectsPage />} />
       <Route path="build" element={<BuildPage />} />
       <Route path="think" element={<NotesPage />} />
       <Route path="think/fixture-note" element={<MetadataFixture />} />
@@ -268,6 +270,49 @@ export async function runNavigationChecks(): Promise<string[]> {
     key(document.activeElement!, 'Escape');
   } else check(selector('.kh-header__primary [aria-current="page"]').textContent?.trim() === 'Build', 'Build selected in desktop navigation');
   results.push('GitHub Copilot Build workspace remains reachable from desktop and mobile navigation');
+
+  const output = 'Deliver a complete architecture and operating model with detailed acceptance criteria. '.repeat(40).trim();
+  api.getProjects = async () => success(Array.from({ length: 4 }, (_, i) => ({
+    id: `layout-${i}`, name: i === 0 ? 'A long project name that must wrap without colliding with actions' : `Project ${i}`,
+    description: 'Project description. '.repeat(40), goal: 'Deliver a sustainable project outcome. '.repeat(30),
+    role: 'Architecture lead', ownership: 'Work team', lifecycleState: 'active' as const,
+    startDate: '2026-10-01', targetEndDate: '2026-12-01', importance: 'normal' as const,
+    expectedOutputs: [output, 'A second output'], colour: 'teal' as const, category: 'work' as const,
+    priority: 'medium' as const, projectType: 'standard' as const, gitlabPaths: [],
+    githubRepos: [], hasIcaDocumentCollection: false, icaDocumentCollectionName: '',
+    icaDocumentCollectionId: '', links: [], tags: ['Architecture'], createdAt: '', updatedAt: '',
+  })));
+  await go('/projects');
+  await waitFor(() => document.querySelectorAll('.proj-card').length === 4);
+  check(selector('.proj-page').classList.contains('page-root'), 'Projects uses shared primary page frame');
+  const frameStyle = getComputedStyle(selector('.proj-page'));
+  const sharedFrame = document.createElement('div');
+  sharedFrame.className = 'page-root';
+  document.body.append(sharedFrame);
+  check(frameStyle.padding === getComputedStyle(sharedFrame).padding, 'Projects gutters and vertical spacing match shared primary pages');
+  sharedFrame.remove();
+  check(document.querySelectorAll('h1').length === 1 && document.querySelectorAll('.proj-card h2').length === 4, 'Project heading hierarchy');
+  check(selector('.proj-toolbar').getBoundingClientRect().top >= selector('.page-header').getBoundingClientRect().bottom, 'Filters are below shared header');
+  check([...document.querySelectorAll<HTMLDetailsElement>('.proj-card-details')].every((item) => !item.open), 'Long context is initially collapsed');
+  const detail = selector<HTMLDetailsElement>('.proj-card-details');
+  detail.querySelector('summary')!.click();
+  check(detail.open && selector('.proj-card-outputs li').textContent === output, 'Expanded outputs preserve full text');
+  check(selector('.proj-page').scrollWidth <= selector('.proj-page').clientWidth + 1, 'Long project content has no horizontal overflow');
+  const columns = getComputedStyle(selector('.proj-grid')).gridTemplateColumns.split(' ').length;
+  check(columns === (window.innerWidth <= 800 ? 1 : 2), 'Responsive project grid');
+  selector<HTMLButtonElement>('.proj-icon-btn').click();
+  await waitFor(() => document.querySelector<HTMLInputElement>('#pm-name')?.value.includes('long project') === true);
+  check(selector<HTMLTextAreaElement>('#pm-expected-outputs').value.includes(output), 'Edit retains complete output text');
+  const modal = selector('#pm-name').closest('.cds--modal-content')!;
+  check(modal.scrollWidth <= modal.clientWidth + 1, 'Project editor has no horizontal overflow');
+  key(document, 'Escape');
+  await waitFor(() => document.querySelector('.cds--modal.is-visible') === null);
+  const searchInput = selector<HTMLInputElement>('#proj-search');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(searchInput, 'no matching project');
+  searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  await waitFor(() => document.querySelector('.proj-empty') !== null);
+  check(selector('.proj-result-count').textContent === '0 of 4 projects', 'Search count and empty state stay consistent');
+  results.push('Projects shared frame, separate filters, readable long details, responsive cards and complete edit data');
 
   await go('/think');
   await waitFor(() => document.querySelector('.notes-page') !== null);

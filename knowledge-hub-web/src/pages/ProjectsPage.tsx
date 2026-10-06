@@ -532,16 +532,19 @@ export const ProjectsPage: React.FC = () => {
   };
 
   return (
-    <div className="proj-page">
+    <main className="page-root proj-page">
 
       {/* ── Header ── */}
       <div className="page-header">
         <div className="page-title-group">
           <h1 className="page-title">Projects</h1>
-          <p className="proj-intro">The ongoing contexts that organise your work, knowledge and commitments.</p>
-          <p className="page-subtitle">{visible.length} of {projects.length}</p>
+          <p className="page-subtitle">Organise your work, knowledge and commitments.</p>
         </div>
         <div className="page-controls">
+          <Button renderIcon={Add} size="md" onClick={openCreate}>New project</Button>
+        </div>
+      </div>
+      <div className="proj-toolbar" role="search" aria-label="Filter projects">
           <TextInput
             id="proj-search"
             labelText="Search"
@@ -559,16 +562,19 @@ export const ProjectsPage: React.FC = () => {
           <Select id="proj-lifecycle-filter" labelText="Project state" hideLabel value={filterLifecycle} onChange={(e) => setFilterLifecycle(e.target.value as ProjectLifecycleState | 'all')} className="proj-lifecycle-select">
             {LIFECYCLE_STATES.map((state) => <SelectItem key={state.value} value={state.value} text={state.label} />)}
           </Select>
-          <Button renderIcon={Add} size="md" onClick={openCreate}>New project</Button>
-        </div>
+          <span className="proj-result-count" role="status">{visible.length} of {projects.length} projects</span>
       </div>
 
       {error && <InlineNotification kind="warning" title={error} lowContrast hideCloseButton className="proj-notice" />}
 
       {/* ── Grid ── */}
       {loading ? (
-        <p className="proj-loading">Loading…</p>
+        <p className="proj-loading" role="status">Loading projects...</p>
       ) : (
+        <>
+        {visible.length === 0 && <p className="proj-empty">{projects.length === 0
+          ? 'No projects yet. Create a project to organise your work.'
+          : 'No projects match these filters. Try another search or category.'}</p>}
         <div className="proj-grid">
           {visible.map((project) => {
             const repos = [
@@ -586,27 +592,27 @@ export const ProjectsPage: React.FC = () => {
             ].filter((value): value is string => value !== null);
 
             return (
-              <div key={project.id} className="proj-card">
+              <article key={project.id} className="proj-card">
                 <div className={`proj-card-top proj-card-top--${project.colour}`} />
 
                 <div className="proj-card-body">
                   {/* Name row */}
                   <div className="proj-card-name-row">
-                    <h3 className="proj-card-name">{project.name}</h3>
+                    <h2 className="proj-card-name">{project.name}</h2>
                     <div className="proj-card-name-icons">
                       {source === 'gitlab' && <span className="proj-source-badge proj-source-badge--gitlab" title="GitLab"><GitLabIcon size={18} /></span>}
                       {source === 'github' && <span className="proj-source-badge proj-source-badge--github" title="GitHub"><LogoGithub size={18} /></span>}
-                      <button className="proj-icon-btn" title="Edit" onClick={() => openEdit(project)}><Edit size={16} /></button>
-                      <button className="proj-icon-btn proj-icon-btn--danger" title="Delete" onClick={() => setDeleteConfirm(project)}><TrashCan size={16} /></button>
+                      <button type="button" className="proj-icon-btn" aria-label={`Edit ${project.name}`} title="Edit" onClick={() => openEdit(project)}><Edit size={16} /></button>
+                      <button type="button" className="proj-icon-btn proj-icon-btn--danger" aria-label={`Delete ${project.name}`} title="Delete" onClick={() => setDeleteConfirm(project)}><TrashCan size={16} /></button>
                     </div>
                   </div>
 
                   {/* Category + Priority badges */}
                   <div className="proj-card-badges">
                     <span className={`proj-cat-badge ${cat.cls}`}>{cat.label}</span>
-                    <span className={`proj-pri-badge ${pri.cls}`}>{pri.label}</span>
+                    <span className={`proj-pri-badge ${pri.cls}`}>{pri.label} priority</span>
                     <span className={`proj-lifecycle-badge proj-lifecycle-badge--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
-                    <span className={`proj-importance-badge ${importanceClass}`}>{project.importance ?? 'normal'} importance</span>
+                    {project.importance && project.importance !== 'normal' && <span className={`proj-importance-badge ${importanceClass}`}>{project.importance} importance</span>}
                     {project.projectType === 'formal-client' && (
                       <span className="proj-client-badge">Formal client</span>
                     )}
@@ -617,22 +623,31 @@ export const ProjectsPage: React.FC = () => {
                     )}
                   </div>
 
-                  {project.goal && <p className="proj-card-goal">{project.goal}</p>}
-                  {(project.role || project.ownership) && (
-                    <div className="proj-card-context">
-                      {project.role && <span><strong>Your role</strong>{project.role}</span>}
-                      {project.ownership && <span><strong>Ownership</strong>{project.ownership}</span>}
-                    </div>
+                  {(project.goal || project.description) && <p className="proj-card-summary">{project.goal || project.description}</p>}
+                  {(project.goal || project.description || project.role || project.ownership || projectDates.length > 0 || project.expectedOutputs.length > 0) && (
+                    <details className="proj-card-details">
+                      <summary>Project details{project.expectedOutputs.length > 0 ? ` · ${project.expectedOutputs.length} expected outputs` : ''}</summary>
+                      <div className="proj-card-details__body">
+                        {project.goal && <div><h3>Goal</h3><p className="proj-card-goal">{project.goal}</p></div>}
+                        {(project.role || project.ownership) && (
+                          <div className="proj-card-context">
+                            {project.role && <span><strong>Your role</strong>{project.role}</span>}
+                            {project.ownership && <span><strong>Ownership</strong>{project.ownership}</span>}
+                          </div>
+                        )}
+                        {projectDates.length > 0 && <p className="proj-card-dates">{projectDates.join(' · ')}</p>}
+                        {project.expectedOutputs.length > 0 && (
+                          <div>
+                            <h3>Expected outputs</h3>
+                            <ul className="proj-card-outputs">
+                              {project.expectedOutputs.map((output, index) => <li key={index}>{output}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        {project.description && <div><h3>Description</h3><p className="proj-card-desc">{project.description}</p></div>}
+                      </div>
+                    </details>
                   )}
-                  {projectDates.length > 0 && <p className="proj-card-dates">{projectDates.join(' · ')}</p>}
-                  {project.expectedOutputs.length > 0 && (
-                    <div className="proj-card-outputs" aria-label="Expected outputs">
-                      {project.expectedOutputs.map((output, index) => <span key={`${output}-${index.toString()}`}>{output}</span>)}
-                    </div>
-                  )}
-
-                  {/* Description */}
-                  {project.description && <p className="proj-card-desc">{project.description}</p>}
 
                   {/* Footer */}
                   {(repos.length > 0 || project.links.length > 0 || project.tags.length > 0) && (
@@ -666,10 +681,11 @@ export const ProjectsPage: React.FC = () => {
                     </div>
                   )}
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
+        </>
       )}
 
       {/* ── Create/Edit modal ── */}
@@ -697,6 +713,6 @@ export const ProjectsPage: React.FC = () => {
         <p>This only removes the project from your local store. GitLab and GitHub data is unaffected.</p>
       </Modal>
 
-    </div>
+    </main>
   );
 };
