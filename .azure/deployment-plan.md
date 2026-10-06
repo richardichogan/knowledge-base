@@ -2,12 +2,17 @@
 
 **Status:** Validated
 
+**Deployment:** Completed on 2026-10-06. Backend v162 is healthy at
+`kh-prod-api-vnet--0000159`; migration 058 applied. Frontend deployed to
+`https://nice-mud-0f780fb03.7.azurestaticapps.net` and
+`https://athena.themicrosoftcloudblog.com/`.
+
 ## 1. Scope
 
-Restore navigation, Today fixes and Spark creation alongside the latest main
-branch's diagrams and GitHub Copilot Build integration. Deploy both existing
+Deploy the Project Context metadata feature on top of the latest main branch,
+including migration 058 and the Projects UI/API changes. Deploy both existing
 application targets without changing infrastructure or environment settings.
-Retain migrations 055 and 056 and the current Build credentials/configuration:
+Retain the current Build credentials/configuration:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
 - Frontend: Azure Static Web App `kh-prod-web`
@@ -64,6 +69,38 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Project Context release validated on 2026-10-06 (16:37 BST):
+
+- Backend `npm run build`, `npm run typecheck`, and ESLint for
+  `src/routes/projects.ts` passed.
+- Frontend `npm run build` and `npm run typecheck` passed.
+- `git diff --check` passed.
+- Project Context migration 058 is included by the Dockerfile's existing
+  `src/db/migrations/*.sql` copy and will apply through the existing startup
+  migration runner.
+- Azure CLI authentication confirmed for `Alliance Tenant Reporting`
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`); existing Container App, ACR and
+  Static Web App were confirmed accessible.
+- Current backend image confirmed as `kh-prod-api:v161`; deploy `v162` and
+  retain `v161` as the rollback target.
+- Source is based directly on `origin/main`; no infra, environment, secret,
+  RBAC or resource configuration changes are included.
+
+Project Context release deployed and verified on 2026-10-06 (15:44-15:47 UTC):
+
+- Commit `eeba084` pushed to the feature branch and `main`.
+- ACR build `ca53` succeeded for `kh-prod-api:v162`.
+- Container App revision `kh-prod-api-vnet--0000159` reports Healthy,
+  RunningAtMaxScale, with 100% traffic.
+- Startup logs confirm `058_project_context.sql` applied and migrations
+  completed successfully.
+- Static Web Apps CLI reported successful production deployment.
+- Production HTML references `/assets/index-CYhNBEaH.js` and
+  `/assets/index-DiHA3HWK.css`; both assets returned HTTP 200 from the custom
+  production hostname.
+- Existing unrelated log noise observed: GitLab sync returns 401; rate-limit
+  middleware reports an X-Forwarded-For/trust-proxy warning.
 
 Recovery release validated on 2026-10-06 (12:25 BST):
 
