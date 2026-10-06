@@ -47,6 +47,20 @@ Production is deployed to Azure Container Apps (backend) + Azure Static Web Apps
 | Main Azure OpenAI (gpt-4o / gpt-4o-mini deployments — `gpt-4o` deployment slot is actually mapped to a `gpt-5.4` model) | `open-msft-alliance-reporting-res` | `rgAllianceReporting` | `Alliance Tenant Reporting` |
 | GPT-5.5 Azure OpenAI (brainstorming persona only) | `imagine-dev-temp-resource` | `rg-imagine-claims-dev-temp` | `sub-ibmc-projImagine-dev` (different subscription — `az account set` before touching it) |
 
+### Pre-deploy sync (always first)
+
+Build-pipeline agents merge straight into `main` on GitHub, so a local worktree can be behind. The backend image is built from GitHub but the frontend is built from the local worktree. Deploying a stale frontend silently reverts agent changes. Before every deploy:
+
+```
+git fetch origin
+git merge origin/main      # stop and ask the user if this conflicts
+npx tsc --noEmit           # in both knowledge-hub-web and knowledge-hub-backend
+git push origin HEAD:<branch>
+git push origin HEAD:main
+```
+
+Then build the backend from `#main:knowledge-hub-backend` and the frontend from this synced worktree.
+
 ### Backend deploy
 
 ```
