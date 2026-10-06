@@ -20,6 +20,7 @@
  * POST   /api/build/tasks/:id/cancel               close the issue, mark cancelled (counts as satisfied)
  * POST   /api/build/tasks/:id/merge                merge an awaiting_approval/blocked PR now
  * GET    /api/build/agents?repo=owner/name         which cloud agents can be assigned in that repo
+ * GET    /api/build/branches?repo=owner/name       { defaultBranch, branches } (default first)
  */
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { HTTP_STATUS } from '../config/constants.js';
@@ -361,4 +362,9 @@ buildRouter.post('/tasks/:id/merge', handle(async (req, res) => {
 buildRouter.get('/agents', handle(async (req, res) => {
   const repo = repoOf(req.query['repo'], true) as string;
   res.json({ success: true, data: await getAgentGitHub().listAvailableAgents(repo) });
+}));
+
+buildRouter.get('/branches', handle(async (req, res) => {
+  const repo = repoOf(req.query['repo'], true) as string;
+  res.json({ success: true, data: await getAgentGitHub().listBranches(repo) });
 }));

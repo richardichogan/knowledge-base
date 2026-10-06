@@ -92,6 +92,7 @@ function harness(spec: BuildSpec, tasks: BuildTask[]): Harness {
     comment: (_r, n, body) => { calls.push(`comment:${n.toString()}:${body}`); return Promise.resolve(); },
     closeIssue: () => Promise.resolve(),
     listAvailableAgents: () => Promise.resolve(['copilot', 'claude']),
+    listBranches: () => Promise.resolve({ defaultBranch: 'main', branches: ['main'] }),
   };
   let specState = spec;
   const store: RunnerStore = {

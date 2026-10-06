@@ -75,7 +75,13 @@ export interface AgentGitHub {
   comment(repo: string, issueOrPrNumber: number, body: string): Promise<void>;
   closeIssue(repo: string, issueNumber: number): Promise<void>;
   listAvailableAgents(repo: string): Promise<BuildAgent[]>;
+  listBranches(repo: string): Promise<RepoBranches>;
 }
+
+/** Branches of a repo, default branch first. */
+export interface RepoBranches { defaultBranch: string; branches: string[] }
+
+const BRANCH_PAGE_SIZE = 100;
 
 function splitRepo(repo: string): { owner: string; name: string } {
   const [owner, name] = repo.split('/');
@@ -173,6 +179,18 @@ export class GitHubAgentClient implements AgentGitHub {
   public async listAvailableAgents(repo: string): Promise<BuildAgent[]> {
     const { actors } = await this.repoActors(repo);
     return BUILD_AGENTS.filter((a) => GitHubAgentClient.matchAgent(actors, a) !== undefined);
+  }
+
+  public async listBranches(repo: string): Promise<RepoBranches> {
+    const { owner, name } = splitRepo(repo);
+    const path = `/repos/${owner}/${name}`;
+    const [info, branches] = await Promise.all([
+      this.rest<{ default_branch: string }>('GET', path),
+      this.rest<{ name: string }[]>('GET', `${path}/branches?per_page=${BRANCH_PAGE_SIZE.toString()}`),
+    ]);
+    const defaultBranch = info?.default_branch ?? 'main';
+    const names = (branches ?? []).map((b) => b.name).filter((b) => b !== defaultBranch).sort((a, b) => a.localeCompare(b));
+    return { defaultBranch, branches: [defaultBranch, ...names] };
   }
 
   public async createAgentIssue(input: AgentIssueInput): Promise<CreatedIssue> {

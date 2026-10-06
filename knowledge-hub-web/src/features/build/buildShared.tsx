@@ -2,7 +2,7 @@
  * features/build/buildShared.tsx — helpers shared by the Build page and the
  * "Send to Build" entry points on Think notes and Athena outputs.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -51,6 +51,66 @@ export const RepoField: React.FC<{ value: string; repos: string[]; onChange: (v:
 
 type Source = { kind: 'note'; noteId: string } | { kind: 'output'; outputId: string };
 
+const REPO_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+const REPO_DEBOUNCE_MS = 400;
+const BRANCH_LIST_STALE_MS = 60_000;
+
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => { setDebounced(value); }, ms);
+    return () => { clearTimeout(t); };
+  }, [value, ms]);
+  return debounced;
+}
+
+/**
+ * Base branch dropdown, filled from the chosen repo's branches (default first).
+ * An empty value is replaced with the repo's default branch once loaded. Falls
+ * back to a free-text input if the branches can't be listed.
+ */
+export const BranchField: React.FC<{ repo: string; value: string; onChange: (v: string) => void; disabled?: boolean }> = ({
+  repo, value, onChange, disabled = false,
+}) => {
+  const debouncedRepo = useDebounced(repo, REPO_DEBOUNCE_MS);
+  const enabled = REPO_PATTERN.test(debouncedRepo) && debouncedRepo === repo;
+  const { data, isFetching, isError } = useQuery({
+    queryKey: ['build-branches', debouncedRepo],
+    queryFn: async () => unwrap(await api.listBuildBranches(debouncedRepo)),
+    enabled,
+    staleTime: BRANCH_LIST_STALE_MS,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (enabled && data !== undefined && value === '' && !disabled) onChange(data.defaultBranch);
+  }, [enabled, data, value, disabled, onChange]);
+
+  if (isError) {
+    return (
+      <label className="build-field">
+        <span className="build-field__label">Base branch</span>
+        <input className="build-input" value={value} placeholder="main" disabled={disabled} title="Couldn't list branches for this repository"
+          onChange={(e) => { onChange(e.target.value.trim()); }} />
+      </label>
+    );
+  }
+
+  const branches = enabled && data !== undefined ? data.branches : [];
+  const options = value !== '' && !branches.includes(value) ? [value, ...branches] : branches;
+  const placeholder = !REPO_PATTERN.test(repo) ? 'Choose a repository first' : isFetching || !enabled ? 'Loading branches…' : 'No branches';
+  return (
+    <label className="build-field">
+      <span className="build-field__label">Base branch</span>
+      <select className="build-select" value={value} disabled={disabled || options.length === 0}
+        onChange={(e) => { onChange(e.target.value); }}>
+        {options.length === 0 && <option value="">{placeholder}</option>}
+        {options.map((b) => <option key={b} value={b}>{b}{data !== undefined && b === data.defaultBranch ? ' (default)' : ''}</option>)}
+      </select>
+    </label>
+  );
+};
+
 /** Asks which repo to build in, creates the spec, then opens it on the Build page. */
 export const SendToBuildDialog: React.FC<{ source: Source; onClose: () => void }> = ({ source, onClose }) => {
   const repos = useGithubRepos();
@@ -81,11 +141,8 @@ export const SendToBuildDialog: React.FC<{ source: Source; onClose: () => void }
           Creates a build spec from this {source.kind === 'note' ? 'note' : 'output'}. You can review it and decompose it into agent tasks before anything is sent to GitHub.
         </p>
         <div className="build-send-dialog__fields">
-          <RepoField value={repo} repos={repos} onChange={setRepo} listId="build-send-repo-options" />
-          <label className="build-field">
-            <span className="build-field__label">Base branch</span>
-            <input className="build-input" value={baseBranch} placeholder="main" onChange={(e) => { setBaseBranch(e.target.value); }} />
-          </label>
+          <RepoField value={repo} repos={repos} onChange={(r) => { setRepo(r); setBaseBranch(''); }} listId="build-send-repo-options" />
+          <BranchField repo={repo} value={baseBranch} onChange={setBaseBranch} />
         </div>
         {error !== null && <p className="build-error">{error}</p>}
         <div className="build-row build-send-dialog__actions">

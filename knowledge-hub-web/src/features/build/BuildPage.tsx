@@ -4,7 +4,7 @@
  * to a GitHub cloud coding agent (Copilot or Claude) and follow the PRs
  * through to merge.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { InlineLoading } from '@carbon/react';
@@ -19,7 +19,7 @@ import {
   type BuildTaskStatus,
 } from '../../services/api';
 import type { ApiResponse } from '../../types/apiResponse';
-import { describeBuildError, RepoField, unwrap, useGithubRepos } from './buildShared';
+import { BranchField, describeBuildError, RepoField, unwrap, useGithubRepos } from './buildShared';
 
 const RUNNING_POLL_MS = 20_000;
 const MAX_PARALLEL_CHOICES = [1, 2, 3, 4, 5];
@@ -54,6 +54,7 @@ const NewSpecForm: React.FC<{ repos: string[]; onCreated: (id: string) => void; 
   const [draft, setDraft] = useState({ title: '', repo: '', baseBranch: '', specMarkdown: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const setBaseBranch = useCallback((baseBranch: string) => { setDraft((d) => ({ ...d, baseBranch })); }, []);
   const create = (): void => {
     setBusy(true); setError(null);
     void api.createBuildSpec({
@@ -72,11 +73,8 @@ const NewSpecForm: React.FC<{ repos: string[]; onCreated: (id: string) => void; 
           <span className="build-field__label">Title</span>
           <input className="build-input" value={draft.title} autoFocus onChange={(e) => { setDraft({ ...draft, title: e.target.value }); }} />
         </label>
-        <RepoField value={draft.repo} repos={repos} onChange={(repo) => { setDraft({ ...draft, repo }); }} />
-        <label className="build-field">
-          <span className="build-field__label">Base branch</span>
-          <input className="build-input" value={draft.baseBranch} placeholder="main" onChange={(e) => { setDraft({ ...draft, baseBranch: e.target.value }); }} />
-        </label>
+        <RepoField value={draft.repo} repos={repos} onChange={(repo) => { setDraft((d) => ({ ...d, repo, baseBranch: '' })); }} />
+        <BranchField repo={draft.repo} value={draft.baseBranch} onChange={setBaseBranch} />
       </div>
       <label className="build-field build-field--wide">
         <span className="build-field__label">Spec (markdown)</span>
@@ -232,6 +230,7 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
   const editable = EDITABLE.includes(spec.status);
   const current = draft ?? { title: spec.title, repo: spec.repo, baseBranch: spec.baseBranch, specMarkdown: spec.specMarkdown };
   const dirty = draft !== null && (draft.title !== spec.title || draft.repo !== spec.repo || draft.baseBranch !== spec.baseBranch || draft.specMarkdown !== spec.specMarkdown);
+  const setBaseBranch = (baseBranch: string): void => { setDraft({ ...current, baseBranch }); };
   const merged = spec.tasks.filter((t) => t.status === 'merged' || t.status === 'cancelled').length;
   const needsYou = spec.tasks.filter((t) => t.status === 'awaiting_approval' || t.status === 'blocked' || t.status === 'failed').length;
 
@@ -301,11 +300,8 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
             <span className="build-field__label">Title</span>
             <input className="build-input" value={current.title} disabled={!editable} onChange={(e) => { setDraft({ ...current, title: e.target.value }); }} />
           </label>
-          <RepoField value={current.repo} repos={repos} disabled={!editable} onChange={(repo) => { setDraft({ ...current, repo }); }} />
-          <label className="build-field">
-            <span className="build-field__label">Base branch</span>
-            <input className="build-input" value={current.baseBranch} disabled={!editable} onChange={(e) => { setDraft({ ...current, baseBranch: e.target.value }); }} />
-          </label>
+          <RepoField value={current.repo} repos={repos} disabled={!editable} onChange={(repo) => { setDraft({ ...current, repo, baseBranch: '' }); }} />
+          <BranchField repo={current.repo} value={current.baseBranch} disabled={!editable} onChange={setBaseBranch} />
           <label className="build-field">
             <span className="build-field__label">Agents at once</span>
             <select className="build-select" value={spec.maxParallel} disabled={!editable || busy !== null}

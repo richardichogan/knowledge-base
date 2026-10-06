@@ -1562,6 +1562,11 @@ export class KnowledgeHubApi {
     const r = await this.client.get<ApiResponse<BuildAgent[]>>('/api/build/agents', { params: { repo } });
     return r.data;
   }
+
+  async listBuildBranches(repo: string): Promise<ApiResponse<{ defaultBranch: string; branches: string[] }>> {
+    const r = await this.client.get<ApiResponse<{ defaultBranch: string; branches: string[] }>>('/api/build/branches', { params: { repo } });
+    return r.data;
+  }
 }
 
 export type BuildAgent = 'copilot' | 'claude';
