@@ -7,6 +7,7 @@
  *   My Work    — Output feed (commits, posts, completed tasks)
  *   Think      — Notes + Canvas scratchpad
  *   Library    — Formal markdown document library
+ *   Build      — Spec → tasks → GitHub cloud coding agents → merged PRs
  *
  * AI Chat is a floating popup widget in the bottom-right corner.
  * Search is Cmd+K (command palette — not yet implemented).
@@ -33,6 +34,7 @@ import {
   Folder,
   Flash,
   Network_3,
+  Code,
 } from '@carbon/icons-react';
 import { FloatingAIChat } from './FloatingAIChat';
 import { CommandPalette } from './CommandPalette';
@@ -59,6 +61,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/my-work',  label: 'My Work',  icon: Portfolio },
   { path: '/think',    label: 'Think',    icon: Idea },
   { path: '/library',  label: 'Library',  icon: Book },
+  { path: '/build',    label: 'Build',    icon: Code },
   { path: '/projects', label: 'Projects', icon: Portfolio },
 ];
 

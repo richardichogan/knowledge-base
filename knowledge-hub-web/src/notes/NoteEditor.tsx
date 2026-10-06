@@ -11,7 +11,8 @@ import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
 import { setActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
-import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram } from '@carbon/icons-react';
+import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code } from '@carbon/icons-react';
+import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import { api } from '../services/api';
@@ -118,6 +119,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [buildDialogOpen, setBuildDialogOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -553,6 +555,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           <button className="kb-import-btn" onClick={() => { setGithubModalOpen(true); }}>
             <LogoGithub size={16} /> Push to GitHub
           </button>
+          <button className="kb-import-btn" title="Turn this note into a build spec for GitHub cloud coding agents" onClick={() => { setBuildDialogOpen(true); }}>
+            <Code size={16} /> Send to Build
+          </button>
           {onDelete && (
             <button
               className="kb-import-btn kb-import-btn--danger"
@@ -707,6 +712,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         {...(onMapNote !== undefined && { onMapNote })}
       />
 
+      {buildDialogOpen && <SendToBuildDialog source={{ kind: 'note', noteId: doc.id }} onClose={() => { setBuildDialogOpen(false); }} />}
       <GitHubModal
         open={githubModalOpen}
         defaultFilePath={defaultFilePath}

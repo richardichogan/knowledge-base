@@ -33,6 +33,7 @@ import { connectionRouter } from './routes/connectionRoutes.js';
 import certScoresRouter from './routes/certScores.js';
 import { graphRouter } from './routes/graphRoutes.js';
 import { canvasRouter } from './routes/canvasRoutes.js';
+import { buildRouter } from './routes/build.js';
 import { DIAGRAM_LIMITS } from './services/diagramValidation.js';
 import { KnowledgeHubError, PayloadTooLargeError } from './types/errors.js';
 import { voiceRouter } from './routes/voiceRoutes.js';
@@ -131,6 +132,7 @@ export function createApp(): express.Application {
   app.use('/api/cert-scores', certScoresRouter);
   app.use('/api/graph', graphRouter);
   app.use('/api/canvases', canvasRouter);
+  app.use('/api/build', buildRouter);
   app.use('/api/today', todayRouter);
   app.use('/api/repo-project-mappings', repoProjectMappingsRouter);
 

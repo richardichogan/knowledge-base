@@ -7,6 +7,7 @@ import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
 import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
 import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
+import { tickBuildRunner } from '../build/buildRunner.js';
 
 /**
  * Scheduler for sync jobs.
@@ -22,6 +23,7 @@ const SYNC_HOURS = [8, 14, 20]; // Run at these hours only
 const SYNC_CHECK_INTERVAL = 5 * MS_PER_MINUTE; // Check every 5 min if it's time to run
 const EDGE_JOB_HOUR = 8; // Run inferred edges at 08:00 daily
 const FOUNDRY_BACKFILL_INTERVAL_MS = 60 * MS_PER_MINUTE; // Sweep for un-indexed content_items hourly
+const BUILD_RUNNER_INTERVAL_MS = 2 * MS_PER_MINUTE; // Poll cloud-agent PRs for running build specs
 
 const timers: ReturnType<typeof setInterval>[] = [];
 let lastSyncHour = -1; // Track the last hour we ran sync to avoid double-runs
@@ -156,6 +158,16 @@ export function startSyncScheduler(): void {
   } else {
     console.warn('[Scheduler] Inferred edge job scheduled daily at 08:00; Foundry IQ backfill sweep scheduled hourly.');
   }
+
+  // Build pipeline runner — follows cloud-agent PRs for running build specs.
+  // Cheap no-op (one indexed query) when nothing is running.
+  timers.push(
+    setInterval(() => {
+      void tickBuildRunner().catch((err: unknown) => {
+        console.error('[Scheduler] Build runner tick failed:', err instanceof Error ? err.message : String(err));
+      });
+    }, BUILD_RUNNER_INTERVAL_MS),
+  );
 }
 
 /** Clears all scheduled timers. Call on graceful shutdown. */

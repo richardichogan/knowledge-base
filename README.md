@@ -56,6 +56,34 @@ Diagram documents and their last 50 saved revisions are stored in PostgreSQL. Sa
 
 Limits are 1,000 nodes, 2,000 connectors, 100 bends per connector, 200 uploaded assets per canvas and 5 MiB per asset. Uploaded PNGs are limited to 16,384 pixels per side and 40 million pixels. Run backend validation and revision-conflict checks from `knowledge-hub-backend` with `node --import tsx/esm --test scripts\diagram.test.ts`; these include every bundled icon and reject unsafe SVG uploads.
 
+## Build (GitHub cloud coding agents)
+
+**Build** turns a spec into dependency-ordered tasks and runs them on GitHub's cloud-hosted coding agents (Copilot coding agent or Claude), not the local agents in VS Code or the Copilot app.
+
+1. Create a spec on the Build page, or use **Send to Build** on a Think note or a markdown Athena output. Pick the GitHub repo and, optionally, a base branch.
+2. **Decompose**: Athena splits the spec into small tasks, each with dependencies, a size (S/M/L) and a suggested agent with a reason. You can change the agent and dependencies before starting.
+3. **Start**: each ready task becomes a GitHub issue assigned to its agent (at most *max parallel* at once). The agent opens a PR from its own branch.
+4. The runner checks every two minutes; **Check now** runs a pass immediately. It then does the following:
+   - Asks the agent (via a PR comment) to fix failing checks or merge conflicts.
+   - Squash-merges the PR once checks pass, if auto-merge is on.
+
+   A task waits for you (*awaiting approval*, use **Merge now**) when any of these apply:
+   - Auto-merge is off.
+   - No CI checks ran.
+   - The PR changes `.github/workflows/`.
+
+   A task is marked *blocked* after repeated failed fix requests, or if the PR is closed unmerged; **Retry** puts it back in the loop. Merging a task releases the tasks that depend on it.
+
+Setup:
+
+- Enable the agent(s) for the target repo in GitHub (Copilot coding agent and/or the Claude agent). **Start** fails with `BUILD_AGENT_UNAVAILABLE` if a chosen agent isn't assignable.
+- Set `GITHUB_AGENT_TOKEN` to a **user** fine-grained PAT with read/write on contents, issues, pull requests and actions for the target repos. It falls back to `GITHUB_ACCESS_TOKEN`. In production, store it as a Container App secret: `az containerapp secret set ... --secrets github-agent-token=<pat>`, then `--set-env-vars GITHUB_AGENT_TOKEN=secretref:github-agent-token`.
+- Workflows on agent PRs may need **Approve and run workflows** in GitHub before checks run; until they run, the task stays *awaiting approval*.
+- The runner is off in local development so a dev backend never dispatches alongside production; set `BUILD_RUNNER_ENABLED=true` to enable it. Note that the local `.env` points at the production database.
+- Migration `056_build_pipeline.sql` (`build_specs`, `build_tasks`, `build_events`) runs on startup.
+
+Tests: from `knowledge-hub-backend`, `node --import tsx/esm --test scripts\build.test.ts`.
+
 ## Today
 
 Today prioritises overdue, blocked, urgent and near-due Plan tasks, failed connections/automation, and open Athena decisions. Recent Think notes, canvases, in-progress tasks and saved Outputs form a separate continuation list; routine activity is grouped rather than shown as a feed. Discover suggestions require a stored relevance explanation, and Spark clusters need at least four Sparks.
@@ -204,6 +232,8 @@ All required variables are documented in `knowledge-hub-backend/.env.example`.
 | `GITLAB_USER_ID` | GitLab user ID |
 | `GITHUB_TOKEN` | GitHub personal access token |
 | `GITHUB_USERNAME` | GitHub username |
+| `GITHUB_AGENT_TOKEN` | User fine-grained PAT for the Build pipeline (assign cloud agents, merge PRs); falls back to `GITHUB_ACCESS_TOKEN`. Secret — use `secretref:` |
+| `BUILD_RUNNER_ENABLED` | `true` to run the Build runner in development (always on in production) |
 | `PODCAST_RSS_URL` | Podcast RSS feed URL |
 | `CMS_BLOB_CONTAINER` | Blob container name (default: `blogcontent`) |
 | `CMS_POSTS_PREFIX` | Blob path prefix (default: `posts/`) |

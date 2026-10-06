@@ -8,7 +8,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Copy, Edit, TrashCan, DocumentExport, Checkmark } from '@carbon/icons-react';
+import { Copy, Edit, TrashCan, DocumentExport, Checkmark, Code } from '@carbon/icons-react';
+import { SendToBuildDialog } from '../../features/build/buildShared';
 import { api } from '../../services/api';
 import { renderMarkdown } from '../../utils/markdown';
 import { sanitizeHtml } from '../../utils/sanitizeHtml';
@@ -36,6 +37,7 @@ export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refre
   const [draft, setDraft] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
+  const [buildOutputId, setBuildOutputId] = useState<string | null>(null);
 
   const list = useQuery({
     queryKey: ['chat-outputs', sessionId, refreshKey],
@@ -167,6 +169,14 @@ export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refre
               >
                 <DocumentExport size={16} aria-hidden="true" /><span className="cds--visually-hidden">Save to Think</span>
               </button>
+              {output.format === 'markdown' && (
+                <button
+                  type="button" className="ai-output__btn" title="Send to Build (GitHub coding agents)"
+                  onClick={() => { setBuildOutputId(output.id); }}
+                >
+                  <Code size={16} aria-hidden="true" /><span className="cds--visually-hidden">Send to Build</span>
+                </button>
+              )}
               <button
                 type="button" className="ai-output__btn ai-output__btn--danger" title="Delete"
                 onClick={() => {
@@ -234,6 +244,9 @@ export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refre
             />
           )}
         </div>
+      )}
+      {buildOutputId !== null && (
+        <SendToBuildDialog source={{ kind: 'output', outputId: buildOutputId }} onClose={() => { setBuildOutputId(null); }} />
       )}
     </div>
   );
