@@ -115,9 +115,8 @@ columns and mobile one; editing retains all full-length content.
 Chat drafts are saved per conversation in the current browser tab and restored
 after refresh. A draft is cleared only once the server accepts its turn;
 the new conversation ID is saved before authentication or network requests.
-Expired Microsoft sign-in no longer redirects an active page automatically:
-the app stays open and offers **Sign in again** in a popup. If that popup is
-blocked or cancelled, the error is shown and the draft stays available to retry.
+If Microsoft sign-in has expired, the page redirects to sign in as before;
+the draft is saved in session storage first and restored on return.
 
 Project dates are returned as `YYYY-MM-DD` calendar dates (or `null`), without
 timezone conversion, so editing a dated project preserves its dates. Project

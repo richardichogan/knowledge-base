@@ -28,7 +28,6 @@ import { MoveToThink } from '../components/athena/MoveToThink';
 import { UsedLine } from '../components/athena/UsedLine';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { useChatDraft } from '../hooks/useChatDraft';
-import { SignInRequiredError } from '../services/auth';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
 import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
 import { CHAT_IMAGE_TYPES, isChatImage, clipboardImageName } from '../components/athena/attachments';
@@ -789,10 +788,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     onError: (err: unknown) => {
       // This view let go of the turn (switched chats) — it finishes in its own chat.
       if (err instanceof TurnDetachedError) return;
-      if (err instanceof SignInRequiredError) {
-        appendMessage('assistant', `${err.message} Your draft has been kept.`);
-        return;
-      }
       // User pressed Stop — the request was deliberately aborted client-side. Not a real
       // failure, but confirm it visibly so it's clear Stop actually did something. The reply
       // (if the backend finishes generating it anyway) is simply discarded from here on.

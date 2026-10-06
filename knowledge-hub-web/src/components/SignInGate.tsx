@@ -4,7 +4,7 @@
  * (local dev).
  */
 import React, { useEffect, useState } from 'react';
-import { AUTH_ENABLED, AUTH_REQUIRED_EVENT, initAuth, signIn, renewSignIn } from '../services/auth';
+import { AUTH_ENABLED, initAuth, signIn } from '../services/auth';
 
 type State = 'checking' | 'signed-in' | 'signed-out' | 'error';
 
@@ -18,28 +18,6 @@ interface Props { children: React.ReactNode; }
 export const SignInGate: React.FC<Props> = ({ children }) => {
   const [state, setState] = useState<State>(AUTH_ENABLED ? 'checking' : 'signed-in');
   const [error, setError] = useState('');
-  const [renewalRequired, setRenewalRequired] = useState(false);
-  const [renewing, setRenewing] = useState(false);
-  const [renewalError, setRenewalError] = useState('');
-
-  useEffect(() => {
-    const onRequired = (): void => { setRenewalRequired(true); };
-    window.addEventListener(AUTH_REQUIRED_EVENT, onRequired);
-    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, onRequired);
-  }, []);
-
-  async function handleRenew(): Promise<void> {
-    setRenewing(true);
-    setRenewalError('');
-    try {
-      await renewSignIn();
-      setRenewalRequired(false);
-    } catch (err) {
-      setRenewalError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRenewing(false);
-    }
-  }
 
   useEffect(() => {
     if (!AUTH_ENABLED) return;
@@ -63,18 +41,7 @@ export const SignInGate: React.FC<Props> = ({ children }) => {
       .catch((err: unknown) => { setError(err instanceof Error ? err.message : String(err)); setState('error'); });
   }, []);
 
-  if (state === 'signed-in') return <>
-    {renewalRequired && <div className="kh-auth-renewal" role="alert">
-      <div>
-        <p>Your sign-in has expired. Your work stays open while you sign in again.</p>
-        {renewalError && <p className="kh-auth-renewal__error">Sign-in failed: {renewalError}</p>}
-      </div>
-      <button type="button" className="kh-btn-accent" disabled={renewing} onClick={() => { void handleRenew(); }}>
-        {renewing ? 'Signing in...' : 'Sign in again'}
-      </button>
-    </div>}
-    {children}
-  </>;
+  if (state === 'signed-in') return <>{children}</>;
 
   return (
     <div className="pw-gate">

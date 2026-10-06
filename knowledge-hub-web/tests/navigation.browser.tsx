@@ -15,7 +15,6 @@ import { BuildPage } from '../src/features/build/BuildPage';
 import { ProjectsPage } from '../src/pages/ProjectsPage';
 import { AIChatPage } from '../src/pages/AIChatPage';
 import { SignInGate } from '../src/components/SignInGate';
-import { AUTH_REQUIRED_EVENT, SignInRequiredError } from '../src/services/auth';
 import { MetadataPanel } from '../src/notes/MetadataPanel';
 import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types/apiResponse';
@@ -408,21 +407,15 @@ export async function runNavigationChecks(): Promise<string[]> {
   await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
   check(window.localStorage.getItem('kh-athena-session-id-standalone') !== 'late-briefing', 'Late morning briefing cannot replace a draft or restored conversation');
   api.getMorningBriefing = async () => success(null);
-  window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
-  await waitFor(() => document.querySelector('.kh-auth-renewal') !== null);
-  check(selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText, 'Renewal banner leaves working chat mounted');
   await go('/');
   await go('/chat');
   await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText);
-  selector<HTMLButtonElement>('.kh-auth-renewal button').click();
-  await waitFor(() => document.querySelector('.kh-auth-renewal') === null);
   let attemptedSession = '';
   api.startChatTurn = async (request) => {
     attemptedSession = request.sessionId ?? '';
     check(attemptedSession !== '', 'New conversation ID exists before authentication/network');
     check(window.localStorage.getItem('kh-athena-session-id-standalone') === attemptedSession, 'Conversation ID persisted before send');
-    window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
-    throw new SignInRequiredError();
+    throw new Error('Simulated failed send');
   };
   selector<HTMLFormElement>('.ai-input-row').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   await waitFor(() => attemptedSession !== '' && !selector<HTMLTextAreaElement>('#ai-chat-input').disabled);
@@ -432,10 +425,8 @@ export async function runNavigationChecks(): Promise<string[]> {
   await go('/chat');
   await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText && !selector<HTMLTextAreaElement>('#ai-chat-input').disabled);
   check(window.localStorage.getItem('kh-athena-session-id-standalone') === attemptedSession, 'Remount restores same conversation');
-  selector<HTMLButtonElement>('.kh-auth-renewal button').click();
-  await waitFor(() => document.querySelector('.kh-auth-renewal') === null);
   await go('/');
-  results.push('Expired sign-in keeps chat mounted; draft and new session survive rejected send and remount without auto-resending');
+  results.push('Failed send keeps chat mounted; draft and new session survive rejected send and remount without auto-resending');
   return results;
 }
 

@@ -300,3 +300,11 @@ Validated on 2026-10-04 (11:10-11:15 BST):
   migrations copied into the production image. ACR performs the container build.
 - No infrastructure templates are involved in this application-only deployment,
   so Bicep compilation, ARM validation, what-if, and RBAC template checks are not applicable.
+
+### Login regression fix — frontend only (backend v165 unchanged)
+
+- Cause: the popup-based "Sign in again" (commit `088b0bc`) needed an MSAL 5 `/signin` redirect bridge that was never added, so login was broken.
+- Fix: `auth.ts`, `SignInGate.tsx` and `main.tsx` are restored to their exact pre-`088b0bc` versions; `git diff --stat 088b0bc~1` for these files is empty. The banner CSS and `SignInRequiredError` handling were removed. Saving chat drafts in session storage is unchanged.
+- `npx tsc --noEmit` passed for the web app, test fixtures and backend.
+- Browser suite passed at 1440, 1024 and 390, including the real reload test that preserves the draft and session.
+- `npm run build` passed.
