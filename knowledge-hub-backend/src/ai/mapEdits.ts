@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import type { CanvasFull, MapOp, RefType } from '../services/canvasService.js';
+import { assertBrainstorm, type CanvasFull, type MapOp, type RefType } from '../services/canvasService.js';
 
 export interface MapChangeProposal {
   summary: string;
@@ -51,6 +51,7 @@ export async function resolveMapChanges(
   map: CanvasFull,
   aliases: Map<string, string>,
 ): Promise<{ proposals: MapChangeProposal[]; problems: string[] }> {
+  assertBrainstorm(map);
   const list = (Array.isArray(raw) ? raw : []).slice(0, MAX_CHANGES);
   const keys = new Map<string, string>(); // Athena's key for a new card → its id
   const proposals: MapChangeProposal[] = [];

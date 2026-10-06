@@ -651,6 +651,9 @@ export async function executeToolCall(
       return { proposed: edits.length, ...(problems.length > 0 && { skipped: problems }), note: 'Shown to the user as a preview with Apply/Discard.' };
     }
     case 'propose_map_changes': {
+      if (turn.mapCanvas !== undefined && turn.mapCanvas.canvasType !== 'brainstorm') {
+        return { error: 'The open canvas is a diagram, not a brainstorm canvas: propose_map_changes cannot change it. Tell the user to edit the diagram in the diagram editor.' };
+      }
       if (turn.mapAliases === undefined || turn.mapCanvas === undefined) return { error: 'No canvas is open next to this chat.' };
       const { proposals, problems } = await resolveMapChanges(db, args['changes'], turn.mapCanvas, turn.mapAliases);
       if (proposals.length === 0) return { error: `No valid changes: ${problems.join('; ') || 'changes array was empty'}` };

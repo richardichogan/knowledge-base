@@ -10,6 +10,37 @@ A unified personal intelligence layer that aggregates content, code activity, ca
 
 **Export chat to Think** saves one note containing the full latest version of every saved Output, without AI summarisation or a generation-token limit. Separate Outputs remain unchanged. Show Notes packages follow the podcast section order; YouTube plain text and Spotify HTML are preserved in code blocks. Chats without Outputs retain the structured conversation export.
 
+## Think canvases
+
+**New canvas** offers two separate editors:
+
+- **Brainstorm** preserves the existing network of idea cards and linked Think/Library/Athena content.
+- **Diagram** is a visual editor for architecture diagrams and process flows: shapes, text, nested containers/swimlanes, attached straight/right-angle connectors, PNG/SVG icons and compact formatting controls. Diagrams are editable documents, not screenshots. Note-linked diagrams and brainstorms remain separate; the note's brainstorming action still opens a brainstorm.
+
+Paste image data copied from msicons.com, drag an image file onto the diagram, or upload PNG/SVG. Some websites/browsers copy only an image URL rather than image bytes; in that case download the icon and upload it. Imported SVG must be a self-contained, safe image: scripts, external resources and active content are rejected. Icons preserve their aspect ratio.
+
+The **Microsoft icons** picker contains a curated official set from Azure, Power Platform, Fabric and Microsoft 365 architecture symbols. It is bundled locally rather than fetched from third-party sites while drawing. Microsoft 365 symbols are not current product logos. Product marks must not be distorted, recoloured or used as your own branding; sources and permitted-use terms are in `knowledge-hub-web/public/diagram-icons/NOTICE.txt`.
+
+PNG/SVG export includes the full diagram, including objects outside the viewport, and embeds icons. SVG remains scalable; a PNG icon embedded in an SVG remains raster. PNG output is limited to 16,384 pixels per side and 64 megapixels; use SVG for larger drawings. Export fails explicitly if an icon has not loaded rather than silently omitting it.
+
+Diagram checks use the existing TypeScript loader and isolated browser fixture:
+
+```powershell
+cd knowledge-hub-web
+$loader = ([System.Uri](Resolve-Path '..\knowledge-hub-backend\node_modules\tsx\dist\loader.mjs').Path).AbsoluteUri
+node --import $loader --test src\features\diagram\tests\diagramGeometry.test.ts
+npx tsc --noEmit -p tests\tsconfig.json
+# Start Vite on a free port (the runner defaults to 5142); no backend is required.
+$env:TODAY_BROWSER_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+node tests\run-diagram-browser.mjs
+```
+
+The diagram fixture blocks live API/auth requests, uses test-only architecture/process data, and verifies full-bounds embedded SVG export and PNG rendering at desktop and mobile widths.
+
+Diagram documents and their last 50 saved revisions are stored in PostgreSQL. Saves use optimistic revision checks; a conflicting save reports an error instead of overwriting another session. Dedicated canvas-scoped image rows store PNG/SVG bytes without OCR or new blob containers, credentials or environment variables. Deleting a canvas deletes its diagram and assets. Migration `055_diagram_canvases.sql` runs through the normal startup migration path and preserves existing canvases as Brainstorm.
+
+Limits are 1,000 nodes, 2,000 connectors, 100 bends per connector, 200 uploaded assets per canvas and 5 MiB per asset. Uploaded PNGs are limited to 16,384 pixels per side and 40 million pixels. Run backend validation and revision-conflict checks from `knowledge-hub-backend` with `node --import tsx/esm --test scripts\diagram.test.ts`; these include every bundled icon and reject unsafe SVG uploads.
+
 ## Today
 
 Today prioritises overdue, blocked, urgent and near-due Plan tasks, failed connections/automation, and open Athena decisions. Recent Think notes, canvases, in-progress tasks and saved Outputs form a separate continuation list; routine activity is grouped rather than shown as a feed. Discover suggestions require a stored relevance explanation, and Spark clusters need at least four Sparks.

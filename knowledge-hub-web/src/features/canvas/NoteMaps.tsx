@@ -37,7 +37,7 @@ export const NoteMaps: React.FC<Props> = ({ noteId, onOpenMap, onMapNote }) => {
           <button key={m.id} type="button" className="mm-note-maps__item" onClick={() => { onOpenMap(m.id); }}>
             <Diagram size={16} />
             <span className="mm-note-maps__name">{m.title}</span>
-            <span className="mm-note-maps__count">{m.nodeCount} ideas</span>
+            <span className="mm-note-maps__count">{m.canvasType === 'diagram' ? 'Diagram' : `${m.nodeCount} ideas`}</span>
           </button>
         ))
       )}

@@ -1,0 +1,29 @@
+Microsoft architecture icons
+
+These unmodified icons are provided only for architectural diagrams, training
+materials and documentation. Microsoft permits copying, distribution and display
+for these uses and reserves all other rights. Do not distort, crop, rotate or
+recolour product icons, or use them to represent your own product or service.
+Include the product name near product icons.
+
+Sources:
+Azure Public Service Icons V24:
+https://learn.microsoft.com/en-us/azure/architecture/icons/
+https://arch-center.azureedge.net/icons/Azure_Public_Service_Icons_V24.zip
+
+Power Platform icons (including Microsoft Agent 365):
+https://learn.microsoft.com/en-us/power-platform/guidance/icons
+https://download.microsoft.com/download/498606aa-6d27-4f13-aa5c-1401078c153b/Power-Platform-icons-scalable.zip
+See also the included CELA_Licenses_Public_Use_Icons.pdf.
+
+Fabric icons v6.1.0:
+https://learn.microsoft.com/en-us/fabric/fundamentals/icons
+https://github.com/microsoft/fabric-samples/blob/main/docs-samples/Icons.zip
+See FABRIC-LICENSE.txt for the distributed MIT licence.
+
+Microsoft 365 architecture symbols (generic symbols, not current product logos):
+https://learn.microsoft.com/en-us/previous-versions/microsoft-365/solutions/architecture-icons-templates
+https://go.microsoft.com/fwlink/?linkid=869455
+
+The catalog is a curated starting set. Other product icons can be pasted or
+uploaded by users subject to their source's applicable terms.

@@ -33,6 +33,7 @@ import type {
   MemoryScopeType,
 } from '../types';
 import { getApiToken } from './auth';
+import type { DiagramAsset, DiagramDocument, DiagramSnapshot } from '../features/diagram/diagramTypes';
 
 // Use relative base URL so all requests go through the Vite dev proxy.
 const BASE_URL = import.meta.env['VITE_API_URL'] as string | undefined ?? '';
@@ -1382,7 +1383,7 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async createCanvas(input: { title?: string; rootLabel?: string; noteId?: string; project?: string } = {}): Promise<ApiResponse<CanvasFullApi>> {
+  async createCanvas(input: { title?: string; rootLabel?: string; noteId?: string; project?: string; canvasType?: 'brainstorm' | 'diagram' } = {}): Promise<ApiResponse<CanvasFullApi>> {
     const r = await this.client.post<ApiResponse<CanvasFullApi>>('/api/canvases', input);
     return r.data;
   }
@@ -1390,6 +1391,24 @@ export class KnowledgeHubApi {
   async getCanvas(id: string): Promise<ApiResponse<CanvasFullApi>> {
     const r = await this.client.get<ApiResponse<CanvasFullApi>>(`/api/canvases/${id}`);
     return r.data;
+  }
+
+  async getDiagram(id: string): Promise<ApiResponse<DiagramSnapshot>> {
+    return (await this.client.get<ApiResponse<DiagramSnapshot>>(`/api/canvases/${id}/diagram`)).data;
+  }
+
+  async saveDiagram(id: string, revision: number, document: DiagramDocument): Promise<ApiResponse<DiagramSnapshot>> {
+    return (await this.client.put<ApiResponse<DiagramSnapshot>>(`/api/canvases/${id}/diagram`, { revision, document })).data;
+  }
+
+  async uploadDiagramAsset(id: string, file: Blob, name: string): Promise<ApiResponse<DiagramAsset>> {
+    return (await this.client.post<ApiResponse<DiagramAsset>>(`/api/canvases/${id}/assets`, file, {
+      headers: { 'Content-Type': file.type }, params: { name }, timeout: IMAGE_UPLOAD_TIMEOUT_MS,
+    })).data;
+  }
+
+  async getDiagramAsset(id: string, assetId: string): Promise<Blob> {
+    return (await this.client.get<Blob>(`/api/canvases/${id}/assets/${assetId}`, { responseType: 'blob' })).data;
   }
 
   async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; viewport?: object }): Promise<ApiResponse<CanvasSummaryApi>> {
@@ -1499,6 +1518,7 @@ export type MapRefType = typeof MAP_REF_TYPES[number];
 
 export interface CanvasSummaryApi {
   id: string; title: string; description: string | null;
+  canvasType: 'brainstorm' | 'diagram';
   project: string | null; createdAt: string; updatedAt: string;
   linkedNotes: Array<{ id: string; title: string }>;
   nodeCount: number;

@@ -6,7 +6,7 @@
  * is itself a linked note or document. Items already on the map are hidden.
  */
 import { getDb } from '../db/db.js';
-import type { CanvasFull, RefType } from './canvasService.js';
+import { assertBrainstorm, type CanvasFull, type RefType } from './canvasService.js';
 
 export type SuggestionKind = 'note' | 'document' | 'meeting' | 'post' | 'article' | 'chat';
 
@@ -55,6 +55,7 @@ function terms(text: string): string[] {
 export interface SuggestionText { label?: string; body?: string; contextLabels?: string }
 
 export async function suggestionsFor(map: CanvasFull, nodeId: string | undefined, text: SuggestionText = {}): Promise<MapSuggestion[]> {
+  assertBrainstorm(map);
   const db = getDb();
   // Default focus: the first card (usually the pinned note).
   const first = map.nodes[0];

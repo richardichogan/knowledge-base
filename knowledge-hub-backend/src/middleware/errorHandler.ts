@@ -26,7 +26,7 @@ export function errorHandler(
       error: {
         code: err.code,
         message: err.message,
-        ...(err.name === 'ValidationError' && 'fields' in err
+        ...((err.name === 'ValidationError' || err.name === 'ConflictError') && 'fields' in err
           ? { fields: err.fields as Record<string, string> }
           : {}),
       },

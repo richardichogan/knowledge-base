@@ -88,3 +88,21 @@ export class ConfigurationError extends KnowledgeHubError {
     this.name = 'ConfigurationError';
   }
 }
+
+/** 409: the request conflicts with the resource's current state (e.g. a stale revision). */
+export class ConflictError extends KnowledgeHubError {
+  public readonly fields: Record<string, string>;
+
+  public constructor(message: string, code: string, fields: Record<string, string> = {}) {
+    super(message, 409, code);
+    this.name = 'ConflictError';
+    this.fields = fields;
+  }
+}
+
+export class PayloadTooLargeError extends KnowledgeHubError {
+  public constructor(detail: string) {
+    super(detail, 413, 'PAYLOAD_TOO_LARGE');
+    this.name = 'PayloadTooLargeError';
+  }
+}

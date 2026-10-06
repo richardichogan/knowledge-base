@@ -33,6 +33,8 @@ import { connectionRouter } from './routes/connectionRoutes.js';
 import certScoresRouter from './routes/certScores.js';
 import { graphRouter } from './routes/graphRoutes.js';
 import { canvasRouter } from './routes/canvasRoutes.js';
+import { DIAGRAM_LIMITS } from './services/diagramValidation.js';
+import { KnowledgeHubError, PayloadTooLargeError } from './types/errors.js';
 import { voiceRouter } from './routes/voiceRoutes.js';
 import { todayRouter } from './routes/today.js';
 import { repoProjectMappingsRouter } from './routes/repoProjectMappings.js';
@@ -72,6 +74,10 @@ export function createApp(): express.Application {
   // edit applied to one) is well past 1mb. Chat turns carry the open note's text too.
   app.use('/api/notes', express.json({ limit: '25mb' }));
   app.use('/api/ai', express.json({ limit: '8mb' }));
+  // Diagram canvases: asset uploads are a raw PNG/SVG body (validated in diagramValidation.ts,
+  // 5 MiB cap); a diagram document of up to 1000 nodes / 2000 edges is well past 1mb of JSON.
+  app.use(/^\/api\/canvases\/[^/]+\/assets\/?$/, mapBodyErrors(express.raw({ type: () => true, limit: DIAGRAM_LIMITS.maxAssetBytes })));
+  app.use(/^\/api\/canvases\/[^/]+\/diagram\/?$/, mapBodyErrors(express.json({ limit: '8mb' })));
   app.use(express.json({ limit: '1mb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
@@ -137,4 +143,17 @@ export function createApp(): express.Application {
   app.use(errorHandler);
 
   return app;
+}
+
+/** Turns body-parser failures into 413 / 400 API errors instead of a generic 500. */
+function mapBodyErrors(parser: express.RequestHandler): express.RequestHandler {
+  return (req, res, next) => {
+    parser(req, res, (err?: unknown) => {
+      if (err === undefined || err === null) { next(); return; }
+      const type = (err as { type?: unknown }).type;
+      if (type === 'entity.too.large') { next(new PayloadTooLargeError('Request body is too large')); return; }
+      if (type === 'entity.parse.failed') { next(new KnowledgeHubError('Request body is not valid JSON', 400, 'INVALID_JSON')); return; }
+      next(err);
+    });
+  };
 }

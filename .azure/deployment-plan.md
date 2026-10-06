@@ -4,8 +4,9 @@
 
 ## 1. Scope
 
-Deploy the Today visual-consistency corrections to the existing production frontend.
-The backend and database remain unchanged for this deployment:
+Deploy the two Think canvas types (Brainstorm and Diagram) to the existing
+production backend and frontend. The additive migration 055 preserves old
+canvases as Brainstorm and adds diagram documents, revisions and private assets:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
 - Frontend: Azure Static Web App `kh-prod-web`
@@ -62,6 +63,27 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Two-canvas deployment validated on 2026-10-06 (05:14-05:18 BST):
+
+- Backend `npx tsc --noEmit` and `npm run build` passed.
+- Frontend `npx tsc --noEmit` and `npm run build` passed.
+- Completed implementation verification includes 30 geometry checks, 21 backend
+  validation/conflict checks, 10 Today regression checks and actual editor
+  browser interactions at 1440px/390px (including icon paste/library,
+  save/reopen/conflicts, export and desktop pointer/nesting/resize/connect).
+- Existing resource reads confirmed subscription
+  `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`, resource group `rg-knowledge-hub-prod`
+  in `uksouth`, Container App `kh-prod-api-vnet` and Static Web App `kh-prod-web`.
+- Previous backend image is `kh-prod-api:v155`, ready revision `--0000152`;
+  this deployment uses `v156`.
+- Dockerfile reviewed: locked dependencies, TypeScript build and migration 055
+  copied through `src/db/migrations/*.sql` into the runtime image.
+- No new environment variables or resources are required. Existing registry
+  secret authentication is unchanged; managed-identity AcrPull propagation
+  checks are not applicable. No infrastructure/RBAC/policy templates change,
+  so Bicep/ARM/what-if/provisioning checks are not applicable.
+- ACR will build and verify the exact pushed source before the image update.
 
 Frontend-only correction validated on 2026-10-04 (13:37 BST):
 

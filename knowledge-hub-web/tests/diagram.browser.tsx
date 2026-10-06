@@ -1,0 +1,194 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { DiagramEditor } from '../src/features/diagram/DiagramEditor';
+import { api } from '../src/services/api';
+import type { ApiResponse } from '../src/types';
+import type { DiagramDocument, DiagramNode, DiagramSnapshot } from '../src/features/diagram/diagramTypes';
+import { diagramSvg } from '../src/features/diagram/diagramExport';
+import '../src/styles/global.scss';
+
+const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+const canvasId = crypto.randomUUID();
+const assetId = crypto.randomUUID();
+const icon = new Blob(['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="#0078d4" d="M4 28L14 4H22L30 28H22L18 16L12 28Z"/></svg>'], { type: 'image/svg+xml' });
+const assets = new Map<string, Blob>([[assetId, icon]]);
+const node = (label: string, kind: DiagramNode['kind'], x: number, y: number, width: number, height: number, parentId: string | null = null): DiagramNode => ({
+  id: crypto.randomUUID(), label, kind, x, y, width, height, parentId,
+  fill: kind === 'container' || kind === 'swimlane' ? '#fff2cc' : '#ffffff',
+  stroke: '#333333', textColor: '#111111', fontSize: 14, assetId: null,
+});
+const experience = node('Experience', 'container', 40, 60, 160, 420);
+const channel = { ...node('Teams / Copilot', 'image', 65, 115, 110, 100, experience.id), assetId };
+const runtime = node('Agent Runtime', 'container', 260, 60, 400, 170);
+const workforce = node('Workforce agents', 'process', 280, 110, 160, 70, runtime.id);
+const business = node('Business agents', 'process', 460, 110, 170, 70, runtime.id);
+const bus = node('Agentic Service Bus', 'process', 280, 300, 350, 100);
+const data = node('Enterprise data', 'process', 740, 300, 180, 100);
+const lifecycle = node('Lifecycle / Agent SDLC', 'swimlane', 40, 550, 880, 160);
+const start = node('Start', 'terminator', 65, 600, 125, 65, lifecycle.id);
+const decision = node('Approved?', 'decision', 265, 590, 150, 85, lifecycle.id);
+const deploy = node('Deploy', 'process', 500, 600, 150, 65, lifecycle.id);
+const doc: DiagramDocument = {
+  version: 1, grid: true, viewport: { x: 20, y: 20, zoom: 0.8 },
+  nodes: [experience, runtime, lifecycle, channel, workforce, business, bus, data, start, decision, deploy],
+  edges: [
+    { id: crypto.randomUUID(), sourceId: experience.id, targetId: runtime.id, sourcePort: 'right', targetPort: 'left', route: 'straight', waypoints: [], label: '', stroke: '#333333', dashed: false, arrows: 'both' },
+    { id: crypto.randomUUID(), sourceId: runtime.id, targetId: bus.id, sourcePort: 'bottom', targetPort: 'top', route: 'orthogonal', waypoints: [], label: 'Coordinate', stroke: '#333333', dashed: false, arrows: 'both' },
+    { id: crypto.randomUUID(), sourceId: bus.id, targetId: data.id, sourcePort: 'right', targetPort: 'left', route: 'straight', waypoints: [], label: '', stroke: '#333333', dashed: false, arrows: 'end' },
+    { id: crypto.randomUUID(), sourceId: start.id, targetId: decision.id, sourcePort: 'right', targetPort: 'left', route: 'straight', waypoints: [], label: '', stroke: '#333333', dashed: false, arrows: 'end' },
+    { id: crypto.randomUUID(), sourceId: decision.id, targetId: deploy.id, sourcePort: 'right', targetPort: 'left', route: 'orthogonal', waypoints: [], label: 'Yes', stroke: '#333333', dashed: false, arrows: 'end' },
+  ],
+};
+let snapshot: DiagramSnapshot = { revision: 0, document: structuredClone(doc) };
+let saves = 0;
+let conflict = false;
+let missingDiagram = false;
+api.getDiagram = async () => {
+  if (missingDiagram) throw Object.assign(new Error('Diagram not found'), { isAxiosError: true, response: { status: 404 } });
+  return success(structuredClone(snapshot));
+};
+api.getCanvas = async () => success({
+  id: canvasId, title: 'Enterprise architecture / process flow', canvasType: 'diagram',
+  description: null, project: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  linkedNotes: [], nodeCount: snapshot.document.nodes.length, nodes: [], edges: [], viewport: snapshot.document.viewport,
+});
+api.saveDiagram = async (_id, revision, document) => {
+  if (conflict || revision !== snapshot.revision) throw Object.assign(new Error('Another session updated this diagram'), { isAxiosError: true, response: { status: 409 } });
+  snapshot = { revision: revision + 1, document: structuredClone(document) }; saves++;
+  return success(structuredClone(snapshot));
+};
+api.getDiagramAsset = async (_id, id) => {
+  const blob = assets.get(id);
+  if (!blob) throw new Error('Missing fixture asset');
+  return blob;
+};
+api.uploadDiagramAsset = async (_id, blob, name) => {
+  const id = crypto.randomUUID(); assets.set(id, blob);
+  return success({ id, name, contentType: blob.type });
+};
+api.updateCanvas = async () => success({
+  id: canvasId, title: 'Enterprise architecture / process flow', canvasType: 'diagram',
+  description: null, project: null, createdAt: '', updatedAt: '', linkedNotes: [], nodeCount: snapshot.document.nodes.length,
+});
+api.listCanvases = async () => success([]);
+
+const root = createRoot(window.document.getElementById('root')!);
+function mountEditor(): void { root.render(
+  <QueryClientProvider client={queryClient}>
+    <div className="kh-content" style={{ height: '100vh', padding: '24px' }}>
+      <div className="notes-editor-area notes-editor-area--map" style={{ height: '100%' }}>
+        <DiagramEditor canvasId={canvasId} onDeleted={() => undefined} />
+      </div>
+    </div>
+  </QueryClientProvider>,
+); }
+mountEditor();
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let i = 0; i < 100; i++) { if (predicate()) return; await delay(100); }
+  throw new Error('Fixture condition did not resolve');
+}
+function check(value: boolean, message: string): void { if (!value) throw new Error(message); }
+function clickButton(text: string): void {
+  const button = [...window.document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent?.trim() === text || el.title === text || el.getAttribute('aria-label') === text);
+  if (!button) throw new Error(`Missing diagram control: ${text}`);
+  button.click();
+}
+async function runDiagramChecks(): Promise<string[]> {
+  await waitFor(() => window.document.querySelector('.dg-editor') !== null);
+  const svg = await diagramSvg(snapshot.document, assets, 'white');
+  check(svg.includes('data:image/svg+xml;base64,'), 'SVG must embed icon bytes');
+  check(svg.includes('Agent Runtime') && svg.includes('Approved?'), 'Architecture and flow labels must export');
+  check(!svg.includes('blob:') && !svg.includes('href="https:'), 'Exports must be self-contained');
+  check(svg.includes('marker-start='), 'Bidirectional arrows must export');
+  const unsafeLabel = structuredClone(doc);
+  unsafeLabel.nodes[0]!.label = '<script>alert("test")</script>';
+  check(!(await diagramSvg(unsafeLabel, assets, 'transparent')).includes('<script>'), 'Labels must be XML escaped');
+  const missingAsset = new Map<string, Blob>();
+  let failed = false;
+  try { await diagramSvg(doc, missingAsset, 'white'); } catch { failed = true; }
+  check(failed, 'Missing export icons must fail explicitly');
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  try {
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => { image.onload = () => { resolve(); }; image.onerror = () => { reject(new Error('SVG export could not render')); }; image.src = url; });
+    check(image.width > 800 && image.height > 600, 'Export must include full diagram bounds');
+    const canvas = window.document.createElement('canvas');
+    canvas.width = image.width; canvas.height = image.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('PNG export canvas unavailable');
+    context.drawImage(image, 0, 0);
+    check(canvas.toDataURL('image/png').startsWith('data:image/png;base64,'), 'Embedded SVG icons must allow PNG export');
+  } finally { URL.revokeObjectURL(url); }
+  const count = (): number => window.document.querySelectorAll('g.dg-node').length;
+  const baseline = count();
+  clickButton('Add Process');
+  await waitFor(() => count() === baseline + 1);
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => count() === baseline);
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => count() === baseline + 1);
+  const addedNode = [...window.document.querySelectorAll('g.dg-node')].at(-1)!;
+  addedNode.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  await waitFor(() => window.document.querySelector('.dg-label-editor') !== null);
+  const field = window.document.querySelector<HTMLTextAreaElement>('.dg-label-editor')!;
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'Browser-verified process');
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  await delay(20);
+  field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await waitFor(() => snapshot.document.nodes.some((n) => n.label === 'Browser-verified process'));
+  clickButton('Duplicate (Ctrl+D)');
+  await waitFor(() => count() === baseline + 2);
+  await waitFor(() => snapshot.document.nodes.length === baseline + 2);
+  const editor = window.document.querySelector<HTMLElement>('.dg-editor')!;
+  const clipboard = new DataTransfer();
+  clipboard.items.add(new File([icon], 'clipboard.svg', { type: 'image/svg+xml' }));
+  editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }));
+  await waitFor(() => snapshot.document.nodes.filter((n) => n.kind === 'image').length === 2);
+  const links = new DataTransfer();
+  links.setData('text/plain', 'https://example.com/icon.svg');
+  editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: links, bubbles: true, cancelable: true }));
+  await waitFor(() => window.document.body.innerText.includes('download the image and upload it'));
+  conflict = true;
+  clickButton('Add Decision');
+  await waitFor(() => window.document.querySelector('.dg-status--conflict') !== null);
+  const localCount = count();
+  check(localCount > snapshot.document.nodes.length, 'Conflicting edits must remain locally visible');
+  conflict = false;
+  clickButton('Keep my version');
+  await waitFor(() => snapshot.document.nodes.length === localCount && window.document.querySelector('.dg-status--saved') !== null);
+  clickButton('Add image or icon');
+  await waitFor(() => window.document.querySelector('.dg-icons') !== null);
+  clickButton('Microsoft icons');
+  await waitFor(() => window.document.querySelectorAll('.dg-icons__grid button').length === 46);
+  window.document.querySelector<HTMLButtonElement>('.dg-icons__grid button')!.click();
+  await waitFor(() => snapshot.document.nodes.filter((n) => n.kind === 'image').length === 3);
+  check((await diagramSvg(snapshot.document, assets, 'white')).match(/data:image\/svg\+xml;base64,/g)?.length === 3, 'Library and pasted icons must all be embedded in exports');
+  const saved = structuredClone(snapshot);
+  root.render(null);
+  await waitFor(() => window.document.querySelector('.dg-editor') === null);
+  queryClient.clear();
+  mountEditor();
+  await waitFor(() => count() === saved.document.nodes.length);
+  check(window.document.body.innerText.includes('Browser-verified process'), 'Saved labels must survive reopening');
+  await waitFor(() => window.document.querySelectorAll('g.dg-node--image image').length === 3);
+  root.render(null);
+  await waitFor(() => window.document.querySelector('.dg-editor') === null);
+  missingDiagram = true;
+  mountEditor();
+  await waitFor(() => window.document.querySelector('.dg-editor[role="alert"]') !== null);
+  check(count() === 0 && window.document.body.innerText.includes('Diagram not found'), 'Missing diagrams must show an error, not a saved blank drawing');
+  check(window.document.documentElement.scrollWidth <= innerWidth + 1, 'No page horizontal overflow');
+  return ['Representative architecture and process flow render', 'SVG export full bounds, embedded icon and bidirectional arrows',
+    'PNG rasterisation with embedded SVG icon', 'Escaped labels and explicit missing-asset errors',
+    'Add, label editing, undo/redo and duplication', 'Image-file clipboard paste and explicit URL-only fallback',
+    'Save conflict retains local changes and explicit overwrite resolves it',     'Bundled Microsoft icon picker loads and embeds an official icon', 'Save and reopen retain labels and icons',
+    'Missing diagram displays an explicit load error', 'No horizontal page overflow'];
+}
+Object.assign(window, { runDiagramChecks, diagramFixture: {
+  snapshot: () => structuredClone(snapshot), saves: () => saves, conflict: (value: boolean) => { conflict = value; },
+  waitFor, clickButton,
+} });

@@ -213,8 +213,10 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
   for (const canvas of data.canvases) {
     if (canvas.nodeCount === 0 || recentScore(canvas.updatedAt) <= 0) continue;
     continuing.push({
-      id: `canvas:${canvas.id}`, title: canvas.title, type: 'Canvas', ...project(canvas.project),
-      reason: canvas.description || `${canvas.nodeCount} connected cards to develop in Think.`,
+      id: `canvas:${canvas.id}`, title: canvas.title, type: canvas.canvasType === 'diagram' ? 'Diagram' : 'Canvas', ...project(canvas.project),
+      reason: canvas.description || (canvas.canvasType === 'diagram'
+        ? `${canvas.nodeCount} diagram objects to develop in Think.`
+        : `${canvas.nodeCount} connected cards to develop in Think.`),
       tone: 'normal', date: canvas.updatedAt, href: `/think?mapId=${encodeURIComponent(canvas.id)}`, action: 'Continue',
       score: 32 + recentScore(canvas.updatedAt), source: 'Think',
     });
