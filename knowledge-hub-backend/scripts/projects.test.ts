@@ -16,15 +16,19 @@ test('project dates round-trip through list, create and update without timezone 
   const query = mock.method(getDb(), 'query', async (sql: string, params: unknown[]) => {
     assert.match(sql, /to_char\(start_date, 'YYYY-MM-DD'\) AS start_date/);
     assert.match(sql, /to_char\(target_end_date, 'YYYY-MM-DD'\) AS target_end_date/);
-    if (sql.startsWith('UPDATE') && !params.includes(null)) {
+    if (sql.startsWith('UPDATE') && sql.includes('start_date =') && !params.includes(null)) {
       assert.ok(params.includes('2026-07-01'));
       assert.ok(params.includes('2026-12-01'));
     }
-    return { rows: [sql.startsWith('UPDATE') && params.includes(null)
-      ? { ...project, start_date: null, target_end_date: null } : project] };
+    const expectedOutputs = params.find((value) => Array.isArray(value) && value.length > 0);
+    return { rows: [{
+      ...project,
+      ...(sql.startsWith('UPDATE') && params.includes(null) ? { start_date: null, target_end_date: null } : {}),
+      expected_outputs: expectedOutputs ?? [],
+    }] };
   });
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
   app.use('/api/projects', projectsRouter);
   app.use(errorHandler);
   const server = app.listen(0, '127.0.0.1');
@@ -67,6 +71,23 @@ test('project dates round-trip through list, create and update without timezone 
     const cleared = await clear.json() as { data: { startDate: null; targetEndDate: null } };
     assert.equal(cleared.data.startDate, null);
     assert.equal(cleared.data.targetEndDate, null);
+    const outputs = Array.from({ length: 40 }, (_, i) => `Output ${i}: ${'Detailed delivery scope. '.repeat(150)}`.trim());
+    for (const method of ['POST', 'PATCH']) {
+      const saved = await fetch(method === 'POST' ? url : `${url}/${project.id}`, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: project.name, expectedOutputs: outputs }),
+      });
+      assert.equal(saved.status, method === 'POST' ? 201 : 200);
+      const result = await saved.json() as { data: { expectedOutputs: string[] } };
+      assert.deepEqual(result.data.expectedOutputs, outputs);
+    }
+    for (const expectedOutputs of [[''], ['   '], [42], 'not an array']) {
+      const invalidOutputs = await fetch(`${url}/${project.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedOutputs }),
+      });
+      assert.equal(invalidOutputs.status, 422);
+    }
   } finally {
     query.mock.restore();
     await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve(); }); });

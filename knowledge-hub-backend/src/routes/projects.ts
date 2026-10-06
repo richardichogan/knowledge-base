@@ -104,8 +104,6 @@ const IMPORTANCES: ProjectImportance[] = ['critical', 'high', 'normal', 'low'];
 const ISO_DATE_LENGTH = 10;
 const MAX_PROJECT_GOAL_LENGTH = 2000;
 const MAX_PROJECT_ROLE_LENGTH = 200;
-const MAX_PROJECT_EXPECTED_OUTPUTS = 30;
-const MAX_PROJECT_OUTPUT_LABEL_LENGTH = 100;
 
 function validateOptionalDate(value: unknown, field: string): string | null {
   if (value === undefined) return null;
@@ -153,9 +151,9 @@ function validateInput(input: Record<string, unknown>, requireName: boolean): vo
     }
   }
   if (input['expectedOutputs'] !== undefined) {
-    if (!Array.isArray(input['expectedOutputs']) || input['expectedOutputs'].length > MAX_PROJECT_EXPECTED_OUTPUTS ||
-      input['expectedOutputs'].some((item) => typeof item !== 'string' || item.trim() === '' || item.length > MAX_PROJECT_OUTPUT_LABEL_LENGTH)) {
-      throw new ValidationError(`expectedOutputs must contain up to ${MAX_PROJECT_EXPECTED_OUTPUTS.toString()} non-empty labels of at most ${MAX_PROJECT_OUTPUT_LABEL_LENGTH.toString()} characters`, { expectedOutputs: 'invalid' });
+    if (!Array.isArray(input['expectedOutputs']) ||
+      input['expectedOutputs'].some((item) => typeof item !== 'string' || item.trim() === '')) {
+      throw new ValidationError('Expected outputs must be a list of non-empty text descriptions', { expectedOutputs: 'invalid' });
     }
   }
   const startDate = validateOptionalDate(input['startDate'], 'startDate');

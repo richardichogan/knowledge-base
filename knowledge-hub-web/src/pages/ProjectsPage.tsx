@@ -24,6 +24,7 @@ import {
 } from '../services/useProjects';
 import { api } from '../services/api';
 import { describeApiError } from '../services/apiError';
+import { parseExpectedOutputs, validateProjectContext } from '../services/projectFormValidation';
 
 // ── GitLab SVG icon ───────────────────────────────────────────────────────────
 
@@ -155,6 +156,8 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
 
   const handleSave = async (): Promise<void> => {
     if (!name.trim()) { setErr('Name is required'); return; }
+    const contextError = validateProjectContext({ goal, role, ownership });
+    if (contextError !== null) { setErr(contextError); return; }
     if (startDate !== '' && targetEndDate !== '' && targetEndDate < startDate) {
       setErr('Target end date cannot be earlier than the start date.');
       return;
@@ -192,7 +195,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
         startDate: startDate || null,
         targetEndDate: targetEndDate || null,
         importance,
-        expectedOutputs: expectedOutputsRaw.split('\n').map((value) => value.trim()).filter(Boolean),
+        expectedOutputs: parseExpectedOutputs(expectedOutputsRaw),
         colour,
         category,
         priority,
@@ -252,7 +255,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
           <TextArea
             id="pm-goal"
             labelText="Goal"
-            helperText="The outcome this body of work is intended to achieve."
+            helperText="The outcome this body of work is intended to achieve. Up to 2,000 characters."
             value={goal}
             rows={3}
             onChange={(e) => setGoal(e.target.value)}
@@ -261,6 +264,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
             <TextInput
               id="pm-role"
               labelText="Your role"
+              helperText="Up to 200 characters."
               placeholder="e.g. Global Chief Architect"
               value={role}
               onChange={(e) => setRole(e.target.value)}
@@ -268,6 +272,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
             <TextInput
               id="pm-ownership"
               labelText="Ownership"
+              helperText="Up to 200 characters."
               placeholder="e.g. IBM, Personal, Client"
               value={ownership}
               onChange={(e) => setOwnership(e.target.value)}
@@ -302,7 +307,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
           <TextArea
             id="pm-expected-outputs"
             labelText="Expected outputs"
-            helperText="Enter one output per line, e.g. architecture, demos, presentations."
+            helperText="Enter one output per line. Full descriptions are supported; blank lines are ignored."
             value={expectedOutputsRaw}
             rows={3}
             onChange={(e) => setExpectedOutputsRaw(e.target.value)}

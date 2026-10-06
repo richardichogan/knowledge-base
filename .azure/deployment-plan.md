@@ -6,7 +6,9 @@
 
 ## 1. Scope
 
-Deploy the project date round-trip and save-error reporting fix on latest main.
+Deploy the project expected-output contract correction on latest main.
+Full descriptions and lists longer than 30 entries are supported without
+truncation; remaining context field limits are visible and checked before save.
 Migration 058 is already applied; no new migration is required. Deploy both existing
 application targets without changing infrastructure or environment settings.
 Retain the current Build credentials/configuration:
@@ -66,6 +68,18 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Expected-output corrective release validated on 2026-10-06 (19:42 BST):
+
+- Both TypeScript checks, fixture typecheck and production builds passed.
+- Five regression tests passed, including API create/edit of 40 outputs over
+  3,000 characters each with exact content preservation, rejection of blank
+  and non-string entries, date round-trips and readable validation messages.
+- Frontend parsing preserves full descriptions and validates existing goal,
+  role and ownership limits before sending, without truncation.
+- Backend request body remains limited to 1 MiB; no infrastructure, database,
+  environment or credential changes.
+- Current backend v163; deploy v164 and retain v163 for rollback.
 
 Project-save fix validated on 2026-10-06 (19:30 BST):
 

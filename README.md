@@ -106,6 +106,12 @@ save failures display the backend validation message rather than only an HTTP
 status. Regression checks: from `knowledge-hub-backend`, run
 `node --import tsx/esm --test scripts/projects.test.ts ../knowledge-hub-web/tests/apiError.test.ts`.
 
+Expected outputs are full text descriptions, one per line, not short labels:
+they are not truncated or capped at 30 entries/100 characters. Empty lines are
+ignored by the form; the API rejects non-text or blank entries. Overall request
+body limits still apply. Goal (2,000 characters), role and ownership (200 each)
+have visible limits and pre-save validation that preserves the entered text.
+
 ## Today
 
 Today prioritises overdue, blocked, urgent and near-due Plan tasks, failed connections/automation, and open Athena decisions. Recent Think notes, canvases, in-progress tasks and saved Outputs form a separate continuation list; routine activity is grouped rather than shown as a feed. Discover suggestions require a stored relevance explanation, and Spark clusters need at least four Sparks.
