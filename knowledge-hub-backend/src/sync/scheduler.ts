@@ -8,6 +8,7 @@ import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
 import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
 import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
 import { tickBuildRunner } from '../build/buildRunner.js';
+import { archiveCompletedTasks } from '../services/taskArchiveService.js';
 
 /**
  * Scheduler for sync jobs.
@@ -28,6 +29,7 @@ const BUILD_RUNNER_INTERVAL_MS = 2 * MS_PER_MINUTE; // Poll cloud-agent PRs for 
 const timers: ReturnType<typeof setInterval>[] = [];
 let lastSyncHour = -1; // Track the last hour we ran sync to avoid double-runs
 let lastEdgeDay = -1;  // Track the last day we ran inferred edges
+let lastArchiveDay = ''; // Date string of the last completed-task archive sweep
 let lastMemoryReviewWeek = ''; // Week key of the last weekly memory review
 let briefingRunning = false;
 /** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
@@ -95,6 +97,17 @@ export function startSyncScheduler(): void {
         console.warn(`[Scheduler] Running scheduled sync (${hour}:00)...`);
         runTier1Sync(db).catch((err: unknown) => {
           console.error('[Scheduler] Tier 1 sync failed:', err instanceof Error ? err.message : String(err));
+        });
+      }
+
+      // Archive completed tasks older than 14 days — production only (the dev
+      // .env points at the production DB), once per day. Cheap single UPDATE,
+      // so it doesn't need to wait for a sync to finish.
+      const archiveDay = new Date().toDateString();
+      if (!env.isDevelopment && lastArchiveDay !== archiveDay) {
+        lastArchiveDay = archiveDay;
+        void archiveCompletedTasks(db).catch((err: unknown) => {
+          console.error('[Scheduler] Task archive failed:', err instanceof Error ? err.message : String(err));
         });
       }
 
