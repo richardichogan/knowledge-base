@@ -2,7 +2,7 @@
 
 **Status:** Validated
 
-**Deployment:** Chat recovery and current project context validated; deployment pending.
+**Deployment:** Chat recovery and current project context deployed and verified.
 
 ## 1. Scope
 
@@ -66,6 +66,17 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Chat recovery and project grounding deployed on 2026-10-06 (20:27 BST):
+
+- Release `088b0bc` pushed to feature branch and remote main.
+- ACR build succeeded; backend v165 revision `kh-prod-api-vnet--0000162`
+  is active, Healthy and RunningAtMaxScale with 100% traffic.
+- Startup logs confirm migrations completed.
+- SWA production deployment succeeded; custom-domain release JS/CSS returned
+  HTTP 200 and their SHA-256 hashes exactly match the local build.
+- Backend environment fingerprint is unchanged, including Copilot secret
+  references. No credentials, infrastructure or configuration were modified.
 
 Chat recovery and project grounding validated on 2026-10-06 (20:23 BST):
 
