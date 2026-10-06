@@ -61,6 +61,63 @@ $dg-ink: #161616;
 }
 
 .dg-status-group { display: inline-flex; align-items: center; gap: 0.75rem; }
+.dg-work-area {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+.dg-properties {
+  flex: 0 0 280px;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--cds-layer-01);
+  border-left: 1px solid var(--cds-border-subtle-01);
+  padding: 0.75rem 1rem;
+  &__heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  &__heading h3 { font-size: 0.875rem; font-weight: 600; margin: 0; }
+  &__fields { display: flex; flex-direction: column; gap: 1rem; padding-top: 1rem; }
+  &__kind { margin: 0; color: var(--cds-text-secondary); font-size: 0.75rem; }
+  &__field { display: flex; flex-direction: column; gap: 0.375rem; font-size: 0.8125rem; }
+  &__field textarea {
+    box-sizing: border-box;
+    width: 100%;
+    resize: vertical;
+    min-height: 3rem;
+    padding: 0.5rem;
+    background: var(--cds-field-01);
+    color: var(--cds-text-primary);
+    border: 1px solid var(--cds-border-subtle-01);
+    font: inherit;
+    line-height: 1.4;
+    &:hover { border-color: var(--cds-text-secondary); }
+    &:focus { @include dg-focus; }
+  }
+  &__hint, &__empty { color: var(--cds-text-secondary); font-size: 0.75rem; line-height: 1.5; margin: 0; }
+  &__empty { padding-top: 1rem; }
+}
+@media (max-width: 700px) {
+  .dg-work-area { flex-direction: column; }
+  .dg-properties { flex: 0 1 auto; max-height: 45%; border-left: 0; border-top: 1px solid var(--cds-border-subtle-01); }
+  .dg-properties__fields { gap: 0.5rem; padding-top: 0.5rem; }
+  .dg-properties__field textarea { max-height: 8rem; }
+}
+.dg-note-links {
+  padding: 1rem 0;
+  border-top: 1px solid var(--cds-border-subtle-01);
+  margin-top: 1rem;
+  font-size: 0.8125rem;
+  h4 { margin: 0 0 0.5rem; font-size: inherit; font-weight: 600; }
+  p { margin: 0.375rem 0; color: var(--cds-text-secondary); font-size: 0.75rem; line-height: 1.4; }
+  &__row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  a { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--kh-accent); text-decoration: none; &:hover { text-decoration: underline; } &:focus-visible { @include dg-focus; } }
+  button:not(.dg-text-btn) { border: 1px solid var(--cds-border-subtle-01); background: transparent; color: var(--cds-text-primary); padding: 0.375rem; font: inherit; cursor: pointer; &:hover { background: var(--cds-layer-hover-01); } &:focus-visible { @include dg-focus; } &:disabled { opacity: 0.5; cursor: not-allowed; } }
+  &__picker { display: flex; flex-direction: column; gap: 0.375rem; max-height: 15rem; overflow-y: auto; margin-top: 0.5rem; }
+  label { display: flex; flex-direction: column; gap: 0.375rem; }
+  input { min-width: 0; background: var(--cds-field-01); color: var(--cds-text-primary); border: 1px solid var(--cds-border-subtle-01); padding: 0.5rem; font: inherit; &:focus { @include dg-focus; } }
+  &__choice { text-align: left; overflow-wrap: anywhere; }
+}
 .dg-status {
   display: inline-flex;
   align-items: center;

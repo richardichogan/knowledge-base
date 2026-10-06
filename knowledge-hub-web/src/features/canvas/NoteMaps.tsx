@@ -14,11 +14,12 @@ interface Props {
 }
 
 export const NoteMaps: React.FC<Props> = ({ noteId, onOpenMap, onMapNote }) => {
-  const { data: maps = [] } = useQuery({
+  const { data: maps = [], isError, refetch } = useQuery({
     queryKey: ['canvases', 'for-note', noteId],
     queryFn: async () => {
       const r = await api.listCanvases(noteId);
-      return r.success ? r.data : [];
+      if (!r.success) throw new Error(r.error.message);
+      return r.data;
     },
     staleTime: 30_000,
   });
@@ -26,6 +27,7 @@ export const NoteMaps: React.FC<Props> = ({ noteId, onOpenMap, onMapNote }) => {
   return (
     <div className="mm-note-maps">
       <p className="mm-note-maps__title">Canvases</p>
+      {isError && <p className="mm-canvas-error" role="alert">Could not load linked canvases. <button type="button" onClick={() => { void refetch(); }}>Retry</button></p>}
       {maps.length === 0 ? (
         onMapNote !== undefined && (
           <button type="button" className="mm-note-maps__item mm-note-maps__item--new" onClick={() => { onMapNote(noteId); }}>

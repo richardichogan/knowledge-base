@@ -23,6 +23,7 @@ export const DIAGRAM_LIMITS = {
   maxNodeSize: 100_000,
   maxNodeLabelChars: 2000,
   maxEdgeLabelChars: 500,
+  maxDescriptionChars: 10_000,
   minFontSize: 6,
   maxFontSize: 200,
   /** |x|, |y| of the viewport pan. */
@@ -74,9 +75,9 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-function exactObject(v: unknown, keys: readonly string[], path: string): Record<string, unknown> {
+function exactObject(v: unknown, keys: readonly string[], path: string, optional: readonly string[] = []): Record<string, unknown> {
   if (!isPlainObject(v)) fail(path, 'must be an object');
-  const allowed = new Set(keys);
+  const allowed = new Set([...keys, ...optional]);
   for (const k of Object.keys(v)) if (!allowed.has(k)) fail(`${path}.${k}`, 'is not an allowed property');
   for (const k of keys) if (!Object.prototype.hasOwnProperty.call(v, k)) fail(`${path}.${k}`, 'is required');
   return v;
@@ -135,7 +136,7 @@ function validatePoint(v: unknown, path: string): DiagramPoint {
 }
 
 function validateNode(v: unknown, path: string): DiagramNode {
-  const o = exactObject(v, NODE_KEYS, path);
+  const o = exactObject(v, NODE_KEYS, path, ['description']);
   const c = DIAGRAM_LIMITS.maxCoordinate;
   const kind = oneOf(o['kind'], KINDS, `${path}.kind`);
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
@@ -144,6 +145,7 @@ function validateNode(v: unknown, path: string): DiagramNode {
     id: uuid(o['id'], `${path}.id`),
     kind,
     label: str(o['label'], `${path}.label`, DIAGRAM_LIMITS.maxNodeLabelChars),
+    ...(o['description'] !== undefined ? { description: str(o['description'], `${path}.description`, DIAGRAM_LIMITS.maxDescriptionChars) } : {}),
     x: num(o['x'], `${path}.x`, -c, c),
     y: num(o['y'], `${path}.y`, -c, c),
     width: num(o['width'], `${path}.width`, DIAGRAM_LIMITS.minNodeSize, DIAGRAM_LIMITS.maxNodeSize),
@@ -158,7 +160,7 @@ function validateNode(v: unknown, path: string): DiagramNode {
 }
 
 function validateEdge(v: unknown, path: string): DiagramEdge {
-  const o = exactObject(v, EDGE_KEYS, path);
+  const o = exactObject(v, EDGE_KEYS, path, ['description']);
   const waypoints = array(o['waypoints'], `${path}.waypoints`, DIAGRAM_LIMITS.maxWaypointsPerEdge)
     .map((p, i) => validatePoint(p, `${path}.waypoints[${i}]`));
   return {
@@ -170,6 +172,7 @@ function validateEdge(v: unknown, path: string): DiagramEdge {
     route: oneOf(o['route'], ROUTES, `${path}.route`),
     waypoints,
     label: str(o['label'], `${path}.label`, DIAGRAM_LIMITS.maxEdgeLabelChars),
+    ...(o['description'] !== undefined ? { description: str(o['description'], `${path}.description`, DIAGRAM_LIMITS.maxDescriptionChars) } : {}),
     stroke: color(o['stroke'], `${path}.stroke`),
     dashed: bool(o['dashed'], `${path}.dashed`),
     arrows: oneOf(o['arrows'], ARROWS, `${path}.arrows`),

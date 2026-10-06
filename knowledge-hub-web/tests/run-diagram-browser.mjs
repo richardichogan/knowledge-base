@@ -124,6 +124,8 @@ try {
     }
     assert.ok(ready, `Diagram fixture did not mount: ${errors.join('\n') || await evaluate('document.body.innerText')}`);
     if (process.env.DIAGRAM_ARTIFACT_DIR) {
+      await evaluate(`document.querySelector('g.dg-edge').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }))`);
+      await evaluate('window.diagramFixture.waitFor(() => document.querySelector(".dg-properties__kind")?.textContent === "Connector")');
       await mkdir(process.env.DIAGRAM_ARTIFACT_DIR, { recursive: true });
       const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       await writeFile(join(process.env.DIAGRAM_ARTIFACT_DIR, `diagram-${width}.png`), Buffer.from(screenshot.data, 'base64'));
@@ -132,6 +134,9 @@ try {
     console.log(JSON.stringify({ width, checks: [...pointer, ...await evaluate('window.runDiagramChecks()')] }, null, 2));
   }
   assert.equal(errors.length, 0, errors.join('\n'));
+} catch (err) {
+  if (errors.length > 0) console.error(errors.join('\n'));
+  throw err;
 } finally {
   if (socket?.readyState === WebSocket.OPEN) await command('Browser.close');
   socket?.close(); browser.kill();

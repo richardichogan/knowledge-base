@@ -12,6 +12,21 @@ A unified personal intelligence layer that aggregates content, code activity, ca
 
 ## Think canvases
 
+Select one diagram shape or connector to edit its **Title** and **Description**
+in the right-hand **Properties** panel. Title is the visible label (including
+image captions); Description is stored with the item, up to 10,000 characters,
+but is not printed on the drawing or PNG/SVG exports. Both autosave, participate
+in undo/redo and are preserved when duplicating items. Use the Properties button
+to hide/show the panel. Multi-selection asks you to select a single item.
+Existing diagrams remain compatible and start with empty descriptions.
+
+From a note, **Create diagram** opens a new blank diagram linked to that note;
+it does not automatically generate shapes from the note's prose. In a diagram,
+**Properties → Linked notes → Link a note** associates an existing note, and
+the note's **Connections → Canvases** provides the return link. Linked notes
+can be opened or unlinked from the diagram. These are links to the live,
+editable diagram, not static image embeds.
+
 **New canvas** offers two separate editors:
 
 - **Brainstorm** preserves the existing network of idea cards and linked Think/Library/Athena content.

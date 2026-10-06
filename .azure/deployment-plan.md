@@ -4,9 +4,9 @@
 
 ## 1. Scope
 
-Deploy the two Think canvas types (Brainstorm and Diagram) to the existing
-production backend and frontend. The additive migration 055 preserves old
-canvases as Brainstorm and adds diagram documents, revisions and private assets:
+Deploy diagram Title/Description properties and bidirectional note links to the
+existing production backend and frontend. Migration 055 is already deployed;
+optional descriptions use existing JSON storage and require no new migration:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
 - Frontend: Azure Static Web App `kh-prod-web`
@@ -63,6 +63,22 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Properties and note-link deployment validated on 2026-10-06 (06:00 BST):
+
+- Backend `npx tsc --noEmit` and `npm run build` passed.
+- Frontend `npx tsc --noEmit` and `npm run build` passed.
+- Latest fixture typecheck and desktop/mobile browser checks passed, covering
+  properties, persistence/undo/duplication, linking/opening/unlinking notes,
+  Connections return links and saving pending note edits before diagram creation.
+- Backend document validation tests passed (22).
+- Authenticated reads confirmed the production subscription is Enabled and both
+  existing deployment targets are accessible.
+- Previous backend image is `kh-prod-api:v156`; this deployment uses `v157`.
+- Dockerfile and locked dependency build reviewed. ACR builds the exact pushed
+  commit before the Container App is updated.
+- No infrastructure, RBAC, policy, credentials, environment variables or schema
+  changes: template compilation/what-if/provisioning checks are not applicable.
 
 Two-canvas deployment validated on 2026-10-06 (05:14-05:18 BST):
 

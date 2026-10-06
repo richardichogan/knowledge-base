@@ -67,6 +67,17 @@ test('rejects unknown keys at every level and a wrong version', () => {
   rejects(() => validateDiagramDocument(JSON.parse(`{"version":1,"nodes":[],"edges":[],"grid":true,"viewport":{"x":0,"y":0,"zoom":1},"__proto__":{"x":1}}`), NONE), /__proto__/);
 });
 
+test('optional item descriptions preserve legacy documents and round-trip shape and connector details', () => {
+  const a = node({ description: 'Inputs, owner and expected output\nSecond line' });
+  const b = node();
+  const connection = edge(a.id, b.id, { description: 'Transfers the approved request.' });
+  const input = doc([a, b], [connection]);
+  assert.deepEqual(validateDiagramDocument(input, NONE), input);
+  rejects(() => validateDiagramDocument(doc([{ ...a, description: 42 } as unknown as DiagramNode]), NONE), /description/);
+  rejects(() => validateDiagramDocument(doc([a, b], [{ ...connection, description: 'x'.repeat(10001) }]), NONE), /description/);
+  rejects(() => validateDiagramDocument(doc([{ ...a, description: 'bad\u0000text' }]), NONE), /description/);
+});
+
 test('rejects non-finite, huge or out-of-range geometry and bad styles', () => {
   rejects(() => validateDiagramDocument(doc([node({ x: Number.NaN })]), NONE), /nodes\[0\]\.x/);
   rejects(() => validateDiagramDocument(doc([node({ y: Number.POSITIVE_INFINITY })]), NONE), /nodes\[0\]\.y/);

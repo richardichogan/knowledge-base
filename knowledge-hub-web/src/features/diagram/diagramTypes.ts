@@ -5,6 +5,7 @@ export interface DiagramNode {
   id: string;
   kind: DiagramKind;
   label: string;
+  description?: string;
   x: number;
   y: number;
   width: number;
@@ -25,6 +26,7 @@ export interface DiagramEdge {
   route: 'straight' | 'orthogonal';
   waypoints: DiagramPoint[];
   label: string;
+  description?: string;
   stroke: string;
   dashed: boolean;
   arrows: 'none' | 'end' | 'both';

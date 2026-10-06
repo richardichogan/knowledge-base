@@ -6,6 +6,7 @@ import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types';
 import type { DiagramDocument, DiagramNode, DiagramSnapshot } from '../src/features/diagram/diagramTypes';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
+import { NoteMaps } from '../src/features/canvas/NoteMaps';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -45,6 +46,9 @@ let snapshot: DiagramSnapshot = { revision: 0, document: structuredClone(doc) };
 let saves = 0;
 let conflict = false;
 let missingDiagram = false;
+const noteId = crypto.randomUUID();
+let linkedNotes: Array<{ id: string; title: string }> = [];
+let openedNote: string | null = null;
 api.getDiagram = async () => {
   if (missingDiagram) throw Object.assign(new Error('Diagram not found'), { isAxiosError: true, response: { status: 404 } });
   return success(structuredClone(snapshot));
@@ -52,7 +56,7 @@ api.getDiagram = async () => {
 api.getCanvas = async () => success({
   id: canvasId, title: 'Enterprise architecture / process flow', canvasType: 'diagram',
   description: null, project: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-  linkedNotes: [], nodeCount: snapshot.document.nodes.length, nodes: [], edges: [], viewport: snapshot.document.viewport,
+  linkedNotes, nodeCount: snapshot.document.nodes.length, nodes: [], edges: [], viewport: snapshot.document.viewport,
 });
 api.saveDiagram = async (_id, revision, document) => {
   if (conflict || revision !== snapshot.revision) throw Object.assign(new Error('Another session updated this diagram'), { isAxiosError: true, response: { status: 409 } });
@@ -72,15 +76,25 @@ api.updateCanvas = async () => success({
   id: canvasId, title: 'Enterprise architecture / process flow', canvasType: 'diagram',
   description: null, project: null, createdAt: '', updatedAt: '', linkedNotes: [], nodeCount: snapshot.document.nodes.length,
 });
-api.listCanvases = async () => success([]);
+api.listCanvases = async (id) => success(id === noteId && linkedNotes.length > 0 ? [{
+  id: canvasId, title: 'Enterprise architecture / process flow', canvasType: 'diagram',
+  description: null, project: null, createdAt: '', updatedAt: '', linkedNotes, nodeCount: snapshot.document.nodes.length,
+}] : []);
+api.getNoteSummaries = async () => success({
+  items: [{ id: noteId, title: 'Process requirements', contentType: 'note', preview: '', createdAt: '', updatedAt: '', taxonomyTagIds: [] }],
+  total: 1, page: 1, pageSize: 100, hasMore: false,
+});
+api.linkCanvasNote = async () => { linkedNotes = [{ id: noteId, title: 'Process requirements' }]; return api.getCanvas(canvasId); };
+api.unlinkCanvasNote = async () => { linkedNotes = []; return api.getCanvas(canvasId); };
 
 const root = createRoot(window.document.getElementById('root')!);
 function mountEditor(): void { root.render(
   <QueryClientProvider client={queryClient}>
     <div className="kh-content" style={{ height: '100vh', padding: '24px' }}>
       <div className="notes-editor-area notes-editor-area--map" style={{ height: '100%' }}>
-        <DiagramEditor canvasId={canvasId} onDeleted={() => undefined} />
+        <DiagramEditor canvasId={canvasId} onDeleted={() => undefined} onOpenNote={(id) => { openedNote = id; }} />
       </div>
+      <div hidden><NoteMaps noteId={noteId} onOpenMap={() => undefined} /></div>
     </div>
   </QueryClientProvider>,
 ); }
@@ -99,6 +113,21 @@ function clickButton(text: string): void {
 }
 async function runDiagramChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector('.dg-editor') !== null);
+  clickButton('Link a note');
+  await waitFor(() => window.document.querySelector('.dg-note-links__choice') !== null);
+  clickButton('Process requirements');
+  await waitFor(() => window.document.querySelector('.dg-note-links__row a') !== null);
+  const noteLink = window.document.querySelector<HTMLAnchorElement>('.dg-note-links__row a')!;
+  check(noteLink.getAttribute('href') === `/think?noteId=${noteId}`, 'Diagram must link back to its note');
+  noteLink.click();
+  check(openedNote === noteId, 'Linked note must open through Think navigation');
+  await waitFor(() => window.document.querySelector('.mm-note-maps__name')?.textContent === 'Enterprise architecture / process flow');
+  clickButton('Unlink Process requirements');
+  await waitFor(() => window.document.querySelector('.dg-note-links__row') === null);
+  clickButton('Link a note');
+  await waitFor(() => window.document.querySelector('.dg-note-links__choice') !== null);
+  clickButton('Process requirements');
+  await waitFor(() => window.document.querySelector('.dg-note-links__row a') !== null);
   const svg = await diagramSvg(snapshot.document, assets, 'white');
   check(svg.includes('data:image/svg+xml;base64,'), 'SVG must embed icon bytes');
   check(svg.includes('Agent Runtime') && svg.includes('Approved?'), 'Architecture and flow labels must export');
@@ -140,6 +169,33 @@ async function runDiagramChecks(): Promise<string[]> {
   await delay(20);
   field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   await waitFor(() => snapshot.document.nodes.some((n) => n.label === 'Browser-verified process'));
+  const setProperty = async (label: string, value: string): Promise<void> => {
+    const input = window.document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`);
+    check(input !== null, `Missing property field: ${label}`);
+    input!.focus();
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value);
+    input!.dispatchEvent(new Event('input', { bubbles: true }));
+    await delay(20);
+    input!.blur();
+  };
+  await setProperty('Shape or connector description', 'Process owner: Operations\nOutput: approved request');
+  await waitFor(() => snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true));
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => !snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true));
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true));
+  const connector = window.document.querySelector('g.dg-edge')!;
+  connector.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }));
+  await waitFor(() => window.document.querySelector('.dg-properties__kind')?.textContent === 'Connector');
+  await setProperty('Shape or connector title', 'Request handoff');
+  await setProperty('Shape or connector description', 'Passes the request to the runtime.');
+  await waitFor(() => snapshot.document.edges.some((e) => e.label === 'Request handoff' && e.description === 'Passes the request to the runtime.'));
+  const processId = snapshot.document.nodes.find((n) => n.label === 'Browser-verified process')!.id;
+  const process = window.document.querySelector(`g.dg-node[data-id="${processId}"]`)!;
+  process.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  await waitFor(() => window.document.querySelector('.dg-label-editor') !== null);
+  window.document.querySelector('.dg-label-editor')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await delay(20);
   clickButton('Duplicate (Ctrl+D)');
   await waitFor(() => count() === baseline + 2);
   await waitFor(() => snapshot.document.nodes.length === baseline + 2);
@@ -173,7 +229,11 @@ async function runDiagramChecks(): Promise<string[]> {
   queryClient.clear();
   mountEditor();
   await waitFor(() => count() === saved.document.nodes.length);
-  check(window.document.body.innerText.includes('Browser-verified process'), 'Saved labels must survive reopening');
+  await waitFor(() => window.document.querySelector('.dg-note-links__row a') !== null);
+  check(snapshot.document.nodes.some((n) => n.label === 'Browser-verified process'), 'Saved labels must survive reopening');
+  check(snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true), 'Shape descriptions must survive reopening and duplication');
+  check(snapshot.document.edges.some((e) => e.description === 'Passes the request to the runtime.'), 'Connector descriptions must survive reopening');
+  check(!(await diagramSvg(snapshot.document, assets, 'white')).includes('Process owner: Operations'), 'Descriptions must not clutter visual exports');
   await waitFor(() => window.document.querySelectorAll('g.dg-node--image image').length === 3);
   root.render(null);
   await waitFor(() => window.document.querySelector('.dg-editor') === null);
@@ -182,10 +242,15 @@ async function runDiagramChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector('.dg-editor[role="alert"]') !== null);
   check(count() === 0 && window.document.body.innerText.includes('Diagram not found'), 'Missing diagrams must show an error, not a saved blank drawing');
   check(window.document.documentElement.scrollWidth <= innerWidth + 1, 'No page horizontal overflow');
+  const { checkDiagramFromNote } = await import('./diagramNoteCreation.browser');
+  await checkDiagramFromNote(queryClient, waitFor);
   return ['Representative architecture and process flow render', 'SVG export full bounds, embedded icon and bidirectional arrows',
     'PNG rasterisation with embedded SVG icon', 'Escaped labels and explicit missing-asset errors',
     'Add, label editing, undo/redo and duplication', 'Image-file clipboard paste and explicit URL-only fallback',
-    'Save conflict retains local changes and explicit overwrite resolves it',     'Bundled Microsoft icon picker loads and embeds an official icon', 'Save and reopen retain labels and icons',
+    'Save conflict retains local changes and explicit overwrite resolves it',         'Shape and connector properties save/reopen, undo/redo and duplicate without cluttering exports',
+    'Note linking, return links in Connections, opening/unlinking and reopening',
+    'Create diagram from a note saves pending edits and blocks navigation on save failure',
+    'Bundled Microsoft icon picker loads and embeds an official icon', 'Save and reopen retain labels and icons',
     'Missing diagram displays an explicit load error', 'No horizontal page overflow'];
 }
 Object.assign(window, { runDiagramChecks, diagramFixture: {

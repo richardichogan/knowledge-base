@@ -37,6 +37,7 @@ import {
   wrapText, fitSize, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
 } from './diagramGeometry';
 import { DiagramIconPicker } from './DiagramIconPicker';
+import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { exportDiagram } from './diagramExport';
 import './diagram.scss';
 
@@ -171,7 +172,7 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; snapshot: DiagramSnapshot };
 
-export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted }) => {
+export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote }) => {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -209,7 +210,7 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDelete
       </div>
     );
   }
-  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} />;
+  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} />;
 };
 
 // ── Surface ───────────────────────────────────────────────────────────────────
@@ -247,9 +248,10 @@ interface SurfaceProps {
   initial: DiagramSnapshot;
   onReload: () => void;
   onDeleted?: (() => void) | undefined;
+  onOpenNote?: ((id: string) => void) | undefined;
 }
 
-const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted }) => {
+const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote }) => {
   const queryClient = useQueryClient();
   const markerBase = `dg${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
@@ -270,6 +272,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [exportFormat, setExportFormat] = useState<'png' | 'svg'>('png');
   const [exportBg, setExportBg] = useState<'white' | 'transparent'>('white');
   const [exportGrid, setExportGrid] = useState(false);
+  const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [, setHistoryTick] = useState(0);
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1394,6 +1397,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           <IconBtn label="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={() => { stepHistory('redo'); }}><Redo size={16} /></IconBtn>
           <span className="dg-divider" aria-hidden="true" />
           <IconBtn label={doc.grid ? 'Hide grid and snapping' : 'Show grid and snap to it'} pressed={doc.grid} onClick={toggleGrid}><Grid size={16} /></IconBtn>
+          <button type="button" className="dg-text-btn" aria-expanded={propertiesOpen} onClick={() => { setPropertiesOpen(!propertiesOpen); }}>Properties</button>
           <div className="dg-anchor">
             <button type="button" className={`dg-text-btn${menu === 'export' ? ' dg-text-btn--active' : ''}`} aria-expanded={menu === 'export'} aria-haspopup="dialog" onClick={() => { setMenu(menu === 'export' ? null : 'export'); }}>
               <Download size={16} /> Export
@@ -1440,6 +1444,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         </div>
       )}
 
+      <div className="dg-work-area">
       <div className="dg-body">
         <div className="dg-palette" role="toolbar" aria-orientation="vertical" aria-label="Shapes">
           {PALETTE.map((kind) => kind === 'image' ? (
@@ -1743,6 +1748,27 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         </div>
       </div>
 
+      {propertiesOpen && <aside className="dg-properties" aria-label="Diagram properties">
+        <div className="dg-properties__heading"><h3>Properties</h3><IconBtn label="Close properties" onClick={() => { setPropertiesOpen(false); }}><Close size={16} /></IconBtn></div>
+        {singleNode !== undefined || singleEdge !== undefined ? <DiagramProperties
+          key={singleNode?.id ?? singleEdge?.id}
+          item={(singleNode ?? singleEdge)!}
+          kind={singleNode === undefined ? 'Connector' : KIND_LABEL[singleNode.kind]}
+          titleLimit={singleNode === undefined ? 500 : 2000}
+          onChange={(field, value, first) => {
+            const current = docRef.current;
+            const id = singleNode?.id ?? singleEdge?.id;
+            const next = singleNode !== undefined
+              ? { ...current, nodes: current.nodes.map((n) => n.id !== id ? n : field === 'label' ? setNodeLabel(n, value) : { ...n, description: value }) }
+              : { ...current, edges: current.edges.map((edge) => edge.id !== id ? edge : { ...edge, [field]: value }) };
+            if (first) commit(next);
+            else { setDoc(next); markDirty(SAVE_DELAY_MS); }
+          }}
+        /> : <p className="dg-properties__empty">{sel.nodes.length + sel.edges.length > 1 ? 'Select one shape or connector to edit its properties.' : 'Select a shape or connector to edit its title and description.'}</p>}
+        <DiagramNoteLinks canvasId={canvasId} notes={canvas?.linkedNotes ?? []} onOpenNote={onOpenNote} />
+      </aside>}
+      </div>
+
       <input
         ref={fileInputRef} type="file" accept="image/png,image/svg+xml" multiple hidden
         onChange={(e) => {
@@ -1757,6 +1783,29 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     </div>
   );
 };
+
+function DiagramProperties({ item, kind, titleLimit, onChange }: {
+  item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
+  onChange: (field: 'label' | 'description', value: string, first: boolean) => void;
+}): React.ReactElement {
+  const firstEdit = useRef(true);
+  const change = (field: 'label' | 'description', value: string): void => {
+    onChange(field, value, firstEdit.current);
+    firstEdit.current = false;
+  };
+  return <div className="dg-properties__fields">
+    <p className="dg-properties__kind">{kind}</p>
+    <label className="dg-properties__field">Title
+      <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label}
+        onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('label', e.target.value); }} />
+    </label>
+    <label className="dg-properties__field">Description
+      <textarea aria-label="Shape or connector description" rows={8} maxLength={10000} value={item.description ?? ''}
+        onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('description', e.target.value); }} />
+    </label>
+    <p className="dg-properties__hint">Title is shown on the diagram. Description is saved with this item but not displayed on the drawing. Changes save automatically.</p>
+  </div>;
+}
 
 // ── Pieces ────────────────────────────────────────────────────────────────────
 

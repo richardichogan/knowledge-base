@@ -157,19 +157,20 @@ export const NotesPage: React.FC = () => {
     }
   }
 
-  async function handleCreateCanvas(canvasType: 'brainstorm' | 'diagram' = 'brainstorm'): Promise<void> {
+  async function handleCreateCanvas(canvasType: 'brainstorm' | 'diagram' = 'brainstorm', noteId?: string): Promise<boolean> {
     setNewMapMenu(null);
     setCanvasError(null);
     try {
       const r = await api.createCanvas({
-        title: canvasType === 'diagram' ? 'Untitled diagram' : 'Untitled brainstorm', canvasType,
+        title: canvasType === 'diagram' ? (noteId !== undefined && openDoc?.id === noteId ? `${openDoc.title} diagram` : 'Untitled diagram') : 'Untitled brainstorm', canvasType,
         ...(canvasType === 'brainstorm' ? { rootLabel: 'New idea' } : {}),
-        ...(canvasType === 'diagram' && openDoc !== null ? { noteId: openDoc.id } : {}),
+        ...(canvasType === 'diagram' && noteId !== undefined ? { noteId } : {}),
       });
       if (!r.success) throw new Error(r.error.message);
       await queryClient.invalidateQueries({ queryKey: ['canvases'] });
-      setSelectedCanvasId(r.data.id);
-    } catch (err) { setCanvasError(`Could not create canvas: ${err instanceof Error ? err.message : 'Unknown error'}`); }
+      openMap(r.data.id);
+      return true;
+    } catch (err) { setCanvasError(`Could not create canvas: ${err instanceof Error ? err.message : 'Unknown error'}`); return false; }
   }
 
   async function handleDeleteCanvas(id: string, title: string): Promise<void> {
@@ -554,7 +555,7 @@ export const NotesPage: React.FC = () => {
         ) : (
           <div className="notes-editor-area">
             {openDoc !== null ? (
-              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} />
+              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>
             )}
@@ -586,7 +587,7 @@ const ThinkCanvas: React.FC<React.ComponentProps<typeof CanvasEditor>> = (props)
   if (isLoading) return <InlineLoading description="Loading canvas..." />;
   if (isError || !data) return <p className="mm-canvas-error" role="alert">Could not load canvas. <button type="button" onClick={() => { void refetch(); }}>Retry</button></p>;
   return data.canvasType === 'diagram'
-    ? <DiagramEditor canvasId={props.canvasId} onDeleted={props.onDeleted} />
+    ? <DiagramEditor canvasId={props.canvasId} onDeleted={props.onDeleted} onOpenNote={props.onOpenNote} />
     : <CanvasEditor {...props} />;
 };
 
