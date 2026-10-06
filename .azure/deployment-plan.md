@@ -308,3 +308,4 @@ Validated on 2026-10-04 (11:10-11:15 BST):
 - `npx tsc --noEmit` passed for the web app, test fixtures and backend.
 - Browser suite passed at 1440, 1024 and 390, including the real reload test that preserves the draft and session.
 - `npm run build` passed.
+- Deployed to SWA `kh-prod-web` from `c064710`. Production `index-r_DrYltu.js` and `index-Dg_rYtuc.css` match the local build by SHA-256. The live bundle contains `acquireTokenRedirect` and none of the popup code.
