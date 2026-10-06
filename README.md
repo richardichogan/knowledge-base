@@ -98,6 +98,14 @@ Setup:
 
 Tests: from `knowledge-hub-backend`, `node --import tsx/esm --test scripts\build.test.ts`.
 
+## Project dates and saving
+
+Project dates are returned as `YYYY-MM-DD` calendar dates (or `null`), without
+timezone conversion, so editing a dated project preserves its dates. Project
+save failures display the backend validation message rather than only an HTTP
+status. Regression checks: from `knowledge-hub-backend`, run
+`node --import tsx/esm --test scripts/projects.test.ts ../knowledge-hub-web/tests/apiError.test.ts`.
+
 ## Today
 
 Today prioritises overdue, blocked, urgent and near-due Plan tasks, failed connections/automation, and open Athena decisions. Recent Think notes, canvases, in-progress tasks and saved Outputs form a separate continuation list; routine activity is grouped rather than shown as a feed. Discover suggestions require a stored relevance explanation, and Spark clusters need at least four Sparks.

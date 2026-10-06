@@ -128,7 +128,7 @@ export function useProjects() {
   const createProject = useCallback(async (input: CreateProjectInput): Promise<ProjectRecord> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await api.createProject(input as any);
-    if (!res.success) throw new Error('Failed to create project');
+    if (!res.success) throw new Error(res.error.message);
     const created = normalizeProject((res as { success: true; data: ProjectRecord }).data);
     setProjects((prev) => [...prev, created]);
     return created;
@@ -137,7 +137,7 @@ export function useProjects() {
   const updateProject = useCallback(async (id: string, input: UpdateProjectInput): Promise<ProjectRecord> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await api.updateProject(id, input as any);
-    if (!res.success) throw new Error('Failed to update project');
+    if (!res.success) throw new Error(res.error.message);
     const updated = normalizeProject((res as { success: true; data: ProjectRecord }).data);
     setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
     return updated;

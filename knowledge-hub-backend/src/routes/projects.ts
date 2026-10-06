@@ -61,6 +61,9 @@ export interface Project {
 
 // ── Row mapper ────────────────────────────────────────────────────────────────
 
+const PROJECT_COLUMNS = `*, to_char(start_date, 'YYYY-MM-DD') AS start_date,
+  to_char(target_end_date, 'YYYY-MM-DD') AS target_end_date`;
+
 function rowToProject(row: Record<string, unknown>): Project {
   return {
     id:           row['id'] as string,
@@ -200,7 +203,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       if (priority) { params.push(priority); conditions.push(`priority = $${params.length}`); }
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       const result = await db.query<Record<string, unknown>>(
-        `SELECT * FROM projects ${where} ORDER BY
+        `SELECT ${PROJECT_COLUMNS} FROM projects ${where} ORDER BY
            CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END,
            name ASC`,
         params,
@@ -223,7 +226,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       const result = await db.query<Record<string, unknown>>(
         `INSERT INTO projects (id, name, colour, category, priority, project_type, description, goal, role, ownership, lifecycle_state, start_date, target_end_date, importance, expected_outputs, gitlab_paths, github_repos, has_ica_document_collection, ica_document_collection_name, ica_document_collection_id, links, tags)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-         RETURNING *`,
+         RETURNING ${PROJECT_COLUMNS}`,
         [
           id,
           String(input['name']).trim(),
@@ -299,7 +302,9 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (fields.length === 0) throw new ValidationError('no fields to update', {});
       if (input['startDate'] !== undefined || input['targetEndDate'] !== undefined) {
         const current = await db.query<{ start_date: string | null; target_end_date: string | null }>(
-          'SELECT start_date, target_end_date FROM projects WHERE id = $1',
+          `SELECT to_char(start_date, 'YYYY-MM-DD') AS start_date,
+             to_char(target_end_date, 'YYYY-MM-DD') AS target_end_date
+           FROM projects WHERE id = $1`,
           [id],
         );
         if (current.rows.length === 0) throw new NotFoundError(`Project '${id}' not found`);
@@ -317,7 +322,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       params.push(id);
 
       const result = await db.query<Record<string, unknown>>(
-        `UPDATE projects SET ${fields.join(', ')} WHERE id = $${params.length} RETURNING *`,
+        `UPDATE projects SET ${fields.join(', ')} WHERE id = $${params.length} RETURNING ${PROJECT_COLUMNS}`,
         params,
       );
       if (result.rows.length === 0) throw new NotFoundError(`Project '${id}' not found`);

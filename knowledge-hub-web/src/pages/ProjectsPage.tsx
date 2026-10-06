@@ -23,6 +23,7 @@ import {
   type UpdateProjectInput,
 } from '../services/useProjects';
 import { api } from '../services/api';
+import { describeApiError } from '../services/apiError';
 
 // ── GitLab SVG icon ───────────────────────────────────────────────────────────
 
@@ -205,7 +206,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
         links: normalizedLinks,
       });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Save failed');
+      setErr(describeApiError(e));
     }
   };
 

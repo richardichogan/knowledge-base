@@ -2,15 +2,12 @@
 
 **Status:** Validated
 
-**Deployment:** Completed on 2026-10-06. Backend v162 is healthy at
-`kh-prod-api-vnet--0000159`; migration 058 applied. Frontend deployed to
-`https://nice-mud-0f780fb03.7.azurestaticapps.net` and
-`https://athena.themicrosoftcloudblog.com/`.
+**Deployment:** Project-save fix validated; deployment pending.
 
 ## 1. Scope
 
-Deploy the Project Context metadata feature on top of the latest main branch,
-including migration 058 and the Projects UI/API changes. Deploy both existing
+Deploy the project date round-trip and save-error reporting fix on latest main.
+Migration 058 is already applied; no new migration is required. Deploy both existing
 application targets without changing infrastructure or environment settings.
 Retain the current Build credentials/configuration:
 
@@ -69,6 +66,18 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Project-save fix validated on 2026-10-06 (19:30 BST):
+
+- Synced latest remote main before building; existing Build and Project Context
+  features retained.
+- Both TypeScript checks and production builds passed.
+- Three regression tests passed, covering list/create/edit date round-trips,
+  null dates, invalid dates/ranges and readable server validation errors.
+- `git diff --check` passed.
+- Azure authenticated reads confirmed existing targets and backend v162,
+  revision `--0000159`; use v163, retain v162 for rollback.
+- No infrastructure, environment, secrets, RBAC or migration changes.
 
 Project Context release validated on 2026-10-06 (16:37 BST):
 
