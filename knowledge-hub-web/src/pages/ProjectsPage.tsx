@@ -16,6 +16,8 @@ import {
   type ProjectCategory,
   type ProjectPriority,
   type ProjectType,
+  type ProjectLifecycleState,
+  type ProjectImportance,
   type ProjectLink,
   type CreateProjectInput,
   type UpdateProjectInput,
@@ -47,6 +49,25 @@ const PROJECT_TYPES: { value: ProjectType; label: string }[] = [
   { value: 'standard',      label: 'Standard project' },
   { value: 'formal-client', label: 'Formal client project' },
 ];
+const LIFECYCLE_STATES: { value: ProjectLifecycleState | 'all'; label: string }[] = [
+  { value: 'all', label: 'All project states' },
+  { value: 'active', label: 'Active' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'archived', label: 'Archived' },
+];
+const IMPORTANCES: { value: ProjectImportance; label: string }[] = [
+  { value: 'critical', label: 'Critical' },
+  { value: 'high', label: 'High' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'low', label: 'Low' },
+];
+const LIFECYCLE_LABEL: Record<ProjectLifecycleState, string> = {
+  active: 'Active',
+  paused: 'Paused',
+  completed: 'Completed',
+  archived: 'Archived',
+};
 const CATEGORY_BADGE: Record<ProjectCategory, { label: string; cls: string }> = {
   work:         { label: 'Work',        cls: 'proj-cat--work' },
   'side-hustle':{ label: 'Side hustle', cls: 'proj-cat--side' },
@@ -82,6 +103,14 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
 
   const [name, setName]             = useState(initial?.name ?? '');
   const [description, setDesc]      = useState(initial?.description ?? '');
+  const [goal, setGoal]             = useState(initial?.goal ?? '');
+  const [role, setRole]             = useState(initial?.role ?? '');
+  const [ownership, setOwnership]   = useState(initial?.ownership ?? '');
+  const [lifecycleState, setLifecycleState] = useState<ProjectLifecycleState>(initial?.lifecycleState ?? 'active');
+  const [startDate, setStartDate]   = useState(initial?.startDate ?? '');
+  const [targetEndDate, setTargetEndDate] = useState(initial?.targetEndDate ?? '');
+  const [importance, setImportance] = useState<ProjectImportance>(initial?.importance ?? 'normal');
+  const [expectedOutputsRaw, setExpectedOutputsRaw] = useState((initial?.expectedOutputs ?? []).join('\n'));
   const [colour, setColour]         = useState<ProjectColour>(initial?.colour ?? 'gray');
   const [category, setCategory]     = useState<ProjectCategory>(initial?.category ?? 'work');
   const [priority, setPriority]     = useState<ProjectPriority>(initial?.priority ?? 'medium');
@@ -100,6 +129,14 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
     if (open) {
       setName(initial?.name ?? '');
       setDesc(initial?.description ?? '');
+      setGoal(initial?.goal ?? '');
+      setRole(initial?.role ?? '');
+      setOwnership(initial?.ownership ?? '');
+      setLifecycleState(initial?.lifecycleState ?? 'active');
+      setStartDate(initial?.startDate ?? '');
+      setTargetEndDate(initial?.targetEndDate ?? '');
+      setImportance(initial?.importance ?? 'normal');
+      setExpectedOutputsRaw((initial?.expectedOutputs ?? []).join('\n'));
       setColour(initial?.colour ?? 'gray');
       setCategory(initial?.category ?? 'work');
       setPriority(initial?.priority ?? 'medium');
@@ -117,6 +154,10 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
 
   const handleSave = async (): Promise<void> => {
     if (!name.trim()) { setErr('Name is required'); return; }
+    if (startDate !== '' && targetEndDate !== '' && targetEndDate < startDate) {
+      setErr('Target end date cannot be earlier than the start date.');
+      return;
+    }
     if (hasIcaCollection && !icaCollectionName.trim() && !icaCollectionId.trim()) {
       setErr('Enter the ICA document collection name or ID.');
       return;
@@ -143,6 +184,14 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
         ...(isEdit ? {} : { id: name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') }),
         name: name.trim(),
         description: description.trim(),
+        goal: goal.trim(),
+        role: role.trim(),
+        ownership: ownership.trim(),
+        lifecycleState,
+        startDate: startDate || null,
+        targetEndDate: targetEndDate || null,
+        importance,
+        expectedOutputs: expectedOutputsRaw.split('\n').map((value) => value.trim()).filter(Boolean),
         colour,
         category,
         priority,
@@ -196,6 +245,68 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
           rows={2}
           onChange={(e) => setDesc(e.target.value)}
         />
+
+        <div className="proj-context-editor">
+          <h3 className="proj-context-editor__title">Project context</h3>
+          <TextArea
+            id="pm-goal"
+            labelText="Goal"
+            helperText="The outcome this body of work is intended to achieve."
+            value={goal}
+            rows={3}
+            onChange={(e) => setGoal(e.target.value)}
+          />
+          <div className="proj-modal-row">
+            <TextInput
+              id="pm-role"
+              labelText="Your role"
+              placeholder="e.g. Global Chief Architect"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+            />
+            <TextInput
+              id="pm-ownership"
+              labelText="Ownership"
+              placeholder="e.g. IBM, Personal, Client"
+              value={ownership}
+              onChange={(e) => setOwnership(e.target.value)}
+            />
+          </div>
+          <div className="proj-modal-row">
+            <Select id="pm-lifecycle" labelText="Lifecycle" value={lifecycleState} onChange={(e) => setLifecycleState(e.target.value as ProjectLifecycleState)}>
+              {LIFECYCLE_STATES.filter((state) => state.value !== 'all').map((state) => (
+                <SelectItem key={state.value} value={state.value} text={state.label} />
+              ))}
+            </Select>
+            <Select id="pm-importance" labelText="Importance" value={importance} onChange={(e) => setImportance(e.target.value as ProjectImportance)}>
+              {IMPORTANCES.map((option) => <SelectItem key={option.value} value={option.value} text={option.label} />)}
+            </Select>
+          </div>
+          <div className="proj-modal-row">
+            <TextInput
+              id="pm-start-date"
+              type="date"
+              labelText="Start date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+            <TextInput
+              id="pm-target-end-date"
+              type="date"
+              labelText="Target end date (optional)"
+              value={targetEndDate}
+              onChange={(e) => setTargetEndDate(e.target.value)}
+            />
+          </div>
+          <TextArea
+            id="pm-expected-outputs"
+            labelText="Expected outputs"
+            helperText="Enter one output per line, e.g. architecture, demos, presentations."
+            value={expectedOutputsRaw}
+            rows={3}
+            onChange={(e) => setExpectedOutputsRaw(e.target.value)}
+          />
+        </div>
 
         <div className="proj-modal-row">
           <Select id="pm-category" labelText="Category" value={category} onChange={(e) => setCategory(e.target.value as ProjectCategory)}>
@@ -357,6 +468,7 @@ export const ProjectsPage: React.FC = () => {
   const { projects, loading, error, createProject, updateProject, deleteProject } = useProjects();
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState<ProjectCategory | 'all'>('all');
+  const [filterLifecycle, setFilterLifecycle] = useState<ProjectLifecycleState | 'all'>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editProject, setEditProject] = useState<ProjectRecord | null>(null);
   const [saving, setSaving] = useState(false);
@@ -375,11 +487,16 @@ export const ProjectsPage: React.FC = () => {
 
   const visible = projects.filter((p) => {
     if (filterCat !== 'all' && p.category !== filterCat) return false;
+    if (filterLifecycle !== 'all' && (p.lifecycleState ?? 'active') !== filterLifecycle) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
       p.name.toLowerCase().includes(q) ||
       p.description.toLowerCase().includes(q) ||
+      p.goal.toLowerCase().includes(q) ||
+      p.role.toLowerCase().includes(q) ||
+      p.ownership.toLowerCase().includes(q) ||
+      p.expectedOutputs.some((output) => output.toLowerCase().includes(q)) ||
       p.tags.some((t) => t.toLowerCase().includes(q))
     );
   });
@@ -415,6 +532,7 @@ export const ProjectsPage: React.FC = () => {
       <div className="page-header">
         <div className="page-title-group">
           <h1 className="page-title">Projects</h1>
+          <p className="proj-intro">The ongoing contexts that organise your work, knowledge and commitments.</p>
           <p className="page-subtitle">{visible.length} of {projects.length}</p>
         </div>
         <div className="page-controls">
@@ -431,6 +549,9 @@ export const ProjectsPage: React.FC = () => {
           <Select id="proj-cat-filter" labelText="Category" hideLabel value={filterCat} onChange={(e) => setFilterCat(e.target.value as ProjectCategory | 'all')} className="proj-cat-select">
             <SelectItem value="all" text="All categories" />
             {CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value} text={c.label} />)}
+          </Select>
+          <Select id="proj-lifecycle-filter" labelText="Project state" hideLabel value={filterLifecycle} onChange={(e) => setFilterLifecycle(e.target.value as ProjectLifecycleState | 'all')} className="proj-lifecycle-select">
+            {LIFECYCLE_STATES.map((state) => <SelectItem key={state.value} value={state.value} text={state.label} />)}
           </Select>
           <Button renderIcon={Add} size="md" onClick={openCreate}>New project</Button>
         </div>
@@ -451,6 +572,12 @@ export const ProjectsPage: React.FC = () => {
             const source = getSource(project);
             const cat = CATEGORY_BADGE[project.category];
             const pri = PRIORITY_BADGE[project.priority ?? 'medium'];
+            const lifecycle = project.lifecycleState ?? 'active';
+            const importanceClass = `proj-importance--${project.importance ?? 'normal'}`;
+            const projectDates = [
+              project.startDate ? `Start ${project.startDate}` : null,
+              project.targetEndDate ? `Target end ${project.targetEndDate}` : null,
+            ].filter((value): value is string => value !== null);
 
             return (
               <div key={project.id} className="proj-card">
@@ -472,6 +599,8 @@ export const ProjectsPage: React.FC = () => {
                   <div className="proj-card-badges">
                     <span className={`proj-cat-badge ${cat.cls}`}>{cat.label}</span>
                     <span className={`proj-pri-badge ${pri.cls}`}>{pri.label}</span>
+                    <span className={`proj-lifecycle-badge proj-lifecycle-badge--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
+                    <span className={`proj-importance-badge ${importanceClass}`}>{project.importance ?? 'normal'} importance</span>
                     {project.projectType === 'formal-client' && (
                       <span className="proj-client-badge">Formal client</span>
                     )}
@@ -481,6 +610,20 @@ export const ProjectsPage: React.FC = () => {
                       </span>
                     )}
                   </div>
+
+                  {project.goal && <p className="proj-card-goal">{project.goal}</p>}
+                  {(project.role || project.ownership) && (
+                    <div className="proj-card-context">
+                      {project.role && <span><strong>Your role</strong>{project.role}</span>}
+                      {project.ownership && <span><strong>Ownership</strong>{project.ownership}</span>}
+                    </div>
+                  )}
+                  {projectDates.length > 0 && <p className="proj-card-dates">{projectDates.join(' · ')}</p>}
+                  {project.expectedOutputs.length > 0 && (
+                    <div className="proj-card-outputs" aria-label="Expected outputs">
+                      {project.expectedOutputs.map((output, index) => <span key={`${output}-${index.toString()}`}>{output}</span>)}
+                    </div>
+                  )}
 
                   {/* Description */}
                   {project.description && <p className="proj-card-desc">{project.description}</p>}

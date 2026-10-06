@@ -15,6 +15,8 @@ export type ProjectColour =
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
 export type ProjectType = 'standard' | 'formal-client';
+export type ProjectLifecycleState = 'active' | 'paused' | 'completed' | 'archived';
+export type ProjectImportance = 'critical' | 'high' | 'normal' | 'low';
 
 export interface ProjectLink {
   label: string;
@@ -29,6 +31,14 @@ export interface ProjectRecord {
   priority: ProjectPriority;
   projectType: ProjectType;
   description: string;
+  goal: string;
+  role: string;
+  ownership: string;
+  lifecycleState: ProjectLifecycleState;
+  startDate: string | null;
+  targetEndDate: string | null;
+  importance: ProjectImportance;
+  expectedOutputs: string[];
   gitlabPaths: string[];
   githubRepos: string[];
   hasIcaDocumentCollection: boolean;
@@ -53,6 +63,14 @@ function configToRecord(p: typeof PROJECTS[0]): ProjectRecord {
     priority: 'medium' as ProjectPriority,
     projectType: p.projectType ?? 'standard',
     description: p.description ?? '',
+    goal: '',
+    role: '',
+    ownership: '',
+    lifecycleState: 'active',
+    startDate: null,
+    targetEndDate: null,
+    importance: 'normal',
+    expectedOutputs: [],
     gitlabPaths: p.gitlabPaths ?? [],
     githubRepos: p.githubRepos ?? [],
     hasIcaDocumentCollection: p.hasIcaDocumentCollection ?? false,
@@ -62,6 +80,22 @@ function configToRecord(p: typeof PROJECTS[0]): ProjectRecord {
     tags: p.tags ?? [],
     createdAt: '',
     updatedAt: '',
+  };
+}
+
+function normalizeProject(project: ProjectRecord): ProjectRecord {
+  return {
+    ...project,
+    goal: project.goal ?? '',
+    role: project.role ?? '',
+    ownership: project.ownership ?? '',
+    lifecycleState: project.lifecycleState ?? 'active',
+    startDate: project.startDate ?? null,
+    targetEndDate: project.targetEndDate ?? null,
+    importance: project.importance ?? 'normal',
+    expectedOutputs: project.expectedOutputs ?? [],
+    links: project.links ?? [],
+    tags: project.tags ?? [],
   };
 }
 
@@ -76,7 +110,7 @@ export function useProjects() {
     try {
       const res = await api.getProjects();
       if (res.success && res.data.length > 0) {
-        setProjects(res.data as ProjectRecord[]);
+        setProjects(res.data.map((project) => normalizeProject(project as ProjectRecord)));
       } else {
         setProjects(PROJECTS.map(configToRecord));
       }
@@ -95,7 +129,7 @@ export function useProjects() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await api.createProject(input as any);
     if (!res.success) throw new Error('Failed to create project');
-    const created = (res as { success: true; data: ProjectRecord }).data;
+    const created = normalizeProject((res as { success: true; data: ProjectRecord }).data);
     setProjects((prev) => [...prev, created]);
     return created;
   }, []);
@@ -104,7 +138,7 @@ export function useProjects() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await api.updateProject(id, input as any);
     if (!res.success) throw new Error('Failed to update project');
-    const updated = (res as { success: true; data: ProjectRecord }).data;
+    const updated = normalizeProject((res as { success: true; data: ProjectRecord }).data);
     setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
     return updated;
   }, []);

@@ -24,6 +24,8 @@ export type ProjectColour =
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
 export type ProjectType = 'standard' | 'formal-client';
+export type ProjectLifecycleState = 'active' | 'paused' | 'completed' | 'archived';
+export type ProjectImportance = 'critical' | 'high' | 'normal' | 'low';
 
 export interface ProjectLink {
   label: string;
@@ -38,6 +40,14 @@ export interface Project {
   priority: ProjectPriority;
   projectType: ProjectType;
   description: string;
+  goal: string;
+  role: string;
+  ownership: string;
+  lifecycleState: ProjectLifecycleState;
+  startDate: string | null;
+  targetEndDate: string | null;
+  importance: ProjectImportance;
+  expectedOutputs: string[];
   gitlabPaths: string[];
   githubRepos: string[];
   hasIcaDocumentCollection: boolean;
@@ -60,6 +70,14 @@ function rowToProject(row: Record<string, unknown>): Project {
     priority:     row['priority'] as ProjectPriority,
     projectType:  (row['project_type'] as ProjectType | undefined) ?? 'standard',
     description:  row['description'] as string,
+    goal:         String(row['goal'] ?? ''),
+    role:         String(row['role'] ?? ''),
+    ownership:    String(row['ownership'] ?? ''),
+    lifecycleState: (row['lifecycle_state'] as ProjectLifecycleState | undefined) ?? 'active',
+    startDate:    row['start_date'] == null ? null : String(row['start_date']),
+    targetEndDate: row['target_end_date'] == null ? null : String(row['target_end_date']),
+    importance:   (row['importance'] as ProjectImportance | undefined) ?? 'normal',
+    expectedOutputs: Array.isArray(row['expected_outputs']) ? row['expected_outputs'] as string[] : [],
     gitlabPaths:  row['gitlab_paths'] as string[],
     githubRepos:  row['github_repos'] as string[],
     hasIcaDocumentCollection: Boolean(row['has_ica_document_collection']),
@@ -78,6 +96,26 @@ const COLOURS: ProjectColour[] = ['blue','cyan','teal','purple','green','magenta
 const CATEGORIES: ProjectCategory[] = ['work', 'personal', 'side-hustle'];
 const PRIORITIES: ProjectPriority[] = ['low', 'medium', 'high'];
 const PROJECT_TYPES: ProjectType[] = ['standard', 'formal-client'];
+const LIFECYCLE_STATES: ProjectLifecycleState[] = ['active', 'paused', 'completed', 'archived'];
+const IMPORTANCES: ProjectImportance[] = ['critical', 'high', 'normal', 'low'];
+const ISO_DATE_LENGTH = 10;
+const MAX_PROJECT_GOAL_LENGTH = 2000;
+const MAX_PROJECT_ROLE_LENGTH = 200;
+const MAX_PROJECT_EXPECTED_OUTPUTS = 30;
+const MAX_PROJECT_OUTPUT_LABEL_LENGTH = 100;
+
+function validateOptionalDate(value: unknown, field: string): string | null {
+  if (value === undefined) return null;
+  if (value === null || value === '') return null;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new ValidationError(`${field} must be a valid YYYY-MM-DD date`, { [field]: 'invalid' });
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, ISO_DATE_LENGTH) !== value) {
+    throw new ValidationError(`${field} must be a valid YYYY-MM-DD date`, { [field]: 'invalid' });
+  }
+  return value;
+}
 
 function validateInput(input: Record<string, unknown>, requireName: boolean): void {
   if (requireName && !String(input['name'] ?? '').trim()) {
@@ -94,6 +132,33 @@ function validateInput(input: Record<string, unknown>, requireName: boolean): vo
   }
   if (input['projectType'] !== undefined && !PROJECT_TYPES.includes(input['projectType'] as ProjectType)) {
     throw new ValidationError(`projectType must be one of: ${PROJECT_TYPES.join(', ')}`, { projectType: 'invalid' });
+  }
+  if (input['lifecycleState'] !== undefined && !LIFECYCLE_STATES.includes(input['lifecycleState'] as ProjectLifecycleState)) {
+    throw new ValidationError(`lifecycleState must be one of: ${LIFECYCLE_STATES.join(', ')}`, { lifecycleState: 'invalid' });
+  }
+  if (input['importance'] !== undefined && !IMPORTANCES.includes(input['importance'] as ProjectImportance)) {
+    throw new ValidationError(`importance must be one of: ${IMPORTANCES.join(', ')}`, { importance: 'invalid' });
+  }
+  for (const [field, maxLength] of [
+    ['goal', MAX_PROJECT_GOAL_LENGTH],
+    ['role', MAX_PROJECT_ROLE_LENGTH],
+    ['ownership', MAX_PROJECT_ROLE_LENGTH],
+  ] as const) {
+    if (input[field] !== undefined &&
+      (typeof input[field] !== 'string' || input[field].length > maxLength)) {
+      throw new ValidationError(`${field} must be a string of at most ${maxLength} characters`, { [field]: 'invalid' });
+    }
+  }
+  if (input['expectedOutputs'] !== undefined) {
+    if (!Array.isArray(input['expectedOutputs']) || input['expectedOutputs'].length > MAX_PROJECT_EXPECTED_OUTPUTS ||
+      input['expectedOutputs'].some((item) => typeof item !== 'string' || item.trim() === '' || item.length > MAX_PROJECT_OUTPUT_LABEL_LENGTH)) {
+      throw new ValidationError(`expectedOutputs must contain up to ${MAX_PROJECT_EXPECTED_OUTPUTS.toString()} non-empty labels of at most ${MAX_PROJECT_OUTPUT_LABEL_LENGTH.toString()} characters`, { expectedOutputs: 'invalid' });
+    }
+  }
+  const startDate = validateOptionalDate(input['startDate'], 'startDate');
+  const targetEndDate = validateOptionalDate(input['targetEndDate'], 'targetEndDate');
+  if (startDate !== null && targetEndDate !== null && targetEndDate < startDate) {
+    throw new ValidationError('targetEndDate cannot be earlier than startDate', { targetEndDate: 'before-start' });
   }
   if (input['links'] !== undefined) {
     if (!Array.isArray(input['links'])) {
@@ -156,8 +221,8 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       const id = String(input['id'] ?? '').trim() || randomUUID();
       const tags = Array.isArray(input['tags']) ? (input['tags'] as string[]).filter(Boolean) : [];
       const result = await db.query<Record<string, unknown>>(
-        `INSERT INTO projects (id, name, colour, category, priority, project_type, description, gitlab_paths, github_repos, has_ica_document_collection, ica_document_collection_name, ica_document_collection_id, links, tags)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        `INSERT INTO projects (id, name, colour, category, priority, project_type, description, goal, role, ownership, lifecycle_state, start_date, target_end_date, importance, expected_outputs, gitlab_paths, github_repos, has_ica_document_collection, ica_document_collection_name, ica_document_collection_id, links, tags)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
          RETURNING *`,
         [
           id,
@@ -167,6 +232,14 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
           (input['priority'] as string | undefined) ?? 'medium',
           (input['projectType'] as string | undefined) ?? 'standard',
           String(input['description'] ?? '').trim(),
+          String(input['goal'] ?? '').trim(),
+          String(input['role'] ?? '').trim(),
+          String(input['ownership'] ?? '').trim(),
+          (input['lifecycleState'] as string | undefined) ?? 'active',
+          validateOptionalDate(input['startDate'], 'startDate'),
+          validateOptionalDate(input['targetEndDate'], 'targetEndDate'),
+          (input['importance'] as string | undefined) ?? 'normal',
+          Array.isArray(input['expectedOutputs']) ? (input['expectedOutputs'] as string[]).map((value) => value.trim()) : [],
           Array.isArray(input['gitlabPaths']) ? (input['gitlabPaths'] as string[]).filter(Boolean) : [],
           Array.isArray(input['githubRepos']) ? (input['githubRepos'] as string[]).filter(Boolean) : [],
           input['hasIcaDocumentCollection'] === true,
@@ -205,6 +278,16 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (input['priority'] !== undefined)    add('priority',     input['priority']);
       if (input['projectType'] !== undefined) add('project_type', input['projectType']);
       if (input['description'] !== undefined) add('description',  String(input['description']).trim());
+      if (input['goal'] !== undefined)         add('goal',         String(input['goal']).trim());
+      if (input['role'] !== undefined)         add('role',         String(input['role']).trim());
+      if (input['ownership'] !== undefined)    add('ownership',    String(input['ownership']).trim());
+      if (input['lifecycleState'] !== undefined) add('lifecycle_state', input['lifecycleState']);
+      if (input['importance'] !== undefined)   add('importance',   input['importance']);
+      if (input['expectedOutputs'] !== undefined) {
+        add('expected_outputs', (input['expectedOutputs'] as string[]).map((value) => value.trim()));
+      }
+      if (input['startDate'] !== undefined)    add('start_date', validateOptionalDate(input['startDate'], 'startDate'));
+      if (input['targetEndDate'] !== undefined) add('target_end_date', validateOptionalDate(input['targetEndDate'], 'targetEndDate'));
       if (Array.isArray(input['gitlabPaths'])) add('gitlab_paths', (input['gitlabPaths'] as string[]).filter(Boolean));
       if (Array.isArray(input['githubRepos'])) add('github_repos', (input['githubRepos'] as string[]).filter(Boolean));
       if (input['hasIcaDocumentCollection'] !== undefined) add('has_ica_document_collection', input['hasIcaDocumentCollection'] === true);
@@ -214,6 +297,22 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (Array.isArray(input['tags']))        add('tags',         (input['tags'] as string[]).filter(Boolean));
 
       if (fields.length === 0) throw new ValidationError('no fields to update', {});
+      if (input['startDate'] !== undefined || input['targetEndDate'] !== undefined) {
+        const current = await db.query<{ start_date: string | null; target_end_date: string | null }>(
+          'SELECT start_date, target_end_date FROM projects WHERE id = $1',
+          [id],
+        );
+        if (current.rows.length === 0) throw new NotFoundError(`Project '${id}' not found`);
+        const startDate = input['startDate'] !== undefined
+          ? validateOptionalDate(input['startDate'], 'startDate')
+          : current.rows[0]?.start_date ?? null;
+        const targetEndDate = input['targetEndDate'] !== undefined
+          ? validateOptionalDate(input['targetEndDate'], 'targetEndDate')
+          : current.rows[0]?.target_end_date ?? null;
+        if (startDate !== null && targetEndDate !== null && targetEndDate < startDate) {
+          throw new ValidationError('targetEndDate cannot be earlier than startDate', { targetEndDate: 'before-start' });
+        }
+      }
       fields.push('updated_at = NOW()');
       params.push(id);
 

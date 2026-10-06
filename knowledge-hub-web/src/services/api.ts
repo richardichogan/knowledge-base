@@ -195,6 +195,8 @@ export type ProjectColour = 'blue' | 'cyan' | 'teal' | 'purple' | 'green' | 'mag
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
 export type ProjectType = 'standard' | 'formal-client';
+export type ProjectLifecycleState = 'active' | 'paused' | 'completed' | 'archived';
+export type ProjectImportance = 'critical' | 'high' | 'normal' | 'low';
 
 export interface ProjectLink { label: string; url: string; }
 
@@ -206,6 +208,14 @@ export interface Project {
   priority: ProjectPriority;
   projectType: ProjectType;
   description: string;
+  goal: string;
+  role: string;
+  ownership: string;
+  lifecycleState: ProjectLifecycleState;
+  startDate: string | null;
+  targetEndDate: string | null;
+  importance: ProjectImportance;
+  expectedOutputs: string[];
   gitlabPaths: string[];
   githubRepos: string[];
   hasIcaDocumentCollection: boolean;

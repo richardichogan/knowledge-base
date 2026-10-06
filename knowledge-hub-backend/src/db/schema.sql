@@ -212,6 +212,16 @@ CREATE TABLE IF NOT EXISTS projects (
   project_type     TEXT NOT NULL DEFAULT 'standard'
                    CHECK (project_type IN ('standard','formal-client')),
   description      TEXT NOT NULL DEFAULT '',
+  goal             TEXT NOT NULL DEFAULT '',
+  role             TEXT NOT NULL DEFAULT '',
+  ownership        TEXT NOT NULL DEFAULT '',
+  lifecycle_state  TEXT NOT NULL DEFAULT 'active'
+                   CHECK (lifecycle_state IN ('active','paused','completed','archived')),
+  start_date       DATE,
+  target_end_date  DATE,
+  importance       TEXT NOT NULL DEFAULT 'normal'
+                   CHECK (importance IN ('critical','high','normal','low')),
+  expected_outputs TEXT[] NOT NULL DEFAULT '{}',
   gitlab_paths     TEXT[] NOT NULL DEFAULT '{}',
   github_repos     TEXT[] NOT NULL DEFAULT '{}',
   has_ica_document_collection BOOLEAN NOT NULL DEFAULT FALSE,
@@ -220,7 +230,9 @@ CREATE TABLE IF NOT EXISTS projects (
   links            JSONB NOT NULL DEFAULT '[]',
   tags             TEXT[] NOT NULL DEFAULT '{}',
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ CONSTRAINT projects_date_range_check
+   CHECK (target_end_date IS NULL OR start_date IS NULL OR target_end_date >= start_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_projects_category
