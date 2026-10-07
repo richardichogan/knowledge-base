@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Diagram editor dark theme and pending Discover/dialog/Think improvements.
 
@@ -68,6 +68,22 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-07 (15:06 BST):
+
+- Release `e837358` merged/pushed to main and feature branch.
+- ACR run `ca57` succeeded; v166 revision `kh-prod-api-vnet--0000163`
+  reports Healthy / RunningAtMaxScale; latest revision receives 100% traffic.
+- Startup migrations completed and DB pool warmed. Logs also show existing
+  note-image UUID lookup warnings and the Express forwarded-header/trust-proxy
+  warning; no new migration failure occurred. Those unrelated issues are not
+  changed by this release.
+- SWA production deployment succeeded. Custom-domain HTML and published JS/CSS
+  return HTTP 200; both asset SHA-256 hashes exactly match the release build.
+- Rollback backend image: `cad79107555facr.azurecr.io/kh-prod-api:v165`.
+- No environment variables, credentials, infrastructure or RBAC were changed.
+- Diagram SCSS detector's side-border finding is the pre-existing conflict/error
+  banner accent, not a new card treatment; preserved outside this theme change.
 
 Dark diagram / Discover / dialogs / Think release validation:
 
