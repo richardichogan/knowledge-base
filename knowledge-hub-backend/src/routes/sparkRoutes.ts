@@ -13,7 +13,6 @@ import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError } from '../types/errors.js';
 import { createSpark, listSparks, deleteSpark } from '../services/sparkService.js';
-import { runClusteringJob } from '../jobs/clusteringJob.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { Spark } from '../services/sparkService.js';
 
@@ -40,8 +39,6 @@ sparkRouter.post('/', (req: Request, res: Response, next: NextFunction): void =>
       });
       const out: ApiSuccess<Spark> = { success: true, data: spark };
       res.status(HTTP_STATUS.CREATED).json(out);
-      // Fire clustering async — does not block the response
-      void runClusteringJob(db);
     } catch (err) { next(err); }
   })();
 });

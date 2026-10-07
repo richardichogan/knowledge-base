@@ -1,14 +1,15 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Discover visible actions / LinkedIn copy workflow and startup warning fixes.
+**Deployment:** Contextual connections and selected-text Spark capture.
 
 ## 1. Scope
 
-Deploy always-visible Discover actions and move articles to Published after
-successful LinkedIn draft copy, matching Copy URL. Include the pending UUID-only
-note-image enrichment and single-hop Azure ingress trust fixes.
+Deploy cross-content connections using the existing graph, expanded GitHub node
+indexing and grounded inference, visible relationship reasons, selected-text
+Spark capture with source provenance and immediate graph registration, and
+Spark-to-Canvas mapping. Keep Sparks within Think.
 Fetch and integrate remote main before merging, pushing and deploying.
 No migrations, infrastructure or credential changes are required.
 Retain the current Build credentials/configuration:
@@ -54,6 +55,13 @@ The repository's established production runbook is authoritative:
 
 ## 5. Validation Requirements
 
+All validation checks pass:
+- Azure CLI/authentication and existing ACA/ACR/SWA resource reads passed.
+- No IaC changes: Bicep compilation, template validation, what-if and static
+  role changes are not applicable to this existing-resource image/content update.
+- Dockerfile/lockfile build context verified; ACR build must pass before image update.
+- Both app typechecks/builds, browser fixture typecheck and isolated regressions passed.
+
 - `knowledge-hub-backend`: `tsc --noEmit` and `npm run build`
 - `knowledge-hub-web`: `tsc --noEmit` and `npm run build`
 - Confirm branch changes are pushed before ACR remote build.
@@ -68,6 +76,29 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Connections / Spark release validated 2026-10-07 (17:00 BST):
+
+- Both apps: `npx tsc --noEmit` and `npm run build` passed.
+- `node --import tsx --test scripts\connections.test.ts`: all five isolated
+  mocked tests passed without production data writes.
+- Web `npx tsc --noEmit -p tests\tsconfig.json` passed. Desktop/mobile
+  connections browser checks passed at 1440/390px before this deploy request:
+  mixed types, visible reasons, selected-text provenance, mapping, retry and navigation.
+- Backend targeted ESLint and `git diff --check` passed. Frontend has no ESLint
+  configuration; production typecheck/build and browser assertions used instead.
+- `git fetch origin`: HEAD and origin/main match before release commit.
+- Azure account/ACA/ACR/SWA reads passed; current image v167, deploy v168.
+  Rollback: `cad79107555facr.azurecr.io/kh-prod-api:v167`.
+- Existing Dockerfile and package-lock verified. No provisioning, IaC, migrations,
+  credentials, environment or RBAC changes; retain deployed security configuration.
+
+Preparation 2026-10-07 (16:55 BST): existing AZCLI recipe and production targets
+retained. User explicitly approved deployment. No infrastructure, migrations,
+credentials or environment changes. Existing local builds, five mocked graph /
+Spark tests and desktop/mobile browser checks passed; fresh deployment
+validation pending. Broken-image detector on the context-menu preview is a false
+positive: the image renders only when its actual runtime URL is present.
 
 Deployed 2026-10-07 (16:30 BST):
 

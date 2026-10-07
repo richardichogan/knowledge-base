@@ -7,13 +7,13 @@
  *   deleteNode()    — remove a node (cascades edges automatically)
  *   syncAllNodes()  — full sweep upsert from all eight content tables
  */
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 /** Supported content ref types — must match edge_type constants in edgeService.ts */
 export const REF_TYPES = [
   'discover_item', 'cfp_item', 'spark', 'note',
   'document', 'task', 'commit', 'pull_request',
-  'blog_post', 'podcast_episode', 'canvas',
+  'blog_post', 'podcast_episode', 'canvas', 'issue', 'github_item',
 ] as const;
 
 export type RefType = typeof REF_TYPES[number];
@@ -33,7 +33,7 @@ export interface GraphNode {
  * Returns the node's UUID.
  */
 export async function upsertNode(
-  db: Pool,
+  db: Pool | PoolClient,
   refId: string,
   refType: RefType,
   title: string,
@@ -87,6 +87,7 @@ export async function syncAllNodes(db: Pool): Promise<void> {
     syncDocuments(db),
     syncTasks(db),
     syncCommits(db),
+    syncGitHubItems(db),
   ]);
 }
 
@@ -151,4 +152,17 @@ async function syncCommits(db: Pool): Promise<void> {
      FROM content_items WHERE source IN ('github-commit', 'gitlab-commit')`,
   );
   for (const r of rows.rows) await upsertNode(db, r.id, 'commit', r.title, []);
+}
+
+async function syncGitHubItems(db: Pool): Promise<void> {
+  const rows = await db.query<{ id: string; title: string; ref_type: RefType; tags: string[] }>(
+    `SELECT id::text, COALESCE(title, source_id, 'GitHub item') AS title, tags,
+            CASE WHEN source IN ('github-pr', 'gitlab-mr') THEN 'pull_request'
+                 WHEN source IN ('github-issue', 'gitlab-issue') THEN 'issue'
+                 ELSE 'github_item' END AS ref_type
+     FROM content_items
+     WHERE source IN ('github-pr', 'gitlab-mr', 'github-issue', 'gitlab-issue',
+                      'github-action', 'github-release', 'github-deployment', 'github-pr-review')`,
+  );
+  for (const r of rows.rows) await upsertNode(db, r.id, r.ref_type, r.title, r.tags ?? []);
 }

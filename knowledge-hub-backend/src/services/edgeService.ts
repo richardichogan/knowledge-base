@@ -6,7 +6,7 @@
  *   upsertEdge()         — insert an edge, do nothing on duplicate
  *   deleteEdgesForNode() — remove all edges connected to a node UUID
  */
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 export type EdgeType =
   | 'has_spark'
@@ -26,7 +26,7 @@ export interface ThematicMeta   { reason: string }
  * @returns true if a new edge was created, false if it already existed.
  */
 export async function upsertEdge(
-  db: Pool,
+  db: Pool | PoolClient,
   sourceNodeId: string,
   targetNodeId: string,
   edgeType: EdgeType,

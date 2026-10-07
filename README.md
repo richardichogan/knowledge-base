@@ -16,6 +16,27 @@ Navigation regressions use the same isolated fixture server and Chromium executa
 
 ## Quick LinkedIn posts from Discover
 
+Connections reuse the existing shared graph, not a canvas-only relationship model.
+Use the existing right-click menu on selected Think note text to **Create Spark**.
+The Spark retains the selection and its source-note reference. After saving,
+its graph node and source connection are committed together (if the source is
+not yet indexed, the existing scheduled sync resolves the connection).
+**Send Spark to Canvas** adds a card referencing that Spark; existing Spark rows
+also expose **Original note** and **Map Spark** actions. Canvas cards can then be
+connected to new ideas using the existing connection controls. Sparks remain a
+Think subview, not a separate main navigation destination; diagram canvases are
+not offered in this card-based mapping flow.
+Think shows contextual connections before linked canvases. Notes, Plan tasks,
+Discover articles, Library documents, Sparks and indexed GitHub activity can be
+related through explicit links, shared concept tags or scheduled AI inference.
+Each connection displays its reason; weak or unexplained AI suggestions are not
+saved. Inference compares actual note text, task descriptions and article/GitHub
+content, with candidates balanced across item types (up to 30 candidates and five
+new suggestions per source per run). GitHub issues, PRs, reviews, actions, releases
+and deployments join the existing commit index on the next regular sync. Notes
+and tasks open their specific item; Discover and GitHub connections open the
+original source when available. Existing saved relationships are retained.
+
 Article actions (including Copy URL, Canvas, Spark and Connections) remain visible
 without hovering; the action row wraps on narrow screens.
 

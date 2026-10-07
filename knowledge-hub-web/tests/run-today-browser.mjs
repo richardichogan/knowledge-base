@@ -10,6 +10,7 @@ const fixtureUrl = process.env.TODAY_FIXTURE_URL ?? 'http://localhost:5142/tests
 const navigationChecks = process.env.ATHENA_BROWSER_CHECKS === 'navigation';
 const discoverChecks = process.env.ATHENA_BROWSER_CHECKS === 'discover';
 const thinkSearchChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-search';
+const connectionsChecks = process.env.ATHENA_BROWSER_CHECKS === 'connections';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -71,14 +72,15 @@ try {
       ready = await evaluate(navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
         : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
+        : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : thinkSearchChecks ? 'typeof window.runThinkSearchChecks === "function" && document.querySelector("#notes-search") !== null'
         : 'typeof window.runTodayChecks === "function" && document.querySelectorAll(".today-brief__attention article").length === 5');
       if (ready) break;
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('document.body.innerText')}`);
-    if (thinkSearchChecks) {
-      const results = await evaluate('window.runThinkSearchChecks()');
+    if (thinkSearchChecks || connectionsChecks) {
+      const results = await evaluate(connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;

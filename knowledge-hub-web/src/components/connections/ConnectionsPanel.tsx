@@ -22,20 +22,20 @@ interface ConnectionsPanelProps {
 
 /** Edge type display order (top to bottom as per spec). */
 const EDGE_ORDER = [
-  'on_map',
   'has_spark',
   'references',
   'tag_overlap',
   'thematically_related',
+  'on_map',
 ];
 
 /** Route to navigate to when a connected item is clicked. */
 function routeForNode(refType: string, refId: string): string {
-  if (refType === 'note')        return '/think';
+  if (refType === 'note')        return `/think?noteId=${encodeURIComponent(refId)}`;
   if (refType === 'document')    return '/library';
-  if (refType === 'task')        return '/plan';
+  if (refType === 'task')        return `/plan?taskId=${encodeURIComponent(refId)}`;
   if (refType === 'discover_item' || refType === 'cfp_item') return '/discover';
-  if (refType === 'spark')       return '/think';
+  if (refType === 'spark')       return '/think?view=sparks';
   if (refType === 'canvas')      return `/think?mapId=${refId}`;
   return `/my-work?highlight=${refId}`;
 }
@@ -44,32 +44,43 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ refId, refTy
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['connections', refId, refType],
-    queryFn: () => api.getConnections(refId, refType),
+    queryFn: async () => {
+      const result = await api.getConnections(refId, refType);
+      if (!result.success) throw new Error(result.error.message);
+      return result;
+    },
     staleTime: 60_000,
   });
 
   const grouped = data?.success === true ? data.data : {};
-  const totalCount = Object.values(grouped).reduce((sum, arr) => sum + arr.length, 0);
-
   const orderedKeys = [
     ...EDGE_ORDER.filter((k) => k in grouped),
     ...Object.keys(grouped).filter((k) => !EDGE_ORDER.includes(k)),
   // A note's maps are already listed above its connections (NoteMaps).
   ].filter((k) => !(refType === 'note' && k === 'on_map'));
+  const totalCount = orderedKeys.reduce((sum, key) => sum + (grouped[key]?.length ?? 0), 0);
 
   const handleItemClick = (edge: ConnectionEdge): void => {
+    const { refType: targetType, url } = edge.connectedNode;
+    if (['discover_item', 'commit', 'pull_request', 'issue', 'github_item'].includes(targetType)
+      && url && /^https?:\/\//i.test(url)) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
     const route = routeForNode(edge.connectedNode.refType, edge.connectedNode.refId);
     void navigate(route);
   };
 
   const body = (
     <div className="conn-panel__body">
+      <p className="conn-panel__intro">Related notes, tasks, Discover items and GitHub activity, connected by shared context or an explicit link.</p>
       {isLoading && <p className="conn-panel__loading">Loading connections…</p>}
 
-      {!isLoading && totalCount === 0 && (
-        <p className="conn-panel__empty">No connections yet</p>
+      {isError && <p className="conn-panel__error" role="alert">Could not load connections. <button type="button" onClick={() => { void refetch(); }}>Retry</button></p>}
+      {!isLoading && !isError && totalCount === 0 && (
+        <p className="conn-panel__empty">No meaningful connections found yet. Contextual suggestions are checked during the scheduled connection sync.</p>
       )}
 
       {orderedKeys.map((key) => (

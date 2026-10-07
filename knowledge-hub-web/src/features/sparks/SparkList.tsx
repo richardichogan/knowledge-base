@@ -4,7 +4,9 @@
  */
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { TrashCan } from '@carbon/icons-react';
+import { TrashCan, Diagram } from '@carbon/icons-react';
+import { useNavigate } from 'react-router-dom';
+import { useGlobalContextMenu } from '../../context/GlobalContextMenu';
 import { api } from '../../services/api';
 import type { Spark } from '../../services/api';
 
@@ -16,7 +18,10 @@ function formatDate(iso: string): string {
 }
 
 /** Single spark row with delete action. */
-const SparkRow: React.FC<{ spark: Spark; onDelete: (id: string) => void }> = ({ spark, onDelete }) => (
+const SparkRow: React.FC<{ spark: Spark; onDelete: (id: string) => void }> = ({ spark, onDelete }) => {
+  const navigate = useNavigate();
+  const { openMenu } = useGlobalContextMenu();
+  return (
   <div
     className="spark-row"
     data-ctx-title={spark.body.length > 80 ? spark.body.slice(0, 80) + '…' : spark.body}
@@ -30,8 +35,14 @@ const SparkRow: React.FC<{ spark: Spark; onDelete: (id: string) => void }> = ({ 
     <div className="spark-row__meta">
       <span className="spark-row__date">{formatDate(spark.createdAt)}</span>
       {spark.sourceId != null && (
-        <span className="spark-row__source">Attached · {spark.sourceType}</span>
+        spark.sourceType === 'note'
+          ? <button type="button" className="spark-row__source spark-row__source--link" onClick={() => { void navigate(`/think?noteId=${encodeURIComponent(spark.sourceId!)}`); }}>Original note</button>
+          : <span className="spark-row__source">Attached · {spark.sourceType}</span>
       )}
+      <button type="button" className="spark-row__map" onClick={(event) => {
+        openMenu(event, { title: spark.body.length > 80 ? spark.body.slice(0, 80) + '…' : spark.body, body: spark.body,
+          source: 'Spark', refId: spark.id, refType: 'spark', nodeType: 'hub_ref' });
+      }}><Diagram size={14} /> Map Spark…</button>
     </div>
     <button
       className="spark-row__delete"
@@ -41,7 +52,8 @@ const SparkRow: React.FC<{ spark: Spark; onDelete: (id: string) => void }> = ({ 
       <TrashCan size={14} />
     </button>
   </div>
-);
+  );
+};
 
 /** Full paginated spark list with Attached / Standalone / All filter. */
 export const SparkList: React.FC = () => {

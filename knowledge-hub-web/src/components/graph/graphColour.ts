@@ -25,6 +25,8 @@ export const TYPE_TO_FAMILY: Record<string, Family> = {
   spark:           'thinking',
   commit:          'output',
   pull_request:    'output',
+  issue:           'task',
+  github_item:     'output',
   blog_post:       'output',
   podcast_episode: 'output',
   document:        'reference',

@@ -9521,6 +9521,17 @@ $project-colour-map: (
 .conn-panel__loading,
 .conn-panel__empty { font-size: 0.8125rem; color: var(--cds-text-secondary); padding: 0.25rem 0; }
 
+.conn-panel__intro { font-size: 0.75rem; line-height: 1.5; color: var(--cds-text-helper); margin: 0 0 0.5rem; }
+.conn-panel__error {
+  font-size: 0.8125rem;
+  color: var(--cds-support-error);
+  button {
+    background: none; border: none; color: var(--cds-link-primary); cursor: pointer; padding: 0.25rem;
+    &:hover { text-decoration: underline; }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  }
+}
+
 .conn-group { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; }
 
 .conn-group__label {
@@ -9553,6 +9564,7 @@ $project-colour-map: (
   text-align: left;
   width: 100%;
   &:hover { background: var(--cds-layer-hover-01); border-color: var(--cds-border-subtle-01); }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: -2px; }
 }
 
 .conn-item__row {
@@ -9579,32 +9591,9 @@ $project-colour-map: (
   font-size: 0.75rem;
   color: var(--cds-text-helper);
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-
-  // Expand into a floating tooltip-style overlay on hover/keyboard focus so
-  // the full AI-generated "thematically related" reason is available on
-  // demand. Deliberately taken out of document flow (position: absolute)
-  // rather than wrapped inline — reflowing to multiple lines in-flow grows
-  // the connection item's height, which pushes the panel's total content
-  // past its fixed height and pops an unwanted scrollbar on hover.
-  .conn-item:hover &,
-  .conn-item:focus-visible & {
-    position: absolute;
-    left: 0.5rem;
-    right: 0.5rem;
-    top: 100%;
-    z-index: 20;
-    margin-top: 2px;
-    padding: 0.375rem 0.5rem;
-    background: var(--cds-layer-02);
-    border: 1px solid var(--cds-border-subtle-01);
-    border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-    white-space: normal;
-    overflow: visible;
-  }
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
 }
 .conn-item__dots { display: flex; gap: 3px; margin-top: 2px; }
 
@@ -10338,6 +10327,20 @@ $project-colour-map: (
   grid-row: 2;
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.spark-row__source--link,
+.spark-row__map {
+  background: none; border: none; color: var(--cds-link-primary); cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+  &:hover { text-decoration: underline; }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+}
+
+.gctx__error {
+  margin: 0; padding: 0.5rem 0.75rem; font-size: 0.75rem; line-height: 1.5;
+  color: var(--cds-support-error); white-space: normal; overflow-wrap: anywhere;
 }
 
 .spark-row__date,

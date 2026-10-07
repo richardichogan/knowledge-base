@@ -149,6 +149,8 @@ function mapSourceToRefType(source: string): string {
   if (source === 'discovered-article') return 'discover_item';
   if (source === 'github-commit' || source === 'gitlab-commit') return 'commit';
   if (source === 'github-pr' || source === 'gitlab-mr') return 'pull_request';
+  if (source === 'github-issue' || source === 'gitlab-issue') return 'issue';
+  if (source.startsWith('github-') && source !== 'github-doc' && source !== 'github-content-store') return 'github_item';
   if (source === 'cms-blog') return 'blog_post';
   if (source === 'cms-podcast-show-notes') return 'podcast_episode';
   if (source === 'cms-newsletter') return 'newsletter';

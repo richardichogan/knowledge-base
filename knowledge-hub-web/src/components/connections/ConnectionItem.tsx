@@ -25,6 +25,9 @@ const TYPE_LABELS: Record<string, string> = {
   spark: 'Spark',
   commit: 'Commit',
   pull_request: 'PR',
+  issue: 'Issue',
+  github_item: 'GitHub',
+  canvas: 'Canvas',
   blog_post: 'Blog',
   podcast_episode: 'Pod',
   cfp_item: 'CFP',
@@ -34,7 +37,16 @@ export const ConnectionItem: React.FC<ConnectionItemProps> = ({ edge, onClick })
   const label = TYPE_LABELS[edge.connectedNode.refType] ?? edge.connectedNode.refType;
   const isInferred = edge.edgeType === 'thematically_related';
   const dots = isInferred ? confidenceDots(edge.confidence) : null;
-  const reason = isInferred ? (edge.metadata?.['reason'] as string | undefined) : undefined;
+  const storedReason = edge.metadata?.['reason'];
+  const sharedTags = edge.metadata?.['shared_tags'];
+  const reason = typeof storedReason === 'string' && storedReason.trim()
+    ? storedReason
+    : edge.edgeType === 'tag_overlap' && Array.isArray(sharedTags)
+      ? `Shared topics: ${sharedTags.filter((tag): tag is string => typeof tag === 'string').join(', ')}`
+      : edge.edgeType === 'has_spark' ? 'This Spark was attached to this item.'
+        : edge.edgeType === 'references' ? 'Explicitly linked to this item.'
+          : edge.edgeType === 'on_map' ? 'Included on this canvas.'
+            : undefined;
   const title = edge.connectedNode.title.length > 60
     ? edge.connectedNode.title.slice(0, 60) + '…'
     : edge.connectedNode.title;

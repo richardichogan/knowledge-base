@@ -19,7 +19,7 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Checkmark, Diagram, Link, Copy, TaskAdd } from '@carbon/icons-react';
+import { Checkmark, Diagram, Link, Copy, TaskAdd, Idea } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { CanvasSummaryApi } from '../services/api';
 import { extractTasksWithAI } from '../utils/aiTaskExtraction';
@@ -202,6 +202,7 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
   const [panel, setPanel]   = useState<PanelState>('menu');
   const [selectedId, setId] = useState<string | null>(null);
   const [sent, setSent]     = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const qc  = useQueryClient();
 
@@ -222,31 +223,65 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
     return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onDown); };
   }, [onClose]);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: canvasError, refetch: retryCanvases } = useQuery({
     queryKey: ['canvases-list'],
-    queryFn: () => api.listCanvases(),
+    queryFn: async () => {
+      const result = await api.listCanvases();
+      if (!result.success) throw new Error(result.error.message);
+      return result.data;
+    },
     staleTime: 30_000,
     enabled: panel === 'picker',
   });
-  const canvases: CanvasSummaryApi[] = data?.success ? data.data.filter((c) => c.canvasType !== 'diagram') : [];
+  const canvases: CanvasSummaryApi[] = data?.filter((c) => c.canvasType !== 'diagram') ?? [];
+
+  const { mutate: createSpark, isPending: creatingSpark, data: savedSpark } = useMutation({
+    mutationFn: async () => {
+      setActionError(null);
+      const result = await api.createSpark({
+        body: (item.body ?? item.title).trim(),
+        tags: (item.tags ?? []).map((tag) => tag.split('|')[0] ?? tag),
+        source_id: item.refId && item.refType ? item.refId : null,
+        source_type: item.refId && item.refType ? item.refType : null,
+      });
+      if (!result.success) throw new Error(result.error.message);
+      return result.data;
+    },
+    onSuccess: () => {
+      clearActiveBlockNoteSelectionSnapshot();
+      void qc.invalidateQueries({ queryKey: ['sparks'] });
+      void qc.invalidateQueries({ queryKey: ['connections'] });
+    },
+    onError: (error) => { setActionError(error instanceof Error ? error.message : 'Could not save Spark. Please retry.'); },
+  });
+  const canvasItem: CtxItemData = savedSpark ? {
+    title: savedSpark.body.length > 80 ? savedSpark.body.slice(0, 80) + '…' : savedSpark.body,
+    body: savedSpark.body, refId: savedSpark.id, refType: 'spark', source: 'Spark',
+  } : item;
 
   const { mutate: addNode, isPending } = useMutation({
-    mutationFn: (canvasId: string) => api.addToCanvas(canvasId, {
-      // Added as a branch of the map's central idea.
-      label: item.title,
-      ...(item.body    ? { body:    item.body    } : {}),
-      ...(item.url     ? { url:     item.url     } : {}),
-      ...(item.refId   ? { refId:   item.refId   } : {}),
-      ...(item.refType ? { refType: item.refType } : {}),
-    }),
+    mutationFn: async (canvasId: string) => {
+      setActionError(null);
+      const result = await api.addToCanvas(canvasId, {
+        label: canvasItem.title,
+        ...(canvasItem.body    ? { body:    canvasItem.body    } : {}),
+        ...(canvasItem.url     ? { url:     canvasItem.url     } : {}),
+        ...(canvasItem.refId   ? { refId:   canvasItem.refId   } : {}),
+        ...(canvasItem.refType ? { refType: canvasItem.refType } : {}),
+      });
+      if (!result.success) throw new Error(result.error.message);
+      return result.data;
+    },
     onSuccess: (_res, canvasId) => {
       setSent(true);
       void qc.invalidateQueries({ queryKey: ['canvases-list'] });
       void qc.invalidateQueries({ queryKey: ['canvas', canvasId] });
+      void qc.invalidateQueries({ queryKey: ['connections'] });
       setTimeout(onClose, 1400);
     },
     onError: (err) => {
       console.error('[GlobalContextMenu] add to map failed:', err);
+      setActionError(err instanceof Error ? err.message : 'Could not add to Canvas. Please retry.');
     },
   });
 
@@ -290,8 +325,14 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
       </div>
       <div className="gctx__divider" />
       <button className="gctx__item" onClick={() => setPanel('picker')}>
-        <Diagram size={15} /> Send to Canvas…
+        <Diagram size={15} /> {savedSpark ? 'Send Spark to Canvas…' : 'Send to Canvas…'}
       </button>
+      {item.refType !== 'spark' && (
+        <button className="gctx__item" disabled={creatingSpark || savedSpark !== undefined} onClick={() => { createSpark(); }}>
+          {savedSpark ? <><Checkmark size={15} /> Spark saved{savedSpark.sourceType === 'note' ? ' · linked to note' : ''}</>
+            : <><Idea size={15} /> {creatingSpark ? 'Saving Spark…' : 'Create Spark'}</>}
+        </button>
+      )}
       <button
         className="gctx__item"
         onClick={() => { createTasks(); }}
@@ -309,6 +350,7 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
       <button className="gctx__item" onClick={() => { void copyText(); }}>
         <Copy size={15} /> Copy text
       </button>
+      {actionError && <p className="gctx__error" role="alert">{actionError}</p>}
     </div>
   );
 
@@ -319,14 +361,15 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
         <span>Send to Canvas</span>
       </div>
       <div className="gctx__picker-preview">
-        {item.source && <div className="gctx__picker-source">{item.source}</div>}
-        <div className="gctx__picker-ptitle">{item.title}</div>
-        {item.body && <div className="gctx__picker-pbody">{item.body.length > 140 ? item.body.slice(0, 140) + '…' : item.body}</div>}
-        {item.imageUrl && <img src={item.imageUrl} alt="" className="gctx__picker-img" />}
+        {canvasItem.source && <div className="gctx__picker-source">{canvasItem.source}</div>}
+        <div className="gctx__picker-ptitle">{canvasItem.title}</div>
+        {canvasItem.body && <div className="gctx__picker-pbody">{canvasItem.body.length > 140 ? canvasItem.body.slice(0, 140) + '…' : canvasItem.body}</div>}
+        {canvasItem.imageUrl && <img src={canvasItem.imageUrl} alt="" className="gctx__picker-img" />}
       </div>
       <div className="gctx__picker-list">
         {isLoading && <div className="gctx__picker-empty">Loading…</div>}
-        {!isLoading && canvases.length === 0 && <div className="gctx__picker-empty">No canvases yet</div>}
+        {canvasError && <div className="gctx__error" role="alert">Could not load canvases. <button className="gctx__picker-back" type="button" onClick={() => { void retryCanvases(); }}>Retry</button></div>}
+        {!isLoading && !canvasError && canvases.length === 0 && <div className="gctx__picker-empty">No brainstorm canvases yet. Create one from Think → Canvas.</div>}
         {canvases.map((c) => (
           <button
             key={c.id}
@@ -344,6 +387,7 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
       >
         {sent ? <><Checkmark size={14} /> Added!</> : isPending ? 'Adding…' : 'Add to Canvas'}
       </button>
+      {actionError && <p className="gctx__error" role="alert">{actionError}</p>}
     </div>
   );
 }

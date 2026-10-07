@@ -286,7 +286,7 @@ export interface ConnectionEdge {
   edgeType: string;
   confidence: number;
   metadata: Record<string, unknown> | null;
-  connectedNode: { id: string; refId: string; refType: string; title: string };
+  connectedNode: { id: string; refId: string; refType: string; title: string; url?: string | null };
   createdAt: string;
 }
 

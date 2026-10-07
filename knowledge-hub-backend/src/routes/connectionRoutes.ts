@@ -24,6 +24,7 @@ export interface ConnectionEdge {
     refId: string;
     refType: string;
     title: string;
+    url: string | null;
   };
   createdAt: string;
 }
@@ -56,15 +57,18 @@ connectionRouter.get('/', (req: Request, res: Response, next: NextFunction): voi
       const edges = await db.query<{
         edge_id: string; edge_type: string; confidence: string; metadata: Record<string, unknown> | string | null;
         connected_id: string; connected_ref_id: string; connected_ref_type: string;
-        connected_title: string; created_at: string;
+        connected_title: string; connected_url: string | null; created_at: string;
       }>(
         `SELECT e.id AS edge_id, e.edge_type, e.confidence, e.metadata, e.created_at,
                 n.id AS connected_id, n.ref_id AS connected_ref_id,
-                n.ref_type AS connected_ref_type, n.title AS connected_title
+                n.ref_type AS connected_ref_type, n.title AS connected_title,
+                ci.url AS connected_url
          FROM edges e
          JOIN nodes n ON (
            CASE WHEN e.source_node_id = $1 THEN e.target_node_id ELSE e.source_node_id END
          ) = n.id
+         LEFT JOIN content_items ci ON ci.id::text = n.ref_id
+           AND n.ref_type IN ('document', 'discover_item', 'commit', 'pull_request', 'issue', 'github_item')
          WHERE e.source_node_id = $1 OR e.target_node_id = $1
          ORDER BY e.confidence DESC, e.created_at DESC`,
         [nodeId],
@@ -84,6 +88,7 @@ connectionRouter.get('/', (req: Request, res: Response, next: NextFunction): voi
             refId: row.connected_ref_id,
             refType: row.connected_ref_type,
             title: row.connected_title,
+            url: row.connected_url,
           },
           createdAt: row.created_at,
         });

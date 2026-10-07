@@ -90,6 +90,12 @@ export const NotesPage: React.FC = () => {
   });
 
   useEffect(() => {
+    if (searchParams.get('view') === 'sparks') {
+      setMode('sparks');
+      searchParams.delete('view');
+      setSearchParams(searchParams, { replace: true });
+      return;
+    }
     const linkedMapId = searchParams.get('mapId');
     if (linkedMapId !== null) {
       openMap(linkedMapId);
@@ -98,6 +104,7 @@ export const NotesPage: React.FC = () => {
     }
     const linkedId = searchParams.get('noteId');
     if (linkedId !== null) {
+      setMode('notes');
       void handleSelectNote(linkedId);
       searchParams.delete('noteId');
       setSearchParams(searchParams, { replace: true });
@@ -106,7 +113,7 @@ export const NotesPage: React.FC = () => {
     const first = notes[0];
     if (first !== undefined && selectedId === null) void handleSelectNote(first.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes]);
+  }, [notes, searchParams]);
 
   // The most recently clicked note. A slower earlier load must not replace
   // the note the user has since clicked on.

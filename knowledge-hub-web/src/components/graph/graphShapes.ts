@@ -15,6 +15,8 @@ export const TYPE_TO_SHAPE: Record<string, NodeShape> = {
   spark:           'diamond',
   commit:          'square',
   pull_request:    'square',
+  issue:           'square',
+  github_item:     'square',
   blog_post:       'circle',
   podcast_episode: 'diamond',
   document:        'circle',
