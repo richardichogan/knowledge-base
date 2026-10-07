@@ -22,6 +22,7 @@ import { DiscoverActions } from '../components/discover/DiscoverActions';
 import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useAthenaContext } from '../context/AthenaContext';
+import { LinkedInDraftModal } from '../components/discover/LinkedInDraftModal';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -243,9 +244,10 @@ interface CardProps {
   onStateChange: (id: string, state: DiscoverWorkflowState) => void;
   isUpdating: boolean;
   onActivate?: (item: DiscoverItem) => void;
+  onLinkedIn: (item: DiscoverItem) => void;
 }
 
-const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate }) => {
+const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate, onLinkedIn }) => {
   const isToReview  = item.workflowState === 'to-review';
   const isSaved     = item.workflowState === 'saved';
   const isBlog      = item.workflowState === 'blog';
@@ -358,6 +360,11 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         </div>
 
         <div className="dc-card-actions">
+          <button type="button" className="dc-action dc-action--linkedin"
+            onKeyDown={(e) => { e.stopPropagation(); }}
+            onClick={(e) => { e.stopPropagation(); onLinkedIn(item); }}>
+            <Edit size={14} /> LinkedIn post
+          </button>
           <div className="dc-card-actions__more">
           {item.url !== null && !isPublished && (
             <button
@@ -469,6 +476,7 @@ export const DiscoverPage: React.FC = () => {
   const [debouncedTitleSearch, setDebouncedTitleSearch] = useState('');
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [linkedInItem, setLinkedInItem] = useState<{ id: string; title: string } | null>(null);
   const queryClient = useQueryClient();
   const { setAthenaContext } = useAthenaContext();
 
@@ -728,6 +736,7 @@ export const DiscoverPage: React.FC = () => {
               onStateChange={handleStateChange}
               isUpdating={updatingIds.has(item.id)}
               onActivate={(nextItem) => { setActiveItemId(nextItem.id); }}
+              onLinkedIn={(nextItem) => { setLinkedInItem(nextItem); }}
             />
           ))}
 
@@ -780,11 +789,17 @@ export const DiscoverPage: React.FC = () => {
                 {email.summary !== '' && email.summary !== email.title && (
                   <p className="dc-email-preview">{email.summary}</p>
                 )}
+                <button type="button" className="dc-action dc-action--linkedin"
+                  onClick={() => { setLinkedInItem({ id: email.id, title: email.title }); }}>
+                  <Edit size={14} /> LinkedIn post
+                </button>
               </div>
             );
           })}
         </div>
       )}
+      {linkedInItem && <LinkedInDraftModal key={linkedInItem.id} itemId={linkedInItem.id} title={linkedInItem.title}
+        onClose={() => { setLinkedInItem(null); }} />}
     </div>
   );
 };

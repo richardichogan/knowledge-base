@@ -5,6 +5,7 @@
  * through to merge.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { confirmDialog } from '../../services/appDialogs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { InlineLoading } from '@carbon/react';
@@ -226,11 +227,11 @@ const TaskRow: React.FC<TaskRowProps> = ({ task, tasks, availableAgents, onSpec,
         )}
         {task.prNumber !== null && (task.status === 'awaiting_approval' || task.status === 'blocked' || task.status === 'pr_open') && (
           <button type="button" className="kb-import-btn" disabled={busy}
-            onClick={() => { if (window.confirm(`Merge PR #${String(task.prNumber)} now?`)) run(api.buildTaskAction(task.id, 'merge')); }}>Merge now</button>
+            onClick={async () => { if (await confirmDialog(`Merge PR #${String(task.prNumber)} now?`, { title: 'Merge pull request', confirmLabel: 'Merge' })) run(api.buildTaskAction(task.id, 'merge')); }}>Merge now</button>
         )}
         {task.status !== 'merged' && task.status !== 'cancelled' && (
           <button type="button" className="kb-import-btn kb-import-btn--danger" disabled={busy}
-            onClick={() => { if (window.confirm('Skip this task? Tasks that depend on it will go ahead without it.')) run(api.buildTaskAction(task.id, 'cancel')); }}>Skip</button>
+            onClick={async () => { if (await confirmDialog('Skip this task? Tasks that depend on it will go ahead without it.', { title: 'Skip task', confirmLabel: 'Skip', tone: 'danger' })) run(api.buildTaskAction(task.id, 'cancel')); }}>Skip</button>
         )}
       </div>
     </li>
@@ -312,8 +313,8 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
       <div className="build-row build-detail__actions">
         {DECOMPOSABLE.includes(spec.status) && (
           <button type="button" className={spec.tasks.length === 0 ? 'docs-upload-btn' : 'kb-import-btn'} disabled={busy !== null || dirty}
-            onClick={() => {
-              if (spec.tasks.length > 0 && !window.confirm('Re-decompose? This replaces the current task list.')) return;
+            onClick={async () => {
+              if (spec.tasks.length > 0 && !await confirmDialog('Re-decompose? This replaces the current task list.', { title: 'Replace task list', confirmLabel: 'Re-decompose', tone: 'danger' })) return;
               act('decompose', () => api.buildSpecAction(spec.id, 'decompose'));
             }}>
             {busy === 'decompose' ? 'Decomposing…' : spec.tasks.length === 0 ? 'Decompose into tasks' : 'Re-decompose'}
@@ -335,16 +336,16 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
         )}
         {spec.status !== 'running' && spec.status !== 'decomposing' && (
           <button type="button" className="kb-import-btn kb-import-btn--danger" disabled={busy !== null}
-            onClick={() => {
-              if (!window.confirm('Delete this spec? Issues and PRs already on GitHub are left as they are.')) return;
+            onClick={async () => {
+              if (!await confirmDialog('Delete this spec? Issues and PRs already on GitHub are left as they are.', { title: 'Delete spec', confirmLabel: 'Delete', tone: 'danger' })) return;
               setBusy('delete');
               void api.deleteBuildSpec(spec.id).then(onDeleted).catch((e: unknown) => { setError(describeBuildError(e)); }).finally(() => { setBusy(null); });
             }}>Delete</button>
         )}
       </div>
 
-      <FinalMergePanel spec={spec} busy={busy} onMerge={() => {
-        if (window.confirm(`Merge ${spec.workBranch ?? 'the integration branch'} into ${spec.baseBranch}?`)) {
+      <FinalMergePanel spec={spec} busy={busy} onMerge={async () => {
+        if (await confirmDialog(`Merge ${spec.workBranch ?? 'the integration branch'} into ${spec.baseBranch}?`, { title: 'Merge integration branch', confirmLabel: 'Merge' })) {
           act('merge-final', () => api.buildSpecAction(spec.id, 'merge-final'));
         }
       }} />

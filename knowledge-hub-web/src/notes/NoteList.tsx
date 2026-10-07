@@ -4,8 +4,9 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { confirmDialog } from '../services/appDialogs';
 import { TextInput } from '@carbon/react';
-import { ChevronDown, TrashCan, Add, DocumentImport } from '@carbon/icons-react';
+import { ChevronDown, TrashCan, Add, DocumentImport, Close } from '@carbon/icons-react';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
@@ -202,6 +203,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   return (
     <>
       <div className="notes-list-search">
+        <div className="notes-list-search__field">
         <TextInput
           id="notes-search"
           ref={searchRef}
@@ -212,6 +214,18 @@ export const NoteList: React.FC<NoteListProps> = ({
           onChange={(e) => { setFilter(e.target.value); }}
           size="sm"
         />
+        {filter !== '' && (
+          <button
+            type="button"
+            className="notes-list-search__clear"
+            title="Clear search"
+            aria-label="Clear search"
+            onClick={() => { setFilter(''); searchRef.current?.focus(); }}
+          >
+            <Close size={16} aria-hidden="true" />
+          </button>
+        )}
+        </div>
         <button
           type="button"
           className="notes-list-search__action"
@@ -468,9 +482,9 @@ const NoteCard: React.FC<{
         className="notes-list-item__delete"
         title="Delete note"
         disabled={deleting}
-        onClick={(e) => {
+        onClick={async (e) => {
           e.stopPropagation();
-          if (!window.confirm(`Delete "${note.title}"? This cannot be undone.`)) return;
+          if (!await confirmDialog(`Delete "${note.title}"? This cannot be undone.`, { title: 'Delete note', confirmLabel: 'Delete', tone: 'danger' })) return;
           onDelete(note.id);
         }}
       >

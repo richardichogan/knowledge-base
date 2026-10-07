@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import type { PendingSuggestion } from '../../services/api';
 import { api } from '../../services/api';
+import { confirmDialog } from '../../services/appDialogs';
 import { PendingSuggestionRow } from './PendingSuggestionRow';
 import { usePendingTags, useCreateTag } from '../../hooks/useTaxonomy';
 
@@ -18,7 +19,7 @@ export const TagManagerReviewQueue: React.FC = () => {
   const [showWeak, setShowWeak] = React.useState(false);
 
   const rejectAll = async (): Promise<void> => {
-    if (!confirm(`Reject the ${aiSuggestions.length} suggestions shown? Weaker ones stay hidden and are not affected.`)) return;
+    if (!await confirmDialog(`Reject the ${aiSuggestions.length} suggestions shown? Weaker ones stay hidden and are not affected.`, { title: 'Reject suggestions', confirmLabel: 'Reject', tone: 'danger' })) return;
     setRejectingAll(true);
     try {
       await api.rejectAllTagSuggestions();

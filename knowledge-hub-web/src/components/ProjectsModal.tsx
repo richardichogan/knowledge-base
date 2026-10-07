@@ -8,6 +8,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { confirmDialog } from '../services/appDialogs';
 import { Button, InlineLoading, InlineNotification } from '@carbon/react';
 import { Close, Add, Edit, TrashCan, ChevronUp } from '@carbon/icons-react';
 import { useRepoMappings, useCreateRepoMapping, useUpdateRepoMapping, useDeleteRepoMapping } from '../hooks/useRepoMappings';
@@ -96,7 +97,7 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({ open, onClose }) =
   }
 
   async function confirmDelete(m: RepoTagMapping) {
-    if (!window.confirm(`Remove mapping for "${m.tagName}"?`)) return;
+    if (!await confirmDialog(`Remove mapping for "${m.tagName}"?`, { title: 'Remove mapping', confirmLabel: 'Remove', tone: 'danger' })) return;
     setError(null);
     try {
       await deleteMapping.mutateAsync(m.id);

@@ -11,6 +11,7 @@ import { InlineLoading } from '@carbon/react';
 import { Copy, Edit, TrashCan, DocumentExport, Checkmark, Code } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../../features/build/buildShared';
 import { api } from '../../services/api';
+import { confirmDialog } from '../../services/appDialogs';
 import { renderMarkdown } from '../../utils/markdown';
 import { sanitizeHtml } from '../../utils/sanitizeHtml';
 import { diffLines } from '../../utils/lineDiff';
@@ -179,8 +180,8 @@ export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refre
               )}
               <button
                 type="button" className="ai-output__btn ai-output__btn--danger" title="Delete"
-                onClick={() => {
-                  if (!window.confirm(`Delete "${output.title}" and all its versions?`)) return;
+                onClick={async () => {
+                  if (!await confirmDialog(`Delete "${output.title}" and all its versions?`, { title: 'Delete output', confirmLabel: 'Delete', tone: 'danger' })) return;
                   void api.deleteChatOutput(output.id).then(() => { setSelectedId(null); refresh(); });
                 }}
               >

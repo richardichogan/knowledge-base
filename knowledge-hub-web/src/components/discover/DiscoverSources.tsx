@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { Close, Renew } from '@carbon/icons-react';
 import { api } from '../../services/api';
+import { confirmDialog, alertDialog } from '../../services/appDialogs';
 import type { DiscoveryFeed } from '../../services/api';
 
 const GROUPS = ['Microsoft', 'GitHub', 'IBM', 'Google', 'AWS', 'OpenAI', 'Analysts and media', 'Other'];
@@ -78,7 +79,11 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
                 </span>
                 <button
                   type="button" className="dc-sources__remove" aria-label={`Remove ${f.title}`} title="Stop reading this source (its articles stay)"
-                  onClick={() => { if (window.confirm(`Stop reading “${f.title}”? Articles already found stay in Discover.`)) void api.deleteDiscoveryFeed(f.id).then(refresh); }}
+                  onClick={async () => {
+                    if (!await confirmDialog(`Stop reading “${f.title}”? Articles already found stay in Discover.`, { title: 'Remove source', confirmLabel: 'Remove', tone: 'danger' })) return;
+                    try { await api.deleteDiscoveryFeed(f.id); refresh(); }
+                    catch { void alertDialog('Could not remove this source. Please try again.', { title: 'Remove failed', tone: 'danger' }); }
+                  }}
                 >
                   <Close size={12} />
                 </button>

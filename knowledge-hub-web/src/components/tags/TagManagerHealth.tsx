@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading, InlineNotification } from '@carbon/react';
 import { api } from '../../services/api';
+import { confirmDialog, alertDialog } from '../../services/appDialogs';
 import { PROJECTS } from '../../config/projects';
 
 export const TagManagerHealth: React.FC = () => {
@@ -65,13 +66,13 @@ export const TagManagerHealth: React.FC = () => {
   }, []);
 
   const handleDelete = async (tagId: string): Promise<void> => {
-    if (!confirm('Delete this tag? This cannot be undone.')) return;
+    if (!await confirmDialog('Delete this tag? This cannot be undone.', { title: 'Delete tag', confirmLabel: 'Delete', tone: 'danger' })) return;
     setBusyId(tagId);
     try {
       await api.deleteTag(tagId);
       void qc.invalidateQueries({ queryKey: ['taxonomy'] });
       void qc.invalidateQueries({ queryKey: ['taxonomy-health'] });
-    } catch { /* user will see no change — safe to ignore */ }
+    } catch { void alertDialog('Could not delete this tag. Please try again.', { title: 'Delete failed', tone: 'danger' }); }
     finally { setBusyId(null); }
   };
 

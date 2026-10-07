@@ -23,6 +23,7 @@ import {
   DistributeVerticalCenter, Layers, Group, Renew, Reset, CheckmarkFilled, ErrorFilled, WarningAlt, InProgress,
 } from '@carbon/icons-react';
 import { api } from '../../services/api';
+import { confirmDialog } from '../../services/appDialogs';
 import type { CanvasFullApi } from '../../services/api';
 import {
   emptyDiagram, type DiagramDocument, type DiagramEdge, type DiagramKind, type DiagramNode, type DiagramPoint,
@@ -39,6 +40,7 @@ import {
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { exportDiagram } from './diagramExport';
+import { diagramEditorInk } from './diagramTheme';
 import './diagram.scss';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -333,7 +335,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   }
 
   async function deleteDiagram(): Promise<void> {
-    if (!window.confirm(`Delete the diagram “${savedTitle}”? This cannot be undone.`)) return;
+    if (!await confirmDialog(`Delete the diagram “${savedTitle}”? This cannot be undone.`, { title: 'Delete diagram', confirmLabel: 'Delete', tone: 'danger' })) return;
     try {
       await api.deleteCanvas(canvasId);
       save.current.discard = true;
@@ -411,9 +413,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     }
   }
 
-  function reloadFromServer(): void {
+  async function reloadFromServer(): Promise<void> {
     const s = save.current;
-    if (s.seq > s.savedSeq && !window.confirm('Reload the saved diagram? Your unsaved changes here will be discarded.')) return;
+    if (s.seq > s.savedSeq && !await confirmDialog('Reload the saved diagram? Your unsaved changes here will be discarded.', { title: 'Discard changes', confirmLabel: 'Reload', tone: 'danger' })) return;
     s.discard = true;
     if (s.timer !== null) window.clearTimeout(s.timer);
     onReload();
@@ -1493,7 +1495,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               </pattern>
               {[...markerIds].map(([colour, id]) => (
                 <marker key={id} id={id} viewBox="0 0 10 10" refX={9} refY={5} markerWidth={10} markerHeight={10} markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-                  <path d="M0,1 L10,5 L0,9 z" fill={colour} />
+                  <path d="M0,1 L10,5 L0,9 z" fill={diagramEditorInk(colour)} />
                 </marker>
               ))}
             </defs>
@@ -1516,7 +1518,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                     <path className="dg-edge__hit" d={d} strokeWidth={14 * inv} />
                     <path className="dg-edge__halo" d={d} />
                     <path
-                      className="dg-edge__line" d={d} stroke={edge.stroke}
+                      className="dg-edge__line" d={d} stroke={diagramEditorInk(edge.stroke)}
                       strokeDasharray={edge.dashed ? '6 4' : undefined}
                       markerEnd={edge.arrows === 'none' ? undefined : marker}
                       markerStart={edge.arrows === 'both' ? marker : undefined}
@@ -1524,7 +1526,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                     {lines.length > 0 && (
                       <g className="dg-edge__label">
                         <rect x={mid.x - labelW / 2} y={mid.y - labelH / 2} width={labelW} height={labelH} rx={3} />
-                        <text x={mid.x} y={mid.y - labelH / 2 + 3 + 12} fontSize={12} textAnchor="middle" fill={edge.stroke === 'none' ? '#161616' : edge.stroke}>
+                        <text x={mid.x} y={mid.y - labelH / 2 + 3 + 12} fontSize={12} textAnchor="middle" fill={diagramEditorInk(edge.stroke === 'none' ? '#161616' : edge.stroke)}>
                           {lines.map((l, i) => <tspan key={i} x={mid.x} dy={i === 0 ? 0 : 15}>{l}</tspan>)}
                         </text>
                       </g>
@@ -1833,7 +1835,10 @@ function TextLines({ lines, cx, cy, fontSize, color, anchorX, anchor = 'middle',
 interface NodeShapeProps { node: DiagramNode; asset: AssetState | undefined; selected: boolean; editing: boolean }
 
 const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, editing }: NodeShapeProps): React.ReactElement {
-  const { x, y, width: w, height: h, fill, stroke, textColor: color, fontSize: fs } = n;
+  const { x, y, width: w, height: h, fill, fontSize: fs } = n;
+  const transparent = fill === 'none' || fill === 'transparent';
+  const stroke = transparent ? diagramEditorInk(n.stroke) : n.stroke;
+  const color = transparent ? diagramEditorInk(n.textColor) : n.textColor;
   const cx = x + w / 2;
   const cy = y + h / 2;
   const label = editing ? '' : n.label;

@@ -37,6 +37,7 @@ import { HomePage } from './pages/HomePage';
 import { RepoProjectMappingsPage } from './pages/RepoProjectMappingsPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { BuildPage } from './features/build/BuildPage';
+import { AppDialogHost } from './components/AppDialog';
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -45,6 +46,7 @@ const App: React.FC = () => {
   return (
     <SignInGate>
       <Theme theme="g100" as="div" style={{ minHeight: '100vh' }}>
+        <AppDialogHost />
         <GlobalContextMenuProvider>
           <AthenaContextProvider>
           <BrowserRouter>

@@ -1189,6 +1189,14 @@ export class KnowledgeHubApi {
 
   // ─── Discover ─────────────────────────────────────────────────────────────
 
+  async createLinkedInDraft(id: string): Promise<ApiResponse<{ post: string; sourceUrl: string | null; sourceKind: 'email' | 'discovered-article' }>> {
+    return (await this.client.post<ApiResponse<{ post: string; sourceUrl: string | null; sourceKind: 'email' | 'discovered-article' }>>(
+      `/api/discover/${id}/linkedin-draft`,
+      {},
+      { timeout: CHAT_TIMEOUT_MS },
+    )).data;
+  }
+
   async getDiscoverFeed(
     state: DiscoverWorkflowState = 'to-review',
     source?: string,

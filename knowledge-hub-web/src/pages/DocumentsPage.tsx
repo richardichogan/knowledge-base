@@ -28,6 +28,7 @@ import { OneDriveStatus } from '../components/library/OneDriveStatus';
 import { ThinkAthenaPanel } from '../notes/ThinkAthenaPanel';
 import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
+import { alertDialog } from '../services/appDialogs';
 
 // Same cap as Think notes: enough for long specs, bounded for the model.
 const DOC_CONTEXT_MAX_CHARS = 100_000;
@@ -221,7 +222,7 @@ export const DocumentsPage: React.FC = () => {
       const uploadProjectName = projectOptions.find((project) => project.id === uploadProjectId)?.name;
       const data = await api.uploadDocument(file, uploadProjectId, uploadTitle, uploadProjectName);
       if (data.success) {
-        alert(`✓ Uploaded "${data.data.filename}" to ${data.data.projectName}`);
+        void alertDialog(`Uploaded "${data.data.filename}" to ${data.data.projectName}`, { title: 'Document uploaded', tone: 'success' });
         setUploadDialogOpen(false);
         setUploadTitle('');
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -232,7 +233,7 @@ export const DocumentsPage: React.FC = () => {
         throw new Error(data.error?.message ?? 'Upload failed');
       }
     } catch (err) {
-      alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      void alertDialog(`Upload failed: ${err instanceof Error ? err.message : String(err)}`, { title: 'Upload failed', tone: 'danger' });
     } finally {
       setUploadLoading(false);
     }
@@ -244,7 +245,7 @@ export const DocumentsPage: React.FC = () => {
 
     const ext = file.name.toLowerCase().split('.').pop() || '';
     if (!['pdf', 'docx', 'xlsx', 'pptx'].includes(ext)) {
-      alert(`Unsupported file type: .${ext}\n\nSupported: PDF, DOCX, XLSX, PPTX`);
+      void alertDialog(`Unsupported file type: .${ext}\n\nSupported: PDF, DOCX, XLSX, PPTX`, { title: 'Unsupported file type', tone: 'danger' });
       return;
     }
 

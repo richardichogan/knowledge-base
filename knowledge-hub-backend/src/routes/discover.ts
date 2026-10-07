@@ -7,6 +7,7 @@ import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync.js';
 import { readFeed } from '../integrations/discovery/feedReader.js';
 import { SOURCE_AUTHORITY_WEIGHTS, ARTICLE_TYPE_WEIGHTS } from '../integrations/cms/articleScoringPrompt.js';
+import { generateLinkedInDraft, type LinkedInSource } from '../ai/linkedInDraft.js';
 
 /**
  * Builds a SQL CASE expression mapping a metadata text column's value to its weight, generated
@@ -70,6 +71,32 @@ export interface DiscoverItem {
 const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived', 'published', 'shelved'];
 const DISCOVER_PAGE_SIZE_DEFAULT = 50;
 const DISCOVER_PAGE_SIZE_MAX = 100;
+
+discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const id = req.params['id'];
+      if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid Discover item ID' } });
+        return;
+      }
+      const { rows } = await getDb().query<LinkedInSource>(
+        `SELECT title, body, source, url FROM content_items WHERE id = $1 AND source IN ('email', 'discovered-article')`,
+        [id],
+      );
+      const source = rows[0];
+      if (!source) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: { code: 'NOT_FOUND', message: 'Discover item not found' } });
+        return;
+      }
+      if (!source.body.trim()) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'This source has no content to draft from.' } });
+        return;
+      }
+      res.json({ success: true, data: await generateLinkedInDraft(source) });
+    } catch (err) { next(err); }
+  })();
+});
 
 // ── GET /api/discover ─────────────────────────────────────────────────────────
 discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void => {

@@ -218,6 +218,26 @@ export async function runTodayChecks(): Promise<string[]> {
 }
 
 Object.assign(window, { runTodayChecks });
+Object.assign(window, { runThinkSearchChecks: async () => {
+  await waitFor(() => document.querySelectorAll('.notes-list-item').length === 6);
+  const input = document.querySelector<HTMLInputElement>('#notes-search')!;
+  check(document.querySelector('.notes-list-search__clear') === null, 'Empty search has no clear button');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  setter.call(input, 'APAC');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await waitFor(() => document.querySelectorAll('.notes-list-item').length === 1);
+  const clear = document.querySelector<HTMLButtonElement>('[aria-label="Clear search"]')!;
+  const inputBounds = input.getBoundingClientRect();
+  const clearBounds = clear.getBoundingClientRect();
+  check(clearBounds.right <= inputBounds.right + 1 && clearBounds.left >= inputBounds.left, 'Clear icon sits inside search box');
+  clear.focus();
+  clear.click();
+  await waitFor(() => document.querySelectorAll('.notes-list-item').length === 6);
+  check(input.value === '', 'Clear empties the query');
+  check(document.activeElement === input, 'Clear returns focus to search');
+  check(document.querySelector('.notes-list-search__clear') === null, 'Clear icon disappears for empty query');
+  return ['Search filters notes; clear restores results and input focus; icon stays inside input'];
+} });
 Object.assign(window, { readPageStyle: () => {
   const title = document.querySelector<HTMLElement>('.page-title');
   const header = document.querySelector<HTMLElement>('.page-header');

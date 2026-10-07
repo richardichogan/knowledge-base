@@ -16,6 +16,7 @@ import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
 import { api } from '../services/api';
+import { confirmDialog } from '../services/appDialogs';
 import {
   AUTOSAVE_INTERVAL_MS,
   SAVED_BANNER_DURATION_MS,
@@ -561,8 +562,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           {onDelete && (
             <button
               className="kb-import-btn kb-import-btn--danger"
-              onClick={() => {
-                if (!window.confirm(`Delete "${savedDocRef.current.title}"? This cannot be undone.`)) return;
+              onClick={async () => {
+                if (!await confirmDialog(`Delete "${savedDocRef.current.title}"? This cannot be undone.`, { title: 'Delete note', confirmLabel: 'Delete', tone: 'danger' })) return;
                 onDelete(doc.id);
               }}
             >

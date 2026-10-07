@@ -5,6 +5,7 @@
  */
 
 import React, { useState } from 'react';
+import { confirmDialog } from '../services/appDialogs';
 import { Button, TextInput, InlineLoading, InlineNotification } from '@carbon/react';
 import { ChevronDown, ChevronRight, Add, Edit, TrashCan } from '@carbon/icons-react';
 import { useTaxonomy, useCreateTag, useUpdateTag, useDeleteTag } from '../hooks/useTaxonomy';
@@ -54,7 +55,7 @@ export const TagPanelTaxonomy: React.FC = () => {
   }
 
   async function confirmDelete(tag: TaxonomyTag) {
-    if (!window.confirm(`Delete tag "${tag.name}"? This cannot be undone.`)) return;
+    if (!await confirmDialog(`Delete tag "${tag.name}"? This cannot be undone.`, { title: 'Delete tag', confirmLabel: 'Delete', tone: 'danger' })) return;
     setError(null);
     try {
       await deleteTag.mutateAsync(tag.id);

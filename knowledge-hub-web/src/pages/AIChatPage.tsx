@@ -15,6 +15,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Export, Copy, View, OverflowMenuHorizontal, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { confirmDialog, alertDialog } from '../services/appDialogs';
 import { PROJECTS } from '../config/projects';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
 import { LiveReply } from '../components/athena/LiveReply';
@@ -625,14 +626,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleDeleteSession(id: string, e: React.MouseEvent): void {
+  async function handleDeleteSession(id: string, e: React.MouseEvent): Promise<void> {
     e.stopPropagation();
-    if (!window.confirm('Delete this chat? This cannot be undone.')) return;
+    if (!await confirmDialog('Delete this chat? This cannot be undone.', { title: 'Delete chat', confirmLabel: 'Delete', tone: 'danger' })) return;
     void api.deleteChatSession(id).then(() => {
       setChatSessions((prev) => prev.filter((s) => s.id !== id));
       if (id === sessionId) handleNewChat();
     }).catch(() => {
-      // Non-fatal — the item just won't disappear from the sidebar until reload.
+      void alertDialog('Could not delete this chat. Please try again.', { title: 'Delete failed', tone: 'danger' });
     });
   }
 

@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { Add } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { confirmDialog } from '../services/appDialogs';
 import type { AthenaMemory, MemoryScopeType } from '../types';
 import { PERSONAS } from '../components/athena/personas';
 
@@ -81,7 +82,7 @@ const InstructionRow: React.FC<{ m: AthenaMemory; onChanged: () => void }> = ({ 
           <div className="memory-item__actions">
             <button type="button" className="kb-import-btn" onClick={() => { setEditing(true); }}>Edit</button>
             <button type="button" className="kb-import-btn" onClick={() => { void api.updateMemory(m.id, { status: paused ? 'active' : 'paused' }).then(onChanged); }}>{paused ? 'Resume' : 'Pause'}</button>
-            <button type="button" className="kb-import-btn kb-import-btn--danger" onClick={() => { if (window.confirm('Delete this instruction?')) void api.deleteMemory(m.id).then(onChanged); }}>Delete</button>
+            <button type="button" className="kb-import-btn kb-import-btn--danger" onClick={async () => { if (await confirmDialog('Delete this instruction?', { title: 'Delete instruction', confirmLabel: 'Delete', tone: 'danger' })) void api.deleteMemory(m.id).then(onChanged); }}>Delete</button>
           </div>
         </>
       )}

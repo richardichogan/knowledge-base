@@ -8,6 +8,8 @@ const browserPath = process.env.TODAY_BROWSER_PATH;
 assert.ok(browserPath, 'Set TODAY_BROWSER_PATH to an installed Chromium browser executable');
 const fixtureUrl = process.env.TODAY_FIXTURE_URL ?? 'http://localhost:5142/tests/today.html';
 const navigationChecks = process.env.ATHENA_BROWSER_CHECKS === 'navigation';
+const discoverChecks = process.env.ATHENA_BROWSER_CHECKS === 'discover';
+const thinkSearchChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-search';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -68,11 +70,49 @@ try {
     for (let i = 0; i < 300; i++) {
       ready = await evaluate(navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
+        : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
+        : thinkSearchChecks ? 'typeof window.runThinkSearchChecks === "function" && document.querySelector("#notes-search") !== null'
         : 'typeof window.runTodayChecks === "function" && document.querySelectorAll(".today-brief__attention article").length === 5');
       if (ready) break;
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('document.body.innerText')}`);
+    if (thinkSearchChecks) {
+      const results = await evaluate('window.runThinkSearchChecks()');
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      console.log(JSON.stringify({ width, checks: results }, null, 2));
+      continue;
+    }
+    if (discoverChecks) {
+      const results = await evaluate('window.runDiscoverChecks()');
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      const focusStayedInDialog = await evaluate('document.querySelector("dialog").contains(document.activeElement)');
+      assert.ok(focusStayedInDialog, 'Modal owns focus');
+      for (let i = 0; i < 6; i++) {
+        await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+        await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+        assert.ok(await evaluate('document.querySelector("dialog").contains(document.activeElement)'), 'Tab focus stays inside dialog');
+      }
+      if (process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `alert-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+      await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await delay(50);
+      assert.equal(await evaluate('document.querySelector("dialog[open]") === null'), true, 'Escape dismisses alert');
+      await evaluate('document.querySelector(".dc-action--linkedin").click()');
+      await delay(100);
+      assert.equal(await evaluate('document.querySelector("dialog[open]") !== null'), true);
+      if (process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `discover-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+      console.log(JSON.stringify({ width, checks: [...results, 'Native Escape dismissal and keyboard focus trapping'] }, null, 2));
+      continue;
+    }
     if (navigationChecks) {
       const results = await evaluate('window.runNavigationChecks()');
       const recovery = await evaluate(`({

@@ -1,9 +1,9 @@
-// Diagram editor — dark Carbon chrome around a light drawing sheet.
+// Diagram editor — dark Carbon chrome and drawing sheet.
 // Block prefix: dg-. Image picker panel (.dg-icons*) lives in diagramIntegration.scss.
 
-$dg-sheet-bg: #ffffff;
-$dg-select: #0f62fe;
-$dg-ink: #161616;
+$dg-sheet-bg: #161616;
+$dg-select: #78a9ff;
+$dg-ink: #f4f4f4;
 
 @keyframes dg-spin { to { transform: rotate(360deg); } }
 .dg-spin { animation: dg-spin 1s linear infinite; }
@@ -400,7 +400,7 @@ $dg-ink: #161616;
   touch-action: none;
   user-select: none;
   cursor: default;
-  &__dot { fill: #c6c6c6; }
+  &__dot { fill: #525252; }
   &__grid { pointer-events: none; }
 }
 
@@ -416,8 +416,8 @@ $dg-ink: #161616;
   &__divider, &__band { pointer-events: none; }
   &__placeholder {
     pointer-events: none;
-    rect { fill: #f4f4f4; stroke: #c6c6c6; stroke-dasharray: 4 3; }
-    text { fill: #6f6f6f; font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+    rect { fill: #262626; stroke: #6f6f6f; stroke-dasharray: 4 3; }
+    text { fill: #c6c6c6; font-family: 'IBM Plex Sans', system-ui, sans-serif; }
     &--error rect { stroke: #da1e28; }
     &--error text { fill: #da1e28; }
   }
@@ -507,7 +507,7 @@ $dg-ink: #161616;
   padding: 0.25rem;
   resize: none;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.97);
+  background: rgba(38, 38, 38, 0.97);
   color: $dg-ink;
   border: 2px solid $dg-select;
   font-family: 'IBM Plex Sans', system-ui, sans-serif;

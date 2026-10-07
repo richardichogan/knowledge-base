@@ -18,6 +18,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { ZoomIn, ZoomOut, FitToScreen, Undo, Copy, Close, Add, TrashCan, ChartNetwork, Pin } from '@carbon/icons-react';
 import { api } from '../../services/api';
+import { confirmDialog } from '../../services/appDialogs';
 import type { CanvasFullApi, CanvasNodeApi, MapOp, MapSuggestionApi } from '../../services/api';
 import { fetchNotes } from '../../notes/noteStorage';
 import type { NoteListItem } from '../../notes/types';
@@ -355,8 +356,8 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     setSelectedLinkId(id);
   }
 
-  function tidy(): void {
-    if (!window.confirm('Tidy the layout? Every card except the first will be rearranged (⌘Z undoes it).')) return;
+  async function tidy(): Promise<void> {
+    if (!await confirmDialog('Tidy the layout? Every card except the first will be rearranged (⌘Z undoes it).', { title: 'Tidy canvas', confirmLabel: 'Tidy' })) return;
     const nodes = mapRef.current.nodes;
     const start = new Map(nodes.map((n) => [n.id, { x: n.x, y: n.y }]));
     const movable = new Set(nodes.slice(1).map((n) => n.id));
@@ -557,7 +558,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   }
 
   async function deleteCanvas(): Promise<void> {
-    if (!window.confirm(`Delete the canvas “${map.title}”? This cannot be undone.`)) return;
+    if (!await confirmDialog(`Delete the canvas “${map.title}”? This cannot be undone.`, { title: 'Delete canvas', confirmLabel: 'Delete', tone: 'danger' })) return;
     await api.deleteCanvas(canvasId);
     void queryClient.invalidateQueries({ queryKey: ['canvases'] });
     onDeleted();

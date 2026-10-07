@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { ArrowUp, ArrowDown, TrashCan, Edit, Close } from '@carbon/icons-react';
 import { api } from '../../services/api';
+import { confirmDialog } from '../../services/appDialogs';
 import type { ChatScreen } from '../../types';
 import { ScreenMarkup } from './ScreenMarkup';
 
@@ -67,7 +68,7 @@ const ScreenCard: React.FC<{
         </button>
         <button
           type="button" className="ai-decision__btn" title="Delete screenshot"
-          onClick={() => { if (window.confirm(`Delete "${screen.name}" from this chat?`)) void api.deleteChatScreen(screen.id).then(onChanged); }}
+          onClick={async () => { if (await confirmDialog(`Delete "${screen.name}" from this chat?`, { title: 'Delete screenshot', confirmLabel: 'Delete', tone: 'danger' })) void api.deleteChatScreen(screen.id).then(onChanged); }}
         >
           <TrashCan size={14} aria-hidden="true" /><span className="cds--visually-hidden">Delete</span>
         </button>

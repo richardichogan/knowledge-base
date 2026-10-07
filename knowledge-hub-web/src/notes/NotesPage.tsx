@@ -20,6 +20,7 @@ import { SparkPanel } from '../features/sparks/SparkPanel';
 import { CanvasEditor } from '../features/canvas/CanvasEditor';
 import { DiagramEditor } from '../features/diagram/DiagramEditor';
 import { api } from '../services/api';
+import { confirmDialog } from '../services/appDialogs';
 import { useAthenaContext } from '../context/AthenaContext';
 import { usePersistedBoolean } from '../hooks/usePersistedState';
 import type { CanvasFullApi, CanvasSummaryApi } from '../services/api';
@@ -174,7 +175,7 @@ export const NotesPage: React.FC = () => {
   }
 
   async function handleDeleteCanvas(id: string, title: string): Promise<void> {
-    if (!window.confirm(`Delete the canvas “${title}”? This cannot be undone.`)) return;
+    if (!await confirmDialog(`Delete the canvas “${title}”? This cannot be undone.`, { title: 'Delete canvas', confirmLabel: 'Delete', tone: 'danger' })) return;
     setCanvasError(null);
     try {
       await api.deleteCanvas(id);

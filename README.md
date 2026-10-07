@@ -14,6 +14,28 @@ Search remains available through the header or Cmd+K / Ctrl+K. Its command palet
 
 Navigation regressions use the same isolated fixture server and Chromium executable as the Today checks below. Run `node tests/run-navigation-browser.mjs` from `knowledge-hub-web` with `TODAY_BROWSER_PATH` set. The fixture covers 1440px, 1024px and 390px, keyboard/focus behaviour, supporting routes, existing management panels, embedded Athena launch and failed supporting services. API/auth requests are blocked. Unit tests run with `node --import tsx/esm --test ../knowledge-hub-web/tests/navigation.test.ts` from the backend folder.
 
+## Quick LinkedIn posts from Discover
+
+**LinkedIn post** on a Discover article or Inbox email opens a short, editable
+draft in a popup: a brief summary and, where supported, one enterprise IT
+observation (at most 90 generated words). **Copy post + link** preserves blank
+lines and appends the original source URL. Email links open the original message
+and require mailbox access; they are not public article links. Review email
+content for private information before sharing. Drafting and copying do not
+publish anything or change the item's workflow state.
+
+Browser alerts and confirmations use Athena's styled in-app dialogs throughout
+the web app, with focus trapping, Escape dismissal and Cancel as the initial
+focus for destructive actions.
+
+Regression checks: from `knowledge-hub-backend`, run
+`node --import tsx/esm --test scripts\linkedin-draft.test.ts ..\knowledge-hub-web\tests\appDialogs.test.ts`.
+The isolated browser fixture needs only Vite on a free port (default 5186);
+from `knowledge-hub-web`, set `TODAY_BROWSER_PATH` to an installed Chromium
+executable and run `node tests\run-discover-browser.mjs`. It uses mock data,
+blocks live API/auth requests and checks desktop/mobile, draft/copy failures,
+source links and dialog behaviour.
+
 ## Athena export to Think
 
 **Export chat to Think** saves one note containing the full latest version of every saved Output, without AI summarisation or a generation-token limit. Separate Outputs remain unchanged. Show Notes packages follow the podcast section order; YouTube plain text and Spotify HTML are preserved in code blocks. Chats without Outputs retain the structured conversation export.
@@ -23,6 +45,11 @@ Navigation regressions use the same isolated fixture server and Chromium executa
 Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief thought in **Think > Sparks**, without creating a note or task. Sparks are standalone by default, support optional tag names, and can be attached to a known source when requested. They use the existing Spark clustering pipeline. Athena does not save Sparks unsolicited, and read-only "Ask another model" replies cannot create them.
 
 ## Think canvases
+
+The diagram editing sheet uses Athena's dark theme with a subdued grid and
+contrast-adjusted connectors and transparent labels. Saved shape colours and
+PNG/SVG export colours are unchanged; exports still offer white or transparent
+backgrounds.
 
 Select one diagram shape or connector to edit its **Title** and **Description**
 in the right-hand **Properties** panel. Title is the visible label (including

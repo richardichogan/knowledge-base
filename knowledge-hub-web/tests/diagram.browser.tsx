@@ -112,6 +112,9 @@ function clickButton(text: string): void {
   button.click();
 }
 async function runDiagramChecks(): Promise<string[]> {
+  check(getComputedStyle(window.document.querySelector('.dg-sheet')!).backgroundColor === 'rgb(22, 22, 22)', 'Diagram sheet must match the dark Athena theme');
+  check(window.document.querySelector('.dg-edge__line')?.getAttribute('stroke') === '#c6c6c6', 'Existing dark connectors remain visible on the dark sheet');
+  check(snapshot.document.edges[0]?.stroke === '#333333', 'Editor theme must not mutate saved connector colours');
   await waitFor(() => window.document.querySelector('.dg-editor') !== null);
   clickButton('Link a note');
   await waitFor(() => window.document.querySelector('.dg-note-links__choice') !== null);

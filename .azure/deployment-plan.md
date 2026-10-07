@@ -2,12 +2,14 @@
 
 **Status:** Validated
 
-**Deployment:** Chat recovery and current project context deployed and verified.
+**Deployment:** Diagram editor dark theme and pending Discover/dialog/Think improvements.
 
 ## 1. Scope
 
-Deploy chat draft/session recovery and non-navigating sign-in renewal to the
-frontend, plus current saved project metadata and project lookup to the backend.
+Apply a dark diagram editing surface consistent with Athena, preserving existing
+diagram data and export behaviour. Deploy this alongside the pending Discover
+LinkedIn popup, styled app dialogs and Think search-clear control.
+Fetch and integrate remote main before merging, pushing and deploying.
 No migrations, infrastructure or credential changes are required.
 Retain the current Build credentials/configuration:
 
@@ -66,6 +68,22 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Dark diagram / Discover / dialogs / Think release validation:
+
+- Both application `npx tsc --noEmit` checks and production builds passed.
+- Frontend fixture typecheck, diagram geometry/theme, dialog queue and LinkedIn
+  parser/route tests passed. Mocked tests do not write production data.
+- Desktop/mobile browser checks passed for diagrams (editing, pointer geometry,
+  saving, conflicts, exports), Discover drafts/dialog focus and Think clear.
+  Existing diagram colours remain saved unchanged; only editor contrast changes.
+- Azure CLI authentication and existing ACR, Container App and SWA targets
+  confirmed. Current rollback image is v165; release image will be v166.
+- Dockerfile and package lock verified; actual container build is performed by
+  ACR before the image update. No Bicep/templates, provisioning, policy/RBAC,
+  secrets, migrations or environment changes are part of this existing-resource
+  application-only release.
+- Fetched origin/main; no remote commits missing from this branch.
 
 Chat recovery and project grounding deployed on 2026-10-06 (20:27 BST):
 
