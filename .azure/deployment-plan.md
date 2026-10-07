@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Contextual connections and selected-text Spark capture.
 
@@ -76,6 +76,24 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-07 (17:02 BST):
+
+- Release `4873801` pushed to main and feature branch.
+- ACR run `ca59` succeeded from the exact release SHA; image v168 digest
+  `sha256:720d2c0f2505ed5e6b0f1902bbf9e7fecd45ff937ebaf41df182402d96dcd0af`.
+- Revision `kh-prod-api-vnet--0000165`: Healthy / RunningAtMaxScale;
+  latest ready revision matches, with 100% latest-revision traffic.
+- Startup migrations completed and DB pool warmed 8/8; all 86 notes already
+  indexed. No migration/configuration failure in new revision startup logs.
+- SWA production deployment succeeded. Custom-domain root returned HTTP 200 and
+  references `/assets/index-78cijhmb.js` and `/assets/index-CeYa3q1U.css`.
+  Both assets returned HTTP 200 and SHA-256 matched the local production build.
+- Existing registry uses its configured secret, not managed identity;
+  no AcrPull/RBAC provisioning applies. No infrastructure, secrets or environment
+  settings changed. Rollback image remains v167.
+- Expanded GitHub nodes populate on the next regular sync; thematic suggestions
+  use the existing scheduled inference job, not an immediate production backfill.
 
 Connections / Spark release validated 2026-10-07 (17:00 BST):
 
