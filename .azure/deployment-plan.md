@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Discover visible actions / LinkedIn copy workflow and startup warning fixes.
 
@@ -68,6 +68,19 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-07 (16:30 BST):
+
+- Release `4980622` merged/pushed to main and feature branch.
+- ACR run `ca58` succeeded. Backend v167 revision
+  `kh-prod-api-vnet--0000164` is Healthy / RunningAtMaxScale with 100% traffic.
+- Startup migrations completed; note reindex rebuilt 4/86 notes with 0 failures.
+  New revision logs contain neither invalid image UUID lookups nor the
+  forwarded-header/trust-proxy warning, including after live requests.
+- SWA deployment succeeded. Custom-domain release JS/CSS both return HTTP 200
+  and SHA-256 hashes match the local production build.
+- No infrastructure, credentials, environment or RBAC changed.
+  Backend rollback image: `cad79107555facr.azurecr.io/kh-prod-api:v166`.
 
 Discover/workflow/startup release validated 2026-10-07 (16:26 BST):
 
