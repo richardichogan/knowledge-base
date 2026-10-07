@@ -38,6 +38,7 @@ function integrationCredential(name: string): string | undefined {
 export const env = {
   NODE_ENV: optionalWithDefault('NODE_ENV', 'development'),
   PORT: parseInt(optionalWithDefault('PORT', '3000'), 10),
+  CONTAINER_APP_NAME: optional('CONTAINER_APP_NAME'),
 
   DATABASE_URL: required('DATABASE_URL'),
 

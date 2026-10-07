@@ -16,13 +16,18 @@ Navigation regressions use the same isolated fixture server and Chromium executa
 
 ## Quick LinkedIn posts from Discover
 
+Article actions (including Copy URL, Canvas, Spark and Connections) remain visible
+without hovering; the action row wraps on narrow screens.
+
 **LinkedIn post** on a Discover article or Inbox email opens a short, editable
 draft in a popup: a brief summary and, where supported, one enterprise IT
 observation (at most 90 generated words). **Copy post + link** preserves blank
 lines and appends the original source URL. Email links open the original message
 and require mailbox access; they are not public article links. Review email
-content for private information before sharing. Drafting and copying do not
-publish anything or change the item's workflow state.
+content for private information before sharing. Successfully copying an article's
+post moves it to **Published**, matching **Copy URL**; it does not post to LinkedIn.
+Generating/closing drafts, failed clipboard copies and copying Inbox emails do
+not change workflow state. Failed workflow updates are shown with a retry option.
 
 Browser alerts and confirmations use Athena's styled in-app dialogs throughout
 the web app, with focus trapping, Escape dismissal and Cancel as the initial
@@ -285,6 +290,13 @@ npm run dev   # Opens Raycast in development mode
 ## Environment variables
 
 All required variables are documented in `knowledge-hub-backend/.env.example`.
+
+The backend detects Azure Container Apps via its built-in `CONTAINER_APP_NAME`
+variable and trusts exactly one ingress proxy hop for client IP/rate limiting.
+Earlier forwarded IP entries remain untrusted; local/direct hosting trusts no
+proxy. Stored note images are enriched only for valid UUID image references;
+inline data URLs, temporary blob URLs and named external images are not queried
+against the UUID-backed image table.
 
 | Variable | Description |
 |---|---|

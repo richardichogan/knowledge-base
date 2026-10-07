@@ -16,6 +16,7 @@ const emailId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee';
 const post = 'Microsoft has announced a new cloud management capability.\n\nFor enterprise IT, this could simplify governance.';
 let requests = 0;
 let workflowWrites = 0;
+let failWorkflow = true;
 let fail = false;
 let denied = false;
 let clipboard = '';
@@ -45,7 +46,12 @@ api.createLinkedInDraft = async (id) => {
   return success({ post, sourceUrl: id === emailId ? 'https://outlook.office.com/mail/id/example' : 'https://example.com/news',
     sourceKind: id === emailId ? 'email' : 'discovered-article' });
 };
-api.updateDiscoverWorkflow = async () => { workflowWrites++; return success({}); };
+api.updateDiscoverWorkflow = async (id, state) => {
+  check(id === articleId && state === 'published', 'Article copies match Copy URL workflow');
+  workflowWrites++;
+  if (failWorkflow) throw new Error('Workflow unavailable');
+  return success({});
+};
 
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -72,6 +78,17 @@ function click(text: string): void {
 export async function runDiscoverChecks(): Promise<string[]> {
   const checks: string[] = [];
   await waitFor(() => document.querySelector('.dc-action--linkedin') !== null);
+  const card = document.querySelector<HTMLElement>('.dc-card')!;
+  const more = card.querySelector<HTMLElement>('.dc-card-actions__more')!;
+  check(!card.matches(':hover') && !card.matches(':focus-within'), 'Check actions before hovering or focusing the card');
+  check(getComputedStyle(more).opacity === '1', 'Secondary Discover actions remain visible without hover');
+  for (const button of more.querySelectorAll<HTMLButtonElement>('button')) {
+    const style = getComputedStyle(button);
+    check(style.visibility === 'visible' && style.display !== 'none' && button.getBoundingClientRect().width > 0,
+      'Copy URL, Canvas, Spark and Connections controls are discoverable');
+  }
+  check(document.documentElement.scrollWidth <= window.innerWidth, 'Visible actions do not cause horizontal page overflow');
+  checks.push('All article actions visible before hover/focus on desktop and touch layouts');
   const trigger = document.querySelector<HTMLButtonElement>('.dc-action--linkedin')!;
   trigger.focus();
   trigger.click();
@@ -79,15 +96,20 @@ export async function runDiscoverChecks(): Promise<string[]> {
   check(document.querySelector('.kh-dialog__actions button:last-child')?.hasAttribute('disabled') === true, 'Copy disabled while generating');
   await waitFor(() => document.querySelector('textarea')?.value === post);
   check(document.querySelector('dialog a')?.getAttribute('href') === 'https://example.com/news', 'Original article link');
+  check(workflowWrites === 0, 'Generating does not move the article');
   click('Copy post + link');
-  await waitFor(() => document.querySelector('dialog')?.textContent?.includes('Nothing has been published') === true);
+  await waitFor(() => document.querySelector('.dc-linkedin__error')?.textContent?.includes('could not be moved') === true);
+  failWorkflow = false;
+  click('Copied');
+  await waitFor(() => document.querySelector('dialog')?.textContent?.includes('Article moved to Published') === true);
   check(clipboard === `${post}\n\nhttps://example.com/news`, 'Clipboard paragraph breaks and source URL');
-  check(workflowWrites === 0, 'Drafting/copying never publishes or changes workflow');
-  checks.push('Article action, loading, short draft, source link, plain-text clipboard and no workflow writes');
+  check(workflowWrites === 2, 'Copy moves article to Published with explicit failure and retry');
+  checks.push('Article draft, clipboard paragraphs, Published workflow, explicit workflow failure and retry');
   denied = true;
   click('Copied');
   await waitFor(() => document.querySelector('.dc-linkedin__error') !== null);
   check(document.querySelector('.dc-linkedin__error')!.textContent!.includes('copy it manually'), 'Clipboard denial recovery');
+  check(workflowWrites === 2, 'Clipboard denial never changes workflow');
   denied = false;
   fail = true;
   click('Generate again');
@@ -105,6 +127,9 @@ export async function runDiscoverChecks(): Promise<string[]> {
   click('LinkedIn post');
   await waitFor(() => document.querySelector('dialog a')?.getAttribute('href')?.includes('outlook.office.com') === true);
   check(document.querySelector('dialog')!.textContent!.includes('mailbox access'), 'Private mailbox link warning');
+  click('Copy post + link');
+  await waitFor(() => document.querySelector('dialog')?.textContent?.includes('Nothing has been posted to LinkedIn') === true);
+  check(workflowWrites === 2, 'Email copies do not use article workflow');
   click('Close');
   await waitFor(() => document.querySelector('dialog[open]') === null);
   checks.push('Inbox email action and exact original mailbox link');

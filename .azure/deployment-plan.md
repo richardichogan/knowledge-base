@@ -1,14 +1,14 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Diagram editor dark theme and pending Discover/dialog/Think improvements.
+**Deployment:** Discover visible actions / LinkedIn copy workflow and startup warning fixes.
 
 ## 1. Scope
 
-Apply a dark diagram editing surface consistent with Athena, preserving existing
-diagram data and export behaviour. Deploy this alongside the pending Discover
-LinkedIn popup, styled app dialogs and Think search-clear control.
+Deploy always-visible Discover actions and move articles to Published after
+successful LinkedIn draft copy, matching Copy URL. Include the pending UUID-only
+note-image enrichment and single-hop Azure ingress trust fixes.
 Fetch and integrate remote main before merging, pushing and deploying.
 No migrations, infrastructure or credential changes are required.
 Retain the current Build credentials/configuration:
@@ -68,6 +68,23 @@ The repository's established production runbook is authoritative:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Discover/workflow/startup release validated 2026-10-07 (16:26 BST):
+
+- Both app `npx tsc --noEmit` checks and `npm run build` passed; frontend
+  `npx tsc --noEmit -p tests\tsconfig.json` passed.
+- Six mocked backend tests passed, including UUID-only enrichment and client
+  rate-limit separation with spoofed earlier forwarded IP entries.
+- Discover browser checks at 1440/390px passed before this deployment request:
+  actions visible without hover, successful copy to Published, workflow failure
+  and retry, clipboard denial, email-copy isolation and modal focus.
+- `git diff --check` passed; source env/service lint passed. Existing app/utils
+  lint findings were verified against HEAD and are unchanged by this release.
+- Azure account, ACR, Container App and SWA reads confirm the existing production
+  targets. Current image v166; deploy v167, retain v166 for rollback.
+- No provisioning, template/RBAC, migration, secrets or environment changes.
+  Existing Dockerfile/lockfile retained; ACR build must succeed before update.
+- Fetched origin/main; no missing remote commits.
 
 Deployed 2026-10-07 (15:06 BST):
 

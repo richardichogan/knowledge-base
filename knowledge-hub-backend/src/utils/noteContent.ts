@@ -70,13 +70,20 @@ export function extractImageBlockUrls(blocks: Block[]): string[] {
 }
 
 /**
- * The blob name (== kb_images.id) is the last path segment before the SAS
- * query string, e.g. https://acct.blob.core.windows.net/kb-images/<id>?sv=...
+ * Extracts a UUID blob name from a stored image URL. Inline data, temporary
+ * blob URLs and named external images have no corresponding kb_images row.
  */
 export function blobIdFromUrl(url: string): string {
-  const withoutQuery = url.split('?')[0] ?? '';
-  const segments = withoutQuery.split('/');
-  return segments[segments.length - 1] ?? '';
+  try {
+    const parsed = new URL(url, 'https://note.invalid');
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return '';
+    const id = decodeURIComponent(parsed.pathname.split('/').at(-1) ?? '');
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+      ? id.toLowerCase()
+      : '';
+  } catch {
+    return '';
+  }
 }
 
 /**

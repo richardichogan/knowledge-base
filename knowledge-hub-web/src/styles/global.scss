@@ -12371,16 +12371,9 @@ $interactive:      #0f62fe;
 
 .dc-card-actions__more {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  transition: opacity 0.12s ease;
-}
-
-// Secondary actions appear on hover or keyboard focus (always shown on touch).
-@media (hover: hover) {
-  .dc-feed .dc-card:not(:hover):not(:focus-within) .dc-card-actions__more {
-    opacity: 0;
-  }
 }
 
 // ── Library: OneDrive (Alliance) connection strip ────────────────────────────

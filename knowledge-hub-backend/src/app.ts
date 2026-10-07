@@ -39,6 +39,7 @@ import { KnowledgeHubError, PayloadTooLargeError } from './types/errors.js';
 import { voiceRouter } from './routes/voiceRoutes.js';
 import { todayRouter } from './routes/today.js';
 import { repoProjectMappingsRouter } from './routes/repoProjectMappings.js';
+import { env } from './config/env.js';
 
 /**
  * Creates and configures the Express application.
@@ -46,6 +47,9 @@ import { repoProjectMappingsRouter } from './routes/repoProjectMappings.js';
  */
 export function createApp(): express.Application {
   const app = express();
+  // ACA appends the verified sender as the rightmost forwarded IP; earlier
+  // entries are client-controlled. Local/direct deployments trust no proxy.
+  app.set('trust proxy', env.CONTAINER_APP_NAME?.trim() ? 1 : false);
 
   // ── Security headers ─────────────────────────────────────────────────────
   app.use(helmet());

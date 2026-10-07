@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Checkmark, Launch, Renew } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
 
 export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClose: () => void }> = ({ itemId, title, onClose }) => {
+  const queryClient = useQueryClient();
   const [post, setPost] = useState('');
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [markedPublished, setMarkedPublished] = useState(false);
   const draft = useQuery({
     queryKey: ['discover-linkedin-draft', itemId],
     queryFn: async () => {
@@ -23,6 +26,7 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
   useEffect(() => { if (draft.data) { setPost(draft.data.post); setCopied(false); setCopyError(null); } }, [draft.data, draft.dataUpdatedAt]);
 
   async function copy(): Promise<void> {
+    setSaving(true);
     try {
       await navigator.clipboard.writeText([post.trim(), draft.data?.sourceUrl].filter(Boolean).join('\n\n'));
       setCopied(true);
@@ -30,18 +34,32 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
     } catch {
       setCopied(false);
       setCopyError('Clipboard access was denied. Select the draft text and copy it manually.');
+      setSaving(false);
+      return;
     }
+    if (draft.data?.sourceKind === 'discovered-article' && !markedPublished) {
+      try {
+        const result = await api.updateDiscoverWorkflow(itemId, 'published');
+        if (!result.success) throw new Error(result.error?.message ?? 'Could not update the article.');
+        setMarkedPublished(true);
+        void queryClient.invalidateQueries({ queryKey: ['discover'] });
+        void queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
+      } catch (error) {
+        setCopyError(`Post copied, but the article could not be moved to Published. Copy again to retry. ${describeApiError(error)}`);
+      }
+    }
+    setSaving(false);
   }
 
   return <AppDialog title="Quick LinkedIn post" wide onClose={onClose}
     actions={<>
-      <button type="button" className="kh-dialog__button" onClick={onClose}>Close</button>
-      <button type="button" className="kh-dialog__button" disabled={draft.isFetching}
+      <button type="button" className="kh-dialog__button" disabled={saving} onClick={onClose}>Close</button>
+      <button type="button" className="kh-dialog__button" disabled={draft.isFetching || saving}
         onClick={() => { void draft.refetch(); }}>
         <Renew size={16} /> {draft.isFetching ? 'Writing...' : 'Generate again'}
       </button>
       <button type="button" className="kh-dialog__button kh-dialog__button--primary"
-        disabled={!post.trim() || draft.isFetching || draft.isError} onClick={() => { void copy(); }}>
+        disabled={!post.trim() || draft.isFetching || draft.isError || saving} onClick={() => { void copy(); }}>
         {copied ? <Checkmark size={16} /> : <Copy size={16} />} {copied ? 'Copied' : 'Copy post + link'}
       </button>
     </>}>
@@ -61,6 +79,6 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
       {draft.data.sourceUrl && <input className="dc-linkedin__url" aria-label="Original source link" value={draft.data.sourceUrl} readOnly />}
     </>}
     {copyError && <p className="dc-linkedin__error" role="alert">{copyError}</p>}
-    {copied && <p className="dc-linkedin__status" role="status">Copied with paragraph breaks. Nothing has been published.</p>}
+    {copied && <p className="dc-linkedin__status" role="status">Copied with paragraph breaks.{markedPublished ? ' Article moved to Published, just like Copy URL.' : ''} Nothing has been posted to LinkedIn.</p>}
   </AppDialog>;
 };

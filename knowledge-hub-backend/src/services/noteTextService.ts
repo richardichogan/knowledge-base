@@ -40,7 +40,7 @@ export async function renderNoteAsText(db: Pool, rawContentJson: string): Promis
   const imageUrls = extractImageBlockUrls(blocks);
   const visionByBlobId = new Map<string, string>();
   if (imageUrls.length > 0) {
-    const ids = imageUrls.map(blobIdFromUrl).filter((id) => id !== '');
+    const ids = [...new Set(imageUrls.map(blobIdFromUrl).filter((id) => id !== ''))];
     if (ids.length > 0) {
       try {
         const result = await db.query<{ id: string; vision_analysis: string }>(
