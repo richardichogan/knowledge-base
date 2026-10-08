@@ -1,10 +1,18 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** GitHub note publication with repository/folder selection, durable automatic updates, conflict review and canonical note indexing.
+**Deployment:** GitHub destination validation and Athena favicon/app-icon correction.
 
 ## 1. Scope
+
+Approved on 2026-10-08 at 21:42 BST: deploy correction `6950018` to the
+existing production targets. Reject unavailable project repository defaults,
+disable publishing until folder access succeeds, show actionable API errors,
+and replace KH icons with cache-busted Athena artwork.
+Backend advances from v172 to v173; frontend follows. No data writes,
+new migrations, infrastructure, credentials, environment or role changes.
+Rollback: backend v172 and frontend source `b14f62a`.
 
 Approved on 2026-10-08: deploy the GitHub note publication changes in this
 workspace. Publish to the chosen writable repository and path, preserving
@@ -127,6 +135,26 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-08 (21:43 BST), correction `6950018`:
+
+- Both apps: `npx tsc --noEmit` and `npm run build` passed on exact release.
+- Frontend: `npx tsc --noEmit -p tests/tsconfig.json` passed.
+- Backend publishing/history tests passed: 4 tests, including inaccessible
+  project repository, conflict handling, retries and canonical identity.
+- Existing browser fixture passed at 1440/390px before commit: unavailable
+  default excluded, failed folder browse blocks Push, paginated default
+  verification, complete publish/conflict flow, favicon URL/artwork and
+  192/512px app icon dimensions and teal pixel checks.
+- Corrected service passed real production GitHub account reads: inaccessible
+  screenshot destination gives actionable 403; client-demo root/docs browse
+  on master; content-store root on main; writable list excludes missing repo.
+- Azure CLI authentication and existing ACA/ACR/SWA reads passed; current
+  image v172, v173 absent. Existing registry secret authentication retained.
+- Dockerfile and lockfile verified; successful ACR Node 20 build required
+  before image update. No changed IaC/RBAC: compilation/what-if/provisioning
+  and new-role verification not applicable to image/static-asset update.
+- `git diff --check` passed and remote main is an ancestor of release.
 
 ### GitHub note publication release — 2026-10-08
 
