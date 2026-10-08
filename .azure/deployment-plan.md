@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Full pending application release: notes refresh, Think recovery history, and Athena Markdown transfer.
 
@@ -105,6 +105,28 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-08 (12:39 BST), full application release `a7d8cfd`:
+
+- Full source branch pushed, including previously undeployed history and
+  Markdown conversion. No isolated/cherry-picked application release.
+- Local-context packaging encountered an old untracked `node_modules_backup`
+  directory. Rebuilt from a clean `git archive` of exact committed backend
+  source instead; ACR run `ca5d` succeeded for v171, digest
+  `sha256:85176ae6b35af80db51facbd0e1fdf4781939b96102635a5eced7815181ab854`.
+- Backend revision `kh-prod-api-vnet--0000168` is Healthy/RunningAtMaxScale
+  and receives 100% traffic. Startup logs confirm migration 060 applied and
+  migration completion; existing notes were not rewritten or reindexed.
+- Backend environment fingerprint unchanged; no secret, role or configuration
+  changes. Existing secret-reference registry pull configuration retained.
+- Full frontend SWA production deployment succeeded. Custom/default host HTML
+  at `/`, `/signin` and `/think` matches the local build; all five
+  entry/bootstrap/callback asset SHA-256 hashes match.
+- Production entry `/assets/index-CpoiEcZ7.js` includes the full application
+  release. Live synthetic auth popup success/error checks passed at 1440/390px
+  with popup closing and original page retained.
+- No production note writes were performed during verification. Real-account
+  acceptance remains user-owned; existing malformed notes remain untouched.
 
 Validated 2026-10-08 (full pending release):
 
