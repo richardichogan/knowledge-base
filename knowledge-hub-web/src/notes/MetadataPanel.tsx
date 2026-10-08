@@ -19,11 +19,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAthenaContext } from '../context/AthenaContext';
 import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import { ThinkAthenaPanel } from './ThinkAthenaPanel';
+import { NoteHistoryPanel } from './NoteHistoryPanel';
 import { PaneResizer } from '../components/PaneResizer';
 import { usePersistedBoolean, usePersistedChoice, usePersistedPaneWidth } from '../hooks/usePersistedState';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 
-const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections'] as const;
+const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections', 'history'] as const;
 type SidePanelTab = typeof SIDE_PANEL_TABS[number];
 
 // Module constant (not an inline literal) so the width hook gets a stable object.
@@ -64,6 +65,8 @@ interface MetadataPanelProps {
   onOpenMap?: (mapId: string) => void;
   /** Create (or open) this note's mind map. */
   onMapNote?: (noteId: string) => void;
+  onRestoreVersion: (versionId: string) => Promise<void>;
+  historyRefresh: number;
 }
 
 /** Formats an ISO timestamp as "DD Mon YYYY, HH:MM" for Created/Modified. */
@@ -94,6 +97,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   onPushToGitHub,
   onOpenMap,
   onMapNote,
+  onRestoreVersion,
+  historyRefresh,
 }) => {
   const { pageContext, registerAthenaLauncher } = useAthenaContext();
   const qc = useQueryClient();
@@ -131,6 +136,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
     ...(showAthena ? [{ id: 'athena' as const, label: 'Athena' }] : []),
     { id: 'metadata', label: 'Metadata' },
     { id: 'connections', label: 'Connections' },
+    { id: 'history', label: 'History' },
   ];
 
   return (
@@ -202,6 +208,11 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
           </div>
         )}
 
+        {tab === 'history' && (
+          <div role="tabpanel" id="think-side-panel-history" aria-labelledby="think-side-tab-history" className="notes-meta-tabpanel">
+            <NoteHistoryPanel noteId={noteId} refresh={historyRefresh} onRestore={onRestoreVersion} />
+          </div>
+        )}
         {tab === 'metadata' && (
           <div role="tabpanel" id="think-side-panel-metadata" aria-labelledby="think-side-tab-metadata" className="notes-meta-tabpanel">
             <CollapsibleSection label="Organisation">

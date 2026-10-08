@@ -109,6 +109,20 @@ function computeSelectedText(editor: BlockNoteEditor<any, any, any>): string {
 // Id of the Think note the active editor is showing — lets Athena's proposed
 // edits be applied only to the note they were written for.
 let activeNoteId: string | null = null;
+let actionBridge: { noteId: string; run: (protect: boolean, action: () => void) => Promise<void> } | null = null;
+
+export function setNoteActionBridge(noteId: string, run: (protect: boolean, action: () => void) => Promise<void>): () => void {
+  const bridge = { noteId, run };
+  actionBridge = bridge;
+  return () => { if (actionBridge === bridge) actionBridge = null; };
+}
+
+export async function runNoteAction(noteId: string, protect: boolean, action: () => void): Promise<void> {
+  if (!actionBridge || actionBridge.noteId !== noteId || getActiveNoteId() !== noteId) {
+    throw new Error('Open this note in Think before applying changes.');
+  }
+  await actionBridge.run(protect, action);
+}
 
 /** The active Think note editor, if one is open. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -166,4 +180,3 @@ export function hasBlockNoteCellSelection(): boolean {
 export function clearActiveBlockNoteSelectionSnapshot(): void {
   lastSelectionSnapshot = '';
 }
-

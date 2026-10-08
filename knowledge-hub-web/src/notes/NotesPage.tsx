@@ -20,7 +20,7 @@ import { SparkPanel } from '../features/sparks/SparkPanel';
 import { CanvasEditor } from '../features/canvas/CanvasEditor';
 import { DiagramEditor } from '../features/diagram/DiagramEditor';
 import { api } from '../services/api';
-import { confirmDialog } from '../services/appDialogs';
+import { confirmDialog, alertDialog } from '../services/appDialogs';
 import { useAthenaContext } from '../context/AthenaContext';
 import { usePersistedBoolean } from '../hooks/usePersistedState';
 import type { CanvasFullApi, CanvasSummaryApi } from '../services/api';
@@ -123,9 +123,17 @@ export const NotesPage: React.FC = () => {
     if (id === selectedId) return;
     latestSelectRef.current = id;
     setSelectedId(id); // highlight immediately; the body follows
-    const doc = await fetchNote(id);
-    if (latestSelectRef.current !== id) return;
-    if (doc !== null) setOpenDoc(doc);
+    try {
+      const doc = await fetchNote(id);
+      if (latestSelectRef.current !== id) return;
+      if (doc !== null) setOpenDoc(doc);
+    } catch (err) {
+      console.error('[Think] Could not open note:', err);
+      if (latestSelectRef.current !== id) return;
+      latestSelectRef.current = openDoc?.id ?? null;
+      setSelectedId(openDoc?.id ?? null);
+      await alertDialog(err instanceof Error ? err.message : 'Could not open the note. Its saved content has not been changed.', { title: 'Could not open note', tone: 'danger' });
+    }
   }
 
   async function handleCreateNote(): Promise<void> {
@@ -237,7 +245,10 @@ export const NotesPage: React.FC = () => {
   /** A note changed on the server (a canvas summary was added to it): reload it if it’s the open one. */
   function refreshNoteIfOpen(noteId: string): void {
     if (openDoc?.id !== noteId) return;
-    void fetchNote(noteId).then((doc) => { if (doc !== null && latestSelectRef.current === noteId) setOpenDoc(doc); });
+    void fetchNote(noteId).then((doc) => { if (doc !== null && latestSelectRef.current === noteId) setOpenDoc(doc); }).catch((err: unknown) => {
+      console.error('[Think] Could not reload note:', err);
+      void alertDialog(err instanceof Error ? err.message : 'Could not reload the note. Your current editor has been kept.', { title: 'Could not reload note', tone: 'danger' });
+    });
   }
 
   function handleNoteSaved(updated: NoteDocument): void {

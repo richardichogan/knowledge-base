@@ -5,6 +5,7 @@
 import type { ContentType } from './constants';
 
 export interface NoteDocument {
+  revision?: number;
   /** UUID — matches `notes.id` in PostgreSQL */
   id: string;
   title: string;

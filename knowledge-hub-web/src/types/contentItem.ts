@@ -51,6 +51,7 @@ export interface ContentItem extends ContentItemSummary {
 
 /** Change 002: Note-specific fields */
 export interface Note {
+  revision?: number;
   id: string;
   content: string;
   createdAt: string;

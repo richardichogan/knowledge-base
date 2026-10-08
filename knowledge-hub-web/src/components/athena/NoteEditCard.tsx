@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import type { NoteEdit } from '../../types';
 import { renderMarkdown } from '../../utils/markdown';
 import { applyNoteEdits } from '../../utils/noteEditApplier';
-import { getActiveBlockNoteEditor, getActiveNoteId } from '../../utils/activeBlockNoteEditor';
+import { getActiveBlockNoteEditor, getActiveNoteId, runNoteAction } from '../../utils/activeBlockNoteEditor';
 
 const ACTION_LABEL: Record<NoteEdit['action'], string> = {
   append: 'Add to end',
@@ -31,14 +31,26 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string }> = ({ 
   const [status, setStatus] = useState<Status>({ state: 'pending' });
   const [, rerender] = useState(0);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [applying, setApplying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const totalWords = edits.reduce((n, e) => n + wordCount(e.markdown), 0);
   const noteOpen = getActiveNoteId() === noteId && getActiveBlockNoteEditor() !== null;
 
-  function apply(): void {
+  async function apply(): Promise<void> {
+    if (applying) return;
     const editor = getActiveBlockNoteEditor();
     if (editor === null || getActiveNoteId() !== noteId) { rerender((n) => n + 1); return; }
-    const result = applyNoteEdits(editor, edits);
-    setStatus({ state: 'applied', failed: result.failed });
+    setApplying(true);
+    setError(null);
+    try {
+      const protect = edits.some(edit => ['replace_all', 'replace_section', 'replace_text', 'delete_section'].includes(edit.action));
+      await runNoteAction(noteId, protect, () => {
+        const result = applyNoteEdits(editor, edits);
+        setStatus({ state: 'applied', failed: result.failed });
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not preserve the note. No edits applied; retry.');
+    } finally { setApplying(false); }
   }
 
   return (
@@ -96,11 +108,12 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string }> = ({ 
 
       {status.state === 'pending' && (
         <div className="note-edit-card__actions">
-          <button type="button" className="ai-feedback__action" disabled={!noteOpen} onClick={apply}>Apply</button>
-          <button type="button" className="ai-feedback__action ai-feedback__action--quiet" onClick={() => { setStatus({ state: 'discarded' }); }}>Discard</button>
+          <button type="button" className="ai-feedback__action" disabled={!noteOpen || applying} onClick={() => { void apply(); }}>{applying ? 'Preserving note...' : 'Apply'}</button>
+          <button type="button" className="ai-feedback__action ai-feedback__action--quiet" disabled={applying} onClick={() => { setStatus({ state: 'discarded' }); }}>Discard</button>
           {!noteOpen && <span className="note-edit-card__hint">Open that note in Think to apply.</span>}
         </div>
       )}
+      {error !== null && <p role="alert" className="note-edit-card__failed">{error}</p>}
     </div>
   );
 };

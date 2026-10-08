@@ -20,7 +20,7 @@ interface StoredPayload {
   githubPath?: string;
 }
 
-function serialise(doc: Pick<NoteDocument, 'title' | 'contentType' | 'contentJson' | 'githubPath'>): string {
+export function serialise(doc: Pick<NoteDocument, 'title' | 'contentType' | 'contentJson' | 'githubPath'>): string {
   const payload: StoredPayload = {
     title: doc.title,
     contentType: doc.contentType,
@@ -31,29 +31,33 @@ function serialise(doc: Pick<NoteDocument, 'title' | 'contentType' | 'contentJso
 }
 
 function deserialise(raw: string, id: string, createdAt: string, updatedAt: string, projectId?: string): NoteDocument {
+  let parsed: unknown;
   try {
-    const payload = JSON.parse(raw) as Partial<StoredPayload>;
-    return {
-      id,
-      title: payload.title ?? UNTITLED_DOCUMENT,
-      contentType: payload.contentType ?? 'note',
-      contentJson: payload.contentJson ?? '[]',
-      createdAt,
-      updatedAt,
-      ...(payload.githubPath !== undefined && { githubPath: payload.githubPath }),
-      ...(projectId !== undefined && { projectId }),
-    };
+    parsed = JSON.parse(raw) as unknown;
   } catch {
+    if (/^\s*[[{]/.test(raw)) throw new Error('This note contains malformed JSON. Its saved content has not been changed.');
     return {
-      id,
-      title: UNTITLED_DOCUMENT,
-      contentType: 'note',
-      contentJson: '[]',
-      createdAt,
-      updatedAt,
+      id, title: UNTITLED_DOCUMENT, contentType: 'note', createdAt, updatedAt,
+      contentJson: JSON.stringify([{ type: 'paragraph', content: raw }]),
       ...(projectId !== undefined && { projectId }),
     };
   }
+  if (Array.isArray(parsed)) {
+    return { id, title: UNTITLED_DOCUMENT, contentType: 'note', contentJson: raw, createdAt, updatedAt,
+      ...(projectId !== undefined && { projectId }) };
+  }
+  if (typeof parsed !== 'object' || parsed === null || typeof (parsed as Partial<StoredPayload>).contentJson !== 'string') {
+    throw new Error('This note has an unsupported writing format. Its saved content has not been changed.');
+  }
+  const payload = parsed as StoredPayload;
+  const blocks: unknown = JSON.parse(payload.contentJson);
+  if (!Array.isArray(blocks)) throw new Error('This note body is not a block array. Its saved content has not been changed.');
+  return {
+    id, title: payload.title ?? UNTITLED_DOCUMENT, contentType: payload.contentType ?? 'note',
+    contentJson: payload.contentJson, createdAt, updatedAt,
+    ...(payload.githubPath !== undefined && { githubPath: payload.githubPath }),
+    ...(projectId !== undefined && { projectId }),
+  };
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
@@ -122,7 +126,7 @@ export async function fetchNote(id: string): Promise<NoteDocument | null> {
   const result = await api.getNote(id);
   if (!result.success) return null;
   const note = result.data;
-  return deserialise(note.content, note.id, note.createdAt, note.updatedAt, note.projectId ?? undefined);
+  return fromApiNote(note);
 }
 
 export async function createNote(
@@ -131,20 +135,19 @@ export async function createNote(
 ): Promise<NoteDocument | null> {
   const result = await api.createNote({ content: serialise(doc), tags: [], ...(projectId !== undefined && { projectId }) });
   if (!result.success) return null;
-  return deserialise(
-    result.data.content,
-    result.data.id,
-    result.data.createdAt,
-    result.data.updatedAt,
-    result.data.projectId ?? undefined,
-  );
+  return fromApiNote(result.data);
 }
 
-export async function saveNote(doc: NoteDocument): Promise<boolean> {
+export function fromApiNote(note: import('../types/contentItem').Note): NoteDocument {
+  return { ...deserialise(note.content, note.id, note.createdAt, note.updatedAt, note.projectId), revision: note.revision ?? 0 };
+}
+
+export async function saveNote(doc: NoteDocument): Promise<NoteDocument> {
   // No tags argument: taxonomy tags live in note_tags, and sending [] here
   // wiped the note's stored tags on every autosave.
-  const result = await api.patchNote(doc.id, serialise(doc), undefined, doc.projectId ?? null);
-  return result.success;
+  const result = await api.patchNote(doc.id, serialise(doc), undefined, doc.projectId ?? null, doc.revision ?? 0);
+  if (!result.success) throw new Error(result.error.message);
+  return fromApiNote(result.data);
 }
 
 export async function deleteNote(id: string): Promise<void> {

@@ -10,11 +10,13 @@ import '@blocknote/mantine/style.css';
 import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
-import { setActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
+import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
 import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
-import { saveNote } from './noteStorage';
+import { saveNote, serialise, fromApiNote } from './noteStorage';
+import { isAxiosError } from 'axios';
+import type { PartialBlock } from '@blocknote/core';
 import { api } from '../services/api';
 import { confirmDialog } from '../services/appDialogs';
 import {
@@ -201,7 +203,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       uploadFile: async (file: File): Promise<string> => {
         // Upload to Azure Blob Storage via the dedicated /api/images endpoint and
         // use the returned (small) SAS URL — do NOT inline images as base64 data
-        // URLs, since that bloats contentJson past the backend's 1MB body limit
+        // URLs, since that bloats contentJson past the backend's 25MB body limit
         // and causes note saves to fail with a 413.
         try {
           const result = await api.uploadImage(file);
@@ -223,6 +225,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   );
 
   const editorRef = useRef(editor);
+  const historyBusyRef = useRef(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const suppressChangesRef = useRef(false);
+  const restoredBodyRef = useRef<string | null>(null);
+  const conflictRef = useRef(false);
+  const [saveConflict, setSaveConflict] = useState(false);
+  const mountedRef = useRef(true);
   useEffect(() => { editorRef.current = editor; }, [editor]);
 
   /**
@@ -332,45 +342,120 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   }, []);
 
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
-  const doSave = useCallback(async () => {
-    while (saveInFlightRef.current !== null) {
-      if (!await saveInFlightRef.current) return false;
-    }
-    if (!isDirtyRef.current) return true;
-    isDirtyRef.current = false;
-    const currentEditor = editorRef.current;
-    const blocks = currentEditor.document as { type: string; content?: unknown }[];
-    const title = extractTitle(blocks);
-    const contentJson = JSON.stringify(currentEditor.document);
-    const updated: NoteDocument = {
-      id: savedDocRef.current.id,
-      createdAt: savedDocRef.current.createdAt,
-      updatedAt: savedDocRef.current.updatedAt,
-      title,
+  const liveDocument = useCallback((): NoteDocument => {
+    const { projectId: _project, githubPath: _path, ...saved } = savedDocRef.current;
+    return {
+      ...saved,
+      title: extractTitle(editorRef.current.document),
+      contentJson: JSON.stringify(editorRef.current.document),
       contentType: contentTypeRef.current,
-      contentJson,
       ...(projectIdRef.current !== '' && { projectId: projectIdRef.current }),
       ...(githubPathRef.current !== undefined && { githubPath: githubPathRef.current }),
     };
-    const saving = saveNote(updated).catch((err: unknown) => {
+  }, []);
+
+  const doSave = useCallback(async () => {
+    if (historyBusyRef.current || conflictRef.current) return false;
+    while (saveInFlightRef.current !== null) {
+      if (!await saveInFlightRef.current) return false;
+    }
+    if (historyBusyRef.current || conflictRef.current) return false;
+    if (!isDirtyRef.current) return true;
+    isDirtyRef.current = false;
+    let failure = 'Save failed - your draft is retained; will retry';
+    const saving = saveNote(liveDocument()).then(saved => {
+      savedDocRef.current = saved;
+      if (mountedRef.current) {
+        onSavedRef.current(saved);
+        setHistoryRefresh(value => value + 1);
+      }
+      return true;
+    }).catch((err: unknown) => {
       console.error('[NoteEditor] save failed:', err);
+      if (isAxiosError(err) && err.response?.status === 409) {
+        conflictRef.current = true;
+        setSaveConflict(true);
+        failure = 'This note changed elsewhere. Autosave paused. Copy your draft before reopening the saved note.';
+      } else if (err instanceof Error) {
+        failure = `Save failed - draft retained: ${err.message}`;
+      }
       return false;
     });
     saveInFlightRef.current = saving;
     const ok = await saving;
     saveInFlightRef.current = null;
     if (ok) {
-      savedDocRef.current = updated;
-      onSavedRef.current(updated);
       setNotification({ kind: 'success', msg: 'Saved' });
-      setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS);
+      setTimeout(() => { setNotification(current => current?.kind === 'success' ? null : current); }, SAVED_BANNER_DURATION_MS);
     } else {
       isDirtyRef.current = true;
-      setNotification({ kind: 'error', msg: 'Save failed — will retry' });
-      setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS * 2);
+      setNotification({ kind: 'error', msg: failure });
     }
     return ok;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const runExclusive = useCallback(async (work: () => Promise<void>): Promise<void> => {
+    if (historyBusyRef.current) throw new Error('A note operation is already running. Please wait.');
+    if (conflictRef.current) throw new Error('The saved note changed elsewhere. Copy your draft before reopening the saved note.');
+    historyBusyRef.current = true;
+    setHistoryBusy(true);
+    editorRef.current.isEditable = false;
+    try {
+      while (saveInFlightRef.current !== null) {
+        if (!await saveInFlightRef.current) throw new Error('The previous save failed. Your draft is retained; retry after saving.');
+      }
+      if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) throw new Error('The open note changed. No editor changes applied.');
+      await work();
+      setHistoryRefresh(value => value + 1);
+    } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 409) {
+        conflictRef.current = true;
+        if (mountedRef.current) setSaveConflict(true);
+      }
+      throw err;
+    } finally {
+      historyBusyRef.current = false;
+      editorRef.current.isEditable = true;
+      if (mountedRef.current) setHistoryBusy(false);
+    }
+  }, []);
+
+  useEffect(() => setNoteActionBridge(doc.id, async (protect, action) => {
+    await runExclusive(async () => {
+      if (protect) {
+        const result = await api.checkpointNote(doc.id, serialise(liveDocument()), savedDocRef.current.revision ?? 0);
+        if (!result.success) throw new Error(result.error.message);
+        savedDocRef.current = fromApiNote(result.data);
+        isDirtyRef.current = true;
+        if (mountedRef.current) onSavedRef.current(savedDocRef.current);
+      }
+      if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) throw new Error('The open note changed. No Athena changes applied.');
+      action();
+    });
+  }), [doc.id, liveDocument, runExclusive]);
+
+  const restoreVersion = useCallback(async (versionId: string): Promise<void> => {
+    await runExclusive(async () => {
+      // Include the live draft in the restore transaction so pruning cannot
+      // evict the selected oldest checkpoint during a separate preceding save.
+      const result = await api.restoreNoteVersion(doc.id, versionId, savedDocRef.current.revision ?? 0, serialise(liveDocument()));
+      if (!result.success) throw new Error(result.error.message);
+      const restored = fromApiNote(result.data);
+      if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) return;
+      const blocks = JSON.parse(restored.contentJson) as PartialBlock[];
+      suppressChangesRef.current = true;
+      try {
+        editorRef.current.replaceBlocks(editorRef.current.document, blocks.length ? blocks : [{ type: 'paragraph', content: '' }]);
+        restoredBodyRef.current = JSON.stringify(editorRef.current.document);
+        contentTypeRef.current = restored.contentType;
+        setContentType(restored.contentType);
+        savedDocRef.current = restored;
+        isDirtyRef.current = false;
+        onSavedRef.current(restored);
+        setNotification({ kind: 'success', msg: 'Restored writing. Your previous writing is in History.' });
+      } finally { suppressChangesRef.current = false; }
+    });
+  }, [doc.id, liveDocument, runExclusive]);
 
   const [creatingDiagram, setCreatingDiagram] = useState(false);
   async function createDiagram(): Promise<void> {
@@ -390,6 +475,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = editor.onChange(() => {
+      if (suppressChangesRef.current) { updateStats(); return; }
+      if (restoredBodyRef.current === JSON.stringify(editor.document)) { updateStats(); return; }
+      restoredBodyRef.current = null;
       isDirtyRef.current = true;
       updateStats();
       updateToolbarState();
@@ -509,7 +597,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    return () => { void doSave(); };
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; void doSave(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleGitHubConfirm(filePath: string, commitMessage: string): Promise<void> {
@@ -538,6 +627,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
   return (
     <div className="notes-editor-panel">
+      <fieldset className="notes-editor-lock" disabled={historyBusy} aria-label="Think note" aria-busy={historyBusy}>
       {/* Centre: editor column */}
       <div className="notes-editor-centre">
         {/* Note actions — rendered into the Think page command bar when it
@@ -602,6 +692,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             {notification.msg}
           </span>
         )}
+        {saveConflict && <p role="alert" className="notes-save-status notes-save-status--error">This note changed elsewhere. Autosave paused. Copy your draft before reopening the saved note.</p>}
 
         {/* Editor scroll area — data-ctx-* enables right-click → Send to Canvas with note context */}
         <div
@@ -619,6 +710,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}
+              editable={!historyBusy}
             />
           </div>
         </div>
@@ -710,6 +802,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         contentType={contentType}
         onContentTypeChange={(value) => {
           setContentType(value);
+          contentTypeRef.current = value;
           isDirtyRef.current = true;
           if (value === 'use-case') applyUseCaseTemplate();
         }}
@@ -733,9 +826,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         ghDotColor={ghDotColor}
         githubPath={githubPath}
         onPushToGitHub={() => { setGithubModalOpen(true); }}
+        onRestoreVersion={restoreVersion}
+        historyRefresh={historyRefresh}
         {...(onOpenMap !== undefined && { onOpenMap })}
         {...(onMapNote !== undefined && { onMapNote })}
       />
+      </fieldset>
 
       {buildDialogOpen && <SendToBuildDialog source={{ kind: 'note', noteId: doc.id }} onClose={() => { setBuildDialogOpen(false); }} />}
       <GitHubModal

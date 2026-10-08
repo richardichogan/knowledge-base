@@ -21,6 +21,7 @@ import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput, ContentItem } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
+import { writeNote, listNoteVersions, getNoteVersion } from '../services/noteVersionService.js';
 
 const router = Router();
 
@@ -259,8 +260,9 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
           status: string;
           project_id: string | null;
           taxonomy_tag_ids: string[];
+          revision: number;
         }>(
-          `SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id,
+          `SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id, n.revision,
                   COALESCE(ARRAY_AGG(nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
            FROM notes n
            LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -297,6 +299,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         status: row.status as Note['status'],
         ...(row.project_id !== null && { projectId: row.project_id }),
         taxonomyTagIds: row.taxonomy_tag_ids ?? [],
+        revision: row.revision,
       }));
 
       const body: ApiSuccess<PaginatedList<Note>> = {
@@ -333,8 +336,9 @@ router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
         status: string;
         project_id: string | null;
         taxonomy_tag_ids: string[];
+        revision: number;
       }>(
-        `SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id,
+        `SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id, n.revision,
                 COALESCE(ARRAY_AGG(nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
            FROM notes n
            LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -354,6 +358,7 @@ router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
         status: row.status as Note['status'],
         ...(row.project_id !== null && { projectId: row.project_id }),
         taxonomyTagIds: row.taxonomy_tag_ids ?? [],
+        revision: row.revision,
       };
       const body: ApiSuccess<Note> = { success: true, data: note };
       res.status(HTTP_STATUS.OK).json(body);
@@ -451,6 +456,37 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
 
 // ── PATCH /api/notes/:id ──────────────────────────────────────────────────────
 
+router.get('/:id/history', (req, res, next) => {
+  void listNoteVersions(getDb(), String(req.params.id))
+    .then(data => { res.json({ success: true, data }); }).catch(next);
+});
+router.get('/:id/history/:versionId', (req, res, next) => {
+  void getNoteVersion(getDb(), String(req.params.id), String(req.params.versionId))
+    .then(data => { res.json({ success: true, data }); }).catch(next);
+});
+router.post('/:id/checkpoint', (req, res, next) => {
+  void (async (): Promise<void> => {
+    const input = req.body as { content?: unknown; expectedRevision?: number };
+    if (typeof input.content !== 'string' || !input.content.trim()) throw new ValidationError('content is required', {});
+    const data = await writeNote(getDb(), String(req.params.id), {
+      content: input.content, expectedRevision: input.expectedRevision, protect: true,
+    });
+    res.json({ success: true, data });
+  })().catch(next);
+});
+router.post('/:id/history/:versionId/restore', (req, res, next) => {
+  void (async (): Promise<void> => {
+    const input = req.body as { expectedRevision?: number; content?: unknown };
+    if (input.content !== undefined && (typeof input.content !== 'string' || !input.content.trim())) throw new ValidationError('content must be a non-empty string', {});
+    const data = await writeNote(getDb(), String(req.params.id), {
+      expectedRevision: input.expectedRevision, restoreId: String(req.params.versionId),
+      ...(typeof input.content === 'string' && { content: input.content }),
+    });
+    res.json({ success: true, data });
+    scheduleNoteIndexing(getDb(), data);
+  })().catch(next);
+});
+
 router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
@@ -461,7 +497,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         throw new ValidationError('id is required', {});
       }
 
-      const input = req.body as Partial<{ content: string; tags: string[]; projectId: string | null }>;
+      const input = req.body as Partial<{ content: string; tags: string[]; projectId: string | null; expectedRevision: number }>;
 
       if (typeof input.content !== 'string' || input.content.trim() === '') {
         throw new ValidationError('content is required', { content: 'must be a non-empty string' });
@@ -473,52 +509,11 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         ? (typeof input.projectId === 'string' && input.projectId.trim() !== '' ? input.projectId.trim() : null)
         : undefined;
 
-      // Build SET clause dynamically so we only touch project_id when provided
-      // tags: only written when the caller sends them — Think autosave does
-      // not, and previously wiped them with [] on every save.
-      const setClauses = ['content = $1', 'updated_at = NOW()'];
-      const params: unknown[] = [input.content.trim()];
-      if (Array.isArray(input.tags)) {
-        setClauses.push(`tags = $${params.length + 1}`);
-        params.push(input.tags);
-      }
-      if (hasProjectId) {
-        setClauses.push(`project_id = $${params.length + 1}`);
-        params.push(projectId ?? null);
-      }
-      params.push(id);
-      const idParam = `$${params.length}`;
-
-      const result = await db.query<{
-        id: string;
-        content: string;
-        created_at: string;
-        updated_at: string;
-        tags: string[];
-        linked_items: string[];
-        status: string;
-        project_id: string | null;
-      }>(
-        `UPDATE notes
-         SET ${setClauses.join(', ')}
-         WHERE id = ${idParam} AND status = 'active'
-         RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`,
-        params,
-      );
-
-      const row = result.rows[0];
-      if (row === undefined) throw new NotFoundError(`Note ${id} not found or already archived`);
-
-      const note: Note = {
-        id: row.id,
-        content: row.content,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        tags: row.tags,
-        linkedItems: row.linked_items,
-        status: row.status as Note['status'],
-        ...(row.project_id !== null && { projectId: row.project_id }),
-      };
+      const note = await writeNote(db, id, {
+        content: input.content.trim(), expectedRevision: input.expectedRevision,
+        ...(Array.isArray(input.tags) && { tags: input.tags }),
+        ...(hasProjectId && { projectId: projectId ?? null }),
+      });
 
       const body: ApiSuccess<Note> = { success: true, data: note };
       res.status(HTTP_STATUS.OK).json(body);
@@ -539,34 +534,7 @@ export async function appendBlocksToNoteRecord(
   id: string,
   blocks: unknown[],
 ): Promise<Note> {
-  const current = await db.query<{ content: string }>(`SELECT content FROM notes WHERE id = $1 AND status = 'active'`, [id]);
-  const existing = current.rows[0];
-  if (existing === undefined) throw new NotFoundError(`Note ${id} not found or archived`);
-  let wrapper: { title?: string; contentType?: string; contentJson?: string } = {};
-  try { wrapper = JSON.parse(existing.content) as typeof wrapper; } catch { wrapper = { title: 'Untitled', contentType: 'note', contentJson: '[]' }; }
-  let body: unknown[] = [];
-  try { const parsed: unknown = JSON.parse(wrapper.contentJson ?? '[]'); body = Array.isArray(parsed) ? parsed : []; } catch { body = []; }
-  const content = JSON.stringify({ ...wrapper, contentJson: JSON.stringify([...body, ...blocks]) });
-  const result = await db.query<{
-    id: string; content: string; created_at: string; updated_at: string;
-    tags: string[]; linked_items: string[]; status: string; project_id: string | null;
-  }>(
-    `UPDATE notes SET content = $1, updated_at = NOW() WHERE id = $2 AND status = 'active'
-     RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`,
-    [content, id],
-  );
-  const row = result.rows[0];
-  if (row === undefined) throw new NotFoundError(`Note ${id} not found or archived`);
-  const note: Note = {
-    id: row.id,
-    content: row.content,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    tags: row.tags,
-    linkedItems: row.linked_items,
-    status: row.status as Note['status'],
-    ...(row.project_id !== null && { projectId: row.project_id }),
-  };
+  const note = await writeNote(db, id, { appendBlocks: blocks });
   scheduleNoteIndexing(db, note);
   return note;
 }

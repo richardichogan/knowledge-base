@@ -83,6 +83,7 @@ export type ContentItemSummary = Omit<ContentItem, 'body'>;
 
 /** Ad hoc note created natively in the app. Stored in PostgreSQL, not blob. */
 export interface Note {
+  revision?: number;
   id: string;
   content: string;
   createdAt: string;

@@ -11,6 +11,28 @@ mounted. Allow pop-ups for Athena; cancelled or blocked sign-in can be retried.
 Think's **Copy note** action copies the whole current note as Markdown, including
 unsaved edits and its title, with paragraphs, lists and links preserved.
 
+Think notes have a **History** side-panel tab for lightweight recovery. On the
+first changed save, the previous writing is checkpointed; further automatic
+checkpoints are at most once per 30 minutes per note. Metadata-only and unchanged
+saves do not create checkpoints. Autosave still saves current writing normally.
+Athena replacements/deletions preserve the exact live draft before applying a
+batch, and restoring preserves the current writing before replacing it.
+Only the newest 30 checkpoints per note are retained (including protected ones),
+with no age expiry. Intermediate autosaves are not an exhaustive edit log.
+Restore affects title, content type and rich body only; current project, tags,
+links and GitHub settings stay unchanged. Checkpoints retain image references,
+not image files, and are never AI-indexed or added to Connections.
+Conflicting writes pause autosave and keep the editor draft: copy it before
+reopening the saved note. History is Think-only, not task/Discover/canvas history
+or deleted-note recovery, and is not a substitute for backups.
+
+Run the isolated history database regression from `knowledge-hub-backend` with
+`node --import tsx/esm --test scripts/note-history.test.ts`. It uses in-memory
+PostgreSQL, never the configured application database.
+The real-editor browser fixture is `knowledge-hub-web/tests/note-history.html`;
+use the existing browser runner with `ATHENA_BROWSER_CHECKS=note-history` and
+`TODAY_FIXTURE_URL` pointing at that fixture on an isolated Vite server.
+
 A unified personal intelligence layer that aggregates content, code activity, calendar events, and tasks from 10+ sources into a single, searchable, AI-queryable timeline — accessible from Android and Mac.
 
 ---

@@ -18,8 +18,9 @@ interface Props {
   // typed as any here only — NoteEditor passes the correctly-typed editor
   editor: any;
   theme: Theme;
+  editable?: boolean;
 }
 
-export const BlockNoteViewWrapper: React.FC<Props> = ({ editor, theme }) => (
-  <BlockNoteView editor={editor} theme={theme} />
+export const BlockNoteViewWrapper: React.FC<Props> = ({ editor, theme, editable = true }) => (
+  <BlockNoteView editor={editor} theme={theme} editable={editable} />
 );

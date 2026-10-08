@@ -106,6 +106,14 @@ export async function readChatTurnEvents(
   }
 }
 
+export interface NoteVersionSummary {
+  id: string; revision: number; writing_updated_at: string; created_at: string;
+  reason: 'automatic' | 'before_athena' | 'before_restore'; restored_from: string | null;
+}
+export interface NoteVersion extends NoteVersionSummary {
+  writing: { title: string; contentType: string; contentJson: string };
+}
+
 export interface TimelineQuery {
   since?: string; // Recent activity by source update time, excluding future events
   page?: number;
@@ -457,12 +465,28 @@ export class KnowledgeHubApi {
   }
 
   /** Updates a note. `tags` is only sent when given — omitting it leaves the stored tags untouched. */
-  async patchNote(id: string, content: string, tags?: string[], projectId?: string | null): Promise<ApiResponse<Note>> {
-    const body: Record<string, unknown> = { content };
+  async patchNote(id: string, content: string, tags?: string[], projectId?: string | null, expectedRevision?: number): Promise<ApiResponse<Note>> {
+    const body: Record<string, unknown> = { content, expectedRevision };
     if (tags !== undefined) body['tags'] = tags;
     if (projectId !== undefined) body['projectId'] = projectId;
     const r = await this.client.patch<ApiResponse<Note>>(`/api/notes/${id}`, body);
     return r.data;
+  }
+
+  async getNoteHistory(id: string): Promise<ApiResponse<NoteVersionSummary[]>> {
+    return (await this.client.get<ApiResponse<NoteVersionSummary[]>>(`/api/notes/${encodeURIComponent(id)}/history`)).data;
+  }
+
+  async getNoteVersion(id: string, versionId: string): Promise<ApiResponse<NoteVersion>> {
+    return (await this.client.get<ApiResponse<NoteVersion>>(`/api/notes/${encodeURIComponent(id)}/history/${encodeURIComponent(versionId)}`)).data;
+  }
+
+  async checkpointNote(id: string, content: string, expectedRevision: number): Promise<ApiResponse<Note>> {
+    return (await this.client.post<ApiResponse<Note>>(`/api/notes/${encodeURIComponent(id)}/checkpoint`, { content, expectedRevision })).data;
+  }
+
+  async restoreNoteVersion(id: string, versionId: string, expectedRevision: number, content?: string): Promise<ApiResponse<Note>> {
+    return (await this.client.post<ApiResponse<Note>>(`/api/notes/${encodeURIComponent(id)}/history/${encodeURIComponent(versionId)}/restore`, { expectedRevision, content })).data;
   }
 
   // ─── Images (Change 003) ──────────────────────────────────────────────────
