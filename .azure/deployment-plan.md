@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Explicit session re-authentication, Think whole-note copy and incremental connections.
 
@@ -77,6 +77,22 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-08 (09:32 BST):
+
+- Release `9195b45` pushed to main and feature branch.
+- ACR run `ca5a` succeeded from exact release SHA; backend v169 digest
+  `sha256:886b25061d86ce229379edd770fa069261462d4eb61d06e7c95a84790cf9d950`.
+- Revision `kh-prod-api-vnet--0000166` Healthy / RunningAtMaxScale,
+  latest ready matches and latest revision receives 100% traffic.
+- Migration 059 applied successfully; migration complete, DB pool warmed 8/8.
+  Startup confirms 15-minute incremental connection schedule. All 88 notes
+  already plain-text indexed: existing startup reindex had nothing to do.
+- SWA production deployment succeeded. Custom-domain root and release assets
+  `/assets/index-KZixD-TS.js`, `/assets/index-BK4Aue92.css` returned HTTP 200;
+  JS/CSS SHA-256 hashes matched the local production build.
+- No credentials, infrastructure, environment or RBAC changes. Registry retains
+  existing secret authentication; backend rollback image v168.
 
 Validated 2026-10-08 (09:29 BST):
 
