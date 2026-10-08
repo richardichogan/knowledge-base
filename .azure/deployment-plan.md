@@ -2,9 +2,16 @@
 
 **Status:** Deployed
 
-**Deployment:** Explicit session re-authentication, Think whole-note copy and incremental connections.
+**Deployment:** Auth-only MSAL callback hotfix on the deployed v169 baseline.
 
 ## 1. Scope
+
+Current deployment (2026-10-08 11:29 BST): frontend-only authentication hotfix.
+Release `aa4f208` uses deployed baseline `616f895` plus only the callback/bootstrap
+production files from fix `1eb6bb2`. Do not deploy Think history (`ddb3a66`),
+backend changes, migration 060, or any infrastructure/configuration changes.
+Backend stays v169. Deploy only `.auth-hotfix-release/knowledge-hub-web/dist`.
+The prior scope and evidence below remain as the previous release record.
 
 Deploy session-expired messaging with user-initiated Microsoft popup renewal,
 Think Copy note (including unsaved edits), and connection-only checks every
@@ -77,6 +84,39 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-08 (11:37 BST), auth-only hotfix:
+
+- SWA production deployment succeeded from isolated release `aa4f208`.
+- Custom domain and default SWA host both serve matching release HTML at `/`
+  and `/signin`; entry, app bootstrap and callback JS/CSS SHA-256 hashes match
+  the auth-only local build.
+- Entry `/assets/index-Dsn5b7Fp.js`; callback
+  `/assets/signinCallback-bh-pVR6x.js`; app bootstrap
+  `/assets/appBootstrap-Ch-2pX_h.js`.
+- Live custom-domain browser checks at 1440/390px passed: synthetic success/error
+  callback payloads returned via the actual deployed MSAL bridge, popup closed,
+  original page and unsaved-state sentinel remained mounted. No real account
+  credentials or authentication codes were used in these isolated checks.
+- Backend remains v169; no database migration or Think history deployment.
+
+Validated 2026-10-08 (11:33 BST), auth-only hotfix:
+
+- Isolated release `aa4f208` built from deployed baseline `616f895`; git diff
+  contains only six callback/bootstrap frontend file changes, no history code.
+- Release frontend `npx tsc --noEmit`, `node tests/auth-session.test.mjs` and
+  `npm run build -- --logLevel error` passed using existing production environment.
+- Both current-app typechecks passed during hotfix verification.
+- Real MSAL 5.23 redirect-bridge browser checks passed at 1440/390px: popup
+  broadcast and closure, OAuth errors, query/hash callbacks, malformed-response
+  recovery, no app/sign-in bootstrap in callback, full-page redirect return.
+- Existing session dialog checks passed at 1440/390px: retained unsaved writing,
+  cancellation/retry, explicit renewal, no automatic navigation.
+- Azure authenticated subscription and existing SWA kh-prod-web confirmed.
+  Backend remains cad79107555facr.azurecr.io/kh-prod-api:v169.
+- No IaC, resource, RBAC, credentials, API or database changes; template checks,
+  container build, provisioning and managed-identity role changes not applicable.
+- Rollback: redeploy frontend build from prior deployed baseline 616f895.
 
 Deployed 2026-10-08 (09:32 BST):
 
