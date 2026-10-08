@@ -116,6 +116,12 @@ Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief
 
 ## Think canvases
 
+Athena-created drafts, chat exports and saved Outputs use a shared GFM Markdown
+parser when creating Think notes. Consecutive headings, nested lists, checkboxes,
+tables, quotes, links and inline formatting become native editor blocks; fenced
+code stays literal. Raw HTML remains text and unsafe link schemes are not activated.
+This fixes new transfers; existing saved notes are not automatically rewritten.
+
 Use case notes offer **Create IMAGINE demo brief** in the Think Athena composer
 (where the embedded rail is available). It selects Demo Designer and prepares a
 reviewable request containing the complete live note, including unsaved writing;

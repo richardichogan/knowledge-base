@@ -25,10 +25,10 @@ test('exports the full package in podcast order without truncation', () => {
   const blocks = textToBlocks(exported.bodyMarkdown);
   const code = blocks.filter((block) => block.type === 'codeBlock');
   assert.equal(code.length, 2);
-  assert.equal(code[0]?.content[0]?.text, youtube);
-  assert.equal(code[1]?.content[0]?.text, spotify);
+  assert.equal(code[0]?.content[0]?.type === 'text' ? code[0].content[0].text : undefined, youtube);
+  assert.equal(code[1]?.content[0]?.type === 'text' ? code[1].content[0].text : undefined, spotify);
   assert.equal(code[1]?.props?.language, 'html');
-  assert.ok(blocks.some((block) => block.content.some((part) => part.text === 'Full content. '.repeat(3_000).trim())));
+  assert.ok(blocks.some((block) => block.type === 'paragraph' && block.content.some((part) => part.type === 'text' && part.text.trim() === 'Full content. '.repeat(3_000).trim())));
 });
 
 test('embedded fences and markdown examples remain intact', () => {
@@ -38,7 +38,8 @@ test('embedded fences and markdown examples remain intact', () => {
   ], 'Example', 'general');
   const blocks = textToBlocks(exported.bodyMarkdown);
   assert.equal(blocks[1]?.type, 'codeBlock');
-  assert.equal(blocks[1]?.content[0]?.text, content);
+  const code = blocks[1];
+  assert.equal(code?.type === 'codeBlock' && code.content[0]?.type === 'text' ? code.content[0].text : undefined, content);
   assert.equal(textToBlocks('## Heading\n\n**Bold**')[0]?.type, 'heading');
 });
 

@@ -20,6 +20,8 @@ import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { saveOutputVersion, getOutput } from './chatOutputs.js';
+import { textToBlocks } from './markdownToNoteBlocks.js';
+export { textToBlocks } from './markdownToNoteBlocks.js';
 import type { LlmToolDefinition } from './foundryClient.js';
 import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db/queries.js';
 import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
@@ -1595,41 +1597,6 @@ async function createSparkFromChat(db: Pool, args: Record<string, unknown>): Pro
 
 // ── create_note_draft ────────────────────────────────────────────────────────
 
-interface DraftBlock {
-  type: 'heading' | 'paragraph' | 'codeBlock';
-  props?: { level?: number; language?: string };
-  content: Array<{ type: 'text'; text: string; styles: Partial<Record<'bold' | 'italic' | 'code', boolean>> }>;
-}
-
-type DraftInlineStyle = DraftBlock['content'][number]['styles'];
-
-function parseInlineMarkdown(text: string): DraftBlock['content'] {
-  const segments: DraftBlock['content'] = [];
-  const pattern = /(\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      segments.push({ type: 'text', text: text.slice(lastIndex, match.index), styles: {} });
-    }
-
-    const styles: DraftInlineStyle = {};
-    const matchedText = match[2] ?? match[3] ?? match[4] ?? '';
-    if (match[2] !== undefined) styles.bold = true;
-    if (match[3] !== undefined) styles.code = true;
-    if (match[4] !== undefined) styles.italic = true;
-    segments.push({ type: 'text', text: matchedText, styles });
-    lastIndex = pattern.lastIndex;
-  }
-
-  if (lastIndex < text.length) {
-    segments.push({ type: 'text', text: text.slice(lastIndex), styles: {} });
-  }
-
-  return segments.length > 0 ? segments : [{ type: 'text', text, styles: {} }];
-}
-
 function inferAthenaDraftContentType(title: string, content: string): typeof NOTE_CONTENT_TYPES[number] | null {
   const titleText = title.toLowerCase();
   const combined = `${title}\n${content}`.toLowerCase();
@@ -1648,42 +1615,6 @@ function inferAthenaDraftContentType(title: string, content: string): typeof NOT
   if (blogSignal && !newsletterSignal) return 'blog';
   if (/\bnewsletter edition\b/.test(titleText)) return 'newsletter';
   return null;
-}
-
-/** Splits plain/markdown-ish text into simple BlockNote paragraph/heading blocks. */
-export function textToBlocks(text: string): DraftBlock[] {
-  const fencePattern = /^(`{3,}|~{3,})([^\r\n]*)\r?\n([\s\S]*?)^\1[ \t]*(?:\r?\n|$)/gm;
-  const blocks: DraftBlock[] = [];
-  let start = 0;
-  let fence: RegExpExecArray | null;
-  while ((fence = fencePattern.exec(text)) !== null) {
-    const [, , language, content] = fence;
-    blocks.push(...paragraphsToBlocks(text.slice(start, fence.index)));
-    blocks.push({
-      type: 'codeBlock',
-      props: { language: (language ?? '').trim() || 'text' },
-      content: [{ type: 'text', text: (content ?? '').replace(/\r?\n$/, ''), styles: {} }],
-    });
-    start = fencePattern.lastIndex;
-  }
-  blocks.push(...paragraphsToBlocks(text.slice(start)));
-  return blocks;
-}
-
-function paragraphsToBlocks(text: string): DraftBlock[] {
-  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p !== '');
-  return paragraphs.map((p) => {
-    const headingMatch = /^(#{1,3})\s+(.*)$/.exec(p);
-    if (headingMatch) {
-      const hashes = headingMatch[1] ?? '#';
-      return {
-        type: 'heading',
-        props: { level: hashes.length },
-        content: parseInlineMarkdown(headingMatch[2] ?? ''),
-      };
-    }
-    return { type: 'paragraph', content: parseInlineMarkdown(p) };
-  });
 }
 
 async function createNoteDraft(db: Pool, args: Record<string, unknown>): Promise<unknown> {

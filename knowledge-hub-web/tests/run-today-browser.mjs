@@ -17,6 +17,7 @@ const noteHistoryChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-history';
 const authCallbackChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-callback';
 const authLiveChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-live';
 const imagineBriefChecks = process.env.ATHENA_BROWSER_CHECKS === 'imagine-brief';
+const markdownExportChecks = process.env.ATHENA_BROWSER_CHECKS === 'markdown-export';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -81,6 +82,7 @@ try {
         : authLiveChecks ? 'document.querySelector(".pw-gate") !== null'
         : authCallbackChecks ? 'typeof window.runAuthCallbackChecks === "function"'
         : imagineBriefChecks ? 'typeof window.runImagineBriefChecks === "function" && document.querySelector("#compact-skill .ai-demo-brief-skill") !== null'
+        : markdownExportChecks ? 'typeof window.runMarkdownExportChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
         : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
@@ -134,8 +136,8 @@ try {
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;
     }
-    if (thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks || noteHistoryChecks || authCallbackChecks || imagineBriefChecks) {
-      const results = await evaluate(imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
+    if (thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks || noteHistoryChecks || authCallbackChecks || imagineBriefChecks || markdownExportChecks) {
+      const results = await evaluate(markdownExportChecks ? 'window.runMarkdownExportChecks()' : imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;
