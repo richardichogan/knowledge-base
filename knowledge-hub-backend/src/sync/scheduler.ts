@@ -9,6 +9,7 @@ import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
 import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
 import { tickBuildRunner } from '../build/buildRunner.js';
 import { archiveCompletedTasks } from '../services/taskArchiveService.js';
+import { isConnectionCheckInProgress } from './connectionWork.js';
 
 /**
  * Scheduler for sync jobs.
@@ -22,13 +23,14 @@ import { archiveCompletedTasks } from '../services/taskArchiveService.js';
 
 const SYNC_HOURS = [8, 14, 20]; // Run at these hours only
 const SYNC_CHECK_INTERVAL = 5 * MS_PER_MINUTE; // Check every 5 min if it's time to run
-const EDGE_JOB_HOUR = 8; // Run inferred edges at 08:00 daily
+const CONNECTION_CHECK_MINUTES = 15;
+export const CONNECTION_CHECK_INTERVAL_MS = CONNECTION_CHECK_MINUTES * MS_PER_MINUTE;
 const FOUNDRY_BACKFILL_INTERVAL_MS = 60 * MS_PER_MINUTE; // Sweep for un-indexed content_items hourly
 const BUILD_RUNNER_INTERVAL_MS = 2 * MS_PER_MINUTE; // Poll cloud-agent PRs for running build specs
 
 const timers: ReturnType<typeof setInterval>[] = [];
 let lastSyncHour = -1; // Track the last hour we ran sync to avoid double-runs
-let lastEdgeDay = -1;  // Track the last day we ran inferred edges
+let lastConnectionCheckAt = Date.now();
 let lastArchiveDay = ''; // Date string of the last completed-task archive sweep
 let lastMemoryReviewWeek = ''; // Week key of the last weekly memory review
 let briefingRunning = false;
@@ -49,11 +51,8 @@ function shouldRunSync(): boolean {
   return true;
 }
 
-function shouldRunEdgeJob(): boolean {
-  const now = new Date();
-  if (now.getHours() < EDGE_JOB_HOUR) return false;
-  if (lastEdgeDay === now.getDate()) return false;
-  return true;
+export function connectionCheckDue(now: number, lastRun: number): boolean {
+  return now - lastRun >= CONNECTION_CHECK_INTERVAL_MS;
 }
 
 function shouldRunFoundryBackfill(): boolean {
@@ -91,7 +90,7 @@ export function startSyncScheduler(): void {
   // Check every 5 minutes if it's time to run the scheduled sync
   timers.push(
     setInterval(() => {
-      if (shouldRunSync()) {
+      if (shouldRunSync() && !isConnectionCheckInProgress()) {
         const hour = new Date().getHours();
         lastSyncHour = hour;
         console.warn(`[Scheduler] Running scheduled sync (${hour}:00)...`);
@@ -123,12 +122,10 @@ export function startSyncScheduler(): void {
           .catch((err: unknown) => { console.error('[Scheduler] Weekly memory review failed:', err instanceof Error ? err.message : String(err)); });
       }
 
-      // Inferred edge job — production only, runs at 08:00 daily. Must NOT run
-      // concurrently with a sync: both fan out DB work and together they starve
-      // the pool, 500ing every live route. Defer until the sync has finished.
-      if (!env.isDevelopment && shouldRunEdgeJob() && !isSyncInProgress()) {
-        lastEdgeDay = new Date().getDate();
-        console.warn('[Scheduler] Running daily inferred edge job...');
+      // Connection-only pass: never starts source sync or search indexing.
+      if (!env.isDevelopment && connectionCheckDue(Date.now(), lastConnectionCheckAt) && !isSyncInProgress() && !isConnectionCheckInProgress()) {
+        lastConnectionCheckAt = Date.now();
+        console.warn('[Scheduler] Checking new/updated connections (15-minute interval)...');
         void runInferredEdgeJob(db).catch((err: unknown) => {
           console.error('[Scheduler] Inferred edge job failed:', err instanceof Error ? err.message : String(err));
         });
@@ -156,7 +153,7 @@ export function startSyncScheduler(): void {
       // just documents/notes which are indexed live on write. Runs hourly,
       // bounded per run, deferred while a sync is in progress for the same
       // pool-contention reason as the edge job.
-      if (!env.isDevelopment && shouldRunFoundryBackfill() && !isSyncInProgress()) {
+      if (!env.isDevelopment && shouldRunFoundryBackfill() && !isSyncInProgress() && !isConnectionCheckInProgress()) {
         lastFoundryBackfillAt = Date.now();
         console.warn('[Scheduler] Running Foundry IQ backfill sweep...');
         void runFoundryIqBackfillJob(db).catch((err: unknown) => {
@@ -169,7 +166,7 @@ export function startSyncScheduler(): void {
   if (env.isDevelopment) {
     console.warn('[Scheduler] Development mode — inferred edge job and Foundry IQ backfill DISABLED.');
   } else {
-    console.warn('[Scheduler] Inferred edge job scheduled daily at 08:00; Foundry IQ backfill sweep scheduled hourly.');
+    console.warn('[Scheduler] Incremental connections checked every 15 minutes; independent Foundry IQ backfill sweep scheduled hourly.');
   }
 
   // Build pipeline runner — follows cloud-agent PRs for running build specs.

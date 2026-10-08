@@ -6,6 +6,8 @@ import { FoundryClient } from '../src/ai/foundryClient.js';
 import { runInferredEdgeJob, selectRelatedCandidates } from '../src/jobs/inferredEdgeJob.js';
 import { syncAllNodes } from '../src/services/nodeService.js';
 import { createSpark, deleteSpark } from '../src/services/sparkService.js';
+import { connectionCheckDue, CONNECTION_CHECK_INTERVAL_MS } from '../src/sync/scheduler.js';
+import { isConnectionCheckInProgress } from '../src/sync/connectionWork.js';
 
 test('inference only accepts supplied candidates with a reason and adequate confidence', () => {
   const related = [
@@ -50,13 +52,17 @@ test('existing node sync includes GitHub issues, PRs and other indexed GitHub ac
 
 test('existing inference uses real content across types and balances candidate selection', async () => {
   const db = new Pool();
-  const source = { id: 'source', ref_id: 'note-ref', ref_type: 'note', title: 'Architecture' };
+  const source = { id: 'source', ref_id: 'note-ref', ref_type: 'note', title: 'Architecture', content_version: 'snapshot' };
+  const client = Object.assign(new Client(), { release: () => {} });
+  const connect = mock.method(db, 'connect', async () => client);
+  const lockQuery = mock.method(client, 'query', async (sql: string) => ({ rows: [{ locked: sql.includes('try_advisory_lock') }] }));
   const candidates = ['task', 'discover_item', 'issue', 'pull_request', 'commit'].map(ref_type => ({
     id: ref_type, ref_id: `${ref_type}-ref`, ref_type, title: ref_type,
   }));
   const writes: unknown[][] = [];
   const query = mock.method(db, 'query', async (sql: string, values: unknown[]) => {
-    if (sql.startsWith('SELECT id, ref_id, ref_type, title FROM nodes')) return { rows: [source] };
+    if (sql.includes('LEFT JOIN connection_assessments')) return { rows: [source] };
+    if (sql.startsWith('INSERT INTO nodes') || sql.startsWith('INSERT INTO connection_assessments')) return { rows: [], rowCount: 1 };
     if (sql.includes('ROW_NUMBER()')) {
       assert.match(sql, /PARTITION BY n.ref_type/);
       assert.match(sql, /ORDER BY type_rank/);
@@ -65,7 +71,7 @@ test('existing inference uses real content across types and balances candidate s
     if (sql.includes('FROM notes')) return { rows: [{ content: JSON.stringify({
       title: 'Architecture', contentJson: JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: 'Private networking architecture' }] }]),
     }) }] };
-    if (sql.includes('FROM tasks')) return { rows: [{ description: 'Implement private endpoints' }] };
+    if (sql.includes('FROM tasks')) return { rows: [{ body: 'Implement private endpoints' }] };
     if (sql.includes('FROM content_items')) return { rows: [{ body: `Concrete content for ${String(values[0])}` }] };
     if (sql.startsWith('INSERT INTO edges')) { writes.push(values); return { rows: [], rowCount: 1 }; }
     throw new Error(`Unexpected query: ${sql}`);
@@ -83,7 +89,101 @@ test('existing inference uses real content across types and balances candidate s
     assert.equal(chat.mock.callCount(), 1);
     assert.equal(writes.length, 1);
     assert.match(String(writes[0]?.[4]), /implements the private networking/);
-  } finally { chat.mock.restore(); query.mock.restore(); await db.end(); }
+  } finally { chat.mock.restore(); query.mock.restore(); lockQuery.mock.restore(); connect.mock.restore(); await db.end(); }
+});
+
+test('connection cadence is fifteen minutes, including the exact boundary', () => {
+  assert.equal(CONNECTION_CHECK_INTERVAL_MS, 900_000);
+  assert.equal(connectionCheckDue(899_999, 0), false);
+  assert.equal(connectionCheckDue(900_000, 0), true);
+  assert.equal(connectionCheckDue(1_900_000, 1_000_000), true);
+});
+
+test('incremental connection checks persist no-match versions, retry failures and preserve concurrent edits', async () => {
+  const db = new Pool();
+  const client = Object.assign(new Client(), { release: () => {} });
+  const connect = mock.method(db, 'connect', async () => client);
+  const lockQuery = mock.method(client, 'query', async (sql: string) => ({ rows: [{ locked: sql.includes('try_advisory_lock') }] }));
+  const versions = new Map([['source', 'v1']]);
+  const assessed = new Map<string, string>();
+  let fail = false;
+  let editDuringRead = false;
+  let sourceReads = 0;
+  const query = mock.method(db, 'query', async (sql: string, values: unknown[]) => {
+    assert.doesNotMatch(sql, /UPDATE (content_items|notes)|foundry_indexed_at|search_vector/);
+    if (sql.startsWith('INSERT INTO nodes')) {
+      assert.match(sql, /WHERE n.id IS NULL OR/);
+      return { rows: [] };
+    }
+    if (sql.includes('LEFT JOIN connection_assessments')) {
+      assert.match(sql, /a.content_version IS DISTINCT FROM v.content_version/);
+      assert.equal(values[1], 25);
+      sourceReads++;
+      return { rows: versions.get('source') === assessed.get('source') ? [] : [{
+        id: 'source', ref_id: 'task-ref', ref_type: 'task', title: 'Task', content_version: versions.get('source'),
+      }] };
+    }
+    if (sql.includes('FROM tasks')) {
+      if (fail) throw new Error('Temporary context failure');
+      if (editDuringRead) { versions.set('source', 'v3'); editDuringRead = false; }
+      return { rows: [{ body: 'Task body' }] };
+    }
+    if (sql.includes('ROW_NUMBER()')) return { rows: [] };
+    if (sql.startsWith('INSERT INTO connection_assessments')) {
+      if (values.length > 1) assessed.set(String(values[0]), String(values[1]));
+      return { rows: [] };
+    }
+    throw new Error(`Unexpected connection query: ${sql}`);
+  });
+  const chat = mock.method(FoundryClient.prototype, 'chat', async () => {
+    throw new Error('No candidates should not call AI');
+  });
+  const errors = mock.method(console, 'error', () => {});
+  try {
+    await runInferredEdgeJob(db);
+    assert.equal(assessed.get('source'), 'v1');
+    await runInferredEdgeJob(db);
+    assert.equal(query.mock.calls.filter(call => String(call.arguments[0]).includes('FROM tasks')).length, 1);
+    versions.set('source', 'v2'); // A body-only edit; title remains unchanged.
+    fail = true;
+    await runInferredEdgeJob(db);
+    assert.equal(assessed.get('source'), 'v1');
+    assert.ok(errors.mock.callCount() > 0);
+    fail = false;
+    editDuringRead = true;
+    await runInferredEdgeJob(db);
+    assert.equal(assessed.get('source'), 'v2');
+    await runInferredEdgeJob(db);
+    assert.equal(assessed.get('source'), 'v3');
+    assert.equal(sourceReads, 5);
+    assert.equal(chat.mock.callCount(), 0);
+    assert.equal(isConnectionCheckInProgress(), false);
+  } finally {
+    errors.mock.restore(); chat.mock.restore(); query.mock.restore(); lockQuery.mock.restore(); connect.mock.restore(); await db.end();
+  }
+});
+
+test('overlapping connection checks are skipped and locks are released on failure', async () => {
+  const db = new Pool();
+  const client = Object.assign(new Client(), { release: () => {} });
+  let unblock: () => void = () => {};
+  const gate = new Promise<void>(resolve => { unblock = resolve; });
+  const connect = mock.method(db, 'connect', async () => { await gate; return client; });
+  const lockQuery = mock.method(client, 'query', async (sql: string) => ({ rows: [{ locked: sql.includes('try_advisory_lock') }] }));
+  const query = mock.method(db, 'query', async () => { throw new Error('Snapshot unavailable'); });
+  const errors = mock.method(console, 'error', () => {});
+  try {
+    const running = runInferredEdgeJob(db);
+    assert.equal(isConnectionCheckInProgress(), true);
+    await runInferredEdgeJob(db);
+    assert.equal(connect.mock.callCount(), 1);
+    unblock();
+    await running;
+    assert.equal(isConnectionCheckInProgress(), false);
+    assert.match(String(lockQuery.mock.calls.at(-1)?.arguments[0]), /pg_advisory_unlock/);
+    await runInferredEdgeJob(db);
+    assert.equal(connect.mock.callCount(), 2);
+  } finally { errors.mock.restore(); query.mock.restore(); lockQuery.mock.restore(); connect.mock.restore(); await db.end(); }
 });
 
 test('Spark creation commits its graph node and original-source connection together', async () => {

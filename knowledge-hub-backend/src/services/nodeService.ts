@@ -39,18 +39,8 @@ export async function upsertNode(
   title: string,
   tags: string[],
 ): Promise<string> {
-  // IMPORTANT: only advance updated_at when the content actually changed.
-  //
-  // Postgres runs the DO UPDATE branch on every conflict, so an unconditional
-  // `updated_at = now()` restamps *every* node on each syncAllNodes() sweep
-  // (3x/day), even when nothing changed. That makes updated_at meaningless as a
-  // "recently modified" signal: inferredEdgeJob's `WHERE updated_at >= now()-7d`
-  // then matches the entire table and grinds ~1.5k nodes (AI + tens of thousands
-  // of DB queries) every run, saturating the container and starving new DB
-  // connections → "Connection terminated due to connection timeout" bursts.
-  //
-  // The CASE keeps RETURNING id working on every upsert while only moving
-  // updated_at when title or tags genuinely differ.
+  // Preserve candidate freshness on unchanged graph sweeps. Connection
+  // assessments separately fingerprint source content to catch body-only edits.
   const row = await db.query<{ id: string }>(
     `INSERT INTO nodes (ref_id, ref_type, title, tags)
      VALUES ($1, $2, $3, $4)

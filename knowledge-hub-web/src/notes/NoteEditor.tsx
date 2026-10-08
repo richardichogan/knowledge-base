@@ -11,7 +11,7 @@ import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal } from './GitHubModal';
 import { setActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
-import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code } from '@carbon/icons-react';
+import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { saveNote } from './noteStorage';
@@ -123,6 +123,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const [buildDialogOpen, setBuildDialogOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [copying, setCopying] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
 
@@ -456,6 +457,25 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     }
   }
 
+  async function handleCopyNote(): Promise<void> {
+    setCopying(true);
+    try {
+      const blocks = editorRef.current.document;
+      const markdown = await editorRef.current.blocksToMarkdownLossy(blocks);
+      const headingTitle = extractTitle(blocks);
+      const title = headingTitle === UNTITLED_DOCUMENT ? savedDocRef.current.title : headingTitle;
+      const hasTitle = blocks.some((block) => block.type === 'heading') && headingTitle !== UNTITLED_DOCUMENT;
+      await navigator.clipboard.writeText(hasTitle ? markdown : `# ${title || UNTITLED_DOCUMENT}\n\n${markdown}`);
+      setNotification({ kind: 'success', msg: 'Copied whole note' });
+    } catch (err) {
+      console.error('[NoteEditor] copy note failed:', err);
+      setNotification({ kind: 'error', msg: 'Could not copy note. Check clipboard permissions and try again.' });
+    } finally {
+      setCopying(false);
+      setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS);
+    }
+  }
+
   async function handleExportImage(): Promise<void> {
     setExportMenuOpen(false);
     setExporting(true);
@@ -524,6 +544,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             provides a slot, otherwise inline above the editor. */}
         {portalInto(actionsSlot, (
         <div className={actionsSlot ? 'notes-doc-actions' : 'notes-top-bar'}>
+          <button type="button" className="kb-import-btn notes-copy-btn" title="Copy the whole note, including unsaved changes" disabled={copying}
+            onClick={() => { void handleCopyNote(); }}>
+            <Copy size={16} /> {copying ? 'Copying...' : 'Copy note'}
+          </button>
           <div className="notes-export-anchor" ref={exportMenuRef}>
             <button
               className="kb-import-btn"
@@ -574,7 +598,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         ))}
 
         {notification !== null && (
-          <span className={`notes-save-status notes-save-status--${notification.kind}`}>
+          <span role={notification.kind === 'error' ? 'alert' : 'status'} className={`notes-save-status notes-save-status--${notification.kind}`}>
             {notification.msg}
           </span>
         )}

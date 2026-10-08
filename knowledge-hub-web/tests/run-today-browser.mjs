@@ -11,6 +11,8 @@ const navigationChecks = process.env.ATHENA_BROWSER_CHECKS === 'navigation';
 const discoverChecks = process.env.ATHENA_BROWSER_CHECKS === 'discover';
 const thinkSearchChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-search';
 const connectionsChecks = process.env.ATHENA_BROWSER_CHECKS === 'connections';
+const authSessionChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-session';
+const noteCopyChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-copy';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -73,14 +75,16 @@ try {
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
         : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
+        : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
+        : noteCopyChecks ? 'typeof window.runNoteCopyChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
         : thinkSearchChecks ? 'typeof window.runThinkSearchChecks === "function" && document.querySelector("#notes-search") !== null'
         : 'typeof window.runTodayChecks === "function" && document.querySelectorAll(".today-brief__attention article").length === 5');
       if (ready) break;
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('document.body.innerText')}`);
-    if (thinkSearchChecks || connectionsChecks) {
-      const results = await evaluate(connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
+    if (thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks) {
+      const results = await evaluate(noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;

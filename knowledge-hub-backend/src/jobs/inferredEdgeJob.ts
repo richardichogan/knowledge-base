@@ -1,19 +1,20 @@
 /**
  * jobs/inferredEdgeJob.ts
- * Nightly job — creates thematically_related edges using GPT-4o-mini.
- *
- * For each node modified in the past 7 days, fetches up to 30 candidate nodes
- * from the past 90 days and asks the AI which are meaningfully related.
- * Caps inferred edges at 5 per source node per run.
+ * Incremental connection-only check. Assesses new/changed content versions,
+ * with bounded candidates and no source sync, re-indexing or embeddings.
  */
 import type { Pool } from 'pg';
 import { FoundryClient } from '../ai/foundryClient.js';
 import { upsertEdge } from '../services/edgeService.js';
-import { JOB_DB_CONCURRENCY } from '../config/constants.js';
+import { JOB_DB_CONCURRENCY, MS_PER_MINUTE } from '../config/constants.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
+import { beginConnectionCheck, endConnectionCheck } from '../sync/connectionWork.js';
+import { isSyncInProgress } from '../sync/syncOrchestrator.js';
 
-const RECENT_MODIFIED_DAYS = 7;
 const CANDIDATE_LOOKBACK_DAYS = 90;
+const MAX_SOURCES_PER_RUN = 25;
+const SETTLE_DELAY_MINUTES = 2;
+const SETTLE_DELAY_MS = SETTLE_DELAY_MINUTES * MS_PER_MINUTE;
 const MAX_CANDIDATES = 30;
 const MAX_EDGES_PER_NODE = 5;
 const SUMMARY_MAX_CHARS = 500;
@@ -27,6 +28,8 @@ interface NodeRow {
   ref_type: string;
   title: string;
 }
+
+interface PendingNodeRow extends NodeRow { content_version: string }
 
 export function selectRelatedCandidates(raw: string, candidateIds: ReadonlySet<string>): Array<{ candidate_id: string; confidence: number; reason: string }> {
   const parsed: unknown = JSON.parse(raw);
@@ -45,17 +48,43 @@ export function selectRelatedCandidates(raw: string, candidateIds: ReadonlySet<s
 }
 
 /**
- * Runs the nightly inferred edge job.
- * All errors are logged, never thrown.
+ * Successful assessments, including no-match results, are checkpointed by
+ * content version. Failed items stay pending; edits during a run stay pending.
  */
 export async function runInferredEdgeJob(db: Pool): Promise<void> {
+  if (isSyncInProgress() || !beginConnectionCheck()) return;
+  const lock = await db.connect().catch((err: unknown) => {
+    endConnectionCheck();
+    throw err;
+  });
+  let locked = false;
   try {
-    const recentCutoff = new Date(Date.now() - RECENT_MODIFIED_DAYS * MS_PER_DAY).toISOString();
+    const result = await lock.query<{ locked: boolean }>(`SELECT pg_try_advisory_lock(hashtext('incremental-connections')) AS locked`);
+    locked = result.rows[0]?.locked === true;
+    if (!locked) return;
     const candidateCutoff = new Date(Date.now() - CANDIDATE_LOOKBACK_DAYS * MS_PER_DAY).toISOString();
 
-    const sources = await db.query<NodeRow>(
-      `SELECT id, ref_id, ref_type, title FROM nodes WHERE updated_at >= $1`,
-      [recentCutoff],
+    // Refresh only graph identity/title/tag metadata from local stored content.
+    // This does not invoke source sync, tagging, FTS or semantic indexing.
+    await db.query(
+      `INSERT INTO nodes (ref_id, ref_type, title, tags, updated_at)
+       SELECT v.ref_id, v.ref_type, v.title, v.tags, v.changed_at
+       FROM connection_content_versions v
+       LEFT JOIN nodes n ON n.ref_id = v.ref_id AND n.ref_type = v.ref_type
+       WHERE n.id IS NULL OR n.title IS DISTINCT FROM v.title OR n.tags IS DISTINCT FROM v.tags
+       ON CONFLICT (ref_id, ref_type) DO UPDATE
+       SET title = EXCLUDED.title, tags = EXCLUDED.tags, updated_at = now()`,
+    );
+    const sources = await db.query<PendingNodeRow>(
+      `SELECT n.id, n.ref_id, n.ref_type, n.title, v.content_version
+       FROM connection_content_versions v
+       JOIN nodes n ON n.ref_id = v.ref_id AND n.ref_type = v.ref_type
+       LEFT JOIN connection_assessments a ON a.node_id = n.id
+       WHERE a.content_version IS DISTINCT FROM v.content_version
+         AND v.changed_at <= $1
+       ORDER BY a.last_attempted_at ASC NULLS FIRST, v.changed_at, n.id
+       LIMIT $2`,
+      [new Date(Date.now() - SETTLE_DELAY_MS).toISOString(), MAX_SOURCES_PER_RUN],
     );
 
     const client = new FoundryClient('edge-inference');
@@ -63,14 +92,38 @@ export async function runInferredEdgeJob(db: Pool): Promise<void> {
     for (const source of sources.rows) {
       try {
         await processNode(db, client, source, candidateCutoff);
+        await db.query(
+          `INSERT INTO connection_assessments (node_id, content_version, assessed_at, last_attempted_at)
+           VALUES ($1, $2, now(), now())
+           ON CONFLICT (node_id) DO UPDATE SET content_version = EXCLUDED.content_version, assessed_at = now(), last_attempted_at = now()`,
+          [source.id, source.content_version],
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[InferredEdgeJob] Error on node ${source.id}:`, msg);
+        await db.query(
+          `INSERT INTO connection_assessments (node_id, last_attempted_at)
+           VALUES ($1, now())
+           ON CONFLICT (node_id) DO UPDATE SET last_attempted_at = now()`,
+          [source.id],
+        );
       }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[InferredEdgeJob] Fatal error:', msg);
+  } finally {
+    let discarded = false;
+    try {
+      if (locked) await lock.query(`SELECT pg_advisory_unlock(hashtext('incremental-connections'))`);
+    } catch (err) {
+      console.error('[InferredEdgeJob] Could not release advisory lock; discarding connection:', err);
+      lock.release(true);
+      discarded = true;
+    } finally {
+      endConnectionCheck();
+    }
+    if (!discarded) lock.release();
   }
 }
 
@@ -85,10 +138,11 @@ async function processNode(
   // Fetch candidates: nodes from the lookback window with no existing edge to source
   const candidates = await db.query<NodeRow>(
     `SELECT id, ref_id, ref_type, title FROM (
-     SELECT n.id, n.ref_id, n.ref_type, n.title, n.updated_at,
-            ROW_NUMBER() OVER (PARTITION BY n.ref_type ORDER BY n.updated_at DESC, n.id) AS type_rank
+     SELECT n.id, n.ref_id, n.ref_type, n.title, GREATEST(n.updated_at, v.changed_at) AS updated_at,
+            ROW_NUMBER() OVER (PARTITION BY n.ref_type ORDER BY GREATEST(n.updated_at, v.changed_at) DESC, n.id) AS type_rank
      FROM nodes n
-     WHERE n.updated_at >= $1
+     LEFT JOIN connection_content_versions v ON v.ref_id = n.ref_id AND v.ref_type = n.ref_type
+     WHERE GREATEST(n.updated_at, v.changed_at) >= $1
        AND n.id != $2
        AND NOT EXISTS (
          SELECT 1 FROM edges e
@@ -164,10 +218,19 @@ async function getNodeSummary(db: Pool, node: NodeRow): Promise<string> {
       return (r.rows[0]?.body ?? node.title).slice(0, SUMMARY_MAX_CHARS);
     }
     if (node.ref_type === 'task') {
-      const r = await db.query<{ description: string | null }>(
-        `SELECT description FROM tasks WHERE id::text = $1`, [node.ref_id],
+      const r = await db.query<{ body: string | null }>(
+        `SELECT body FROM tasks WHERE id::text = $1`, [node.ref_id],
       );
-      return `${node.title}\n${r.rows[0]?.description ?? ''}`.slice(0, SUMMARY_MAX_CHARS);
+      return `${node.title}\n${r.rows[0]?.body ?? ''}`.slice(0, SUMMARY_MAX_CHARS);
+    }
+    if (node.ref_type === 'canvas') {
+      const r = await db.query<{ body: string | null }>(
+        `SELECT concat_ws(E'\\n', c.description,
+           (SELECT string_agg(concat_ws(' ', label, body), E'\\n' ORDER BY created_at)
+            FROM canvas_nodes WHERE canvas_id = c.id)) AS body
+         FROM canvases c WHERE c.id = $1::uuid`, [node.ref_id],
+      );
+      return `${node.title}\n${r.rows[0]?.body ?? ''}`.slice(0, SUMMARY_MAX_CHARS);
     }
   } catch (err) {
     console.error(`[InferredEdgeJob] Could not load context for ${node.ref_type} ${node.ref_id}:`, err);

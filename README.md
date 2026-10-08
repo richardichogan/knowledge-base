@@ -2,6 +2,15 @@
 
 > Formerly "Personal Knowledge Hub". The product is now called **Athena**; code, folders (`knowledge-hub-*`) and Azure resources (`kh-prod-*`) keep their original names.
 
+Microsoft sign-in renews silently where possible. When interactive sign-in is
+required, Athena shows a session-expired dialog with a **Re-authenticate** button
+instead of refreshing or redirecting unexpectedly. User-initiated re-authentication
+opens a Microsoft popup, keeping the current page and unsaved editor content
+mounted. Allow pop-ups for Athena; cancelled or blocked sign-in can be retried.
+
+Think's **Copy note** action copies the whole current note as Markdown, including
+unsaved edits and its title, with paragraphs, lists and links preserved.
+
 A unified personal intelligence layer that aggregates content, code activity, calendar events, and tasks from 10+ sources into a single, searchable, AI-queryable timeline — accessible from Android and Mac.
 
 ---
@@ -32,7 +41,14 @@ related through explicit links, shared concept tags or scheduled AI inference.
 Each connection displays its reason; weak or unexplained AI suggestions are not
 saved. Inference compares actual note text, task descriptions and article/GitHub
 content, with candidates balanced across item types (up to 30 candidates and five
-new suggestions per source per run). GitHub issues, PRs, reviews, actions, releases
+new suggestions per source per run). Connection-only checks run every 15 minutes,
+processing up to 25 new/changed items per pass after a two-minute settling delay.
+Content-version checkpoints persist across restarts, including no-match results;
+failed assessments retry and edits made during a check remain pending. Existing
+content is baselined on migration, not bulk reassessed. This job only reads stored
+content and updates graph metadata/relationships: it never starts source sync,
+search re-indexing or embeddings. The existing source-sync and Foundry backfill
+schedules are unchanged. GitHub issues, PRs, reviews, actions, releases
 and deployments join the existing commit index on the next regular sync. Notes
 and tasks open their specific item; Discover and GitHub connections open the
 original source when available. Existing saved relationships are retained.

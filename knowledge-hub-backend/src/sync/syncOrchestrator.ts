@@ -23,6 +23,7 @@ import { syncProjectDocs } from '../integrations/github/projectDocsSync.js';
 import { syncCfps } from '../services/cfpSyncService.js';
 import { syncAllNodes } from '../services/nodeService.js';
 import { populateExplicitEdges } from '../jobs/explicitEdgePopulator.js';
+import { isConnectionCheckInProgress } from './connectionWork.js';
 
 export interface SyncResult {
   source: string;
@@ -76,9 +77,9 @@ const EMPTY_RESULT: OrchestratorResult = {
  * call is skipped (see the re-entrancy guard note above).
  */
 export async function runTier1Sync(db: Pool): Promise<OrchestratorResult> {
-  if (syncInProgress) {
+  if (syncInProgress || isConnectionCheckInProgress()) {
     const runningForSec = syncStartedAt ? Math.round((Date.now() - syncStartedAt) / 1000) : 0;
-    console.warn(`[Sync] Skipped — a sync is already in progress (running for ${runningForSec}s). Refusing to start an overlapping run.`);
+    console.warn(`[Sync] Skipped — sync/connection work is already in progress (sync running for ${runningForSec}s). Refusing to start an overlapping run.`);
     return EMPTY_RESULT;
   }
 

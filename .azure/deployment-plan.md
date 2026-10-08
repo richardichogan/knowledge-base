@@ -1,17 +1,18 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Contextual connections and selected-text Spark capture.
+**Deployment:** Explicit session re-authentication, Think whole-note copy and incremental connections.
 
 ## 1. Scope
 
-Deploy cross-content connections using the existing graph, expanded GitHub node
-indexing and grounded inference, visible relationship reasons, selected-text
-Spark capture with source provenance and immediate graph registration, and
-Spark-to-Canvas mapping. Keep Sparks within Think.
+Deploy session-expired messaging with user-initiated Microsoft popup renewal,
+Think Copy note (including unsaved edits), and connection-only checks every
+15 minutes. Apply migration 059 through the existing startup runner: content
+version view and durable assessment checkpoints, baselining existing content
+without AI backfill or re-indexing.
 Fetch and integrate remote main before merging, pushing and deploying.
-No migrations, infrastructure or credential changes are required.
+No infrastructure or credential changes are required.
 Retain the current Build credentials/configuration:
 
 - Backend: Azure Container App `kh-prod-api-vnet`
@@ -76,6 +77,26 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-08 (09:29 BST):
+
+- Both app `npx tsc --noEmit` and production builds passed.
+- Frontend `npx tsc --noEmit -p tests\tsconfig.json` passed.
+- Eight mocked connection/Spark regressions and auth token-flow regression passed.
+- Desktop/mobile auth and whole-note-copy browser fixtures passed at 1440/390px:
+  explicit renewal, cancellation/retry, retained draft, whole current note,
+  title fallback, paragraph/list preservation and clipboard error feedback.
+- Migration 059 and actual incremental job SQL previously passed isolated PGlite
+  PostgreSQL execution: baseline, body-only changes, concurrent edits, timestamp-only
+  changes, new nodes, candidates and checkpoints. No production test writes.
+- Dockerfile copies all migrations into dist; package-lock/build context retained.
+- Fetched origin/main; it matches HEAD before release. `git diff --check` passed.
+- Azure account and existing ACA/SWA targets confirmed in Alliance Tenant Reporting.
+  Current backend v168; next v169. Rollback image v168.
+- No IaC/provisioning/policy/RBAC changes: template compilation/what-if not applicable.
+  Registry uses existing secret authentication, identity None; no managed-identity
+  AcrPull provisioning applies. Existing source-sync/backfill schedules unchanged.
+- Actual ACR container build must succeed before image update.
 
 Deployed 2026-10-07 (17:02 BST):
 
