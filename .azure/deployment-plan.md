@@ -2,11 +2,20 @@
 
 **Status:** Deployed
 
-**Deployment:** Auth-only MSAL callback hotfix on the deployed v169 baseline.
+**Deployment:** IMAGINE demo brief only, on the auth-hotfix production baseline.
 
 ## 1. Scope
 
-Current deployment (2026-10-08 11:29 BST): frontend-only authentication hotfix.
+Current deployment (2026-10-08 12:08 BST): isolated release `412ba5c`, based on
+deployed auth-only `aa4f208` plus IMAGINE brief feature `c1bd9be`, with conflicts
+resolved to retain the production note editor (no history changes).
+Deploy backend v170 and `.imagine-brief-release/knowledge-hub-web/dist`.
+No migration 060, note recovery history, infrastructure, secrets, RBAC or
+environment changes are included. Preserve the callback/bootstrap auth fix.
+Release source is published under `imagine-demo-brief-2026-10-08`.
+Rollback: backend v169; frontend tag `auth-callback-hotfix-2026-10-08`.
+
+Previous deployment (2026-10-08 11:29 BST): frontend-only authentication hotfix.
 Release `aa4f208` uses deployed baseline `616f895` plus only the callback/bootstrap
 production files from fix `1eb6bb2`. Do not deploy Think history (`ddb3a66`),
 backend changes, migration 060, or any infrastructure/configuration changes.
@@ -84,6 +93,48 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-08 (12:10 BST), isolated IMAGINE brief release `412ba5c`:
+
+- Release tag `imagine-demo-brief-2026-10-08` published to origin.
+- Remote Git-context ACR run `ca5b` could not download source. Retried with the
+  exact validated local release context after removing the dependency junction;
+  ACR run `ca5c` succeeded for v170 (digest
+  `sha256:1942459c0b3b8c8d4679b71b8fc0091b6d9d5cd0ae72677d835f38277a68a62e`).
+- Backend revision `kh-prod-api-vnet--0000167` is Healthy/RunningAtMaxScale,
+  active with 100% traffic. Startup migrations complete through 059; no 060.
+- Backend environment exactly matches its pre-deployment fingerprint. Registry
+  credentials, secrets, roles and resource configuration were not changed.
+- SWA production deployment succeeded from the exact isolated frontend build.
+  Custom and default host HTML at `/` and `/signin` matches local release HTML;
+  all five entry/bootstrap/callback JS/CSS SHA-256 hashes match.
+- Production entry: `/assets/index-CM7-ja_a.js`.
+- Real production-library popup callback checks passed at 1440/390px for
+  success/error relay, popup closing and original page preservation. These
+  synthetic callback checks do not claim real-account browser acceptance.
+- Think history remains unreleased. No production notes were written during
+  verification. Release-specific skill/source/export checks ran offline.
+
+Validated 2026-10-08 (12:08 BST), isolated IMAGINE brief release `412ba5c`:
+
+- Exact-release backend and frontend `npx tsc --noEmit` and production builds passed.
+- Offline PostgreSQL brief persistence tests passed: exact Markdown, same-output
+  revisions, required sections/tables and unchanged downstream Build instruction.
+- Exact-release browser checks at 1440/390px passed: full unsaved source, no
+  automatic send or note replacement, persona selection, confirmation/cancel,
+  error preservation, clipboard/export and Use case-only shortcut.
+- Existing whole-note Copy browser regressions passed at 1440/390px.
+- Azure CLI authenticated to established Alliance Tenant Reporting subscription;
+  existing ACA/ACR/SWA reads passed. Current image v169; v170 not already present.
+- Fetched origin/main (`616f895`); production baseline includes it and auth hotfix.
+- Dockerfile and committed lockfile verified; ACR container build is the deployment
+  gate before updating the image. Registry uses the existing secret reference,
+  not managed identity; no AcrPull/provisioning gate applies.
+- No infrastructure/template/policy/RBAC changes: compilation, what-if and new
+  region selection do not apply to this existing-resource image/assets update.
+- Existing backend environment captured privately for post-deployment comparison.
+- Frontend ESLint remains unavailable because no frontend configuration exists;
+  TypeScript, production build and browser checks passed.
 
 Deployed 2026-10-08 (11:37 BST), auth-only hotfix:
 
