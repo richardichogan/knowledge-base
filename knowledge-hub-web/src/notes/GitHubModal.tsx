@@ -11,6 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, TextInput } from '@carbon/react';
 import { api } from '../services/api';
+import { describeApiError } from '../services/apiError';
 import {
   GITHUB_MODAL_HEADING,
   GITHUB_MODAL_LABEL,
@@ -38,7 +39,7 @@ export const GitHubModal: React.FC<GitHubModalProps> = ({
 }) => {
   const [filePath, setFilePath] = useState(defaultFilePath);
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
-  const [repo, setRepo] = useState(defaultRepo);
+  const [repo, setRepo] = useState(published ? defaultRepo : '');
   const [repositories, setRepositories] = useState<{ name: string; defaultBranch: string; private: boolean }[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -49,9 +50,15 @@ export const GitHubModal: React.FC<GitHubModalProps> = ({
   const [folderError, setFolderError] = useState('');
   const [folderLoading, setFolderLoading] = useState(false);
   const [branch, setBranch] = useState('');
+  const canPublish = !!repo && !!filePath.trim() && !!commitMessage.trim() && !loading && !repoError
+    && (published || (!!branch && !folderLoading && !folderError && repositories.some(item => item.name === repo)));
   useEffect(() => {
-    if (open) { setFilePath(defaultFilePath); setCommitMessage(defaultCommitMessage); setRepo(defaultRepo); setFolder(''); setPage(1); setRepositories([]); }
-  }, [open, defaultFilePath, defaultCommitMessage, defaultRepo]);
+    if (open) {
+      setFilePath(defaultFilePath); setCommitMessage(defaultCommitMessage);
+      setRepo(published ? defaultRepo : ''); setFolder(''); setPage(1); setRepositories([]);
+      setFolders([]); setBranch(''); setFolderError(''); setHasMore(false);
+    }
+  }, [open, defaultFilePath, defaultCommitMessage, defaultRepo, published]);
   useEffect(() => {
     if (!open || published) return;
     let cancelled = false;
@@ -62,32 +69,37 @@ export const GitHubModal: React.FC<GitHubModalProps> = ({
       if (cancelled) return;
       setRepositories(current => page === 1 ? result.data.items : [...current, ...result.data.items]);
       setHasMore(result.data.hasMore);
+      const preferred = result.data.items.find(item => item.name.toLowerCase() === defaultRepo.toLowerCase());
+      if (preferred) setRepo(current => current || preferred.name);
     }).catch((err: unknown) => {
-      if (!cancelled) setRepoError(err instanceof Error ? err.message : 'Could not list repositories.');
+      if (!cancelled) setRepoError(describeApiError(err));
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [open, published, page]);
+  }, [open, published, page, defaultRepo]);
   useEffect(() => {
     if (!open || !repo || published) return;
     let cancelled = false;
     setFolderLoading(true);
     setFolderError('');
+    setFolders([]);
+    setBranch('');
     void api.getNoteGitHubFolders(repo, folder).then(result => {
       if (!result.success) throw new Error(result.error.message);
       if (!cancelled) { setFolders(result.data.folders); setBranch(result.data.branch); }
     }).catch((err: unknown) => {
-      if (!cancelled) { setFolders([]); setFolderError(err instanceof Error ? err.message : 'Could not browse this folder.'); }
+      if (!cancelled) { setFolders([]); setFolderError(describeApiError(err)); }
     }).finally(() => { if (!cancelled) setFolderLoading(false); });
     return () => { cancelled = true; };
   }, [open, repo, folder, published]);
 
   function chooseFolder(path: string): void {
+    setFolderLoading(true);
     setFolder(path);
     setFilePath(`${path ? `${path}/` : ''}${filePath.split('/').at(-1) || 'note.md'}`);
   }
 
   function handleSubmit(): void {
-    onConfirm(repo, filePath, commitMessage);
+    if (canPublish) onConfirm(repo, filePath, commitMessage);
   }
 
   return (
@@ -96,7 +108,7 @@ export const GitHubModal: React.FC<GitHubModalProps> = ({
       modalHeading={GITHUB_MODAL_HEADING}
       modalLabel={GITHUB_MODAL_LABEL}
       primaryButtonText="Push"
-      primaryButtonDisabled={!repo || !filePath.trim() || !commitMessage.trim() || loading || !!repoError}
+      primaryButtonDisabled={!canPublish}
       secondaryButtonText="Cancel"
       size="sm"
       className="notes-github-modal"
@@ -105,13 +117,16 @@ export const GitHubModal: React.FC<GitHubModalProps> = ({
     >
       <label className="notes-github-repo-label" htmlFor="github-repo">Destination repository</label>
       <select id="github-repo" className="notes-github-select" value={repo} disabled={published || loading}
-        onChange={event => { setRepo(event.target.value); setFolder(''); setBranch(''); }}>
+        onChange={event => { setRepo(event.target.value); setFolder(''); setBranch(''); setFolderLoading(!!event.target.value); }}>
         <option value="">Choose a writable repository</option>
-        {repo && !repositories.some(item => item.name === repo) && <option value={repo}>{repo}</option>}
+        {published && <option value={repo}>{repo}</option>}
         {repositories.map(item => <option key={item.name} value={item.name}>{item.name}{item.private ? ' (private)' : ' (public)'}</option>)}
       </select>
       {loading && <p className="notes-github-help" role="status">Loading repositories...</p>}
       {repoError && <p className="notes-github-error" role="alert">{repoError}</p>}
+      {!published && !repo && defaultRepo && !loading && !repoError && !hasMore
+        && !repositories.some(item => item.name.toLowerCase() === defaultRepo.toLowerCase()) &&
+        <p className="notes-github-help" role="status">The project's repository ({defaultRepo}) is not available to the configured GitHub account. Choose a writable destination from the list.</p>}
       {!published && hasMore && <button className="kh-btn-accent notes-github-browse" disabled={loading} onClick={() => { setPage(value => value + 1); }}>Load more repositories</button>}
       {!published && repositories.find(item => item.name === repo)?.private === false &&
         <p className="notes-github-error" role="note">This repository is public. Publishing makes this note readable by anyone.</p>}

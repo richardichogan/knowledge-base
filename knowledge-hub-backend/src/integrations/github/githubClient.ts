@@ -1,6 +1,6 @@
 import { env } from '../../config/env.js';
 import { IntegrationError } from '../../types/errors.js';
-import { EXTERNAL_FETCH_TIMEOUT_MS, HTTP_STATUS } from '../../config/constants.js';
+import { EXTERNAL_FETCH_TIMEOUT_MS, HTTP_STATUS, MS_PER_SECOND } from '../../config/constants.js';
 
 /**
  * Thin wrapper around the GitHub REST API v3.
@@ -40,6 +40,13 @@ export class GitHubClient {
 
     if (allowMissing && response.status === HTTP_STATUS.NOT_FOUND) return null;
     if (!response.ok) {
+      if (response.status === HTTP_STATUS.FORBIDDEN && response.headers.get('x-ratelimit-remaining') === '0') {
+        const reset = Number(response.headers.get('x-ratelimit-reset'));
+        const retry = Number.isFinite(reset) && reset > 0
+          ? ` Retry after ${new Date(reset * MS_PER_SECOND).toISOString()}.`
+          : ' Retry when the GitHub API quota resets.';
+        throw new IntegrationError('github', `GitHub API rate limit reached for the configured account.${retry}`);
+      }
       throw new IntegrationError(
         'github',
         `GET ${path} failed: ${response.status} ${response.statusText}`,

@@ -58,7 +58,8 @@ function validateRepo(repo: unknown): string {
 export async function writableRepository(repo: unknown, gh = new GitHubClient()): Promise<GitHubRepository> {
   const name = validateRepo(repo);
   if (!env.GITHUB_ACCESS_TOKEN) throw new ConfigurationError('GITHUB_ACCESS_TOKEN');
-  const repository = await gh.get<GitHubRepository>(`/repos/${name}`);
+  const repository = await gh.getOptional<GitHubRepository>(`/repos/${name}`);
+  if (repository === null) throw new ForbiddenError('This repository is unavailable to the configured GitHub account. Choose a writable repository from the list.');
   if (repository.permissions?.push !== true) throw new ForbiddenError('The configured GitHub account cannot write to this repository.');
   return repository;
 }

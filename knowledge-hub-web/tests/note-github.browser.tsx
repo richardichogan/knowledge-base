@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { NoteEditor } from '../src/notes/NoteEditor';
+import { GitHubModal } from '../src/notes/GitHubModal';
 import { api } from '../src/services/api';
 import type { Note } from '../src/types/contentItem';
 import type { GitHubPublication, GitHubPushPayload } from '../src/notes/types';
@@ -23,6 +24,8 @@ let publishError = true;
 let conflict = false;
 let lastPayload: GitHubPushPayload | null = null;
 let previousWriting = '';
+let failFolders = false;
+const folderRequests: string[] = [];
 api.getTaxonomy = async () => ({ success: true, data: [] });
 api.getNoteTags = async () => ({ success: true, data: [] });
 api.getProjects = async () => ({ success: true, data: [] });
@@ -32,13 +35,19 @@ api.getNoteGitHub = async (_id, check) => {
     error: conflict ? 'GitHub changed. Choose which version to keep.' : null };
   return { success: true, data: publication };
 };
-api.getNoteGitHubRepositories = async () => ({ success: true, data: {
-  items: [{ name: 'owner/demo', defaultBranch: 'develop', private: true },
-    { name: 'owner/public', defaultBranch: 'main', private: false }], hasMore: false,
+api.getNoteGitHubRepositories = async page => ({ success: true, data: {
+  items: page === 1 ? [{ name: 'owner/demo', defaultBranch: 'develop', private: true },
+    { name: 'owner/public', defaultBranch: 'main', private: false }]
+    : [{ name: 'owner/later', defaultBranch: 'develop', private: true }], hasMore: page === 1,
 } });
-api.getNoteGitHubFolders = async (_repo, folder) => ({ success: true, data: {
-  folders: folder === '' ? ['docs'] : folder === 'docs' ? ['docs/use-cases'] : [], branch: 'develop',
-} });
+api.getNoteGitHubFolders = async (repo, folder) => {
+  folderRequests.push(repo);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  if (failFolders) throw new Error('GitHub folder access failed');
+  return { success: true, data: {
+    folders: folder === '' ? ['docs'] : folder === 'docs' ? ['docs/use-cases'] : [], branch: 'develop',
+  } };
+};
 api.patchNote = async (_id, content, _tags, _project, expected) => {
   if (expected !== persisted.revision) throw new Error('Wrong saved note revision');
   persisted = { ...persisted, content, revision: (persisted.revision ?? 0) + 1, updatedAt: new Date().toISOString() };
@@ -69,7 +78,14 @@ api.resolveNoteGitHub = async (_id, choice, remoteSha, revision) => {
 api.getNote = async () => ({ success: true, data: persisted });
 function Fixture(): React.ReactElement {
   const [doc, setDoc] = useState(fromApiNote(persisted));
-  return <NoteEditor doc={doc} onSaved={setDoc} />;
+  const [probe, setProbe] = useState<'missing' | 'later' | null>('missing');
+  return <>
+    <button onClick={() => { setProbe('later'); }}>Test paginated default</button>
+    {probe && <GitHubModal key={probe} open defaultRepo={probe === 'missing' ? 'IBM-Project-Imagine/architecture' : 'owner/later'}
+      defaultFilePath="content/notes/test.md" defaultCommitMessage="Test publishing"
+      onClose={() => { setProbe(null); }} onConfirm={() => { throw new Error('Probe must not publish'); }} />}
+    <NoteEditor doc={doc} onSaved={setDoc} />
+  </>;
 }
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -85,34 +101,77 @@ async function waitFor(check: () => boolean): Promise<void> {
 }
 function check(value: boolean, message: string): void { if (!value) throw new Error(message); }
 function button(text: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === text);
+  const found = [...document.querySelectorAll<HTMLButtonElement>('button')].find(item => item.offsetParent !== null && item.textContent?.trim() === text);
   if (!found) throw new Error(`Missing button: ${text}`);
   return found;
 }
 function select(selector: string, value: string): void {
-  const element = document.querySelector<HTMLSelectElement>(selector)!;
+  const element = document.querySelector<HTMLSelectElement>(`.notes-github-modal.is-visible ${selector}`)!;
   element.value = value;
   element.dispatchEvent(new Event('change', { bubbles: true }));
 }
 function input(selector: string, value: string): void {
-  const element = document.querySelector<HTMLInputElement>(selector)!;
+  const element = document.querySelector<HTMLInputElement>(`.notes-github-modal.is-visible ${selector}`)!;
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(element, value);
   element.dispatchEvent(new Event('input', { bubbles: true }));
 }
 async function chooseDestination(): Promise<void> {
   button('Push to GitHub').click();
-  await waitFor(() => document.querySelector('#github-repo option[value="owner/demo"]') !== null);
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible #github-repo option[value="owner/demo"]') !== null);
   select('#github-repo', 'owner/demo');
-  await waitFor(() => document.querySelector('option[value="docs"]') !== null);
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible option[value="docs"]') !== null);
   select('[aria-label="Browse repository folders"]', 'docs');
-  await waitFor(() => document.querySelector('option[value="docs/use-cases"]') !== null);
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible option[value="docs/use-cases"]') !== null);
   select('[aria-label="Browse repository folders"]', 'docs/use-cases');
-  await waitFor(() => document.querySelector<HTMLInputElement>('#github-file-path')?.value.startsWith('docs/use-cases/') === true);
+  await waitFor(() => document.querySelector<HTMLInputElement>('.notes-github-modal.is-visible #github-file-path')?.value.startsWith('docs/use-cases/') === true);
   input('#github-file-path', 'docs/use-cases/My note.md');
   input('#github-commit-msg', 'Publish my note');
+  await waitFor(() => !button('Push').disabled);
 }
 Object.assign(window, { runNoteGitHubChecks: async () => {
+  const html = new DOMParser().parseFromString(await (await fetch('/')).text(), 'text/html');
+  const iconUrl = html.querySelector('link[rel="icon"]')?.getAttribute('href');
+  check(iconUrl === '/favicon.svg?v=athena-20261008', 'Main page uses a cache-busted Athena favicon');
+  const svg = await (await fetch(iconUrl!)).text();
+  check(svg.includes('<title>Athena</title>') && !svg.includes('<!-- K -->'), 'Favicon artwork is Athena, not KH');
+  const manifest = await (await fetch('/manifest.json')).json() as { icons: Array<{ src: string; sizes: string }> };
+  for (const icon of manifest.icons) {
+    check(icon.src.includes('?v=athena-20261008'), 'Installable-app icon URL is cache-busted');
+    const image = new Image();
+    image.src = icon.src;
+    await image.decode();
+    const size = Number(icon.sizes.split('x')[0]);
+    check(image.naturalWidth === size && image.naturalHeight === size, 'App icon has the declared dimensions');
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const pixel = context.getImageData(size / 2, size * 18 / 32, 1, 1).data;
+    check(pixel[0] === 61 && pixel[1] === 219 && pixel[2] === 217 && pixel[3] === 255, 'App icon contains the teal Athena crossbar');
+  }
   await waitFor(() => getActiveBlockNoteEditor() !== null);
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible #github-repo option[value="owner/demo"]') !== null);
+  check(document.querySelector<HTMLSelectElement>('.notes-github-modal.is-visible #github-repo')?.value === '', 'Unavailable project default is not selected');
+  check(document.querySelector('#github-repo option[value="IBM-Project-Imagine/architecture"]') === null, 'Unavailable project repo is not injected into writable choices');
+  check(folderRequests.length === 0 && button('Push').disabled, 'No request or publish for an unverified default');
+  button('Load more repositories').click();
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible #github-repo option[value="owner/later"]') !== null);
+  await waitFor(() => document.body.textContent?.includes("The project's repository") === true);
+  failFolders = true;
+  select('#github-repo', 'owner/demo');
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible .notes-github-error[role="alert"]')?.textContent === 'GitHub folder access failed');
+  check(button('Push').disabled, 'Folder browsing failure blocks publishing');
+  button('Cancel').click();
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible') === null);
+  failFolders = false;
+  button('Test paginated default').click();
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible #github-repo option[value="owner/demo"]') !== null);
+  check(document.querySelector<HTMLSelectElement>('.notes-github-modal.is-visible #github-repo')?.value === '', 'Default on a later page remains unselected until verified');
+  button('Load more repositories').click();
+  await waitFor(() => document.querySelector<HTMLSelectElement>('.notes-github-modal.is-visible #github-repo')?.value === 'owner/later');
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible option[value="docs"]') !== null);
+  button('Cancel').click();
+  await waitFor(() => document.querySelector('.notes-github-modal.is-visible') === null);
   button('Metadata').click();
   await waitFor(() => document.querySelector('.notes-meta-gh-heading') !== null);
   const editor = getActiveBlockNoteEditor()!;
@@ -130,8 +189,8 @@ Object.assign(window, { runNoteGitHubChecks: async () => {
   check(lastPayload?.repo === 'owner/demo' && lastPayload?.filePath === 'docs/use-cases/My note.md', 'Selected repo, nested folder and custom filename sent to backend');
   check(document.querySelector('.notes-meta-gh-text a')?.getAttribute('href')?.includes('/owner/demo/blob/develop/docs/use-cases/My note.md') === true, 'Published copy has a GitHub link');
   button('Push to GitHub').click();
-  await waitFor(() => document.querySelector<HTMLSelectElement>('#github-repo')?.disabled === true);
-  check(document.querySelector<HTMLInputElement>('#github-file-path')?.readOnly === true, 'Destination pinned after publishing');
+  await waitFor(() => document.querySelector<HTMLSelectElement>('.notes-github-modal.is-visible #github-repo')?.disabled === true);
+  check(document.querySelector<HTMLInputElement>('.notes-github-modal.is-visible #github-file-path')?.readOnly === true, 'Destination pinned after publishing');
   button('Cancel').click();
   editor.insertBlocks([{ type: 'paragraph', content: 'Saved later edit' }], editor.document.at(-1)!, 'after');
   await waitFor(() => document.querySelector('.notes-meta-gh-heading')?.textContent === 'Update pending');
@@ -149,7 +208,9 @@ Object.assign(window, { runNoteGitHubChecks: async () => {
   await waitFor(() => JSON.stringify(editor.document).includes('External version writing') && !document.querySelector('.notes-github-versions'));
   check(previousWriting.includes('Saved later edit'), 'Previous writing retained before accepting GitHub');
   check(editor.isEditable, 'GitHub conflict does not lock the note as a stale note-save conflict');
-  return ['repository picker', 'nested folder browser', 'custom file path', 'default branch', 'save latest writing before publish',
+  return ['cache-busted Athena favicon', '192px and 512px Athena app icons',
+    'unavailable project default excluded', 'folder failure blocks push', 'paginated preferred repository verified',
+    'repository picker', 'nested folder browser', 'custom file path', 'default branch', 'save latest writing before publish',
     'failed push is explicit', 'pinned destination and GitHub link', 'autosave marks update pending', 'external conflict review',
     'GitHub version adoption updates the live editor'];
 } });

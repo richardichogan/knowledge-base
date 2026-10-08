@@ -2,6 +2,9 @@
 
 > Formerly "Personal Knowledge Hub". The product is now called **Athena**; code, folders (`knowledge-hub-*`) and Azure resources (`kh-prod-*`) keep their original names.
 
+The browser favicon and installable-app icons use the teal Athena "A". Their
+versioned URLs prevent browsers from retaining the former KH icon after an update.
+
 Microsoft sign-in renews silently where possible. When interactive sign-in is
 required, Athena shows a session-expired dialog with a **Re-authenticate** button
 instead of refreshing or redirecting unexpectedly. User-initiated re-authentication
@@ -123,6 +126,10 @@ repository's default branch and pins the repository, branch and path for
 subsequent updates; the dialog warns when the chosen repository is public.
 Repositories are those accessible to the backend's `GITHUB_ACCESS_TOKEN`, not
 necessarily every repository accessible in the browser's Microsoft sign-in.
+A project's suggested repository is selected only after it appears in the
+writable list. Unavailable project repositories are not offered as destinations.
+Publishing is disabled while repository folders load or access fails; backend
+errors and GitHub quota-reset guidance are displayed rather than only an HTTP code.
 
 Think remains the master note. Writing changes (including Athena edits and
 history restores) queue an automatic GitHub update after 30 seconds without

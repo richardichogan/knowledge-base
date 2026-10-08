@@ -103,12 +103,15 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
       return new Response(JSON.stringify({ value: body.value.map(item => ({ key: item.id, status: true, statusCode: 200 })) }));
     }
     if (url.hostname !== 'api.github.com') return originalFetch(input, init);
-    if (failRead && init?.method !== 'PUT') return new Response('Rate limit', { status: 403 });
+    if (failRead && init?.method !== 'PUT') return new Response('Rate limit', {
+      status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1791493200' },
+    });
     const reply = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
     if (url.pathname === '/user/repos') return reply([
       { full_name: repo, default_branch: 'develop', private: true, permissions: { push: true } },
       { full_name: 'owner/read-only', default_branch: 'main', private: false, permissions: { push: false } },
     ]);
+    if (url.pathname === '/repos/IBM-Project-Imagine/architecture') return reply({ message: 'Not Found' }, 404);
     if (url.pathname === `/repos/${repo}` || url.pathname === `/repos/${env.GITHUB_CONTENT_STORE_REPO}`) {
       return reply({ full_name: url.pathname.slice(7), default_branch: 'develop', private: true, permissions: { push: true } });
     }
@@ -161,6 +164,9 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
     const repos = await request<{ items: Array<{ name: string }> }>('/github/repositories');
     assert.equal(repos.status, 200);
     assert.deepEqual(repos.body.data.items.map((row: { name: string }) => row.name), [repo]);
+    const unavailable = await request('/github/folders?repo=IBM-Project-Imagine%2Farchitecture&folder=');
+    assert.equal(unavailable.status, 403);
+    assert.match(unavailable.body.error!.message, /unavailable.*Choose a writable repository/);
     const folders = await request<{ folders: string[] }>(`/github/folders?repo=${encodeURIComponent(repo)}&folder=`);
     assert.deepEqual(folders.body.data.folders, ['docs']);
     const first = await request<GitHubPublication>(`/${id}/github`, { repo, filePath: path, commitMessage: 'Publish linked note', expectedRevision: 0 });
@@ -219,7 +225,7 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
     assert.equal((await publicationRow(pool, id))!.status, 'synced');
     lockAvailable = true;
     failRead = true;
-    await assert.rejects(new GitHubClient().getOptional(`/repos/${repo}/contents/${path}`), /403/);
+    await assert.rejects(new GitHubClient().getOptional(`/repos/${repo}/contents/${path}`), /rate limit.*Retry after/);
     failRead = false;
 
     // Imported document copies and old hash-keyed versions disappear everywhere.
