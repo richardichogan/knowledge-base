@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** GitHub note publication with repository/folder selection, durable automatic updates, conflict review and canonical note indexing.
 
@@ -129,6 +129,20 @@ All validation checks pass:
 ## 7. Validation Proof
 
 ### GitHub note publication release — 2026-10-08
+
+Deployed from `e8d01e9` at 21:19 BST:
+- ACR run `ca5e` built and pushed `kh-prod-api:v172` successfully on Node 20.
+- New revision `kh-prod-api-vnet--0000169` is `Healthy` / `RunningAtMaxScale`;
+  it is the only active revision.
+- Startup applied `061_note_github_publications.sql` and completed migration.
+- Startup publication and content-store sync completed with zero errors.
+- SWA production deployment succeeded. Live `index-Dj0NWIqd.js`,
+  `signinCallback-bh-pVR6x.js` and `appBootstrap-GzWjllnT.js` match local
+  release files by SHA-256.
+- Container environment hash is unchanged from the baseline below.
+- Production endpoint: https://athena.themicrosoftcloudblog.com/
+- Existing GitLab sync reports 401 Unauthorized; unrelated credentials were
+  not changed by this deployment.
 
 Both apps passed `npx tsc --noEmit` and production builds on the exact release
 tree. Backend publishing/history tests, safe Markdown and project-context
