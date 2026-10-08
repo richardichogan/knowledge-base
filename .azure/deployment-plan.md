@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** GitHub destination validation and Athena favicon/app-icon correction.
 
@@ -135,6 +135,22 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-08 (21:50 BST), correction `6950018`:
+
+- ACR run `ca5f` built and pushed backend v173 successfully on Node 20.
+- Revision `kh-prod-api-vnet--0000170` Healthy / RunningAtMaxScale,
+  the only active revision. Startup migrations completed.
+- SWA production deployment succeeded. Both production hostnames serve
+  byte-matching release HTML, `index-hBiedstu.js`, callback/bootstrap chunks,
+  versioned Athena SVG favicon, 192/512px PNG icons and app manifest.
+- Live authenticated API checks passed: screenshot destination returns
+  actionable 403 instead of 502; writable list excludes it; client-demo
+  root and docs folder browsing succeeds on master.
+- New and prior revision environment values and secret references match
+  after normalization; no credentials, roles or infrastructure changed.
+- Production endpoint: https://athena.themicrosoftcloudblog.com/
+- No production note writes were performed during verification.
 
 Validated 2026-10-08 (21:43 BST), correction `6950018`:
 
