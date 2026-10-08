@@ -33,6 +33,7 @@ import { MetadataPanel } from './MetadataPanel';
 import { useProjects } from '../hooks/useProjects';
 import { editorSchema } from './editorSchema';
 import { parseTranscript, transcriptToBlocks } from './transcriptPaste';
+import { imagineDemoBriefPrompt } from './imagineDemoBrief';
 
 interface NoteEditorProps {
   doc: NoteDocument;
@@ -352,6 +353,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       ...(projectIdRef.current !== '' && { projectId: projectIdRef.current }),
       ...(githubPathRef.current !== undefined && { githubPath: githubPathRef.current }),
     };
+  }, []);
+  const prepareDemoBrief = useCallback(async (): Promise<string> => {
+    const current = editorRef.current;
+    const markdown = await current.blocksToMarkdownLossy(current.document);
+    const title = extractTitle(current.document);
+    return imagineDemoBriefPrompt(title === UNTITLED_DOCUMENT ? savedDocRef.current.title : title, markdown);
   }, []);
 
   const doSave = useCallback(async () => {
@@ -828,6 +835,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         onPushToGitHub={() => { setGithubModalOpen(true); }}
         onRestoreVersion={restoreVersion}
         historyRefresh={historyRefresh}
+        prepareDemoBrief={prepareDemoBrief}
         {...(onOpenMap !== undefined && { onOpenMap })}
         {...(onMapNote !== undefined && { onMapNote })}
       />

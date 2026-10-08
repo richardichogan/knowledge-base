@@ -67,6 +67,7 @@ interface PendingThinkSave {
 }
 
 interface AIChatPageProps {
+  prepareDemoBrief?: (() => Promise<string>) | undefined;
   promptRequest?: { prompt: string; sequence: number } | undefined;
   /** Renders without the page header/wrapper padding, for use in a floating widget. */
   compact?: boolean;
@@ -224,6 +225,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   standalone = false,
   pageContext,
   initialPersona,
+  prepareDemoBrief,
   promptRequest,
   title,
   onBusyChange,
@@ -1374,6 +1376,41 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     }
   }
 
+  const [preparingBrief, setPreparingBrief] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
+  const briefContextRef = useRef({ noteId: currentNoteId, sessionId, input });
+  briefContextRef.current = { noteId: currentNoteId, sessionId, input };
+  const briefMountedRef = useRef(true);
+  useEffect(() => {
+    briefMountedRef.current = true;
+    return () => { briefMountedRef.current = false; };
+  }, []);
+  async function prepareImagineBrief(): Promise<void> {
+    if (prepareDemoBrief === undefined || preparingBrief || chatMutation.isPending || isRestoringHistory) return;
+    const original = briefContextRef.current;
+    if (input.trim() !== '' && !await confirmDialog('Replace your unsent chat prompt with the IMAGINE demo brief request? The Use case note will not change.', {
+      title: 'Prepare demo brief', confirmLabel: 'Replace prompt',
+    })) return;
+    setPreparingBrief(true);
+    setBriefError(null);
+    try {
+      const prompt = await prepareDemoBrief();
+      if (!briefMountedRef.current) return;
+      const current = briefContextRef.current;
+      if (original.noteId !== current.noteId || original.sessionId !== current.sessionId || original.input !== current.input) {
+        setBriefError('The note, chat or unsent prompt changed while preparing the brief. Nothing was replaced; retry in the intended note.');
+        return;
+      }
+      handlePersonaChange('demo_designer');
+      setActionOverride('none');
+      setInput(prompt);
+      textareaRef.current?.focus();
+    } catch (error) {
+      console.error('[IMAGINE brief] Could not read Use case:', error);
+      setBriefError(error instanceof Error ? error.message : 'Could not read the Use case. Your note and prompt are unchanged; retry.');
+    } finally { setPreparingBrief(false); }
+  }
+
   const exportMutation = useMutation({
     mutationFn: () => {
       if (sessionId === null) throw new Error('No active session to export');
@@ -2100,6 +2137,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         )}
 
         <div className="ai-composer">
+        {prepareDemoBrief !== undefined && (
+          <div className="ai-demo-brief-skill">
+            <button type="button" className="ai-demo-brief-skill__button" disabled={preparingBrief || chatMutation.isPending || isRestoringHistory}
+              onClick={() => { void prepareImagineBrief(); }}>{preparingBrief ? 'Reading Use case...' : 'Create IMAGINE demo brief'}</button>
+            <p className="ai-demo-brief-skill__hint">Uses the full live Use case note. Review the prompt, then send; the brief is saved in Outputs for GHCP.</p>
+            {briefError !== null && <p role="alert" className="ai-demo-brief-skill__error">{briefError}</p>}
+          </div>
+        )}
         {compareOpen && <CompareWithPanel onSend={handleCompare} onClose={() => { setCompareOpen(false); }} />}
         {interruptedTurn !== null && interruptedTurn.sessionId === sessionId && !chatMutation.isPending && (
           <div className="ai-interrupted" role="status">

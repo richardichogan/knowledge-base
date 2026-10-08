@@ -67,6 +67,7 @@ interface MetadataPanelProps {
   onMapNote?: (noteId: string) => void;
   onRestoreVersion: (versionId: string) => Promise<void>;
   historyRefresh: number;
+  prepareDemoBrief: () => Promise<string>;
 }
 
 /** Formats an ISO timestamp as "DD Mon YYYY, HH:MM" for Created/Modified. */
@@ -99,6 +100,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   onMapNote,
   onRestoreVersion,
   historyRefresh,
+  prepareDemoBrief,
 }) => {
   const { pageContext, registerAthenaLauncher } = useAthenaContext();
   const qc = useQueryClient();
@@ -204,7 +206,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
             className="notes-meta-tabpanel notes-meta-tabpanel--athena"
             hidden={tab !== 'athena'}
           >
-            <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy} />
+            <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy}
+              prepareDemoBrief={contentType === 'use-case' ? prepareDemoBrief : undefined} />
           </div>
         )}
 

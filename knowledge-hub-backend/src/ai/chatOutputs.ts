@@ -5,6 +5,7 @@
  */
 import type { Pool } from 'pg';
 import { getFoundryClient } from './foundryClient.js';
+import { validateImagineDemoBrief } from './imagineDemoBriefSkill.js';
 
 export type OutputFormat = 'markdown' | 'text' | 'html';
 
@@ -78,6 +79,7 @@ export async function saveOutputVersion(
 ): Promise<{ id: string; version: number; title: string }> {
   let content = input.content.trim();
   if (content === '') throw new Error('content is empty');
+  if (input.author === 'athena') validateImagineDemoBrief(content);
   const client = await db.connect();
   try {
     await client.query('BEGIN');

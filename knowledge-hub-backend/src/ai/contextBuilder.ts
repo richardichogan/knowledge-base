@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
 import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
+import { IMAGINE_DEMO_BRIEF_SKILL } from './imagineDemoBriefSkill.js';
 import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
@@ -898,7 +899,7 @@ const PERSONA_PROMPTS: Record<string, string> = {
   brainstorming: BRAINSTORMING_PERSONA_BLURB,
   copilot_coach: COPILOT_COACH_PERSONA_BLURB,
   blog_post: BLOG_POST_PERSONA_BLURB,
-  demo_designer: DEMO_DESIGNER_PERSONA_BLURB,
+  demo_designer: `${DEMO_DESIGNER_PERSONA_BLURB}\n\n${IMAGINE_DEMO_BRIEF_SKILL}`,
   web_designer: WEB_DESIGNER_PERSONA_BLURB,
   podcast_prep: PODCAST_PREP_PERSONA_BLURB,
   podcast_show_notes: SHOW_NOTES_PERSONA_BLURB,
