@@ -18,6 +18,7 @@ import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
 import { selectRequiredToolChoice } from './toolRouting.js';
+import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
 import { getCanvas } from '../services/canvasService.js';
 import { buildCanvasContext } from '../services/canvasContent.js';
 import type { MapChangeProposal } from './mapEdits.js';
@@ -186,10 +187,12 @@ export async function handleConversationTurn(
 
   const client = getFoundryClient('chat').scoped({ persona, sessionId });
   const allTools = await getToolDefinitions();
+  const briefOnly = isImagineDemoBriefRequest(persona, userMessage);
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
   // The note-edit and map-edit tools are the two largest definitions (about 1,400 tokens between them) and
   // only make sense with a note or canvas open, so they are not sent otherwise.
   const tools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
+    .filter((t) => !briefOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'save_output')
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
@@ -291,6 +294,9 @@ export async function handleConversationTurn(
       onToolCall?.(call.function.name);
       hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
       try {
+        if (briefOnly && !tools.some((tool) => tool.function.name === call.function.name)) {
+          throw new Error('This IMAGINE brief request permits reading context and saving Outputs only. The source note and other records cannot be changed.');
+        }
         result = filterExcluded(
           await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
           excluded,

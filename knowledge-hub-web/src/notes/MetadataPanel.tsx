@@ -64,6 +64,7 @@ interface MetadataPanelProps {
   onOpenMap?: (mapId: string) => void;
   /** Create (or open) this note's mind map. */
   onMapNote?: (noteId: string) => void;
+  prepareDemoBrief: () => Promise<string>;
 }
 
 /** Formats an ISO timestamp as "DD Mon YYYY, HH:MM" for Created/Modified. */
@@ -94,6 +95,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   onPushToGitHub,
   onOpenMap,
   onMapNote,
+  prepareDemoBrief,
 }) => {
   const { pageContext, registerAthenaLauncher } = useAthenaContext();
   const qc = useQueryClient();
@@ -198,7 +200,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
             className="notes-meta-tabpanel notes-meta-tabpanel--athena"
             hidden={tab !== 'athena'}
           >
-            <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy} />
+            <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy}
+              prepareDemoBrief={contentType === 'use-case' ? prepareDemoBrief : undefined} />
           </div>
         )}
 

@@ -88,6 +88,20 @@ Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief
 
 ## Think canvases
 
+Use case notes offer **Create IMAGINE demo brief** in the Think Athena composer
+(where the embedded rail is available). It selects Demo Designer and prepares a
+reviewable request containing the complete live note, including unsaved writing;
+it does not send automatically or change the note. You can also ask Demo Designer
+for an IMAGINE demo brief directly on other chat surfaces.
+
+The skill preserves the nine business sections, access and acceptance tables,
+unresolved decisions/authorization, and the `evidence-led-demo` Build instruction.
+Briefs are versioned Markdown Outputs, not implementation code or approval.
+Use **Copy** for GHCP or **Download Markdown brief for GHCP** to place the file in
+`docs/prds/<demo-id>.md` in the target repository. Download/copy never pushes to
+GitHub, runs Build, or authorizes live side effects; `evidence-led-demo` must be
+available to the downstream coding agent.
+
 The diagram editing sheet uses Athena's dark theme with a subdued grid and
 contrast-adjusted connectors and transparent labels. Saved shape colours and
 PNG/SVG export colours are unchanged; exports still offer white or transparent

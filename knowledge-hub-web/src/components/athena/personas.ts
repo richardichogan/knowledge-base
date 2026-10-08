@@ -18,7 +18,7 @@ export const PERSONAS: readonly PersonaDefinition[] = [
   { id: 'brainstorming', label: 'Brainstorm', description: 'Ideas sounding board — stress-tests and sharpens early-stage thinking', Icon: Idea },
   { id: 'copilot_coach', label: 'Copilot Coach', description: 'Expert guide on GitHub Copilot agents, skills and workflows', Icon: Compass },
   { id: 'blog_post', label: 'Blog Post', description: 'Produces a full CMS-ready package for The Microsoft Cloud Blog', Icon: Blog },
-  { id: 'demo_designer', label: 'Demo Designer', description: 'Shapes application demos, user stories and UI screens for a project or industry', Icon: Screen },
+  { id: 'demo_designer', label: 'Demo Designer', description: 'Shapes demos and creates evidence-led IMAGINE business briefs for GHCP', Icon: Screen },
   { id: 'web_designer', label: 'Web Designer', description: 'Designs and reviews websites and pages: mock-ups you can see, live-site reviews, build prompts', Icon: ColorPalette },
   { id: 'podcast_prep', label: 'Podcast Prep', description: 'Prepares your Cloudy segments: fresh topics, openers, running order and notes', Icon: Microphone },
   { id: 'podcast_show_notes', label: 'Show Notes', description: 'Turns an episode transcript into show notes, a companion blog post and the social campaign', Icon: Document },

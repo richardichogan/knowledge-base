@@ -13,9 +13,14 @@ const thinkSearchChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-search';
 const connectionsChecks = process.env.ATHENA_BROWSER_CHECKS === 'connections';
 const authSessionChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-session';
 const noteCopyChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-copy';
+const noteHistoryChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-history';
+const authCallbackChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-callback';
+const authLiveChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-live';
+const imagineBriefChecks = process.env.ATHENA_BROWSER_CHECKS === 'imagine-brief';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+  ...(authCallbackChecks || authLiveChecks ? ['--disable-popup-blocking'] : []),
   '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
 ], { stdio: 'ignore' });
 let socket;
@@ -73,9 +78,13 @@ try {
     for (let i = 0; i < 300; i++) {
       ready = await evaluate(navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
+        : authLiveChecks ? 'document.querySelector(".pw-gate") !== null'
+        : authCallbackChecks ? 'typeof window.runAuthCallbackChecks === "function"'
+        : imagineBriefChecks ? 'typeof window.runImagineBriefChecks === "function" && document.querySelector("#compact-skill .ai-demo-brief-skill") !== null'
         : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
+        : noteHistoryChecks ? 'typeof window.runNoteHistoryChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
         : noteCopyChecks ? 'typeof window.runNoteCopyChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
         : thinkSearchChecks ? 'typeof window.runThinkSearchChecks === "function" && document.querySelector("#notes-search") !== null'
         : 'typeof window.runTodayChecks === "function" && document.querySelectorAll(".today-brief__attention article").length === 5');
@@ -83,8 +92,50 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('document.body.innerText')}`);
-    if (thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks) {
-      const results = await evaluate(noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
+    if (authLiveChecks) {
+      const results = await evaluate(`(async () => {
+        const originalUrl = location.href;
+        const originalRoot = document.querySelector('.pw-gate');
+        const draft = document.createElement('textarea');
+        draft.value = 'Unsaved callback regression sentinel';
+        document.body.append(draft);
+        const waitFor = async (check) => {
+          for (let i = 0; i < 300; i++) {
+            if (check()) return;
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          throw new Error('Live popup callback timeout');
+        };
+        for (const error of [false, true]) {
+          const id = crypto.randomUUID();
+          const state = btoa(JSON.stringify({ id, meta: { interactionType: 'popup' } }));
+          const payload = new URLSearchParams({ state, ...(error
+            ? { error: 'access_denied', error_description: 'Synthetic callback regression' }
+            : { code: 'synthetic-not-a-real-auth-code' }) }).toString();
+          const channel = new BroadcastChannel(id);
+          let received = null;
+          channel.onmessage = event => { received = event.data; };
+          const popup = window.open('/signin#' + payload, 'athena-live-auth-check', 'width=400,height=500');
+          if (!popup) throw new Error('Test popup blocked');
+          try {
+            await waitFor(() => received !== null);
+            if (received.v !== 1 || received.payload !== payload) throw new Error('Callback payload not returned');
+            await waitFor(() => popup.closed);
+          } finally { if (!popup.closed) popup.close(); channel.close(); }
+        }
+        if (location.href !== originalUrl || document.querySelector('.pw-gate') !== originalRoot
+          || !draft.isConnected || draft.value !== 'Unsaved callback regression sentinel') {
+          throw new Error('Original page or unsaved state disturbed');
+        }
+        draft.remove();
+        return ['deployed popup callback relays success/error', 'popup closes', 'original page remains mounted'];
+      })()`);
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      console.log(JSON.stringify({ width, checks: results }, null, 2));
+      continue;
+    }
+    if (thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks || noteHistoryChecks || authCallbackChecks || imagineBriefChecks) {
+      const results = await evaluate(imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;

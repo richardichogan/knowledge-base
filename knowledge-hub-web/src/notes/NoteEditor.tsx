@@ -31,6 +31,7 @@ import { MetadataPanel } from './MetadataPanel';
 import { useProjects } from '../hooks/useProjects';
 import { editorSchema } from './editorSchema';
 import { parseTranscript, transcriptToBlocks } from './transcriptPaste';
+import { imagineDemoBriefPrompt } from './imagineDemoBrief';
 
 interface NoteEditorProps {
   doc: NoteDocument;
@@ -224,6 +225,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
   const editorRef = useRef(editor);
   useEffect(() => { editorRef.current = editor; }, [editor]);
+  const prepareDemoBrief = useCallback(async (): Promise<string> => {
+    const current = editorRef.current;
+    const markdown = await current.blocksToMarkdownLossy(current.document);
+    const title = extractTitle(current.document);
+    return imagineDemoBriefPrompt(title === UNTITLED_DOCUMENT ? savedDocRef.current.title : title, markdown);
+  }, []);
 
   /**
    * Seeds the use-case heading skeleton when the note is switched to the
@@ -733,6 +740,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         ghDotColor={ghDotColor}
         githubPath={githubPath}
         onPushToGitHub={() => { setGithubModalOpen(true); }}
+        prepareDemoBrief={prepareDemoBrief}
         {...(onOpenMap !== undefined && { onOpenMap })}
         {...(onMapNote !== undefined && { onMapNote })}
       />
