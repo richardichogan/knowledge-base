@@ -116,6 +116,11 @@ Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief
 
 ## Think canvases
 
+Use **Refresh notes** beside the Notes list heading (or in its collapsed rail)
+to fetch newly created notes without reloading the page. Search/filter choices,
+selection and unsaved open-note writing stay intact; failures preserve the list
+and show a retryable message.
+
 Athena-created drafts, chat exports and saved Outputs use a shared GFM Markdown
 parser when creating Think notes. Consecutive headings, nested lists, checkboxes,
 tables, quotes, links and inline formatting become native editor blocks; fenced

@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, Document, Idea, Draw, TrashCan } from '@carbon/icons-react';
+import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, Document, Idea, Draw, TrashCan, Renew } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
 import { ImportNoteModal } from './ImportNoteModal';
@@ -71,12 +71,30 @@ export const NotesPage: React.FC = () => {
   // Command-bar element NoteEditor portals its note actions (Export, Push, Delete) into.
   const [docActionsSlot, setDocActionsSlot] = useState<HTMLDivElement | null>(null);
 
-  const { data: notes = NO_NOTES, isLoading, isError, refetch } = useQuery<NoteListItem[]>({
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const refreshInFlight = useRef(false);
+  const { data: notes = NO_NOTES, isLoading, isError, isFetching, refetch } = useQuery<NoteListItem[]>({
     queryKey: ['notes-list'],
     queryFn: fetchNotes,
     staleTime: 30_000,
     retry: 1,
   });
+
+  async function refreshNotes(): Promise<void> {
+    if (refreshInFlight.current || isFetching) return;
+    refreshInFlight.current = true;
+    setRefreshMessage(null);
+    setRefreshFailed(false);
+    try {
+      await refetch({ throwOnError: true });
+      setRefreshMessage('Notes refreshed');
+    } catch (error) {
+      console.error('[Think] Could not refresh notes:', error);
+      setRefreshFailed(true);
+      setRefreshMessage('Could not refresh notes. Your open note is unchanged. Retry.');
+    } finally { refreshInFlight.current = false; }
+  }
 
   const { data: canvases = NO_CANVASES, isLoading: canvasLoading, isError: canvasListError } = useQuery<CanvasSummaryApi[]>({
     queryKey: ['canvases'],
@@ -360,7 +378,7 @@ export const NotesPage: React.FC = () => {
   }, [mode, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
 
   if (isLoading) return <InlineLoading description="Loading documents…" />;
-  if (isError) return (
+  if (isError && notes === NO_NOTES) return (
     <div className="notes-error-state">
       <p>Failed to load documents.</p>
       <button className="notes-retry-btn" onClick={() => { void refetch(); }}>Retry</button>
@@ -425,7 +443,11 @@ export const NotesPage: React.FC = () => {
         </div>
       </div>
 
+      {mode === 'notes' && refreshMessage !== null && <p className={`notes-refresh-message${refreshFailed ? ' notes-refresh-message--error' : ''}`}
+        role={refreshFailed ? 'alert' : 'status'}>{refreshMessage}</p>}
       {canvasError !== null && <p className="mm-canvas-error" role="alert">{canvasError}</p>}
+      {listCollapsed && mode === 'notes' && refreshMessage !== null && <p className={`notes-refresh-message${refreshFailed ? ' notes-refresh-message--error' : ''}`}
+        role={refreshFailed ? 'alert' : 'status'}>{refreshMessage}</p>}
       <div className="notes-root">
         {/* ── Left panel ── */}
         {listCollapsed ? (
@@ -433,6 +455,9 @@ export const NotesPage: React.FC = () => {
           // opening cramped rail-width variants of those controls — at 56px
           // wide there is no room to show results or a title field.
           <div className="notes-list-rail">
+            {mode === 'notes' && <button type="button" className="notes-refresh notes-refresh--rail"
+              title="Refresh notes" aria-label="Refresh notes" disabled={isFetching}
+              onClick={() => { void refreshNotes(); }}><Renew size={16} /></button>}
             <button
               type="button"
               className="notes-list-rail__btn"
@@ -468,6 +493,9 @@ export const NotesPage: React.FC = () => {
         <div className="notes-list-panel">
           <div className="notes-list-panel__head">
             <span className="notes-list-panel__label">{VIEW_MODES.find((v) => v.key === mode)?.label}</span>
+            {mode === 'notes' && <button type="button" className="notes-refresh"
+              title="Refresh notes" aria-label="Refresh notes" disabled={isFetching}
+              onClick={() => { void refreshNotes(); }}><Renew size={16} /></button>}
             <button
               type="button"
               className="notes-mode-collapse"

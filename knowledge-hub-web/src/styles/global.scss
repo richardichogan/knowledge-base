@@ -14820,3 +14820,32 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
   code { color: var(--kh-accent); font-size: inherit; }
 }
 .ai-output__export-error { color: #ffb3b8; font-size: 0.8125rem; margin: 0.75rem 0; line-height: 1.5; overflow-wrap: anywhere; }
+.notes-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin-left: auto;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cds-text-secondary);
+  cursor: pointer;
+  &:hover:not(:disabled) { background: var(--cds-layer-hover-01); color: var(--kh-accent); }
+  &:active:not(:disabled) { background: var(--cds-layer-active-01); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  &:disabled { opacity: 0.45; cursor: wait; }
+  &--rail { margin-left: 0; }
+}
+.notes-refresh-message {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--cds-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  &--error { color: var(--cds-support-error); }
+}

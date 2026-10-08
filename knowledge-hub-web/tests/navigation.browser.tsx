@@ -95,7 +95,8 @@ function MetadataFixture(): React.ReactElement {
       contentType="note" onContentTypeChange={() => undefined} projectId="" projects={[]} onProjectChange={() => undefined}
       taxonomyTagIds={[]} appliedTags={[]} autoTagIds={[]} noteId="fixture-note" onTagIdsChange={() => undefined}
       wordCount={0} readingTime={0} blockCount={0} ghStatus="not-pushed" ghDotColor="grey"
-      githubPath={undefined} onPushToGitHub={() => undefined} />
+      githubPath={undefined} onPushToGitHub={() => undefined}
+      onRestoreVersion={async () => {}} historyRefresh={0} prepareDemoBrief={async () => 'Fixture brief'} />
   </div></div>;
 }
 createRoot(document.getElementById('root')!).render(

@@ -1,10 +1,22 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** IMAGINE demo brief only, on the auth-hotfix production baseline.
+**Deployment:** Full pending application release: notes refresh, Think recovery history, and Athena Markdown transfer.
 
 ## 1. Scope
+
+Approved by the user on 2026-10-08: deploy all undeployed application code
+from the current feature branch, not another isolated/cherry-picked release.
+Include Think-only bounded recovery history (`ddb3a66`) and migration 060,
+the Markdown handoff fix (`1a899a2`), and the new notes-list Refresh control.
+Preserve the deployed authentication callback and IMAGINE brief features.
+No changes to infrastructure, secrets, permissions, environment or existing
+note bodies. Backend image advances from v170 to v171; deploy backend before
+the matching full frontend build. Rollback baseline: backend v170 and frontend
+tag `imagine-demo-brief-2026-10-08`. Migration 060 is additive and remains on rollback.
+
+Previous release record:
 
 Current deployment (2026-10-08 12:08 BST): isolated release `412ba5c`, based on
 deployed auth-only `aa4f208` plus IMAGINE brief feature `c1bd9be`, with conflicts
@@ -93,6 +105,26 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-08 (full pending release):
+
+- Azure account and ACA/ACR/SWA read checks passed for the existing production
+  subscription/resources; current image is v170.
+- Both application `npx tsc --noEmit` and `npm run build` passed.
+- Frontend fixture `npx tsc --noEmit --project tests/tsconfig.json` passed.
+- Backend offline tests: history, Markdown conversion, full Think export and
+  IMAGINE brief all passed (12 tests, including isolated PostgreSQL migration 060).
+- Browser checks at 1440/390px passed for notes refresh (new items, search and
+  selection preservation, duplicate blocking, error retention/retry, collapsed
+  rail), history/restore/conflicts, Markdown editor roundtrip, IMAGINE export,
+  whole-note copy and the official MSAL callback bridge.
+- Failed list refresh previously triggered the initial-load error screen;
+  now cached-list errors retain the mounted page/editor, verified by the fixture.
+- Dockerfile includes migration 060 and production dependency lockfile.
+  Remote ACR build is required to pass before updating the image.
+- No IaC or RBAC changes; template/what-if/static-role checks are not applicable.
+  Existing registry secret-reference authentication is retained.
+- No production note writes or user-data repair were performed by validation.
 
 Deployed 2026-10-08 (12:10 BST), isolated IMAGINE brief release `412ba5c`:
 

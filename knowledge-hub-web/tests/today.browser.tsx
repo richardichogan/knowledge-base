@@ -236,7 +236,45 @@ Object.assign(window, { runThinkSearchChecks: async () => {
   check(input.value === '', 'Clear empties the query');
   check(document.activeElement === input, 'Clear returns focus to search');
   check(document.querySelector('.notes-list-search__clear') === null, 'Clear icon disappears for empty query');
-  return ['Search filters notes; clear restores results and input focus; icon stays inside input'];
+  const previousRead = api.getNoteSummaries;
+  const refresh = () => document.querySelector<HTMLButtonElement>('[aria-label="Refresh notes"]')!;
+  setter.call(input, 'APAC');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await waitFor(() => document.querySelectorAll('.notes-list-item').length === 1);
+  let reads = 0;
+  let release: (() => void) | undefined;
+  api.getNoteSummaries = async () => {
+    reads++;
+    await new Promise<void>(resolve => { release = resolve; });
+    const result = await previousRead();
+    if (!result.success) return result;
+    return success({ ...result.data, items: [...result.data.items, {
+      ...result.data.items[0]!, id: 'new-note', title: 'APAC newly transferred note',
+    }] });
+  };
+  const selected = document.querySelector('.notes-list-item--active')?.getAttribute('class');
+  refresh().click();
+  await waitFor(() => release !== undefined && refresh().disabled);
+  refresh().click();
+  check(reads === 1, 'Repeated refresh is blocked while loading');
+  release!();
+  await waitFor(() => document.querySelectorAll('.notes-list-item').length === 2 && !refresh().disabled);
+  check(input.value === 'APAC', 'Refresh preserves search');
+  check(document.querySelector('.notes-list-item--active')?.getAttribute('class') === selected, 'Refresh preserves selected note');
+  check(document.querySelector('[role="status"]')?.textContent?.includes('Notes refreshed') === true, 'Refresh announces success');
+  api.getNoteSummaries = async () => ({ success: false, error: { code: 'TEST', message: 'Refresh unavailable' } });
+  refresh().click();
+  await waitFor(() => document.querySelector('[role="alert"]')?.textContent?.includes('Could not refresh notes') === true && !refresh().disabled);
+  check(document.querySelectorAll('.notes-list-item').length === 2, 'Failed refresh retains existing list');
+  document.querySelector<HTMLButtonElement>('[aria-label="Collapse list"]')!.click();
+  await waitFor(() => document.querySelector('.notes-list-rail') !== null);
+  check(refresh() !== null, 'Refresh remains available in collapsed rail');
+  api.getNoteSummaries = previousRead;
+  refresh().click();
+  await waitFor(() => document.querySelector('.notes-refresh-message')?.textContent === 'Notes refreshed');
+  document.querySelector<HTMLButtonElement>('[aria-label="Expand note list"]')!.click();
+  await waitFor(() => document.querySelector('#notes-search') !== null);
+  return ['Search/clear, newly transferred notes, retained search/selection, duplicate refresh blocking, visible failure/retry and collapsed refresh'];
 } });
 Object.assign(window, { readPageStyle: () => {
   const title = document.querySelector<HTMLElement>('.page-title');
