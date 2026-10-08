@@ -1423,7 +1423,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         appendMessage('assistant', `⚠️ Couldn't export to Think: ${result.error.message}`);
         return;
       }
-      appendMessage('assistant', `📓 Saved to Think: **${result.data.title}**\n\n[Open note](${result.data.url})`);
+      void alertDialog(`"${result.data.title}" has been saved to Think.`, { title: 'Saved to Think', tone: 'success' });
       void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
     },
     onError: () => {

@@ -1,17 +1,13 @@
 /**
- * components/athena/MoveToThink.tsx — the chat's "Continue in Think" button. When a chat has become a spec,
- * it makes a structured first-draft note from the conversation (what was established, decisions, open
- * questions, sources — nothing invented), opens it in Think, and moves the conversation in alongside
- * it so Athena keeps everything discussed while you iterate on the note. The other option keeps the
- * older behaviour: a summary plus transcript as an archive, with the chat staying here.
+ * Saves a structured first-draft note or summary without leaving the chat.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Export } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { createNote } from '../../notes/noteStorage';
 import { markdownToNoteBlocks } from '../../notes/markdownToBlocks';
+import { alertDialog } from '../../services/appDialogs';
 
 interface MoveToThinkProps {
   sessionId: string;
@@ -25,7 +21,6 @@ interface MoveToThinkProps {
 }
 
 export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, disabled, variant = 'header', onExportSummary }) => {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<'spec' | 'summary'>('spec');
@@ -41,6 +36,7 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
   }, [open, busy]);
 
   async function createSpec(): Promise<void> {
+    let savedTitle: string | null = null;
     setError(null);
     setBusy('Writing the first draft from this chat… about 15–30 seconds');
     try {
@@ -49,14 +45,24 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
       setBusy('Creating the note…');
       const note = await createNote({ title: draft.data.title, contentType: 'note', contentJson: JSON.stringify(markdownToNoteBlocks(draft.data.markdown)) }, projectId !== '' ? projectId : undefined);
       if (note === null) throw new Error('The note could not be saved.');
-      await api.linkSessionToNote(sessionId, note.id, draft.data.title);
+      savedTitle = note.title;
       void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      navigate(`/think?noteId=${note.id}`);
+      const linked = await api.linkSessionToNote(sessionId, note.id, draft.data.title);
+      if (!linked.success) {
+        setOpen(false);
+        await alertDialog(`"${note.title}" was saved to Think, but the conversation could not be linked: ${linked.error.message}. Your chat remains here.`, { title: 'Note saved; linking failed', tone: 'danger' });
+        return;
+      }
+      setOpen(false);
+      await alertDialog(`"${note.title}" has been saved to Think.`, { title: 'Saved to Think', tone: 'success' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
-      setBusy(null);
-    }
+      const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+      if (savedTitle !== null) {
+        setOpen(false);
+        await alertDialog(`"${savedTitle}" was saved to Think, but the conversation could not be linked: ${message}. Your chat remains here.`, { title: 'Note saved; linking failed', tone: 'danger' });
+      } else setError(message);
+    } finally { setBusy(null); }
   }
 
   return (
@@ -65,22 +71,22 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
         type="button"
         className="ai-move__button"
         aria-expanded={open}
-        aria-label="Continue in Think"
-        title="Continue this in a Think note — a structured spec you can keep refining with Athena"
+        aria-label="Save to Think"
+        title="Save this conversation as a Think note without leaving chat"
         disabled={disabled}
         onClick={() => { setOpen((o) => !o); setError(null); }}
       >
         <Export size={16} aria-hidden="true" />
-        <span className="ai-move__label">Continue in Think</span>
+        <span className="ai-move__label">Save to Think</span>
       </button>
       {open && (
-        <div className="ai-move__panel" role="dialog" aria-label="Continue in Think">
-          <h3 className="ai-move__title">Continue in Think</h3>
+        <div className="ai-move__panel" role="dialog" aria-label="Save to Think">
+          <h3 className="ai-move__title">Save to Think</h3>
           <label className="ai-move__option">
             <input type="radio" name="move-kind" checked={kind === 'spec'} onChange={() => { setKind('spec'); }} disabled={busy !== null} />
             <span>
               <strong>Spec note</strong>
-              <span className="ai-move__hint">A structured first draft from this conversation: what you&rsquo;ve established, decisions, open questions, sources. It opens in Think and the conversation moves in beside it, so you keep refining it with Athena.</span>
+              <span className="ai-move__hint">A structured first draft from this conversation: what you&rsquo;ve established, decisions, open questions, sources. Saved to Think; your chat stays here.</span>
             </span>
           </label>
           <label className="ai-move__option">

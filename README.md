@@ -121,6 +121,9 @@ to fetch newly created notes without reloading the page. Search/filter choices,
 selection and unsaved open-note writing stay intact; failures preserve the list
 and show a retryable message.
 
+Athena chat's **Save to Think** creates a spec note or summary and shows a
+completion popup. It does not navigate, open a window or embed Think in chat.
+
 Athena-created drafts, chat exports and saved Outputs use a shared GFM Markdown
 parser when creating Think notes. Consecutive headings, nested lists, checkboxes,
 tables, quotes, links and inline formatting become native editor blocks; fenced
