@@ -7,6 +7,12 @@ required, Athena shows a session-expired dialog with a **Re-authenticate** butto
 instead of refreshing or redirecting unexpectedly. User-initiated re-authentication
 opens a Microsoft popup, keeping the current page and unsaved editor content
 mounted. Allow pop-ups for Athena; cancelled or blocked sign-in can be retried.
+The existing `/signin` callback relays MSAL v5 responses before loading the app.
+Popup callbacks never mount the sign-in gate or initialise another MSAL client,
+preventing nested-popup failures while keeping the original editor mounted.
+Regression fixture: `tests/auth-callback.html` in the frontend, run with the
+existing browser runner's `ATHENA_BROWSER_CHECKS=auth-callback` mode. It exercises
+the real MSAL bridge for popup, redirect, query/hash and error responses.
 
 Think's **Copy note** action copies the whole current note as Markdown, including
 unsaved edits and its title, with paragraphs, lists and links preserved.

@@ -1,0 +1,9 @@
+html, body { margin: 0; min-height: 100%; background: #161616; color: #f4f4f4; }
+.auth-callback {
+  font: 16px/1.5 system-ui, sans-serif;
+  max-width: 32rem;
+  margin: 15vh auto 0;
+  padding: 1.5rem;
+  overflow-wrap: anywhere;
+  &[role='alert'] { color: #ffb3b8; }
+}

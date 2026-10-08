@@ -1,5 +1,5 @@
 /**
- * App entry point — mounts React into #root.
+ * App bootstrap — mounts React after authentication callbacks are excluded.
  */
 
 import React from 'react';
