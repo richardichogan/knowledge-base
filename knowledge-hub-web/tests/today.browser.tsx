@@ -261,7 +261,7 @@ Object.assign(window, { runThinkSearchChecks: async () => {
   await waitFor(() => document.querySelectorAll('.notes-list-item').length === 2 && !refresh().disabled);
   check(input.value === 'APAC', 'Refresh preserves search');
   check(document.querySelector('.notes-list-item--active')?.getAttribute('class') === selected, 'Refresh preserves selected note');
-  check(document.querySelector('[role="status"]')?.textContent?.includes('Notes refreshed') === true, 'Refresh announces success');
+  check(document.querySelector('.notes-refresh-message') === null, 'Successful refresh has no label or banner');
   api.getNoteSummaries = async () => ({ success: false, error: { code: 'TEST', message: 'Refresh unavailable' } });
   refresh().click();
   await waitFor(() => document.querySelector('[role="alert"]')?.textContent?.includes('Could not refresh notes') === true && !refresh().disabled);
@@ -271,7 +271,7 @@ Object.assign(window, { runThinkSearchChecks: async () => {
   check(refresh() !== null, 'Refresh remains available in collapsed rail');
   api.getNoteSummaries = previousRead;
   refresh().click();
-  await waitFor(() => document.querySelector('.notes-refresh-message')?.textContent === 'Notes refreshed');
+  await waitFor(() => !refresh().disabled && document.querySelector('.notes-refresh-message') === null);
   document.querySelector<HTMLButtonElement>('[aria-label="Expand note list"]')!.click();
   await waitFor(() => document.querySelector('#notes-search') !== null);
   return ['Search/clear, newly transferred notes, retained search/selection, duplicate refresh blocking, visible failure/retry and collapsed refresh'];

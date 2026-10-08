@@ -72,7 +72,6 @@ export const NotesPage: React.FC = () => {
   const [docActionsSlot, setDocActionsSlot] = useState<HTMLDivElement | null>(null);
 
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
-  const [refreshFailed, setRefreshFailed] = useState(false);
   const refreshInFlight = useRef(false);
   const { data: notes = NO_NOTES, isLoading, isError, isFetching, refetch } = useQuery<NoteListItem[]>({
     queryKey: ['notes-list'],
@@ -85,13 +84,10 @@ export const NotesPage: React.FC = () => {
     if (refreshInFlight.current || isFetching) return;
     refreshInFlight.current = true;
     setRefreshMessage(null);
-    setRefreshFailed(false);
     try {
       await refetch({ throwOnError: true });
-      setRefreshMessage('Notes refreshed');
     } catch (error) {
       console.error('[Think] Could not refresh notes:', error);
-      setRefreshFailed(true);
       setRefreshMessage('Could not refresh notes. Your open note is unchanged. Retry.');
     } finally { refreshInFlight.current = false; }
   }
@@ -443,11 +439,9 @@ export const NotesPage: React.FC = () => {
         </div>
       </div>
 
-      {mode === 'notes' && refreshMessage !== null && <p className={`notes-refresh-message${refreshFailed ? ' notes-refresh-message--error' : ''}`}
-        role={refreshFailed ? 'alert' : 'status'}>{refreshMessage}</p>}
+      {mode === 'notes' && refreshMessage !== null && <p className="notes-refresh-message notes-refresh-message--error"
+        role="alert">{refreshMessage}</p>}
       {canvasError !== null && <p className="mm-canvas-error" role="alert">{canvasError}</p>}
-      {listCollapsed && mode === 'notes' && refreshMessage !== null && <p className={`notes-refresh-message${refreshFailed ? ' notes-refresh-message--error' : ''}`}
-        role={refreshFailed ? 'alert' : 'status'}>{refreshMessage}</p>}
       <div className="notes-root">
         {/* ── Left panel ── */}
         {listCollapsed ? (
