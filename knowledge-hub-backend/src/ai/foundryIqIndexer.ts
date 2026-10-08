@@ -14,9 +14,11 @@
 import { env } from '../config/env.js';
 import type { ContentItem } from '../types/index.js';
 import { embed } from './embeddings.js';
+import { EXTERNAL_FETCH_TIMEOUT_MS } from '../config/constants.js';
 
 const SEARCH_API_VERSION = '2024-07-01';
 const INDEX_NAME = 'kh-content-items';
+const DELETE_BATCH_SIZE = 500;
 /**
  * How much of the body feeds the embedding and the stored index document.
  * text-embedding-3-small accepts 8191 tokens, so ~8000 characters stays
@@ -43,6 +45,24 @@ export function canIndexToFoundryIq(): boolean {
   return Boolean(
     env.FOUNDRY_IQ_SEARCH_ENDPOINT && env.FOUNDRY_IQ_SEARCH_ADMIN_KEY && env.AZURE_OPENAI_ENDPOINT && env.AZURE_OPENAI_API_KEY,
   );
+}
+
+export async function deleteIndexedContentItems(ids: string[]): Promise<void> {
+  if (!env.FOUNDRY_IQ_SEARCH_ENDPOINT || !env.FOUNDRY_IQ_SEARCH_ADMIN_KEY || ids.length === 0) return;
+  for (let offset = 0; offset < ids.length; offset += DELETE_BATCH_SIZE) {
+    const batch = ids.slice(offset, offset + DELETE_BATCH_SIZE);
+    const response = await fetch(`${env.FOUNDRY_IQ_SEARCH_ENDPOINT}/indexes/${INDEX_NAME}/docs/index?api-version=${SEARCH_API_VERSION}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': env.FOUNDRY_IQ_SEARCH_ADMIN_KEY },
+      body: JSON.stringify({ value: batch.map(id => ({ '@search.action': 'delete', id })) }),
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`Foundry IQ deletion failed: ${response.status} ${await response.text()}`);
+    const result = await response.json() as IndexingResponse;
+    if (result.value?.length !== batch.length || result.value.some(item => item.status !== true)) {
+      throw new Error('Foundry IQ deletion failed for one or more documents.');
+    }
+  }
 }
 
 /**

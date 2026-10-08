@@ -57,9 +57,13 @@ interface MetadataPanelProps {
   wordCount: number;
   readingTime: number;
   blockCount: number;
-  ghStatus: 'synced' | 'not-pushed';
+  ghStatus: 'synced' | 'not-pushed' | 'pending' | 'conflict' | 'error';
   ghDotColor: string;
   githubPath: string | undefined;
+  githubUrl?: string | undefined;
+  githubError: string;
+  githubBusy: boolean;
+  onCheckGitHub: () => void;
   onPushToGitHub: () => void;
   /** Open one of this note's mind maps. */
   onOpenMap?: (mapId: string) => void;
@@ -95,6 +99,10 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   ghStatus,
   ghDotColor,
   githubPath,
+  githubUrl,
+  githubError,
+  githubBusy,
+  onCheckGitHub,
   onPushToGitHub,
   onOpenMap,
   onMapNote,
@@ -306,15 +314,20 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                 <div className="notes-meta-gh-status">
                   <div className="notes-meta-gh-dot" ref={(el) => { if (el) el.style.background = ghDotColor; }} />
                   <div>
-                    <span className="notes-meta-gh-heading">{ghStatus === 'synced' ? 'Synced' : 'Not pushed'}</span>
+                    <span className="notes-meta-gh-heading">
+                      {{ synced: 'Published to GitHub', 'not-pushed': 'Not published', pending: 'Update pending', conflict: 'GitHub changed', error: 'Publishing failed' }[ghStatus]}
+                    </span>
                     <span className="notes-meta-gh-text">
-                      {ghStatus === 'synced' ? githubPath : 'Push to content-store to sync'}
+                      {githubUrl ? <a href={githubUrl} target="_blank" rel="noopener noreferrer">{githubPath}</a> : 'Publish a linked copy in content-store'}
                     </span>
                   </div>
                 </div>
-                <button className="kh-btn-accent notes-meta-gh-push" onClick={onPushToGitHub}>
-                  ↑ Push to content-store
+                <p className="notes-github-help">Think is the master. Saves update the published file after editing settles. This copy is not added separately to Library or Athena's context.</p>
+                {githubError && <p className="notes-github-error" role="alert">{githubError}</p>}
+                <button className="kh-btn-accent notes-meta-gh-push" disabled={githubBusy} onClick={onPushToGitHub}>
+                  {githubBusy ? 'Working...' : ghStatus === 'conflict' ? 'Review versions' : ghStatus === 'not-pushed' ? 'Publish to GitHub' : 'Publish latest'}
                 </button>
+                {githubUrl && <button className="kh-btn-accent notes-meta-gh-push" disabled={githubBusy} onClick={onCheckGitHub}>Check GitHub</button>}
               </div>
             </CollapsibleSection>
 

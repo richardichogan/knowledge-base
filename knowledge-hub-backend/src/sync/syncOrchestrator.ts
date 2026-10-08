@@ -20,6 +20,8 @@ import { syncTodoTasks } from '../integrations/graph/todoSync.js';
 import { syncGraphMail } from '../integrations/graph/graphMailSync.js';
 import { syncIcaCollections } from '../integrations/ica/icaCollectionSync.js';
 import { syncProjectDocs } from '../integrations/github/projectDocsSync.js';
+import { syncNotePublications } from '../services/noteGitHubService.js';
+import { syncContentStore } from '../integrations/github/contentStoreSync.js';
 import { syncCfps } from '../services/cfpSyncService.js';
 import { syncAllNodes } from '../services/nodeService.js';
 import { populateExplicitEdges } from '../jobs/explicitEdgePopulator.js';
@@ -95,6 +97,8 @@ export async function runTier1Sync(db: Pool): Promise<OrchestratorResult> {
 
 async function runTier1SyncInner(db: Pool): Promise<OrchestratorResult> {
   const sources: Array<{ name: string; sync: (db: Pool) => Promise<{ indexed: number; errors: number }> }> = [
+    { name: 'note-github-publications', sync: syncNotePublications },
+    { name: 'github-content-store', sync: syncContentStore },
     { name: 'cms',              sync: indexAllPosts },
     { name: 'discovered-articles', sync: syncDiscoveryFeeds },
     { name: 'gitlab-commits',   sync: syncGitLabCommits },

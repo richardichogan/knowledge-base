@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { Note } from '../types/index.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/index.js';
+import { scheduleGitHubPublish } from './noteGitHubService.js';
 
 export const NOTE_HISTORY_INTERVAL_MS = 1_800_000;
 export const NOTE_HISTORY_LIMIT = 30;
-type Reason = 'automatic' | 'before_athena' | 'before_restore';
+type Reason = 'automatic' | 'before_athena' | 'before_restore' | 'before_github';
 export interface Writing { title: string; contentType: string; contentJson: string }
 interface NoteRow {
   id: string; content: string; created_at: Date; updated_at: Date;
@@ -80,7 +81,7 @@ async function checkpoint(client: PoolClient, row: NoteRow, writing: Writing, re
 
 export interface NoteWrite {
   content?: string; tags?: string[]; projectId?: string | null; expectedRevision?: number | undefined;
-  protect?: boolean; restoreId?: string; appendBlocks?: unknown[];
+  protect?: boolean; restoreId?: string; appendBlocks?: unknown[]; importGitHub?: boolean;
 }
 /** All note writing and checkpoint decisions share the locked note transaction. */
 export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise<Note> {
@@ -117,6 +118,8 @@ export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise
     if (reason === 'before_restore' && changed) {
       const liveDraft = input.content !== undefined && writingFingerprint(before) !== writingFingerprint(parseWriting(row.content));
       await checkpoint(client, liveDraft ? { ...row, updated_at: time.rows[0]!.now } : row, before, reason, input.restoreId);
+    } else if (input.importGitHub && changed) {
+      await checkpoint(client, row, before, 'before_github');
     } else if (input.protect) {
       // The supplied content is the live pre-Athena draft, not a proposed replacement.
       await checkpoint(client, { ...row, revision: row.revision + (changed ? 1 : 0), updated_at: time.rows[0]!.now }, after, 'before_athena');
@@ -133,8 +136,16 @@ export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise
        last_history_at = CASE WHEN $6 THEN clock_timestamp() ELSE last_history_at END
        WHERE id = $1 RETURNING *`,
       [id, content, input.tags ?? null, 'projectId' in input, input.projectId ?? null,
-        due && reason !== 'before_restore' && !input.protect]);
+        due && reason !== 'before_restore' && !input.protect && !input.importGitHub]);
+    let publish = false;
+    if (changed) {
+      const queued = await client.query(
+        `UPDATE note_github_publications SET status = 'pending', error = NULL, updated_at = NOW()
+         WHERE note_id = $1 AND status <> 'conflict'`, [id]);
+      publish = (queued.rowCount ?? 0) > 0;
+    }
     await client.query('COMMIT');
+    if (publish) scheduleGitHubPublish(db, id);
     return note(result.rows[0]!);
   } catch (err) {
     await client.query('ROLLBACK');

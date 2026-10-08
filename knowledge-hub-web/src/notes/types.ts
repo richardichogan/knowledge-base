@@ -36,7 +36,20 @@ export interface NoteListItem {
 }
 
 export interface GitHubPushPayload {
-  markdown: string;
+  repo: string;
+  noteId: string;
+  expectedRevision: number;
   filePath: string;
   commitMessage: string;
+}
+
+export interface GitHubPublication {
+  noteId: string;
+  repo: string;
+  branch: string;
+  path: string;
+  url: string;
+  commitUrl: string | null;
+  status: 'pending' | 'synced' | 'conflict' | 'error';
+  error: string | null;
 }

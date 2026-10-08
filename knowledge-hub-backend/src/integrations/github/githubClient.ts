@@ -1,6 +1,6 @@
 import { env } from '../../config/env.js';
 import { IntegrationError } from '../../types/errors.js';
-import { EXTERNAL_FETCH_TIMEOUT_MS } from '../../config/constants.js';
+import { EXTERNAL_FETCH_TIMEOUT_MS, HTTP_STATUS } from '../../config/constants.js';
 
 /**
  * Thin wrapper around the GitHub REST API v3.
@@ -20,6 +20,17 @@ export class GitHubClient {
 
   /** Makes a GET request to the GitHub API. */
   public async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+    const result = await this.read<T>(path, params, false);
+    if (result === null) throw new IntegrationError('github', `GET ${path} returned no response`);
+    return result;
+  }
+
+  /** A missing file is distinct from authentication, rate-limit and network failures. */
+  public async getOptional<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
+    return this.read<T>(path, params, true);
+  }
+
+  private async read<T>(path: string, params: Record<string, string>, allowMissing: boolean): Promise<T | null> {
     const url = new URL(`${this.baseUrl}${path}`);
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, value);
@@ -27,6 +38,7 @@ export class GitHubClient {
 
     const response = await fetch(url.toString(), { headers: this.headers, signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
 
+    if (allowMissing && response.status === HTTP_STATUS.NOT_FOUND) return null;
     if (!response.ok) {
       throw new IntegrationError(
         'github',
@@ -61,6 +73,7 @@ export class GitHubClient {
       method: 'PUT',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {

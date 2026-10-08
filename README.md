@@ -116,6 +116,31 @@ Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief
 
 ## Think canvases
 
+**Push to GitHub** publishes a linked Markdown copy of a Think note. Choose a
+writable repository, browse its folders, then edit the full relative `.md` path
+and commit message. New folders can be entered directly. Publication uses the
+repository's default branch and pins the repository, branch and path for
+subsequent updates; the dialog warns when the chosen repository is public.
+Repositories are those accessible to the backend's `GITHUB_ACCESS_TOKEN`, not
+necessarily every repository accessible in the browser's Microsoft sign-in.
+
+Think remains the master note. Writing changes (including Athena edits and
+history restores) queue an automatic GitHub update after 30 seconds without
+further saves. Pending work survives backend restarts and the regular sync job
+retries failures; errors remain visible on the note. GitHub SHA checks prevent
+overwriting outside edits. **Review versions** lets you publish the Think
+version or accept the reviewed GitHub writing, preserving the previous Think
+writing in History. **Check GitHub** checks for outside changes immediately.
+
+The published file is linked from the note, not listed or indexed separately in
+Library. Both GitHub document ingestion paths skip linked publications, and
+Library/search/context queries suppress any stale copies pending cleanup.
+Content-store documents use repository + path as their stable identity;
+sync removes deleted files and historical hash-keyed duplicates from database,
+vector search and the connections graph. Backend migration
+`061_note_github_publications.sql` stores publication state; legacy fake
+`githubPath` values do not count as successfully published notes.
+
 Use **Refresh notes** beside the Notes list heading (or in its collapsed rail)
 to fetch newly created notes without reloading the page. Search/filter choices,
 selection and unsaved open-note writing stay intact; failures preserve the list

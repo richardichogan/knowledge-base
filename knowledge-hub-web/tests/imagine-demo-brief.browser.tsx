@@ -25,6 +25,7 @@ let prepareCalls = 0;
 api.getTaxonomy = async () => ({ success: true, data: [] });
 api.getNoteTags = async () => ({ success: true, data: [] });
 api.getProjects = async () => ({ success: true, data: [] });
+api.getNoteGitHub = async () => ({ success: true, data: null });
 api.getSessionIdForNote = async () => ({ success: true, data: { sessionId: null } });
 api.summarizeNote = async () => ({ success: true, data: { summary: 'Test Use case' } });
 api.listModelChoices = async () => ({ success: true, data: [] });

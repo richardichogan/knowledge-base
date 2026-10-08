@@ -25,6 +25,7 @@ export { textToBlocks } from './markdownToNoteBlocks.js';
 import type { LlmToolDefinition } from './foundryClient.js';
 import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db/queries.js';
 import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
+import { canonicalContentSql } from '../db/contentVisibility.js';
 import { createNoteRecord } from '../routes/notes.js';
 import { rowToTask, type Task } from '../routes/tasks.js';
 import { CONTENT_STORE } from '../routes/documents.js';
@@ -783,6 +784,7 @@ async function matchesInOtherProjects(db: Pool, projectId: string, query: string
             COALESCE(ci.metadata->>'path', ci.metadata->>'filename') AS path
        FROM content_items ci LEFT JOIN projects p ON p.id = ci.project_context
       WHERE ci.source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')
+        AND ${canonicalContentSql('ci')}
         AND ci.project_context IS DISTINCT FROM $1
         AND to_tsvector('english', coalesce(ci.title, '') || ' ' || coalesce(ci.metadata->>'filename', '')) @@ to_tsquery('english', $2)
       ORDER BY ts_rank_cd(to_tsvector('english', coalesce(ci.title, '')), to_tsquery('english', $2)) DESC, ci.updated_at DESC
@@ -1048,7 +1050,7 @@ async function findFiles(db: Pool, args: Record<string, unknown>): Promise<unkno
     ? args['name'].toLowerCase().replace(/\.[a-z0-9]{2,5}$/, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 2)
     : [];
   const params: unknown[] = [];
-  const where = [`ci.source IN ('onedrive-document', 'user-upload', 'github-doc', 'github-content-store')`];
+  const where = [`ci.source IN ('onedrive-document', 'user-upload', 'github-doc', 'github-content-store')`, canonicalContentSql('ci')];
   const pathExpr = `lower(COALESCE(ci.metadata->>'path', ci.metadata->>'filename', ci.title, ''))`;
   if (folder !== '') {
     params.push(folder.toLowerCase());
@@ -1132,7 +1134,7 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>, contentCha
   const orQuery = terms.join(' | ');
 
   const params: unknown[] = [];
-  const where = [`ci.source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')`];
+  const where = [`ci.source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')`, canonicalContentSql('ci')];
   if (projectId !== '') {
     params.push(projectId);
     where.push(`ci.project_context = $${params.length}`);

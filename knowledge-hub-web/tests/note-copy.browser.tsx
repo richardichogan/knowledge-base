@@ -10,6 +10,7 @@ import '../src/styles/global.scss';
 api.getTaxonomy = async () => ({ success: true, data: [] });
 api.getNoteTags = async () => ({ success: true, data: [] });
 api.getProjects = async () => ({ success: true, data: [] });
+api.getNoteGitHub = async () => ({ success: true, data: null });
 let copied = '';
 let fail = false;
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {

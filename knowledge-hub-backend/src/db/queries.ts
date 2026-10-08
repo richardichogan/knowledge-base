@@ -1,6 +1,7 @@
 import type { Pool, QueryResult } from 'pg';
 import type { ContentItem, ContentItemSummary } from '../types/index.js';
 import { tagContent } from '../services/taxonomyService.js';
+import { canonicalContentSql } from './contentVisibility.js';
 
 const TAG_SUMMARY_CHARS = 2000;
 
@@ -91,7 +92,11 @@ export async function upsertContentItem(
   const sql = `
     INSERT INTO content_items
       (source, source_id, title, summary, body, published_at, url, project_context, metadata, tags)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    WHERE $1 NOT IN ('github-doc', 'github-content-store') OR NOT EXISTS (
+      SELECT 1 FROM note_github_publications p
+      WHERE lower(p.repo) = lower(($9::jsonb)->>'repo') AND p.path = ($9::jsonb)->>'path'
+    )
     ON CONFLICT (source, source_id) DO UPDATE SET
       title = EXCLUDED.title,
       summary = EXCLUDED.summary,
@@ -115,6 +120,9 @@ export async function upsertContentItem(
     JSON.stringify(item.metadata),
     item.tags,
   ]);
+  if (result.rows.length === 0 && (item.source === 'github-doc' || item.source === 'github-content-store')) {
+    return { isNew: false, id: '' };
+  }
   
   // If no row returned, item already exists - get the existing ID
   if (result.rows.length === 0) {
@@ -152,7 +160,7 @@ export async function queryTimeline(
     since?: string; // Recent activity uses source update time, not original publication time
   },
 ): Promise<{ items: ContentItemSummary[]; total: number }> {
-  const conditions: string[] = [];
+  const conditions: string[] = [canonicalContentSql('ci')];
   const params: unknown[] = [];
   let paramIndex = 1;
 
@@ -210,7 +218,7 @@ export async function searchContentItems(
   query: string,
   options: { source?: string; page: number; pageSize: number },
 ): Promise<{ items: ContentItemSummary[]; total: number }> {
-  const conditions = [`search_vector @@ plainto_tsquery('english', $1)`];
+  const conditions = [`search_vector @@ plainto_tsquery('english', $1)`, canonicalContentSql()];
   const params: unknown[] = [query];
   let paramIndex = 2;
 
@@ -269,6 +277,7 @@ export async function getLibraryRagItems(
             ts_rank_cd(search_vector, to_tsquery('english', $1), 32) AS rank
        FROM content_items
       WHERE source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')
+        AND ${canonicalContentSql()}
         AND search_vector @@ to_tsquery('english', $1)${projectWhere}
       ORDER BY rank DESC, updated_at DESC
       LIMIT $2`,
@@ -309,6 +318,7 @@ export async function getRagItems(
             ts_rank(search_vector, plainto_tsquery('english', $1)) * ${SOURCE_RANK_WEIGHT_SQL} AS rank
      FROM content_items
      WHERE search_vector @@ plainto_tsquery('english', $1)${projectWhere}
+       AND ${canonicalContentSql()}
      ORDER BY rank DESC, ${ACTIVITY_AT_SQL} DESC
      LIMIT $2`,
     params,
@@ -343,6 +353,7 @@ export async function getRagItems(
             ts_rank(search_vector, to_tsquery('english', $1)) * ${SOURCE_RANK_WEIGHT_SQL} AS rank
      FROM content_items
      WHERE search_vector @@ to_tsquery('english', $1)${projectWhere}
+       AND ${canonicalContentSql()}
      ORDER BY rank DESC, ${ACTIVITY_AT_SQL} DESC
      LIMIT $2`,
     projectFilter ? [orQuery, limit, projectContext] : [orQuery, limit],
@@ -405,7 +416,7 @@ export async function getContentItemsByIds(db: Pool, ids: string[]): Promise<Con
     `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
             url, project_context, metadata, tags
      FROM content_items
-     WHERE id = ANY($1::uuid[])`,
+     WHERE id = ANY($1::uuid[]) AND ${canonicalContentSql()}`,
     [ids],
   );
   const byId = new Map(result.rows.map((row) => [row.id, rowToItem(row)]));
@@ -425,7 +436,8 @@ export async function getContentItemsPendingFoundryIndex(db: Pool, limit: number
     `SELECT id, source, source_id, title, summary, body, published_at, indexed_at,
             url, project_context, metadata, tags
      FROM content_items
-     WHERE foundry_indexed_at IS NULL OR foundry_indexed_at < updated_at
+     WHERE (foundry_indexed_at IS NULL OR foundry_indexed_at < updated_at)
+       AND ${canonicalContentSql()}
      ORDER BY foundry_indexed_at ASC NULLS FIRST, updated_at ASC
      LIMIT $1`,
     [limit],

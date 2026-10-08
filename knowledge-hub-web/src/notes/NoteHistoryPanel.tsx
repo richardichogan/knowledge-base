@@ -9,7 +9,7 @@ import { editorSchema } from './editorSchema';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { BLOCKNOTE_G100_THEME } from './constants';
 
-const REASONS = { automatic: 'Automatic checkpoint', before_athena: 'Before Athena changes', before_restore: 'Before restore' };
+const REASONS = { automatic: 'Automatic checkpoint', before_athena: 'Before Athena changes', before_restore: 'Before restore', before_github: 'Before accepting GitHub version' };
 function date(iso: string): string { return new Date(iso).toLocaleString('en-GB'); }
 
 class PreviewBoundary extends React.Component<{ children: React.ReactNode; onFailure: () => void }, { failed: boolean }> {

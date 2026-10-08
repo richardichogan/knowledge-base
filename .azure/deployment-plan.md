@@ -1,10 +1,32 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Full pending application release: notes refresh, Think recovery history, and Athena Markdown transfer.
+**Deployment:** GitHub note publication with repository/folder selection, durable automatic updates, conflict review and canonical note indexing.
 
 ## 1. Scope
+
+Approved on 2026-10-08: deploy the GitHub note publication changes in this
+workspace. Publish to the chosen writable repository and path, preserving
+Think as the master and suppressing duplicate GitHub document context.
+Apply additive migration 061 through the existing backend startup runner.
+Backend advances from v171 to v172; deploy it before the matching frontend.
+No infrastructure, secrets, environment, RBAC or authentication changes.
+Rollback: backend v171 and frontend source `64307d2`; migration 061 remains.
+
+Validation for this release (2026-10-08 21:15 BST):
+- Backend and frontend `npx tsc --noEmit` and production builds passed.
+- Publishing/history/Markdown/project-context tests passed (13 tests).
+- Backend publishing files passed the existing ESLint rules.
+- Publishing browser fixture passed at 1440 and 390, including repository and
+  nested folder selection, failed pushes, autosave and external conflict review.
+- Existing history and navigation browser fixtures passed.
+- Azure target verified: `Alliance Tenant Reporting`, existing Container App
+  `kh-prod-api-vnet` currently v171, SWA `kh-prod-web`.
+- Existing Dockerfile copies all migrations; dependency lockfile is updated.
+- No infrastructure template or role modifications; provisioning/what-if N/A.
+- ACR remote Docker build must succeed before changing the production image.
+- `git diff --check` passed; remote main fetched with no newer commits.
 
 Approved by the user on 2026-10-08: deploy all undeployed application code
 from the current feature branch, not another isolated/cherry-picked release.
@@ -105,6 +127,24 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### GitHub note publication release — 2026-10-08
+
+Both apps passed `npx tsc --noEmit` and production builds on the exact release
+tree. Backend publishing/history tests, safe Markdown and project-context
+regressions passed (13 tests). Existing backend ESLint passed for publishing
+files. Browser publishing, history and navigation fixtures passed across their
+desktop/mobile widths. Repository picker, folder browser, error retention,
+outside-edit review, stale revision checks, durable retries, vector cleanup
+failure/retry and one canonical indexed identity are covered.
+The configured GitHub HTTP transport was exercised against deterministic
+responses; no test created or overwrote a real GitHub note.
+Azure CLI confirmed the existing production targets and v171 baseline.
+Container environment baseline hash:
+`e6711ced8216f8c3f78d1be68b7753f66f815b28e1df7a069aad927f190ed878`.
+Migration 061 is included by the unchanged Dockerfile. No infrastructure or
+role changes; Bicep, provisioning and new-role checks are not applicable.
+ACR remotely builds the actual Docker image before the Container App update.
 
 Deployed 2026-10-08 (12:39 BST), full application release `a7d8cfd`:
 

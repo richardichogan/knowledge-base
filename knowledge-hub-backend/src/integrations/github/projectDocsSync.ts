@@ -17,6 +17,7 @@ import { GitHubClient } from './githubClient.js';
 import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import { NOTE_SUMMARY_MAX_LENGTH } from '../../config/constants.js';
 import type { ContentItem } from '../../types/contentItem.js';
+import { publishedNotePaths, removePublishedNoteCopies } from '../../services/githubDocumentIdentity.js';
 
 const SOURCE: ContentItem['source'] = 'github-doc';
 
@@ -94,6 +95,8 @@ export async function syncProjectDocs(
 
   for (const project of result.rows) {
     for (const repo of project.github_repos) {
+      const notePaths = await publishedNotePaths(db, repo);
+      await removePublishedNoteCopies(db, repo);
       let headSha: string;
       try {
         const ref = await client
@@ -126,6 +129,7 @@ export async function syncProjectDocs(
       );
 
       for (const blob of mdBlobs) {
+        if (notePaths.has(blob.path)) continue;
         try {
           // Get last commit date for this file
           let publishedAt = new Date().toISOString();

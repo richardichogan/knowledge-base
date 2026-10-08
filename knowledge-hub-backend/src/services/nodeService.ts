@@ -8,6 +8,7 @@
  *   syncAllNodes()  — full sweep upsert from all eight content tables
  */
 import type { Pool, PoolClient } from 'pg';
+import { canonicalContentSql } from '../db/contentVisibility.js';
 
 /** Supported content ref types — must match edge_type constants in edgeService.ts */
 export const REF_TYPES = [
@@ -124,7 +125,8 @@ async function syncDocuments(db: Pool): Promise<void> {
   // files (previously only 'github-doc', so uploads never joined the graph).
   const rows = await db.query<{ id: string; title: string }>(
     `SELECT id::text, COALESCE(title, 'Untitled Document') AS title
-     FROM content_items WHERE source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')`,
+     FROM content_items WHERE source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')
+     AND ${canonicalContentSql()}`,
   );
   for (const r of rows.rows) await upsertNode(db, r.id, 'document', r.title, []);
 }

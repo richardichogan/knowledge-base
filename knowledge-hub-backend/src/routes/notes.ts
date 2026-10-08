@@ -21,9 +21,14 @@ import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput, ContentItem } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
-import { writeNote, listNoteVersions, getNoteVersion } from '../services/noteVersionService.js';
+import { writeNote, listNoteVersions, getNoteVersion, parseWriting, writingFingerprint } from '../services/noteVersionService.js';
+import { checkPublication, listRepositoryFolders, listWritableRepositories, publicationRow, publicationView, publishNote, remoteNote, scheduleGitHubPublish, startPublication } from '../services/noteGitHubService.js';
+import { githubMarkdownBlocks } from '../services/noteMarkdown.js';
+import { GitHubClient } from '../integrations/github/githubClient.js';
+import { ConflictError } from '../types/errors.js';
 
 const router = Router();
+const MAX_REPOSITORY_PAGE = 100;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -215,7 +220,7 @@ const pendingIndexTimers = new Map<string, ReturnType<typeof setTimeout>>();
 function scheduleNoteIndexing(db: ReturnType<typeof getDb>, note: Note): void {
   const existing = pendingIndexTimers.get(note.id);
   if (existing !== undefined) clearTimeout(existing);
-  pendingIndexTimers.set(note.id, setTimeout(() => {
+  const timer = setTimeout(() => {
     pendingIndexTimers.delete(note.id);
     upsertTags(db, note.tags).catch((e: unknown) => {
       console.error('[notes] Failed to upsert tags:', e);
@@ -233,7 +238,9 @@ function scheduleNoteIndexing(db: ReturnType<typeof getDb>, note: Note): void {
         console.error('[notes] Failed to upsert graph node on update:', e);
       }
     })();
-  }, INDEX_SETTLE_MS));
+  }, INDEX_SETTLE_MS);
+  timer.unref();
+  pendingIndexTimers.set(note.id, timer);
 }
 
 // ── GET /api/notes ─────────────────────────────────────────────────────────────
@@ -455,6 +462,94 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
 });
 
 // ── PATCH /api/notes/:id ──────────────────────────────────────────────────────
+
+router.get('/:id/github', (req, res, next) => {
+  void (async (): Promise<void> => {
+    const db = getDb();
+    if (req.query['check'] === 'true') {
+      res.json({ success: true, data: await checkPublication(db, String(req.params.id)) });
+    } else {
+      const row = await publicationRow(db, String(req.params.id));
+      res.json({ success: true, data: row ? publicationView(row) : null });
+    }
+  })().catch(next);
+});
+router.get('/github/repositories', (req, res, next) => {
+  void (async (): Promise<void> => {
+    const page = Number(req.query['page'] ?? 1);
+    if (!Number.isInteger(page) || page < 1 || page > MAX_REPOSITORY_PAGE) throw new ValidationError('page must be between 1 and 100.');
+    res.json({ success: true, data: await listWritableRepositories(page) });
+  })().catch(next);
+});
+router.get('/github/folders', (req, res, next) => {
+  void listRepositoryFolders(req.query['repo'], req.query['folder'] ?? '')
+    .then(data => { res.json({ success: true, data }); }).catch(next);
+});
+router.post('/:id/github', (req, res, next) => {
+  void (async (): Promise<void> => {
+    const input = req.body as { repo?: unknown; filePath?: unknown; commitMessage?: unknown; expectedRevision?: unknown };
+    const data = await startPublication(getDb(), String(req.params.id), input.repo, input.filePath, input.commitMessage, input.expectedRevision);
+    res.json({ success: true, data });
+  })().catch(next);
+});
+router.get('/:id/github/remote', (req, res, next) => {
+  void (async (): Promise<void> => {
+    const row = await publicationRow(getDb(), String(req.params.id));
+    if (!row) throw new NotFoundError('GitHub publication');
+    const remote = await remoteNote(new GitHubClient(), row);
+    res.json({ success: true, data: {
+      sha: remote?.sha ?? null,
+      markdown: remote ? Buffer.from(remote.content.replace(/\s/g, ''), 'base64').toString('utf8') : null,
+    } });
+  })().catch(next);
+});
+router.post('/:id/github/resolve', (req, res, next) => {
+  void (async (): Promise<void> => {
+    const id = String(req.params.id);
+    const db = getDb();
+    const input = req.body as { choice?: unknown; remoteSha?: unknown; expectedRevision?: unknown };
+    if ((input.choice !== 'think' && input.choice !== 'github')
+        || (input.remoteSha !== null && typeof input.remoteSha !== 'string')
+        || !Number.isInteger(input.expectedRevision)) {
+      throw new ValidationError('Choose a reviewed version and provide its SHA and the current note revision.');
+    }
+    const noteResult = await db.query<{ content: string; revision: number }>(
+      "SELECT content, revision FROM notes WHERE id = $1 AND status = 'active'", [id]);
+    const note = noteResult.rows[0];
+    if (!note) throw new NotFoundError('Note');
+    if (note.revision !== input.expectedRevision) throw new ConflictError('This note changed. Review the versions again.', 'NOTE_REVISION_CONFLICT');
+    if (input.choice === 'think') {
+      const data = await publishNote(db, id, { expectedRemoteSha: input.remoteSha });
+      res.json({ success: true, data });
+      return;
+    }
+    const row = await publicationRow(db, id);
+    if (!row) throw new NotFoundError('GitHub publication');
+    const remote = await remoteNote(new GitHubClient(), row);
+    if (!remote || remote.sha !== input.remoteSha) throw new ConflictError('The GitHub file changed again or was deleted. Review it again.', 'GITHUB_NOTE_CONFLICT');
+    const markdown = Buffer.from(remote.content.replace(/\s/g, ''), 'base64').toString('utf8');
+    const wrapper: unknown = JSON.parse(note.content);
+    const metadata = typeof wrapper === 'object' && wrapper !== null && !Array.isArray(wrapper) ? wrapper : {};
+    const contentJson = JSON.stringify(await githubMarkdownBlocks(markdown));
+    const heading = parseNoteContent(contentJson).blocks.find(block => block.type === 'heading');
+    const title = heading ? blockContentSpans(heading).map(span => span.text ?? '').join('').trim() : '';
+    const data = await writeNote(db, id, {
+      content: JSON.stringify({ ...metadata, ...(title && { title }), contentJson }),
+      expectedRevision: note.revision, importGitHub: true,
+    });
+    // Keep the pre-import writing as a recovery checkpoint, not the imported writing.
+    scheduleNoteIndexing(db, data);
+    await db.query(
+      `UPDATE note_github_publications SET blob_sha = $2, synced_fingerprint = $3, synced_revision = $4,
+       status = CASE WHEN (SELECT revision FROM notes WHERE id = $1) = $4 THEN 'synced' ELSE 'pending' END,
+       error = NULL, updated_at = NOW() WHERE note_id = $1`,
+      [id, remote.sha, writingFingerprint(parseWriting(data.content)), data.revision]);
+    const accepted = await publicationRow(db, id);
+    if (!accepted) throw new NotFoundError('GitHub publication');
+    if (accepted.status === 'pending') scheduleGitHubPublish(db, id);
+    res.json({ success: true, data: publicationView(accepted) });
+  })().catch(next);
+});
 
 router.get('/:id/history', (req, res, next) => {
   void listNoteVersions(getDb(), String(req.params.id))

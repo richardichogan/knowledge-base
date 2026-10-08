@@ -9,7 +9,7 @@ import { useCreateBlockNote } from '@blocknote/react';
 import '@blocknote/mantine/style.css';
 import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
-import { GitHubModal } from './GitHubModal';
+import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
 import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
@@ -27,7 +27,7 @@ import {
   USE_CASE_TEMPLATE_HEADINGS,
 } from './constants';
 import type { ContentType } from './constants';
-import type { NoteDocument } from './types';
+import type { NoteDocument, GitHubPublication } from './types';
 import { useNoteTags, useSetNoteTags, useFlatTags } from '../hooks/useTaxonomy';
 import { MetadataPanel } from './MetadataPanel';
 import { useProjects } from '../hooks/useProjects';
@@ -138,6 +138,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const { data: projects = [] } = useProjects();
   const [notification, setNotification] = useState<{ kind: 'success' | 'error'; msg: string } | null>(null);
   const [githubPath, setGithubPath] = useState<string | undefined>(doc.githubPath);
+  const [publication, setPublication] = useState<GitHubPublication | null>(null);
+  const [githubBusy, setGithubBusy] = useState(false);
+  const [githubError, setGithubError] = useState('');
+  const [githubReview, setGithubReview] = useState<{ sha: string | null; markdown: string | null; think: string } | null>(null);
 
   const savedDocRef = useRef<NoteDocument>(doc);
   const contentTypeRef = useRef<ContentType>(doc.contentType);
@@ -149,6 +153,28 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
   useEffect(() => { githubPathRef.current = githubPath; }, [githubPath]);
   useEffect(() => { onSavedRef.current = onSaved; }, [onSaved]);
+  const refreshPublication = useCallback(async (check = false): Promise<void> => {
+    try {
+      const result = await api.getNoteGitHub(doc.id, check);
+      if (!result.success) throw new Error(result.error.message);
+      if (!mountedRef.current) return;
+      setPublication(result.data);
+      if (check) setGithubError('');
+      if (result.data) {
+        githubPathRef.current = result.data.path;
+        setGithubPath(result.data.path);
+      }
+    } catch (err) {
+      console.error('[NoteEditor] GitHub status failed:', err);
+      if (mountedRef.current) setGithubError(err instanceof Error ? err.message : 'Could not check GitHub.');
+    }
+  }, [doc.id]);
+  useEffect(() => {
+    void refreshPublication(true);
+    let ticks = 0;
+    const timer = setInterval(() => { ticks++; void refreshPublication(ticks % 4 === 0); }, 15_000);
+    return () => { clearInterval(timer); };
+  }, [refreshPublication]);
 
   let parsedInitial: object[] | undefined;
   try {
@@ -375,6 +401,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       if (mountedRef.current) {
         onSavedRef.current(saved);
         setHistoryRefresh(value => value + 1);
+        void refreshPublication();
       }
       return true;
     }).catch((err: unknown) => {
@@ -415,7 +442,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       await work();
       setHistoryRefresh(value => value + 1);
     } catch (err) {
-      if (isAxiosError(err) && err.response?.status === 409) {
+      if (isAxiosError(err) && err.response?.status === 409 && !String(err.response.data?.error?.code).startsWith('GITHUB_')) {
         conflictRef.current = true;
         if (mountedRef.current) setSaveConflict(true);
       }
@@ -608,25 +635,81 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     return () => { mountedRef.current = false; void doSave(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function handleGitHubConfirm(filePath: string, commitMessage: string): Promise<void> {
+  async function handleGitHubConfirm(repo: string, filePath: string, commitMessage: string): Promise<void> {
     setGithubModalOpen(false);
-    const markdown = await editorRef.current.blocksToMarkdownLossy(editorRef.current.document);
-    const result = await pushToGitHub({ markdown, filePath, commitMessage });
-    if (result.success) {
-      setGithubPath(filePath);
-      void doSave();
-      setNotification({ kind: 'success', msg: `Pushed to GitHub: ${filePath}` });
-    } else {
-      setNotification({ kind: 'error', msg: result.error ?? 'Push failed' });
-    }
-    setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS * 2);
+    if (githubBusy) return;
+    setGithubBusy(true);
+    try {
+      if (!await doSave()) return;
+      const result = await pushToGitHub({
+        repo, noteId: doc.id, expectedRevision: savedDocRef.current.revision ?? 0, filePath, commitMessage,
+      });
+      if (!mountedRef.current) return;
+      setPublication(result);
+      githubPathRef.current = result.path;
+      setGithubPath(result.path);
+      setGithubError('');
+      setNotification({ kind: 'success', msg: `Published to GitHub: ${result.path}. Future saves update this file.` });
+    } catch (err) {
+      console.error('[NoteEditor] GitHub publish failed:', err);
+      setNotification({ kind: 'error', msg: isAxiosError(err) ? err.response?.data?.error?.message ?? err.message : err instanceof Error ? err.message : 'Push failed' });
+      await refreshPublication();
+    } finally { if (mountedRef.current) setGithubBusy(false); }
+  }
+
+  async function reviewGitHub(): Promise<void> {
+    if (githubBusy) return;
+    setGithubBusy(true);
+    try {
+      const result = await api.getNoteGitHubRemote(doc.id);
+      if (!result.success) throw new Error(result.error.message);
+      const think = await editorRef.current.blocksToMarkdownLossy(editorRef.current.document);
+      setGithubReview({ ...result.data, think });
+    } catch (err) {
+      setGithubError(err instanceof Error ? err.message : 'Could not load GitHub version.');
+    } finally { setGithubBusy(false); }
+  }
+
+  async function resolveGitHub(choice: 'think' | 'github'): Promise<void> {
+    if (!githubReview || githubBusy) return;
+    setGithubBusy(true);
+    try {
+      if (!await doSave()) return;
+      await runExclusive(async () => {
+        const result = await api.resolveNoteGitHub(doc.id, choice, githubReview.sha, savedDocRef.current.revision ?? 0);
+        if (!result.success) throw new Error(result.error.message);
+        setPublication(result.data);
+        if (choice === 'github') {
+          const loaded = await api.getNote(doc.id);
+          if (!loaded.success) throw new Error(loaded.error.message);
+          const accepted = fromApiNote(loaded.data);
+          if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) return;
+          suppressChangesRef.current = true;
+          try {
+            const blocks = JSON.parse(accepted.contentJson) as PartialBlock[];
+            editorRef.current.replaceBlocks(editorRef.current.document, blocks.length ? blocks : [{ type: 'paragraph', content: '' }]);
+            restoredBodyRef.current = JSON.stringify(editorRef.current.document);
+            savedDocRef.current = accepted;
+            isDirtyRef.current = false;
+            onSavedRef.current(accepted);
+          } finally { suppressChangesRef.current = false; }
+        }
+        setGithubReview(null);
+        setGithubError('');
+        setNotification({ kind: 'success', msg: choice === 'github' ? 'Accepted GitHub writing. Your previous writing is in History.' : 'Published Think writing. Automatic updates resumed.' });
+      });
+    } catch (err) {
+      setGithubError(isAxiosError(err) ? err.response?.data?.error?.message ?? err.message : err instanceof Error ? err.message : 'Could not resolve GitHub conflict.');
+      setGithubReview(null);
+      await refreshPublication();
+    } finally { setGithubBusy(false); }
   }
 
   const defaultCommitMsg = `Add note: ${savedDocRef.current.title}`;
-  const defaultFilePath = githubPathRef.current ?? `content/notes/${doc.id}.md`;
+  const defaultFilePath = publication?.path ?? `content/notes/${doc.id}.md`;
 
   // GitHub status
-  const ghStatus = githubPath != null ? 'synced' : 'not-pushed';
+  const ghStatus = publication?.status ?? 'not-pushed';
   const ghDotColor = ghStatus === 'synced' ? 'var(--kh-accent)' : '#525252';
 
   // Applied tags for metadata panel
@@ -674,8 +757,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             </button>
           )}
           {onCreateDiagram && <button type="button" className="kb-import-btn" disabled={creatingDiagram} onClick={() => { void createDiagram(); }} title="Create an editable diagram linked to this note"><Diagram size={16} /> {creatingDiagram ? 'Creating diagram...' : 'Create diagram'}</button>}
-          <button className="kb-import-btn" onClick={() => { setGithubModalOpen(true); }}>
-            <LogoGithub size={16} /> Push to GitHub
+          <button className="kb-import-btn" disabled={githubBusy} onClick={() => { if (publication?.status === 'conflict') void reviewGitHub(); else setGithubModalOpen(true); }}>
+            <LogoGithub size={16} /> {githubBusy ? 'Publishing...' : 'Push to GitHub'}
           </button>
           <button className="kb-import-btn" title="Turn this note into a build spec for GitHub cloud coding agents" onClick={() => { setBuildDialogOpen(true); }}>
             <Code size={16} /> Send to Build
@@ -832,7 +915,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         ghStatus={ghStatus}
         ghDotColor={ghDotColor}
         githubPath={githubPath}
-        onPushToGitHub={() => { setGithubModalOpen(true); }}
+        githubUrl={publication?.url}
+        githubError={githubError || publication?.error || ''}
+        githubBusy={githubBusy}
+        onCheckGitHub={() => { void refreshPublication(true); }}
+        onPushToGitHub={() => { if (publication?.status === 'conflict') void reviewGitHub(); else setGithubModalOpen(true); }}
         onRestoreVersion={restoreVersion}
         historyRefresh={historyRefresh}
         prepareDemoBrief={prepareDemoBrief}
@@ -846,9 +933,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         open={githubModalOpen}
         defaultFilePath={defaultFilePath}
         defaultCommitMessage={defaultCommitMsg}
+        defaultRepo={publication?.repo ?? projects.find(project => project.id === projectId)?.githubRepos[0] ?? ''}
+        published={publication !== null}
         onClose={() => { setGithubModalOpen(false); }}
-        onConfirm={(fp, msg) => { void handleGitHubConfirm(fp, msg); }}
+        onConfirm={(repo, fp, msg) => { void handleGitHubConfirm(repo, fp, msg); }}
       />
+      {githubReview && <GitHubConflictModal think={githubReview.think} github={githubReview.markdown}
+        busy={githubBusy} onClose={() => { setGithubReview(null); }}
+        onConfirm={(choice) => { void resolveGitHub(choice); }} />}
     </div>
   );
 };

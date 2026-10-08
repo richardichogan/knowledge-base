@@ -16,6 +16,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
 import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { GitHubClient } from '../integrations/github/githubClient.js';
+import { canonicalContentSql } from '../db/contentVisibility.js';
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
 import { HTTP_STATUS, IMAGE_SAS_EXPIRY_YEARS, BLOB_UPLOAD_TIMEOUT_MS } from '../config/constants.js';
@@ -303,6 +304,7 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
          FROM content_items ci
          LEFT JOIN projects p ON p.id = ci.project_context
          WHERE ci.source IN ('github-doc', 'github-content-store', 'user-upload', 'onedrive-document')
+           AND ${canonicalContentSql('ci')}
          ORDER BY ci.updated_at DESC, ci.indexed_at DESC`,
       );
 

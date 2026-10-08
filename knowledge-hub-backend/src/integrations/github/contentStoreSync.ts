@@ -6,8 +6,8 @@
  * YAML front-matter, and upserts each file as a read-only content_item with
  * source = 'github-content-store'.
  *
- * Items are treated as read-only — they are never created or edited through
- * the Knowledge Hub; syncing always overwrites with the latest GitHub version.
+ * Think's published copies are excluded: the originating note is already
+ * indexed. Other documents are updated in place by repository and file path.
  *
  * Front-matter fields supported:
  *   title       — display title (falls back to filename stem)
@@ -25,6 +25,8 @@ import { env } from '../../config/env.js';
 import { NOTE_SUMMARY_MAX_LENGTH } from '../../config/constants.js';
 import type { ContentItem } from '../../types/contentItem.js';
 import { extractDocumentText } from './documentExtractor.js';
+import { githubDocumentId, publishedNotePaths, reconcileContentStore } from '../../services/githubDocumentIdentity.js';
+import { checkPublication } from '../../services/noteGitHubService.js';
 
 /** Number of hex chars to show in a short Git SHA log message. */
 const GIT_SHORT_SHA_LENGTH = 7;
@@ -235,10 +237,13 @@ export async function syncContentStore(db: Pool): Promise<{ indexed: number; err
     }
   }
 
-  if (lastCursor === headSha) {
-    // Nothing has changed — skip fetching blobs
-    console.warn(`[content-store] No changes since last sync (${headSha.substring(0, GIT_SHORT_SHA_LENGTH)})`);
-    return { indexed: 0, errors: 0 };
+  const notePaths = await publishedNotePaths(db, repo);
+  const publications = await db.query<{ note_id: string }>(
+    `SELECT p.note_id FROM note_github_publications p JOIN notes n ON n.id = p.note_id
+     WHERE p.repo = $1 AND n.status = 'active'`, [repo]);
+  for (const row of publications.rows) {
+    try { await checkPublication(db, row.note_id, client); }
+    catch (err) { errors++; console.error(`[content-store] Cannot check note ${row.note_id}:`, err); }
   }
 
   // ── Fetch the full recursive tree ────────────────────────────────────────
@@ -255,7 +260,8 @@ export async function syncContentStore(db: Pool): Promise<{ indexed: number; err
   }
 
   if (tree.truncated) {
-    console.warn('[content-store] Tree was truncated by GitHub — some files may be missed');
+    console.error('[content-store] Tree was truncated; no cleanup or indexing performed');
+    return { indexed: 0, errors: errors + 1 };
   }
 
   // Filter to .md, .pdf, .docx, .pptx blobs only (skip README, _template, etc.)
@@ -267,10 +273,17 @@ export async function syncContentStore(db: Pool): Promise<{ indexed: number; err
       !/README\.(md|pdf|docx|pptx)$/i.test(item.path),
   );
 
+  await reconcileContentStore(db, repo, new Set(contentBlobs.map(blob => blob.path)), notePaths);
+  if (lastCursor === headSha) {
+    console.warn(`[content-store] No changes since last sync (${headSha.substring(0, GIT_SHORT_SHA_LENGTH)})`);
+    return { indexed: 0, errors };
+  }
+
   console.warn(`[content-store] Found ${contentBlobs.length} content files to sync`);
 
   // ── Fetch and upsert each file ────────────────────────────────────────────
   for (const blob of contentBlobs) {
+    if (notePaths.has(blob.path)) continue;
     try {
       const gitBlob = await client.get<GitBlob>(`/repos/${repo}/git/blobs/${blob.sha}`);
       const buffer = Buffer.from(gitBlob.content.replace(/\n/g, ''), 'base64');
@@ -301,7 +314,7 @@ export async function syncContentStore(db: Pool): Promise<{ indexed: number; err
 
       const item: Omit<ContentItem, 'id' | 'indexedAt'> = {
         source: SOURCE,
-        sourceId: blob.sha,
+        sourceId: githubDocumentId(repo, blob.path),
         title,
         summary,
         body,
@@ -332,7 +345,7 @@ export async function syncContentStore(db: Pool): Promise<{ indexed: number; err
     lastSyncAt: new Date(),
     itemCount: indexed,
     lastError: errors > 0 ? `${errors} errors` : null,
-    lastCursor: headSha,
+    ...(errors === 0 ? { lastCursor: headSha } : lastCursor !== null ? { lastCursor } : {}),
   });
 
   return { indexed, errors };

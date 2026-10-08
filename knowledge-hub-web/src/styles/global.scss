@@ -5662,6 +5662,92 @@ body.kh-pane-resizing {
   padding: 4px 0;
 }
 
+.notes-github-help {
+  margin: 0.5rem 0;
+  color: var(--cds-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.notes-github-error {
+  margin: 0.5rem 0;
+  color: var(--cds-support-error);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.notes-meta-gh-text a {
+  color: var(--kh-accent);
+  text-decoration: underline;
+  &:hover { color: var(--cds-text-primary); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+}
+
+.notes-meta-gh-push {
+  min-height: 36px;
+  margin-top: 0.5rem;
+  &:disabled { opacity: 0.5; cursor: wait; }
+}
+
+.notes-github-modal {
+  .cds--modal-container { background: var(--cds-layer-01); color: var(--cds-text-primary); }
+  .cds--modal-content { padding-bottom: 1rem; }
+  .cds--text-input { background: var(--cds-field-01); color: var(--cds-text-primary); }
+  .cds--text-input:focus { outline-color: var(--kh-accent); }
+  .cds--text-input[readonly] { opacity: 0.75; }
+}
+
+.notes-github-repo-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--cds-text-secondary);
+  font-size: 0.75rem;
+}
+
+.notes-github-select {
+  width: 100%;
+  padding: 0.75rem;
+  background: var(--cds-field-01);
+  color: var(--cds-text-primary);
+  border: 1px solid var(--cds-border-subtle-01);
+  font: inherit;
+  &:hover { border-color: var(--kh-accent); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  &:disabled { opacity: 0.5; cursor: wait; }
+  option { background: var(--cds-layer-01); color: var(--cds-text-primary); }
+}
+
+.notes-github-folder-browser { margin-top: 0.75rem; }
+.notes-github-browse {
+  margin: 0.5rem 0;
+  min-height: 36px;
+  &:disabled { opacity: 0.5; cursor: wait; }
+}
+
+.notes-github-versions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  label { display: grid; gap: 0.5rem; min-width: 0; font-size: 0.875rem; }
+  label > span { display: flex; align-items: center; gap: 0.5rem; }
+  input { accent-color: var(--kh-accent); }
+  input:disabled { cursor: not-allowed; opacity: 0.5; }
+  input:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  textarea {
+    width: 100%;
+    min-height: 300px;
+    padding: 0.75rem;
+    resize: vertical;
+    background: var(--cds-field-01);
+    color: var(--cds-text-primary);
+    border: 1px solid var(--cds-border-subtle-01);
+    font: 0.75rem/1.5 monospace;
+    &:focus { outline: 2px solid var(--kh-accent); }
+  }
+  @media (max-width: 640px) { grid-template-columns: 1fr; textarea { min-height: 180px; } }
+}
+
 // GitHub modal spacing
 .notes-modal-spacer {
   height: var(--cds-spacing-05);

@@ -13,6 +13,7 @@ const sample = '# IMAGINE: Client Report Assurance\n## High fidelity prototype s
 api.getTaxonomy = async () => ({ success: true, data: [] });
 api.getNoteTags = async () => ({ success: true, data: [] });
 api.getProjects = async () => ({ success: true, data: [] });
+api.getNoteGitHub = async () => ({ success: true, data: null });
 let copied = '';
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied = text; } } });
 createRoot(document.getElementById('root')!).render(

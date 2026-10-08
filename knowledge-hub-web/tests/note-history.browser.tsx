@@ -43,6 +43,7 @@ function persist(content: string, expected?: number): void {
 api.getTaxonomy = async () => ({ success: true, data: [] });
 api.getNoteTags = async () => ({ success: true, data: [] });
 api.getProjects = async () => ({ success: true, data: [] });
+api.getNoteGitHub = async () => ({ success: true, data: null });
 api.patchNote = async (_id, content, _tags, _project, expected) => {
   saveCount++;
   if (versions.length === 0) addVersion('automatic');

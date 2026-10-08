@@ -34,6 +34,7 @@ import type {
 } from '../types';
 import { getApiToken } from './auth';
 import type { DiagramAsset, DiagramDocument, DiagramSnapshot } from '../features/diagram/diagramTypes';
+import type { GitHubPublication, GitHubPushPayload } from '../notes/types';
 
 // Use relative base URL so all requests go through the Vite dev proxy.
 const BASE_URL = import.meta.env['VITE_API_URL'] as string | undefined ?? '';
@@ -108,7 +109,7 @@ export async function readChatTurnEvents(
 
 export interface NoteVersionSummary {
   id: string; revision: number; writing_updated_at: string; created_at: string;
-  reason: 'automatic' | 'before_athena' | 'before_restore'; restored_from: string | null;
+  reason: 'automatic' | 'before_athena' | 'before_restore' | 'before_github'; restored_from: string | null;
 }
 export interface NoteVersion extends NoteVersionSummary {
   writing: { title: string; contentType: string; contentJson: string };
@@ -452,6 +453,33 @@ export class KnowledgeHubApi {
   async getNote(id: string): Promise<ApiResponse<Note>> {
     const r = await this.client.get<ApiResponse<Note>>(`/api/notes/${encodeURIComponent(id)}`);
     return r.data;
+  }
+
+  async getNoteGitHub(id: string, check = false): Promise<ApiResponse<GitHubPublication | null>> {
+    return (await this.client.get<ApiResponse<GitHubPublication | null>>(`/api/notes/${encodeURIComponent(id)}/github`, {
+      params: { check }, timeout: 60_000,
+    })).data;
+  }
+
+  async getNoteGitHubRepositories(page = 1): Promise<ApiResponse<{ items: { name: string; defaultBranch: string; private: boolean }[]; hasMore: boolean }>> {
+    return (await this.client.get<ApiResponse<{ items: { name: string; defaultBranch: string; private: boolean }[]; hasMore: boolean }>>('/api/notes/github/repositories', { params: { page }, timeout: 60_000 })).data;
+  }
+
+  async getNoteGitHubFolders(repo: string, folder: string): Promise<ApiResponse<{ folders: string[]; branch: string }>> {
+    return (await this.client.get<ApiResponse<{ folders: string[]; branch: string }>>('/api/notes/github/folders', { params: { repo, folder }, timeout: 60_000 })).data;
+  }
+
+  async publishNoteToGitHub(payload: GitHubPushPayload): Promise<ApiResponse<GitHubPublication>> {
+    return (await this.client.post<ApiResponse<GitHubPublication>>(`/api/notes/${encodeURIComponent(payload.noteId)}/github`, payload, { timeout: 120_000 })).data;
+  }
+
+  async getNoteGitHubRemote(id: string): Promise<ApiResponse<{ sha: string | null; markdown: string | null }>> {
+    return (await this.client.get<ApiResponse<{ sha: string | null; markdown: string | null }>>(`/api/notes/${encodeURIComponent(id)}/github/remote`, { timeout: 60_000 })).data;
+  }
+
+  async resolveNoteGitHub(id: string, choice: 'think' | 'github', remoteSha: string | null, expectedRevision: number): Promise<ApiResponse<GitHubPublication>> {
+    return (await this.client.post<ApiResponse<GitHubPublication>>(`/api/notes/${encodeURIComponent(id)}/github/resolve`,
+      { choice, remoteSha, expectedRevision }, { timeout: 120_000 })).data;
   }
 
   async createNote(input: CreateNoteInput): Promise<ApiResponse<Note>> {
