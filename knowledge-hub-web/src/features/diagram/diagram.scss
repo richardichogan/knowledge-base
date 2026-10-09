@@ -444,6 +444,14 @@ $dg-ink: #f4f4f4;
     &--error rect { stroke: #da1e28; }
     &--error text { fill: #da1e28; }
   }
+
+  .dg-line__hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 14px;
+    vector-effect: non-scaling-stroke;
+    pointer-events: stroke;
+  }
 }
 
 .dg-edge {

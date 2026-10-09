@@ -51,7 +51,7 @@ const LABEL_CONTROL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 // eslint-disable-next-line no-control-regex
 const NAME_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-const KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'text', 'image', 'container', 'swimlane'];
+const KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'line', 'text', 'image', 'container', 'swimlane'];
 const PARENT_KINDS: ReadonlySet<DiagramKind> = new Set<DiagramKind>(['container', 'swimlane']);
 const PORTS: readonly DiagramPort[] = ['top', 'right', 'bottom', 'left'];
 const ROUTES: readonly DiagramEdge['route'][] = ['straight', 'orthogonal'];
@@ -136,14 +136,21 @@ function validatePoint(v: unknown, path: string): DiagramPoint {
 }
 
 function validateNode(v: unknown, path: string): DiagramNode {
-  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle']);
+  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd']);
   const c = DIAGRAM_LIMITS.maxCoordinate;
   const kind = oneOf(o['kind'], KINDS, `${path}.kind`);
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
   if (assetId !== null && kind !== 'image') fail(`${path}.assetId`, 'is only allowed on image nodes');
+  const linePoint = (value: unknown, field: string): DiagramPoint => {
+    if (kind !== 'line') fail(`${path}.${field}`, 'is only allowed on lines');
+    const point = exactObject(value, POINT_KEYS, `${path}.${field}`);
+    return { x: num(point['x'], `${path}.${field}.x`, 0, 1), y: num(point['y'], `${path}.${field}.y`, 0, 1) };
+  };
   return {
     id: uuid(o['id'], `${path}.id`),
     kind,
+    ...(o['lineStart'] !== undefined ? { lineStart: linePoint(o['lineStart'], 'lineStart') } : {}),
+    ...(o['lineEnd'] !== undefined ? { lineEnd: linePoint(o['lineEnd'], 'lineEnd') } : {}),
     label: str(o['label'], `${path}.label`, DIAGRAM_LIMITS.maxNodeLabelChars),
     ...(o['description'] !== undefined ? { description: str(o['description'], `${path}.description`, DIAGRAM_LIMITS.maxDescriptionChars) } : {}),
     x: num(o['x'], `${path}.x`, -c, c),
@@ -218,6 +225,8 @@ export function validateDiagramDocument(input: unknown, knownAssetIds: ReadonlyS
     seen.add(key);
     if (!byId.has(e.sourceId)) fail(`document.edges[${i}].sourceId`, 'references a missing node');
     if (!byId.has(e.targetId)) fail(`document.edges[${i}].targetId`, 'references a missing node');
+    if (byId.get(e.sourceId)?.kind === 'line') fail(`document.edges[${i}].sourceId`, 'cannot attach a connector to a standalone line');
+    if (byId.get(e.targetId)?.kind === 'line') fail(`document.edges[${i}].targetId`, 'cannot attach a connector to a standalone line');
   });
 
   nodes.forEach((n, i) => {

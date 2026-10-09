@@ -135,6 +135,9 @@ Container headers grow with the title's font size and wrapped lines, keeping
 the divider below the heading. Text alignment applies within the header.
 Hold Space and drag over the canvas to pan (even after using toolbar buttons),
 or drag with the middle mouse button. Text fields keep normal space typing.
+The Line tool draws standalone lines: select it, then drag on the canvas.
+Lines have no arrowheads or shape attachments; drag their endpoints to reshape
+them and use Properties for colour, solid/dashed/dotted style and thickness.
 Arrowheads scale with connector thickness on the canvas and in exports;
 existing diagrams retain their original 1.5 px line weight.
 

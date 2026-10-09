@@ -125,8 +125,40 @@ async function pointerChecks() {
   await mouseDrag(handle, { x: handle.x + 20, y: handle.y + 10 });
   const workforce = linked.nodes.find(n => n.label === 'Workforce agents');
   await evaluate(`window.diagramFixture.waitFor(() => window.diagramFixture.snapshot().document.nodes.find(n => n.id === "${workforce.id}").width > ${workforce.width})`);
+  const beforeLine = await evaluate('window.diagramFixture.snapshot().document');
+  await evaluate('window.diagramFixture.clickButton("Draw line")');
+  const lineStart = await nodePoint('Workforce agents', 0.25, 0.5);
+  await mouseDrag(lineStart, { x: lineStart.x + 100, y: lineStart.y + 60 });
+  await evaluate('window.diagramFixture.waitFor(() => window.diagramFixture.snapshot().document.nodes.some(n => n.kind === "line"))');
+  const withLine = await evaluate('window.diagramFixture.snapshot().document');
+  const plainLine = withLine.nodes.find(n => n.kind === 'line');
+  await evaluate(`document.querySelector('[aria-label="Line style"] button[aria-label="Dotted"]').click();
+    const field = document.querySelector('select[aria-label="Line thickness"]');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(field, "4");
+    field.dispatchEvent(new Event("change", { bubbles: true }));`);
+  await evaluate(`window.diagramFixture.waitFor(() => window.diagramFixture.snapshot().document.nodes.some(n => n.id === "${plainLine.id}" && n.strokeStyle === "dotted" && n.strokeWidth === 4))`);
+  assert.equal(withLine.edges.length, beforeLine.edges.length, 'Plain lines do not add connectors');
+  assert.equal(await evaluate(`document.querySelector('g[data-id="${plainLine.id}"] line.dg-node__body').hasAttribute("marker-end")`), false);
+  assert.equal(await evaluate(`document.querySelector('[data-dg="port"][data-id="${plainLine.id}"]') === null`), true);
+  const endpoint = await evaluate(`(() => {
+    const r = document.querySelector('[data-dg="line-end"][data-id="${plainLine.id}"][data-end="1"]').getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  })()`);
+  await mouseDrag(endpoint, { x: endpoint.x + 40, y: endpoint.y - 30 });
+  await evaluate(`window.diagramFixture.waitFor(() => window.diagramFixture.snapshot().document.nodes.find(n => n.id === "${plainLine.id}").width !== ${plainLine.width})`);
+  await evaluate('window.diagramFixture.clickButton("Undo (Ctrl+Z)")');
+  await evaluate(`window.diagramFixture.waitFor(() => window.diagramFixture.snapshot().document.nodes.find(n => n.id === "${plainLine.id}").width === ${plainLine.width})`);
+  await evaluate('window.diagramFixture.clickButton("Redo (Ctrl+Shift+Z)")');
+  await evaluate(`window.diagramFixture.waitFor(() => window.diagramFixture.snapshot().document.nodes.find(n => n.id === "${plainLine.id}").width !== ${plainLine.width})`);
+  await evaluate('window.diagramFixture.clickButton("Draw line")');
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await evaluate('window.diagramFixture.waitFor(() => document.querySelector(\'button[aria-label="Draw line"]\').getAttribute("aria-pressed") === "false")');
+  await evaluate('window.diagramFixture.clickButton("Delete (Del)")');
+  await evaluate(`window.diagramFixture.waitFor(() => !window.diagramFixture.snapshot().document.nodes.some(n => n.id === "${plainLine.id}"))`);
   return ['Space drag pans after toolbar focus without moving shapes or intercepting text spaces',
-    'Pointer drag translates nested children', 'Port drag creates a shape-attached connector', 'Resize handle updates saved geometry'];
+    'Pointer drag translates nested children', 'Port drag creates a shape-attached connector', 'Resize handle updates saved geometry',
+    'Standalone line drag drawing, endpoint editing, undo/redo and Escape cancellation'];
 }
 try {
   let port;

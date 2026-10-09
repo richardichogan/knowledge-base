@@ -36,7 +36,7 @@ import {
   canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, pathD,
   pointAlong, insertWaypoint, hitTestNode, hitTestEdge, nodesInRect, alignNodes, distributeNodes, reorderNodes,
   cloneSelection, removeSelection, normalizeDocument, screenToWorld, worldToScreen, clampZoom, zoomAt, fitViewport,
-  wrapText, fitSize, documentShapePath, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
+  wrapText, fitSize, documentShapePath, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
 } from './diagramGeometry';
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
@@ -71,7 +71,7 @@ const FONT_MIN = 10;
 const FONT_MAX = 36;
 
 const KIND_LABEL: Record<DiagramKind, string> = {
-  process: 'Process', decision: 'Decision', terminator: 'Start / end', document: 'Document', text: 'Text', image: 'Image',
+  process: 'Process', decision: 'Decision', terminator: 'Start / end', document: 'Document', line: 'Line', text: 'Text', image: 'Image',
   container: 'Container', swimlane: 'Swimlane',
 };
 
@@ -80,6 +80,7 @@ const DEFAULTS: Record<DiagramKind, Pick<DiagramNode, 'label' | 'width' | 'heigh
   decision: { label: 'Decision?', width: 120, height: 80, fill: '#fcf4d6', stroke: '#b28600', textColor: '#161616', fontSize: 16 },
   terminator: { label: 'Start', width: 140, height: 52, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 16 },
   document: { label: 'Document', width: 140, height: 80, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 16 },
+  line: { label: '', width: 140, height: 24, fill: 'none', stroke: '#525252', textColor: '#161616', fontSize: 16 },
   text: { label: 'Text', width: 140, height: 40, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 16 },
   image: { label: '', width: 96, height: 96, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 16 },
   container: { label: 'Group', width: 320, height: 220, fill: '#f4f4f4', stroke: '#525252', textColor: '#161616', fontSize: 18 },
@@ -237,6 +238,8 @@ interface Notice {
 type AssetState = { status: 'loading' } | { status: 'ready'; url: string } | { status: 'error'; message: string };
 
 type Drag =
+  | { kind: 'draw-line'; pointerId: number; start: P; current: P }
+  | { kind: 'line-end'; pointerId: number; id: string; end: number; before: DiagramDocument; fixed: P }
   | { kind: 'pan'; pointerId: number; start: P; origin: Viewport }
   | { kind: 'marquee'; pointerId: number; start: P; current: P; additive: boolean; base: Selection }
   | { kind: 'move'; pointerId: number; startScreen: P; start: P; current: P; before: DiagramDocument; ids: string[]; origin: Rect; moved: boolean; clickId: string | null }
@@ -273,6 +276,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [notices, setNotices] = useState<Notice[]>([]);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [spaceDown, setSpaceDown] = useState(false);
+  const [lineTool, setLineTool] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<'png' | 'svg'>('png');
@@ -685,7 +689,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const cur = docRef.current;
     if (s.nodes.length === 1 && s.nodes[0] !== undefined) {
       const n = cur.nodes.find((x) => x.id === s.nodes[0]);
-      if (n !== undefined) setEditing({ kind: 'node', id: n.id, value: n.label });
+      if (n !== undefined && n.kind !== 'line') setEditing({ kind: 'node', id: n.id, value: n.label });
     } else if (s.nodes.length === 0 && s.edges.length === 1 && s.edges[0] !== undefined) {
       const e = cur.edges.find((x) => x.id === s.edges[0]);
       if (e !== undefined) setEditing({ kind: 'edge', id: e.id, value: e.label });
@@ -913,8 +917,21 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       return;
     }
     if (e.button !== 0) return;
+    if (lineTool) {
+      const start = snapPoint(world, cur.grid && !e.altKey);
+      begin({ kind: 'draw-line', pointerId, start, current: start });
+      return;
+    }
     const s = selRef.current;
     switch (role) {
+      case 'line-end': {
+        const node = byId.get(id);
+        if (node === undefined) return;
+        const end = Number(target?.getAttribute('data-end'));
+        const points = linePoints(node);
+        begin({ kind: 'line-end', pointerId, id, end, before: cur, fixed: points[end === 0 ? 1 : 0] });
+        return;
+      }
       case 'port': {
         const port = target?.getAttribute('data-port') as DiagramPort | null;
         if (port === null || !byId.has(id)) return;
@@ -994,6 +1011,15 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const cur = docRef.current;
     const snapOn = cur.grid && !e.altKey;
     switch (d.kind) {
+      case 'draw-line':
+        setDrag({ ...d, current: snapPoint(world, snapOn) });
+        return;
+      case 'line-end': {
+        const moving = snapPoint(world, snapOn);
+        const geometry = d.end === 0 ? lineGeometry(moving, d.fixed) : lineGeometry(d.fixed, moving);
+        setDoc({ ...cur, nodes: cur.nodes.map(n => n.id === d.id ? { ...n, ...geometry } : n) });
+        return;
+      }
       case 'pan': {
         const sp = toScreen(e.clientX, e.clientY);
         setView({ ...d.origin, x: d.origin.x + sp.x - d.start.x, y: d.origin.y + sp.y - d.start.y });
@@ -1032,7 +1058,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       case 'connect':
       case 'endpoint': {
         const exclude = new Set<string>(d.kind === 'connect' ? [d.sourceId] : []);
-        const hit = hitTestNode(cur.nodes, world, exclude);
+        const hit = hitTestNode(cur.nodes.filter(n => n.kind !== 'line'), world, exclude);
         setDrag({ ...d, current: world, targetId: hit?.id ?? null, targetPort: hit === null ? null : nearestPort(nodeRect(hit), world, hit.kind) });
         return;
       }
@@ -1054,12 +1080,19 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     setDrag(null);
     setDropTargetId(null);
     if (cancelled) {
-      if (d.kind === 'move' || d.kind === 'resize' || d.kind === 'bend') setDoc({ ...d.before, viewport: docRef.current.viewport });
+      if (d.kind === 'move' || d.kind === 'resize' || d.kind === 'bend' || d.kind === 'line-end') setDoc({ ...d.before, viewport: docRef.current.viewport });
       return;
     }
     const cur = docRef.current;
     const world = toWorld(e.clientX, e.clientY);
     switch (d.kind) {
+      case 'draw-line': {
+        const end = snapPoint(world, cur.grid && !e.altKey);
+        if (distance(d.start, end) * cur.viewport.zoom < DRAG_THRESHOLD_PX) return;
+        addNodes([makeNode('line', d.start, lineGeometry(d.start, end))]);
+        setLineTool(false);
+        return;
+      }
       case 'pan':
       case 'marquee':
         return;
@@ -1076,6 +1109,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       }
       case 'resize':
       case 'bend':
+      case 'line-end':
         commit(cur, d.before);
         return;
       case 'connect': {
@@ -1125,6 +1159,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       const n = byId.get(id);
       if (n === undefined) return;
       setSel({ nodes: [id], edges: [] });
+      if (n.kind === 'line') return;
       setEditing({ kind: 'node', id, value: n.label });
       return;
     }
@@ -1141,6 +1176,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       const hit = hitTestNode(cur.nodes, world);
       if (hit !== null) {
         setSel({ nodes: [hit.id], edges: [] });
+        if (hit.kind === 'line') return;
         setEditing({ kind: 'node', id: hit.id, value: hit.label });
         return;
       }
@@ -1158,6 +1194,15 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     if (isTypingTarget(e.target)) return;
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
+    if (e.key === 'Escape' && lineTool) {
+      e.preventDefault(); setLineTool(false);
+      const active = dragRef.current;
+      if (active?.kind === 'draw-line') {
+        if (svgRef.current?.hasPointerCapture(active.pointerId)) svgRef.current.releasePointerCapture(active.pointerId);
+        setDrag(null);
+      }
+      return;
+    }
     if (mod && k === 'z') { e.preventDefault(); stepHistory(e.shiftKey ? 'redo' : 'undo'); return; }
     if (mod && k === 'y') { e.preventDefault(); stepHistory('redo'); return; }
     if (mod && k === 'a') { e.preventDefault(); setSel({ nodes: docRef.current.nodes.map((n) => n.id), edges: docRef.current.edges.map((x) => x.id) }); return; }
@@ -1367,7 +1412,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       return { left: m.x - 90, top: m.y - 18, width: 180, height: 36, fontSize: Math.max(11, 12 * z) };
     }
     const n = byId.get(editing.id);
-    if (n === undefined) return null;
+    if (n === undefined || n.kind === 'line') return null;
     const tl = worldToScreen({ x: n.x, y: n.y }, view);
     const fontSize = Math.max(11, n.fontSize * z);
     if (n.kind === 'container') return { left: tl.x, top: tl.y, width: n.width * z, height: Math.max(30, containerHeader(n).height * z), fontSize };
@@ -1399,7 +1444,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     'dg-sheet',
     doc.grid ? 'dg-sheet--grid' : '',
     spaceDown || drag?.kind === 'pan' ? 'dg-sheet--panning' : '',
-    drag?.kind === 'connect' || drag?.kind === 'endpoint' ? 'dg-sheet--connecting' : '',
+    lineTool || drag?.kind === 'connect' || drag?.kind === 'endpoint' ? 'dg-sheet--connecting' : '',
     dropHint ? 'dg-sheet--drop' : '',
   ].filter(Boolean).join(' ');
 
@@ -1511,6 +1556,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               <ShapeGlyph kind={kind} />
             </button>
           ))}
+          <button type="button" className={`dg-palette__item${lineTool ? ' dg-palette__item--active' : ''}`}
+            aria-label="Draw line" title="Line - click, then drag on the canvas (Escape cancels)" aria-pressed={lineTool}
+            onClick={() => { setLineTool(!lineTool); setMenu(null); }}>
+            <ShapeGlyph kind="line" />
+          </button>
         </div>
 
         <div ref={sheetRef} className={sheetClass} onDragOver={onDragOver} onDragLeave={() => { setDropHint(false); }} onDrop={onDrop}>
@@ -1535,6 +1585,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             </defs>
             {doc.grid && <rect className="dg-canvas__grid" x={0} y={0} width="100%" height="100%" fill={`url(#${markerBase}-grid)`} />}
             <g transform={`translate(${view.x} ${view.y}) scale(${z})`}>
+              {drag?.kind === 'draw-line' && <line className="dg-preview-line" x1={drag.start.x} y1={drag.start.y}
+                x2={drag.current.x} y2={drag.current.y} />}
               {ordered.map((n) => (
                 <NodeShape key={n.id} node={n} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id} />
               ))}
@@ -1569,6 +1621,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   </g>
                 );
               })}
+              {singleNode?.kind === 'line' && !busyDrag && linePoints(singleNode).map((point, index) => (
+                <circle key={`line-end-${index}`} className="dg-endpoint" data-dg="line-end" data-id={singleNode.id}
+                  data-end={index} cx={point.x} cy={point.y} r={5 * inv}><title>Drag line endpoint</title></circle>
+              ))}
 
               {dropTargetId !== null && byId.get(dropTargetId) !== undefined && (() => {
                 const host = byId.get(dropTargetId);
@@ -1577,13 +1633,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {selectedNodes.map((n) => (
                 <rect key={`sel-${n.id}`} className="dg-selection-box" x={n.x - 3 * inv} y={n.y - 3 * inv} width={n.width + 6 * inv} height={n.height + 6 * inv} />
               ))}
-              {singleNode !== undefined && !busyDrag && RESIZE_HANDLES.map((h) => {
+              {singleNode !== undefined && singleNode.kind !== 'line' && !busyDrag && RESIZE_HANDLES.map((h) => {
                 const pt = handlePoint(nodeRect(singleNode), h);
                 return <rect key={h} className={`dg-handle dg-handle--${h}`} data-dg="resize" data-id={singleNode.id} data-handle={h} x={pt.x - 4 * inv} y={pt.y - 4 * inv} width={8 * inv} height={8 * inv} />;
               })}
               {[...portNodeIds].map((id) => {
                 const n = byId.get(id);
-                if (n === undefined) return null;
+                if (n === undefined || n.kind === 'line') return null;
                 const r = nodeRect(n);
                 return PORTS.map((port) => {
                   const pt = portPoint(r, port, n.kind);
@@ -1645,12 +1701,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
           {toolbarPos !== null && selectedNodes.length > 0 && (
             <div className="dg-context" role="toolbar" aria-label="Shape actions" style={{ left: toolbarPos.left, top: toolbarPos.top }} onPointerDown={(e) => { e.stopPropagation(); }}>
-              {singleNode !== undefined && <IconBtn label={singleNode.kind === 'image' ? 'Edit caption (Enter)' : 'Edit label (Enter)'} onClick={startEditing}><Edit size={16} /></IconBtn>}
+              {singleNode !== undefined && singleNode.kind !== 'line' && <IconBtn label={singleNode.kind === 'image' ? 'Edit caption (Enter)' : 'Edit label (Enter)'} onClick={startEditing}><Edit size={16} /></IconBtn>}
               <div className="dg-anchor">
                 <IconBtn label="Style" pressed={menu === 'style'} onClick={() => { setMenu(menu === 'style' ? null : 'style'); }}><ColorPalette size={16} /></IconBtn>
                 {menu === 'style' && (
                   <div className="dg-popover dg-popover--context" role="dialog" aria-label="Shape style">
-                    <Swatches label="Fill" colours={FILLS} value={diagramEditorFill(only(allFills) ?? '')} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: diagramEditorNodeColours(n).textColor, fill: c })); }} />
+                    {singleNode?.kind !== 'line' && <Swatches label="Fill" colours={FILLS} value={diagramEditorFill(only(allFills) ?? '')} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: diagramEditorNodeColours(n).textColor, fill: c })); }} />}
                     <Swatches label="Border" colours={STROKES} value={only(allStrokes)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, stroke: c })); }} />
                     <Swatches label="Text" colours={TEXT_COLOURS} value={only(allText)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: c })); }} />
                     <div className="dg-stepper">
@@ -1859,19 +1915,19 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
     </label>
     <div className="dg-properties__border">
     {'kind' in item && <>
-      <Swatches label="Background colour" colours={FILLS} value={diagramEditorFill(item.fill)}
-        onPick={onBackgroundChange} />
-      <Swatches label="Border colour" colours={STROKES} value={item.stroke}
+      {item.kind !== 'line' && <Swatches label="Background colour" colours={FILLS} value={diagramEditorFill(item.fill)}
+        onPick={onBackgroundChange} />}
+      <Swatches label={item.kind === 'line' ? 'Line colour' : 'Border colour'} colours={STROKES} value={item.stroke}
         onPick={(stroke) => { onBorderChange({ stroke }); }} />
       <div className="dg-properties__field">
-        <span>Border style</span>
-        <Segmented label="Border style" value={item.strokeStyle ?? 'solid'}
+        <span>{item.kind === 'line' ? 'Line style' : 'Border style'}</span>
+        <Segmented label={item.kind === 'line' ? 'Line style' : 'Border style'} value={item.strokeStyle ?? 'solid'}
           options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' }]}
           onChange={(strokeStyle) => { onBorderChange({ strokeStyle }); }} />
       </div>
     </>}
-    <label className="dg-properties__field">{'kind' in item ? 'Border thickness' : 'Line thickness'}
-      <select aria-label={'kind' in item ? 'Border thickness' : 'Line thickness'} value={item.strokeWidth ?? 1.5}
+    <label className="dg-properties__field">{'kind' in item && item.kind !== 'line' ? 'Border thickness' : 'Line thickness'}
+      <select aria-label={'kind' in item && item.kind !== 'line' ? 'Border thickness' : 'Line thickness'} value={item.strokeWidth ?? 1.5}
         onChange={(event) => { onThicknessChange(Number(event.target.value)); }}>
         {[0.5, 1, 1.5, 2, 3, 4, 6].map(width => <option key={width} value={width}>{width} px</option>)}
         {item.strokeWidth !== undefined && ![0.5, 1, 1.5, 2, 3, 4, 6].includes(item.strokeWidth)
@@ -1883,7 +1939,7 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
       <textarea aria-label="Shape or connector description" rows={8} maxLength={10000} value={item.description ?? ''}
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('description', e.target.value); }} />
     </label>
-    {'kind' in item && <div className="dg-properties__alignment">
+    {'kind' in item && item.kind !== 'line' && <div className="dg-properties__alignment">
       <label className="dg-properties__field">Text size
         <select aria-label="Text size" value={item.fontSize}
           onChange={(event) => { onFontSizeChange(Number(event.target.value)); }}>
@@ -1900,7 +1956,7 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
         options={[{ value: 'top', label: 'Top' }, { value: 'middle', label: 'Middle' }, { value: 'bottom', label: 'Bottom' }]}
         onChange={(value) => { onAlignmentChange({ textVerticalAlign: value }); }} />
     </div>}
-    <p className="dg-properties__hint">Title is shown on the diagram. Description is saved with this item but not displayed on the drawing. Changes save automatically.</p>
+    <p className="dg-properties__hint">{'kind' in item && item.kind === 'line' ? 'Title and description are saved but not displayed on the line.' : 'Title is shown on the diagram. Description is saved with this item but not displayed on the drawing.'} Changes save automatically.</p>
   </div>;
 }
 
@@ -1941,6 +1997,14 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
   let text: React.ReactNode = null;
   const maxLines = (avail: number): number => Math.max(1, Math.floor(avail / (fs * 1.25)));
   switch (n.kind) {
+    case 'line': {
+      const [start, end] = linePoints(n);
+      body = <>
+        <line className="dg-line__hit" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
+        <line {...common} fill="none" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
+      </>;
+      break;
+    }
     case 'document':
       body = <path {...common} d={documentShapePath(n)} />;
       break;
@@ -2004,7 +2068,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       break;
     }
   }
-  if (n.kind === 'container' || n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined) {
+  if (n.kind !== 'line' && (n.kind === 'container' || n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined)) {
     const layout = diagramTextLayout({ ...n, label });
     text = <TextLines lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
   }
@@ -2023,6 +2087,7 @@ function ShapeGlyph({ kind }: { kind: DiagramKind }): React.ReactElement {
     case 'decision': shape = <polygon points="10,2 18,10 10,18 2,10" />; break;
     case 'terminator': shape = <rect x={2} y={5} width={16} height={10} rx={5} />; break;
     case 'document': shape = <path d={documentShapePath({ x: 2, y: 3, width: 16, height: 14 })} />; break;
+    case 'line': shape = <path d="M2 16 L18 4" />; break;
     case 'text': shape = <path d="M4 5h12M10 5v11M8 16h4" />; break;
     case 'image': shape = <><rect x={2} y={3} width={16} height={14} rx={1} /><path d="M4 15l4-5 3 3 2-2 3 4" /></>; break;
     case 'container': shape = <><rect x={2} y={3} width={16} height={14} rx={1} /><path d="M2 7h16" /></>; break;

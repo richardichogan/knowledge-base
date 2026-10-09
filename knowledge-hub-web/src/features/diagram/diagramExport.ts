@@ -1,7 +1,7 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
 import { diagramTextLayout } from './diagramText';
 import { diagramBorderDash } from './diagramStroke';
-import { containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgePoints, pointAlong, renderOrder, wrapText } from './diagramGeometry';
+import { containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgePoints, linePoints, pointAlong, renderOrder, wrapText } from './diagramGeometry';
 
 const escapeXml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
   '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;',
@@ -48,7 +48,10 @@ export async function diagramSvg(document: DiagramDocument, assets: Map<string, 
     const borderStyle = `${dash === undefined ? '' : ` stroke-dasharray="${dash}"`}${node.strokeStyle === 'dotted' ? ' stroke-linecap="round"' : ''}`;
     const colour = `fill="${escapeXml(node.fill)}" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}`;
     let shape = '';
-    if (node.kind === 'document') {
+    if (node.kind === 'line') {
+      const [start, end] = linePoints(node);
+      shape = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" fill="none" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}/>`;
+    } else if (node.kind === 'document') {
       shape = `<path d="${documentShapePath(node)}" ${colour}/>`;
     } else if (node.kind === 'decision') {
       shape = `<polygon points="${node.x + node.width / 2},${node.y} ${node.x + node.width},${node.y + node.height / 2} ${node.x + node.width / 2},${node.y + node.height} ${node.x},${node.y + node.height / 2}" ${colour}/>`;
@@ -62,7 +65,7 @@ export async function diagramSvg(document: DiagramDocument, assets: Map<string, 
       const captionHeight = node.label.trim() ? Math.round(node.fontSize * 1.3 + 10) : 0;
       shape += `<image x="${node.x + 4}" y="${node.y + 4}" width="${Math.max(1, node.width - 8)}" height="${Math.max(1, node.height - captionHeight - 8)}" preserveAspectRatio="xMidYMid meet" href="${escapeXml(embedded.get(node.assetId) ?? '')}"/>`;
     }
-    return `<g>${shape}${nodeText(node)}</g>`;
+    return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node)}</g>`;
   });
   const definitions: string[] = [];
   const edges = document.edges.map((edge, i) => {

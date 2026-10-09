@@ -6,7 +6,7 @@ import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types';
 import type { DiagramDocument, DiagramNode, DiagramSnapshot } from '../src/features/diagram/diagramTypes';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
-import { documentWaveDepth, edgeEndpoints, portPoint } from '../src/features/diagram/diagramGeometry';
+import { documentWaveDepth, edgeEndpoints, lineGeometry, linePoints, portPoint } from '../src/features/diagram/diagramGeometry';
 import { NoteMaps } from '../src/features/canvas/NoteMaps';
 import '../src/styles/global.scss';
 
@@ -147,6 +147,18 @@ async function runDiagramChecks(): Promise<string[]> {
   clickButton('Process requirements');
   await waitFor(() => window.document.querySelector('.dg-note-links__row a') !== null);
   const svg = await diagramSvg(snapshot.document, assets, 'white');
+  for (const end of [{ x: 200, y: 50 }, { x: 50, y: 200 }, { x: -50, y: 150 }]) {
+    const start = { x: 50, y: 50 };
+    const standalone: DiagramNode = { ...node('', 'line', 0, 0, 24, 24), ...lineGeometry(start, end),
+      strokeWidth: 4, strokeStyle: 'dotted', fill: 'none' };
+    check(JSON.stringify(linePoints(standalone)) === JSON.stringify([start, end]), 'Standalone line geometry preserves exact endpoints');
+    const lineXml = new DOMParser().parseFromString(await diagramSvg({ ...doc, nodes: [standalone], edges: [] }, assets, 'white'), 'image/svg+xml');
+    const exportedLine = lineXml.querySelector('g line')!;
+    check(exportedLine.getAttribute('stroke-width') === '4' && exportedLine.getAttribute('stroke-dasharray') === '0 12',
+      'Standalone lines export thickness and dotted style');
+    check(!exportedLine.hasAttribute('marker-end') && !exportedLine.hasAttribute('marker-start'),
+      'Standalone lines export without arrows');
+  }
   check(svg.includes('data:image/svg+xml;base64,'), 'SVG must embed icon bytes');
   check(svg.includes('Agent Runtime') && svg.includes('Approved?'), 'Architecture and flow labels must export');
   check(!svg.includes('blob:') && !svg.includes('href="https:'), 'Exports must be self-contained');
@@ -459,6 +471,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Five simple shape backgrounds match canvas and export and survive reopening',
     'Document artefacts add, edit, undo/redo, export and reopen',
     'Larger default labels and Properties text size persist and export',
+    'Standalone horizontal, vertical and diagonal lines export without attachments or arrows',
     'Container divider grows with font size and multiline titles in canvas and exports',
     'Add, label editing, undo/redo and duplication', 'Image-file clipboard paste and explicit URL-only fallback',
     'Save conflict retains local changes and explicit overwrite resolves it',         'Shape and connector properties save/reopen, undo/redo and duplicate without cluttering exports',

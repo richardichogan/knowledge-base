@@ -1,6 +1,6 @@
 export interface DiagramPoint { x: number; y: number }
 export type DiagramPort = 'top' | 'right' | 'bottom' | 'left';
-export type DiagramKind = 'process' | 'decision' | 'terminator' | 'document' | 'text' | 'image' | 'container' | 'swimlane';
+export type DiagramKind = 'process' | 'decision' | 'terminator' | 'document' | 'line' | 'text' | 'image' | 'container' | 'swimlane';
 export interface DiagramNode {
   id: string;
   kind: DiagramKind;
@@ -15,6 +15,8 @@ export interface DiagramNode {
   stroke: string;
   strokeWidth?: number;
   strokeStyle?: 'solid' | 'dashed' | 'dotted';
+  lineStart?: DiagramPoint;
+  lineEnd?: DiagramPoint;
   textColor: string;
   fontSize: number;
   textAlign?: 'left' | 'center' | 'right';

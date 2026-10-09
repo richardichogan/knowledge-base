@@ -18,6 +18,23 @@ const EPS = 1e-6;
 
 export const isContainerKind = (kind: DiagramKind): boolean => kind === 'container' || kind === 'swimlane';
 
+export function linePoints(node: DiagramNode): [DiagramPoint, DiagramPoint] {
+  const start = node.lineStart ?? { x: 0, y: 0.5 };
+  const end = node.lineEnd ?? { x: 1, y: 0.5 };
+  return [{ x: node.x + start.x * node.width, y: node.y + start.y * node.height },
+    { x: node.x + end.x * node.width, y: node.y + end.y * node.height }];
+}
+
+/** Normalised endpoints preserve exact horizontal/vertical lines inside resizable node bounds. */
+export function lineGeometry(start: DiagramPoint, end: DiagramPoint): Pick<DiagramNode, 'x' | 'y' | 'width' | 'height' | 'lineStart' | 'lineEnd'> {
+  const width = Math.max(MIN_NODE_SIZE, Math.abs(end.x - start.x));
+  const height = Math.max(MIN_NODE_SIZE, Math.abs(end.y - start.y));
+  const x = (start.x + end.x - width) / 2;
+  const y = (start.y + end.y - height) / 2;
+  return { x, y, width, height, lineStart: { x: (start.x - x) / width, y: (start.y - y) / height },
+    lineEnd: { x: (end.x - x) / width, y: (end.y - y) / height } };
+}
+
 export function containerHeader(node: Pick<DiagramNode, 'label' | 'width' | 'height' | 'fontSize'>): { lines: string[]; height: number } {
   const maxLines = Math.max(1, Math.floor((node.height - 12 - node.fontSize) / (node.fontSize * 1.25)) + 1);
   const lines = wrapText(node.label, node.width - 20, node.fontSize, maxLines);
@@ -462,6 +479,7 @@ export function distanceToPolyline(p: DiagramPoint, points: readonly DiagramPoin
 // ── Hit testing ──────────────────────────────────────────────────────────────
 
 export function pointInNode(n: DiagramNode, p: DiagramPoint, pad = 0): boolean {
+  if (n.kind === 'line') return distanceToPolyline(p, linePoints(n)) <= Math.max(6, (n.strokeWidth ?? 1.5) / 2) + pad;
   if (!rectContainsPoint(nodeRect(n), p, pad)) return false;
   if (n.kind !== 'decision') return true;
   const c = rectCenter(n);

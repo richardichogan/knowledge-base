@@ -65,6 +65,17 @@ test('document artefacts round-trip with styling and attached connectors', () =>
   assert.deepEqual(validateDiagramDocument(input, NONE), input);
 });
 
+test('standalone lines preserve endpoints and styles without shape attachments', () => {
+  const line = node({ kind: 'line', fill: 'none', label: '', lineStart: { x: 0, y: 0.5 },
+    lineEnd: { x: 1, y: 0.5 }, strokeStyle: 'dashed', strokeWidth: 4 });
+  const input = doc([line]);
+  assert.deepEqual(validateDiagramDocument(input, NONE), input);
+  rejects(() => validateDiagramDocument(doc([{ ...line, lineEnd: { x: 2, y: 0 } }]), NONE), /lineEnd.x/);
+  rejects(() => validateDiagramDocument(doc([node({ lineStart: { x: 0, y: 0 } })]), NONE), /lineStart/);
+  const other = node();
+  rejects(() => validateDiagramDocument(doc([line, other], [edge(line.id, other.id)]), NONE), /sourceId/);
+});
+
 test('rejects unknown keys at every level and a wrong version', () => {
   const a = node();
   rejects(() => validateDiagramDocument({ ...doc([a]), script: 'x' }, NONE), /^document\.script$/);
