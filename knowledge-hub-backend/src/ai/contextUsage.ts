@@ -43,7 +43,11 @@ function push(list: UsedSource[], s: UsedSource): void {
 export function recordToolSources(used: ContextUsed, toolName: string, result: unknown): void {
   if (typeof result !== 'object' || result === null) return;
   const r = result as { results?: unknown; documents?: unknown };
-  if (toolName === 'search_knowledge_base' && Array.isArray(r.results)) {
+  if ((toolName === 'search_diagrams' || toolName === 'read_diagram') && Array.isArray(r.results)) {
+    for (const item of r.results as Array<{ id?: string; title?: string; url?: string }>) {
+      push(used.found, { id: item.id ?? '', kind: 'diagram', title: item.title ?? 'Untitled diagram', url: item.url ?? null });
+    }
+  } else if (toolName === 'search_knowledge_base' && Array.isArray(r.results)) {
     for (const item of r.results as Array<{ id?: string; source?: string; title?: string; url?: string | null }>) {
       push(used.found, { id: item.id ?? '', kind: item.source === 'note' ? 'note' : 'item', title: item.title ?? 'Untitled', url: item.url ?? null });
     }

@@ -44,6 +44,8 @@ export function selectRequiredToolChoice(
   hasEditableNote = false,
   /** A mind map is open beside the chat and can be changed. */
   hasEditableMap = false,
+  /** A diagram's saved structure is already included (read-only). */
+  hasOpenDiagram = false,
 ): LlmToolChoice | undefined {
   // A lasting preference/correction must be saved, not just acknowledged —
   // left to choose, the model often replies "Remembered" without saving.
@@ -81,6 +83,12 @@ export function selectRequiredToolChoice(
     if (searchToolName !== undefined) {
       return { type: 'function', function: { name: searchToolName } };
     }
+  }
+
+  if (/\bdiagrams?\b/i.test(userMessage) &&
+    (!hasOpenDiagram || /\b(?:diagrams|other|across|compare|comparison|find|search)\b/i.test(userMessage))) {
+    const diagramTool = findToolName(tools, name => name === 'search_diagrams');
+    if (diagramTool !== undefined) return { type: 'function', function: { name: diagramTool } };
   }
 
   if (URL_PATTERN.test(userMessage)) {

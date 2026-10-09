@@ -10,6 +10,8 @@ const LABELS: Record<string, string> = {
   inspect_discover_feed: 'Checking a candidate RSS/Atom feed',
   search_knowledge_base: 'Searching your notes and synced content',
   search_library: 'Searching your Library',
+  search_diagrams: 'Searching your diagrams',
+  read_diagram: 'Reading a saved diagram',
   find_files: 'Looking through your files',
   screenshot_page: 'Taking screenshots',
   get_content_pipeline: 'Checking your content plan',

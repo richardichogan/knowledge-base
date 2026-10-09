@@ -10,6 +10,8 @@ const SOURCE_LABELS: Record<string, string> = {
   create_note_draft: 'Think',
   search_knowledge_base: 'Knowledge base',
   search_library: 'Library',
+  search_diagrams: 'Diagrams',
+  read_diagram: 'Diagrams',
   search_knowledge_graph: 'Knowledge graph',
   search_ica: 'IBM Consulting Advantage',
   fetch_web_page: 'Web',

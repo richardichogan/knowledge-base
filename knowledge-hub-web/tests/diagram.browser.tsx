@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { DiagramEditor } from '../src/features/diagram/DiagramEditor';
 import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types';
@@ -87,17 +88,22 @@ api.getNoteSummaries = async () => success({
 });
 api.linkCanvasNote = async () => { linkedNotes = [{ id: noteId, title: 'Process requirements' }]; return api.getCanvas(canvasId); };
 api.unlinkCanvasNote = async () => { linkedNotes = []; return api.getCanvas(canvasId); };
+let athenaLinkedId: string | null = null;
+api.getSessionIdForNote = async id => { athenaLinkedId = id; return success({ sessionId: null }); };
+api.getProjects = async () => success([]);
+api.listModelChoices = async () => success([]);
+api.summarizeNote = async () => success({ summary: 'Diagram fixture context.' });
 
 const root = createRoot(window.document.getElementById('root')!);
 function mountEditor(): void { root.render(
-  <QueryClientProvider client={queryClient}>
+  <MemoryRouter><QueryClientProvider client={queryClient}>
     <div className="kh-content" style={{ height: '100vh', padding: '24px' }}>
       <div className="notes-editor-area notes-editor-area--map" style={{ height: '100%' }}>
         <DiagramEditor canvasId={canvasId} onDeleted={() => undefined} onOpenNote={(id) => { openedNote = id; }} />
       </div>
       <div hidden><NoteMaps noteId={noteId} onOpenMap={() => undefined} /></div>
     </div>
-  </QueryClientProvider>,
+  </QueryClientProvider></MemoryRouter>,
 ); }
 mountEditor();
 
@@ -118,6 +124,18 @@ async function runDiagramChecks(): Promise<string[]> {
   check(window.document.querySelector('.dg-edge__line')?.getAttribute('stroke') === '#c6c6c6', 'Existing dark connectors remain visible on the dark sheet');
   check(snapshot.document.edges[0]?.stroke === '#333333', 'Editor theme must not mutate saved connector colours');
   await waitFor(() => window.document.querySelector('.dg-editor') !== null);
+  clickButton('Athena');
+  await waitFor(() => window.document.querySelector('.dg-athena .think-athena-panel') !== null);
+  await waitFor(() => athenaLinkedId === `map:${canvasId}`);
+  check(window.document.querySelector('.dg-athena')?.textContent?.includes('Enterprise architecture / process flow') === true,
+    'Athena receives the current diagram context and linked conversation');
+  check(window.document.documentElement.scrollWidth <= innerWidth + 1, 'Diagram Athena panel must not overflow on mobile');
+  const composer = window.document.querySelector<HTMLTextAreaElement>('.dg-athena textarea');
+  check(composer !== null && composer.getBoundingClientRect().height > 0, 'Athena composer must be visible on desktop and mobile');
+  clickButton('Close Athena');
+  await waitFor(() => window.document.querySelector('.dg-properties') !== null);
+  check(window.document.querySelector('.dg-athena')?.hasAttribute('hidden') === true,
+    'Closing Athena preserves the mounted chat so ongoing turns and drafts are retained');
   const sheet = window.document.querySelector<SVGSVGElement>('svg.dg-canvas')!;
   const shape = window.document.querySelector<SVGGElement>(`g.dg-node[data-id="${workforce.id}"]`)!;
   const bounds = shape.getBoundingClientRect();
@@ -463,7 +481,8 @@ async function runDiagramChecks(): Promise<string[]> {
   check(window.document.documentElement.scrollWidth <= innerWidth + 1, 'No page horizontal overflow');
   const { checkDiagramFromNote } = await import('./diagramNoteCreation.browser');
   await checkDiagramFromNote(queryClient, waitFor);
-  return ['Representative architecture and process flow render', 'SVG export full bounds, embedded icon and bidirectional arrows',
+  return ['Diagram Athena opens with canvas context and per-diagram conversation at desktop/mobile widths',
+    'Representative architecture and process flow render', 'SVG export full bounds, embedded icon and bidirectional arrows',
     'PNG rasterisation with embedded SVG icon', 'Escaped labels and explicit missing-asset errors',
     'Shape double-click edits instead of adding', 'All nine text alignments match canvas and export',
     'Line and border thickness persist, undo/redo and scale exported arrowheads',

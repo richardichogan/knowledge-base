@@ -40,6 +40,7 @@ import { getLearnMcpTools, isLearnMcpTool, callLearnMcpTool } from './learnMcpCl
 import { getTavilyMcpTools, isTavilyMcpTool, callTavilyMcpTool } from './tavilyMcpClient.js';
 import { resolveMapChanges, type MapChangeProposal } from './mapEdits.js';
 import type { CanvasFull } from '../services/canvasService.js';
+import { findDiagramContext } from '../services/diagramContext.js';
 import { createSpark } from '../services/sparkService.js';
 import { loadCurrentProjectContext } from './projectContext.js';
 import { getDiscoverSources, inspectDiscoverFeed } from './discoveryContext.js';
@@ -116,7 +117,8 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           "or existing content — don't answer from memory alone. For notes, results include a `content` " +
           'field with the full note text; any pasted diagram/screenshot is included there as ' +
           '"[Image: <description>]" using its stored vision analysis — treat that description as what the ' +
-          "image actually shows, don't claim you can't see embedded images.",
+          "image actually shows, don't claim you can't see embedded images. Native editable diagrams " +
+          'are retrieved separately with search_diagrams and read_diagram.',
         parameters: {
           type: 'object',
           properties: {
@@ -125,6 +127,33 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             limit: { type: 'integer', description: `Max results to return (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: ['query'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'search_diagrams',
+        description: 'Read saved editable diagrams matching a phrase in their title, shape labels/descriptions, connector labels/descriptions or linked notes. Use for comparisons and cross-diagram reasoning. Returns structured evidence and linked-note excerpts with diagram links. An empty query lists recent diagrams. Respects the active project; not a screenshot analysis or editing tool.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'A short relevant phrase, or empty to list recent diagrams. Try separate phrases if there are no matches.' },
+            limit: { type: 'integer', description: 'Number of diagrams, default 3, maximum 5.' },
+          },
+          required: ['query'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'read_diagram',
+        description: 'Read a saved diagram by its ID, including shapes, descriptions, containment, connector direction and linked-note excerpts. Use IDs from search_diagrams or the open diagram. Respects the active project. Image pixels are not analysed. Read-only; cannot edit diagrams.',
+        parameters: {
+          type: 'object',
+          properties: { diagramId: { type: 'string', description: 'Saved diagram UUID.' } },
+          required: ['diagramId'],
         },
       },
     },
@@ -609,6 +638,7 @@ export async function executeToolCall(
   activeProjectId?: string,
   turn: {
     sessionId?: string | undefined; noteId?: string | undefined; noteEdits?: NoteEditProposal[];
+    excludedIds?: ReadonlySet<string>;
     /** Open mind map: outline alias (n1 …) → idea id, and a collector for proposed changes. */
     mapAliases?: Map<string, string> | undefined; mapCanvas?: CanvasFull | undefined; mapChanges?: MapChangeProposal[];
   } = {},
@@ -651,6 +681,26 @@ export async function executeToolCall(
     // With a canvas open, searches are usually for picking items to put on it — short extracts are enough.
     case 'search_knowledge_base': return searchKnowledgeBase(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : undefined);
     case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
+    case 'search_diagrams':
+    case 'read_diagram': {
+      const diagramId = args['diagramId'];
+      if (name === 'read_diagram' && (typeof diagramId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(diagramId))) {
+        return { error: 'Provide a saved diagram UUID from search_diagrams or the open diagram.' };
+      }
+      if (name === 'search_diagrams' && typeof args['query'] !== 'string') {
+        return { error: 'Provide a search phrase, or an empty query to list recent diagrams.' };
+      }
+      const projectId = contextualArgs['projectId'];
+      const result = await findDiagramContext(db, {
+        ...(name === 'read_diagram' && typeof diagramId === 'string' ? { diagramId } : {}),
+        ...(name === 'search_diagrams' && typeof args['query'] === 'string' ? { query: args['query'] } : {}),
+        ...(typeof projectId === 'string' && projectId.trim() !== '' ? { projectId } : {}),
+        ...(typeof args['limit'] === 'number' && Number.isFinite(args['limit']) ? { limit: args['limit'] } : {}),
+        ...(turn.excludedIds !== undefined ? { excludedIds: turn.excludedIds } : {}),
+      });
+      return name === 'read_diagram' && result.results.length === 0
+        ? { error: 'Diagram not found in the current project scope.' } : result;
+    }
     case 'list_tasks':            return listTasks(db, args);
     case 'find_files':            return findFiles(db, args);
     case 'screenshot_page':       return screenshotPage(db, args, turn.sessionId);

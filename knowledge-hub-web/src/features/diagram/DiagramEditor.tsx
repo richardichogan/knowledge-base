@@ -25,6 +25,8 @@ import {
 } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
+import { ThinkAthenaPanel } from '../../notes/ThinkAthenaPanel';
+import type { AthenaPageContext } from '../../context/AthenaContext';
 import type { CanvasFullApi } from '../../services/api';
 import {
   emptyDiagram, type DiagramDocument, type DiagramEdge, type DiagramKind, type DiagramNode, type DiagramPoint,
@@ -283,6 +285,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [exportBg, setExportBg] = useState<'white' | 'transparent'>('white');
   const [exportGrid, setExportGrid] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
+  const [athenaOpen, setAthenaOpen] = useState(false);
+  const [athenaMounted, setAthenaMounted] = useState(false);
   const [, setHistoryTick] = useState(0);
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -362,6 +366,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   });
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const athenaContext = useMemo<AthenaPageContext>(() => ({
+    type: 'canvas', id: `map:${canvasId}`, title: savedTitle,
+    detail: `Editable diagram. Read its saved shapes and connectors, provided separately. ${saveStatus === 'saved' ? 'All editor changes are saved.' : 'Editor changes are not yet saved; do not assume they are in the saved structure.'}`,
+    ...(sel.nodes.length === 1 ? { selectedId: sel.nodes[0]! } : sel.edges.length === 1 ? { selectedId: sel.edges[0]! } : {}),
+    ...(canvas?.project != null ? { projectId: canvas.project } : {}),
+  }), [canvasId, savedTitle, saveStatus, sel.nodes, sel.edges, canvas?.project]);
 
   const flush = useCallback((): void => {
     const s = save.current;
@@ -1476,7 +1486,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           <IconBtn label="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={() => { stepHistory('redo'); }}><Redo size={16} /></IconBtn>
           <span className="dg-divider" aria-hidden="true" />
           <IconBtn label={doc.grid ? 'Hide grid and snapping' : 'Show grid and snap to it'} pressed={doc.grid} onClick={toggleGrid}><Grid size={16} /></IconBtn>
-          <button type="button" className="dg-text-btn" aria-expanded={propertiesOpen} onClick={() => { setPropertiesOpen(!propertiesOpen); }}>Properties</button>
+          <button type="button" className="dg-text-btn" aria-expanded={propertiesOpen && !athenaOpen} onClick={() => { setAthenaOpen(false); setPropertiesOpen(athenaOpen || !propertiesOpen); }}>Properties</button>
+          <button type="button" className={`dg-text-btn${athenaOpen ? ' dg-text-btn--active' : ''}`} aria-expanded={athenaOpen} onClick={() => { setAthenaMounted(true); setAthenaOpen(!athenaOpen); }}>Athena</button>
           <div className="dg-anchor">
             <button type="button" className={`dg-text-btn${menu === 'export' ? ' dg-text-btn--active' : ''}`} aria-expanded={menu === 'export'} aria-haspopup="dialog" onClick={() => { setMenu(menu === 'export' ? null : 'export'); }}>
               <Download size={16} /> Export
@@ -1841,7 +1852,14 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         </div>
       </div>
 
-      {propertiesOpen && <aside className="dg-properties" aria-label="Diagram properties">
+      {athenaMounted && <aside className="dg-athena" aria-label="Diagram Athena" hidden={!athenaOpen}>
+        <div className="dg-properties__heading"><h3>Athena</h3><IconBtn label="Close Athena" onClick={() => { setAthenaOpen(false); }}><Close size={16} /></IconBtn></div>
+        <p className="dg-athena__hint">{saveStatus === 'saved'
+          ? 'Athena reads saved shapes, descriptions and connectors, and can compare other diagrams.'
+          : 'Changes are not saved yet. Athena can only read the last saved diagram.'}</p>
+        <ThinkAthenaPanel pageContext={athenaContext} />
+      </aside>}
+      {propertiesOpen && !athenaOpen && <aside className="dg-properties" aria-label="Diagram properties">
         <div className="dg-properties__heading"><h3>Properties</h3><IconBtn label="Close properties" onClick={() => { setPropertiesOpen(false); }}><Close size={16} /></IconBtn></div>
         {singleNode !== undefined || singleEdge !== undefined ? <DiagramProperties
           key={singleNode?.id ?? singleEdge?.id}

@@ -237,6 +237,16 @@ in undo/redo and are preserved when duplicating items. Use the Properties button
 to hide/show the panel. Multi-selection asks you to select a single item.
 Existing diagrams remain compatible and start with empty descriptions.
 
+Use **Athena** in the diagram toolbar to discuss the saved diagram. Athena reads
+shape titles/descriptions, artefact kinds, explicit container membership and
+connector direction, together with linked-note excerpts. It can search and compare
+other saved diagrams in the chat's project (or across projects when no project is
+selected), citing diagram links and labels. Standalone lines and visual proximity
+are not semantic connections; inferred similarities are distinguished from saved
+relationships. This is structured reading, not image analysis of uploaded icons,
+and does not enable diagram editing by Athena. Unsaved edits are not included.
+Large diagrams and note excerpts are bounded and explicitly marked as incomplete.
+
 From a note, **Create diagram** opens a new blank diagram linked to that note;
 it does not automatically generate shapes from the note's prose. In a diagram,
 **Properties → Linked notes → Link a note** associates an existing note, and

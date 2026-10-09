@@ -21,6 +21,7 @@ import { selectRequiredToolChoice } from './toolRouting.js';
 import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
 import { getCanvas } from '../services/canvasService.js';
 import { buildCanvasContext } from '../services/canvasContent.js';
+import { findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../services/diagramContext.js';
 import type { MapChangeProposal } from './mapEdits.js';
 import { looksLikeMeetingList, importMeetingList, buildTodayScheduleBlock } from '../integrations/ibm/ibmMeetings.js';
 
@@ -96,10 +97,13 @@ export async function handleConversationTurn(
   hooks.onActivity?.('Loading context');
   // A mind map open beside the chat (noteId "map:<id>"): Athena gets its outline and can propose changes.
   const mapId = toolContext.noteId?.startsWith('map:') === true ? toolContext.noteId.slice('map:'.length) : undefined;
-  // A diagram canvas has no brainstorm cards: Athena gets no outline and can't propose map changes to it.
-  const openCanvas = mapId !== undefined ? await getCanvas(mapId).catch(() => null) : null;
+  // Diagram structure is read separately; brainstorm mutation tools remain unavailable to diagrams.
+  const openCanvas = mapId !== undefined ? await getCanvas(mapId).catch((err: unknown) => {
+    console.error('[canvas] could not load open canvas:', err);
+    return null;
+  }) : null;
   const openMap = openCanvas !== null && openCanvas.canvasType === 'brainstorm' ? openCanvas : null;
-  const openDiagram = openCanvas !== null && openCanvas.canvasType === 'diagram' ? openCanvas : null;
+  const openDiagram = openCanvas !== null && openCanvas.canvasType === 'diagram' && pageContext?.type === 'canvas' ? openCanvas : null;
   const mapOutlineResult = openMap !== null
     ? await buildCanvasContext(db, openMap, userMessage, pageContext?.selectedId).catch((err: unknown) => {
       console.error('[canvas] context failed:', err);
@@ -115,6 +119,24 @@ export async function handleConversationTurn(
   if (excluded.size > 0) context.ragItems = context.ragItems.filter((item) => !excluded.has(item.id));
   const used = hooks.contextUsed;
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
+  let diagramBlock = '';
+  if (openDiagram !== null) {
+    try {
+      const result = await findDiagramContext(db, {
+        diagramId: openDiagram.id,
+        excludedIds: excluded,
+        ...(activeProjectId !== null ? { projectId: activeProjectId } : {}),
+        ...(pageContext?.selectedId !== undefined ? { selectedId: pageContext.selectedId } : {}),
+      });
+      const diagram = result.results.find(item => !excluded.has(item.id));
+      diagramBlock = diagram === undefined
+        ? 'The open diagram is excluded, unavailable, or outside this chat project. Do not infer its contents from its title.'
+        : `${DIAGRAM_READING_GUIDANCE}\nSaved diagram in view (primary evidence; not unsaved editor changes):\n${JSON.stringify(diagram)}`;
+    } catch (err) {
+      console.error('[diagram] context failed:', err);
+      diagramBlock = 'The open diagram could not be loaded. Tell the user; use read_diagram to retry, and do not claim to have seen its contents.';
+    }
+  }
   // Learned standing instructions + liked examples for this persona/project.
   const standingBlock = await buildStandingInstructionsBlock(db, { persona, projectId: activeProjectId })
     .catch((err: unknown) => { console.error('[memory] could not load standing instructions:', err); return ''; });
@@ -139,11 +161,11 @@ export async function handleConversationTurn(
   // Today's date and meetings (personal calendar + pasted IBM diary), always.
   const scheduleBlock = await buildTodayScheduleBlock(db)
     .catch((err: unknown) => { console.error('[meetings] schedule block failed:', err); return ''; });
-  const mapBlock = openDiagram !== null ? [
+  const mapBlock = mapId !== undefined && openCanvas === null && pageContext?.type === 'canvas'
+    ? `The open canvas (ID ${mapId}) could not be loaded. Tell the user and do not infer contents from its title. For a diagram, read_diagram can retry.`
+    : openDiagram !== null ? [
     `## Diagram in view: "${openDiagram.title}"`,
-    'The user has a diagram canvas (shapes and connectors drawn in the diagram editor) open beside the chat. You cannot ' +
-      'see its contents and cannot change it: there are no cards, and propose_map_changes only works on brainstorm ' +
-      'canvases. If asked to read or edit the diagram, say so plainly and suggest they describe it or edit it in the editor.',
+    diagramBlock,
   ].join('\n') : mapOutlineResult === null ? '' : [
     '## Canvas in view (the user is working on this canvas: cards of related content joined by typed connections)',
     'Cards are shown with aliases in brackets (c1, c2 …), followed by the content behind each card. Treat this as the ' +
@@ -210,6 +232,7 @@ export async function handleConversationTurn(
     context.activeProjectName,
     noteOpen,
     mapOutlineResult !== null,
+    openDiagram !== null,
   );
   // Asked to change the open note: she may need to write a lot (a full redraft, a long spec), so the
   // output budget is raised well above the chat default — otherwise a long edit is cut off mid-call.
@@ -305,7 +328,7 @@ export async function handleConversationTurn(
           throw new Error('This IMAGINE brief request permits reading context and saving Outputs only. The source note and other records cannot be changed.');
         }
         result = filterExcluded(
-          await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
+          await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, excludedIds: excluded, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
           excluded,
         );
         if (used !== undefined) recordToolSources(used, call.function.name, result);

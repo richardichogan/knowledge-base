@@ -491,7 +491,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         resumeSessionTurn(linkedSessionId);
       } else {
         setIsRestoringHistory(false);
-        await loadNoteSummary(pageContext?.title ?? 'Untitled', pageContext?.detail ?? '');
+        // Canvas detail is metadata only; the server reads its saved structure on each chat turn.
+        if (pageContext?.type !== 'canvas') await loadNoteSummary(pageContext?.title ?? 'Untitled', pageContext?.detail ?? '');
       }
     }).catch((error: unknown) => {
       if (!cancelled) reportHistoryError(error);

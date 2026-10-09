@@ -68,6 +68,19 @@ $dg-ink: #f4f4f4;
   min-width: 0;
   position: relative;
 }
+.dg-athena {
+  &[hidden] { display: none; }
+  flex: 0 0 380px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.75rem 1rem;
+  background: var(--cds-layer-01);
+  border-left: 1px solid var(--cds-border-subtle-01);
+  .think-athena-panel { flex: 1; min-height: 0; }
+  &__hint { margin: 0.75rem 0; font-size: 0.75rem; line-height: 1.4; color: var(--cds-text-secondary); }
+}
 .dg-properties {
   flex: 0 0 280px;
   min-width: 0;
@@ -115,6 +128,7 @@ $dg-ink: #f4f4f4;
 @media (max-width: 700px) {
   .dg-work-area { flex-direction: column; }
   .dg-properties { flex: 0 1 auto; max-height: 45%; border-left: 0; border-top: 1px solid var(--cds-border-subtle-01); }
+  .dg-athena { flex: 0 0 55%; border-left: 0; border-top: 1px solid var(--cds-border-subtle-01); }
   .dg-properties__fields { gap: 0.5rem; padding-top: 0.5rem; }
   .dg-properties__field textarea { max-height: 8rem; }
 }
