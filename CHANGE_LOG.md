@@ -2,6 +2,13 @@
 
 ---
 
+## Connector label text size — 2026-10-09
+
+Connector labels now have Text size controls in Properties and the floating
+Connector style menu (10–36px). Changes support undo/redo, automatic saving,
+reopening and SVG/PNG exports. Older diagrams retain their 12px connector
+labels until edited; connector line thickness remains independent.
+
 ## Purpose
 
 This document captures decisions and scope changes made after the

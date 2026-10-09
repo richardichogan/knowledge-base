@@ -722,6 +722,17 @@ export function edgePoints(edge: DiagramEdge, nodes: readonly DiagramNode[]): Di
 export const EDGE_LABEL_WIDTH = 160;
 export const EDGE_LABEL_FONT = 12;
 
+export function edgeLabelLayout(edge: Pick<DiagramEdge, 'label' | 'fontSize'>): { fontSize: number; lines: string[]; lineHeight: number; width: number; height: number } {
+  const fontSize = edge.fontSize ?? EDGE_LABEL_FONT;
+  const lines = edge.label.trim() === '' ? [] : wrapText(edge.label, EDGE_LABEL_WIDTH, fontSize, 3);
+  const lineHeight = fontSize * 1.25;
+  return {
+    fontSize, lines, lineHeight,
+    width: Math.max(...lines.map(line => line.length), 0) * fontSize * 0.56 + 12,
+    height: lines.length * lineHeight + 6,
+  };
+}
+
 /** Padded, never-empty bounds of every node, edge route, waypoint and connector label; used as the export viewBox. */
 export function diagramBounds(doc: Pick<DiagramDocument, 'nodes' | 'edges'>, padding = 24): Rect {
   const byId = nodeMap(doc.nodes);
@@ -731,10 +742,9 @@ export function diagramBounds(doc: Pick<DiagramDocument, 'nodes' | 'edges'>, pad
     for (const p of route) rects.push({ x: p.x, y: p.y, width: 0, height: 0 });
     for (const w of e.waypoints) rects.push({ x: w.x, y: w.y, width: 0, height: 0 });
     if (route.length >= 2 && e.label.trim() !== '') {
-      // Conservative box for the midpoint label (12px text, wrapped at 160px, up to 3 lines).
-      const lines = wrapText(e.label, EDGE_LABEL_WIDTH, EDGE_LABEL_FONT, 3);
-      const w = Math.max(...lines.map((l) => l.length), 0) * EDGE_LABEL_FONT * 0.6 + 16;
-      const h = lines.length * EDGE_LABEL_FONT * 1.25 + 12;
+      const layout = edgeLabelLayout(e);
+      const w = layout.width + 4;
+      const h = layout.height + 6;
       const m = pointAlong(route, 0.5);
       rects.push({ x: m.x - w / 2, y: m.y - h / 2 - 8, width: w, height: h + 8 });
     }

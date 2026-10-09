@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Latest main `5225de7`: diagram enhancements, discovery context and chat cancellation.
 
@@ -146,6 +146,14 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-09 at 21:13 BST:
+
+- Backend v175 revision `kh-prod-api-vnet--0000172` is the only active
+  revision, Healthy / RunningAtMaxScale; startup migrations completed.
+- SWA production deployment succeeded. Custom/default hosts serve exact
+  release HTML and SHA-256 matching entry scripts; API health returned 200.
+- Endpoint: https://athena.themicrosoftcloudblog.com/
 
 Validated 2026-10-09 at 21:10 BST for `5225de7`:
 

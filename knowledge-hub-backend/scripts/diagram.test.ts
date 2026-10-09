@@ -44,6 +44,19 @@ function rejects(fn: () => unknown, field: RegExp): void {
 
 // ─── Document validation ─────────────────────────────────────────────────────
 
+test('connector font size is optional for legacy diagrams and validated when present', () => {
+  const a = node();
+  const b = node({ x: 300 });
+  const legacy = edge(a.id, b.id);
+  assert.equal(validateDiagramDocument(doc([a, b], [legacy]), NONE).edges[0]?.fontSize, undefined);
+  for (const fontSize of [6, 12, 24, 36, 200]) {
+    assert.equal(validateDiagramDocument(doc([a, b], [{ ...legacy, fontSize }]), NONE).edges[0]?.fontSize, fontSize);
+  }
+  for (const fontSize of [0, 5, 201, NaN, Infinity, '24', null]) {
+    rejects(() => validateDiagramDocument({ ...doc([a, b]), edges: [{ ...legacy, fontSize }] }, NONE), /edges\[0\]\.fontSize/);
+  }
+});
+
 test('accepts a valid document and returns a clean copy', () => {
   const lane = node({ kind: 'swimlane', width: 800, height: 400 });
   const box = node({ kind: 'container', parentId: lane.id });

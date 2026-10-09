@@ -32,6 +32,7 @@ export interface DiagramEdge {
   route: 'straight' | 'orthogonal';
   waypoints: DiagramPoint[];
   label: string;
+  fontSize?: number;
   description?: string;
   stroke: string;
   strokeWidth?: number;

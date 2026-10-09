@@ -38,7 +38,7 @@ import {
   canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, pathD,
   pointAlong, insertWaypoint, hitTestNode, hitTestEdge, nodesInRect, alignNodes, distributeNodes, reorderNodes,
   cloneSelection, removeSelection, normalizeDocument, screenToWorld, worldToScreen, clampZoom, zoomAt, fitViewport,
-  wrapText, fitSize, documentShapePath, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
+  wrapText, edgeLabelLayout, fitSize, documentShapePath, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
 } from './diagramGeometry';
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
@@ -1419,7 +1419,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       const edge = doc.edges.find((x) => x.id === editing.id);
       if (route === undefined || route === null || edge === undefined) return null;
       const m = worldToScreen(pointAlong(route, 0.5), view);
-      return { left: m.x - 90, top: m.y - 18, width: 180, height: 36, fontSize: Math.max(11, 12 * z) };
+      const fontSize = Math.max(11, (edge.fontSize ?? 12) * z);
+      const height = Math.max(36, fontSize * 1.25 + 12);
+      return { left: m.x - 90, top: m.y - height / 2, width: 180, height, fontSize };
     }
     const n = byId.get(editing.id);
     if (n === undefined || n.kind === 'line') return null;
@@ -1607,9 +1609,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 const d = pathD(route);
                 const marker = `url(#${markerIds.get(edge.stroke) ?? ''})`;
                 const mid = pointAlong(route, 0.5);
-                const lines = edge.label.trim() === '' || (editing?.kind === 'edge' && editing.id === edge.id) ? [] : wrapText(edge.label, 160, 12, 3);
-                const labelW = Math.max(...lines.map((l) => l.length), 0) * 12 * 0.56 + 12;
-                const labelH = lines.length * 15 + 6;
+                const { lines: labelLines, width: labelW, height: labelH, fontSize: labelFont, lineHeight } = edgeLabelLayout(edge);
+                const lines = editing?.kind === 'edge' && editing.id === edge.id ? [] : labelLines;
                 return (
                   <g key={edge.id} className={`dg-edge${selEdgeSet.has(edge.id) ? ' dg-edge--selected' : ''}`} data-dg="edge" data-id={edge.id}>
                     <path className="dg-edge__hit" d={d} strokeWidth={Math.max(14 * inv, (edge.strokeWidth ?? 1.5) + 6 * inv)} />
@@ -1624,8 +1625,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                     {lines.length > 0 && (
                       <g className="dg-edge__label">
                         <rect x={mid.x - labelW / 2} y={mid.y - labelH / 2} width={labelW} height={labelH} rx={3} />
-                        <text x={mid.x} y={mid.y - labelH / 2 + 3 + 12} fontSize={12} textAnchor="middle" fill={diagramEditorInk(edge.stroke === 'none' ? '#161616' : edge.stroke)}>
-                          {lines.map((l, i) => <tspan key={i} x={mid.x} dy={i === 0 ? 0 : 15}>{l}</tspan>)}
+                        <text x={mid.x} y={mid.y - labelH / 2 + 3 + labelFont} fontSize={labelFont} textAnchor="middle" fill={diagramEditorInk(edge.stroke === 'none' ? '#161616' : edge.stroke)}>
+                          {lines.map((l, i) => <tspan key={i} x={mid.x} dy={i === 0 ? 0 : lineHeight}>{l}</tspan>)}
                         </text>
                       </g>
                     )}
@@ -1804,12 +1805,22 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               />
               <IconBtn label={allDashed ? 'Solid line' : 'Dashed line'} pressed={allDashed} onClick={() => { updateEdges(sel.edges, (x) => ({ ...x, dashed: !allDashed })); }}><LineGlyph kind="dashed" /></IconBtn>
               <div className="dg-anchor">
-                <IconBtn label="Line colour" pressed={menu === 'edge-colour'} onClick={() => { setMenu(menu === 'edge-colour' ? null : 'edge-colour'); }}>
+                <IconBtn label="Connector style" pressed={menu === 'edge-colour'} onClick={() => { setMenu(menu === 'edge-colour' ? null : 'edge-colour'); }}>
                   <span className="dg-colour-dot" style={{ background: only(edgeColours) ?? 'transparent' }} />
                 </IconBtn>
                 {menu === 'edge-colour' && (
-                  <div className="dg-popover dg-popover--context" role="dialog" aria-label="Line colour">
+                  <div className="dg-popover dg-popover--context" role="dialog" aria-label="Connector style">
                     <Swatches label="Line colour" colours={EDGE_COLOURS} value={only(edgeColours)} onPick={(c) => { updateEdges(sel.edges, (x) => ({ ...x, stroke: c })); }} />
+                    <label className="dg-field">
+                      <span className="dg-field__label">Text size</span>
+                      <select className="dg-select" aria-label="Connector text size"
+                        value={only(new Set(selectedEdges.map(edge => edge.fontSize ?? 12))) ?? ''}
+                        onChange={(event) => { const fontSize = Number(event.target.value); updateEdges(sel.edges, edge => ({ ...edge, fontSize })); }}>
+                        <option value="" disabled>Mixed</option>
+                        {Array.from({ length: FONT_MAX - FONT_MIN + 1 }, (_, i) => FONT_MIN + i)
+                          .map(size => <option key={size} value={size}>{size} px</option>)}
+                      </select>
+                    </label>
                   </div>
                 )}
               </div>
@@ -1868,6 +1879,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           titleLimit={singleNode === undefined ? 500 : 2000}
           onFontSizeChange={(fontSize) => {
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, fontSize }));
+            else if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => ({ ...edge, fontSize }));
           }}
           onBackgroundChange={(fill) => {
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, textColor: diagramEditorNodeColours(n).textColor, fill }));
@@ -1957,14 +1969,15 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
       <textarea aria-label="Shape or connector description" rows={8} maxLength={10000} value={item.description ?? ''}
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('description', e.target.value); }} />
     </label>
-    {'kind' in item && item.kind !== 'line' && <div className="dg-properties__alignment">
+    {(!('kind' in item) || item.kind !== 'line') && <div className="dg-properties__alignment">
       <label className="dg-properties__field">Text size
-        <select aria-label="Text size" value={item.fontSize}
+        <select aria-label="Text size" value={item.fontSize ?? 12}
           onChange={(event) => { onFontSizeChange(Number(event.target.value)); }}>
           {Array.from({ length: FONT_MAX - FONT_MIN + 1 }, (_, i) => FONT_MIN + i)
             .map(size => <option key={size} value={size}>{size} px</option>)}
         </select>
       </label>
+      {'kind' in item && <>
       <span>Horizontal text alignment</span>
       <Segmented label="Text horizontal alignment" value={item.textAlign ?? (item.kind === 'container' ? 'left' : 'center')}
         options={[{ value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' }]}
@@ -1973,6 +1986,7 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
       <Segmented label="Text vertical alignment" value={item.textVerticalAlign ?? 'middle'}
         options={[{ value: 'top', label: 'Top' }, { value: 'middle', label: 'Middle' }, { value: 'bottom', label: 'Bottom' }]}
         onChange={(value) => { onAlignmentChange({ textVerticalAlign: value }); }} />
+      </>}
     </div>}
     <p className="dg-properties__hint">{'kind' in item && item.kind === 'line' ? 'Title and description are saved but not displayed on the line.' : 'Title is shown on the diagram. Description is saved with this item but not displayed on the drawing.'} Changes save automatically.</p>
   </div>;

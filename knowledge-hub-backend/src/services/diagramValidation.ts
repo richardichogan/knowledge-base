@@ -171,7 +171,7 @@ function validateNode(v: unknown, path: string): DiagramNode {
 }
 
 function validateEdge(v: unknown, path: string): DiagramEdge {
-  const o = exactObject(v, EDGE_KEYS, path, ['description', 'strokeWidth']);
+  const o = exactObject(v, EDGE_KEYS, path, ['description', 'strokeWidth', 'fontSize']);
   const waypoints = array(o['waypoints'], `${path}.waypoints`, DIAGRAM_LIMITS.maxWaypointsPerEdge)
     .map((p, i) => validatePoint(p, `${path}.waypoints[${i}]`));
   return {
@@ -183,6 +183,7 @@ function validateEdge(v: unknown, path: string): DiagramEdge {
     route: oneOf(o['route'], ROUTES, `${path}.route`),
     waypoints,
     label: str(o['label'], `${path}.label`, DIAGRAM_LIMITS.maxEdgeLabelChars),
+    ...(o['fontSize'] !== undefined ? { fontSize: num(o['fontSize'], `${path}.fontSize`, DIAGRAM_LIMITS.minFontSize, DIAGRAM_LIMITS.maxFontSize) } : {}),
     ...(o['description'] !== undefined ? { description: str(o['description'], `${path}.description`, DIAGRAM_LIMITS.maxDescriptionChars) } : {}),
     stroke: color(o['stroke'], `${path}.stroke`),
     ...(o['strokeWidth'] !== undefined ? { strokeWidth: num(o['strokeWidth'], `${path}.strokeWidth`, 0.5, 6) } : {}),

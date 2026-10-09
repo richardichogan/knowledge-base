@@ -5,7 +5,7 @@
  */
 import type { DiagramDocument, DiagramEdge, DiagramNode, DiagramPoint } from '../diagramTypes';
 import {
-  alignNodes, boundsOf, diagramBounds, edgePoints, canParent, cloneSelection, containerAt, distributeNodes, edgeRoute, facingPorts, fitSize,
+  alignNodes, boundsOf, diagramBounds, edgeLabelLayout, edgePoints, canParent, cloneSelection, containerAt, distributeNodes, edgeRoute, facingPorts, fitSize,
   fitViewport, hitTestEdge, hitTestNode, insertWaypoint, nearestPort, nodeMap, nodesInRect, normalizeDocument,
   orthogonalRoute, pointAlong, portPoint, removeSelection, renderOrder, reorderNodes, resizeRect, setParent,
   simplifyPolyline, topLevelSelection, translateNodes, wrapText, zoomAt, screenToWorld,
@@ -255,6 +255,22 @@ test('diagramBounds includes connector labels', () => {
   const d = doc([node('a', 0, 0, 10, 10), node('b', 0, 100, 10, 10)], [edge('e', 'a', 'b', { sourcePort: 'bottom', targetPort: 'top', label: 'a fairly long connector label' })]);
   const b = diagramBounds(d, 0);
   ok(b.x < 0 && b.x + b.width > 10, 'label widens bounds');
+});
+
+test('connector label layout preserves defaults and bounds larger text', () => {
+  const legacy = edge('e', 'a', 'b', { label: 'Request handoff' });
+  eq(edgeLabelLayout(legacy).fontSize, 12);
+  const larger = { ...legacy, fontSize: 36 };
+  const layout = edgeLabelLayout(larger);
+  eq(layout.lineHeight, 45);
+  ok(layout.height > edgeLabelLayout(legacy).height, 'larger labels increase background height');
+  const nodes = [node('a', 0, 0, 10, 10), node('b', 0, 100, 10, 10)];
+  const b = diagramBounds(doc(nodes, [larger]), 0);
+  const midpoint = pointAlong(edgePoints(larger, nodes), 0.5);
+  ok(b.x <= midpoint.x - layout.width / 2 && b.x + b.width >= midpoint.x + layout.width / 2,
+    'export bounds include the enlarged label width');
+  ok(b.y <= midpoint.y - layout.height / 2 && b.y + b.height >= midpoint.y + layout.height / 2,
+    'export bounds include the enlarged label height');
 });
 
 console.log(`${String(passes)} passed, ${String(failures)} failed`);

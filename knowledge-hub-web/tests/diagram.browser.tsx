@@ -366,6 +366,33 @@ async function runDiagramChecks(): Promise<string[]> {
   await setProperty('Shape or connector title', 'Request handoff');
   await setProperty('Shape or connector description', 'Passes the request to the runtime.');
   await waitFor(() => snapshot.document.edges.some((e) => e.label === 'Request handoff' && e.description === 'Passes the request to the runtime.'));
+  check(window.document.querySelector('.dg-edge__label text')?.getAttribute('font-size') === '12',
+    'Legacy connector labels retain their 12px default');
+  for (const size of [10, 24, 36]) {
+    await setThickness('Text size', size);
+    await waitFor(() => snapshot.document.edges[0]?.fontSize === size);
+    const rendered = window.document.querySelector('.dg-edge__label text')!;
+    check(rendered.getAttribute('font-size') === String(size), 'Connector text size renders on canvas');
+    const xml = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+    const exported = [...xml.querySelectorAll('text')].find(text => text.textContent?.includes('Request'))!;
+    check(exported.getAttribute('font-size') === String(size), 'Connector text size is exported');
+    check(exported.getAttribute('y') === rendered.getAttribute('y'), 'Canvas and export connector label positions match');
+  }
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => snapshot.document.edges[0]?.fontSize === 24);
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => snapshot.document.edges[0]?.fontSize === 36);
+  clickButton('Connector style');
+  await waitFor(() => window.document.querySelector('select[aria-label="Connector text size"]') !== null);
+  await setThickness('Connector text size', 24);
+  await waitFor(() => snapshot.document.edges[0]?.fontSize === 24);
+  clickButton('Edit label (Enter)');
+  await waitFor(() => window.document.querySelector('.dg-label-editor') !== null);
+  const zoom = snapshot.document.viewport.zoom;
+  check(Math.abs(Number.parseFloat((window.document.querySelector('.dg-label-editor') as HTMLElement).style.fontSize)
+    - Math.max(11, 24 * zoom)) < 0.01, 'Inline connector editor uses selected font size');
+  window.document.querySelector('.dg-label-editor')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await delay(20);
   const processId = snapshot.document.nodes.find((n) => n.label === 'Browser-verified process')!.id;
   const process = window.document.querySelector(`g.dg-node[data-id="${processId}"]`)!;
   process.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
@@ -412,6 +439,7 @@ async function runDiagramChecks(): Promise<string[]> {
   check(snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true), 'Shape descriptions must survive reopening and duplication');
   check(snapshot.document.edges.some((e) => e.description === 'Passes the request to the runtime.'), 'Connector descriptions must survive reopening');
   check(snapshot.document.edges[0]?.strokeWidth === 6, 'Connector thickness survives reopening');
+  check(snapshot.document.edges[0]?.fontSize === 24, 'Connector text size survives reopening');
   check(snapshot.document.nodes.some(n => n.label === 'Browser-verified process' && n.strokeWidth === 3),
     'Shape thickness survives reopening and duplication');
   check(snapshot.document.nodes.filter(n => n.label === 'Browser-verified process')

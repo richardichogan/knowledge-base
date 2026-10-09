@@ -1,7 +1,7 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
 import { diagramTextLayout } from './diagramText';
 import { diagramBorderDash } from './diagramStroke';
-import { containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgePoints, linePoints, pointAlong, renderOrder, wrapText } from './diagramGeometry';
+import { containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgePoints, edgeLabelLayout, linePoints, pointAlong, renderOrder } from './diagramGeometry';
 
 const escapeXml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
   '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;',
@@ -74,10 +74,8 @@ export async function diagramSvg(document: DiagramDocument, assets: Map<string, 
     definitions.push(`<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${20 / 3}" markerHeight="${20 / 3}" markerUnits="strokeWidth" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${escapeXml(edge.stroke)}"/></marker>`);
     const middle = pointAlong(points, 0.5);
     const path = `<polyline points="${points.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="${escapeXml(edge.stroke)}" stroke-width="${edge.strokeWidth ?? 1.5}"${edge.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.arrows !== 'none' ? ` marker-end="url(#arrow-${i})"` : ''}${edge.arrows === 'both' ? ` marker-start="url(#arrow-${i})"` : ''}/>`;
-    const lines = wrapText(edge.label, 160, 12, 3);
-    const labelW = Math.max(...lines.map((line) => line.length), 0) * 12 * 0.56 + 12;
-    const labelH = lines.length * 15 + 6;
-    const label = edge.label.trim() ? `<rect x="${middle.x - labelW / 2}" y="${middle.y - labelH / 2}" width="${labelW}" height="${labelH}" rx="3" fill="white" fill-opacity="0.92"/><text x="${middle.x}" y="${middle.y - labelH / 2 + 15}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12" text-anchor="middle" fill="${edge.stroke === 'none' ? '#161616' : escapeXml(edge.stroke)}">${lines.map((line, j) => `<tspan x="${middle.x}" dy="${j === 0 ? 0 : 15}">${escapeXml(line)}</tspan>`).join('')}</text>` : '';
+    const { lines, width: labelW, height: labelH, fontSize, lineHeight } = edgeLabelLayout(edge);
+    const label = edge.label.trim() ? `<rect x="${middle.x - labelW / 2}" y="${middle.y - labelH / 2}" width="${labelW}" height="${labelH}" rx="3" fill="white" fill-opacity="0.92"/><text x="${middle.x}" y="${middle.y - labelH / 2 + 3 + fontSize}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" text-anchor="middle" fill="${edge.stroke === 'none' ? '#161616' : escapeXml(edge.stroke)}">${lines.map((line, j) => `<tspan x="${middle.x}" dy="${j === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>` : '';
     return `${path}${label}`;
   });
   const grid = includeGrid ? `<pattern id="export-grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r="1" fill="#d0d0d0"/></pattern>` : '';
