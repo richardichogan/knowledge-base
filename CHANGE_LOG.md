@@ -2,6 +2,14 @@
 
 ---
 
+## Diagram properties — 2026-10-09
+
+The Properties panel exposes diagram title, description and project separately
+from selected shape/connector properties. Project assignment can be changed or
+cleared explicitly, with save/load errors shown. The diagram's current project,
+including No project, grounds its embedded Athena conversation on the next turn
+instead of falling back to an older linked chat's project.
+
 ## Connector label text size — 2026-10-09
 
 Connector labels now have Text size controls in Properties and the floating
