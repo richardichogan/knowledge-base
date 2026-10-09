@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Current branch `877c4d8`: cross-project Athena, diagram properties, connector font controls and Discover Socials.
 
@@ -151,6 +151,17 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-09 at 22:41 BST:
+
+- Release `a39cb68` (application code `877c4d8`), ACR run `ca5j` succeeded.
+- Backend v176 revision `kh-prod-api-vnet--0000173` is the sole active
+  revision, Healthy / RunningAtMaxScale. Migrations completed; API health 200.
+- Matching SWA production deployment succeeded. Custom and default hosts
+  serve exact release HTML and SHA-256 matching `/assets/index-BhI-nETI.js`.
+- No secrets, environments, infrastructure or roles changed; existing
+  registry password secret remained in place and image pull succeeded.
+- Endpoint: https://athena.themicrosoftcloudblog.com/
 
 Validated 2026-10-09 at 22:36 BST for `877c4d8`:
 
