@@ -1,10 +1,16 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** GitHub destination validation and Athena favicon/app-icon correction.
+**Deployment:** Project-only GitHub destinations, readable title filenames and dark diagram shapes.
 
 ## 1. Scope
+
+Approved 2026-10-09 at 08:24 BST: deploy, merge and push commits `2656a76`
+and `310536b`. Deploy backend v174 then the matching full frontend release.
+Use existing production resources and registry credentials. No migrations,
+data repair, infrastructure, secret, environment, authentication or role changes.
+Rollback: backend v173 and frontend source `bbadbde`.
 
 Approved on 2026-10-08 at 21:42 BST: deploy correction `6950018` to the
 existing production targets. Reject unavailable project repository defaults,
@@ -135,6 +141,23 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-09 (08:25 BST), combined release:
+
+- Both apps: `npx tsc --noEmit` and `npm run build` passed.
+- Frontend fixture typecheck passed. Backend combined test selection passed
+  9 tests plus 30 geometry assertions: project-only allowlist, pagination,
+  duplicate/renamed repositories, readable Unicode filenames, publishing,
+  history, dark legacy/new shape surfaces and unchanged legacy exports.
+- Desktop/mobile publishing and diagram browser fixtures passed during
+  implementation at 1440/390px; actual SVG fills and label contrast checked.
+- Real project database and production GitHub account checks passed:
+  16 writable configured destinations, folder browsing, unconfigured rejection.
+- Azure authenticated to established Alliance Tenant Reporting subscription;
+  backend currently v173, v174 absent. Remote main is ancestor of release.
+- No changed IaC/RBAC: template/what-if/provisioning/new-role checks N/A.
+  Existing registry secret authentication retained. ACR Node 20 build is
+  mandatory before image update. `git diff --check` passed.
 
 Deployed 2026-10-08 (21:50 BST), correction `6950018`:
 
