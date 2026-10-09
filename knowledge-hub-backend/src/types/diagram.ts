@@ -18,6 +18,7 @@ export interface DiagramNode {
   parentId: string | null;
   fill: string;
   stroke: string;
+  strokeWidth?: number;
   textColor: string;
   fontSize: number;
   textAlign?: 'left' | 'center' | 'right';
@@ -35,6 +36,7 @@ export interface DiagramEdge {
   label: string;
   description?: string;
   stroke: string;
+  strokeWidth?: number;
   dashed: boolean;
   arrows: 'none' | 'end' | 'both';
 }

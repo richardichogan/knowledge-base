@@ -94,6 +94,20 @@ $dg-ink: #f4f4f4;
     &:hover { border-color: var(--cds-text-secondary); }
     &:focus { @include dg-focus; }
   }
+  &__field select {
+    width: 100%;
+    min-height: 2.25rem;
+    padding: 0.5rem;
+    border: 1px solid var(--cds-border-subtle-01);
+    background: var(--cds-field-01);
+    color: var(--cds-text-primary);
+    font: inherit;
+    cursor: pointer;
+    &:hover { border-color: var(--cds-text-secondary); }
+    &:active { background: var(--cds-layer-active-01); }
+    &:focus-visible { @include dg-focus; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
   &__hint, &__empty { color: var(--cds-text-secondary); font-size: 0.75rem; line-height: 1.5; margin: 0; }
   &__empty { padding-top: 1rem; }
 }
@@ -436,7 +450,7 @@ $dg-ink: #f4f4f4;
   cursor: pointer;
   &__hit { fill: none; stroke: transparent; pointer-events: stroke; }
   &__halo { fill: none; stroke: $dg-select; stroke-opacity: 0; stroke-width: 6px; vector-effect: non-scaling-stroke; pointer-events: none; }
-  &__line { fill: none; stroke-width: 1.5; pointer-events: none; }
+  &__line { fill: none; pointer-events: none; }
   &__label {
     rect { fill: $dg-sheet-bg; fill-opacity: 0.92; }
     text { font-family: 'IBM Plex Sans', system-ui, sans-serif; user-select: none; }

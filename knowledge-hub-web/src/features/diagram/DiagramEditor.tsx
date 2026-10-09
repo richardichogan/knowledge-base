@@ -1503,7 +1503,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 <circle cx={1} cy={1} r={1} className="dg-canvas__dot" />
               </pattern>
               {[...markerIds].map(([colour, id]) => (
-                <marker key={id} id={id} viewBox="0 0 10 10" refX={9} refY={5} markerWidth={10} markerHeight={10} markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+                <marker key={id} id={id} viewBox="0 0 10 10" refX={9} refY={5} markerWidth={20 / 3} markerHeight={20 / 3} markerUnits="strokeWidth" orient="auto-start-reverse">
                   <path d="M0,1 L10,5 L0,9 z" fill={diagramEditorInk(colour)} />
                 </marker>
               ))}
@@ -1524,10 +1524,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 const labelH = lines.length * 15 + 6;
                 return (
                   <g key={edge.id} className={`dg-edge${selEdgeSet.has(edge.id) ? ' dg-edge--selected' : ''}`} data-dg="edge" data-id={edge.id}>
-                    <path className="dg-edge__hit" d={d} strokeWidth={14 * inv} />
-                    <path className="dg-edge__halo" d={d} />
+                    <path className="dg-edge__hit" d={d} strokeWidth={Math.max(14 * inv, (edge.strokeWidth ?? 1.5) + 6 * inv)} />
+                    <path className="dg-edge__halo" d={d} style={{ strokeWidth: (edge.strokeWidth ?? 1.5) * z + 4 }} />
                     <path
                       className="dg-edge__line" d={d} stroke={diagramEditorInk(edge.stroke)}
+                      strokeWidth={edge.strokeWidth ?? 1.5}
                       strokeDasharray={edge.dashed ? '6 4' : undefined}
                       markerEnd={edge.arrows === 'none' ? undefined : marker}
                       markerStart={edge.arrows === 'both' ? marker : undefined}
@@ -1766,6 +1767,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           item={(singleNode ?? singleEdge)!}
           kind={singleNode === undefined ? 'Connector' : KIND_LABEL[singleNode.kind]}
           titleLimit={singleNode === undefined ? 500 : 2000}
+          onThicknessChange={(strokeWidth) => {
+            if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, strokeWidth }));
+            else if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => ({ ...edge, strokeWidth }));
+          }}
           onAlignmentChange={(alignment) => {
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, ...alignment }));
           }}
@@ -1798,10 +1803,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   );
 };
 
-function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange }: {
+function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
   onChange: (field: 'label' | 'description', value: string, first: boolean) => void;
   onAlignmentChange: (alignment: Partial<Pick<DiagramNode, 'textAlign' | 'textVerticalAlign'>>) => void;
+  onThicknessChange: (strokeWidth: number) => void;
 }): React.ReactElement {
   const firstEdit = useRef(true);
   const change = (field: 'label' | 'description', value: string): void => {
@@ -1813,6 +1819,14 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
     <label className="dg-properties__field">Title
       <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label}
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('label', e.target.value); }} />
+    </label>
+    <label className="dg-properties__field">{'kind' in item ? 'Border thickness' : 'Line thickness'}
+      <select aria-label={'kind' in item ? 'Border thickness' : 'Line thickness'} value={item.strokeWidth ?? 1.5}
+        onChange={(event) => { onThicknessChange(Number(event.target.value)); }}>
+        {[0.5, 1, 1.5, 2, 3, 4, 6].map(width => <option key={width} value={width}>{width} px</option>)}
+        {item.strokeWidth !== undefined && ![0.5, 1, 1.5, 2, 3, 4, 6].includes(item.strokeWidth)
+          && <option value={item.strokeWidth}>{item.strokeWidth} px</option>}
+      </select>
     </label>
     <label className="dg-properties__field">Description
       <textarea aria-label="Shape or connector description" rows={8} maxLength={10000} value={item.description ?? ''}
@@ -1863,7 +1877,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
   const cx = x + w / 2;
   const cy = y + h / 2;
   const label = editing ? '' : n.label;
-  const common = { className: 'dg-node__body', fill, stroke, strokeWidth: 1.5, pointerEvents: 'all' as const };
+  const common = { className: 'dg-node__body', fill, stroke, strokeWidth: n.strokeWidth ?? 1.5, pointerEvents: 'all' as const };
   let body: React.ReactNode;
   let text: React.ReactNode = null;
   const maxLines = (avail: number): number => Math.max(1, Math.floor(avail / (fs * 1.25)));
@@ -1909,7 +1923,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       body = (
         <>
           <rect {...common} x={x} y={y} width={w} height={h} rx={4} />
-          <line className="dg-node__divider" x1={x} y1={y + CONTAINER_HEADER} x2={x + w} y2={y + CONTAINER_HEADER} stroke={stroke} />
+          <line className="dg-node__divider" x1={x} y1={y + CONTAINER_HEADER} x2={x + w} y2={y + CONTAINER_HEADER} stroke={stroke} strokeWidth={n.strokeWidth ?? 1} />
         </>
       );
       text = <TextLines lines={wrapText(label, w - 20, fs, 1)} cx={cx} cy={y + CONTAINER_HEADER / 2} anchorX={x + 10} anchor="start" fontSize={fs} color={color} weight={600} />;
@@ -1920,7 +1934,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       body = (
         <>
           <rect {...common} x={x} y={y} width={w} height={h} />
-          <rect className="dg-node__band" x={x} y={y} width={SWIMLANE_HEADER} height={h} fill={stroke === 'none' ? '#e0e0e0' : stroke} fillOpacity={0.1} stroke={stroke} strokeWidth={1.5} pointerEvents="none" />
+          <rect className="dg-node__band" x={x} y={y} width={SWIMLANE_HEADER} height={h} fill={stroke === 'none' ? '#e0e0e0' : stroke} fillOpacity={0.1} stroke={stroke} strokeWidth={n.strokeWidth ?? 1.5} pointerEvents="none" />
         </>
       );
       text = lines.length === 0 ? null : (

@@ -136,7 +136,7 @@ function validatePoint(v: unknown, path: string): DiagramPoint {
 }
 
 function validateNode(v: unknown, path: string): DiagramNode {
-  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign']);
+  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth']);
   const c = DIAGRAM_LIMITS.maxCoordinate;
   const kind = oneOf(o['kind'], KINDS, `${path}.kind`);
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
@@ -153,6 +153,7 @@ function validateNode(v: unknown, path: string): DiagramNode {
     parentId: o['parentId'] === null ? null : uuid(o['parentId'], `${path}.parentId`),
     fill: color(o['fill'], `${path}.fill`),
     stroke: color(o['stroke'], `${path}.stroke`),
+    ...(o['strokeWidth'] !== undefined ? { strokeWidth: num(o['strokeWidth'], `${path}.strokeWidth`, 0.5, 6) } : {}),
     textColor: color(o['textColor'], `${path}.textColor`),
     fontSize: num(o['fontSize'], `${path}.fontSize`, DIAGRAM_LIMITS.minFontSize, DIAGRAM_LIMITS.maxFontSize),
     ...(o['textAlign'] !== undefined ? { textAlign: oneOf(o['textAlign'], ['left', 'center', 'right'] as const, `${path}.textAlign`) } : {}),
@@ -162,7 +163,7 @@ function validateNode(v: unknown, path: string): DiagramNode {
 }
 
 function validateEdge(v: unknown, path: string): DiagramEdge {
-  const o = exactObject(v, EDGE_KEYS, path, ['description']);
+  const o = exactObject(v, EDGE_KEYS, path, ['description', 'strokeWidth']);
   const waypoints = array(o['waypoints'], `${path}.waypoints`, DIAGRAM_LIMITS.maxWaypointsPerEdge)
     .map((p, i) => validatePoint(p, `${path}.waypoints[${i}]`));
   return {
@@ -176,6 +177,7 @@ function validateEdge(v: unknown, path: string): DiagramEdge {
     label: str(o['label'], `${path}.label`, DIAGRAM_LIMITS.maxEdgeLabelChars),
     ...(o['description'] !== undefined ? { description: str(o['description'], `${path}.description`, DIAGRAM_LIMITS.maxDescriptionChars) } : {}),
     stroke: color(o['stroke'], `${path}.stroke`),
+    ...(o['strokeWidth'] !== undefined ? { strokeWidth: num(o['strokeWidth'], `${path}.strokeWidth`, 0.5, 6) } : {}),
     dashed: bool(o['dashed'], `${path}.dashed`),
     arrows: oneOf(o['arrows'], ARROWS, `${path}.arrows`),
   };

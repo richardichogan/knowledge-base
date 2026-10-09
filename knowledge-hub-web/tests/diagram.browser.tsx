@@ -186,6 +186,17 @@ async function runDiagramChecks(): Promise<string[]> {
   await delay(20);
   field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   await waitFor(() => snapshot.document.nodes.some((n) => n.label === 'Browser-verified process'));
+  const setThickness = async (label: string, width: number): Promise<void> => {
+    const input = window.document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(input, String(width));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    await delay(20);
+  };
+  await setThickness('Border thickness', 3);
+  await waitFor(() => snapshot.document.nodes.some(n => n.label === 'Browser-verified process' && n.strokeWidth === 3));
+  const thickShape = snapshot.document.nodes.find(n => n.label === 'Browser-verified process')!;
+  check(window.document.querySelector(`g.dg-node[data-id="${thickShape.id}"] .dg-node__body`)?.getAttribute('stroke-width') === '3',
+    'Shape border thickness is rendered');
   for (const horizontal of ['Left', 'Center', 'Right']) {
     for (const vertical of ['Top', 'Middle', 'Bottom']) {
       const horizontalGroup = window.document.querySelector('[aria-label="Text horizontal alignment"]')!;
@@ -224,6 +235,24 @@ async function runDiagramChecks(): Promise<string[]> {
   const connector = window.document.querySelector('g.dg-edge')!;
   connector.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }));
   await waitFor(() => window.document.querySelector('.dg-properties__kind')?.textContent === 'Connector');
+  for (const width of [0.5, 1.5, 4, 6]) {
+    await setThickness('Line thickness', width);
+    await waitFor(() => snapshot.document.edges[0]?.strokeWidth === width);
+    const line = window.document.querySelector<SVGPathElement>(`g.dg-edge[data-id="${snapshot.document.edges[0]!.id}"] .dg-edge__line`)!;
+    check(Number(getComputedStyle(line).strokeWidth.replace('px', '')) === width, 'Connector thickness is not overridden by CSS');
+    const markerId = line.getAttribute('marker-end')!.slice(5, -1);
+    const marker = window.document.getElementById(markerId)!;
+    check(marker.getAttribute('markerUnits') === 'strokeWidth', 'Arrowheads scale with connector stroke');
+    check(Math.abs(Number(marker.getAttribute('markerWidth')) * width - 10 * width / 1.5) < 0.001,
+      'Arrow size scales proportionally and preserves original size at 1.5 px');
+    const xml = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+    check(xml.querySelector('polyline')?.getAttribute('stroke-width') === String(width), 'Exports preserve connector thickness');
+    check(xml.querySelector('marker')?.getAttribute('markerUnits') === 'strokeWidth', 'Export arrowheads scale with line thickness');
+  }
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => snapshot.document.edges[0]?.strokeWidth === 4);
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => snapshot.document.edges[0]?.strokeWidth === 6);
   await setProperty('Shape or connector title', 'Request handoff');
   await setProperty('Shape or connector description', 'Passes the request to the runtime.');
   await waitFor(() => snapshot.document.edges.some((e) => e.label === 'Request handoff' && e.description === 'Passes the request to the runtime.'));
@@ -272,6 +301,9 @@ async function runDiagramChecks(): Promise<string[]> {
     'Text alignment survives reopening and duplication');
   check(snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true), 'Shape descriptions must survive reopening and duplication');
   check(snapshot.document.edges.some((e) => e.description === 'Passes the request to the runtime.'), 'Connector descriptions must survive reopening');
+  check(snapshot.document.edges[0]?.strokeWidth === 6, 'Connector thickness survives reopening');
+  check(snapshot.document.nodes.some(n => n.label === 'Browser-verified process' && n.strokeWidth === 3),
+    'Shape thickness survives reopening and duplication');
   check(!(await diagramSvg(snapshot.document, assets, 'white')).includes('Process owner: Operations'), 'Descriptions must not clutter visual exports');
   await waitFor(() => window.document.querySelectorAll('g.dg-node--image image').length === 3);
   root.render(null);
@@ -286,6 +318,7 @@ async function runDiagramChecks(): Promise<string[]> {
   return ['Representative architecture and process flow render', 'SVG export full bounds, embedded icon and bidirectional arrows',
     'PNG rasterisation with embedded SVG icon', 'Escaped labels and explicit missing-asset errors',
     'Shape double-click edits instead of adding', 'All nine text alignments match canvas and export',
+    'Line and border thickness persist, undo/redo and scale exported arrowheads',
     'Add, label editing, undo/redo and duplication', 'Image-file clipboard paste and explicit URL-only fallback',
     'Save conflict retains local changes and explicit overwrite resolves it',         'Shape and connector properties save/reopen, undo/redo and duplicate without cluttering exports',
     'Note linking, return links in Connections, opening/unlinking and reopening',

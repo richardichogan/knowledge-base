@@ -123,6 +123,9 @@ In diagrams, double-click a shape to edit its text; double-click empty canvas
 to create a process shape.
 Shape Properties also provides left/center/right and top/middle/bottom text
 alignment. Alignment is saved with the diagram and used in SVG/PNG exports.
+Properties offers connector line and shape border thickness from 0.5 to 6 px.
+Arrowheads scale with connector thickness on the canvas and in exports;
+existing diagrams retain their original 1.5 px line weight.
 
 Athena's optional context-file reads are bounded to five seconds. Background
 chat deadlines and Stop cover context/tool preparation as well as model

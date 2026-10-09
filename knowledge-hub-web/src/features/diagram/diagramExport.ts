@@ -42,15 +42,16 @@ export async function diagramSvg(document: DiagramDocument, assets: Map<string, 
     }
   }
   const nodes = renderOrder(document.nodes).map((node) => {
-    const colour = `fill="${escapeXml(node.fill)}" stroke="${escapeXml(node.stroke)}" stroke-width="1.5"`;
+    const strokeWidth = node.strokeWidth ?? 1.5;
+    const colour = `fill="${escapeXml(node.fill)}" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"`;
     let shape = '';
     if (node.kind === 'decision') {
       shape = `<polygon points="${node.x + node.width / 2},${node.y} ${node.x + node.width},${node.y + node.height / 2} ${node.x + node.width / 2},${node.y + node.height} ${node.x},${node.y + node.height / 2}" ${colour}/>`;
     } else {
       const radius = node.kind === 'terminator' ? Math.min(node.width, node.height) / 2 : node.kind === 'process' ? 6 : node.kind === 'text' ? 2 : node.kind === 'swimlane' ? 0 : 4;
       shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${radius}" ${colour}/>`;
-      if (node.kind === 'container') shape += `<line x1="${node.x}" x2="${node.x + node.width}" y1="${node.y + CONTAINER_HEADER}" y2="${node.y + CONTAINER_HEADER}" stroke="${escapeXml(node.stroke)}"/>`;
-      if (node.kind === 'swimlane') shape += `<rect x="${node.x}" y="${node.y}" width="${SWIMLANE_HEADER}" height="${node.height}" fill="${node.stroke === 'none' ? '#e0e0e0' : escapeXml(node.stroke)}" fill-opacity="0.1" stroke="${escapeXml(node.stroke)}" stroke-width="1.5"/>`;
+      if (node.kind === 'container') shape += `<line x1="${node.x}" x2="${node.x + node.width}" y1="${node.y + CONTAINER_HEADER}" y2="${node.y + CONTAINER_HEADER}" stroke="${escapeXml(node.stroke)}" stroke-width="${node.strokeWidth ?? 1}"/>`;
+      if (node.kind === 'swimlane') shape += `<rect x="${node.x}" y="${node.y}" width="${SWIMLANE_HEADER}" height="${node.height}" fill="${node.stroke === 'none' ? '#e0e0e0' : escapeXml(node.stroke)}" fill-opacity="0.1" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"/>`;
     }
     if (node.assetId !== null) {
       const captionHeight = node.label.trim() ? Math.round(node.fontSize * 1.3 + 10) : 0;
@@ -62,9 +63,9 @@ export async function diagramSvg(document: DiagramDocument, assets: Map<string, 
   const edges = document.edges.map((edge, i) => {
     const points = edgePoints(edge, document.nodes);
     if (points.length < 2) throw new Error(`Connector "${edge.label}" is not attached to two shapes`);
-    definitions.push(`<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${escapeXml(edge.stroke)}"/></marker>`);
+    definitions.push(`<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${20 / 3}" markerHeight="${20 / 3}" markerUnits="strokeWidth" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${escapeXml(edge.stroke)}"/></marker>`);
     const middle = pointAlong(points, 0.5);
-    const path = `<polyline points="${points.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="${escapeXml(edge.stroke)}" stroke-width="1.5"${edge.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.arrows !== 'none' ? ` marker-end="url(#arrow-${i})"` : ''}${edge.arrows === 'both' ? ` marker-start="url(#arrow-${i})"` : ''}/>`;
+    const path = `<polyline points="${points.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="${escapeXml(edge.stroke)}" stroke-width="${edge.strokeWidth ?? 1.5}"${edge.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.arrows !== 'none' ? ` marker-end="url(#arrow-${i})"` : ''}${edge.arrows === 'both' ? ` marker-start="url(#arrow-${i})"` : ''}/>`;
     const lines = wrapText(edge.label, 160, 12, 3);
     const labelW = Math.max(...lines.map((line) => line.length), 0) * 12 * 0.56 + 12;
     const labelH = lines.length * 15 + 6;

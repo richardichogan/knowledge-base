@@ -78,6 +78,17 @@ test('text alignment round-trips and rejects unsupported values', () => {
   rejects(() => validateDiagramDocument(doc([{ ...node(), textVerticalAlign: 'baseline' } as unknown as DiagramNode]), NONE), /textVerticalAlign/);
 });
 
+test('shape and connector thickness round-trip with bounded finite values', () => {
+  const a = node({ strokeWidth: 0.5 });
+  const b = node({ strokeWidth: 6 });
+  const input = doc([a, b], [edge(a.id, b.id, { strokeWidth: 4 })]);
+  assert.deepEqual(validateDiagramDocument(input, NONE), input);
+  for (const strokeWidth of [0, 6.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    rejects(() => validateDiagramDocument(doc([node({ strokeWidth })]), NONE), /strokeWidth/);
+    rejects(() => validateDiagramDocument(doc([a, b], [edge(a.id, b.id, { strokeWidth })]), NONE), /strokeWidth/);
+  }
+});
+
 test('optional item descriptions preserve legacy documents and round-trip shape and connector details', () => {
   const a = node({ description: 'Inputs, owner and expected output\nSecond line' });
   const b = node();
