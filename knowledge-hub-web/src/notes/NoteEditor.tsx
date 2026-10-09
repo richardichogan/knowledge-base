@@ -14,6 +14,7 @@ import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge
 import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
+import { noteFilename } from './noteFilename';
 import { saveNote, serialise, fromApiNote } from './noteStorage';
 import { isAxiosError } from 'axios';
 import type { PartialBlock } from '@blocknote/core';
@@ -705,8 +706,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     } finally { setGithubBusy(false); }
   }
 
-  const defaultCommitMsg = `Add note: ${savedDocRef.current.title}`;
-  const defaultFilePath = publication?.path ?? `content/notes/${doc.id}.md`;
+  const headingTitle = extractTitle(editor.document);
+  const publicationTitle = headingTitle === UNTITLED_DOCUMENT ? savedDocRef.current.title : headingTitle;
+  const defaultCommitMsg = `Add note: ${publicationTitle}`;
+  const defaultFilePath = publication?.path ?? `content/notes/${noteFilename(publicationTitle)}`;
 
   // GitHub status
   const ghStatus = publication?.status ?? 'not-pushed';

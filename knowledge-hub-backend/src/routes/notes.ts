@@ -478,11 +478,11 @@ router.get('/github/repositories', (req, res, next) => {
   void (async (): Promise<void> => {
     const page = Number(req.query['page'] ?? 1);
     if (!Number.isInteger(page) || page < 1 || page > MAX_REPOSITORY_PAGE) throw new ValidationError('page must be between 1 and 100.');
-    res.json({ success: true, data: await listWritableRepositories(page) });
+    res.json({ success: true, data: await listWritableRepositories(getDb(), page) });
   })().catch(next);
 });
 router.get('/github/folders', (req, res, next) => {
-  void listRepositoryFolders(req.query['repo'], req.query['folder'] ?? '')
+  void listRepositoryFolders(getDb(), req.query['repo'], req.query['folder'] ?? '')
     .then(data => { res.json({ success: true, data }); }).catch(next);
 });
 router.post('/:id/github', (req, res, next) => {

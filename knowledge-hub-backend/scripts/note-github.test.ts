@@ -60,6 +60,7 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
       UNIQUE(source, source_id));
     CREATE TABLE nodes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ref_id TEXT, ref_type TEXT);
     CREATE TABLE sync_state (source TEXT PRIMARY KEY, last_sync_at TIMESTAMPTZ, item_count INTEGER, last_error TEXT, last_cursor TEXT, updated_at TIMESTAMPTZ DEFAULT now());
+    CREATE TABLE projects (id TEXT PRIMARY KEY, github_repos TEXT[] NOT NULL DEFAULT '{}');
   `);
   for (const name of ['060_note_history.sql', '061_note_github_publications.sql']) {
     const sql = await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), 'utf8');
@@ -81,6 +82,9 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
   const id = await create();
   const other = await create();
   const repo = 'owner/destination';
+  await db.query('INSERT INTO projects (id, github_repos) VALUES ($1, $2), ($3, $4)',
+    ['project-one', [repo, 'owner/read-only', 'IBM-Project-Imagine/architecture'],
+      'project-two', [' OWNER/Destination ', repo]]);
   const path = 'docs/Project notes/linked.md';
   const key = `${repo}/${path}`;
   const files = new Map<string, { sha: string; content: string }>();
@@ -91,6 +95,7 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
   let editedDuringWrite = false;
   let failVectorDeletion = false;
   const vectorDeletes: string[] = [];
+  const repositoryReads: string[] = [];
   const searchEndpoint = env.FOUNDRY_IQ_SEARCH_ENDPOINT;
   const searchKey = env.FOUNDRY_IQ_SEARCH_ADMIN_KEY;
   const originalFetch = globalThis.fetch;
@@ -107,11 +112,12 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
       status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1791493200' },
     });
     const reply = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
-    if (url.pathname === '/user/repos') return reply([
-      { full_name: repo, default_branch: 'develop', private: true, permissions: { push: true } },
-      { full_name: 'owner/read-only', default_branch: 'main', private: false, permissions: { push: false } },
-    ]);
-    if (url.pathname === '/repos/IBM-Project-Imagine/architecture') return reply({ message: 'Not Found' }, 404);
+    assert.notEqual(url.pathname, '/user/repos', 'Never enumerate the account-wide repository list');
+    if (/^\/repos\/[^/]+\/[^/]+$/.test(url.pathname)) repositoryReads.push(url.pathname);
+    if (url.pathname === '/repos/owner/old-destination') return reply({ full_name: repo, default_branch: 'develop', private: true, permissions: { push: true } });
+    if (url.pathname.toLowerCase() === '/repos/ibm-project-imagine/architecture') return reply({ message: 'Not Found' }, 404);
+    if (url.pathname === '/repos/owner/read-only') return reply({ full_name: 'owner/read-only', default_branch: 'main', private: false, permissions: { push: false } });
+    if (/^\/repos\/pages\/repo-\d+$/.test(url.pathname)) return reply({ full_name: url.pathname.slice(7), default_branch: 'main', private: true, permissions: { push: true } });
     if (url.pathname === `/repos/${repo}` || url.pathname === `/repos/${env.GITHUB_CONTENT_STORE_REPO}`) {
       return reply({ full_name: url.pathname.slice(7), default_branch: 'develop', private: true, permissions: { push: true } });
     }
@@ -164,17 +170,54 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
     const repos = await request<{ items: Array<{ name: string }> }>('/github/repositories');
     assert.equal(repos.status, 200);
     assert.deepEqual(repos.body.data.items.map((row: { name: string }) => row.name), [repo]);
+    assert.equal(repositoryReads.filter(path => path === `/repos/${repo}`).length, 1, 'Project duplicates/case/whitespace produce one destination');
+    const unconfigured = await request('/github/folders?repo=owner%2Funconfigured&folder=');
+    assert.equal(unconfigured.status, 403);
+    assert.match(unconfigured.body.error!.message, /configured in Projects/);
+    const unconfiguredPublish = await request(`/${id}/github`, {
+      repo: 'owner/unconfigured', filePath: path, commitMessage: 'Not allowed', expectedRevision: 0,
+    });
+    assert.equal(unconfiguredPublish.status, 403);
+    assert.equal(await publicationRow(pool, id), null, 'Rejected destination creates no publication');
+    assert.ok(!repositoryReads.includes('/repos/owner/unconfigured'), 'Disallowed destinations are rejected before GitHub access');
+    const configured = await db.query<{ id: string; github_repos: string[] }>('SELECT * FROM projects');
+    await db.exec('DELETE FROM projects');
+    const empty = await request<{ items: unknown[]; hasMore: boolean }>('/github/repositories');
+    assert.deepEqual(empty.body.data, { items: [], hasMore: false });
+    const paginatedRepos = Array.from({ length: 101 }, (_, i) => `pages/repo-${String(i).padStart(3, '0')}`);
+    await db.query('INSERT INTO projects (id, github_repos) VALUES ($1, $2)', ['pages', paginatedRepos]);
+    const pageOne = await request<{ items: Array<{ name: string }>; hasMore: boolean }>('/github/repositories?page=1');
+    const pageTwo = await request<{ items: Array<{ name: string }>; hasMore: boolean }>('/github/repositories?page=2');
+    assert.equal(pageOne.body.data.items.length, 100);
+    assert.equal(pageOne.body.data.hasMore, true);
+    assert.deepEqual(pageTwo.body.data, { items: [{ name: 'pages/repo-100', defaultBranch: 'main', private: true }], hasMore: false });
+    await db.exec('DELETE FROM projects');
+    for (const project of configured.rows) await db.query('INSERT INTO projects (id, github_repos) VALUES ($1, $2)', [project.id, project.github_repos]);
     const unavailable = await request('/github/folders?repo=IBM-Project-Imagine%2Farchitecture&folder=');
     assert.equal(unavailable.status, 403);
     assert.match(unavailable.body.error!.message, /unavailable.*Choose a writable repository/);
     const folders = await request<{ folders: string[] }>(`/github/folders?repo=${encodeURIComponent(repo)}&folder=`);
     assert.deepEqual(folders.body.data.folders, ['docs']);
+    await db.query('INSERT INTO projects (id, github_repos) VALUES ($1, $2)', ['renamed', ['owner/old-destination']]);
+    const renamedList = await request<{ items: Array<{ name: string }> }>('/github/repositories');
+    assert.ok(renamedList.body.data.items.some(item => item.name === 'owner/old-destination'), 'Renamed repositories retain configured names in the picker');
+    const renamedId = await create();
+    const renamedPublication = await request<GitHubPublication>(`/${renamedId}/github`, {
+      repo: 'owner/old-destination', filePath: 'docs/readable-title.md', commitMessage: 'Publish renamed repo', expectedRevision: 0,
+    });
+    assert.equal(renamedPublication.status, 200, JSON.stringify(renamedPublication.body));
+    assert.equal(renamedPublication.body.data.repo, repo, 'Publication pins GitHub canonical name after redirect');
+    await db.query('DELETE FROM projects WHERE id = $1', ['renamed']);
     const first = await request<GitHubPublication>(`/${id}/github`, { repo, filePath: path, commitMessage: 'Publish linked note', expectedRevision: 0 });
     assert.equal(first.status, 200, JSON.stringify(first.body));
     assert.equal(first.body.data.status, 'synced');
     assert.equal(first.body.data.repo, repo);
     assert.match(files.get(key)!.content, /\*\*Original\*\*/);
     assert.equal((await publicationRow(pool, id))!.synced_revision, 0);
+    await db.exec('DELETE FROM projects');
+    assert.equal((await request(`/${id}/github`, { repo, filePath: path, commitMessage: 'Existing link', expectedRevision: 0 })).status, 200,
+      'Existing pinned publications keep syncing after project configuration changes');
+    for (const project of configured.rows) await db.query('INSERT INTO projects (id, github_repos) VALUES ($1, $2)', [project.id, project.github_repos]);
     assert.equal((await request(`/${other}/github`, { repo, filePath: path, commitMessage: 'Collision', expectedRevision: 0 })).status, 409);
     await assert.rejects(startPublication(pool, id, repo, 'other.md', 'Move', 0), /original repository/);
     let saved = await writeNote(pool, id, { content: content('New writing'), expectedRevision: 0 });

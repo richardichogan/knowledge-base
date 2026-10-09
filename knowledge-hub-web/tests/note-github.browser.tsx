@@ -118,6 +118,8 @@ function input(selector: string, value: string): void {
 async function chooseDestination(): Promise<void> {
   button('Push to GitHub').click();
   await waitFor(() => document.querySelector('.notes-github-modal.is-visible #github-repo option[value="owner/demo"]') !== null);
+  check(document.querySelector<HTMLInputElement>('.notes-github-modal.is-visible #github-file-path')?.value
+    === 'content/notes/imagine-travel-recovery-spec.md', 'New publication uses the live title, not the saved title or document ID');
   select('#github-repo', 'owner/demo');
   await waitFor(() => document.querySelector('.notes-github-modal.is-visible option[value="docs"]') !== null);
   select('[aria-label="Browse repository folders"]', 'docs');
@@ -175,6 +177,7 @@ Object.assign(window, { runNoteGitHubChecks: async () => {
   button('Metadata').click();
   await waitFor(() => document.querySelector('.notes-meta-gh-heading') !== null);
   const editor = getActiveBlockNoteEditor()!;
+  editor.updateBlock(editor.document[0]!, { content: 'IMAGINE: Travel / Recovery — spec' });
   editor.insertBlocks([{ type: 'paragraph', content: 'Unsaved latest writing' }], editor.document.at(-1)!, 'after');
   await chooseDestination();
   check(document.querySelector('.notes-github-help')?.textContent !== '', 'Publishing guidance is present');
@@ -191,6 +194,8 @@ Object.assign(window, { runNoteGitHubChecks: async () => {
   button('Push to GitHub').click();
   await waitFor(() => document.querySelector<HTMLSelectElement>('.notes-github-modal.is-visible #github-repo')?.disabled === true);
   check(document.querySelector<HTMLInputElement>('.notes-github-modal.is-visible #github-file-path')?.readOnly === true, 'Destination pinned after publishing');
+  check(document.querySelector<HTMLInputElement>('.notes-github-modal.is-visible #github-file-path')?.value
+    === 'docs/use-cases/My note.md', 'Existing publication retains its saved path');
   button('Cancel').click();
   editor.insertBlocks([{ type: 'paragraph', content: 'Saved later edit' }], editor.document.at(-1)!, 'after');
   await waitFor(() => document.querySelector('.notes-meta-gh-heading')?.textContent === 'Update pending');
@@ -210,7 +215,7 @@ Object.assign(window, { runNoteGitHubChecks: async () => {
   check(editor.isEditable, 'GitHub conflict does not lock the note as a stale note-save conflict');
   return ['cache-busted Athena favicon', '192px and 512px Athena app icons',
     'unavailable project default excluded', 'folder failure blocks push', 'paginated preferred repository verified',
-    'repository picker', 'nested folder browser', 'custom file path', 'default branch', 'save latest writing before publish',
+    'title-based filename', 'repository picker', 'nested folder browser', 'custom file path', 'default branch', 'save latest writing before publish',
     'failed push is explicit', 'pinned destination and GitHub link', 'autosave marks update pending', 'external conflict review',
     'GitHub version adoption updates the live editor'];
 } });

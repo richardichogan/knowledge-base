@@ -124,6 +124,8 @@ export const GitHubModal: React.FC<GitHubModalProps> = ({
       </select>
       {loading && <p className="notes-github-help" role="status">Loading repositories...</p>}
       {repoError && <p className="notes-github-error" role="alert">{repoError}</p>}
+      {!published && !loading && !repoError && !hasMore && repositories.length === 0 &&
+        <p className="notes-github-help" role="status">No writable repositories are configured in Projects. Add a repository to a project and check the configured GitHub account has write access.</p>}
       {!published && !repo && defaultRepo && !loading && !repoError && !hasMore
         && !repositories.some(item => item.name.toLowerCase() === defaultRepo.toLowerCase()) &&
         <p className="notes-github-help" role="status">The project's repository ({defaultRepo}) is not available to the configured GitHub account. Choose a writable destination from the list.</p>}
@@ -152,7 +154,7 @@ export const GitHubModal: React.FC<GitHubModalProps> = ({
       />
       <p className="notes-github-help">{published
         ? 'This note keeps its linked repository and path. Future saves update the same file.'
-        : "Edit the full path to name the file or create a new folder. GitHub uses the selected repo's default branch. Only the Think note is indexed."}</p>
+        : "Choose a repository configured in Projects. The filename uses the note title; edit the full path to rename it or create a new folder. GitHub uses the repo's default branch. Only the Think note is indexed."}</p>
       <div className="notes-modal-spacer" />
       <TextInput
         id="github-commit-msg"

@@ -124,12 +124,20 @@ writable repository, browse its folders, then edit the full relative `.md` path
 and commit message. New folders can be entered directly. Publication uses the
 repository's default branch and pins the repository, branch and path for
 subsequent updates; the dialog warns when the chosen repository is public.
-Repositories are those accessible to the backend's `GITHUB_ACCESS_TOKEN`, not
-necessarily every repository accessible in the browser's Microsoft sign-in.
+Only repositories listed in Projects' GitHub repository settings are offered,
+deduplicated across projects and checked for write access using the backend's
+`GITHUB_ACCESS_TOKEN`. Folder browsing and new publications enforce this same
+restriction server-side; repositories merely accessible to the account are
+not destinations.
 A project's suggested repository is selected only after it appears in the
 writable list. Unavailable project repositories are not offered as destinations.
 Publishing is disabled while repository folders load or access fails; backend
 errors and GitHub quota-reset guidance are displayed rather than only an HTTP code.
+New publication filenames default to the readable note title (for example,
+`content/notes/imagine-executive-travel-disruption-recovery-spec.md`), not its
+document ID. The ID remains inside the Markdown metadata for stable identity.
+Title changes and later project configuration changes do not move an existing
+publication or break its synchronization. Existing linked paths stay pinned.
 
 Think remains the master note. Writing changes (including Athena edits and
 history restores) queue an automatic GitHub update after 30 seconds without

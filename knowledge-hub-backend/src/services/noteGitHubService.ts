@@ -63,18 +63,34 @@ export async function writableRepository(repo: unknown, gh = new GitHubClient())
   if (repository.permissions?.push !== true) throw new ForbiddenError('The configured GitHub account cannot write to this repository.');
   return repository;
 }
-export async function listWritableRepositories(page: number, gh = new GitHubClient()): Promise<{ items: WritableRepository[]; hasMore: boolean }> {
-  if (!env.GITHUB_ACCESS_TOKEN) throw new ConfigurationError('GITHUB_ACCESS_TOKEN');
-  const rows = await gh.get<GitHubRepository[]>('/user/repos', {
-    per_page: String(REPOSITORY_PAGE_SIZE), page: String(page), sort: 'full_name', direction: 'asc',
-  });
-  return { items: rows.filter(row => row.permissions?.push === true).map(row => ({
-    name: row.full_name, defaultBranch: row.default_branch, private: row.private,
-  })), hasMore: rows.length === REPOSITORY_PAGE_SIZE };
+async function projectRepositories(db: QueryDb): Promise<string[]> {
+  const { rows } = await db.query<{ repo: string }>(
+    `SELECT DISTINCT lower(btrim(repo)) AS repo
+     FROM projects CROSS JOIN LATERAL unnest(github_repos) AS repo
+     WHERE btrim(repo) ~ '^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$'
+     ORDER BY repo`);
+  return rows.map(row => row.repo);
 }
-export async function listRepositoryFolders(repo: unknown, folder: unknown, gh = new GitHubClient()): Promise<{ folders: string[]; branch: string }> {
+async function requireProjectRepository(db: QueryDb, repo: unknown): Promise<string> {
+  const name = validateRepo(repo);
+  if (!(await projectRepositories(db)).includes(name.toLowerCase())) {
+    throw new ForbiddenError('Choose a GitHub repository configured in Projects.');
+  }
+  return name;
+}
+export async function listWritableRepositories(db: QueryDb, page: number, gh = new GitHubClient()): Promise<{ items: WritableRepository[]; hasMore: boolean }> {
+  if (!env.GITHUB_ACCESS_TOKEN) throw new ConfigurationError('GITHUB_ACCESS_TOKEN');
+  const configured = await projectRepositories(db);
+  const start = (page - 1) * REPOSITORY_PAGE_SIZE;
+  const rows = await Promise.all(configured.slice(start, start + REPOSITORY_PAGE_SIZE)
+    .map(async repo => ({ repo, metadata: await gh.getOptional<GitHubRepository>(`/repos/${repo}`) })));
+  return { items: rows.flatMap(({ repo, metadata }) => metadata?.permissions?.push === true ? [{
+    name: repo, defaultBranch: metadata.default_branch, private: metadata.private,
+  }] : []), hasMore: start + REPOSITORY_PAGE_SIZE < configured.length };
+}
+export async function listRepositoryFolders(db: QueryDb, repo: unknown, folder: unknown, gh = new GitHubClient()): Promise<{ folders: string[]; branch: string }> {
   if (typeof folder !== 'string' || (folder !== '' && !validFolderPath(folder))) throw new ValidationError('Choose a relative folder path.');
-  const repository = await writableRepository(repo, gh);
+  const repository = await writableRepository(await requireProjectRepository(db, repo), gh);
   const path = folder.split('/').map(encodeURIComponent).join('/');
   const entries = await gh.getOptional<Array<{ type: string; path: string }>>(`/repos/${repository.full_name}/contents/${path}`, { ref: repository.default_branch });
   if (entries === null && folder === '' && repository.size === 0) return { folders: [], branch: repository.default_branch };
@@ -200,12 +216,13 @@ export async function startPublication(
   if (existing && (existing.path !== filePath || existing.repo.toLowerCase() !== repo.toLowerCase())) {
     throw new ValidationError('A published note keeps its original repository and GitHub path.');
   }
+  if (!existing) await requireProjectRepository(db, repo);
   const repository = await writableRepository(repo, gh);
   await db.query(
     `INSERT INTO note_github_publications (note_id, repo, branch, path)
      VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, [id, repository.full_name, repository.default_branch, filePath]);
   const reserved = await publicationRow(db, id);
-  if (!reserved || reserved.path !== filePath || reserved.repo.toLowerCase() !== repo.toLowerCase()) {
+  if (!reserved || reserved.path !== filePath || reserved.repo.toLowerCase() !== repository.full_name.toLowerCase()) {
     throw new ConflictError('Another note is already linked to this GitHub path.', 'GITHUB_PATH_CONFLICT');
   }
   await removePublishedNoteCopies(db, reserved.repo);
