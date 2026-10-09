@@ -125,12 +125,11 @@ export async function handleConversationTurn(
       const result = await findDiagramContext(db, {
         diagramId: openDiagram.id,
         excludedIds: excluded,
-        ...(activeProjectId !== null ? { projectId: activeProjectId } : {}),
         ...(pageContext?.selectedId !== undefined ? { selectedId: pageContext.selectedId } : {}),
       });
       const diagram = result.results.find(item => !excluded.has(item.id));
       diagramBlock = diagram === undefined
-        ? 'The open diagram is excluded, unavailable, or outside this chat project. Do not infer its contents from its title.'
+        ? 'The open diagram is excluded or unavailable. Do not infer its contents from its title.'
         : `${DIAGRAM_READING_GUIDANCE}\nSaved diagram in view (primary evidence; not unsaved editor changes):\n${JSON.stringify(diagram)}`;
     } catch (err) {
       console.error('[diagram] context failed:', err);

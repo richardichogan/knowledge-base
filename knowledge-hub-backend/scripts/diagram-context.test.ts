@@ -97,10 +97,18 @@ test('SQL retrieves saved structure across diagrams, matches metadata and notes,
     const withoutNote = await findDiagramContext(db, { diagramId: c, excludedIds: new Set(['note-one']) });
     assert.ok(!withoutNote.results[0]!.content.includes('Risk review requirements'));
     assert.ok(reads.every(sql => /^\s*SELECT/.test(sql)));
+    const { executeToolCall } = await import('../src/ai/chatTools.js');
+    const clientSearch = await executeToolCall(db, 'search_diagrams', '{"query":"Claims platform"}', 'ikea') as typeof found;
+    assert.equal(clientSearch.resultCount, 3);
+    const reference = await executeToolCall(db, 'read_diagram', JSON.stringify({ diagramId: a }), 'ikea') as typeof found;
+    assert.equal(reference.results[0]?.project, 'imagine');
+    assert.match(reference.results[0]!.content, /Decision artefact/);
+    const excludedReference = await executeToolCall(db, 'read_diagram', JSON.stringify({ diagramId: a }), 'ikea', { excludedIds: new Set([a]) });
+    assert.deepEqual(excludedReference, { error: 'Saved diagram not found or excluded from this conversation.' });
   } finally { await pg.close(); }
 });
 
-test('diagram tools dispatch project scope, route comparisons, record sources and respect exclusions', async () => {
+test('diagram tools honour optional filters rather than forced scope, route comparisons and record sources', async () => {
   process.env['DATABASE_URL'] = 'postgresql://isolated.invalid/offline';
   const { executeToolCall } = await import('../src/ai/chatTools.js');
   const params: unknown[][] = [];
@@ -108,9 +116,12 @@ test('diagram tools dispatch project scope, route comparisons, record sources an
     params.push(values); return { rows: [] };
   } } as unknown as Pool;
   await executeToolCall(db, 'search_diagrams', '{"query":"claims","projectId":"different","limit":999}', 'imagine');
-  assert.deepEqual(params[0], [null, 'imagine', 'claims', 5, []]);
+  assert.deepEqual(params[0], [null, 'different', 'claims', 5, []]);
+  await executeToolCall(db, 'search_diagrams', '{"query":"claims"}', 'imagine');
+  assert.deepEqual(params[1], [null, null, 'claims', 3, []]);
   const missing = await executeToolCall(db, 'read_diagram', JSON.stringify({ diagramId: a }), 'imagine');
-  assert.deepEqual(missing, { error: 'Diagram not found in the current project scope.' });
+  assert.deepEqual(missing, { error: 'Saved diagram not found or excluded from this conversation.' });
+  assert.deepEqual(params[2], [a, null, '', 3, []]);
   assert.ok('error' in (await executeToolCall(db, 'read_diagram', '{}') as object));
   const tools = [{ type: 'function' as const, function: { name: 'search_diagrams', description: 'Search', parameters: {} } }];
   assert.deepEqual(selectRequiredToolChoice('Compare these diagrams', tools, [], null, false, false, true),
@@ -143,6 +154,8 @@ test('actual chat prompt reads the saved diagram afresh and never exposes brains
         updated_at: '2026-10-09', document: saved, linked_notes: [], assets: [] }] };
     }
     if (sql.includes('FROM canvases c')) return { rows: [{ id: a, title: 'Claims architecture', canvas_type: 'diagram' }] };
+    if (sql.includes('SELECT project_id FROM ai_chat_sessions')) return { rows: [{ project_id: 'ikea' }] };
+    if (sql.includes('FROM projects WHERE id')) return { rows: [{ id: 'ikea', name: 'IKEA', links: [], expectedOutputs: [] }] };
     if (sql.includes("kind = 'profile'")) return { rows: [{ content: 'Fixture user profile', status: 'active' }] };
     return { rows: [] };
   });
@@ -159,7 +172,7 @@ test('actual chat prompt reads the saved diagram afresh and never exposes brains
   const db = new Pool();
   try {
     const context = { type: 'canvas', title: 'Claims architecture', selectedId: b };
-    const reply = await handleConversationTurn(db, [], 'hello', 'standard', 'general', undefined, context, undefined, { noteId: `map:${a}` });
+    const reply = await handleConversationTurn(db, [], 'hello', 'standard', 'general', 'ikea-session', context, undefined, { noteId: `map:${a}` });
     assert.equal(reply, 'Fixture grounded reply');
     assert.match(prompt, /Decision artefact/);
     assert.match(prompt, /Saved diagram in view/);

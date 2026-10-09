@@ -6,6 +6,7 @@ import { loadCurrentProjectContext, formatCurrentProjectContext, type CurrentPro
 import { buildAiContext, assembleMessages } from '../src/ai/contextBuilder.js';
 import { executeToolCall } from '../src/ai/chatTools.js';
 import { describeToolActivity } from '../src/ai/turnActivity.js';
+import { retrieveRagItems } from '../src/ai/ragRetriever.js';
 
 const output = 'A full output description with acceptance criteria. '.repeat(70);
 const project: CurrentProjectContext = {
@@ -38,6 +39,9 @@ test('actual per-turn context contains all saved project metadata and reflects e
     assert.ok(first.projectContext.includes(value), value);
   }
   assert.deepEqual(first.projectReferences, project.links);
+  assert.match(first.projectContext, /focus, not a knowledge boundary/);
+  assert.match(first.projectContext, /ANY project without asking permission/);
+  assert.ok(!first.projectContext.includes('hard restriction'));
   const prompt = await assembleMessages(first, [], 'What are the expected outputs?', 'general');
   assert.equal(prompt[0]?.role, 'system');
   assert.ok(prompt[0]?.content.includes(output));
@@ -68,19 +72,60 @@ test('unassigned chat can discover saved project IDs and look up full current me
   });
 });
 
-test('project lookup respects assigned scope and reports missing/invalid projects', async () => {
+test('project lookup honours another requested project and defaults only when omitted', async () => {
   const db = new Pool();
+  const requested: unknown[] = [];
   mock.method(db, 'query', async (_sql: string, values: unknown[]) => {
-    assert.deepEqual(values, [project.id]);
+    requested.push(values[0]);
     return { rows: [] };
   });
   assert.deepEqual(await executeToolCall(db, 'get_project_details', '{"projectId":"other"}', project.id), {
+    error: 'Project "other" was not found.',
+  });
+  assert.deepEqual(await executeToolCall(db, 'get_project_details', '{}', project.id), {
     error: 'Project "imagine" was not found.',
   });
+  assert.deepEqual(requested, ['other', 'imagine']);
   assert.deepEqual(await executeToolCall(db, 'get_project_details', '{}'), {
     error: 'Provide a saved project ID from the projects catalog.',
   });
   assert.equal(describeToolActivity('get_project_details', '{}'), 'Reading current project details');
+});
+
+test('assigned client can discover the saved catalog and search knowledge, Library and auto-RAG across projects', async () => {
+  const db = new Pool();
+  const reads: Array<{ sql: string; values: unknown[] }> = [];
+  mock.method(db, 'query', async (sql: string, values: unknown[] = []) => {
+    reads.push({ sql, values });
+    if (sql.includes('SELECT project_id FROM ai_chat_sessions')) return { rows: [{ project_id: project.id }] };
+    if (sql.includes('FROM projects WHERE id')) return { rows: [project] };
+    if (sql.includes('FROM projects ORDER BY name')) return { rows: [{ id: 'azure', name: 'Azure' }] };
+    if (sql.includes("kind = 'profile'")) return { rows: [{ content: 'User profile', status: 'active' }] };
+    return { rows: [], rowCount: 1 };
+  });
+  const context = await buildAiContext(db, 'hello', [], 'client-session', 'general');
+  assert.match(context.projectContext, /Azure \(id: azure\)/);
+  for (const tool of ['search_knowledge_base', 'search_library']) {
+    reads.length = 0;
+    await executeToolCall(db, tool, '{"query":"Azure Copilot architecture"}', 'ikea');
+    const contentReads = reads.filter(r => r.sql.includes('FROM content_items'));
+    assert.ok(contentReads.length > 0);
+    assert.ok(contentReads.every(r => !r.values.includes('ikea')));
+    reads.length = 0;
+    await executeToolCall(db, tool, '{"query":"architecture","projectId":"imagine"}', 'ikea');
+    assert.ok(reads.some(r => r.values.includes('imagine')));
+    assert.ok(reads.every(r => !r.values.includes('ikea')));
+  }
+  reads.length = 0;
+  await retrieveRagItems(db, 'Azure Copilot architecture', 'ikea');
+  assert.ok(reads.some(r => r.sql.includes('FROM content_items')));
+  assert.ok(reads.every(r => !r.values.includes('ikea')));
+  reads.length = 0;
+  await executeToolCall(db, 'list_tasks', '{}', 'ikea');
+  assert.ok(reads.some(r => r.values.includes('ikea')));
+  reads.length = 0;
+  await executeToolCall(db, 'list_tasks', '{"projectId":""}', 'ikea');
+  assert.ok(reads.every(r => !r.values.includes('ikea')));
 });
 
 test('legacy JSON arrays normalize without hiding database failures or truncating outputs', async () => {

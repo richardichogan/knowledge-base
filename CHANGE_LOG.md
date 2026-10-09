@@ -2,6 +2,16 @@
 
 ---
 
+## Athena cross-project knowledge — 2026-10-09
+
+Conversation projects focus the answer; they no longer fence off knowledge.
+Automatic retrieval, Knowledge Base, Library and diagram searches can use
+relevant material across all projects, including shared IMAGINE, Azure, M365
+and Copilot references. Explicit search filters remain available. Athena must
+attribute reference material and not confuse it with confirmed client decisions.
+Project lookup honours the requested project; task queries and note filing retain
+the conversation project as a default, not an enforced override.
+
 ## Discover Socials — 2026-10-09
 
 Short drafts use one cohesive descriptive paragraph with a restrained,

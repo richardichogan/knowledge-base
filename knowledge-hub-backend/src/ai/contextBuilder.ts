@@ -963,7 +963,7 @@ export async function buildAiContext(
   const activeProjectContext = activeProject === null
     ? ''
     : [
-        '## Active conversation project — hard scope',
+        '## Active conversation project — focus, not a knowledge boundary',
         `The user has assigned this Athena conversation to project "${activeProject.name}" (id: ${activeProject.id}).`,
         formatCurrentProjectContext(activeProject),
         projectReferences.length > 0
@@ -975,14 +975,24 @@ export async function buildAiContext(
                 'relevant reference with fetch_web_page before answering. Do not infer its contents from the URL.',
             ].join('\n')
           : '',
-        'This is a hard restriction, not a soft default: every search_knowledge_base, search_library, and ' +
-          'list_tasks call this turn must stay scoped to this project. Either omit projectId (it defaults to ' +
-          `"${activeProject.id}" automatically) or pass "${activeProject.id}" explicitly. Do not pass a ` +
-          'different projectId, and do not pass an empty projectId to broaden the search across all projects, ' +
-          'even if you think it would surface more relevant material — unless the user\'s message explicitly ' +
-          'asks you to look outside this project (e.g. "check other projects too", "search everything").',
+        'Keep the answer anchored in this client/project\'s goals and requirements, but use relevant knowledge ' +
+          'from ANY project without asking permission. IMAGINE, Azure, M365 and Copilot are examples of shared ' +
+          'product/platform knowledge, not an exhaustive list. Knowledge, Library and diagram searches default ' +
+          'to all projects; omit projectId unless the question specifically requires a project-only search. ' +
+          'For a comparison, find and read both sources even when they belong to different projects. ' +
+          'search_diagrams returns bounded discovery previews: call read_diagram for the chosen diagram ' +
+          'before assessing architectural gaps, especially when shapes/connectors are omitted. ' +
+          'When he refers to the new/current diagram without a title or ID, call search_diagrams with an empty ' +
+          'query and no projectId to inspect recent diagrams across projects before guessing search terms. ' +
+          'A reusable diagram need not mention the client name. If multiple candidates are plausible, name ' +
+          'them and clarify rather than inventing which one he means. ' +
+          'Name the source project and distinguish reusable reference architecture or platform capability from ' +
+          'confirmed client decisions, adoption or deployment. A failed filtered search does not establish ' +
+          'that a document or diagram is missing: broaden it before asking the user to supply something. ' +
+          'Cross-project reading does not change this conversation\'s project or reassign notes/tasks. ' +
+          'Task-board queries and new note filing default to the conversation project unless another is specified.',
       ].filter(Boolean).join('\n');
-  const projectCatalog = activeProject === null && !noBackground
+  const projectCatalog = !noBackground
     ? await db.query<{ id: string; name: string }>('SELECT id, name FROM projects ORDER BY name')
     : null;
   const catalogContext = projectCatalog && projectCatalog.rows.length > 0

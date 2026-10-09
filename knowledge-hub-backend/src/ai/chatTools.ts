@@ -78,7 +78,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'get_project_details',
-        description: 'Reads the current saved Projects record: goal, user role, ownership, state, dates, importance, expected outputs, references and repositories. Use this for a named project before relying on older chat history or memories. With an assigned conversation project, lookup stays scoped to it.',
+        description: 'Reads the current saved Projects record: goal, user role, ownership, state, dates, importance, expected outputs, references and repositories. Use this for any named project before relying on older chat history or memories. Defaults to the conversation project only when projectId is omitted.',
         parameters: {
           type: 'object',
           properties: { projectId: { type: 'string', description: 'Saved project ID from the projects catalog. May be omitted when this chat has an assigned project.' } },
@@ -123,7 +123,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Search terms describing what to look up.' },
-            projectId: { type: 'string', description: 'Project id to scope the search across notes, uploads, discovered articles, commits, and other indexed content (e.g. "imagine"). If this conversation has an active project, you MUST omit this (it defaults automatically) or pass that same project id — never pass a different one or broaden scope unless the user explicitly asked to search another project or "everything".' },
+            projectId: { type: 'string', description: 'Optional project filter (e.g. "imagine"). Omit or use an empty string to search all projects, including shared platform knowledge relevant to the client. Use a filter only when the question specifically calls for that project alone.' },
             limit: { type: 'integer', description: `Max results to return (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: ['query'],
@@ -134,11 +134,12 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'search_diagrams',
-        description: 'Read saved editable diagrams matching a phrase in their title, shape labels/descriptions, connector labels/descriptions or linked notes. Use for comparisons and cross-diagram reasoning. Returns structured evidence and linked-note excerpts with diagram links. An empty query lists recent diagrams. Respects the active project; not a screenshot analysis or editing tool.',
+        description: 'Read saved editable diagrams across projects matching a phrase in their title, shape labels/descriptions, connector labels/descriptions or linked notes. Use for comparisons and cross-diagram reasoning. Returns structured evidence, source project and linked-note excerpts with diagram links. For "the new diagram" or "the diagram we are working on" without a known title/ID, start with an empty query and no projectId to list recent diagrams across projects; do not assume its title or project matches the client note. If keyword searches find nothing, use that recent listing before asking the user to supply a diagram. Not a screenshot analysis or editing tool.',
         parameters: {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'A short relevant phrase, or empty to list recent diagrams. Try separate phrases if there are no matches.' },
+            projectId: { type: 'string', description: 'Optional project filter. Omit to find relevant diagrams across all projects.' },
             limit: { type: 'integer', description: 'Number of diagrams, default 3, maximum 5.' },
           },
           required: ['query'],
@@ -149,7 +150,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'read_diagram',
-        description: 'Read a saved diagram by its ID, including shapes, descriptions, containment, connector direction and linked-note excerpts. Use IDs from search_diagrams or the open diagram. Respects the active project. Image pixels are not analysed. Read-only; cannot edit diagrams.',
+        description: 'Read a saved diagram by its ID from any project, including shapes, descriptions, containment, connector direction and linked-note excerpts. Use IDs from search_diagrams or the open diagram. Always read the chosen diagram before judging gaps or comparing it with requirements: search previews have a smaller content budget and may omit shapes. Image pixels are not analysed. Read-only; cannot edit diagrams.',
         parameters: {
           type: 'object',
           properties: { diagramId: { type: 'string', description: 'Saved diagram UUID.' } },
@@ -193,7 +194,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             status: { type: 'string', enum: [...TASK_STATUSES], description: 'Filter to a single status. Omit for all non-completed statuses.' },
             dueOnOrBefore: { type: 'string', description: 'ISO date YYYY-MM-DD — only tasks due on or before this date (e.g. today, for "due today or overdue").' },
             overdueOnly: { type: 'boolean', description: 'If true, only tasks with a due date strictly before today that are not completed.' },
-            projectId: { type: 'string', description: 'Filter to a specific project id. If this conversation has an active project, omit this (it defaults automatically) or pass that same project id — do not broaden to another project unless the user explicitly asked to.' },
+            projectId: { type: 'string', description: 'Filter to a specific project id. Omitted defaults to the active conversation project for its task board; an empty string lists tasks across projects.' },
             includeCompleted: { type: 'boolean', description: 'If true, include completed tasks too. Defaults to false.' },
             tag: { type: 'string', description: 'Only tasks with this Plan tag, e.g. "use-case" for the use-case (demo) backlog.' },
             includeBody: { type: 'boolean', description: "If true, include each task's description (trimmed) — e.g. to read a use case's pitch and spec." },
@@ -295,7 +296,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Search terms — matched against the documents\' full content as well as titles (any term can match; results are ranked). Use the key concepts, not a whole sentence.' },
-            projectId: { type: 'string', description: 'Optional project id to scope the search to (e.g. "imagine"). If this conversation has an active project, omit this (it defaults automatically) or pass that same project id — do not broaden to all projects unless the user explicitly asked to.' },
+            projectId: { type: 'string', description: 'Optional project filter (e.g. "imagine"). Omit or use an empty string to search all projects. Shared product/platform documents can inform any client conversation without extra permission.' },
             limit: { type: 'integer', description: `Max results (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: [],
@@ -653,13 +654,9 @@ export async function executeToolCall(
         : ''),
     };
   }
-  // When this conversation has an active project, that project is a hard scope, not a
-  // suggestion the model can override: force projectId to it for every project-scoped
-  // tool call regardless of what the model passed (a different id, or '' to broaden to
-  // "all projects"). This closes the gap where a prompt-only instruction could still be
-  // ignored — the only way to search outside the active project is to clear it in the UI.
+  // Project defaults apply to filing and task-board context, not knowledge access.
   const contextualArgs =
-    activeProjectId !== undefined && activeProjectId.trim() !== ''
+    args['projectId'] === undefined && activeProjectId !== undefined && activeProjectId.trim() !== ''
       ? { ...args, projectId: activeProjectId }
       : args;
 
@@ -679,7 +676,7 @@ export async function executeToolCall(
         : { project, note: 'Current saved Projects record, read now. Takes precedence over older chat history and memories.' };
     }
     // With a canvas open, searches are usually for picking items to put on it — short extracts are enough.
-    case 'search_knowledge_base': return searchKnowledgeBase(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : undefined);
+    case 'search_knowledge_base': return searchKnowledgeBase(db, args, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : undefined);
     case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
     case 'search_diagrams':
     case 'read_diagram': {
@@ -690,7 +687,7 @@ export async function executeToolCall(
       if (name === 'search_diagrams' && typeof args['query'] !== 'string') {
         return { error: 'Provide a search phrase, or an empty query to list recent diagrams.' };
       }
-      const projectId = contextualArgs['projectId'];
+      const projectId = name === 'search_diagrams' ? args['projectId'] : undefined;
       const result = await findDiagramContext(db, {
         ...(name === 'read_diagram' && typeof diagramId === 'string' ? { diagramId } : {}),
         ...(name === 'search_diagrams' && typeof args['query'] === 'string' ? { query: args['query'] } : {}),
@@ -699,9 +696,9 @@ export async function executeToolCall(
         ...(turn.excludedIds !== undefined ? { excludedIds: turn.excludedIds } : {}),
       });
       return name === 'read_diagram' && result.results.length === 0
-        ? { error: 'Diagram not found in the current project scope.' } : result;
+        ? { error: 'Saved diagram not found or excluded from this conversation.' } : result;
     }
-    case 'list_tasks':            return listTasks(db, args);
+    case 'list_tasks':            return listTasks(db, contextualArgs);
     case 'find_files':            return findFiles(db, args);
     case 'screenshot_page':       return screenshotPage(db, args, turn.sessionId);
     case 'get_content_pipeline': {
@@ -724,7 +721,7 @@ export async function executeToolCall(
       if (done.length === 0) return { error: 'Nothing to change: give a podcastDate, newsletterDate or pickStatus.' };
       return { updated: done, schedule: describeSchedule(await getSchedule(db)) };
     }
-    case 'search_library':        return searchLibrary(db, contextualArgs, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : LIBRARY_RESULT_CONTENT_CHARS);
+    case 'search_library':        return searchLibrary(db, args, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : LIBRARY_RESULT_CONTENT_CHARS);
     case 'create_task':           return createTask(db, args, turn.sessionId);
     case 'update_task':           return updateTask(db, args, turn.sessionId);
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
@@ -868,8 +865,9 @@ async function matchesInOtherProjects(db: Pool, projectId: string, query: string
   return {
     inOtherProjects: rows.map((r) => ({ title: r.title, project: r.project, path: r.path ?? '' })),
     otherProjectsNote: 'These documents match by title but are filed in OTHER projects, so this project-scoped search did not ' +
-      'include them. If he is asking about one of them, tell him which project and folder it is in and ask whether to ' +
-      'use it — never substitute a different document from this project for it.',
+      'include them. If relevant to the question, search their project or omit the project filter and read them. ' +
+      'No extra permission is needed to use relevant knowledge across projects. Identify their source project; ' +
+      'never substitute a different document from this project for a named document.',
   };
 }
 

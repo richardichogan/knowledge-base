@@ -43,8 +43,8 @@ export async function retrieveRagItems(db: Pool, query: string, projectContext?:
   }
 
   const [general, library] = await Promise.all([
-    getKnowledgeBaseItems(db, query, RAG_ITEMS_LIMIT, projectId),
-    getLibraryRagItems(db, query, RAG_LIBRARY_SLOTS, projectId === '' ? undefined : projectId)
+    getKnowledgeBaseItems(db, query, RAG_ITEMS_LIMIT),
+    getLibraryRagItems(db, query, RAG_LIBRARY_SLOTS)
       .catch(() => [] as ContentItem[]),
   ]);
   // Reserve up to RAG_LIBRARY_SLOTS for Library documents, interleaved with
@@ -156,6 +156,7 @@ export function formatRagContext(items: ContentItem[], query = ''): string {
     return [
       `[${index + 1}] ${item.source.toUpperCase()} — ${date}${url}`,
       `Title: ${item.title}`,
+      `Source project: ${item.projectContext ?? 'Unassigned'}`,
       isCopilotImport(item.title) ? COPILOT_IMPORT_CAUTION : '',
       `Summary: ${item.summary}`,
       excerpt ? `Relevant content: ${excerpt}` : '',
