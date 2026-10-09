@@ -885,6 +885,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   // ── Pointer interaction ────────────────────────────────────────────────────
 
   const spaceRef = useRef(false);
+  const pointerOverCanvasRef = useRef(false);
   const lastPointerRef = useRef<P | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState(false);
@@ -979,6 +980,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   }
 
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>): void {
+    pointerOverCanvasRef.current = true;
     const world = toWorld(e.clientX, e.clientY);
     lastPointerRef.current = world;
     const d = dragRef.current;
@@ -1199,8 +1201,25 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   useEffect(() => {
     const reset = (): void => { spaceRef.current = false; setSpaceDown(false); };
+    const keyDown = (event: KeyboardEvent): void => {
+      if (event.code !== 'Space' || event.ctrlKey || event.metaKey || event.altKey
+        || !pointerOverCanvasRef.current || isTypingTarget(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      spaceRef.current = true;
+      setSpaceDown(true);
+    };
+    const keyUp = (event: KeyboardEvent): void => {
+      if (event.code === 'Space' || event.key === ' ') reset();
+    };
+    window.addEventListener('keydown', keyDown, true);
+    window.addEventListener('keyup', keyUp, true);
     window.addEventListener('blur', reset);
-    return () => { window.removeEventListener('blur', reset); };
+    return () => {
+      window.removeEventListener('keydown', keyDown, true);
+      window.removeEventListener('keyup', keyUp, true);
+      window.removeEventListener('blur', reset);
+    };
   }, []);
 
   // ── Clipboard and drop ─────────────────────────────────────────────────────
@@ -1497,9 +1516,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         <div ref={sheetRef} className={sheetClass} onDragOver={onDragOver} onDragLeave={() => { setDropHint(false); }} onDrop={onDrop}>
           <svg
             ref={svgRef} className="dg-canvas" role="application" aria-label="Diagram sheet"
+            aria-description="Hold Space and drag to pan the canvas. Middle mouse drag also pans."
+            onPointerEnter={() => { pointerOverCanvasRef.current = true; }}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove}
             onPointerUp={(e) => { endDrag(e, false); }} onPointerCancel={(e) => { endDrag(e, true); }}
-            onPointerLeave={() => { if (dragRef.current === null) setHoverId(null); }}
+            onPointerLeave={() => { pointerOverCanvasRef.current = false; if (dragRef.current === null) setHoverId(null); }}
             onDoubleClick={onDoubleClick} onContextMenu={(e) => { if (dragRef.current?.kind === 'pan') e.preventDefault(); }}
           >
             <defs>

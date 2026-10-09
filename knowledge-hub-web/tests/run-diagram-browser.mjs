@@ -71,6 +71,28 @@ async function pointerChecks() {
     'Double-click on a shape must edit its label, not create another object');
   await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  const panStart = await nodePoint('Workforce agents', 0.5, 0.5);
+  await evaluate('document.querySelector(\'button[aria-label="Fit diagram to view"]\').focus()');
+  await command('Input.dispatchMouseEvent', { type: 'mouseMoved', ...panStart });
+  assert.equal(await evaluate(`document.elementFromPoint(${panStart.x}, ${panStart.y})?.closest(".dg-canvas") !== null`), true,
+    'Pan test pointer must be over SVG canvas');
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+  await evaluate('window.diagramFixture.waitFor(() => document.querySelector(".dg-sheet").classList.contains("dg-sheet--panning"))');
+  await mouseDrag(panStart, { x: panStart.x + 60, y: panStart.y + 40 });
+  await command('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+  await evaluate('window.diagramFixture.waitFor(() => document.querySelector(".dg-status--saved") !== null)');
+  const panned = await evaluate('window.diagramFixture.snapshot().document');
+  assert.equal(panned.viewport.x, original.viewport.x + 60, 'Space drag pans horizontally after toolbar focus');
+  assert.equal(panned.viewport.y, original.viewport.y + 40, 'Space drag pans vertically');
+  assert.deepEqual(panned.nodes, original.nodes, 'Panning over a shape does not move any shapes');
+  assert.equal(await evaluate('document.querySelector(".dg-sheet").classList.contains("dg-sheet--panning")'), false);
+  await evaluate('document.querySelector(\'input[aria-label="Diagram title"]\').focus()');
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+  assert.equal(await evaluate('document.querySelector(".dg-sheet").classList.contains("dg-sheet--panning")'), false,
+    'Typing spaces never activates panning');
+  await command('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+  await evaluate('document.querySelector(\'input[aria-label="Diagram title"]\').blur(); window.diagramFixture.clickButton("Fit diagram to view")');
+  await evaluate('window.diagramFixture.waitFor(() => document.querySelector(".dg-status--saved") !== null)');
   const host = original.nodes.find(n => n.label === 'Experience');
   const child = original.nodes.find(n => n.label === 'Teams / Copilot');
   const from = await nodePoint('Experience', 0.1, 0.95);
@@ -103,7 +125,8 @@ async function pointerChecks() {
   await mouseDrag(handle, { x: handle.x + 20, y: handle.y + 10 });
   const workforce = linked.nodes.find(n => n.label === 'Workforce agents');
   await evaluate(`window.diagramFixture.waitFor(() => window.diagramFixture.snapshot().document.nodes.find(n => n.id === "${workforce.id}").width > ${workforce.width})`);
-  return ['Pointer drag translates nested children', 'Port drag creates a shape-attached connector', 'Resize handle updates saved geometry'];
+  return ['Space drag pans after toolbar focus without moving shapes or intercepting text spaces',
+    'Pointer drag translates nested children', 'Port drag creates a shape-attached connector', 'Resize handle updates saved geometry'];
 }
 try {
   let port;

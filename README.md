@@ -133,6 +133,8 @@ New shape labels default to 16 px, with 18 px container and swimlane headings.
 Properties provides a 10-36 px Text size control; existing diagrams retain saved sizes.
 Container headers grow with the title's font size and wrapped lines, keeping
 the divider below the heading. Text alignment applies within the header.
+Hold Space and drag over the canvas to pan (even after using toolbar buttons),
+or drag with the middle mouse button. Text fields keep normal space typing.
 Arrowheads scale with connector thickness on the canvas and in exports;
 existing diagrams retain their original 1.5 px line weight.
 
