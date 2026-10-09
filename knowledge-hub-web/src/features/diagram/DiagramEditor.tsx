@@ -76,14 +76,14 @@ const KIND_LABEL: Record<DiagramKind, string> = {
 };
 
 const DEFAULTS: Record<DiagramKind, Pick<DiagramNode, 'label' | 'width' | 'height' | 'fill' | 'stroke' | 'textColor' | 'fontSize'>> = {
-  process: { label: 'Process', width: 140, height: 64, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 14 },
-  decision: { label: 'Decision?', width: 120, height: 80, fill: '#fcf4d6', stroke: '#b28600', textColor: '#161616', fontSize: 14 },
-  terminator: { label: 'Start', width: 140, height: 52, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 14 },
-  document: { label: 'Document', width: 140, height: 80, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 14 },
-  text: { label: 'Text', width: 140, height: 40, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 14 },
-  image: { label: '', width: 96, height: 96, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 13 },
-  container: { label: 'Group', width: 320, height: 220, fill: '#f4f4f4', stroke: '#525252', textColor: '#161616', fontSize: 13 },
-  swimlane: { label: 'Lane', width: 560, height: 180, fill: '#ffffff', stroke: '#525252', textColor: '#161616', fontSize: 13 },
+  process: { label: 'Process', width: 140, height: 64, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 16 },
+  decision: { label: 'Decision?', width: 120, height: 80, fill: '#fcf4d6', stroke: '#b28600', textColor: '#161616', fontSize: 16 },
+  terminator: { label: 'Start', width: 140, height: 52, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 16 },
+  document: { label: 'Document', width: 140, height: 80, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 16 },
+  text: { label: 'Text', width: 140, height: 40, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 16 },
+  image: { label: '', width: 96, height: 96, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 16 },
+  container: { label: 'Group', width: 320, height: 220, fill: '#f4f4f4', stroke: '#525252', textColor: '#161616', fontSize: 18 },
+  swimlane: { label: 'Lane', width: 560, height: 180, fill: '#ffffff', stroke: '#525252', textColor: '#161616', fontSize: 18 },
 };
 
 const PALETTE: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'text', 'image', 'container', 'swimlane'];
@@ -1769,6 +1769,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           item={(singleNode ?? singleEdge)!}
           kind={singleNode === undefined ? 'Connector' : KIND_LABEL[singleNode.kind]}
           titleLimit={singleNode === undefined ? 500 : 2000}
+          onFontSizeChange={(fontSize) => {
+            if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, fontSize }));
+          }}
           onBackgroundChange={(fill) => {
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, textColor: diagramEditorNodeColours(n).textColor, fill }));
           }}
@@ -1811,13 +1814,14 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   );
 };
 
-function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onBorderChange, onBackgroundChange }: {
+function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onBorderChange, onBackgroundChange, onFontSizeChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
   onChange: (field: 'label' | 'description', value: string, first: boolean) => void;
   onAlignmentChange: (alignment: Partial<Pick<DiagramNode, 'textAlign' | 'textVerticalAlign'>>) => void;
   onThicknessChange: (strokeWidth: number) => void;
   onBorderChange: (border: Partial<Pick<DiagramNode, 'stroke' | 'strokeStyle'>>) => void;
   onBackgroundChange: (fill: string) => void;
+  onFontSizeChange: (fontSize: number) => void;
 }): React.ReactElement {
   const firstEdit = useRef(true);
   const change = (field: 'label' | 'description', value: string): void => {
@@ -1857,6 +1861,13 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('description', e.target.value); }} />
     </label>
     {'kind' in item && <div className="dg-properties__alignment">
+      <label className="dg-properties__field">Text size
+        <select aria-label="Text size" value={item.fontSize}
+          onChange={(event) => { onFontSizeChange(Number(event.target.value)); }}>
+          {Array.from({ length: FONT_MAX - FONT_MIN + 1 }, (_, i) => FONT_MIN + i)
+            .map(size => <option key={size} value={size}>{size} px</option>)}
+        </select>
+      </label>
       <span>Horizontal text alignment</span>
       <Segmented label="Text horizontal alignment" value={item.textAlign ?? (item.kind === 'container' ? 'left' : 'center')}
         options={[{ value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' }]}

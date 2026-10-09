@@ -129,6 +129,8 @@ also available in Properties and preserved in SVG/PNG exports.
 Shape backgrounds use five simple choices: neutral, blue, green, amber or transparent.
 The Document shape uses a wavy bottom edge to denote artefacts such as reports,
 specifications and deliverables, with the same styling and text controls.
+New shape labels default to 16 px, with 18 px container and swimlane headings.
+Properties provides a 10-36 px Text size control; existing diagrams retain saved sizes.
 Arrowheads scale with connector thickness on the canvas and in exports;
 existing diagrams retain their original 1.5 px line weight.
 

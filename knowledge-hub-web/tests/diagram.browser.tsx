@@ -172,13 +172,18 @@ async function runDiagramChecks(): Promise<string[]> {
   } finally { URL.revokeObjectURL(url); }
   const count = (): number => window.document.querySelectorAll('g.dg-node').length;
   const baseline = count();
+  const existingNodeIds = new Set(snapshot.document.nodes.map(n => n.id));
   clickButton('Add Process');
   await waitFor(() => count() === baseline + 1);
+  await waitFor(() => snapshot.document.nodes.length === baseline + 1);
+  check(snapshot.document.nodes.find(n => !existingNodeIds.has(n.id))?.fontSize === 16,
+    'New shape labels default to 16 px');
   clickButton('Undo (Ctrl+Z)');
   await waitFor(() => count() === baseline);
   clickButton('Redo (Ctrl+Shift+Z)');
   await waitFor(() => count() === baseline + 1);
-  const addedNode = [...window.document.querySelectorAll('g.dg-node')].at(-1)!;
+  const addedNode = [...window.document.querySelectorAll('g.dg-node')]
+    .find(n => !existingNodeIds.has(n.getAttribute('data-id') ?? ''))!;
   addedNode.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   await waitFor(() => window.document.querySelector('.dg-label-editor') !== null);
   const field = window.document.querySelector<HTMLTextAreaElement>('.dg-label-editor')!;
@@ -383,6 +388,27 @@ async function runDiagramChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector(`g.dg-node[data-id="${documentNode.id}"]`) !== null);
   check(snapshot.document.nodes.some(n => n.id === documentNode.id && n.kind === 'document' && n.label === 'Specification artefact'),
     'Document artefact survives save and reopen');
+  clickButton('Add Container');
+  await waitFor(() => snapshot.document.nodes.some(n => n.label === 'Group' && n.fontSize === 18));
+  const headingNode = snapshot.document.nodes.find(n => n.label === 'Group')!;
+  await setThickness('Text size', 24);
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === headingNode.id && n.fontSize === 24));
+  const heading = window.document.querySelector(`g.dg-node[data-id="${headingNode.id}"] text`)!;
+  check(heading.getAttribute('font-size') === '24', 'Properties text size changes container heading');
+  const headingXml = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+  check([...headingXml.querySelectorAll('text')].find(text => text.textContent === 'Group')?.getAttribute('font-size') === '24',
+    'Export preserves enlarged container text');
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === headingNode.id && n.fontSize === 18));
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === headingNode.id && n.fontSize === 24));
+  root.render(null);
+  await waitFor(() => window.document.querySelector('.dg-editor') === null);
+  queryClient.clear();
+  mountEditor();
+  await waitFor(() => window.document.querySelector(`g.dg-node[data-id="${headingNode.id}"]`) !== null);
+  check(snapshot.document.nodes.some(n => n.id === headingNode.id && n.fontSize === 24), 'Text size survives reopening');
+  check(snapshot.document.nodes.find(n => n.id === experience.id)?.fontSize === 14, 'Existing saved label sizes stay unchanged');
   check(!(await diagramSvg(snapshot.document, assets, 'white')).includes('Process owner: Operations'), 'Descriptions must not clutter visual exports');
   await waitFor(() => window.document.querySelectorAll('g.dg-node--image image').length === 3);
   root.render(null);
@@ -401,6 +427,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Shape border colour, solid/dashed/dotted styles and no-border save and export consistently',
     'Five simple shape backgrounds match canvas and export and survive reopening',
     'Document artefacts add, edit, undo/redo, export and reopen',
+    'Larger default labels and Properties text size persist and export',
     'Add, label editing, undo/redo and duplication', 'Image-file clipboard paste and explicit URL-only fallback',
     'Save conflict retains local changes and explicit overwrite resolves it',         'Shape and connector properties save/reopen, undo/redo and duplicate without cluttering exports',
     'Note linking, return links in Connections, opening/unlinking and reopening',
