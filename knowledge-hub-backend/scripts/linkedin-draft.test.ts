@@ -4,13 +4,55 @@ import { mock, test } from 'node:test';
 import express from 'express';
 import { getDb } from '../src/db/db.js';
 import { getFoundryClient } from '../src/ai/foundryClient.js';
-import { parseLinkedInDraft, sourceUrl } from '../src/ai/linkedInDraft.js';
+import { generateShortSocialDraft, parseLinkedInDraft, socialLength, sourceUrl } from '../src/ai/linkedInDraft.js';
+import { socialLength as uiSocialLength } from '../../knowledge-hub-web/src/components/discover/socialLength.js';
 import { discoverRouter } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 
 const summary = 'Microsoft has announced a new management capability for cloud environments.';
 const observation = 'For enterprise IT, this could simplify governance across teams.';
 const raw = JSON.stringify({ summary, observation });
+
+test('short social counting includes full URLs, breaks and conservative X weights on both sides', () => {
+  const url = 'https://example.com/' + 'a'.repeat(70);
+  for (const [post, link] of [
+    ['a'.repeat(280), null], ['New announcement', url], ['漢'.repeat(140), null],
+    ['😀'.repeat(100), url], ['e\u0301'.repeat(140), null], ['News', 'https://x.co'],
+  ] as const) assert.equal(socialLength(post, link), uiSocialLength(post, link));
+  assert.equal(socialLength('a'.repeat(280), null), 280);
+  assert.equal(socialLength('News', 'https://x.co'), 4 + 2 + 23);
+  assert.equal(socialLength('News', url), 4 + 2 + url.length);
+  assert.equal(socialLength('漢'.repeat(140), null), 280);
+  assert.equal(socialLength('e\u0301'.repeat(140), null), 280);
+  assert.equal(socialLength('News https://x.co', null), 5 + 23);
+  assert.equal(uiSocialLength('News https://x.co', null), 5 + 23);
+  assert.equal(socialLength('a'.repeat(253), 'https://x.co'), 278);
+  assert.equal(socialLength('a'.repeat(256), 'https://x.co'), 281);
+});
+
+test('short generator reserves link budget, retries oversized copy and never truncates', async () => {
+  const source = { title: 'News', body: 'A public announcement.', source: 'discovered-article' as const, url: 'https://example.com/' + 'a'.repeat(90) };
+  let calls = 0;
+  let alwaysOversized = false;
+  const chat = mock.method(getFoundryClient('discover-linkedin'), 'chat', async (_model, messages) => {
+    calls++;
+    assert.match(messages[0].content, /untrusted data/);
+    assert.match(messages[0].content, /private email/);
+    assert.match(messages[0].content, /168 weighted characters/);
+    return JSON.stringify({ summary: alwaysOversized || calls === 1 ? 'a'.repeat(300) : 'Microsoft announced a cloud management update.', observation: '' });
+  });
+  try {
+    const result = await generateShortSocialDraft(source);
+    assert.equal(calls, 2);
+    assert.equal(result.sourceUrl, source.url);
+    assert.ok(socialLength(result.post, result.sourceUrl) <= 280);
+    alwaysOversized = true;
+    await assert.rejects(generateShortSocialDraft(source), /280 characters/);
+    assert.equal(calls, 4);
+    await assert.rejects(generateShortSocialDraft({ ...source, url: 'https://example.com/' + 'a'.repeat(250) }), /too little room/);
+    assert.equal(calls, 4);
+  } finally { chat.mock.restore(); }
+});
 
 test('short draft preserves paragraph boundaries and optional observation', () => {
   assert.equal(parseLinkedInDraft(raw), `${summary}\n\n${observation}`);
@@ -55,6 +97,7 @@ test('draft endpoint handles article/email, missing content, invalid IDs and AI 
     return invalidReply ? 'not JSON' : raw;
   });
   const app = express();
+  app.use(express.json());
   app.use('/api/discover', discoverRouter);
   app.use(errorHandler);
   const server = app.listen(0, '127.0.0.1');
@@ -75,8 +118,16 @@ test('draft endpoint handles article/email, missing content, invalid IDs and AI 
       assert.deepEqual(await res.json(), { success: true, data: { post: `${summary}\n\n${observation}`, sourceUrl: source.url, sourceKind: kind } });
     }
     const calls = queries.length;
-    assert.equal((await fetch(`${url}/invalid/linkedin-draft`, { method: 'POST' })).status, 400);
+    const invalidFormat = await fetch(`${url}/${id}/linkedin-draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"format":"invalid"}' });
+    assert.equal(invalidFormat.status, 400);
     assert.equal(queries.length, calls);
+    const short = await fetch(`${url}/${id}/linkedin-draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"format":"short"}' });
+    assert.equal(short.status, 200);
+    const shortResult = await short.json() as { data: { post: string; sourceUrl: string | null } };
+    assert.ok(socialLength(shortResult.data.post, shortResult.data.sourceUrl) <= 280);
+    const afterShort = queries.length;
+    assert.equal((await fetch(`${url}/invalid/linkedin-draft`, { method: 'POST' })).status, 400);
+    assert.equal(queries.length, afterShort);
     found = false;
     assert.equal((await fetch(`${url}/${id}/linkedin-draft`, { method: 'POST' })).status, 404);
     found = true;

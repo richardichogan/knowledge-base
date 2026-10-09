@@ -363,7 +363,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           <button type="button" className="dc-action dc-action--linkedin"
             onKeyDown={(e) => { e.stopPropagation(); }}
             onClick={(e) => { e.stopPropagation(); onLinkedIn(item); }}>
-            <Edit size={14} /> LinkedIn post
+            <Edit size={14} /> Socials
           </button>
           <div className="dc-card-actions__more">
           {item.url !== null && !isPublished && (
@@ -791,7 +791,7 @@ export const DiscoverPage: React.FC = () => {
                 )}
                 <button type="button" className="dc-action dc-action--linkedin"
                   onClick={() => { setLinkedInItem({ id: email.id, title: email.title }); }}>
-                  <Edit size={14} /> LinkedIn post
+                  <Edit size={14} /> Socials
                 </button>
               </div>
             );

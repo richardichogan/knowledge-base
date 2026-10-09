@@ -2,6 +2,14 @@
 
 ---
 
+## Discover Socials — 2026-10-09
+
+Discover's LinkedIn action is now Socials, with separate LinkedIn and shared
+Bluesky/X drafts. Short copy reserves the original URL and paragraph breaks
+within a conservative 280-character weighted budget. Over-limit edits cannot
+be copied. Copy retains the existing Published workflow; nothing is posted
+automatically. Email privacy checks remain in both draft prompts.
+
 ## Diagram properties — 2026-10-09
 
 The Properties panel exposes diagram title, description and project separately

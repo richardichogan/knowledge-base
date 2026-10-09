@@ -1241,10 +1241,10 @@ export class KnowledgeHubApi {
 
   // ─── Discover ─────────────────────────────────────────────────────────────
 
-  async createLinkedInDraft(id: string): Promise<ApiResponse<{ post: string; sourceUrl: string | null; sourceKind: 'email' | 'discovered-article' }>> {
+  async createLinkedInDraft(id: string, format: 'linkedin' | 'short' = 'linkedin'): Promise<ApiResponse<{ post: string; sourceUrl: string | null; sourceKind: 'email' | 'discovered-article' }>> {
     return (await this.client.post<ApiResponse<{ post: string; sourceUrl: string | null; sourceKind: 'email' | 'discovered-article' }>>(
       `/api/discover/${id}/linkedin-draft`,
-      {},
+      { format },
       { timeout: CHAT_TIMEOUT_MS },
     )).data;
   }
