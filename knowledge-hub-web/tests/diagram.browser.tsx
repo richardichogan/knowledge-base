@@ -102,7 +102,8 @@ mountEditor();
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
 async function waitFor(predicate: () => boolean): Promise<void> {
-  for (let i = 0; i < 100; i++) { if (predicate()) return; await delay(100); }
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) { if (predicate()) return; await delay(100); }
   throw new Error('Fixture condition did not resolve');
 }
 function check(value: boolean, message: string): void { if (!value) throw new Error(message); }
@@ -116,6 +117,19 @@ async function runDiagramChecks(): Promise<string[]> {
   check(window.document.querySelector('.dg-edge__line')?.getAttribute('stroke') === '#c6c6c6', 'Existing dark connectors remain visible on the dark sheet');
   check(snapshot.document.edges[0]?.stroke === '#333333', 'Editor theme must not mutate saved connector colours');
   await waitFor(() => window.document.querySelector('.dg-editor') !== null);
+  const sheet = window.document.querySelector<SVGSVGElement>('svg.dg-canvas')!;
+  const shape = window.document.querySelector<SVGGElement>(`g.dg-node[data-id="${workforce.id}"]`)!;
+  const bounds = shape.getBoundingClientRect();
+  const beforeDoubleClick = window.document.querySelectorAll('g.dg-node').length;
+  sheet.dispatchEvent(new MouseEvent('dblclick', {
+    bubbles: true, clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2,
+  }));
+  await waitFor(() => window.document.querySelector('.dg-label-editor') !== null);
+  check(window.document.querySelector<HTMLTextAreaElement>('.dg-label-editor')?.value === workforce.label,
+    'Sheet-retargeted double-click edits the shape underneath');
+  check(window.document.querySelectorAll('g.dg-node').length === beforeDoubleClick, 'Shape double-click cannot create another object');
+  window.document.querySelector('.dg-label-editor')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await waitFor(() => window.document.querySelector('.dg-label-editor') === null);
   clickButton('Link a note');
   await waitFor(() => window.document.querySelector('.dg-note-links__choice') !== null);
   clickButton('Process requirements');
@@ -172,6 +186,26 @@ async function runDiagramChecks(): Promise<string[]> {
   await delay(20);
   field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   await waitFor(() => snapshot.document.nodes.some((n) => n.label === 'Browser-verified process'));
+  for (const horizontal of ['Left', 'Center', 'Right']) {
+    for (const vertical of ['Top', 'Middle', 'Bottom']) {
+      const horizontalGroup = window.document.querySelector('[aria-label="Text horizontal alignment"]')!;
+      [...horizontalGroup.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === horizontal)!.click();
+      await delay(20);
+      const verticalGroup = window.document.querySelector('[aria-label="Text vertical alignment"]')!;
+      [...verticalGroup.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === vertical)!.click();
+      await waitFor(() => snapshot.document.nodes.some(n => n.label === 'Browser-verified process'
+        && n.textAlign === horizontal.toLowerCase() && n.textVerticalAlign === vertical.toLowerCase()));
+      const aligned = snapshot.document.nodes.find(n => n.label === 'Browser-verified process')!;
+      const rendered = window.document.querySelector(`g.dg-node[data-id="${aligned.id}"] text`)!;
+      const anchor = horizontal === 'Left' ? 'start' : horizontal === 'Right' ? 'end' : 'middle';
+      check(rendered.getAttribute('text-anchor') === anchor, 'Canvas reflects horizontal text alignment');
+      const xml = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+      const exported = [...xml.querySelectorAll('text')].find(text => text.textContent?.includes('Browser-verified'))!;
+      check(exported.getAttribute('text-anchor') === anchor, 'Export reflects horizontal text alignment');
+      check(exported.querySelector('tspan')?.getAttribute('y') === rendered.querySelector('tspan')?.getAttribute('y'),
+        'Canvas and export share vertical text position');
+    }
+  }
   const setProperty = async (label: string, value: string): Promise<void> => {
     const input = window.document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`);
     check(input !== null, `Missing property field: ${label}`);
@@ -234,6 +268,8 @@ async function runDiagramChecks(): Promise<string[]> {
   await waitFor(() => count() === saved.document.nodes.length);
   await waitFor(() => window.document.querySelector('.dg-note-links__row a') !== null);
   check(snapshot.document.nodes.some((n) => n.label === 'Browser-verified process'), 'Saved labels must survive reopening');
+  check(snapshot.document.nodes.some(n => n.label === 'Browser-verified process' && n.textAlign === 'right' && n.textVerticalAlign === 'bottom'),
+    'Text alignment survives reopening and duplication');
   check(snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true), 'Shape descriptions must survive reopening and duplication');
   check(snapshot.document.edges.some((e) => e.description === 'Passes the request to the runtime.'), 'Connector descriptions must survive reopening');
   check(!(await diagramSvg(snapshot.document, assets, 'white')).includes('Process owner: Operations'), 'Descriptions must not clutter visual exports');
@@ -249,6 +285,7 @@ async function runDiagramChecks(): Promise<string[]> {
   await checkDiagramFromNote(queryClient, waitFor);
   return ['Representative architecture and process flow render', 'SVG export full bounds, embedded icon and bidirectional arrows',
     'PNG rasterisation with embedded SVG icon', 'Escaped labels and explicit missing-asset errors',
+    'Shape double-click edits instead of adding', 'All nine text alignments match canvas and export',
     'Add, label editing, undo/redo and duplication', 'Image-file clipboard paste and explicit URL-only fallback',
     'Save conflict retains local changes and explicit overwrite resolves it',         'Shape and connector properties save/reopen, undo/redo and duplicate without cluttering exports',
     'Note linking, return links in Connections, opening/unlinking and reopening',

@@ -14,6 +14,7 @@
  * conflicts and failures keep the local copy and surface Retry / Reload.
  */
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { diagramTextLayout } from './diagramText';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import {
@@ -1130,6 +1131,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     }
     if (role === null) {
       const world = toWorld(e.clientX, e.clientY);
+      // Pointer capture can retarget double-clicks to the sheet instead of the shape.
+      const hit = hitTestNode(cur.nodes, world);
+      if (hit !== null) {
+        setSel({ nodes: [hit.id], edges: [] });
+        setEditing({ kind: 'node', id: hit.id, value: hit.label });
+        return;
+      }
       const edge = hitTestEdge(cur.edges, byId, world, 6 / cur.viewport.zoom);
       if (edge !== null) { setSel({ nodes: [], edges: [edge.id] }); setEditing({ kind: 'edge', id: edge.id, value: edge.label }); return; }
       const node = placeNode('process', world);
@@ -1758,6 +1766,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           item={(singleNode ?? singleEdge)!}
           kind={singleNode === undefined ? 'Connector' : KIND_LABEL[singleNode.kind]}
           titleLimit={singleNode === undefined ? 500 : 2000}
+          onAlignmentChange={(alignment) => {
+            if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, ...alignment }));
+          }}
           onChange={(field, value, first) => {
             const current = docRef.current;
             const id = singleNode?.id ?? singleEdge?.id;
@@ -1787,9 +1798,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   );
 };
 
-function DiagramProperties({ item, kind, titleLimit, onChange }: {
+function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
   onChange: (field: 'label' | 'description', value: string, first: boolean) => void;
+  onAlignmentChange: (alignment: Partial<Pick<DiagramNode, 'textAlign' | 'textVerticalAlign'>>) => void;
 }): React.ReactElement {
   const firstEdit = useRef(true);
   const change = (field: 'label' | 'description', value: string): void => {
@@ -1806,6 +1818,16 @@ function DiagramProperties({ item, kind, titleLimit, onChange }: {
       <textarea aria-label="Shape or connector description" rows={8} maxLength={10000} value={item.description ?? ''}
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('description', e.target.value); }} />
     </label>
+    {'kind' in item && <div className="dg-properties__alignment">
+      <span>Horizontal text alignment</span>
+      <Segmented label="Text horizontal alignment" value={item.textAlign ?? (item.kind === 'container' ? 'left' : 'center')}
+        options={[{ value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' }]}
+        onChange={(value) => { onAlignmentChange({ textAlign: value }); }} />
+      <span>Vertical text alignment</span>
+      <Segmented label="Text vertical alignment" value={item.textVerticalAlign ?? 'middle'}
+        options={[{ value: 'top', label: 'Top' }, { value: 'middle', label: 'Middle' }, { value: 'bottom', label: 'Bottom' }]}
+        onChange={(value) => { onAlignmentChange({ textVerticalAlign: value }); }} />
+    </div>}
     <p className="dg-properties__hint">Title is shown on the diagram. Description is saved with this item but not displayed on the drawing. Changes save automatically.</p>
   </div>;
 }
@@ -1820,7 +1842,7 @@ function handlePoint(r: Rect, h: ResizeHandle): P {
 
 function TextLines({ lines, cx, cy, fontSize, color, anchorX, anchor = 'middle', weight }: {
   lines: string[]; cx: number; cy: number; fontSize: number; color: string; anchorX?: number | undefined;
-  anchor?: 'start' | 'middle' | undefined; weight?: number | undefined;
+  anchor?: 'start' | 'middle' | 'end' | undefined; weight?: number | undefined;
 }): React.ReactElement | null {
   if (lines.length === 0) return null;
   const lineH = fontSize * 1.25;
@@ -1906,6 +1928,10 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       );
       break;
     }
+  }
+  if (n.textAlign !== undefined || n.textVerticalAlign !== undefined) {
+    const layout = diagramTextLayout({ ...n, label });
+    text = <TextLines lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
   }
   return (
     <g className={`dg-node dg-node--${n.kind}${selected ? ' dg-node--selected' : ''}`} data-dg="node" data-id={n.id}>

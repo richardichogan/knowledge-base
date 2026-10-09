@@ -119,6 +119,11 @@ Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief
 
 ## Think canvases
 
+In diagrams, double-click a shape to edit its text; double-click empty canvas
+to create a process shape.
+Shape Properties also provides left/center/right and top/middle/bottom text
+alignment. Alignment is saved with the diagram and used in SVG/PNG exports.
+
 Athena's optional context-file reads are bounded to five seconds. Background
 chat deadlines and Stop cover context/tool preparation as well as model
 generation; cancelled turns discard late results rather than staying busy.

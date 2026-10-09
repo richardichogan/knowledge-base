@@ -67,6 +67,17 @@ test('rejects unknown keys at every level and a wrong version', () => {
   rejects(() => validateDiagramDocument(JSON.parse(`{"version":1,"nodes":[],"edges":[],"grid":true,"viewport":{"x":0,"y":0,"zoom":1},"__proto__":{"x":1}}`), NONE), /__proto__/);
 });
 
+test('text alignment round-trips and rejects unsupported values', () => {
+  for (const textAlign of ['left', 'center', 'right'] as const) {
+    for (const textVerticalAlign of ['top', 'middle', 'bottom'] as const) {
+      const input = doc([node({ textAlign, textVerticalAlign })]);
+      assert.deepEqual(validateDiagramDocument(input, NONE), input);
+    }
+  }
+  rejects(() => validateDiagramDocument(doc([{ ...node(), textAlign: 'justify' } as unknown as DiagramNode]), NONE), /textAlign/);
+  rejects(() => validateDiagramDocument(doc([{ ...node(), textVerticalAlign: 'baseline' } as unknown as DiagramNode]), NONE), /textVerticalAlign/);
+});
+
 test('optional item descriptions preserve legacy documents and round-trip shape and connector details', () => {
   const a = node({ description: 'Inputs, owner and expected output\nSecond line' });
   const b = node();

@@ -229,6 +229,15 @@ $dg-ink: #f4f4f4;
   &__hint { margin: 0; font-size: 0.75rem; line-height: 1.4; color: var(--cds-text-secondary); }
 }
 
+.dg-properties__alignment {
+  display: grid;
+  gap: 0.5rem;
+  color: var(--cds-text-secondary);
+  font-size: 0.75rem;
+  .dg-segment { display: flex; min-width: 0; }
+  > span:not(:first-child) { margin-top: 0.5rem; }
+}
+
 .dg-segment {
   display: inline-flex;
   border: 1px solid var(--cds-border-subtle-01);

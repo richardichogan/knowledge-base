@@ -1,4 +1,5 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
+import { diagramTextLayout } from './diagramText';
 import { CONTAINER_HEADER, SWIMLANE_HEADER, diagramBounds, edgePoints, pointAlong, renderOrder, wrapText } from './diagramGeometry';
 
 const escapeXml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
@@ -23,17 +24,9 @@ function textLines(lines: string[], x: number, y: number, fontSize: number, colo
 }
 
 function nodeText(node: DiagramNode): string {
-  const { x, y, width: w, height: h, fontSize: fs, textColor } = node;
-  const cx = x + w / 2; const cy = y + h / 2;
-  if (node.kind === 'container') return textLines(wrapText(node.label, w - 20, fs, 1), x + 10, y + CONTAINER_HEADER / 2, fs, textColor, 'start', 600);
-  if (node.kind === 'swimlane') {
-    const bandX = x + SWIMLANE_HEADER / 2;
-    return `<g transform="rotate(-90 ${bandX} ${cy})">${textLines(wrapText(node.label, h - 16, fs, 1), bandX, cy, fs, textColor, 'middle', 600)}</g>`;
-  }
-  if (node.kind === 'image') return node.label.trim() === '' ? '' : textLines(wrapText(node.label, w - 4, fs, 1), cx, y + h - Math.round(fs * 1.3 + 10) / 2 - 2, fs, textColor);
-  const width = node.kind === 'decision' ? w * 0.62 : node.kind === 'terminator' ? w - h * 0.6 : w - (node.kind === 'text' ? 8 : 16);
-  const height = node.kind === 'decision' ? h * 0.6 : h - (node.kind === 'text' ? 0 : 8);
-  return textLines(wrapText(node.label, width, fs, Math.max(1, Math.floor(height / (fs * 1.25)))), cx, cy, fs, textColor);
+  const layout = diagramTextLayout(node);
+  const text = textLines(layout.lines, layout.x, layout.y, node.fontSize, node.textColor, layout.anchor, layout.weight);
+  return layout.rotation ? `<g transform="${layout.rotation}">${text}</g>` : text;
 }
 
 export async function diagramSvg(document: DiagramDocument, assets: Map<string, Blob>, background: 'white' | 'transparent', includeGrid = false): Promise<string> {

@@ -20,6 +20,8 @@ export interface DiagramNode {
   stroke: string;
   textColor: string;
   fontSize: number;
+  textAlign?: 'left' | 'center' | 'right';
+  textVerticalAlign?: 'top' | 'middle' | 'bottom';
   assetId: string | null;
 }
 export interface DiagramEdge {

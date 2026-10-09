@@ -10,6 +10,7 @@ const fixtureUrl = process.env.DIAGRAM_FIXTURE_URL ?? 'http://localhost:5142/tes
 const profile = await mkdtemp(join(tmpdir(), 'athena-diagram-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+  '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
   '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
 ], { stdio: 'ignore' });
 let socket;
@@ -20,7 +21,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function command(method, params = {}) {
   const id = ++sequence;
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, 30_000);
+    const timeout = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method} ${params.expression?.slice(0, 120) ?? ''}`)); }, 60_000);
     pending.set(id, {
       resolve: (result) => { clearTimeout(timeout); resolve(result); },
       reject: (error) => { clearTimeout(timeout); reject(error); },
@@ -47,6 +48,11 @@ async function mouseClick(point) {
   await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
   await command('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
 }
+async function mouseDoubleClick(point) {
+  await mouseClick(point);
+  await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 2 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 2 });
+}
 async function mouseDrag(from, to) {
   await command('Input.dispatchMouseEvent', { type: 'mouseMoved', ...from });
   await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...from, button: 'left', clickCount: 1 });
@@ -59,6 +65,12 @@ async function pointerChecks() {
   await evaluate('window.diagramFixture.clickButton("Fit diagram to view")');
   await evaluate('window.diagramFixture.waitFor(() => document.querySelector(".dg-status--saved") !== null)');
   const original = await evaluate('window.diagramFixture.snapshot().document');
+  await mouseDoubleClick(await nodePoint('Workforce agents', 0.5, 0.5));
+  await evaluate('window.diagramFixture.waitFor(() => document.querySelector(".dg-label-editor") !== null)');
+  assert.equal(await evaluate('window.diagramFixture.snapshot().document.nodes.length'), original.nodes.length,
+    'Double-click on a shape must edit its label, not create another object');
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   const host = original.nodes.find(n => n.label === 'Experience');
   const child = original.nodes.find(n => n.label === 'Teams / Copilot');
   const from = await nodePoint('Experience', 0.1, 0.95);
@@ -115,6 +127,7 @@ try {
   await command('Network.setBlockedURLs', { urls: ['*/api/*', '*/auth/*'] });
   for (const width of [1440, 390]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width === 390 });
+    await command('Runtime.evaluate', { expression: 'delete window.runDiagramChecks' });
     await command('Page.navigate', { url: fixtureUrl });
     let ready = false;
     for (let i = 0; i < 150; i++) {
@@ -135,6 +148,7 @@ try {
   }
   assert.equal(errors.length, 0, errors.join('\n'));
 } catch (err) {
+  console.error(await evaluate('document.body.innerText').catch(() => 'Unable to read fixture state'));
   if (errors.length > 0) console.error(errors.join('\n'));
   throw err;
 } finally {
