@@ -51,7 +51,7 @@ const LABEL_CONTROL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 // eslint-disable-next-line no-control-regex
 const NAME_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-const KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'text', 'image', 'container', 'swimlane'];
+const KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'text', 'image', 'container', 'swimlane'];
 const PARENT_KINDS: ReadonlySet<DiagramKind> = new Set<DiagramKind>(['container', 'swimlane']);
 const PORTS: readonly DiagramPort[] = ['top', 'right', 'bottom', 'left'];
 const ROUTES: readonly DiagramEdge['route'][] = ['straight', 'orthogonal'];

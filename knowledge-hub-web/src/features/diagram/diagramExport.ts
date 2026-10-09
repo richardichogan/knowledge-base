@@ -1,7 +1,7 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
 import { diagramTextLayout } from './diagramText';
 import { diagramBorderDash } from './diagramStroke';
-import { CONTAINER_HEADER, SWIMLANE_HEADER, diagramBounds, edgePoints, pointAlong, renderOrder, wrapText } from './diagramGeometry';
+import { CONTAINER_HEADER, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgePoints, pointAlong, renderOrder, wrapText } from './diagramGeometry';
 
 const escapeXml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
   '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;',
@@ -48,7 +48,9 @@ export async function diagramSvg(document: DiagramDocument, assets: Map<string, 
     const borderStyle = `${dash === undefined ? '' : ` stroke-dasharray="${dash}"`}${node.strokeStyle === 'dotted' ? ' stroke-linecap="round"' : ''}`;
     const colour = `fill="${escapeXml(node.fill)}" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}`;
     let shape = '';
-    if (node.kind === 'decision') {
+    if (node.kind === 'document') {
+      shape = `<path d="${documentShapePath(node)}" ${colour}/>`;
+    } else if (node.kind === 'decision') {
       shape = `<polygon points="${node.x + node.width / 2},${node.y} ${node.x + node.width},${node.y + node.height / 2} ${node.x + node.width / 2},${node.y + node.height} ${node.x},${node.y + node.height / 2}" ${colour}/>`;
     } else {
       const radius = node.kind === 'terminator' ? Math.min(node.width, node.height) / 2 : node.kind === 'process' ? 6 : node.kind === 'text' ? 2 : node.kind === 'swimlane' ? 0 : 4;

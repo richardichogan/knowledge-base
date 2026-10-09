@@ -127,6 +127,8 @@ Properties offers connector line and shape border thickness from 0.5 to 6 px.
 Shape border colour (including no border) and solid/dashed/dotted styles are
 also available in Properties and preserved in SVG/PNG exports.
 Shape backgrounds use five simple choices: neutral, blue, green, amber or transparent.
+The Document shape uses a wavy bottom edge to denote artefacts such as reports,
+specifications and deliverables, with the same styling and text controls.
 Arrowheads scale with connector thickness on the canvas and in exports;
 existing diagrams retain their original 1.5 px line weight.
 

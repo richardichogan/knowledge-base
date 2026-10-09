@@ -1,5 +1,5 @@
 import type { DiagramNode } from './diagramTypes';
-import { CONTAINER_HEADER, SWIMLANE_HEADER, wrapText } from './diagramGeometry';
+import { CONTAINER_HEADER, SWIMLANE_HEADER, documentWaveDepth, wrapText } from './diagramGeometry';
 
 /** One label layout for the canvas and both export formats. */
 export function diagramTextLayout(node: DiagramNode): {
@@ -13,14 +13,15 @@ export function diagramTextLayout(node: DiagramNode): {
     return { lines: wrapText(node.label, h - 16, fs, 1), x: bx, y: cy, anchor: 'middle', weight: 600, rotation: `rotate(-90 ${bx} ${cy})` };
   }
   const width = node.kind === 'decision' ? w * 0.62 : node.kind === 'terminator' ? w - h * 0.6 : w - (node.kind === 'text' ? 8 : node.kind === 'container' ? 20 : 16);
-  const height = node.kind === 'decision' ? h * 0.6 : h - (node.kind === 'text' ? 0 : 8);
+  const contentHeight = node.kind === 'document' ? h - 2 * documentWaveDepth(h) : h;
+  const height = node.kind === 'decision' ? h * 0.6 : contentHeight - (node.kind === 'text' ? 0 : 8);
   const lines = wrapText(node.label, width, fs, Math.max(1, Math.floor(height / (fs * 1.25))));
   const horizontal = node.textAlign ?? (node.kind === 'container' ? 'left' : 'center');
   const vertical = node.textVerticalAlign ?? 'middle';
   const halfText = ((lines.length - 1) * fs * 1.25 + fs) / 2;
   const insetX = (w - width) / 2;
-  const insetY = (h - height) / 2;
-  let cy = vertical === 'top' ? y + insetY + halfText : vertical === 'bottom' ? y + h - insetY - halfText : y + h / 2;
+  const insetY = (contentHeight - height) / 2;
+  let cy = vertical === 'top' ? y + insetY + halfText : vertical === 'bottom' ? y + contentHeight - insetY - halfText : y + contentHeight / 2;
   if (!aligned && node.kind === 'container') cy = y + CONTAINER_HEADER / 2;
   if (!aligned && node.kind === 'image') cy = y + h - Math.round(fs * 1.3 + 10) / 2 - 2;
   return {

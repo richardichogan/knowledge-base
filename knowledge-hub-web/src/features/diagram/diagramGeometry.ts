@@ -18,6 +18,14 @@ const EPS = 1e-6;
 
 export const isContainerKind = (kind: DiagramKind): boolean => kind === 'container' || kind === 'swimlane';
 
+export const documentWaveDepth = (height: number): number => Math.min(12, height * 0.15);
+
+export function documentShapePath(r: Rect): string {
+  const bottom = r.y + r.height - documentWaveDepth(r.height);
+  const depth = documentWaveDepth(r.height);
+  return `M${r.x},${r.y} H${r.x + r.width} V${bottom} Q${r.x + r.width * 0.75},${bottom - depth * 2} ${r.x + r.width / 2},${bottom} Q${r.x + r.width * 0.25},${bottom + depth * 2} ${r.x},${bottom} Z`;
+}
+
 // ── Rects ────────────────────────────────────────────────────────────────────
 
 export function nodeRect(n: Pick<DiagramNode, 'x' | 'y' | 'width' | 'height'>): Rect {
@@ -68,11 +76,11 @@ export function insetRect(r: Rect, d: number): Rect {
 
 // ── Ports ────────────────────────────────────────────────────────────────────
 
-export function portPoint(r: Rect, port: DiagramPort): DiagramPoint {
+export function portPoint(r: Rect, port: DiagramPort, kind?: DiagramKind): DiagramPoint {
   switch (port) {
     case 'top': return { x: r.x + r.width / 2, y: r.y };
     case 'right': return { x: r.x + r.width, y: r.y + r.height / 2 };
-    case 'bottom': return { x: r.x + r.width / 2, y: r.y + r.height };
+    case 'bottom': return { x: r.x + r.width / 2, y: r.y + r.height - (kind === 'document' ? documentWaveDepth(r.height) : 0) };
     case 'left': return { x: r.x, y: r.y + r.height / 2 };
   }
 }
@@ -86,11 +94,11 @@ export function portVector(port: DiagramPort): DiagramPoint {
   }
 }
 
-export function nearestPort(r: Rect, p: DiagramPoint): DiagramPort {
+export function nearestPort(r: Rect, p: DiagramPoint, kind?: DiagramKind): DiagramPort {
   let best: DiagramPort = 'top';
   let bestD = Infinity;
   for (const port of PORTS) {
-    const d = distance(portPoint(r, port), p);
+    const d = distance(portPoint(r, port, kind), p);
     if (d < bestD) { bestD = d; best = port; }
   }
   return best;
@@ -365,7 +373,7 @@ export function edgeEndpoints(edge: DiagramEdge, byId: ReadonlyMap<string, Diagr
   const src = byId.get(edge.sourceId); const tgt = byId.get(edge.targetId);
   if (!src || !tgt) return null;
   const sRect = nodeRect(src); const tRect = nodeRect(tgt);
-  return { s: portPoint(sRect, edge.sourcePort), t: portPoint(tRect, edge.targetPort), sRect, tRect };
+  return { s: portPoint(sRect, edge.sourcePort, src.kind), t: portPoint(tRect, edge.targetPort, tgt.kind), sRect, tRect };
 }
 
 /** The rendered polyline for an edge, attached to the current node geometry. */

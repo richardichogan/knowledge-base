@@ -57,6 +57,14 @@ test('accepts a valid document and returns a clean copy', () => {
   assert.deepEqual(validateDiagramDocument(emptyDiagram(), NONE), emptyDiagram());
 });
 
+test('document artefacts round-trip with styling and attached connectors', () => {
+  const artefact = node({ kind: 'document', label: 'Specification', strokeWidth: 3, strokeStyle: 'dotted',
+    fill: '#1c2d4a', textAlign: 'left', textVerticalAlign: 'bottom' });
+  const process = node({ x: 200 });
+  const input = doc([artefact, process], [edge(artefact.id, process.id)]);
+  assert.deepEqual(validateDiagramDocument(input, NONE), input);
+});
+
 test('rejects unknown keys at every level and a wrong version', () => {
   const a = node();
   rejects(() => validateDiagramDocument({ ...doc([a]), script: 'x' }, NONE), /^document\.script$/);

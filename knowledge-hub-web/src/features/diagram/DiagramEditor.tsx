@@ -36,7 +36,7 @@ import {
   canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, pathD,
   pointAlong, insertWaypoint, hitTestNode, hitTestEdge, nodesInRect, alignNodes, distributeNodes, reorderNodes,
   cloneSelection, removeSelection, normalizeDocument, screenToWorld, worldToScreen, clampZoom, zoomAt, fitViewport,
-  wrapText, fitSize, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
+  wrapText, fitSize, documentShapePath, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
 } from './diagramGeometry';
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
@@ -71,7 +71,7 @@ const FONT_MIN = 10;
 const FONT_MAX = 36;
 
 const KIND_LABEL: Record<DiagramKind, string> = {
-  process: 'Process', decision: 'Decision', terminator: 'Start / end', text: 'Text', image: 'Image',
+  process: 'Process', decision: 'Decision', terminator: 'Start / end', document: 'Document', text: 'Text', image: 'Image',
   container: 'Container', swimlane: 'Swimlane',
 };
 
@@ -79,13 +79,14 @@ const DEFAULTS: Record<DiagramKind, Pick<DiagramNode, 'label' | 'width' | 'heigh
   process: { label: 'Process', width: 140, height: 64, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 14 },
   decision: { label: 'Decision?', width: 120, height: 80, fill: '#fcf4d6', stroke: '#b28600', textColor: '#161616', fontSize: 14 },
   terminator: { label: 'Start', width: 140, height: 52, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 14 },
+  document: { label: 'Document', width: 140, height: 80, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 14 },
   text: { label: 'Text', width: 140, height: 40, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 14 },
   image: { label: '', width: 96, height: 96, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 13 },
   container: { label: 'Group', width: 320, height: 220, fill: '#f4f4f4', stroke: '#525252', textColor: '#161616', fontSize: 13 },
   swimlane: { label: 'Lane', width: 560, height: 180, fill: '#ffffff', stroke: '#525252', textColor: '#161616', fontSize: 13 },
 };
 
-const PALETTE: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'text', 'image', 'container', 'swimlane'];
+const PALETTE: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'text', 'image', 'container', 'swimlane'];
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
@@ -1028,7 +1029,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       case 'endpoint': {
         const exclude = new Set<string>(d.kind === 'connect' ? [d.sourceId] : []);
         const hit = hitTestNode(cur.nodes, world, exclude);
-        setDrag({ ...d, current: world, targetId: hit?.id ?? null, targetPort: hit === null ? null : nearestPort(nodeRect(hit), world) });
+        setDrag({ ...d, current: world, targetId: hit?.id ?? null, targetPort: hit === null ? null : nearestPort(nodeRect(hit), world, hit.kind) });
         return;
       }
       case 'bend': {
@@ -1082,12 +1083,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           setSel({ nodes: [], edges: [edge.id] });
           return;
         }
-        const from = portPoint(nodeRect(source), d.sourcePort);
+        const from = portPoint(nodeRect(source), d.sourcePort, source.kind);
         if (distance(from, world) < 40) return;
         // Dropped on empty sheet: create a connected shape there.
         const kind: DiagramKind = source.kind === 'decision' || source.kind === 'terminator' ? 'process' : (isContainerKind(source.kind) || source.kind === 'image' || source.kind === 'text') ? 'process' : source.kind;
         const node = placeNode(kind, world);
-        const edge = makeEdge(d.sourceId, d.sourcePort, node.id, nearestPort(nodeRect(node), from));
+        const edge = makeEdge(d.sourceId, d.sourcePort, node.id, nearestPort(nodeRect(node), from, node.kind));
         addNodes([node], [edge]);
         return;
       }
@@ -1562,7 +1563,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 if (n === undefined) return null;
                 const r = nodeRect(n);
                 return PORTS.map((port) => {
-                  const pt = portPoint(r, port);
+                  const pt = portPoint(r, port, n.kind);
                   const active = (drag?.kind === 'connect' || drag?.kind === 'endpoint') && drag.targetId === id && drag.targetPort === port;
                   return (
                     <circle
@@ -1600,13 +1601,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 let from: P | null = null;
                 if (drag.kind === 'connect') {
                   const s = byId.get(drag.sourceId);
-                  if (s !== undefined) from = portPoint(nodeRect(s), drag.sourcePort);
+                  if (s !== undefined) from = portPoint(nodeRect(s), drag.sourcePort, s.kind);
                 } else {
                   const route = routes.get(drag.edgeId);
                   if (route !== undefined && route !== null) from = (drag.end === 'source' ? route[route.length - 1] : route[0]) ?? null;
                 }
                 const t = drag.targetId === null ? undefined : byId.get(drag.targetId);
-                const to = t !== undefined && drag.targetPort !== null ? portPoint(nodeRect(t), drag.targetPort) : drag.current;
+                const to = t !== undefined && drag.targetPort !== null ? portPoint(nodeRect(t), drag.targetPort, t.kind) : drag.current;
                 return from === null ? null : <line className="dg-preview-line" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
               })()}
             </g>
@@ -1906,6 +1907,9 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
   let text: React.ReactNode = null;
   const maxLines = (avail: number): number => Math.max(1, Math.floor(avail / (fs * 1.25)));
   switch (n.kind) {
+    case 'document':
+      body = <path {...common} d={documentShapePath(n)} />;
+      break;
     case 'process':
       body = <rect {...common} x={x} y={y} width={w} height={h} rx={6} />;
       text = <TextLines lines={wrapText(label, w - 16, fs, maxLines(h - 8))} cx={cx} cy={cy} fontSize={fs} color={color} />;
@@ -1967,7 +1971,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       break;
     }
   }
-  if (n.textAlign !== undefined || n.textVerticalAlign !== undefined) {
+  if (n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined) {
     const layout = diagramTextLayout({ ...n, label });
     text = <TextLines lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
   }
@@ -1985,6 +1989,7 @@ function ShapeGlyph({ kind }: { kind: DiagramKind }): React.ReactElement {
     case 'process': shape = <rect x={2} y={5} width={16} height={10} rx={2} />; break;
     case 'decision': shape = <polygon points="10,2 18,10 10,18 2,10" />; break;
     case 'terminator': shape = <rect x={2} y={5} width={16} height={10} rx={5} />; break;
+    case 'document': shape = <path d={documentShapePath({ x: 2, y: 3, width: 16, height: 14 })} />; break;
     case 'text': shape = <path d="M4 5h12M10 5v11M8 16h4" />; break;
     case 'image': shape = <><rect x={2} y={3} width={16} height={14} rx={1} /><path d="M4 15l4-5 3 3 2-2 3 4" /></>; break;
     case 'container': shape = <><rect x={2} y={3} width={16} height={14} rx={1} /><path d="M2 7h16" /></>; break;

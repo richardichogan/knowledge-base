@@ -6,6 +6,7 @@ import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types';
 import type { DiagramDocument, DiagramNode, DiagramSnapshot } from '../src/features/diagram/diagramTypes';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
+import { documentWaveDepth, edgeEndpoints, portPoint } from '../src/features/diagram/diagramGeometry';
 import { NoteMaps } from '../src/features/canvas/NoteMaps';
 import '../src/styles/global.scss';
 
@@ -345,6 +346,43 @@ async function runDiagramChecks(): Promise<string[]> {
     .every(n => n.stroke === '#da1e28' && n.strokeStyle === 'dotted'), 'Border colour and style survive reopening and duplication');
   check(snapshot.document.nodes.filter(n => n.label === 'Browser-verified process').every(n => n.fill === '#1c2d4a'),
     'Background colour survives reopening and duplication');
+  clickButton('Add Document');
+  await waitFor(() => snapshot.document.nodes.some(n => n.kind === 'document'));
+  const documentNode = snapshot.document.nodes.find(n => n.kind === 'document')!;
+  const documentBody = window.document.querySelector(`g.dg-node[data-id="${documentNode.id}"] path.dg-node__body`)!;
+  check(documentBody.getAttribute('d')?.includes(' Q') === true, 'Document shape has a wavy bottom edge');
+  documentBody.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  await waitFor(() => window.document.querySelector('.dg-label-editor') !== null);
+  const documentLabel = window.document.querySelector<HTMLTextAreaElement>('.dg-label-editor')!;
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(documentLabel, 'Specification artefact');
+  documentLabel.dispatchEvent(new Event('input', { bubbles: true }));
+  await delay(20);
+  documentLabel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === documentNode.id && n.label === 'Specification artefact'));
+  const documentXml = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+  const documentGroup = [...documentXml.querySelectorAll('g')].find(g => [...g.querySelectorAll('tspan')].map(t => t.textContent).join(' ') === 'Specification artefact')!;
+  check(documentGroup.querySelector('path')?.getAttribute('d') === documentBody.getAttribute('d'),
+    'Document canvas and export use identical shape geometry');
+  const bottomPort = portPoint(documentNode, 'bottom', documentNode.kind);
+  check(bottomPort.y === documentNode.y + documentNode.height - documentWaveDepth(documentNode.height),
+    'Document bottom connector attaches to the wavy edge');
+  const documentConnector = { ...snapshot.document.edges[0]!, sourceId: documentNode.id, sourcePort: 'bottom' as const };
+  const endpoints = edgeEndpoints(documentConnector, new Map(snapshot.document.nodes.map(n => [n.id, n])));
+  check(endpoints?.s.y === bottomPort.y, 'Saved document routes use the same bottom port as the canvas');
+  const exportedText = documentGroup.querySelector('text')!;
+  check(Number(exportedText.querySelector('tspan')?.getAttribute('y')) < bottomPort.y - documentWaveDepth(documentNode.height),
+    'Document text stays above the wavy edge');
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === documentNode.id && n.label === 'Document'));
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === documentNode.id && n.label === 'Specification artefact'));
+  root.render(null);
+  await waitFor(() => window.document.querySelector('.dg-editor') === null);
+  queryClient.clear();
+  mountEditor();
+  await waitFor(() => window.document.querySelector(`g.dg-node[data-id="${documentNode.id}"]`) !== null);
+  check(snapshot.document.nodes.some(n => n.id === documentNode.id && n.kind === 'document' && n.label === 'Specification artefact'),
+    'Document artefact survives save and reopen');
   check(!(await diagramSvg(snapshot.document, assets, 'white')).includes('Process owner: Operations'), 'Descriptions must not clutter visual exports');
   await waitFor(() => window.document.querySelectorAll('g.dg-node--image image').length === 3);
   root.render(null);
@@ -362,6 +400,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Line and border thickness persist, undo/redo and scale exported arrowheads',
     'Shape border colour, solid/dashed/dotted styles and no-border save and export consistently',
     'Five simple shape backgrounds match canvas and export and survive reopening',
+    'Document artefacts add, edit, undo/redo, export and reopen',
     'Add, label editing, undo/redo and duplication', 'Image-file clipboard paste and explicit URL-only fallback',
     'Save conflict retains local changes and explicit overwrite resolves it',         'Shape and connector properties save/reopen, undo/redo and duplicate without cluttering exports',
     'Note linking, return links in Connections, opening/unlinking and reopening',
