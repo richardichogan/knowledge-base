@@ -1,10 +1,15 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Latest main `5225de7`: diagram enhancements, discovery context and chat cancellation.
+**Deployment:** Current branch `877c4d8`: cross-project Athena, diagram properties, connector font controls and Discover Socials.
 
 ## 1. Scope
+
+Approved 2026-10-09 at 22:33 BST: deploy current branch `877c4d8`
+to existing production targets. Backend v176 and matching full frontend.
+No new migrations, infrastructure, secrets, environment, roles or auth changes.
+Rollback: backend v175 and frontend source `5225de7` (release record `863830a`).
 
 Approved 2026-10-09 at 21:07 BST: deploy latest main `5225de7` before
 implementing connector-label font controls. Backend v175 and matching frontend.
@@ -146,6 +151,20 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-09 at 22:36 BST for `877c4d8`:
+
+- Both apps `npx tsc --noEmit` and `npm run build` passed.
+- Backend project-context/diagram-context/diagram/Socials selection: 44 tests passed.
+- Frontend terminal diagram metadata and linked-chat grounding checks passed.
+- Read-only live replay discovered and read the IMAGINE diagram from the IKEA chat.
+- Azure CLI 2.79.0 authenticated to the established production subscription.
+- Existing ACA v175, ACR Succeeded and SWA hostname verified; v176 unused.
+- Dockerfile and lockfiles reviewed; ACR remote Docker build gates image update.
+- No IaC/RBAC changes: template validation, what-if, policy provisioning and
+  static role changes are N/A for this existing-resource image/content update.
+  Existing registry password secret reference retained; no managed-identity change.
+- Pushed remote branch matches exact code commit; `git diff --check` passed.
 
 Deployed 2026-10-09 at 21:13 BST:
 
