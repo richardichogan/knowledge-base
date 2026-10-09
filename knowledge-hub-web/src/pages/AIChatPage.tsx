@@ -40,7 +40,7 @@ import {
   composeMessageText,
   stripProjectMentions,
   COMPOSER_ACTIONS,
-  COMPOSER_ACTION_LABELS, stripActionDirective } from '../chat/composerIntent';
+  COMPOSER_ACTION_LABELS, stripActionDirective, conversationProjectId } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi, ContextUsedApi } from '../types';
@@ -717,7 +717,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           {
             message: text,
             persona,
-            projectId: noteProjectId ?? (activeProjectId !== '' ? activeProjectId : null),
+            projectId: conversationProjectId(isNoteLinkedPanel, noteProjectId, activeProjectId),
             sessionId: requestSessionId,
             ...(ctx && { pageContext: ctx }),
             ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
@@ -843,7 +843,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   function captureSendTarget(): { view: number; request: Pick<ChatRequest, 'persona' | 'projectId' | 'sessionId'> } {
     return {
       view: turnRunRef.current,
-      request: { persona, projectId: noteProjectId ?? (activeProjectId !== '' ? activeProjectId : null), sessionId: chatIdForUploads() },
+      request: { persona, projectId: conversationProjectId(isNoteLinkedPanel, noteProjectId, activeProjectId), sessionId: chatIdForUploads() },
     };
   }
 

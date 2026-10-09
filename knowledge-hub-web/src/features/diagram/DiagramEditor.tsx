@@ -42,6 +42,7 @@ import {
 } from './diagramGeometry';
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
+import { DiagramMetadata } from './DiagramMetadata';
 import { exportDiagram } from './diagramExport';
 import { diagramEditorFill, diagramEditorInk, diagramEditorNodeColours } from './diagramTheme';
 import { diagramBorderDash } from './diagramStroke';
@@ -316,7 +317,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   // ── Title / delete (canvas record) ─────────────────────────────────────────
 
-  const { data: canvas } = useQuery<CanvasFullApi>({
+  const { data: canvas, error: canvasError, isPending: canvasPending, refetch: refetchCanvas } = useQuery<CanvasFullApi>({
     queryKey: ['canvas', canvasId],
     queryFn: async () => {
       const r = await api.getCanvas(canvasId);
@@ -1872,6 +1873,16 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       </aside>}
       {propertiesOpen && !athenaOpen && <aside className="dg-properties" aria-label="Diagram properties">
         <div className="dg-properties__heading"><h3>Properties</h3><IconBtn label="Close properties" onClick={() => { setPropertiesOpen(false); }}><Close size={16} /></IconBtn></div>
+        {canvas !== undefined && <DiagramMetadata canvas={canvas} onSaved={(summary) => {
+          queryClient.setQueryData<CanvasFullApi>(['canvas', canvasId], current => current === undefined ? undefined : { ...current, ...summary });
+          void queryClient.invalidateQueries({ queryKey: ['canvases'] });
+        }} />}
+        {canvasPending && <p className="dg-properties__empty" role="status">Loading diagram properties…</p>}
+        {canvasError !== null && <div className="dg-metadata__error" role="alert">
+          Could not load diagram properties: {canvasError.message}
+          <button type="button" className="dg-text-btn" onClick={() => { void refetchCanvas(); }}>Retry diagram properties</button>
+        </div>}
+        <h4 className="dg-metadata__heading">Selected shape or connector</h4>
         {singleNode !== undefined || singleEdge !== undefined ? <DiagramProperties
           key={singleNode?.id ?? singleEdge?.id}
           item={(singleNode ?? singleEdge)!}

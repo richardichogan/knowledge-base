@@ -9,7 +9,7 @@ import {
   DIAGRAM_LIMITS, validateDiagramDocument, validateRevision, validateSvg, inspectPng, validateAssetUpload, validateAssetName,
 } from '../src/services/diagramValidation.js';
 import { saveDiagram } from '../src/services/diagramService.js';
-import { cardSummaryBlocks, mapMarkdown, mapOutline, type CanvasFull } from '../src/services/canvasService.js';
+import { cardSummaryBlocks, mapMarkdown, mapOutline, updateCanvas, type CanvasFull } from '../src/services/canvasService.js';
 import { buildCanvasContext } from '../src/services/canvasContent.js';
 import { suggestionsFor } from '../src/services/mapSuggestions.js';
 import { resolveMapChanges } from '../src/ai/mapEdits.js';
@@ -424,6 +424,36 @@ function stubDb(state: FakeState): () => void {
 }
 
 const CANVAS = randomUUID();
+
+test('diagram metadata updates persist descriptions and allow explicit project clearing', async () => {
+  let savedProject: string | null = 'cloudt-with-a-chance-of-insights';
+  let savedDescription = '';
+  const query = mock.method(Pool.prototype, 'query', async (sql: string, values: unknown[]) => {
+    if (sql.startsWith('UPDATE canvases')) {
+      assert.ok(sql.includes('description = $1'));
+      assert.ok(sql.includes('project = $2'));
+      assert.equal(values[2], CANVAS);
+      assert.ok(typeof values[0] === 'string');
+      assert.ok(values[1] === null || typeof values[1] === 'string');
+      savedDescription = values[0];
+      savedProject = values[1];
+      return { rows: [{ id: CANVAS }], rowCount: 1 };
+    }
+    return { rows: [{
+      id: CANVAS, title: 'Imagine diagram', description: savedDescription,
+      project: savedProject, canvas_type: 'diagram', linked_notes: [], node_count: 2,
+    }], rowCount: 1 };
+  });
+  try {
+    const assigned = await updateCanvas(CANVAS, { description: 'Deployment stages', project: 'imagine' });
+    assert.equal(assigned?.project, 'imagine');
+    assert.equal(assigned?.description, 'Deployment stages');
+    const cleared = await updateCanvas(CANVAS, { description: '', project: null });
+    assert.equal(cleared?.project, null);
+    assert.equal(cleared?.description, '');
+    assert.equal(cleared?.canvasType, 'diagram');
+  } finally { query.mock.restore(); }
+});
 
 test('saves when the base revision is current and returns revision + 1', async () => {
   const state: FakeState = { canvasType: 'diagram', revision: 3, updateRows: 1, calls: [] };

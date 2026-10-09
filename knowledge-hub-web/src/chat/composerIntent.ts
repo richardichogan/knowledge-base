@@ -17,6 +17,10 @@ export interface ComposerProject {
   name: string;
 }
 
+export function conversationProjectId(linkedPanel: boolean, itemProjectId: string | undefined, sessionProjectId: string): string | null {
+  return linkedPanel ? (itemProjectId ?? null) : (sessionProjectId || null);
+}
+
 export interface ComposerIntent {
   /** Input text with any recognised command/mention syntax removed. */
   rawText: string;
