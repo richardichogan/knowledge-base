@@ -48,9 +48,9 @@ test('short generator reserves link budget, retries oversized copy and never tru
     assert.ok(socialLength(result.post, result.sourceUrl) <= 280);
     alwaysOversized = true;
     await assert.rejects(generateShortSocialDraft(source), /280 characters/);
-    assert.equal(calls, 4);
+    assert.equal(calls, 5);
     await assert.rejects(generateShortSocialDraft({ ...source, url: 'https://example.com/' + 'a'.repeat(250) }), /too little room/);
-    assert.equal(calls, 4);
+    assert.equal(calls, 5);
   } finally { chat.mock.restore(); }
 });
 
