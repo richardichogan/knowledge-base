@@ -119,6 +119,10 @@ Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief
 
 ## Think canvases
 
+Think action feedback stays within the editor column rather than overlaying
+the side-panel tabs. GitHub metadata groups its publication status, file link
+and compact primary/secondary actions.
+
 Athena can read the actual Discover RSS/Atom subscriptions, including disabled
 sources and check errors. Feed/source questions load that configuration rather
 than unrelated project documents. New feed candidates can be checked read-only

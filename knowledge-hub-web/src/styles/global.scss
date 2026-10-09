@@ -5221,15 +5221,17 @@ body.kh-pane-resizing {
 
 // Save status
 .notes-save-status {
-  position: absolute;
-  top: 0.5rem;
-  right: 240px; // offset for metadata panel
+  position: static;
+  flex-shrink: 0;
+  display: block;
+  margin: 0;
   font-size: 0.75rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 2px;
-  pointer-events: none;
-  opacity: 0.8;
-  z-index: 10;
+  line-height: 1.5;
+  padding: 0.625rem 1.5rem;
+  background: var(--cds-layer-01);
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  overflow-wrap: anywhere;
+  min-width: 0;
 
   &--success { color: var(--cds-support-success); }
   &--error   { color: var(--cds-support-error); }
@@ -5649,17 +5651,45 @@ body.kh-pane-resizing {
   color: var(--cds-text-primary);
 }
 
-.notes-meta-gh-text {
-  display: block;
-  font-size: 0.6875rem;
-  color: var(--cds-text-secondary);
-  word-break: break-all;
+.notes-meta-gh-summary {
+  min-width: 0;
+  flex: 1;
 }
 
-.notes-meta-gh-push {
-  width: 100%;
-  font-size: 0.625rem;
-  padding: 4px 0;
+.notes-meta-gh-text {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--cds-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.notes-meta-gh-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.notes-meta-gh-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--cds-border-strong-01);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--cds-text-primary);
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  cursor: pointer;
+  &:hover:not(:disabled) { background: var(--cds-layer-hover-01); }
+  &:active:not(:disabled) { background: var(--cds-layer-active-01); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  &:disabled { opacity: 0.5; cursor: wait; }
+  &--primary { color: var(--kh-accent); border-color: var(--kh-accent-border); background: var(--kh-accent-bg); }
 }
 
 .notes-github-help {
@@ -5682,12 +5712,6 @@ body.kh-pane-resizing {
   text-decoration: underline;
   &:hover { color: var(--cds-text-primary); }
   &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
-}
-
-.notes-meta-gh-push {
-  min-height: 36px;
-  margin-top: 0.5rem;
-  &:disabled { opacity: 0.5; cursor: wait; }
 }
 
 .notes-github-modal {

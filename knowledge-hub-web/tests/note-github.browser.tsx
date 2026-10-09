@@ -189,6 +189,15 @@ Object.assign(window, { runNoteGitHubChecks: async () => {
   await chooseDestination();
   button('Push').click();
   await waitFor(() => document.querySelector('.notes-meta-gh-heading')?.textContent === 'Published to GitHub');
+  const status = document.querySelector<HTMLElement>('.notes-save-status')!;
+  const centre = document.querySelector<HTMLElement>('.notes-editor-centre')!;
+  const statusBounds = status.getBoundingClientRect();
+  const centreBounds = centre.getBoundingClientRect();
+  check(getComputedStyle(status).position === 'static', 'Publication feedback participates in editor layout');
+  check(statusBounds.left >= centreBounds.left && statusBounds.right <= centreBounds.right + 1, 'Publication feedback stays inside editor, not across sidebar tabs');
+  check(status.scrollWidth <= status.clientWidth + 1, 'Long publication message wraps without overflow');
+  check(document.querySelector('.notes-meta-gh-actions') !== null, 'GitHub actions are grouped');
+  check(document.querySelectorAll('.notes-meta-gh-action--primary').length === 1, 'Only publish is the primary GitHub action');
   check(lastPayload?.repo === 'owner/demo' && lastPayload?.filePath === 'docs/use-cases/My note.md', 'Selected repo, nested folder and custom filename sent to backend');
   check(document.querySelector('.notes-meta-gh-text a')?.getAttribute('href')?.includes('/owner/demo/blob/develop/docs/use-cases/My note.md') === true, 'Published copy has a GitHub link');
   button('Push to GitHub').click();

@@ -313,7 +313,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
               <div className="notes-meta-section">
                 <div className="notes-meta-gh-status">
                   <div className="notes-meta-gh-dot" ref={(el) => { if (el) el.style.background = ghDotColor; }} />
-                  <div>
+                  <div className="notes-meta-gh-summary">
                     <span className="notes-meta-gh-heading">
                       {{ synced: 'Published to GitHub', 'not-pushed': 'Not published', pending: 'Update pending', conflict: 'GitHub changed', error: 'Publishing failed' }[ghStatus]}
                     </span>
@@ -324,10 +324,12 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                 </div>
                 <p className="notes-github-help">Think is the master. Saves update the published file after editing settles. This copy is not added separately to Library or Athena's context.</p>
                 {githubError && <p className="notes-github-error" role="alert">{githubError}</p>}
-                <button className="kh-btn-accent notes-meta-gh-push" disabled={githubBusy} onClick={onPushToGitHub}>
+                <div className="notes-meta-gh-actions">
+                <button type="button" className="notes-meta-gh-action notes-meta-gh-action--primary" disabled={githubBusy} onClick={onPushToGitHub}>
                   {githubBusy ? 'Working...' : ghStatus === 'conflict' ? 'Review versions' : ghStatus === 'not-pushed' ? 'Publish to GitHub' : 'Publish latest'}
                 </button>
-                {githubUrl && <button className="kh-btn-accent notes-meta-gh-push" disabled={githubBusy} onClick={onCheckGitHub}>Check GitHub</button>}
+                {githubUrl && <button type="button" className="notes-meta-gh-action" disabled={githubBusy} onClick={onCheckGitHub}>Check GitHub</button>}
+                </div>
               </div>
             </CollapsibleSection>
 
