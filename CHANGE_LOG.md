@@ -4,6 +4,11 @@
 
 ## Discover Socials — 2026-10-09
 
+Short drafts use one cohesive descriptive paragraph with a restrained,
+source-grounded Richard-style perspective where space permits, not a
+separate clipped observation. New claims, invented personal experience and
+generic commentary are excluded from the generation instructions.
+
 Discover's LinkedIn action is now Socials, with separate LinkedIn and shared
 Bluesky/X drafts. Short copy reserves the original URL and paragraph breaks
 within a conservative 280-character weighted budget. Over-limit edits cannot

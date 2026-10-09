@@ -39,12 +39,17 @@ test('short generator reserves link budget, retries oversized copy and never tru
     assert.match(messages[0].content, /untrusted data/);
     assert.match(messages[0].content, /private email/);
     assert.match(messages[0].content, /168 weighted characters/);
-    return JSON.stringify({ summary: alwaysOversized || calls === 1 ? 'a'.repeat(300) : 'Microsoft announced a cloud management update.', observation: '' });
+    assert.match(messages[0].content, /one or two complete, natural sentences/);
+    assert.match(messages[0].content, /light Richard Hogan twist/);
+    assert.match(messages[0].content, /Observation MUST be empty/);
+    return JSON.stringify({ summary: alwaysOversized || calls === 1 ? 'a'.repeat(300) : 'Microsoft announced a cloud management update.', observation: 'Shows the need for governance.' });
   });
   try {
     const result = await generateShortSocialDraft(source);
     assert.equal(calls, 2);
     assert.equal(result.sourceUrl, source.url);
+    assert.equal(result.post, 'Microsoft announced a cloud management update.');
+    assert.ok(!result.post.includes('\n'));
     assert.ok(socialLength(result.post, result.sourceUrl) <= 280);
     alwaysOversized = true;
     await assert.rejects(generateShortSocialDraft(source), /280 characters/);
