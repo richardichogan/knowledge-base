@@ -37,6 +37,16 @@
   &__button:focus-visible, &__close:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 3px; }
 }
 .dc-linkedin {
+  &__formats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  &__formats button {
+    padding: 8px 12px; border: 1px solid var(--kh-accent-border); border-radius: 4px;
+    background: transparent; color: var(--cds-text-primary); font: inherit; cursor: pointer;
+    &[aria-pressed="true"] { background: var(--kh-accent-bg); color: var(--kh-accent); }
+    &:hover:not(:disabled) { background: var(--cds-layer-hover-01); }
+    &:active:not(:disabled) { background: var(--cds-layer-active-01); }
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
   &__source-title { margin: 0 0 20px; color: var(--cds-text-secondary); line-height: 1.5; overflow-wrap: anywhere; }
   &__label { display: block; font-weight: 600; margin-bottom: 8px; }
   &__copy, &__url { width: 100%; box-sizing: border-box; border: 1px solid var(--cds-border-strong-01); border-radius: 6px; background: var(--cds-field-01); color: var(--cds-text-primary); padding: 14px; }

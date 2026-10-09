@@ -7,7 +7,7 @@ import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync.js';
 import { readFeed } from '../integrations/discovery/feedReader.js';
 import { SOURCE_AUTHORITY_WEIGHTS, ARTICLE_TYPE_WEIGHTS } from '../integrations/cms/articleScoringPrompt.js';
-import { generateLinkedInDraft, type LinkedInSource } from '../ai/linkedInDraft.js';
+import { generateLinkedInDraft, generateShortSocialDraft, type LinkedInSource } from '../ai/linkedInDraft.js';
 
 /**
  * Builds a SQL CASE expression mapping a metadata text column's value to its weight, generated
@@ -75,6 +75,11 @@ const DISCOVER_PAGE_SIZE_MAX = 100;
 discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
+      const format = (req.body as { format?: unknown } | undefined)?.format ?? 'linkedin';
+      if (format !== 'linkedin' && format !== 'short') {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Unsupported social draft format' } });
+        return;
+      }
       const id = req.params['id'];
       if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid Discover item ID' } });
@@ -93,7 +98,7 @@ discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: N
         res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'This source has no content to draft from.' } });
         return;
       }
-      res.json({ success: true, data: await generateLinkedInDraft(source) });
+      res.json({ success: true, data: await (format === 'short' ? generateShortSocialDraft(source) : generateLinkedInDraft(source)) });
     } catch (err) { next(err); }
   })();
 });
