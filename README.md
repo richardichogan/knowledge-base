@@ -119,6 +119,11 @@ Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief
 
 ## Think canvases
 
+Athena can read the actual Discover RSS/Atom subscriptions, including disabled
+sources and check errors. Feed/source questions load that configuration rather
+than unrelated project documents. New feed candidates can be checked read-only
+using the existing feed reader; configured URLs are identified as duplicates.
+
 **Push to GitHub** publishes a linked Markdown copy of a Think note. Choose a
 writable repository, browse its folders, then edit the full relative `.md` path
 and commit message. New folders can be entered directly. Publication uses the

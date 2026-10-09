@@ -6,6 +6,8 @@
 
 const LABELS: Record<string, string> = {
   get_project_details: 'Reading current project details',
+  get_discover_sources: 'Reading your Discover feed subscriptions',
+  inspect_discover_feed: 'Checking a candidate RSS/Atom feed',
   search_knowledge_base: 'Searching your notes and synced content',
   search_library: 'Searching your Library',
   find_files: 'Looking through your files',
@@ -33,7 +35,7 @@ export function describeToolActivity(name: string, argsJson: string): string {
   let detail = '';
   try {
     const args = JSON.parse(argsJson) as Record<string, unknown>;
-    const value = args['query'] ?? args['q'] ?? args['search'] ?? args['url'] ?? args['title'];
+    const value = args['query'] ?? args['q'] ?? args['search'] ?? args['url'] ?? args['feedUrl'] ?? args['title'];
     if (typeof value === 'string' && value.trim() !== '') detail = value.trim();
   } catch {
     // Arguments are optional detail; the label alone is fine.

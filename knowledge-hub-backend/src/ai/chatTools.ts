@@ -42,6 +42,7 @@ import { resolveMapChanges, type MapChangeProposal } from './mapEdits.js';
 import type { CanvasFull } from '../services/canvasService.js';
 import { createSpark } from '../services/sparkService.js';
 import { loadCurrentProjectContext } from './projectContext.js';
+import { getDiscoverSources, inspectDiscoverFeed } from './discoveryContext.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -56,6 +57,22 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const learnTools = await getLearnMcpTools();
   const tavilyTools = await getTavilyMcpTools();
   return [
+    {
+      type: 'function',
+      function: {
+        name: 'get_discover_sources',
+        description: 'Reads the actual configured RSS/Atom feed URLs, groups, enabled/disabled state and last check errors for Discover. App-wide, not project-scoped. Always use before recommending additional feeds; exclude configured feeds including disabled ones. Not the knowledge library or integration sync list.',
+        parameters: { type: 'object', properties: {} },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'inspect_discover_feed',
+        description: 'Checks a candidate RSS/Atom feed using the app feed reader and compares it against existing subscriptions. Read-only: does not add sources or import articles. Use to verify actual feed URLs before recommending them; duplicates are not new recommendations.',
+        parameters: { type: 'object', properties: { feedUrl: { type: 'string', description: 'Public RSS/Atom feed URL, not an individual article URL.' } }, required: ['feedUrl'] },
+      },
+    },
     {
       type: 'function',
       function: {
@@ -617,6 +634,12 @@ export async function executeToolCall(
       : args;
 
   switch (name) {
+    case 'get_discover_sources': return getDiscoverSources(db);
+    case 'inspect_discover_feed': {
+      const url = args['feedUrl'];
+      if (typeof url !== 'string' || url.trim() === '') return { error: 'Provide a public RSS/Atom feed URL.' };
+      return inspectDiscoverFeed(db, url.trim());
+    }
     case 'get_project_details': {
       const id = contextualArgs['projectId'];
       if (typeof id !== 'string' || id.trim() === '') return { error: 'Provide a saved project ID from the projects catalog.' };

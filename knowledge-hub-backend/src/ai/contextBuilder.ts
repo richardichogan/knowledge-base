@@ -6,6 +6,7 @@ import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
 import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
 import { IMAGINE_DEMO_BRIEF_SKILL } from './imagineDemoBriefSkill.js';
+import { DISCOVER_APP_GUIDANCE, getDiscoverSources, isDiscoverSourceRequest } from './discoveryContext.js';
 import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
@@ -937,6 +938,7 @@ export async function buildAiContext(
   persona?: string,
 ): Promise<AiContext> {
   const noBackground = persona === 'podcast_show_notes';
+  const discoverSourcesRequest = !noBackground && isDiscoverSourceRequest(userQuery, history);
   const ragQuery = buildRagQuery(userQuery, history);
   const activeProject = currentSessionId !== undefined
     ? await loadActiveSessionProject(db, currentSessionId)
@@ -948,8 +950,8 @@ export async function buildAiContext(
     getProfileText(db, async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].filter((t) => t.trim() !== '').join('\n\n'))
       .catch(async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].join('\n\n')),
     loadBlobText(PROJECT_CONTEXT_BLOB),
-    noBackground || isSmallTalk(userQuery) ? Promise.resolve([]) : retrieveRagItems(db, ragQuery, activeProject?.id),
-    currentSessionId !== undefined && !noBackground && !isSmallTalk(userQuery)
+    noBackground || discoverSourcesRequest || isSmallTalk(userQuery) ? Promise.resolve([]) : retrieveRagItems(db, ragQuery, activeProject?.id),
+    currentSessionId !== undefined && !noBackground && !discoverSourcesRequest && !isSmallTalk(userQuery)
       ? retrieveCrossSessionMemory(db, ragQuery, currentSessionId)
       : Promise.resolve([]),
   ]);
@@ -988,7 +990,16 @@ export async function buildAiContext(
         'When discussing a named project, call get_project_details for its current saved goal, role, ownership, dates and expected outputs. Do not substitute old profile text or memories for current project information.',
       ].join('\n')
     : '';
-  const projectContext = [activeProjectContext, catalogContext, storedProjectContext].filter((block) => block !== '').join('\n\n');
+  let discoverContext = '';
+  if (discoverSourcesRequest) {
+    try {
+      discoverContext = `## Current Discover subscriptions (read now; authoritative configuration)\n${JSON.stringify(await getDiscoverSources(db))}\nAnswer the feed/source question using this list. Do not repeat configured URLs as new additions or substitute project documents.`;
+    } catch (error) {
+      console.error('[Athena] Could not load Discover subscriptions:', error);
+      discoverContext = '## Discover configuration read failed\nThe current subscriptions could not be loaded. Retry get_discover_sources; if unavailable, report that failure and do not claim recommendations are non-duplicates.';
+    }
+  }
+  const projectContext = [activeProjectContext, catalogContext, storedProjectContext, discoverContext].filter((block) => block !== '').join('\n\n');
 
   return {
     staticContext,
@@ -1266,6 +1277,7 @@ export async function assembleMessages(
 ): Promise<ConversationMessage[]> {
   const systemPrompt = [
     ASSISTANT_IDENTITY_BLURB,
+    DISCOVER_APP_GUIDANCE,
     '---',
     // The user profile (formerly USER_PROFILE_BLURB + static-context.md) is
     // context.staticContext below — editable on the Memory page.
