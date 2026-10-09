@@ -1068,13 +1068,34 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     const box = messagesRef.current;
     const room = promptRoomRef.current;
     if (!holdPromptTop || box === null || room === null) return;
-    const prompts = box.querySelectorAll<HTMLElement>('.ai-bubble--user');
-    const last = prompts.length > 0 ? prompts[prompts.length - 1] : undefined;
-    if (last === undefined) return;
-    const boxTop = box.getBoundingClientRect().top;
-    const promptTop = last.getBoundingClientRect().top - boxTop + box.scrollTop;
-    const roomTop = room.getBoundingClientRect().top - boxTop + box.scrollTop;
-    room.style.height = `${Math.max(0, box.clientHeight - (roomTop - promptTop) - 8).toString()}px`;
+    const sizeRoom = (): void => {
+      const prompts = box.querySelectorAll<HTMLElement>('.ai-bubble--user');
+      const last = prompts.length > 0 ? prompts[prompts.length - 1] : undefined;
+      const bottom = bottomRef.current;
+      if (last === undefined || bottom === null || box.clientHeight === 0) return;
+      const style = getComputedStyle(box);
+      const gap = Number.parseFloat(style.rowGap) || 0;
+      const paddingBottom = Number.parseFloat(style.paddingBottom) || 0;
+      const borderTop = Number.parseFloat(style.borderTopWidth) || 0;
+      const boxTop = box.getBoundingClientRect().top + borderTop;
+      const roomVisible = getComputedStyle(room).display !== 'none';
+      const contentBottom = bottom.getBoundingClientRect().bottom - boxTop + box.scrollTop
+        - room.offsetHeight - (roomVisible ? gap : 0) + paddingBottom;
+      // Do not create a scroll range just to pin a prompt in an otherwise short conversation.
+      if (contentBottom <= box.clientHeight) {
+        room.style.display = 'none';
+        room.style.height = '0px';
+        return;
+      }
+      room.style.display = '';
+      const promptTop = last.getBoundingClientRect().top - boxTop + box.scrollTop;
+      const roomTop = room.getBoundingClientRect().top - boxTop + box.scrollTop;
+      room.style.height = `${Math.max(0, box.clientHeight - (roomTop - promptTop) - paddingBottom - gap - 8)}px`;
+    };
+    sizeRoom();
+    const observer = new ResizeObserver(sizeRoom);
+    observer.observe(box);
+    return () => { observer.disconnect(); };
   });
 
   // Opening a chat (its history just loaded): jump straight to the last message.

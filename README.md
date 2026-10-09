@@ -246,6 +246,8 @@ are not semantic connections; inferred similarities are distinguished from saved
 relationships. This is structured reading, not image analysis of uploaded icons,
 and does not enable diagram editing by Athena. Unsaved edits are not included.
 Large diagrams and note excerpts are bounded and explicitly marked as incomplete.
+Athena's transcript scrolls only when the conversation exceeds the available
+height; prompt-pinning space does not create a scrollbar for short conversations.
 
 From a note, **Create diagram** opens a new blank diagram linked to that note;
 it does not automatically generate shapes from the note's prose. In a diagram,

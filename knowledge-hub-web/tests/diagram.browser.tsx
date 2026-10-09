@@ -93,6 +93,14 @@ api.getSessionIdForNote = async id => { athenaLinkedId = id; return success({ se
 api.getProjects = async () => success([]);
 api.listModelChoices = async () => success([]);
 api.summarizeNote = async () => success({ summary: 'Diagram fixture context.' });
+let submittedChat = false;
+let finishChat: (() => void) | undefined;
+api.startChatTurn = async () => {
+  submittedChat = true;
+  return new Promise(resolve => {
+    finishChat = () => { resolve({ success: false, error: { code: 'FIXTURE', message: 'Isolated fixture finished.' } }); };
+  });
+};
 
 const root = createRoot(window.document.getElementById('root')!);
 function mountEditor(): void { root.render(
@@ -132,6 +140,35 @@ async function runDiagramChecks(): Promise<string[]> {
   check(window.document.documentElement.scrollWidth <= innerWidth + 1, 'Diagram Athena panel must not overflow on mobile');
   const composer = window.document.querySelector<HTMLTextAreaElement>('.dg-athena textarea');
   check(composer !== null && composer.getBoundingClientRect().height > 0, 'Athena composer must be visible on desktop and mobile');
+  const sendFixturePrompt = async (text: string): Promise<void> => {
+    submittedChat = false;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(composer, text);
+    composer!.dispatchEvent(new Event('input', { bubbles: true }));
+    await delay(50);
+    composer!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    await waitFor(() => submittedChat);
+    await delay(150);
+  };
+  const messagesBox = window.document.querySelector<HTMLElement>('.dg-athena .ai-messages')!;
+  await sendFixturePrompt('What are your thoughts on this?');
+  check(messagesBox.scrollHeight <= messagesBox.clientHeight, 'Short prompt plus thinking status must not create a scrollbar');
+  check(getComputedStyle(window.document.querySelector('.ai-prompt-room')!).display === 'none',
+    'Prompt spacer stays hidden while real content fits');
+  messagesBox.style.maxHeight = '40px';
+  await waitFor(() => messagesBox.clientHeight <= 40 && messagesBox.scrollHeight > messagesBox.clientHeight);
+  messagesBox.style.maxHeight = '';
+  await waitFor(() => messagesBox.scrollHeight <= messagesBox.clientHeight);
+  check(getComputedStyle(window.document.querySelector('.ai-prompt-room')!).display === 'none',
+    'Growing the panel removes the scroll range again when the conversation fits');
+  finishChat!();
+  await waitFor(() => !composer!.disabled);
+  await sendFixturePrompt('A long conversation must remain scrollable. '.repeat(100));
+  check(messagesBox.scrollHeight > messagesBox.clientHeight, 'Long real conversation requires a scroll range');
+  check(getComputedStyle(messagesBox).overflowY === 'auto', 'Scrollbar remains automatic for overflowing content');
+  messagesBox.scrollTop = messagesBox.scrollHeight;
+  check(messagesBox.scrollTop > 0, 'Overflowing conversation remains scrollable');
+  finishChat!();
+  await waitFor(() => !composer!.disabled);
   clickButton('Close Athena');
   await waitFor(() => window.document.querySelector('.dg-properties') !== null);
   check(window.document.querySelector('.dg-athena')?.hasAttribute('hidden') === true,
@@ -482,6 +519,7 @@ async function runDiagramChecks(): Promise<string[]> {
   const { checkDiagramFromNote } = await import('./diagramNoteCreation.browser');
   await checkDiagramFromNote(queryClient, waitFor);
   return ['Diagram Athena opens with canvas context and per-diagram conversation at desktop/mobile widths',
+    'Short pending chats have no scroll range; long chats scroll and panel resizing updates overflow',
     'Representative architecture and process flow render', 'SVG export full bounds, embedded icon and bidirectional arrows',
     'PNG rasterisation with embedded SVG icon', 'Escaped labels and explicit missing-asset errors',
     'Shape double-click edits instead of adding', 'All nine text alignments match canvas and export',
