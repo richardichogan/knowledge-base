@@ -31,7 +31,7 @@ import {
   type DiagramPort, type DiagramSnapshot,
 } from './diagramTypes';
 import {
-  PORTS, RESIZE_HANDLES, MIN_NODE_SIZE, CONTAINER_HEADER, SWIMLANE_HEADER, isContainerKind, nodeRect, boundsOf,
+  PORTS, RESIZE_HANDLES, MIN_NODE_SIZE, containerHeader, SWIMLANE_HEADER, isContainerKind, nodeRect, boundsOf,
   documentBounds, normalizeRect, rectContainsRect, portPoint, nearestPort, nodeMap, withDescendants, topLevelSelection,
   canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, pathD,
   pointAlong, insertWaypoint, hitTestNode, hitTestEdge, nodesInRect, alignNodes, distributeNodes, reorderNodes,
@@ -732,7 +732,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     if (host !== undefined) {
       // Bring members that sit outside the container inside it, then grow it to fit.
       const left = host.x + (host.kind === 'swimlane' ? SWIMLANE_HEADER : 0) + 16;
-      const topY = host.y + (host.kind === 'container' ? CONTAINER_HEADER : 0) + 16;
+      const topY = host.y + (host.kind === 'container' ? containerHeader(host).height : 0) + 16;
       let i = 0;
       for (const id of top) {
         const n = next.nodes.find((x) => x.id === id);
@@ -763,9 +763,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     if (b === null) return;
     const parents = new Set(top.map((id) => byId.get(id)?.parentId ?? null));
     const sharedParent = parents.size === 1 ? [...parents][0] ?? null : null;
+    const template = makeNode('container', { x: 0, y: 0 });
+    const headerHeight = containerHeader({ ...template, width: b.width + 48 }).height;
     const box: DiagramNode = {
-      ...makeNode('container', { x: 0, y: 0 }),
-      x: b.x - 24, y: b.y - 24 - CONTAINER_HEADER, width: b.width + 48, height: b.height + 48 + CONTAINER_HEADER, parentId: sharedParent,
+      ...template,
+      x: b.x - 24, y: b.y - 24 - headerHeight, width: b.width + 48, height: b.height + 48 + headerHeight, parentId: sharedParent,
     };
     const firstIndex = Math.max(0, cur.nodes.findIndex((n) => top.includes(n.id)));
     const nodes = [...cur.nodes.slice(0, firstIndex), box, ...cur.nodes.slice(firstIndex)];
@@ -1349,7 +1351,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     if (n === undefined) return null;
     const tl = worldToScreen({ x: n.x, y: n.y }, view);
     const fontSize = Math.max(11, n.fontSize * z);
-    if (n.kind === 'container') return { left: tl.x, top: tl.y, width: n.width * z, height: Math.max(30, CONTAINER_HEADER * z), fontSize };
+    if (n.kind === 'container') return { left: tl.x, top: tl.y, width: n.width * z, height: Math.max(30, containerHeader(n).height * z), fontSize };
     if (n.kind === 'image') {
       const h = Math.max(30, captionHeight(n) * z);
       return { left: tl.x, top: tl.y + n.height * z - (n.label.trim() === '' ? 0 : h), width: Math.max(120, n.width * z), height: h, fontSize };
@@ -1962,10 +1964,9 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       body = (
         <>
           <rect {...common} x={x} y={y} width={w} height={h} rx={4} />
-          <line className="dg-node__divider" x1={x} y1={y + CONTAINER_HEADER} x2={x + w} y2={y + CONTAINER_HEADER} stroke={stroke} strokeWidth={n.strokeWidth ?? 1} {...border} />
+          <line className="dg-node__divider" x1={x} y1={y + containerHeader(n).height} x2={x + w} y2={y + containerHeader(n).height} stroke={stroke} strokeWidth={n.strokeWidth ?? 1} {...border} />
         </>
       );
-      text = <TextLines lines={wrapText(label, w - 20, fs, 1)} cx={cx} cy={y + CONTAINER_HEADER / 2} anchorX={x + 10} anchor="start" fontSize={fs} color={color} weight={600} />;
       break;
     case 'swimlane': {
       const bandX = x + SWIMLANE_HEADER / 2;
@@ -1982,7 +1983,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       break;
     }
   }
-  if (n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined) {
+  if (n.kind === 'container' || n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined) {
     const layout = diagramTextLayout({ ...n, label });
     text = <TextLines lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
   }

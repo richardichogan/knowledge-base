@@ -18,6 +18,13 @@ const EPS = 1e-6;
 
 export const isContainerKind = (kind: DiagramKind): boolean => kind === 'container' || kind === 'swimlane';
 
+export function containerHeader(node: Pick<DiagramNode, 'label' | 'width' | 'height' | 'fontSize'>): { lines: string[]; height: number } {
+  const maxLines = Math.max(1, Math.floor((node.height - 12 - node.fontSize) / (node.fontSize * 1.25)) + 1);
+  const lines = wrapText(node.label, node.width - 20, node.fontSize, maxLines);
+  const textHeight = node.fontSize + Math.max(0, lines.length - 1) * node.fontSize * 1.25;
+  return { lines, height: Math.min(node.height, Math.max(CONTAINER_HEADER, Math.ceil(textHeight + 12))) };
+}
+
 export const documentWaveDepth = (height: number): number => Math.min(12, height * 0.15);
 
 export function documentShapePath(r: Rect): string {

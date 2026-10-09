@@ -402,12 +402,43 @@ async function runDiagramChecks(): Promise<string[]> {
   await waitFor(() => snapshot.document.nodes.some(n => n.id === headingNode.id && n.fontSize === 18));
   clickButton('Redo (Ctrl+Shift+Z)');
   await waitFor(() => snapshot.document.nodes.some(n => n.id === headingNode.id && n.fontSize === 24));
+  await setProperty('Shape or connector title', 'Imagine\nOperations');
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === headingNode.id && n.label === 'Imagine\nOperations'));
+  for (const size of [18, 24, 36]) {
+    await setThickness('Text size', size);
+    await waitFor(() => snapshot.document.nodes.some(n => n.id === headingNode.id && n.fontSize === size));
+    for (const alignment of ['Top', 'Middle', 'Bottom']) {
+      window.document.querySelector('[aria-label="Text vertical alignment"]')!
+        .querySelector<HTMLButtonElement>(`[aria-label="${alignment}"]`)!.click();
+      await waitFor(() => snapshot.document.nodes.some(n => n.id === headingNode.id && n.textVerticalAlign === alignment.toLowerCase()));
+      const current = snapshot.document.nodes.find(n => n.id === headingNode.id)!;
+      const group = window.document.querySelector(`g.dg-node[data-id="${headingNode.id}"]`)!;
+      const dividerY = Number(group.querySelector('.dg-node__divider')!.getAttribute('y1'));
+      check(dividerY - current.y === Math.ceil(size * 2.25 + 12), 'Divider grows for two title lines at the selected font size');
+      const lines = [...group.querySelectorAll('text tspan')];
+      check(lines.length === 2, 'Container header retains both title lines');
+      check(Number(lines[0]!.getAttribute('y')) - size / 2 >= current.y,
+        'Heading remains below the container top');
+      check(Number(lines[1]!.getAttribute('y')) + size / 2 <= dividerY - 5,
+        'Heading stays above divider with padding at every alignment');
+      const xml = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+      const exported = [...xml.querySelectorAll('g')].find(g => g.textContent === 'ImagineOperations')!;
+      check(Number(exported.querySelector('line')!.getAttribute('y1')) === dividerY, 'Export divider matches the live header');
+      check(exported.querySelector('text tspan')!.getAttribute('y') === lines[0]!.getAttribute('y'),
+        'Export heading position matches the live header');
+    }
+  }
+  await setThickness('Text size', 24);
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === headingNode.id && n.fontSize === 24));
   root.render(null);
   await waitFor(() => window.document.querySelector('.dg-editor') === null);
   queryClient.clear();
   mountEditor();
   await waitFor(() => window.document.querySelector(`g.dg-node[data-id="${headingNode.id}"]`) !== null);
   check(snapshot.document.nodes.some(n => n.id === headingNode.id && n.fontSize === 24), 'Text size survives reopening');
+  const reopenedHeader = window.document.querySelector(`g.dg-node[data-id="${headingNode.id}"]`)!;
+  check(Number(reopenedHeader.querySelector('.dg-node__divider')!.getAttribute('y1')) - headingNode.y === 66,
+    'Dynamic multiline header survives reopening');
   check(snapshot.document.nodes.find(n => n.id === experience.id)?.fontSize === 14, 'Existing saved label sizes stay unchanged');
   check(!(await diagramSvg(snapshot.document, assets, 'white')).includes('Process owner: Operations'), 'Descriptions must not clutter visual exports');
   await waitFor(() => window.document.querySelectorAll('g.dg-node--image image').length === 3);
@@ -428,6 +459,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Five simple shape backgrounds match canvas and export and survive reopening',
     'Document artefacts add, edit, undo/redo, export and reopen',
     'Larger default labels and Properties text size persist and export',
+    'Container divider grows with font size and multiline titles in canvas and exports',
     'Add, label editing, undo/redo and duplication', 'Image-file clipboard paste and explicit URL-only fallback',
     'Save conflict retains local changes and explicit overwrite resolves it',         'Shape and connector properties save/reopen, undo/redo and duplicate without cluttering exports',
     'Note linking, return links in Connections, opening/unlinking and reopening',

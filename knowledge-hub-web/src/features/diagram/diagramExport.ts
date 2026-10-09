@@ -1,7 +1,7 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
 import { diagramTextLayout } from './diagramText';
 import { diagramBorderDash } from './diagramStroke';
-import { CONTAINER_HEADER, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgePoints, pointAlong, renderOrder, wrapText } from './diagramGeometry';
+import { containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgePoints, pointAlong, renderOrder, wrapText } from './diagramGeometry';
 
 const escapeXml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
   '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;',
@@ -55,7 +55,7 @@ export async function diagramSvg(document: DiagramDocument, assets: Map<string, 
     } else {
       const radius = node.kind === 'terminator' ? Math.min(node.width, node.height) / 2 : node.kind === 'process' ? 6 : node.kind === 'text' ? 2 : node.kind === 'swimlane' ? 0 : 4;
       shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${radius}" ${colour}/>`;
-      if (node.kind === 'container') shape += `<line x1="${node.x}" x2="${node.x + node.width}" y1="${node.y + CONTAINER_HEADER}" y2="${node.y + CONTAINER_HEADER}" stroke="${escapeXml(node.stroke)}" stroke-width="${node.strokeWidth ?? 1}"${borderStyle}/>`;
+      if (node.kind === 'container') shape += `<line x1="${node.x}" x2="${node.x + node.width}" y1="${node.y + containerHeader(node).height}" y2="${node.y + containerHeader(node).height}" stroke="${escapeXml(node.stroke)}" stroke-width="${node.strokeWidth ?? 1}"${borderStyle}/>`;
       if (node.kind === 'swimlane') shape += `<rect x="${node.x}" y="${node.y}" width="${SWIMLANE_HEADER}" height="${node.height}" fill="${node.stroke === 'none' ? '#e0e0e0' : escapeXml(node.stroke)}" fill-opacity="0.1" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}/>`;
     }
     if (node.assetId !== null) {
