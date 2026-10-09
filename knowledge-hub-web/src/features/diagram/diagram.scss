@@ -78,6 +78,7 @@ $dg-ink: #f4f4f4;
   &__heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
   &__heading h3 { font-size: 0.875rem; font-weight: 600; margin: 0; }
   &__fields { display: flex; flex-direction: column; gap: 1rem; padding-top: 1rem; }
+  &__border { display: flex; flex-direction: column; gap: 0.75rem; }
   &__kind { margin: 0; color: var(--cds-text-secondary); font-size: 0.75rem; }
   &__field { display: flex; flex-direction: column; gap: 0.375rem; font-size: 0.8125rem; }
   &__field textarea {
@@ -432,8 +433,7 @@ $dg-ink: #f4f4f4;
   cursor: move;
   &__body { transition: filter 0.1s; }
   &:hover &__body { filter: drop-shadow(0 0 2px rgba(15, 98, 254, 0.35)); }
-  &--text &__body { stroke-dasharray: none; }
-  &--text:hover &__body { stroke: #a8a8a8; stroke-dasharray: 3 3; }
+  &--text.dg-node--borderless:hover &__body { stroke: #a8a8a8; stroke-dasharray: 3 3; }
   &__label { pointer-events: none; font-family: 'IBM Plex Sans', system-ui, sans-serif; user-select: none; }
   &__image { pointer-events: none; }
   &__divider, &__band { pointer-events: none; }

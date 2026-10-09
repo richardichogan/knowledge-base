@@ -19,6 +19,7 @@ export interface DiagramNode {
   fill: string;
   stroke: string;
   strokeWidth?: number;
+  strokeStyle?: 'solid' | 'dashed' | 'dotted';
   textColor: string;
   fontSize: number;
   textAlign?: 'left' | 'center' | 'right';

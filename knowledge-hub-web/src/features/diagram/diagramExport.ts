@@ -1,5 +1,6 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
 import { diagramTextLayout } from './diagramText';
+import { diagramBorderDash } from './diagramStroke';
 import { CONTAINER_HEADER, SWIMLANE_HEADER, diagramBounds, edgePoints, pointAlong, renderOrder, wrapText } from './diagramGeometry';
 
 const escapeXml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
@@ -43,15 +44,17 @@ export async function diagramSvg(document: DiagramDocument, assets: Map<string, 
   }
   const nodes = renderOrder(document.nodes).map((node) => {
     const strokeWidth = node.strokeWidth ?? 1.5;
-    const colour = `fill="${escapeXml(node.fill)}" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"`;
+    const dash = diagramBorderDash(node);
+    const borderStyle = `${dash === undefined ? '' : ` stroke-dasharray="${dash}"`}${node.strokeStyle === 'dotted' ? ' stroke-linecap="round"' : ''}`;
+    const colour = `fill="${escapeXml(node.fill)}" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}`;
     let shape = '';
     if (node.kind === 'decision') {
       shape = `<polygon points="${node.x + node.width / 2},${node.y} ${node.x + node.width},${node.y + node.height / 2} ${node.x + node.width / 2},${node.y + node.height} ${node.x},${node.y + node.height / 2}" ${colour}/>`;
     } else {
       const radius = node.kind === 'terminator' ? Math.min(node.width, node.height) / 2 : node.kind === 'process' ? 6 : node.kind === 'text' ? 2 : node.kind === 'swimlane' ? 0 : 4;
       shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${radius}" ${colour}/>`;
-      if (node.kind === 'container') shape += `<line x1="${node.x}" x2="${node.x + node.width}" y1="${node.y + CONTAINER_HEADER}" y2="${node.y + CONTAINER_HEADER}" stroke="${escapeXml(node.stroke)}" stroke-width="${node.strokeWidth ?? 1}"/>`;
-      if (node.kind === 'swimlane') shape += `<rect x="${node.x}" y="${node.y}" width="${SWIMLANE_HEADER}" height="${node.height}" fill="${node.stroke === 'none' ? '#e0e0e0' : escapeXml(node.stroke)}" fill-opacity="0.1" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"/>`;
+      if (node.kind === 'container') shape += `<line x1="${node.x}" x2="${node.x + node.width}" y1="${node.y + CONTAINER_HEADER}" y2="${node.y + CONTAINER_HEADER}" stroke="${escapeXml(node.stroke)}" stroke-width="${node.strokeWidth ?? 1}"${borderStyle}/>`;
+      if (node.kind === 'swimlane') shape += `<rect x="${node.x}" y="${node.y}" width="${SWIMLANE_HEADER}" height="${node.height}" fill="${node.stroke === 'none' ? '#e0e0e0' : escapeXml(node.stroke)}" fill-opacity="0.1" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}/>`;
     }
     if (node.assetId !== null) {
       const captionHeight = node.label.trim() ? Math.round(node.fontSize * 1.3 + 10) : 0;

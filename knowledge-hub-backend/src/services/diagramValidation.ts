@@ -136,7 +136,7 @@ function validatePoint(v: unknown, path: string): DiagramPoint {
 }
 
 function validateNode(v: unknown, path: string): DiagramNode {
-  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth']);
+  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle']);
   const c = DIAGRAM_LIMITS.maxCoordinate;
   const kind = oneOf(o['kind'], KINDS, `${path}.kind`);
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
@@ -154,6 +154,7 @@ function validateNode(v: unknown, path: string): DiagramNode {
     fill: color(o['fill'], `${path}.fill`),
     stroke: color(o['stroke'], `${path}.stroke`),
     ...(o['strokeWidth'] !== undefined ? { strokeWidth: num(o['strokeWidth'], `${path}.strokeWidth`, 0.5, 6) } : {}),
+    ...(o['strokeStyle'] !== undefined ? { strokeStyle: oneOf(o['strokeStyle'], ['solid', 'dashed', 'dotted'] as const, `${path}.strokeStyle`) } : {}),
     textColor: color(o['textColor'], `${path}.textColor`),
     fontSize: num(o['fontSize'], `${path}.fontSize`, DIAGRAM_LIMITS.minFontSize, DIAGRAM_LIMITS.maxFontSize),
     ...(o['textAlign'] !== undefined ? { textAlign: oneOf(o['textAlign'], ['left', 'center', 'right'] as const, `${path}.textAlign`) } : {}),

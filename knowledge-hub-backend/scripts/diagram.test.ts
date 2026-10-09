@@ -89,6 +89,20 @@ test('shape and connector thickness round-trip with bounded finite values', () =
   }
 });
 
+test('shape border styles and colours round-trip without changing legacy defaults', () => {
+  for (const strokeStyle of ['solid', 'dashed', 'dotted'] as const) {
+    const input = doc([node({ strokeStyle, stroke: '#da1e28', strokeWidth: 3 })]);
+    assert.deepEqual(validateDiagramDocument(input, NONE), input);
+  }
+  const legacy = doc([node()]);
+  assert.deepEqual(validateDiagramDocument(legacy, NONE), legacy);
+  const borderless = doc([node({ stroke: 'none', strokeStyle: 'dotted' })]);
+  assert.deepEqual(validateDiagramDocument(borderless, NONE), borderless);
+  for (const strokeStyle of ['double', '', 42, null]) {
+    rejects(() => validateDiagramDocument({ ...legacy, nodes: [{ ...legacy.nodes[0], strokeStyle }] }, NONE), /strokeStyle/);
+  }
+});
+
 test('optional item descriptions preserve legacy documents and round-trip shape and connector details', () => {
   const a = node({ description: 'Inputs, owner and expected output\nSecond line' });
   const b = node();

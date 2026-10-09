@@ -42,6 +42,7 @@ import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { exportDiagram } from './diagramExport';
 import { diagramEditorFill, diagramEditorInk, diagramEditorNodeColours } from './diagramTheme';
+import { diagramBorderDash } from './diagramStroke';
 import './diagram.scss';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ const SHAPE_MIME = 'application/x-kh-diagram-shape';
 const CLIP_TYPE = 'kh-diagram/v1';
 const INFO_TIMEOUT_MS = 5000;
 
-const FILLS = ['#262626', '#1c2d4a', '#173b27', '#3d3215', '#442027', '#302342', '#202020', 'none'] as const;
+const FILLS = ['#262626', '#1c2d4a', '#173b27', '#3d3215', 'none'] as const;
 const STROKES = ['#161616', '#525252', '#0f62fe', '#198038', '#b28600', '#da1e28', '#8a3ffc', 'none'] as const;
 const TEXT_COLOURS = ['#161616', '#525252', '#ffffff', '#0f62fe', '#198038', '#da1e28'] as const;
 const EDGE_COLOURS = STROKES.filter((c) => c !== 'none');
@@ -1625,7 +1626,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 <IconBtn label="Style" pressed={menu === 'style'} onClick={() => { setMenu(menu === 'style' ? null : 'style'); }}><ColorPalette size={16} /></IconBtn>
                 {menu === 'style' && (
                   <div className="dg-popover dg-popover--context" role="dialog" aria-label="Shape style">
-                    <Swatches label="Fill" colours={FILLS} value={diagramEditorFill(only(allFills) ?? '')} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, ...diagramEditorNodeColours(n), fill: c })); }} />
+                    <Swatches label="Fill" colours={FILLS} value={diagramEditorFill(only(allFills) ?? '')} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: diagramEditorNodeColours(n).textColor, fill: c })); }} />
                     <Swatches label="Border" colours={STROKES} value={only(allStrokes)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, stroke: c })); }} />
                     <Swatches label="Text" colours={TEXT_COLOURS} value={only(allText)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: c })); }} />
                     <div className="dg-stepper">
@@ -1767,6 +1768,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           item={(singleNode ?? singleEdge)!}
           kind={singleNode === undefined ? 'Connector' : KIND_LABEL[singleNode.kind]}
           titleLimit={singleNode === undefined ? 500 : 2000}
+          onBackgroundChange={(fill) => {
+            if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, textColor: diagramEditorNodeColours(n).textColor, fill }));
+          }}
+          onBorderChange={(border) => {
+            if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, ...border }));
+          }}
           onThicknessChange={(strokeWidth) => {
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, strokeWidth }));
             else if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => ({ ...edge, strokeWidth }));
@@ -1803,11 +1810,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   );
 };
 
-function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange }: {
+function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onBorderChange, onBackgroundChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
   onChange: (field: 'label' | 'description', value: string, first: boolean) => void;
   onAlignmentChange: (alignment: Partial<Pick<DiagramNode, 'textAlign' | 'textVerticalAlign'>>) => void;
   onThicknessChange: (strokeWidth: number) => void;
+  onBorderChange: (border: Partial<Pick<DiagramNode, 'stroke' | 'strokeStyle'>>) => void;
+  onBackgroundChange: (fill: string) => void;
 }): React.ReactElement {
   const firstEdit = useRef(true);
   const change = (field: 'label' | 'description', value: string): void => {
@@ -1820,6 +1829,19 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
       <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label}
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('label', e.target.value); }} />
     </label>
+    <div className="dg-properties__border">
+    {'kind' in item && <>
+      <Swatches label="Background colour" colours={FILLS} value={diagramEditorFill(item.fill)}
+        onPick={onBackgroundChange} />
+      <Swatches label="Border colour" colours={STROKES} value={item.stroke}
+        onPick={(stroke) => { onBorderChange({ stroke }); }} />
+      <div className="dg-properties__field">
+        <span>Border style</span>
+        <Segmented label="Border style" value={item.strokeStyle ?? 'solid'}
+          options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' }]}
+          onChange={(strokeStyle) => { onBorderChange({ strokeStyle }); }} />
+      </div>
+    </>}
     <label className="dg-properties__field">{'kind' in item ? 'Border thickness' : 'Line thickness'}
       <select aria-label={'kind' in item ? 'Border thickness' : 'Line thickness'} value={item.strokeWidth ?? 1.5}
         onChange={(event) => { onThicknessChange(Number(event.target.value)); }}>
@@ -1828,6 +1850,7 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
           && <option value={item.strokeWidth}>{item.strokeWidth} px</option>}
       </select>
     </label>
+    </div>
     <label className="dg-properties__field">Description
       <textarea aria-label="Shape or connector description" rows={8} maxLength={10000} value={item.description ?? ''}
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('description', e.target.value); }} />
@@ -1877,7 +1900,8 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
   const cx = x + w / 2;
   const cy = y + h / 2;
   const label = editing ? '' : n.label;
-  const common = { className: 'dg-node__body', fill, stroke, strokeWidth: n.strokeWidth ?? 1.5, pointerEvents: 'all' as const };
+  const border = { strokeDasharray: diagramBorderDash(n), strokeLinecap: n.strokeStyle === 'dotted' ? 'round' as const : 'butt' as const };
+  const common = { className: 'dg-node__body', fill, stroke, strokeWidth: n.strokeWidth ?? 1.5, ...border, pointerEvents: 'all' as const };
   let body: React.ReactNode;
   let text: React.ReactNode = null;
   const maxLines = (avail: number): number => Math.max(1, Math.floor(avail / (fs * 1.25)));
@@ -1923,7 +1947,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       body = (
         <>
           <rect {...common} x={x} y={y} width={w} height={h} rx={4} />
-          <line className="dg-node__divider" x1={x} y1={y + CONTAINER_HEADER} x2={x + w} y2={y + CONTAINER_HEADER} stroke={stroke} strokeWidth={n.strokeWidth ?? 1} />
+          <line className="dg-node__divider" x1={x} y1={y + CONTAINER_HEADER} x2={x + w} y2={y + CONTAINER_HEADER} stroke={stroke} strokeWidth={n.strokeWidth ?? 1} {...border} />
         </>
       );
       text = <TextLines lines={wrapText(label, w - 20, fs, 1)} cx={cx} cy={y + CONTAINER_HEADER / 2} anchorX={x + 10} anchor="start" fontSize={fs} color={color} weight={600} />;
@@ -1934,7 +1958,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       body = (
         <>
           <rect {...common} x={x} y={y} width={w} height={h} />
-          <rect className="dg-node__band" x={x} y={y} width={SWIMLANE_HEADER} height={h} fill={stroke === 'none' ? '#e0e0e0' : stroke} fillOpacity={0.1} stroke={stroke} strokeWidth={n.strokeWidth ?? 1.5} pointerEvents="none" />
+          <rect className="dg-node__band" x={x} y={y} width={SWIMLANE_HEADER} height={h} fill={stroke === 'none' ? '#e0e0e0' : stroke} fillOpacity={0.1} stroke={stroke} strokeWidth={n.strokeWidth ?? 1.5} {...border} pointerEvents="none" />
         </>
       );
       text = lines.length === 0 ? null : (
@@ -1948,7 +1972,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
     text = <TextLines lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
   }
   return (
-    <g className={`dg-node dg-node--${n.kind}${selected ? ' dg-node--selected' : ''}`} data-dg="node" data-id={n.id}>
+    <g className={`dg-node dg-node--${n.kind}${n.stroke === 'none' ? ' dg-node--borderless' : ''}${selected ? ' dg-node--selected' : ''}`} data-dg="node" data-id={n.id}>
       {body}
       {text}
     </g>

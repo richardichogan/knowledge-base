@@ -197,6 +197,43 @@ async function runDiagramChecks(): Promise<string[]> {
   const thickShape = snapshot.document.nodes.find(n => n.label === 'Browser-verified process')!;
   check(window.document.querySelector(`g.dg-node[data-id="${thickShape.id}"] .dg-node__body`)?.getAttribute('stroke-width') === '3',
     'Shape border thickness is rendered');
+  const borderColours = window.document.querySelector('[aria-label="Border colour"]')!;
+  borderColours.querySelector<HTMLButtonElement>('[aria-label="#da1e28"]')!.click();
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === thickShape.id && n.stroke === '#da1e28'));
+  const backgrounds = window.document.querySelector('[aria-label="Background colour"]')!;
+  check(backgrounds.querySelectorAll('button').length === 5, 'Background choices stay minimal');
+  for (const fill of ['#262626', '#1c2d4a', '#173b27', '#3d3215', 'none', '#1c2d4a']) {
+    backgrounds.querySelector<HTMLButtonElement>(`[aria-label="${fill === 'none' ? 'None' : fill}"]`)!.click();
+    await waitFor(() => snapshot.document.nodes.some(n => n.id === thickShape.id && n.fill === fill));
+    check(window.document.querySelector(`g.dg-node[data-id="${thickShape.id}"] .dg-node__body`)?.getAttribute('fill') === fill,
+      'Background choice renders on canvas');
+    const xml = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+    const exported = [...xml.querySelectorAll('g')].find(g => g.textContent?.includes('Browser-verified'))!.querySelector('rect')!;
+    check(exported.getAttribute('fill') === fill, 'Background choice exports unchanged');
+  }
+  for (const [style, dash] of [['Dashed', '12 9'], ['Solid', null], ['Dotted', '0 9']] as const) {
+    window.document.querySelector('[aria-label="Border style"]')!
+      .querySelector<HTMLButtonElement>(`[aria-label="${style}"]`)!.click();
+    await waitFor(() => snapshot.document.nodes.some(n => n.id === thickShape.id && n.strokeStyle === style.toLowerCase()));
+    const body = window.document.querySelector(`g.dg-node[data-id="${thickShape.id}"] .dg-node__body`)!;
+    check(body.getAttribute('stroke') === '#ff8389', 'Properties border colour renders with dark-canvas contrast');
+    check(body.getAttribute('stroke-dasharray') === dash, 'Properties border style renders on the canvas');
+    if (style === 'Dotted') check(getComputedStyle(body).strokeLinecap === 'round', 'Dotted borders use round dots');
+    const xml = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+    const exported = [...xml.querySelectorAll('g')].find(g => g.textContent?.includes('Browser-verified'))!.querySelector('rect')!;
+    check(exported.getAttribute('stroke') === '#da1e28' && exported.getAttribute('stroke-dasharray') === dash
+      && exported.getAttribute('stroke-width') === '3', 'Export matches border colour, style and thickness');
+  }
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === thickShape.id && n.strokeStyle === 'solid'));
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === thickShape.id && n.strokeStyle === 'dotted'));
+  borderColours.querySelector<HTMLButtonElement>('[aria-label="None"]')!.click();
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === thickShape.id && n.stroke === 'none'));
+  check(window.document.querySelector(`g.dg-node[data-id="${thickShape.id}"] .dg-node__body`)?.getAttribute('stroke') === 'none',
+    'No-border choice removes the visible border');
+  borderColours.querySelector<HTMLButtonElement>('[aria-label="#da1e28"]')!.click();
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === thickShape.id && n.stroke === '#da1e28'));
   for (const horizontal of ['Left', 'Center', 'Right']) {
     for (const vertical of ['Top', 'Middle', 'Bottom']) {
       const horizontalGroup = window.document.querySelector('[aria-label="Text horizontal alignment"]')!;
@@ -304,6 +341,10 @@ async function runDiagramChecks(): Promise<string[]> {
   check(snapshot.document.edges[0]?.strokeWidth === 6, 'Connector thickness survives reopening');
   check(snapshot.document.nodes.some(n => n.label === 'Browser-verified process' && n.strokeWidth === 3),
     'Shape thickness survives reopening and duplication');
+  check(snapshot.document.nodes.filter(n => n.label === 'Browser-verified process')
+    .every(n => n.stroke === '#da1e28' && n.strokeStyle === 'dotted'), 'Border colour and style survive reopening and duplication');
+  check(snapshot.document.nodes.filter(n => n.label === 'Browser-verified process').every(n => n.fill === '#1c2d4a'),
+    'Background colour survives reopening and duplication');
   check(!(await diagramSvg(snapshot.document, assets, 'white')).includes('Process owner: Operations'), 'Descriptions must not clutter visual exports');
   await waitFor(() => window.document.querySelectorAll('g.dg-node--image image').length === 3);
   root.render(null);
@@ -319,6 +360,8 @@ async function runDiagramChecks(): Promise<string[]> {
     'PNG rasterisation with embedded SVG icon', 'Escaped labels and explicit missing-asset errors',
     'Shape double-click edits instead of adding', 'All nine text alignments match canvas and export',
     'Line and border thickness persist, undo/redo and scale exported arrowheads',
+    'Shape border colour, solid/dashed/dotted styles and no-border save and export consistently',
+    'Five simple shape backgrounds match canvas and export and survive reopening',
     'Add, label editing, undo/redo and duplication', 'Image-file clipboard paste and explicit URL-only fallback',
     'Save conflict retains local changes and explicit overwrite resolves it',         'Shape and connector properties save/reopen, undo/redo and duplicate without cluttering exports',
     'Note linking, return links in Connections, opening/unlinking and reopening',

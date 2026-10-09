@@ -124,6 +124,9 @@ to create a process shape.
 Shape Properties also provides left/center/right and top/middle/bottom text
 alignment. Alignment is saved with the diagram and used in SVG/PNG exports.
 Properties offers connector line and shape border thickness from 0.5 to 6 px.
+Shape border colour (including no border) and solid/dashed/dotted styles are
+also available in Properties and preserved in SVG/PNG exports.
+Shape backgrounds use five simple choices: neutral, blue, green, amber or transparent.
 Arrowheads scale with connector thickness on the canvas and in exports;
 existing diagrams retain their original 1.5 px line weight.
 
