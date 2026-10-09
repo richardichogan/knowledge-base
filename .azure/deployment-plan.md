@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Project-only GitHub destinations, readable title filenames and dark diagram shapes.
 
@@ -141,6 +141,22 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-09, combined release:
+
+- Both implementation commits are included in remote main by fast-forward.
+- ACR run `ca5g` built and pushed v174 successfully.
+- Revision `kh-prod-api-vnet--0000171` is the only active revision,
+  Healthy / RunningAtMaxScale.
+- Matching SWA production deployment completed. Both production hostnames
+  serve exact release HTML and SHA-256 matching `index-_e7D8LHC.js`,
+  `signinCallback-bh-pVR6x.js` and `appBootstrap-Bz_2h1yG.js`.
+- Live authenticated API checks passed: 16 writable project-configured
+  destinations; unconfigured repository denied; configured folders browse.
+- Release includes readable title-based filenames and dark diagram shapes.
+  Existing publication paths and saved legacy export artwork stay unchanged.
+- Production endpoint: https://athena.themicrosoftcloudblog.com/
+- No production note writes were performed for deployment verification.
 
 Validated 2026-10-09 (08:25 BST), combined release:
 
