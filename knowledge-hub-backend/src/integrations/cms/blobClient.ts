@@ -40,13 +40,14 @@ export function getBlobClient(): BlobServiceClient {
 export async function downloadBlobAsText(
   containerName: string,
   blobPath: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const client = getBlobClient();
   const containerClient = client.getContainerClient(containerName);
   const blobClient = containerClient.getBlobClient(blobPath);
 
   try {
-    const response = await blobClient.download();
+    const response = await blobClient.download(0, undefined, signal ? { abortSignal: signal } : {});
     const chunks: Buffer[] = [];
 
     if (!response.readableStreamBody) {

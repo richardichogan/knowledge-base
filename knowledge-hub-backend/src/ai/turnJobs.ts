@@ -8,6 +8,8 @@
  */
 import { AiStoppedError } from './foundryClient.js';
 import type { TurnHooks } from './conversationService.js';
+import { abortable } from './abortable.js';
+import { AI_BACKGROUND_TURN_BUDGET_MS } from '../config/constants.js';
 
 export type TurnEvent =
   | { type: 'snapshot'; message: string; activity: string; text: string }
@@ -53,6 +55,7 @@ export function startTurnJob(
   onFinished: () => void,
   /** false for side jobs (e.g. "Ask another model") that aren't the chat's current turn. */
   trackForSession = true,
+  budgetMs = AI_BACKGROUND_TURN_BUDGET_MS,
 ): { id: string; startedAt: string } {
   const job: TurnJob = {
     id, sessionId, message, startedAt: new Date().toISOString(),
@@ -62,19 +65,26 @@ export function startTurnJob(
   if (trackForSession) jobBySession.set(sessionId, job.id);
 
   const hooks: TurnHooks = {
-    onDelta: (text) => { emit(job, { type: 'delta', text }); },
-    onReset: () => { emit(job, { type: 'reset' }); },
-    onActivity: (text) => { emit(job, { type: 'activity', text }); },
+    onDelta: (text) => { if (!job.controller.signal.aborted) emit(job, { type: 'delta', text }); },
+    onReset: () => { if (!job.controller.signal.aborted) emit(job, { type: 'reset' }); },
+    onActivity: (text) => { if (!job.controller.signal.aborted) emit(job, { type: 'activity', text }); },
     signal: job.controller.signal,
   };
-  void run(hooks)
+  const deadline = setTimeout(() => {
+    job.controller.abort(new Error('Athena took too long to respond. Please try again.'));
+  }, budgetMs);
+  void abortable(Promise.resolve().then(() => {
+    job.controller.signal.throwIfAborted();
+    return run(hooks);
+  }), job.controller.signal)
     .then((data) => { emit(job, { type: 'done', data }); })
     .catch((err: unknown) => {
-      const stopped = err instanceof AiStoppedError || job.controller.signal.aborted;
+      const stopped = err instanceof AiStoppedError || (job.controller.signal.aborted && job.controller.signal.reason instanceof AiStoppedError);
       if (!stopped) console.error('[turn] failed:', err);
       emit(job, { type: 'error', stopped, message: stopped ? 'Stopped' : err instanceof Error ? err.message : String(err) });
     })
     .finally(() => {
+      clearTimeout(deadline);
       onFinished();
       if (jobBySession.get(sessionId) === job.id) jobBySession.delete(sessionId);
       setTimeout(() => { jobs.delete(job.id); }, KEEP_FINISHED_MS).unref();
@@ -110,6 +120,6 @@ export function subscribeTurnJob(id: string, listener: (e: TurnEvent) => void): 
 export function cancelTurnJob(id: string): boolean {
   const job = jobs.get(id);
   if (job === undefined || job.outcome !== null) return false;
-  job.controller.abort();
+  job.controller.abort(new AiStoppedError());
   return true;
 }

@@ -812,7 +812,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     },
   });
 
-  /** Aborts the in-flight chat request. The backend keeps running to completion, but the UI stops waiting and discards whatever comes back. */
+  /** Stops the entire background turn, including context preparation. */
   function handleStopGenerating(): void {
     const turnId = liveTurnIdRef.current;
     if (turnId === null) {
@@ -821,7 +821,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       appendMessage('assistant', '⏹️ Stopped.');
       return;
     }
-    void api.cancelChatTurn(turnId).catch(() => { chatAbortControllerRef.current?.abort(); });
+    void api.cancelChatTurn(turnId).catch(() => {
+      chatAbortControllerRef.current?.abort();
+      appendMessage('assistant', 'Could not stop Athena on the server. Reopen this chat to check its status.');
+    });
   }
 
   /** The chat id to store screenshots under — chosen now for a chat that hasn't started yet. */

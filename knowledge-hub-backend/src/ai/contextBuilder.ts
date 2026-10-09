@@ -1,4 +1,5 @@
 import { getProfileText } from './athenaMemory.js';
+import { abortable } from './abortable.js';
 import type { Pool } from 'pg';
 import { downloadBlobAsText } from '../integrations/cms/blobClient.js';
 import { env } from '../config/env.js';
@@ -16,6 +17,7 @@ import type { AiContext, ConversationMessage, ChatPageContext } from '../types/a
 
 const STATIC_CONTEXT_BLOB = 'config/static-context.md';
 const PROJECT_CONTEXT_BLOB = 'config/project-context.md';
+const CONTEXT_BLOB_TIMEOUT_MS = 5_000;
 
 /**
  * Self-identification — the assistant's name is Athena (chosen by the user,
@@ -1342,10 +1344,16 @@ export function shortenOldLongReplies(history: ConversationMessage[]): Conversat
 }
 
 async function loadBlobText(blobPath: string): Promise<string> {
+  const controller = new AbortController();
+  const deadline = setTimeout(() => {
+    controller.abort(new Error('Context storage read timed out'));
+  }, CONTEXT_BLOB_TIMEOUT_MS);
   try {
-    return await downloadBlobAsText(env.CMS_BLOB_CONTAINER, blobPath);
-  } catch {
-    // Return empty string if context files haven't been created yet
+    return await abortable(downloadBlobAsText(env.CMS_BLOB_CONTAINER, blobPath, controller.signal), controller.signal);
+  } catch (error) {
+    console.warn(`[Athena] Optional context file unavailable: ${blobPath}`, error instanceof Error ? error.message : error);
     return '';
+  } finally {
+    clearTimeout(deadline);
   }
 }

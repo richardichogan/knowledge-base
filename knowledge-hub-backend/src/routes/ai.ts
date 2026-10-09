@@ -63,6 +63,7 @@ export interface ChatTurnResult {
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
 export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}): Promise<ChatTurnResult> {
+  hooks.signal?.throwIfAborted();
   const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview, outputsPanel } = reqBody as {
     sessionId?: string;
     message?: string;
@@ -174,6 +175,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     { noteId: openNoteId, noteEdits, mapChanges },
     { ...hooks, contextUsed },
   );
+  hooks.signal?.throwIfAborted();
   // He asked for a deliverable and the model wrote it into the reply instead of saving it:
   // it goes to Outputs and the reply just says so (only where the Outputs panel is shown).
   // Deliverables live in Outputs, never also in the reply: if Athena saved one this turn, any pasted
@@ -203,6 +205,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     : pageContext
       ? `${documentMarker}\n${message}`
       : message;
+  hooks.signal?.throwIfAborted();
   const { assistantMessageId } = await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources, contextUsed });
   if (isFirstMessage) await setSessionTitleIfMissing(db, effectiveSessionId, message);
   // Fire-and-forget AI title from the opening exchange (re-run on the

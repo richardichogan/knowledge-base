@@ -92,6 +92,8 @@ export async function handleConversationTurn(
   /** Live turn hooks (background turns): streamed text, activity lines, Stop, a longer time budget. */
   hooks: TurnHooks = {},
 ): Promise<string> {
+  hooks.signal?.throwIfAborted();
+  hooks.onActivity?.('Loading context');
   // A mind map open beside the chat (noteId "map:<id>"): Athena gets its outline and can propose changes.
   const mapId = toolContext.noteId?.startsWith('map:') === true ? toolContext.noteId.slice('map:'.length) : undefined;
   // A diagram canvas has no brainstorm cards: Athena gets no outline and can't propose map changes to it.
@@ -105,6 +107,7 @@ export async function handleConversationTurn(
     })
     : null;
   const context = await buildAiContext(db, userMessage, history, sessionId, persona);
+  hooks.signal?.throwIfAborted();
   // "Don't use this" items stay out of auto-retrieval and search results for this chat.
   const excluded = new Set(sessionId !== undefined
     ? (await getExcludedSources(db, sessionId).catch(() => [])).map((s) => s.id)
@@ -117,6 +120,7 @@ export async function handleConversationTurn(
     .catch((err: unknown) => { console.error('[memory] could not load standing instructions:', err); return ''; });
   // A pasted M365 Copilot meeting list is saved as today's IBM diary before Athena replies.
   let meetingImportNote = '';
+  hooks.signal?.throwIfAborted();
   if (looksLikeMeetingList(userMessage)) {
     try {
       const r = await importMeetingList(db, userMessage);
@@ -168,6 +172,7 @@ export async function handleConversationTurn(
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
   const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
+  hooks.signal?.throwIfAborted();
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
   const images = hooks.screenImages ?? [];
   const lastUser = messages.map((m) => m.role).lastIndexOf('user');
@@ -186,7 +191,9 @@ export async function handleConversationTurn(
   }
 
   const client = getFoundryClient('chat').scoped({ persona, sessionId });
+  hooks.onActivity?.('Loading tools');
   const allTools = await getToolDefinitions();
+  hooks.signal?.throwIfAborted();
   const briefOnly = isImagineDemoBriefRequest(persona, userMessage);
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
   // The note-edit and map-edit tools are the two largest definitions (about 1,400 tokens between them) and

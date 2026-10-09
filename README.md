@@ -119,6 +119,10 @@ Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief
 
 ## Think canvases
 
+Athena's optional context-file reads are bounded to five seconds. Background
+chat deadlines and Stop cover context/tool preparation as well as model
+generation; cancelled turns discard late results rather than staying busy.
+
 Think action feedback stays within the editor column rather than overlaying
 the side-panel tabs. GitHub metadata groups its publication status, file link
 and compact primary/secondary actions.
