@@ -184,6 +184,11 @@ Use **Copy** for GHCP or **Download Markdown brief for GHCP** to place the file 
 GitHub, runs Build, or authorizes live side effects; `evidence-led-demo` must be
 available to the downstream coding agent.
 
+The diagram's filled shapes use dark neutral or tinted surfaces with light
+labels and borders, including legacy white/pastel shapes when opened in the
+editor. New shapes and fill choices use the dark palette. Custom colours and
+existing saved artwork/export colours are preserved.
+
 The diagram editing sheet uses Athena's dark theme with a subdued grid and
 contrast-adjusted connectors and transparent labels. Saved shape colours and
 PNG/SVG export colours are unchanged; exports still offer white or transparent

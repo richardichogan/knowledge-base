@@ -40,7 +40,7 @@ import {
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { exportDiagram } from './diagramExport';
-import { diagramEditorInk } from './diagramTheme';
+import { diagramEditorFill, diagramEditorInk, diagramEditorNodeColours } from './diagramTheme';
 import './diagram.scss';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ const SHAPE_MIME = 'application/x-kh-diagram-shape';
 const CLIP_TYPE = 'kh-diagram/v1';
 const INFO_TIMEOUT_MS = 5000;
 
-const FILLS = ['#ffffff', '#edf5ff', '#defbe6', '#fcf4d6', '#fff1f1', '#f6f2ff', '#f4f4f4', 'none'] as const;
+const FILLS = ['#262626', '#1c2d4a', '#173b27', '#3d3215', '#442027', '#302342', '#202020', 'none'] as const;
 const STROKES = ['#161616', '#525252', '#0f62fe', '#198038', '#b28600', '#da1e28', '#8a3ffc', 'none'] as const;
 const TEXT_COLOURS = ['#161616', '#525252', '#ffffff', '#0f62fe', '#198038', '#da1e28'] as const;
 const EDGE_COLOURS = STROKES.filter((c) => c !== 'none');
@@ -106,10 +106,11 @@ function imageBox(n: DiagramNode): Rect {
 
 function makeNode(kind: DiagramKind, center: P, extra: Partial<DiagramNode> = {}): DiagramNode {
   const d = DEFAULTS[kind];
+  const colours = diagramEditorNodeColours(d);
   const width = extra.width ?? d.width;
   const height = extra.height ?? d.height;
   return {
-    id: newId(), kind, parentId: null, assetId: null, ...d, ...extra,
+    id: newId(), kind, parentId: null, assetId: null, ...d, ...colours, ...extra,
     width, height, x: Math.round(center.x - width / 2), y: Math.round(center.y - height / 2),
   };
 }
@@ -1615,7 +1616,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 <IconBtn label="Style" pressed={menu === 'style'} onClick={() => { setMenu(menu === 'style' ? null : 'style'); }}><ColorPalette size={16} /></IconBtn>
                 {menu === 'style' && (
                   <div className="dg-popover dg-popover--context" role="dialog" aria-label="Shape style">
-                    <Swatches label="Fill" colours={FILLS} value={only(allFills)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, fill: c })); }} />
+                    <Swatches label="Fill" colours={FILLS} value={diagramEditorFill(only(allFills) ?? '')} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, ...diagramEditorNodeColours(n), fill: c })); }} />
                     <Swatches label="Border" colours={STROKES} value={only(allStrokes)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, stroke: c })); }} />
                     <Swatches label="Text" colours={TEXT_COLOURS} value={only(allText)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: c })); }} />
                     <div className="dg-stepper">
@@ -1835,10 +1836,8 @@ function TextLines({ lines, cx, cy, fontSize, color, anchorX, anchor = 'middle',
 interface NodeShapeProps { node: DiagramNode; asset: AssetState | undefined; selected: boolean; editing: boolean }
 
 const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, editing }: NodeShapeProps): React.ReactElement {
-  const { x, y, width: w, height: h, fill, fontSize: fs } = n;
-  const transparent = fill === 'none' || fill === 'transparent';
-  const stroke = transparent ? diagramEditorInk(n.stroke) : n.stroke;
-  const color = transparent ? diagramEditorInk(n.textColor) : n.textColor;
+  const { x, y, width: w, height: h, fontSize: fs } = n;
+  const { fill, stroke, textColor: color } = diagramEditorNodeColours(n);
   const cx = x + w / 2;
   const cy = y + h / 2;
   const label = editing ? '' : n.label;

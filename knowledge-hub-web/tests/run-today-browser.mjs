@@ -20,6 +20,7 @@ const imagineBriefChecks = process.env.ATHENA_BROWSER_CHECKS === 'imagine-brief'
 const markdownExportChecks = process.env.ATHENA_BROWSER_CHECKS === 'markdown-export';
 const thinkSaveChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-save';
 const noteGitHubChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-github';
+const diagramThemeChecks = process.env.ATHENA_BROWSER_CHECKS === 'diagram-theme';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -81,6 +82,7 @@ try {
     for (let i = 0; i < 300; i++) {
       ready = await evaluate(navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
+        : diagramThemeChecks ? 'typeof window.runDiagramThemeChecks === "function" && document.querySelector(".dg-node__body") !== null'
         : noteGitHubChecks ? 'typeof window.runNoteGitHubChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
         : thinkSaveChecks ? 'typeof window.runThinkSaveChecks === "function" && document.querySelector(".ai-move__button") !== null'
         : authLiveChecks ? 'document.querySelector(".pw-gate") !== null'
@@ -98,6 +100,11 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('document.body.innerText')}`);
+    if (diagramThemeChecks) {
+      const results = await evaluate('window.runDiagramThemeChecks()');
+      console.log(JSON.stringify({ width, checks: results }, null, 2));
+      continue;
+    }
     if (noteGitHubChecks) {
       const results = await evaluate('window.runNoteGitHubChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
