@@ -1,10 +1,15 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Project-only GitHub destinations, readable title filenames and dark diagram shapes.
+**Deployment:** Latest main `5225de7`: diagram enhancements, discovery context and chat cancellation.
 
 ## 1. Scope
+
+Approved 2026-10-09 at 21:07 BST: deploy latest main `5225de7` before
+implementing connector-label font controls. Backend v175 and matching frontend.
+Existing resources/configuration only; no IaC, secrets, roles or auth changes.
+Rollback: backend v174 and frontend source `d30a2e2`.
 
 Approved 2026-10-09 at 08:24 BST: deploy, merge and push commits `2656a76`
 and `310536b`. Deploy backend v174 then the matching full frontend release.
@@ -141,6 +146,19 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-09 at 21:10 BST for `5225de7`:
+
+- Both apps `npx tsc --noEmit` and `npm run build` passed.
+- Backend diagram/discovery/turn-job/publishing/history selection: 44 tests passed.
+- Latest desktop/mobile diagram browser fixture passed at 1440/390px, including
+  artefacts, standalone lines, style persistence, exports and chat panel behavior.
+- Worktree servers verified with health, projects, notes and discovery source
+  reads through the frontend proxy. Startup migrations completed without errors.
+- Azure authentication/subscription verified; production is v174; v175 unused.
+- `git diff --check` passed. No IaC/RBAC change: template/what-if/role provisioning
+  not applicable. Existing registry secret retained; ACR Docker build gated
+  before updating the production image.
 
 Deployed 2026-10-09, combined release:
 
