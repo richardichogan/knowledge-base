@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Frontend-only redeployment of latest main `93079cd`, retaining same-tab login recovery and standalone chat continuity. Backend v176 unchanged.
 
@@ -162,6 +162,15 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-10 after the 09:02 BST request:
+
+- Latest main application/test source `93079cd`, validation record `d07c4e9`.
+- SWA CLI production deployment succeeded; backend remains v176.
+- Both custom and default production hosts serve exact release HTML at `/`,
+  `/chat` and `/signin`; `/assets/index-BCDTckK_.js` SHA-256 matches the local build.
+- No infrastructure, roles, secrets or environment changes.
+- Production endpoint: https://athena.themicrosoftcloudblog.com/
 
 Validated 2026-10-10 after the 09:02 BST deployment request:
 
