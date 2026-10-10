@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Frontend-only popup login correction. Silent token renewal first; user-initiated initial sign-in and reauthentication use one popup without navigating Athena. Backend v176 unchanged.
 
@@ -171,6 +171,16 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-10: popup login correction `e154d32`.
+
+- SWA production deployment succeeded; backend v176 unchanged.
+- Both production hosts serve exact release HTML at `/`, `/chat` and
+  `/signin`; `/assets/index-CoiT-Upu.js` SHA-256 matches the local build.
+- Isolated browser checks against the deployed callback passed at 1440px
+  and 390px: success/error responses relayed, popup closes and the original
+  page with unsent work stays mounted. No live Entra credentials were used.
+- Production endpoint: https://athena.themicrosoftcloudblog.com/
 
 Validated 2026-10-10 following the 09:13 BST correction request:
 
