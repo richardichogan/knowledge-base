@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Current branch `877c4d8`: cross-project Athena, diagram properties, connector font controls and Discover Socials.
 
@@ -157,6 +157,17 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-10 at 08:51 BST:
+
+- Frontend-only hotfix `8312e12`; backend v176 unchanged.
+- Static Web App production deployment succeeded to
+  https://athena.themicrosoftcloudblog.com/
+- Custom and default hosts serve exact release HTML and SHA-256-matching
+  `/assets/index-BCDTckK_.js`; `/signin` callback route serves the app entry.
+- Isolated headless tests of the deployed callback succeeded at desktop and
+  mobile sizes: callback success/error relay, popup closure and original page
+  remaining mounted. No real Entra credentials were used.
 
 Validated 2026-10-10 at 08:50 BST:
 
