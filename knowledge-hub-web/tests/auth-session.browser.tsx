@@ -33,6 +33,8 @@ async function runAuthSessionChecks(): Promise<string[]> {
   check(button.textContent === 'Re-authenticate', 'Explicit re-authenticate action');
   check(document.activeElement === button, 'Keyboard focus moves into modal');
   check(dialog.textContent!.includes('Your sign-in has expired'), 'Clear expiration explanation');
+  check(dialog.textContent!.includes('in a popup') && dialog.textContent!.includes('Athena will stay open'),
+    'Prompt explains popup renewal without leaving Athena');
   const cancel = new Event('cancel', { cancelable: true });
   dialog.dispatchEvent(cancel);
   check(cancel.defaultPrevented && dialog.open, 'Escape cannot bypass expired session');

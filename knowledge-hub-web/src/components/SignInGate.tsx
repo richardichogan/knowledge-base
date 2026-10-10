@@ -40,7 +40,9 @@ export const SignInGate: React.FC<Props> = ({ children }) => {
         {state !== 'checking' && (
           <button className="kh-btn-accent pw-gate__btn" type="button" onClick={() => {
             setState('checking');
-            void signIn().catch((err: unknown) => {
+            void signIn().then(() => {
+              setState('signed-in');
+            }).catch((err: unknown) => {
               setError(err instanceof Error ? err.message : String(err));
               setState('error');
             });

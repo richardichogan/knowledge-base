@@ -63,9 +63,7 @@ export async function initAuth(): Promise<AccountInfo | null> {
 }
 
 export function signIn(): Promise<void> {
-  if (msal === null) return Promise.resolve();
-  const loginHint = readHint();
-  return msal.loginRedirect({ scopes: API_SCOPES, ...(loginHint !== undefined && { loginHint }) });
+  return reauthenticate();
 }
 
 export function signOut(): Promise<void> {
@@ -73,14 +71,27 @@ export function signOut(): Promise<void> {
   return msal.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
 }
 
-/** Renew in the current tab so Entra never opens a second sign-in window. */
-export async function reauthenticate(): Promise<void> {
+let interactiveInFlight: Promise<void> | null = null;
+
+/** Open one user-initiated popup, leaving Athena and unsaved work mounted. */
+export function reauthenticate(): Promise<void> {
+  if (msal === null) return Promise.resolve();
+  interactiveInFlight ??= authenticateInPopup().finally(() => { interactiveInFlight = null; });
+  return interactiveInFlight;
+}
+
+async function authenticateInPopup(): Promise<void> {
   if (msal === null) return;
   const account = msal.getActiveAccount();
   const loginHint = readHint();
   const request = { scopes: API_SCOPES, ...(loginHint !== undefined && { loginHint }) };
-  if (account === null) await msal.loginRedirect(request);
-  else await msal.acquireTokenRedirect({ ...request, account });
+  const result = account === null
+    ? await msal.loginPopup(request)
+    : await msal.acquireTokenPopup({ ...request, account });
+  if (result.account === null) throw new Error('Microsoft sign-in returned no account. Please try again.');
+  msal.setActiveAccount(result.account);
+  saveHint(result.account.username);
+  authSession.setExpired(false);
 }
 
 /**

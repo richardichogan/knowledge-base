@@ -55,10 +55,19 @@ async function runAuthCallbackChecks(): Promise<string[]> {
   channel.onmessage = () => { received = true; };
   const popup = window.open(`/signin#${response(popupId, 'popup')}`, 'athena-auth-test', 'width=400,height=500');
   check(popup !== null, 'Test popup opened');
+  const originalUrl = window.location.href;
+  const originalRoot = document.getElementById('root');
+  const draft = document.createElement('textarea');
+  draft.value = 'Keep this unsent draft while the sign-in popup completes.';
+  document.body.append(draft);
   try {
     await waitFor(() => received);
     await waitFor(() => popup!.closed);
-  } finally { if (!popup!.closed) popup!.close(); channel.close(); }
+    check(window.location.href === originalUrl && document.getElementById('root') === originalRoot,
+      'Popup callback never navigates or remounts the original page');
+    check(draft.isConnected && draft.value === 'Keep this unsent draft while the sign-in popup completes.',
+      'Unsent work remains mounted throughout popup completion');
+  } finally { if (!popup!.closed) popup!.close(); channel.close(); draft.remove(); }
 
   // Exercise the real MSAL redirect bridge's return-to-origin path.
   const redirectId = crypto.randomUUID();
@@ -90,7 +99,8 @@ async function runAuthCallbackChecks(): Promise<string[]> {
     sessionStorage.removeItem('msal.test-client.urlHash');
   }
   return ['hash and query callbacks', 'OAuth errors relayed', 'real MSAL broadcast bridge', 'no app/sign-in bootstrap in callback',
-    'popup closes after relay', 'full-page redirect returns to /chat and restores its session and unsent draft',
+    'popup closes after relay without navigating or remounting Athena or its unsent work',
+    'full-page redirect returns to /chat and restores its session and unsent draft',
     'malformed callbacks fail without nested sign-in', 'direct /signin remains normal app'];
 }
 Object.assign(window, { runAuthCallbackChecks });

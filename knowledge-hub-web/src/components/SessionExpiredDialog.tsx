@@ -38,7 +38,7 @@ export const SessionExpiredDialog: React.FC<{ authenticate?: () => Promise<void>
       onCancel={(event) => { event.preventDefault(); }}>
       <p className="kh-session-dialog__label">Athena</p>
       <h2 id="kh-session-title">Your sign-in has expired</h2>
-      <p id="kh-session-description">Re-authenticate with Microsoft to continue. You will return to this page after signing in.</p>
+      <p id="kh-session-description">Re-authenticate with Microsoft in a popup to continue. Athena will stay open with your unsaved work intact.</p>
       {error !== '' && <p role="alert" className="kh-session-dialog__error">{error}</p>}
       <button ref={button} type="button" className="kh-session-dialog__button" disabled={busy} onClick={() => { void renew(); }}>
         {busy ? 'Signing in...' : 'Re-authenticate'}

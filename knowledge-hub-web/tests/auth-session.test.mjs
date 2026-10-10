@@ -12,7 +12,7 @@ export class InteractionRequiredAuthError extends Error {}
 export const BrowserCacheLocation = { LocalStorage: 'localStorage' };
 export const CacheLookupPolicy = { AccessTokenAndRefreshToken: 'refresh' };
 export class PublicClientApplication {
-  constructor() { globalThis.authMock = this; this.account = { username: 'test' }; this.redirects = 0; this.calls = 0; }
+  constructor() { globalThis.authMock = this; this.account = { username: 'test' }; this.redirects = 0; this.popups = 0; this.calls = 0; }
   async initialize() {}
   async handleRedirectPromise() { return null; }
   getActiveAccount() { return this.account; }
@@ -26,6 +26,15 @@ export class PublicClientApplication {
   }
   async loginRedirect(request) { this.redirects++; this.lastRedirect = { type: 'login', request }; }
   async acquireTokenRedirect(request) { this.redirects++; this.lastRedirect = { type: 'token', request }; }
+  async popup(type, request) {
+    this.popups++;
+    this.lastPopup = { type, request };
+    if (this.popupFailure) throw new Error(this.popupFailure);
+    this.failure = null;
+    return { account: { username: 'renewed' }, accessToken: 'test-token' };
+  }
+  loginPopup(request) { return this.popup('login', request); }
+  acquireTokenPopup(request) { return this.popup('token', request); }
 }
 `);
 globalThis.window = { location: { origin: 'https://example.test' }, localStorage: { getItem: () => null, setItem: () => {} } };
@@ -49,23 +58,31 @@ assert.equal(mock.redirects, 0, 'silent renewal does not navigate until the user
 assert.equal(authSession.isExpired(), true);
 await assert.rejects(auth.getApiToken(), SessionExpiredError);
 assert.equal(mock.calls, 2, 'expired requests do not repeat renewal');
-await auth.reauthenticate();
+mock.popupFailure = 'Popup cancelled';
+await assert.rejects(auth.reauthenticate(), /Popup cancelled/);
 assert.equal(authSession.isExpired(), true);
-assert.equal(mock.redirects, 1, 'reauthentication uses the current tab, not a second popup');
-assert.equal(mock.lastRedirect.type, 'token', 'signed-in account uses acquireTokenRedirect');
-assert.equal(mock.lastRedirect.request.account.username, 'test');
-await assert.rejects(auth.getApiToken(), SessionExpiredError, 'page awaits redirect return before renewing');
-authSession.setExpired(false); // The full-page redirect returned in a newly loaded app.
+await assert.rejects(auth.getApiToken(), SessionExpiredError, 'cancelled popup cannot clear expired session');
+mock.popupFailure = null;
+await Promise.all([auth.reauthenticate(), auth.reauthenticate(), auth.signIn()]);
+assert.equal(mock.popups, 2, 'concurrent interactive requests share one popup after retry');
+assert.equal(mock.redirects, 0, 'interactive renewal never redirects Athena');
+assert.equal(mock.lastPopup.type, 'token', 'signed-in account uses acquireTokenPopup');
+assert.equal(mock.lastPopup.request.account.username, 'test');
+assert.equal(mock.account.username, 'renewed', 'popup result becomes the active account');
+assert.equal(authSession.isExpired(), false, 'successful popup closes the expiration prompt');
+assert.equal(await auth.getApiToken(), 'test-token', 'API requests resume without reloading');
 mock.failure = 'network';
 await assert.rejects(auth.getApiToken(), /network/);
 assert.equal(authSession.isExpired(), false, 'network errors are not mislabeled as expired auth');
-assert.equal(mock.redirects, 1);
+assert.equal(mock.redirects, 0);
 mock.account = null;
 await assert.rejects(auth.getApiToken(), SessionExpiredError);
-assert.equal(mock.redirects, 1, 'missing account is not sent through a token renewal loop');
-await auth.reauthenticate();
-assert.equal(mock.redirects, 2, 'missing account uses same-tab login redirect');
-assert.equal(mock.lastRedirect.type, 'login');
+assert.equal(mock.popups, 2, 'missing account does not automatically open a popup');
+await auth.signIn();
+assert.equal(mock.popups, 3, 'missing account uses one explicit login popup');
+assert.equal(mock.lastPopup.type, 'login');
+assert.equal(authSession.isExpired(), false);
+assert.equal(mock.redirects, 0, 'initial sign-in never redirects Athena either');
 console.warn = warn;
 assert.equal(warnings, 2, 'renewal failures are logged');
-console.log('Auth regression checks passed: silent renewal, concurrency, explicit same-tab redirect renewal, network errors and missing-account recovery.');
+console.log('Auth regression checks passed: silent renewal, single popup concurrency, cancellation/retry, no redirects, API resumption, network errors and initial popup sign-in.');

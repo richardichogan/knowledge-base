@@ -1,10 +1,19 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Frontend-only redeployment of latest main `93079cd`, retaining same-tab login recovery and standalone chat continuity. Backend v176 unchanged.
+**Deployment:** Frontend-only popup login correction. Silent token renewal first; user-initiated initial sign-in and reauthentication use one popup without navigating Athena. Backend v176 unchanged.
 
 ## 1. Scope
+
+User-directed correction 2026-10-10 at 09:13 BST: restore popup sign-in
+and renewal instead of navigating the whole page. Preserve the early MSAL
+callback bridge so the popup returns its response without bootstrapping
+another sign-in. Set the returned active account, clear session expiration
+only on success, share concurrent interactive requests, and keep drafts/chat
+mounted. Deploy the frontend correction to the existing production SWA.
+No backend, infrastructure, secret, role or environment changes.
+Rollback: frontend application source `93079cd`.
 
 Approved 2026-10-10 at 09:02 BST: redeploy the latest frontend from
 `93079cd` to the existing production Static Web App. Remote main fetched
@@ -162,6 +171,27 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-10 following the 09:13 BST correction request:
+
+- Frontend and backend `npx tsc --noEmit` passed; fixture typecheck passed.
+- `node --test tests/auth-session.test.mjs`: silent renewal, shared popup,
+  cancellation/retry, account restoration, API resumption, initial popup
+  sign-in, no interactive redirects and network-error handling passed.
+- Real MSAL callback browser checks passed at 1440px and 390px: callback
+  broadcast, popup closure, no secondary app/sign-in bootstrap, original
+  page and unsent work remain mounted.
+- Session-expiration UI passed at 1440px and 390px: cancellation/retry,
+  popup explanation, unsaved work retained and no page navigation.
+- Existing chat/navigation checks passed at 1440px, 1024px and 390px,
+  including session/draft continuity and no automatic duplicate sends.
+- `npm run build` and `git diff --check` passed; remote main has no new changes.
+- Frontend ESLint could not run because the repository has no frontend
+  ESLint configuration; no new lint configuration was introduced.
+- Existing SWA and unchanged backend v176 verified with Azure CLI.
+  No IaC, policy, RBAC, Docker or provisioning changes are required.
+- Build log: session artifact `files/popup-login-build.log`.
+- Live credentialed Entra sign-in is not automated by these fixtures.
 
 Deployed 2026-10-10 after the 09:02 BST request:
 
