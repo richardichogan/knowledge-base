@@ -24,14 +24,8 @@ export class PublicClientApplication {
     if (this.failure === 'network') throw new Error('network');
     return { accessToken: 'test-token' };
   }
-  async acquireTokenPopup() {
-    if (this.cancelPopup) throw new Error('cancelled');
-    this.failure = null;
-    return { account: this.account, accessToken: 'renewed-token' };
-  }
-  async loginPopup() { this.account = { username: 'test' }; return this.acquireTokenPopup(); }
-  async loginRedirect() { this.redirects++; }
-  async acquireTokenRedirect() { this.redirects++; }
+  async loginRedirect(request) { this.redirects++; this.lastRedirect = { type: 'login', request }; }
+  async acquireTokenRedirect(request) { this.redirects++; this.lastRedirect = { type: 'token', request }; }
 }
 `);
 globalThis.window = { location: { origin: 'https://example.test' }, localStorage: { getItem: () => null, setItem: () => {} } };
@@ -51,26 +45,27 @@ mock.failure = 'expired';
 const results = await Promise.allSettled([auth.getApiToken(), auth.getApiToken(), auth.getApiToken()]);
 assert.ok(results.every(r => r.status === 'rejected' && r.reason instanceof SessionExpiredError));
 assert.equal(mock.calls, 2, 'parallel requests share one renewal');
-assert.equal(mock.redirects, 0, 'expired auth must not navigate');
+assert.equal(mock.redirects, 0, 'silent renewal does not navigate until the user acts');
 assert.equal(authSession.isExpired(), true);
 await assert.rejects(auth.getApiToken(), SessionExpiredError);
 assert.equal(mock.calls, 2, 'expired requests do not repeat renewal');
-mock.cancelPopup = true;
-await assert.rejects(auth.reauthenticate(), /cancelled/);
-assert.equal(authSession.isExpired(), true);
-mock.cancelPopup = false;
 await auth.reauthenticate();
-assert.equal(authSession.isExpired(), false);
-assert.equal(await auth.getApiToken(), 'test-token');
+assert.equal(authSession.isExpired(), true);
+assert.equal(mock.redirects, 1, 'reauthentication uses the current tab, not a second popup');
+assert.equal(mock.lastRedirect.type, 'token', 'signed-in account uses acquireTokenRedirect');
+assert.equal(mock.lastRedirect.request.account.username, 'test');
+await assert.rejects(auth.getApiToken(), SessionExpiredError, 'page awaits redirect return before renewing');
+authSession.setExpired(false); // The full-page redirect returned in a newly loaded app.
 mock.failure = 'network';
 await assert.rejects(auth.getApiToken(), /network/);
 assert.equal(authSession.isExpired(), false, 'network errors are not mislabeled as expired auth');
-assert.equal(mock.redirects, 0);
+assert.equal(mock.redirects, 1);
 mock.account = null;
 await assert.rejects(auth.getApiToken(), SessionExpiredError);
-assert.equal(mock.redirects, 0, 'missing account must not navigate');
+assert.equal(mock.redirects, 1, 'missing account is not sent through a token renewal loop');
 await auth.reauthenticate();
-assert.equal(authSession.isExpired(), false);
+assert.equal(mock.redirects, 2, 'missing account uses same-tab login redirect');
+assert.equal(mock.lastRedirect.type, 'login');
 console.warn = warn;
 assert.equal(warnings, 2, 'renewal failures are logged');
-console.log('Auth regression checks passed: silent renewal, concurrency, expiration without redirects, blocked requests, popup cancellation/retry, network errors and missing account.');
+console.log('Auth regression checks passed: silent renewal, concurrency, explicit same-tab redirect renewal, network errors and missing-account recovery.');

@@ -2,6 +2,13 @@
 
 ---
 
+## Same-tab Microsoft reauthentication — 2026-10-10
+
+When silent renewal needs user interaction, reauthenticate through MSAL's
+same-tab redirect flow instead of opening a separate popup window. Chat drafts
+remain in session storage across the redirect; the sign-in callback bridge
+completes the return to the original app route.
+
 ## Athena cross-project knowledge — 2026-10-09
 
 Conversation projects focus the answer; they no longer fence off knowledge.

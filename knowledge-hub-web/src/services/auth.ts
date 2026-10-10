@@ -73,20 +73,14 @@ export function signOut(): Promise<void> {
   return msal.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
 }
 
-/** User-initiated popup keeps the current page and unsaved work mounted. */
+/** Renew in the current tab so Entra never opens a second sign-in window. */
 export async function reauthenticate(): Promise<void> {
   if (msal === null) return;
   const account = msal.getActiveAccount();
   const loginHint = readHint();
   const request = { scopes: API_SCOPES, ...(loginHint !== undefined && { loginHint }) };
-  const result = account === null
-    ? await msal.loginPopup(request)
-    : await msal.acquireTokenPopup({ ...request, account });
-  if (result.account !== null) {
-    msal.setActiveAccount(result.account);
-    saveHint(result.account.username);
-  }
-  authSession.setExpired(false);
+  if (account === null) await msal.loginRedirect(request);
+  else await msal.acquireTokenRedirect({ ...request, account });
 }
 
 /**

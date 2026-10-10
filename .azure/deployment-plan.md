@@ -1,10 +1,16 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
 **Deployment:** Current branch `877c4d8`: cross-project Athena, diagram properties, connector font controls and Discover Socials.
 
 ## 1. Scope
+
+Approved 2026-10-10 at 08:44 BST: frontend-only login recovery. Replace the
+reauthentication popup that opened a second sign-in window with same-tab MSAL
+redirect renewal. Preserve sessionStorage chat drafts and the `/signin`
+callback bridge. Backend v176 remains unchanged; no infrastructure, secrets,
+permissions or environment changes. Rollback: prior SWA bundle from `72d5aad`.
 
 Approved 2026-10-09 at 22:33 BST: deploy current branch `877c4d8`
 to existing production targets. Backend v176 and matching full frontend.
@@ -151,6 +157,20 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-10 at 08:50 BST:
+
+- `knowledge-hub-web`: `npx tsc --noEmit`, fixture `npx tsc --noEmit -p tests/tsconfig.json`,
+  and `npm run build` passed.
+- `node tests/auth-session.test.mjs` passed; verifies signed-in renewal uses
+  `acquireTokenRedirect` (same tab), missing-account recovery uses `loginRedirect`,
+  and token renewal does not create a popup or navigate without user action.
+- Isolated Edge browser callback suite passed at 1440px and 390px:
+  MSAL success/error broadcast, redirect callback return/cache, malformed
+  callback recovery, and direct `/signin` route.
+- Existing production SWA and v176 backend targets verified; no backend change.
+- No IaC or role changes; Bicep/what-if/policy checks are not applicable to
+  this frontend-only static asset release. `git diff --check` passed.
 
 Deployed 2026-10-09 at 22:41 BST:
 
