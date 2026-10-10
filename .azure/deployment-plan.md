@@ -1,10 +1,15 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Current branch `877c4d8`: cross-project Athena, diagram properties, connector font controls and Discover Socials.
+**Deployment:** Frontend-only redeployment of latest main `93079cd`, retaining same-tab login recovery and standalone chat continuity. Backend v176 unchanged.
 
 ## 1. Scope
+
+Approved 2026-10-10 at 09:02 BST: redeploy the latest frontend from
+`93079cd` to the existing production Static Web App. Remote main fetched
+and already integrated. No backend, infrastructure, secrets, permissions
+or environment changes.
 
 Approved 2026-10-10 at 08:44 BST: frontend-only login recovery. Replace the
 reauthentication popup that opened a second sign-in window with same-tab MSAL
@@ -157,6 +162,19 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-10 after the 09:02 BST deployment request:
+
+- `git fetch origin` and `git merge origin/main`: source `93079cd` is current.
+- Both packages: `npx tsc --noEmit` passed.
+- Frontend: `node --test tests/auth-session.test.mjs` and `npm run build` passed.
+- Isolated callback browser checks previously passed for this exact source at
+  1440px and 390px, including return to `/chat` with the session and draft intact.
+- Azure CLI authentication and reads verified subscription
+  `Alliance Tenant Reporting`, SWA `kh-prod-web` and unchanged backend v176.
+- Frontend-only asset upload: Docker builds, IaC compilation, what-if, policy
+  and RBAC changes are not applicable. No provisioning is required.
+- Build log: session artifact `files/login-redeploy-build.log`.
 
 Deployed 2026-10-10 at 08:51 BST:
 
