@@ -63,21 +63,34 @@ async function runAuthCallbackChecks(): Promise<string[]> {
   // Exercise the real MSAL redirect bridge's return-to-origin path.
   const redirectId = crypto.randomUUID();
   const redirectPayload = response(redirectId, 'redirect');
+  const chatSessionId = crypto.randomUUID();
+  const chatDraft = 'Keep this unsent Athena chat draft through same-tab sign-in.';
+  const chatDraftKey = `kh-athena-session-id-standalone-draft-${chatSessionId}`;
+  localStorage.setItem('kh-athena-session-id-standalone', chatSessionId);
+  sessionStorage.setItem(chatDraftKey, chatDraft);
   sessionStorage.setItem('msal.interaction.status', JSON.stringify({ clientId: 'test-client', type: 'redirect' }));
-  sessionStorage.setItem('msal.test-client.request.origin', `${location.origin}/tests/auth-redirect.html`);
+  sessionStorage.setItem('msal.test-client.request.origin', `${location.origin}/chat?session=${chatSessionId}`);
   const frame = document.createElement('iframe');
   frame.src = `/signin#${redirectPayload}`;
   document.body.append(frame);
   try {
-    await waitFor(() => frame.contentDocument?.querySelector('#redirect-return') !== null);
+    await waitFor(() => frame.contentWindow?.location.pathname === '/chat'
+      && frame.contentDocument?.querySelector('#ai-chat-input') !== null);
     check(sessionStorage.getItem('msal.test-client.urlHash') === redirectPayload, 'Redirect response cached for normal handleRedirectPromise');
+    check(frame.contentWindow!.location.search === `?session=${chatSessionId}`, 'Redirect returns to the standalone chat route and selected session');
+    check(frame.contentDocument!.querySelector<HTMLTextAreaElement>('#ai-chat-input')?.value === chatDraft,
+      'Standalone chat restores the unsent draft after a full-page auth return');
+    check(localStorage.getItem('kh-athena-session-id-standalone') === chatSessionId, 'Standalone chat keeps the selected conversation');
   } finally {
     frame.remove();
+    localStorage.removeItem('kh-athena-session-id-standalone');
+    sessionStorage.removeItem(chatDraftKey);
     sessionStorage.removeItem('msal.interaction.status');
     sessionStorage.removeItem('msal.test-client.request.origin');
     sessionStorage.removeItem('msal.test-client.urlHash');
   }
   return ['hash and query callbacks', 'OAuth errors relayed', 'real MSAL broadcast bridge', 'no app/sign-in bootstrap in callback',
-    'popup closes after relay', 'full-page redirect return preserved', 'malformed callbacks fail without nested sign-in', 'direct /signin remains normal app'];
+    'popup closes after relay', 'full-page redirect returns to /chat and restores its session and unsent draft',
+    'malformed callbacks fail without nested sign-in', 'direct /signin remains normal app'];
 }
 Object.assign(window, { runAuthCallbackChecks });
