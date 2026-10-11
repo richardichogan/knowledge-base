@@ -1709,26 +1709,19 @@ async function resolveNoteProject(db: Pool, requested: string | null, title: str
  * note sits in a live project, treats the article as directly relevant to it — restoring it from Shelved.
  */
 async function linkNoteToDiscoveredArticles(db: Pool, noteId: string, projectId: string, content: string): Promise<number> {
-  const urls = [...new Set((content.match(/https?:\/\/[^\s)<>"\]]+/g) ?? []).map((u) => u.replace(/[.,;:]+$/, '')))].slice(0, 10);
+  const urls = content.match(/https?:\/\/[^\s)<>"\]]+/g) ?? [];
   if (urls.length === 0) return 0;
   const { rows: projectRows } = await db.query<{ name: string; importance: string | null }>(`SELECT name, importance FROM projects WHERE id = $1`, [projectId]);
   const project = projectRows[0];
-  const { PROJECT_BOOST } = await import('../integrations/discovery/projectFit.js');
-  const boost = project === undefined ? 0 : project.importance === 'high' ? PROJECT_BOOST.highDirect : PROJECT_BOOST.normalDirect;
-  const fit = project === undefined ? null : JSON.stringify([{ projectId, name: project.name, fit: 2, why: 'You wrote a Think note from it' }]);
-  const result = await db.query(
-    `UPDATE content_items
-        SET metadata = metadata
-              || jsonb_build_object('linkedNoteIds', COALESCE(metadata->'linkedNoteIds', '[]'::jsonb) || to_jsonb($2::text))
-              || (CASE WHEN $4::numeric > COALESCE((metadata->>'projectBoost')::numeric, 0)
-                       THEN jsonb_build_object('projectBoost', $4::numeric, 'projectFit', $3::jsonb) ELSE '{}'::jsonb END)
-              || (CASE WHEN workflow_state = 'shelved' THEN jsonb_build_object('restoredAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'restoredReason', 'note') ELSE '{}'::jsonb END),
-            workflow_state = CASE WHEN workflow_state = 'shelved' THEN 'to-review' ELSE workflow_state END
-      WHERE source = 'discovered-article' AND rtrim(url, '/') = ANY($1::text[])
-        AND NOT COALESCE(metadata->'linkedNoteIds', '[]'::jsonb) ? $2`,
-    [urls.map((u) => u.replace(/\/+$/, '')), noteId, fit ?? '[]', boost],
-  );
-  return result.rowCount ?? 0;
+  const { PROJECT_BOOST, PROJECT_PROTECT_BOOST, markUserInterest } = await import('../integrations/discovery/projectFit.js');
+  const high = project?.importance === 'high' || project?.importance === 'critical';
+  return markUserInterest(db, urls, {
+    reason: 'note',
+    noteId,
+    // A note written from an article always keeps it out of the auto-shelf.
+    boost: Math.max(PROJECT_PROTECT_BOOST, high ? PROJECT_BOOST.highDirect : PROJECT_BOOST.normalDirect),
+    fit: project === undefined ? null : { projectId, name: project.name, fit: 2, why: 'You wrote a Think note from it' },
+  });
 }
 
 // ── fetch_web_page ──────────────────────────────────────────────────────────

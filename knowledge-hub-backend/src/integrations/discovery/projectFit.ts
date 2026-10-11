@@ -193,8 +193,17 @@ export async function runProjectFitPass(db: Pool): Promise<number> {
   return assessed;
 }
 
-/** Stores the assessment and restores an automatically shelved article that matters to a focus project. */
+/**
+ * Stores the assessment and restores an automatically shelved article that matters to a focus project.
+ * Signals from the user (a note written from it, a link shared to Athena) are kept: their boost is a floor
+ * and their fit entries stay first.
+ */
 export async function saveProjectFit(db: Pool, articleId: string, fits: ProjectFit[], boost: number, key: string): Promise<void> {
+  const { rows } = await db.query<{ user_fit: ProjectFit[] | null; user_boost: string | null }>(
+    `SELECT metadata->'userFit' AS user_fit, metadata->>'userBoost' AS user_boost FROM content_items WHERE id = $1`, [articleId]);
+  const userFit = Array.isArray(rows[0]?.user_fit) ? rows[0].user_fit : [];
+  const merged = [...userFit, ...fits.filter((f) => !userFit.some((u) => u.projectId === f.projectId))];
+  const finalBoost = Math.max(boost, Number(rows[0]?.user_boost ?? 0) || 0);
   await db.query(
     `UPDATE content_items
         SET metadata = metadata || jsonb_build_object('projectFit', $2::jsonb, 'projectBoost', $3::numeric, 'projectFitKey', $4::text)
@@ -204,6 +213,67 @@ export async function saveProjectFit(db: Pool, articleId: string, fits: ProjectF
             workflow_state = CASE WHEN $3::numeric >= $5::numeric AND workflow_state = 'shelved' AND metadata->>'shelvedReason' IN ('stale', 'low')
                                   THEN 'to-review' ELSE workflow_state END
       WHERE id = $1`,
-    [articleId, JSON.stringify(fits), boost, key, PROJECT_PROTECT_BOOST],
+    [articleId, JSON.stringify(merged), finalBoost, key, PROJECT_PROTECT_BOOST],
   );
+}
+
+/** URL form used to match a shared or cited link to a Discover article: no query, fragment or trailing slash. */
+export function normaliseArticleUrl(url: string): string {
+  return url.trim().replace(/[.,;:]+$/, '').replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+}
+
+export const ARTICLE_URL_MATCH_SQL = `lower(rtrim(regexp_replace(url, '[?#].*$', ''), '/'))`;
+
+export interface UserInterest {
+  reason: 'note' | 'share';
+  boost: number;
+  fit?: ProjectFit | null;
+  noteId?: string;
+}
+
+/**
+ * Records that the user cared about these Discover articles (wrote a note from one, or shared it to Athena):
+ * raises its boost (so it ranks higher and is never auto-shelved), keeps the project fit, and brings it back
+ * from Shelved whatever the reason. Returns how many articles were updated.
+ */
+export async function markUserInterest(db: Pool, urls: string[], interest: UserInterest): Promise<number> {
+  const keys = [...new Set(urls.map(normaliseArticleUrl).filter((u) => /^https?:\/\//.test(u)))].slice(0, 10);
+  if (keys.length === 0) return 0;
+  const fit = interest.fit === undefined || interest.fit === null ? null : JSON.stringify([interest.fit]);
+  const result = await db.query(
+    `UPDATE content_items
+        SET metadata = metadata
+              || jsonb_build_object(
+                   'userBoost', GREATEST($2::numeric, COALESCE((metadata->>'userBoost')::numeric, 0)),
+                   'projectBoost', GREATEST($2::numeric, COALESCE((metadata->>'projectBoost')::numeric, 0)),
+                   $3::text, to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+              || (CASE WHEN $4::jsonb IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
+                   'userFit', $4::jsonb,
+                   'projectFit', $4::jsonb || COALESCE((SELECT jsonb_agg(f) FROM jsonb_array_elements(
+                       CASE WHEN jsonb_typeof(metadata->'projectFit') = 'array' THEN metadata->'projectFit' ELSE '[]'::jsonb END) f
+                     WHERE f->>'projectId' <> $4::jsonb->0->>'projectId'), '[]'::jsonb)) END)
+              || (CASE WHEN $5::text IS NULL OR COALESCE(metadata->'linkedNoteIds', '[]'::jsonb) ? $5::text THEN '{}'::jsonb
+                       ELSE jsonb_build_object('linkedNoteIds', COALESCE(metadata->'linkedNoteIds', '[]'::jsonb) || to_jsonb($5::text)) END)
+              || (CASE WHEN workflow_state = 'shelved'
+                       THEN jsonb_build_object('restoredAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'restoredReason', $6::text)
+                       ELSE '{}'::jsonb END),
+            workflow_state = CASE WHEN workflow_state = 'shelved' THEN 'to-review' ELSE workflow_state END
+      WHERE source = 'discovered-article' AND ${ARTICLE_URL_MATCH_SQL} = ANY($1::text[])`,
+    [keys, interest.boost, interest.reason === 'note' ? 'notedAt' : 'sharedAt', fit, interest.noteId ?? null, interest.reason],
+  );
+  return result.rowCount ?? 0;
+}
+
+/** Links in a message shared to Athena from the phone or browser ("[Shared link]" or the older "[Shared from Android]"). */
+export function sharedLinkUrls(message: string): string[] {
+  if (!/^\s*\[Shared (link|from [^\]]+)\]/.test(message)) return [];
+  const header = message.split(/\n\s*\n/)[0] ?? '';
+  return header.match(/https?:\/\/[^\s)<>"\]]+/g) ?? [];
+}
+
+/** A link he shared is a strong "this matters" signal: restore and protect the matching Discover article. */
+export async function markSharedLink(db: Pool, message: string): Promise<number> {
+  const urls = sharedLinkUrls(message);
+  if (urls.length === 0) return 0;
+  return markUserInterest(db, urls, { reason: 'share', boost: PROJECT_PROTECT_BOOST });
 }

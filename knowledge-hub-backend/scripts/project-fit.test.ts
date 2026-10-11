@@ -6,7 +6,7 @@ import type { FocusProject } from '../src/integrations/discovery/projectFit.js';
 
 process.env['DATABASE_URL'] ??= 'postgresql://isolated.invalid/offline';
 const {
-  PROJECT_BOOST, buildProjectFitPrompt, focusProjectsKey, loadFocusProjects, parseProjectFitResponse, projectBoost, saveProjectFit,
+  PROJECT_BOOST, PROJECT_PROTECT_BOOST, buildProjectFitPrompt, markSharedLink, markUserInterest, sharedLinkUrls, focusProjectsKey, loadFocusProjects, parseProjectFitResponse, projectBoost, saveProjectFit,
 } = await import('../src/integrations/discovery/projectFit.js');
 const { shelveStaleArticles } = await import('../src/integrations/discovery/feedSync.js');
 
@@ -73,6 +73,49 @@ test('focus projects, restore from shelved, and shelving protection', async () =
     await shelveStaleArticles(db);
     const states = Object.fromEntries((await pg.query<{ id: string; workflow_state: string }>(`SELECT id, workflow_state FROM content_items WHERE source = 'discovered-article'`)).rows.map((r) => [r.id, r.workflow_state]));
     assert.deepEqual(states, { a1: 'to-review', a2: 'shelved', a3: 'to-review' });
+  } finally {
+    await pg.close();
+  }
+});
+
+test('shared links are read from both share formats', () => {
+  assert.deepEqual(sharedLinkUrls('[Shared link]\nTitle: T\nURL: https://x.test/a?utm=1\n\nThe user has shared https://ignored.test'), ['https://x.test/a?utm=1']);
+  assert.deepEqual(sharedLinkUrls('[Shared from Android]\nTitle: T\nDescription: https://x.test/b/\n\nThe user has shared a link'), ['https://x.test/b/']);
+  assert.deepEqual(sharedLinkUrls('please read https://x.test/c'), []);
+});
+
+test('sharing or noting an article restores it and the fit pass keeps that signal', async () => {
+  const pg = new PGlite();
+  try {
+    await pg.exec(`
+      CREATE TABLE content_items (id text, source text, title text, url text, workflow_state text, metadata jsonb DEFAULT '{}'::jsonb);
+      INSERT INTO content_items VALUES
+        ('s1', 'discovered-article', 'Agent-first', 'https://Azure.test/blog/agent-first/', 'shelved', '{"shelvedReason":"stale"}'),
+        ('s2', 'discovered-article', 'Manual shelf', 'https://x.test/manual', 'shelved', '{"shelvedReason":"manual"}'),
+        ('s3', 'discovered-article', 'Other', 'https://x.test/other', 'shelved', '{"shelvedReason":"stale"}');
+    `);
+    const db = { query: async (sql: string, params?: unknown[]) => pg.query(sql, params) } as unknown as Pool;
+    const row = async (id: string) => (await pg.query<{ workflow_state: string; metadata: Record<string, unknown> }>(`SELECT workflow_state, metadata FROM content_items WHERE id = $1`, [id])).rows[0]!;
+
+    assert.equal(await markSharedLink(db, '[Shared from Android]\nTitle: Agent-first\nDescription: https://azure.test/blog/agent-first/?wt.mc_id=x\n\nThe user has shared a link.'), 1);
+    let s1 = await row('s1');
+    assert.equal(s1.workflow_state, 'to-review');
+    assert.equal(s1.metadata['restoredReason'], 'share');
+    assert.equal(Number(s1.metadata['projectBoost']), PROJECT_PROTECT_BOOST);
+
+    await saveProjectFit(db, 's1', [], 0, 'k');
+    s1 = await row('s1');
+    assert.equal(Number(s1.metadata['projectBoost']), PROJECT_PROTECT_BOOST, 'fit pass must not wipe the share boost');
+
+    assert.equal(await markUserInterest(db, ['https://x.test/manual'], {
+      reason: 'note', noteId: 'n9', boost: PROJECT_BOOST.highDirect, fit: { projectId: 'imagine', name: 'IMAGINE', fit: 2, why: 'note' },
+    }), 1);
+    await saveProjectFit(db, 's2', [{ projectId: 'imagine', name: 'IMAGINE', fit: 1, why: 'llm' }, { projectId: 'reckitt', name: 'Reckitt', fit: 1, why: 'llm' }], 0.08, 'k');
+    const s2 = await row('s2');
+    assert.equal(s2.workflow_state, 'to-review');
+    assert.deepEqual(s2.metadata['linkedNoteIds'], ['n9']);
+    assert.deepEqual((s2.metadata['projectFit'] as { projectId: string; why: string }[]).map((f) => [f.projectId, f.why]), [['imagine', 'note'], ['reckitt', 'llm']]);
+    assert.equal((await row('s3')).workflow_state, 'shelved');
   } finally {
     await pg.close();
   }

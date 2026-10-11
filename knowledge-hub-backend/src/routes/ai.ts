@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { markSharedLink } from '../integrations/discovery/projectFit.js';
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
@@ -145,6 +146,9 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       effectiveModel = 'reasoning';
     }
   }
+
+  // A link shared from the phone or browser brings its Discover article back and keeps it from being shelved.
+  void markSharedLink(db, message).catch((err: unknown) => { console.warn('[AI] shared link Discover mark failed:', err); });
 
   // Screenshots his message is about go to the model as pictures (layout and visual design), unless a screen review just looked at them.
   if (screenReview === undefined) {
