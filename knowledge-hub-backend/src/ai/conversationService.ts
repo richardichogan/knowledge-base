@@ -14,7 +14,7 @@ import type { LlmMessage, LlmToolChoice } from './foundryClient.js';
 import type { ToolImages } from './chatTools.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
-import { AI_MAX_TOOL_ITERATIONS, SHOW_NOTES_MAX_TOOL_ITERATIONS, AI_CHAT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
+import { AI_MAX_TOOL_ITERATIONS, AI_WRAP_UP_ROUND_MIN_MS, SHOW_NOTES_MAX_TOOL_ITERATIONS, AI_CHAT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId } from './chatSessionStore.js';
@@ -236,7 +236,7 @@ export async function handleConversationTurn(
   );
   // Asked to change the open note: she may need to write a lot (a full redraft, a long spec), so the
   // output budget is raised well above the chat default — otherwise a long edit is cut off mid-call.
-  const editsOpenNote = requiredFirstTool !== undefined && requiredFirstTool !== 'auto'
+  const editsOpenNote = requiredFirstTool !== undefined && typeof requiredFirstTool === 'object'
     && requiredFirstTool.function.name === 'propose_note_edit';
   const maxTokens = editsOpenNote
     ? NOTE_EDIT_MAX_TOKENS
@@ -260,12 +260,20 @@ export async function handleConversationTurn(
     if (isStopped(hooks)) throw new AiStoppedError();
     hooks.onActivity?.(i === 0 ? 'Thinking' : 'Reading what I found');
     const remainingBudgetMs = turnBudgetMs - (Date.now() - turnStart);
-    if (i > 0 && remainingBudgetMs < AI_MIN_TOOL_ROUND_BUDGET_MS) {
+    const budgetLow = i > 0 && remainingBudgetMs < AI_MIN_TOOL_ROUND_BUDGET_MS;
+    if (budgetLow && remainingBudgetMs < AI_WRAP_UP_ROUND_MIN_MS) {
       console.warn(`[ai] Stopping tool loop after ${i} round(s) — turn budget exhausted`);
       return "This is taking longer than expected — could you try again, or ask a more specific question?";
     }
+    // Out of rounds or time after tools have already run (and may have changed things): one last round with
+    // tools off, so she reports what she actually did rather than a canned "couldn't finish".
+    const wrapUp = i > 0 && (budgetLow || i === maxRounds - 1);
+    if (wrapUp) {
+      console.warn(`[ai] Wrapping up tool loop after ${i} round(s)${budgetLow ? ' — turn budget low' : ' — round limit'}`);
+      messages.push({ role: 'user', content: WRAP_UP_INSTRUCTION });
+    }
 
-    const roundToolChoice = nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
+    const roundToolChoice: LlmToolChoice = wrapUp ? 'none' : nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
     nextRoundTool = undefined;
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
     // Streams when someone is following live, or when a specific deployment is chosen (only the streaming call takes one).
@@ -278,6 +286,9 @@ export async function handleConversationTurn(
       })
       : await client.chatWithTools(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs);
 
+    if (wrapUp && response.toolCalls.length > 0) {
+      return "I ran out of steps before I could finish. Some of it may already be done — ask me to check what's in place and carry on from there.";
+    }
     if (response.toolCalls.length === 0) {
       // Asked to edit the open note but nothing was proposed: she wrote the content into the reply, or her
       // edit call failed and she carried on as if it hadn't. One retry with the edit forced; if that fails
@@ -360,8 +371,10 @@ export async function handleConversationTurn(
     }
   }
 
-  return "I wasn't able to finish that after a few tool calls — could you rephrase or simplify the request?";
+  return "I ran out of steps before I could finish. Some of it may already be done — ask me to check what's in place and carry on from there.";
 }
+
+const WRAP_UP_INSTRUCTION = '[System: no more tool calls are available this turn.] Reply now. Say plainly what you actually completed (based only on the tool results above — successes and failures), and what is still left to do, if anything. Do not claim anything the tool results do not show, and do not apologise for running out of steps.';
 
 /**
  * Generates a short on-demand summary of a note's content, shown as a

@@ -147,6 +147,8 @@ export const AI_REASONING_MODEL_REQUEST_TIMEOUT_MS = 100_000;
 export const AI_CONVERSATION_TURN_BUDGET_MS = 110_000;
 /** Minimum time left in the turn budget to justify starting another tool round instead of giving up early. */
 export const AI_MIN_TOOL_ROUND_BUDGET_MS = 20_000;
+/** Least time worth spending on a final tools-off round that reports what a turn's tools already did. */
+export const AI_WRAP_UP_ROUND_MIN_MS = 8_000;
 
 /**
  * Background turns (POST /api/ai/chat/turns) aren't bound by the browser's
@@ -207,10 +209,10 @@ export const AI_CHAT_MAX_TOKENS = 6_000;
  */
 export const AI_REASONING_MODEL_MAX_TOKENS = 8_000;
 /** Max round-trips of tool calls per chat turn before giving up (prevents infinite loops). */
-export const AI_MAX_TOOL_ITERATIONS = 6;
+export const AI_MAX_TOOL_ITERATIONS = 10;
 
 /** The Show Notes persona makes one round of link checks and three batches of saves, so it needs more rounds. */
-export const SHOW_NOTES_MAX_TOOL_ITERATIONS = 9;
+export const SHOW_NOTES_MAX_TOOL_ITERATIONS = 12;
 /** Max search_knowledge_base results the AI chat tool can request in one call. */
 export const AI_TOOL_SEARCH_MAX_LIMIT = 20;
 /** Default search_knowledge_base result count when the AI doesn't specify one. */

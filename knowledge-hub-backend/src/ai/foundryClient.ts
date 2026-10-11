@@ -30,6 +30,7 @@ export interface LlmToolDefinition {
 /** Tool-selection mode accepted by Azure OpenAI chat completions. */
 export type LlmToolChoice =
   | 'auto'
+  | 'none'
   | { type: 'function'; function: { name: string } };
 
 /**
@@ -570,7 +571,7 @@ function responsesBody(
     store: false,
     ...(allTools.length > 0 && {
       tools: allTools,
-      tool_choice: toolChoice === 'auto' || functionTools.length === 0 ? 'auto' : { type: 'function', name: toolChoice.function.name },
+      tool_choice: toolChoice === 'auto' || toolChoice === 'none' || functionTools.length === 0 ? toolChoice === 'none' ? 'none' : 'auto' : { type: 'function', name: toolChoice.function.name },
     }),
   };
 }
