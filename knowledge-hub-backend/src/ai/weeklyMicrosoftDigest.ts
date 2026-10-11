@@ -2,7 +2,8 @@
  * ai/weeklyMicrosoftDigest.ts — the Monday-morning Microsoft round-up.
  *
  * Collates every Microsoft and GitHub update Discover picked up in the last
- * 7 days (shelved ones included, so nothing is missed) into:
+ * 7 days (shelved ones included, so nothing is missed), plus the tenant's
+ * Microsoft 365 Message Center posts (from the blog mailbox), into:
  *   - a full CMS blog package for The Microsoft Cloud Blog (title, slug, image, content, excerpt, TL;DR,
  *     takeaways, categories, tags, LinkedIn and X posts), saved as a Think note (contentType "blog"), and
  *   - a Slack-ready summary, posted to SLACK_WEBHOOK_URL when it is set.
@@ -27,6 +28,9 @@ const DIGEST_PROJECT_ID = 'microsoft-cloud-blog';
 export const DIGEST_SOURCE_GROUPS = ['Microsoft', 'GitHub'] as const;
 const LOOKBACK_DAYS = 7;
 const MAX_ARTICLES = 80;
+/** Message Center posts get their own allowance so a busy week of feed articles can't crowd them out. */
+const MAX_MESSAGE_CENTER = 40;
+const MESSAGE_CENTER_SOURCE_ID = 'message-center';
 const SUMMARY_CHARS = 320;
 const BLOG_MAX_TOKENS = 5_000;
 const SLACK_MAX_TOKENS = 1_200;
@@ -94,14 +98,18 @@ export async function weeklyDigestDue(db: Pool, now = new Date()): Promise<boole
   return digestDueAt(state?.week ?? null, now);
 }
 
-/** Every Microsoft/GitHub Discover article from the last week, best first. Shelved ones are included. */
+/**
+ * Every Microsoft/GitHub Discover article from the last week, best first, then the week's Message
+ * Center posts (which have their own allowance). Shelved ones are included.
+ */
 export async function gatherDigestArticles(db: Pool, now = new Date()): Promise<DigestArticle[]> {
   const since = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
-  const { rows } = await db.query<{
+  const select = (messageCenter: boolean, limit: number) => db.query<{
     id: string; title: string; url: string | null; summary: string | null; source: string | null; grp: string;
     published_at: Date | string; score: string | null; shelved: boolean;
   }>(
-    `SELECT id::text, title, url, summary,
+    `SELECT id::text, title, url,
+            COALESCE(NULLIF(left(btrim(body), $5::int), ''), summary) AS summary,
             metadata->>'sourceTitle' AS source, metadata->>'sourceGroup' AS grp,
             COALESCE(published_at, indexed_at) AS published_at,
             metadata->>'compositeScore' AS score,
@@ -109,13 +117,15 @@ export async function gatherDigestArticles(db: Pool, now = new Date()): Promise<
        FROM content_items
       WHERE source = 'discovered-article'
         AND metadata->>'sourceGroup' = ANY($1::text[])
+        AND (COALESCE(metadata->>'sourceId', '') = $6) = $7
         AND COALESCE(published_at, indexed_at) >= $2
         AND COALESCE(published_at, indexed_at) <= $3
       ORDER BY (metadata->>'compositeScore')::numeric DESC NULLS LAST, COALESCE(published_at, indexed_at) DESC
       LIMIT $4`,
-    [[...DIGEST_SOURCE_GROUPS], since, now, MAX_ARTICLES],
+    [[...DIGEST_SOURCE_GROUPS], since, now, limit, SUMMARY_CHARS * 2, MESSAGE_CENTER_SOURCE_ID, messageCenter],
   );
-  return rows.map((r) => {
+  const [feeds, messageCenter] = await Promise.all([select(false, MAX_ARTICLES), select(true, MAX_MESSAGE_CENTER)]);
+  return [...feeds.rows, ...messageCenter.rows].map((r) => {
     const score = r.score === null ? NaN : Number(r.score);
     return {
       id: r.id,
@@ -182,6 +192,12 @@ export const BLOG_PROMPT = [
     'matters for architects and IT leaders where that is clear. Fold minor items into one short paragraph rather than ' +
     'dropping them. Include a "### The one to watch" section near the end. The source reference that ends the body ' +
     'is a horizontal rule, then "*Sources: [title](url), [title](url), ...*" listing every article linked above.',
+  '- Microsoft 365 Message Center posts (their source is "Microsoft 365 Message Center", titles end with the MC id) ' +
+    'are announcements of upcoming tenant changes, retirements, and required actions. If there are any, add a ' +
+    '"### Message Center: changes to plan for" section before "The one to watch": the ones that matter most to admins ' +
+    'and architects, each with what changes, when (only dates given in the input), and any action required, citing ' +
+    'the MC id. Fold routine ones into a single sentence. Their links open the Microsoft 365 admin centre, so name ' +
+    'the MC id in the text as well as linking it.',
   '- Twitter/X post: use the URL of the "one to watch" article. LinkedIn post: no URLs.',
   '- Never invent announcements, dates, figures, or URLs; use only what is in the input.',
 ].join('\n');
@@ -191,8 +207,9 @@ const SLACK_PROMPT = [
   VOICE_RULES,
   'Slack mrkdwn only: *bold* for headings, links as <url|short title>, "•" bullets are fine here.',
   'Structure: a one line opener (with a light Richard twist), then 3 to 6 short headed groups by area, each with ' +
-    'the most relevant updates as one line bullets (what changed, linked). Finish with "*Worth a look:*" and the one ' +
-    'update people should read first.',
+    'the most relevant updates as one line bullets (what changed, linked). If there are Microsoft 365 Message Center ' +
+    'posts, add a "*Message Center: plan for*" group with the retirements, deadlines, and required actions (with the ' +
+    'MC id and any date given). Finish with "*Worth a look:*" and the one update people should read first.',
   'Keep it under 350 words. No greeting, no sign off.',
 ].join('\n');
 

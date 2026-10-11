@@ -9,8 +9,9 @@
  * Requires Mail.Read scope. For the podcast shared mailbox the token account
  * must have FullAccess or at minimum read permissions on that mailbox.
  *
- * Fetches the last 7 days of inbox messages, runs AI importance filtering,
- * and upserts important ones as source='email' content items.
+ * Fetches the last 30 days of inbox messages, runs AI importance filtering,
+ * and upserts important ones as source='email' content items. Microsoft 365
+ * Message Center emails skip the filter and go to Discover, one article per MC post.
  */
 
 import type { Pool } from 'pg';
@@ -18,6 +19,7 @@ import { getGraphClient } from './graphClient.js';
 import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import { filterImportantEmails } from '../email/emailImportanceFilter.js';
 import type { ContentItem } from '../../types/contentItem.js';
+import { emailHtmlToText, isMessageCenterSender, parseMessageCenterEmail, upsertMessageCenterPosts } from './messageCenterMail.js';
 
 const SYNC_SOURCE = 'email';
 const SYNC_STATE_KEY = 'graph-mail';
@@ -90,19 +92,35 @@ export async function syncGraphMail(
         messages.push(...page);
       }
 
-      if (messages.length === 0) continue;
+      // Message Center posts go to Discover (scored there, and into the Monday Microsoft digest).
+      const messageCenter = messages.filter((m) => isMessageCenterSender(m.from?.emailAddress?.address));
+      let mcPosts = 0;
+      for (const msg of messageCenter) {
+        try {
+          const text = msg.body.contentType === 'html' ? emailHtmlToText(msg.body.content) : msg.body.content;
+          mcPosts += await upsertMessageCenterPosts(db, parseMessageCenterEmail(text, msg.subject ?? ''), msg.receivedDateTime);
+        } catch (err) {
+          errors++;
+          console.error(`[GraphMail] Message Center email ${msg.id} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (messageCenter.length > 0) {
+        console.warn(`[GraphMail] ${mailbox.accountLabel}: ${String(messageCenter.length)} Message Center email(s), ${String(mcPosts)} new Discover item(s)`);
+      }
+      const mail = messages.filter((m) => !messageCenter.includes(m));
+      if (mail.length === 0) continue;
 
       const importanceMask = await filterImportantEmails(
-        messages.map(m => ({
+        mail.map(m => ({
           subject: m.subject ?? '(no subject)',
           from: `${m.from.emailAddress.name} <${m.from.emailAddress.address}>`,
           date: m.receivedDateTime,
         })),
       );
 
-      const important = messages.filter((_, idx) => importanceMask[idx] === true);
+      const important = mail.filter((_, idx) => importanceMask[idx] === true);
       console.warn(
-        `[GraphMail] ${mailbox.accountLabel}: ${String(important.length)}/${String(messages.length)} messages passed importance filter`,
+        `[GraphMail] ${mailbox.accountLabel}: ${String(important.length)}/${String(mail.length)} messages passed importance filter`,
       );
 
       for (const msg of important) {

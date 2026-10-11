@@ -175,7 +175,9 @@ interface ArticleRow { id: string; title: string; url: string | null; body: stri
 /** Reads one article in full and stores its assessment on the article. */
 export async function runDeepDive(db: Pool, article: ArticleRow, ctx?: { schedule: string; own: string; episodes: string }): Promise<DeepDive> {
   const context = ctx ?? { schedule: describeSchedule(await getSchedule(db)), ...(await ownContext(db)) };
-  const { text, source } = await readArticleText(article.url, article.title, article.body ?? '');
+  // Message Center links open the admin centre sign-in page; the email already holds the full description.
+  const pageUrl = article.metadata['sourceId'] === 'message-center' ? null : article.url;
+  const { text, source } = await readArticleText(pageUrl, article.title, article.body ?? '');
   const published = article.published_at.toISOString().slice(0, 10);
   const limited = source === 'summary'
     ? '\n\nNOTE: only the short feed summary is available — the site would not give up the full article. Judge significance from the title and summary alone, do not invent any detail beyond them, say plainly in "risks" that the full text could not be read, and do not give a worth above 60.'

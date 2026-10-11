@@ -25,7 +25,7 @@ test('due only on Monday 08:00–18:00 UK, once per week', () => {
 test('gathers every Microsoft/GitHub article from the last week, shelved included, best first', async () => {
   const pg = new PGlite();
   await pg.exec(`CREATE TABLE content_items (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), source text, title text, url text,
-    summary text, metadata jsonb, published_at timestamptz, indexed_at timestamptz DEFAULT now())`);
+    summary text, body text, metadata jsonb, published_at timestamptz, indexed_at timestamptz DEFAULT now())`);
   const now = new Date('2025-06-09T07:30:00Z');
   const rows: [string, string, string, number, string, boolean][] = [
     ['Azure thing', 'Microsoft', 'Microsoft Azure Blog', 0.6, '2025-06-05', false],
@@ -39,14 +39,19 @@ test('gathers every Microsoft/GitHub article from the last week, shelved include
       [title, `https://x.test/${title.replace(/ /g, '-')}`, `${title} summary`,
         JSON.stringify({ sourceGroup: group, sourceTitle, compositeScore: score, ...(shelved ? { shelvedAt: date } : {}) }), date]);
   }
+  await pg.query(`INSERT INTO content_items (source, title, url, summary, body, metadata, published_at) VALUES ('discovered-article', $1, $2, $3, $4, $5, $6)`,
+    ['Outlook: Themes retirement (MC1492954)', 'https://admin.microsoft.com/mc/MC1492954', 'via Microsoft 365 Message Center',
+      'What and why\nWe are retiring Themes.', JSON.stringify({ sourceGroup: 'Microsoft', sourceTitle: 'Microsoft 365 Message Center', sourceId: 'message-center' }), '2025-06-07']);
   const db = { query: (sql: string, params?: unknown[]) => pg.query(sql, params) } as unknown as Pool;
   const articles = await gatherDigestArticles(db, now);
-  assert.deepEqual(articles.map((a) => a.title), ['Copilot thing', 'GitHub thing', 'Azure thing']);
+  assert.deepEqual(articles.map((a) => a.title), ['Copilot thing', 'GitHub thing', 'Azure thing', 'Outlook: Themes retirement (MC1492954)']);
+  assert.match(articles[3]?.summary ?? '', /^What and why\nWe are retiring Themes\.$/);
   assert.equal(articles[0]?.shelved, true);
   assert.equal(articles[0]?.source, 'Microsoft 365 Blog');
 
   const facts = formatDigestFacts(articles);
-  assert.match(facts, /^3 Microsoft and GitHub updates/);
+  assert.match(facts, /^4 Microsoft and GitHub updates/);
+  assert.match(facts, /## Microsoft 365 Message Center \(1\)\n- 2025-06-07 Outlook: Themes retirement \(MC1492954\)/);
   assert.match(facts, /## Microsoft 365 Blog \(1\)/);
   assert.match(facts, /2025-06-06 Copilot thing \[score 0\.9\] — https:\/\/x\.test\/Copilot-thing\n {2}Copilot thing summary/);
   await pg.close();
