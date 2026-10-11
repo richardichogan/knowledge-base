@@ -1,9 +1,9 @@
 /**
  * ai/weeklyMicrosoftDigest.ts — the Monday-morning Microsoft round-up.
  *
- * Collates every Microsoft and GitHub update Discover picked up in the last
- * 7 days (shelved ones included, so nothing is missed), plus the tenant's
- * Microsoft 365 Message Center posts (from the blog mailbox), into:
+ * Collates every Microsoft and GitHub update from the last full week (Monday to Sunday, UK time):
+ * what Discover picked up (shelved ones included, so nothing is missed), the tenant's Microsoft 365
+ * Message Center posts (from the blog mailbox), and a web search for anything the feeds missed, into:
  *   - a full CMS blog package for The Microsoft Cloud Blog (title, slug, image, content, excerpt, TL;DR,
  *     takeaways, categories, tags, LinkedIn and X posts), saved as a Think note (contentType "blog"), and
  *   - a Slack-ready summary, posted to SLACK_WEBHOOK_URL when it is set.
@@ -20,13 +20,14 @@ import { workToday, WORK_TIMEZONE } from '../integrations/ibm/ibmMeetings.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
 import { createNoteRecord, scheduleNoteIndexing } from '../routes/notes.js';
 import { BLOG_PACKAGE_RULES } from './blogHouseStyle.js';
+import { searchDigestWeek, type DigestWindow, type WebSearchHit } from './digestWebSearch.js';
 
 const STATE_KEY = 'weekly-microsoft-digest';
 export const DIGEST_HOUR = 8;
 export const DIGEST_LATEST_HOUR = 18;
 const DIGEST_PROJECT_ID = 'microsoft-cloud-blog';
 export const DIGEST_SOURCE_GROUPS = ['Microsoft', 'GitHub'] as const;
-const LOOKBACK_DAYS = 7;
+export const WEB_SEARCH_SOURCE = 'Web search';
 const MAX_ARTICLES = 80;
 /** Message Center posts get their own allowance so a busy week of feed articles can't crowd them out. */
 const MAX_MESSAGE_CENTER = 40;
@@ -85,6 +86,55 @@ export function digestDueAt(lastWeek: string | null, now = new Date()): boolean 
   return lastWeek !== digestWeekKey(now);
 }
 
+/** UTC instant of 00:00 UK time on a YYYY-MM-DD date. */
+export function ukMidnight(day: string): Date {
+  const guess = Date.parse(`${day}T00:00:00Z`);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: WORK_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(guess));
+  const get = (t: string): number => Number(parts.find((p) => p.type === t)?.value ?? '0');
+  const wall = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'));
+  return new Date(guess - (wall - guess));
+}
+
+function addDays(day: string, n: number): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The week the digest covers: the last full Monday–Sunday (UK) before the current week. */
+export function digestWindow(now = new Date()): DigestWindow {
+  const thisMonday = digestWeekKey(now);
+  const firstDay = addDays(thisMonday, -7);
+  return { start: ukMidnight(firstDay), end: ukMidnight(thisMonday), firstDay, lastDay: addDays(thisMonday, -1) };
+}
+
+/** "Mon 2 Jun to Sun 8 Jun" */
+export function windowLabel(w: DigestWindow): string {
+  const f = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+  return `${f.format(new Date(`${w.firstDay}T12:00:00Z`))} to ${f.format(new Date(`${w.lastDay}T12:00:00Z`))}`;
+}
+
+/** Web search hits as digest entries (grouped under "Web search"; GitHub hits count as GitHub). */
+export function webHitsToArticles(hits: WebSearchHit[], w: DigestWindow): DigestArticle[] {
+  return hits.map((h, i) => ({
+    id: `web-${i.toString()}`,
+    title: h.title,
+    url: h.url,
+    summary: h.content,
+    source: WEB_SEARCH_SOURCE,
+    group: /(^|\.)github\.(blog|com)$/i.test(safeHost(h.url)) ? 'GitHub' : 'Microsoft',
+    publishedAt: h.publishedAt !== null && Number.isFinite(Date.parse(h.publishedAt)) ? new Date(h.publishedAt).toISOString() : w.start.toISOString(),
+    score: null,
+    shelved: false,
+  }));
+}
+
+function safeHost(url: string): string {
+  try { return new URL(url).hostname; } catch { return ''; }
+}
+
 async function loadState(db: Pool): Promise<StoredDigest | null> {
   const s = await getSyncState(db, STATE_KEY);
   if (s?.lastCursor == null) return null;
@@ -99,11 +149,11 @@ export async function weeklyDigestDue(db: Pool, now = new Date()): Promise<boole
 }
 
 /**
- * Every Microsoft/GitHub Discover article from the last week, best first, then the week's Message
+ * Every Microsoft/GitHub Discover article from the digest week, best first, then the week's Message
  * Center posts (which have their own allowance). Shelved ones are included.
  */
 export async function gatherDigestArticles(db: Pool, now = new Date()): Promise<DigestArticle[]> {
-  const since = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
+  const { start: since, end: until } = digestWindow(now);
   const select = (messageCenter: boolean, limit: number) => db.query<{
     id: string; title: string; url: string | null; summary: string | null; source: string | null; grp: string;
     published_at: Date | string; score: string | null; shelved: boolean;
@@ -119,10 +169,10 @@ export async function gatherDigestArticles(db: Pool, now = new Date()): Promise<
         AND metadata->>'sourceGroup' = ANY($1::text[])
         AND (COALESCE(metadata->>'sourceId', '') = $6) = $7
         AND COALESCE(published_at, indexed_at) >= $2
-        AND COALESCE(published_at, indexed_at) <= $3
+        AND COALESCE(published_at, indexed_at) < $3
       ORDER BY (metadata->>'compositeScore')::numeric DESC NULLS LAST, COALESCE(published_at, indexed_at) DESC
       LIMIT $4`,
-    [[...DIGEST_SOURCE_GROUPS], since, now, limit, SUMMARY_CHARS * 2, MESSAGE_CENTER_SOURCE_ID, messageCenter],
+    [[...DIGEST_SOURCE_GROUPS], since, until, limit, SUMMARY_CHARS * 2, MESSAGE_CENTER_SOURCE_ID, messageCenter],
   );
   const [feeds, messageCenter] = await Promise.all([select(false, MAX_ARTICLES), select(true, MAX_MESSAGE_CENTER)]);
   return [...feeds.rows, ...messageCenter.rows].map((r) => {
@@ -142,7 +192,7 @@ export async function gatherDigestArticles(db: Pool, now = new Date()): Promise<
 }
 
 /** The facts block the LLM writes from, grouped by source. */
-export function formatDigestFacts(articles: DigestArticle[]): string {
+export function formatDigestFacts(articles: DigestArticle[], period = 'the last week'): string {
   const bySource = new Map<string, DigestArticle[]>();
   for (const a of articles) {
     const list = bySource.get(a.source) ?? [];
@@ -159,7 +209,9 @@ export function formatDigestFacts(articles: DigestArticle[]): string {
         return `- ${a.publishedAt.slice(0, 10)} ${a.title}${score}${a.url !== null ? ` — ${a.url}` : ''}${summary !== '' ? `\n  ${summary}` : ''}`;
       }),
     ].join('\n'));
-  return `${articles.length.toString()} Microsoft and GitHub updates from the last ${LOOKBACK_DAYS.toString()} days.\n\n${sections.join('\n\n')}`;
+  const web = articles.filter((a) => a.source === WEB_SEARCH_SOURCE).length;
+  const note = web > 0 ? ` ${web.toString()} of them came from a web search for things the feeds missed (under "${WEB_SEARCH_SOURCE}").` : '';
+  return `${articles.length.toString()} Microsoft and GitHub updates from ${period}.${note}\n\n${sections.join('\n\n')}`;
 }
 
 const VOICE_RULES = [
@@ -198,6 +250,9 @@ export const BLOG_PROMPT = [
     'and architects, each with what changes, when (only dates given in the input), and any action required, citing ' +
     'the MC id. Fold routine ones into a single sentence. Their links open the Microsoft 365 admin centre, so name ' +
     'the MC id in the text as well as linking it.',
+  '- "Web search" entries were found by searching the web for the week. Treat them like the rest, but only include ' +
+    'ones that are genuinely Microsoft or GitHub announcements from this week, skip any that duplicate another entry, ' +
+    'and prefer the official Microsoft or GitHub link when two cover the same news.',
   '- Twitter/X post: use the URL of the "one to watch" article. LinkedIn post: no URLs.',
   '- Never invent announcements, dates, figures, or URLs; use only what is in the input.',
 ].join('\n');
@@ -240,17 +295,21 @@ function blogTitle(markdown: string, fallback: string): string {
 export async function generateWeeklyMicrosoftDigest(db: Pool, now = new Date()): Promise<WeeklyDigest> {
   const previous = await loadState(db);
   const week = digestWeekKey(now);
-  const label = new Intl.DateTimeFormat('en-GB', { timeZone: WORK_TIMEZONE, day: 'numeric', month: 'short' }).format(new Date(`${week}T12:00:00Z`));
-  const articles = await gatherDigestArticles(db, now);
+  const window = digestWindow(now);
+  const label = windowLabel(window);
+  const fromDiscover = await gatherDigestArticles(db, now);
+  const web = await searchDigestWeek(window, fromDiscover.flatMap((a) => (a.url !== null ? [a.url] : [])))
+    .catch((err: unknown) => { console.warn('[WeeklyDigest] web search failed:', err instanceof Error ? err.message : String(err)); return []; });
+  const articles = [...fromDiscover, ...webHitsToArticles(web, window)];
 
   let blog = '';
   let slackText: string;
   let noteId: string | null = null;
   let noteUrl: string | null = null;
   if (articles.length === 0) {
-    slackText = `*Microsoft updates, week of ${label}*\nNothing new from the Microsoft or GitHub feeds this week. Either Redmond took a week off, or the feeds did.`;
+    slackText = `*Microsoft updates, ${label}*\nNothing new from the Microsoft or GitHub feeds or the web this week. Either Redmond took a week off, or the feeds did.`;
   } else {
-    const facts = formatDigestFacts(articles);
+    const facts = formatDigestFacts(articles, label);
     const client = getFoundryClient('weekly-msft-digest');
     [blog, slackText] = await Promise.all([
       client.chat('standard', [{ role: 'system', content: BLOG_PROMPT }, { role: 'user', content: facts }], BLOG_MAX_TOKENS),
@@ -267,7 +326,7 @@ export async function generateWeeklyMicrosoftDigest(db: Pool, now = new Date()):
 
   const slackPosted = await postToSlack(slackText);
   const chatMarkdown = [
-    `**Weekly Microsoft updates — week of ${label}** (${articles.length.toString()} updates from Microsoft and GitHub feeds)`,
+    `**Weekly Microsoft updates — ${label}** (${fromDiscover.length.toString()} from Discover and Message Center, ${web.length.toString()} more from a web search)`,
     noteUrl !== null ? `\nBlog draft saved to Think: [open the draft](${noteUrl})` : '',
     `\n**Slack summary** ${slackPosted ? '(posted to Slack)' : env.SLACK_WEBHOOK_URL === undefined ? '(Slack is not connected yet, copy it from here)' : '(the Slack post failed, copy it from here)'}`,
     '',

@@ -314,7 +314,6 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [athenaOpen, setAthenaOpen] = useState(false);
   const [athenaMounted, setAthenaMounted] = useState(false);
   const [athenaPrompt, setAthenaPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
-  const [activeFootnote, setActiveFootnote] = useState<string | null>(null);
   const [notesHidden, setNotesHidden] = useState(false);
   const [keyFilter, setKeyFilter] = useState<string | null>(null);
   const [exportFootnotes, setExportFootnotes] = useState(true);
@@ -893,10 +892,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const addFootnoteFor = useCallback((targetId: string) => {
     const cur = docRef.current;
     const existing = footnotesOf(cur).find((f) => f.targetId === targetId);
-    if (existing !== undefined) { setActiveFootnote(existing.id); setNotesHidden(false); return; }
+    if (existing !== undefined) { setNotesHidden(false); return; }
     const id = newId();
     commit(addFootnote(cur, targetId, id));
-    setActiveFootnote(id);
     setNotesHidden(false);
   }, [commit]);
 
@@ -930,8 +928,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     setAthenaPrompt((p) => ({ prompt, sequence: (p?.sequence ?? 0) + 1 }));
   }, [setSel]);
 
-  function selectFootnoteTarget(targetId: string, footnoteId: string): void {
-    setActiveFootnote(footnoteId);
+  function selectFootnoteTarget(targetId: string): void {
     const cur = docRef.current;
     if (cur.nodes.some((n) => n.id === targetId)) setSel({ nodes: [targetId], edges: [] });
     else if (cur.edges.some((x) => x.id === targetId)) setSel({ nodes: [], edges: [targetId] });
@@ -976,7 +973,6 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       if (p !== null) window.setTimeout(() => { setView(p.restore, false); }, 0);
       return null;
     });
-    setActiveFootnote(null);
     if (document.fullscreenElement !== null) void document.exitFullscreen().catch(() => { /* already closed */ });
   }, [setView]);
 
@@ -989,8 +985,6 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     if (presenting === null) return;
     const step = presenting.steps[presenting.index];
     if (step === undefined) return;
-    const fn = step.number === null ? undefined : footnotesOf(docRef.current)[step.number - 1];
-    setActiveFootnote(fn?.id ?? null);
     const t = window.setTimeout(() => { focusTarget(step.targetId, false); }, 60);
     return () => { window.clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1012,7 +1006,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const fn = footnotesOf(docRef.current)[initialFootnote - 1];
     if (fn === undefined) { notify('info', `Footnote ${initialFootnote} no longer exists on this diagram.`, { key: 'footnote-link' }); return; }
     setNotesHidden(false);
-    selectFootnoteTarget(fn.targetId, fn.id);
+    selectFootnoteTarget(fn.targetId);
     window.setTimeout(() => { revealNote(fn.id); }, 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFootnote, size.width]);
@@ -1169,7 +1163,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         const fn = footnotesOf(cur).find((f) => f.id === id);
         if (fn === undefined) return;
         setNotesHidden(false);
-        selectFootnoteTarget(fn.targetId, fn.id);
+        selectFootnoteTarget(fn.targetId);
         window.setTimeout(() => { revealNote(fn.id); }, 0);
         return;
       }
@@ -1177,7 +1171,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         e.preventDefault();
         const fn = footnotesOf(cur).find((f) => f.id === id);
         if (fn === undefined) return;
-        selectFootnoteTarget(fn.targetId, fn.id);
+        selectFootnoteTarget(fn.targetId);
         const shown = collapseView(cur);
         const map = nodeMap(shown.nodes);
         const node = map.get(shown.hiddenBy.get(fn.targetId) ?? fn.targetId);
@@ -1806,7 +1800,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                     const cur = docRef.current;
                     if (cur.nodes.some((n) => n.id === targetId)) setSel({ nodes: [targetId], edges: [] });
                     else if (cur.edges.some((x) => x.id === targetId)) setSel({ nodes: [], edges: [targetId] });
-                    else { const fn = footnotesOf(cur).find((f) => f.id === targetId); if (fn !== undefined) { setNotesHidden(false); selectFootnoteTarget(fn.targetId, fn.id); } }
+                    else { const fn = footnotesOf(cur).find((f) => f.id === targetId); if (fn !== undefined) { setNotesHidden(false); selectFootnoteTarget(fn.targetId); } }
                   }} />
               </div>
             )}
@@ -1997,7 +1991,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 if (at === null) return null;
                 const target = byId.get(fn.targetId);
                 const dimmed = target !== undefined ? target.kind !== 'line' && keyDim(target.stroke) : keyFilter !== null;
-                const cls = ['dg-marker', activeFootnote === fn.id ? 'dg-marker--active' : '', dimmed ? 'dg-marker--dimmed' : ''].filter(Boolean).join(' ');
+                const cls = dimmed ? 'dg-marker dg-marker--dimmed' : 'dg-marker';
                 return (
                   <g key={fn.id} className={cls} data-dg="footnote" data-id={fn.id} role="link" aria-label={`Footnote ${i + 1}`}>
                     <title>{`Footnote ${i + 1} — show its note`}</title>
@@ -2011,9 +2005,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   <rect className="dg-noteblock__frame" x={notesBlock.rect.x} y={notesBlock.rect.y} width={notesBlock.rect.width} height={notesBlock.rect.height} rx={4} />
                   <text className="dg-noteblock__heading" x={notesBlock.heading.x} y={notesBlock.heading.y} fontSize={NOTE_HEADING_FONT} dominantBaseline="hanging">Notes</text>
                   {notesBlock.items.map((item) => {
-                    const cls = ['dg-noteblock__item', activeFootnote === item.id ? 'dg-noteblock__item--active' : ''].filter(Boolean).join(' ');
                     return (
-                      <a key={item.id} id={`dg-footnote-${item.number}`} className={cls} data-dg="footnote-item" data-id={item.id}
+                      <a key={item.id} id={`dg-footnote-${item.number}`} className="dg-noteblock__item" data-dg="footnote-item" data-id={item.id}
                         href={footnoteHref(canvasId, item.number)} aria-label={`Note ${item.number}: show it on the diagram`}
                         onClick={(e) => { e.preventDefault(); }}>
                         <rect className="dg-noteblock__hit" x={item.rect.x} y={item.rect.y} width={item.rect.width} height={item.rect.height} rx={3} />
