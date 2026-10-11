@@ -89,6 +89,28 @@ test('standalone lines preserve endpoints and styles without shape attachments',
   rejects(() => validateDiagramDocument(doc([line, other], [edge(line.id, other.id)]), NONE), /sourceId/);
 });
 
+test('annotations: footnotes, colour key, collapsed containers and connector label offsets', () => {
+  const box = node({ kind: 'container' });
+  const a = node();
+  const b = node();
+  const e = edge(a.id, b.id, { labelOffset: { x: 12, y: -8 } });
+  const f1 = { id: randomUUID(), targetId: a.id, source: 'description' as const };
+  const f2 = { id: randomUUID(), targetId: e.id, source: 'custom' as const, text: 'Calls the API' };
+  const legend = { visible: true, position: 'bottom-right' as const, entries: [{ colour: '#ff0000', label: 'Azure' }, { colour: '#0000ff', label: 'M365', hidden: true }] };
+  const input: DiagramDocument = { ...doc([{ ...box, collapsed: true }, a, b], [e]), footnotes: [f1, f2], legend, notesPanel: 'right' };
+  assert.deepEqual(validateDiagramDocument(JSON.parse(JSON.stringify(input)), NONE), input);
+
+  rejects(() => validateDiagramDocument({ ...doc([a]), footnotes: [{ ...f1, targetId: randomUUID() }] }, NONE), /footnotes\[0\]\.targetId/);
+  rejects(() => validateDiagramDocument({ ...doc([a]), footnotes: [f1, { ...f1, id: randomUUID() }] }, NONE), /footnotes\[1\]\.targetId/);
+  rejects(() => validateDiagramDocument({ ...doc([a]), footnotes: [{ ...f1, source: 'html' }] }, NONE), /footnotes\[0\]\.source/);
+  rejects(() => validateDiagramDocument({ ...doc([a]), footnotes: [{ ...f1, id: a.id }] }, NONE), /footnotes\[0\]\.id/);
+  rejects(() => validateDiagramDocument({ ...doc([a]), legend: { ...legend, entries: [legend.entries[0], { colour: '#FF0000', label: 'dup' }] } }, NONE), /legend\.entries\[1\]\.colour/);
+  rejects(() => validateDiagramDocument({ ...doc([a]), legend: { ...legend, position: 'middle' } }, NONE), /legend\.position/);
+  rejects(() => validateDiagramDocument({ ...doc([a]), notesPanel: 'left' }, NONE), /notesPanel/);
+  rejects(() => validateDiagramDocument(doc([{ ...a, collapsed: true }]), NONE), /nodes\[0\]\.collapsed/);
+  rejects(() => validateDiagramDocument(doc([a, b], [{ ...e, labelOffset: { x: 1e9, y: 0 } }]), NONE), /labelOffset\.x/);
+});
+
 test('rejects unknown keys at every level and a wrong version', () => {
   const a = node();
   rejects(() => validateDiagramDocument({ ...doc([a]), script: 'x' }, NONE), /^document\.script$/);

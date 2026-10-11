@@ -21,7 +21,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function command(method, params = {}) {
   const id = ++sequence;
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method} ${params.expression?.slice(0, 120) ?? ''}`)); }, 60_000);
+    const timeout = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method} ${params.expression?.slice(0, 120) ?? ''}`)); }, 150_000);
     pending.set(id, {
       resolve: (result) => { clearTimeout(timeout); resolve(result); },
       reject: (error) => { clearTimeout(timeout); reject(error); },

@@ -40,6 +40,11 @@ export const NoteMaps: React.FC<Props> = ({ noteId, onOpenMap, onMapNote }) => {
             <Diagram size={16} />
             <span className="mm-note-maps__name">{m.title}</span>
             <span className="mm-note-maps__count">{m.canvasType === 'diagram' ? 'Diagram' : `${m.nodeCount} ideas`}</span>
+            {(m.linkedElements?.length ?? 0) > 0 && (
+              <span className="mm-note-maps__elements">
+                Linked to {m.linkedElements!.map((el) => `${el.label.trim() === '' ? 'unlabelled shape' : el.label.trim()}${el.footnote === null ? '' : ` (note ${el.footnote})`}`).join(', ')}
+              </span>
+            )}
           </button>
         ))
       )}

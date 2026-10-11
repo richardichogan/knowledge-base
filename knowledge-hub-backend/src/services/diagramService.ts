@@ -133,6 +133,9 @@ export async function saveDiagram(canvasId: string, body: unknown): Promise<Diag
        ON CONFLICT (canvas_id, revision) DO UPDATE SET document = EXCLUDED.document, created_at = NOW()`,
       [canvasId, next, json]);
     await client.query(`DELETE FROM canvas_diagram_revisions WHERE canvas_id = $1 AND revision <= $2`, [canvasId, next - KEEP_REVISIONS]);
+    const elementIds = [...document.nodes.map((n) => n.id), ...document.edges.map((e) => e.id), ...(document.footnotes ?? []).map((f) => f.id)];
+    await client.query(
+      `DELETE FROM diagram_element_notes WHERE canvas_id = $1 AND NOT (element_id = ANY($2::uuid[]))`, [canvasId, elementIds]);
     await client.query(`UPDATE canvases SET updated_at = NOW() WHERE id = $1`, [canvasId]);
     await client.query('COMMIT');
     return { revision: next, document };
@@ -196,4 +199,79 @@ export async function getAsset(canvasId: string, assetId: string): Promise<Store
   const row = r.rows[0];
   if (row === undefined) throw new NotFoundError('Asset');
   return { id: row.id, name: row.name, contentType: row.content_type, data: row.data, sha256: row.sha256 };
+}
+
+// ─── Named versions ─────────────────────────────────────────────────────────
+
+export const MAX_VERSIONS_PER_DIAGRAM = 100;
+const VERSION_NAME_MAX = 120;
+
+export interface DiagramVersionSummary { id: string; name: string; revision: number; createdAt: string }
+export interface DiagramVersion extends DiagramVersionSummary { document: DiagramDocument }
+
+function versionName(v: unknown): string {
+  if (typeof v !== 'string') throw new ValidationError('name is required', { name: 'required' });
+  const name = v.trim().replace(/\s+/g, ' ');
+  if (name === '' || name.length > VERSION_NAME_MAX) {
+    throw new ValidationError(`name must be 1-${VERSION_NAME_MAX} characters`, { name: 'invalid length' });
+  }
+  return name;
+}
+
+function toSummary(r: { id: string; name: string; revision: number; created_at: Date | string }): DiagramVersionSummary {
+  return { id: r.id, name: r.name, revision: r.revision, createdAt: new Date(r.created_at).toISOString() };
+}
+
+export async function listVersions(canvasId: string): Promise<DiagramVersionSummary[]> {
+  const db = getDb();
+  await requireCanvasType(canvasId, 'diagram', db);
+  const r = await db.query<{ id: string; name: string; revision: number; created_at: Date }>(
+    `SELECT id::text, name, revision, created_at FROM canvas_diagram_versions WHERE canvas_id = $1 ORDER BY created_at DESC, id`, [canvasId]);
+  return r.rows.map(toSummary);
+}
+
+/** Saves the current stored document under a name. */
+export async function createVersion(canvasId: string, body: unknown): Promise<DiagramVersionSummary> {
+  const name = versionName((body as { name?: unknown } | null)?.name);
+  const client = await getDb().connect();
+  try {
+    await client.query('BEGIN');
+    await requireCanvasType(canvasId, 'diagram', client, true);
+    const count = await client.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM canvas_diagram_versions WHERE canvas_id = $1`, [canvasId]);
+    if (Number(count.rows[0]?.n ?? 0) >= MAX_VERSIONS_PER_DIAGRAM) {
+      throw new ValidationError(`A diagram can have at most ${MAX_VERSIONS_PER_DIAGRAM} named versions; delete one first`, { name: 'too many versions' });
+    }
+    const r = await client.query<{ id: string; name: string; revision: number; created_at: Date }>(
+      `INSERT INTO canvas_diagram_versions (canvas_id, name, revision, document)
+       SELECT canvas_id, $2, revision, document FROM canvas_diagrams WHERE canvas_id = $1
+       RETURNING id::text, name, revision, created_at`, [canvasId, name]);
+    const row = r.rows[0];
+    if (row === undefined) throw new NotFoundError('Diagram');
+    await client.query('COMMIT');
+    return toSummary(row);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getVersion(canvasId: string, versionId: string): Promise<DiagramVersion> {
+  const db = getDb();
+  await requireCanvasType(canvasId, 'diagram', db);
+  if (!UUID_RE.test(versionId)) throw new NotFoundError('Version');
+  const r = await db.query<{ id: string; name: string; revision: number; created_at: Date; document: DiagramDocument }>(
+    `SELECT id::text, name, revision, created_at, document FROM canvas_diagram_versions WHERE canvas_id = $1 AND id = $2`, [canvasId, versionId]);
+  const row = r.rows[0];
+  if (row === undefined) throw new NotFoundError('Version');
+  return { ...toSummary(row), document: row.document };
+}
+
+export async function deleteVersion(canvasId: string, versionId: string): Promise<void> {
+  const db = getDb();
+  await requireCanvasType(canvasId, 'diagram', db);
+  if (!UUID_RE.test(versionId)) throw new NotFoundError('Version');
+  const r = await db.query(`DELETE FROM canvas_diagram_versions WHERE canvas_id = $1 AND id = $2`, [canvasId, versionId]);
+  if (r.rowCount === 0) throw new NotFoundError('Version');
 }

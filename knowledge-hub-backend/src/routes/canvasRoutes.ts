@@ -20,6 +20,12 @@
  * PUT    /api/canvases/:id/diagram                 { revision, document } → DiagramSnapshot (409 DIAGRAM_REVISION_CONFLICT if stale)
  * POST   /api/canvases/:id/assets?name=            raw PNG / SVG body → { id, name, contentType }
  * GET    /api/canvases/:id/assets/:assetId         the raw asset bytes
+ * POST   /api/canvases/:id/elements/:elementId/notes          link a note to a shape / connector / footnote { noteId }
+ * DELETE /api/canvases/:id/elements/:elementId/notes/:noteId  unlink it
+ * GET    /api/canvases/:id/versions                named versions (newest first)
+ * POST   /api/canvases/:id/versions                { name } → save the current document as a named version
+ * GET    /api/canvases/:id/versions/:versionId     → version with its document
+ * DELETE /api/canvases/:id/versions/:versionId     delete a named version
  *
  * ops / suggestions / nodes/:nodeId/content / to-note / markdown are brainstorm
  * only and answer 409 CANVAS_TYPE_MISMATCH for a diagram (and vice versa).
@@ -29,10 +35,13 @@ import { HTTP_STATUS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
 import { ValidationError, NotFoundError } from '../types/errors.js';
 import { CANVAS_TYPES, type CanvasType } from '../types/diagram.js';
-import { getDiagram, saveDiagram, uploadAsset, getAsset } from '../services/diagramService.js';
+import {
+  getDiagram, saveDiagram, uploadAsset, getAsset, requireCanvasType,
+  listVersions, createVersion, getVersion, deleteVersion,
+} from '../services/diagramService.js';
 import {
   createCanvas, listCanvases, getCanvas, updateCanvas, deleteCanvas,
-  applyOps, assertBrainstorm, linkNote, unlinkNote, cardSummaryBlocks, mapMarkdown, MapOpError,
+  applyOps, assertBrainstorm, linkNote, unlinkNote, linkElementNote, unlinkElementNote, cardSummaryBlocks, mapMarkdown, MapOpError,
   type MapOp, type CreateMapInput,
 } from '../services/canvasService.js';
 import { suggestionsFor } from '../services/mapSuggestions.js';
@@ -252,5 +261,55 @@ canvasRouter.get('/:id/assets/:assetId', (req: Request, res: Response, next: Nex
       res.setHeader('Content-Length', String(asset.data.length));
       res.status(HTTP_STATUS.OK).end(asset.data);
     } catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.post('/:id/elements/:elementId/notes', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { noteId } = req.body as { noteId?: string };
+      if (typeof noteId !== 'string' || noteId === '') throw new ValidationError('noteId required', { noteId: 'required' });
+      await requireCanvasType(param(req, 'id'), 'diagram');
+      await linkElementNote(param(req, 'id'), param(req, 'elementId'), noteId);
+      res.json({ success: true, data: await requireMap(param(req, 'id')) });
+    } catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.delete('/:id/elements/:elementId/notes/:noteId', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      await requireCanvasType(param(req, 'id'), 'diagram');
+      await unlinkElementNote(param(req, 'id'), param(req, 'elementId'), param(req, 'noteId'));
+      res.json({ success: true, data: await requireMap(param(req, 'id')) });
+    } catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.get('/:id/versions', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try { res.json({ success: true, data: await listVersions(param(req, 'id')) }); }
+    catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.post('/:id/versions', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try { res.status(HTTP_STATUS.CREATED).json({ success: true, data: await createVersion(param(req, 'id'), req.body) }); }
+    catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.get('/:id/versions/:versionId', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try { res.json({ success: true, data: await getVersion(param(req, 'id'), param(req, 'versionId')) }); }
+    catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.delete('/:id/versions/:versionId', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try { await deleteVersion(param(req, 'id'), param(req, 'versionId')); res.status(HTTP_STATUS.NO_CONTENT).send(); }
+    catch (err) { next(err); }
   })();
 });

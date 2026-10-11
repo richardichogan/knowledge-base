@@ -22,6 +22,7 @@ import {
   Upload, Close, BringToFront, SendToBack, BringForward, SendBackward, AlignHorizontalLeft, AlignHorizontalCenter,
   AlignHorizontalRight, AlignVerticalTop, AlignVerticalCenter, AlignVerticalBottom, DistributeHorizontalCenter,
   DistributeVerticalCenter, Layers, Group, Renew, Reset, CheckmarkFilled, ErrorFilled, WarningAlt, InProgress,
+  ChevronDown, ChevronRight, ChevronLeft, PresentationFile, RecentlyViewed, SpellCheck, ListNumbered, Chat, Legend,
 } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
@@ -38,12 +39,21 @@ import {
   canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, pathD,
   pointAlong, insertWaypoint, hitTestNode, hitTestEdge, nodesInRect, alignNodes, distributeNodes, reorderNodes,
   cloneSelection, removeSelection, normalizeDocument, screenToWorld, worldToScreen, clampZoom, zoomAt, fitViewport,
-  wrapText, edgeLabelLayout, fitSize, documentShapePath, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
+  wrapText, edgeLabelLayout, edgeLabelCenter, fitSize, documentShapePath, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
 } from './diagramGeometry';
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { DiagramMetadata } from './DiagramMetadata';
 import { exportDiagram } from './diagramExport';
+import {
+  addFootnote, collapseView, fixTextIssues, footnoteAnchor, footnotesOf, presentationSteps, pruneFootnotes, setLegend,
+  DEFAULT_LEGEND, FOOTNOTE_RADIUS, type PresentationStep,
+} from './diagramAnnotations';
+import { DiagramFootnotesPanel } from './DiagramFootnotesPanel';
+import { DiagramLegend } from './DiagramLegend';
+import { DiagramVersions } from './DiagramVersions';
+import { DiagramTextCheck } from './DiagramTextCheck';
+import { DiagramElementNotes } from './DiagramElementNotes';
 import { diagramEditorFill, diagramEditorInk, diagramEditorNodeColours } from './diagramTheme';
 import { diagramBorderDash } from './diagramStroke';
 import './diagram.scss';
@@ -175,6 +185,8 @@ export interface DiagramEditorProps {
   onOpenNote?: ((noteId: string) => void) | undefined;
   onNoteChanged?: ((noteId: string) => void) | undefined;
   openTab?: string | undefined;
+  /** Footnote number to show when the diagram opens (from a /think?mapId=…&footnote=n link). */
+  initialFootnote?: number | undefined;
 }
 
 type LoadState =
@@ -182,7 +194,7 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; snapshot: DiagramSnapshot };
 
-export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote }) => {
+export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote, initialFootnote }) => {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -220,7 +232,7 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDelete
       </div>
     );
   }
-  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} />;
+  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} initialFootnote={initialFootnote} />;
 };
 
 // ── Surface ───────────────────────────────────────────────────────────────────
@@ -249,9 +261,10 @@ type Drag =
   | { kind: 'resize'; pointerId: number; id: string; handle: ResizeHandle; before: DiagramDocument; origin: Rect }
   | { kind: 'connect'; pointerId: number; sourceId: string; sourcePort: DiagramPort; current: P; targetId: string | null; targetPort: DiagramPort | null }
   | { kind: 'endpoint'; pointerId: number; edgeId: string; end: 'source' | 'target'; before: DiagramDocument; current: P; targetId: string | null; targetPort: DiagramPort | null }
-  | { kind: 'bend'; pointerId: number; edgeId: string; index: number; before: DiagramDocument };
+  | { kind: 'bend'; pointerId: number; edgeId: string; index: number; before: DiagramDocument }
+  | { kind: 'label'; pointerId: number; edgeId: string; startScreen: P; start: P; origin: P; before: DiagramDocument; moved: boolean };
 
-type Menu = 'style' | 'arrange' | 'edge-colour' | 'export' | 'image' | null;
+type Menu = 'style' | 'arrange' | 'edge-colour' | 'export' | 'image' | 'versions' | 'text-check' | null;
 
 interface EditingLabel { kind: 'node' | 'edge'; id: string; value: string }
 
@@ -261,9 +274,12 @@ interface SurfaceProps {
   onReload: () => void;
   onDeleted?: (() => void) | undefined;
   onOpenNote?: ((id: string) => void) | undefined;
+  initialFootnote?: number | undefined;
 }
 
-const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote }) => {
+const LABEL_OFFSET_MAX = 10000;
+
+const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote, initialFootnote }) => {
   const queryClient = useQueryClient();
   const markerBase = `dg${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
@@ -288,6 +304,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [athenaOpen, setAthenaOpen] = useState(false);
   const [athenaMounted, setAthenaMounted] = useState(false);
+  const [athenaPrompt, setAthenaPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
+  const [activeFootnote, setActiveFootnote] = useState<string | null>(null);
+  const [notesHidden, setNotesHidden] = useState(false);
+  const [keyFilter, setKeyFilter] = useState<string | null>(null);
+  const [exportFootnotes, setExportFootnotes] = useState(true);
+  const [exportLegend, setExportLegend] = useState(true);
+  const [presenting, setPresenting] = useState<{ index: number; steps: PresentationStep[]; restore: Viewport } | null>(null);
   const [, setHistoryTick] = useState(0);
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -303,7 +326,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const setSel = useCallback((next: Selection) => { selRef.current = next; setSelState(next); }, []);
   const setDrag = useCallback((next: Drag | null) => { dragRef.current = next; setDragState(next); }, []);
 
-  const byId = useMemo(() => nodeMap(doc.nodes), [doc.nodes]);
+  const display = useMemo(() => collapseView(doc), [doc]);
+  const byId = useMemo(() => nodeMap(display.nodes), [display.nodes]);
+  const remappedEdges = useMemo(() => {
+    const original = new Map(doc.edges.map((x) => [x.id, x] as const));
+    return new Set(display.edges.filter((x) => original.get(x.id) !== x).map((x) => x.id));
+  }, [doc.edges, display.edges]);
   const view = doc.viewport;
 
   // ── Notices (nothing fails silently) ──────────────────────────────────────
@@ -413,6 +441,25 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     s.timer = window.setTimeout(flush, delay);
   }, [flush]);
 
+  /** Save immediately and report whether everything is now saved (needed before server-side links to new shapes). */
+  const saveNow = useCallback(async (): Promise<boolean> => {
+    const s = save.current;
+    for (let i = 0; i < 5; i += 1) {
+      if (s.inflight !== null) await s.inflight;
+      if (s.blocked !== null || s.discard) return false;
+      if (s.seq === s.savedSeq) return true;
+      flush();
+      if (s.inflight !== null) await s.inflight;
+    }
+    return s.seq === s.savedSeq && s.blocked === null;
+  }, [flush]);
+
+  const beforeElementLink = useCallback(async (): Promise<boolean> => {
+    const ok = await saveNow();
+    if (!ok) notify('error', 'Save the diagram before linking notes — the latest changes haven’t saved yet.', { key: 'element-note-save' });
+    return ok;
+  }, [saveNow, notify]);
+
   function retrySave(): void {
     save.current.blocked = null;
     setSaveError(null);
@@ -467,7 +514,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     h.past = [...h.past, before].slice(-HISTORY_LIMIT);
     h.future = [];
     setHistoryTick((t) => t + 1);
-    setDoc(next);
+    setDoc(pruneFootnotes(next));
     markDirty(SAVE_DELAY_MS);
   }, [markDirty, setDoc]);
 
@@ -686,11 +733,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   function commitLabel(e: EditingLabel): void {
     setEditing(null);
     if (e.kind === 'node') {
+      const value = e.value.replace(/[ \t]+$/gm, '').replace(/^\s+|\s+$/g, '');
       const n = docRef.current.nodes.find((x) => x.id === e.id);
-      if (n !== undefined && n.label !== e.value) updateNodes([e.id], (x) => setNodeLabel(x, e.value));
+      if (n !== undefined && n.label !== value) updateNodes([e.id], (x) => setNodeLabel(x, value));
     } else {
+      const value = e.value.trim();
       const edge = docRef.current.edges.find((x) => x.id === e.id);
-      if (edge !== undefined && edge.label !== e.value) updateEdges([e.id], (x) => ({ ...x, label: e.value }));
+      if (edge !== undefined && edge.label !== value) updateEdges([e.id], (x) => ({ ...x, label: value }));
     }
     rootRef.current?.focus({ preventScroll: true });
   }
@@ -797,6 +846,144 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   }
 
   function align(mode: AlignMode): void { commit(alignNodes(docRef.current, topLevelSelection(docRef.current.nodes, selRef.current.nodes), mode)); }
+  function matchSize(dimension: 'width' | 'height'): void {
+    const cur = docRef.current;
+    const ids = topLevelSelection(cur.nodes, selRef.current.nodes);
+    const first = cur.nodes.find((n) => n.id === selRef.current.nodes.find((id) => ids.includes(id)));
+    if (first === undefined || ids.length < 2) return;
+    const value = first[dimension];
+    updateNodes(ids.filter((id) => id !== first.id), (n) => (n.kind === 'line' ? n : { ...n, [dimension]: value }));
+  }
+
+  // ── Footnotes, key, collapse, Athena ───────────────────────────────────────
+
+  const addFootnoteFor = useCallback((targetId: string) => {
+    const cur = docRef.current;
+    const existing = footnotesOf(cur).find((f) => f.targetId === targetId);
+    if (existing !== undefined) { setActiveFootnote(existing.id); setNotesHidden(false); return; }
+    const id = newId();
+    commit(addFootnote(cur, targetId, id));
+    setActiveFootnote(id);
+    setNotesHidden(false);
+  }, [commit]);
+
+  const changeAnnotations = useCallback((next: DiagramDocument, withHistory: boolean) => {
+    if (withHistory) { commit(next); return; }
+    setDoc(next);
+    markDirty(SAVE_DELAY_MS);
+  }, [commit, markDirty, setDoc]);
+
+  const toggleCollapsed = useCallback((id: string) => {
+    const n = docRef.current.nodes.find((x) => x.id === id);
+    if (n === undefined || !isContainerKind(n.kind)) return;
+    updateNodes([id], (x) => ({ ...x, collapsed: x.collapsed === true ? undefined : true } as DiagramNode));
+    const hidden = new Set(withDescendants(docRef.current.nodes, [id]));
+    hidden.delete(id);
+    const s = selRef.current;
+    if (n.collapsed !== true) setSel({ nodes: s.nodes.filter((x) => !hidden.has(x)), edges: s.edges });
+  }, [setSel, updateNodes]);
+
+  const askAthena = useCallback((targetId: string) => {
+    const cur = docRef.current;
+    const node = cur.nodes.find((n) => n.id === targetId);
+    const edge = node === undefined ? cur.edges.find((x) => x.id === targetId) : undefined;
+    const label = (node?.label ?? edge?.label ?? '').trim();
+    const description = (node?.description ?? edge?.description ?? '').trim();
+    const what = node !== undefined ? `the “${label || 'unlabelled'}” shape` : `the “${label || 'unlabelled'}” connector`;
+    const prompt = `Tell me about ${what} in this diagram${description === '' ? '' : ` (described as: ${description})`}. What does it connect to, what might be missing, and how could it be explained better?`;
+    setSel(node !== undefined ? { nodes: [targetId], edges: [] } : { nodes: [], edges: [targetId] });
+    setAthenaMounted(true);
+    setAthenaOpen(true);
+    setAthenaPrompt((p) => ({ prompt, sequence: (p?.sequence ?? 0) + 1 }));
+  }, [setSel]);
+
+  function selectFootnoteTarget(targetId: string, footnoteId: string): void {
+    setActiveFootnote(footnoteId);
+    const cur = docRef.current;
+    if (cur.nodes.some((n) => n.id === targetId)) setSel({ nodes: [targetId], edges: [] });
+    else if (cur.edges.some((x) => x.id === targetId)) setSel({ nodes: [], edges: [targetId] });
+  }
+
+  function focusTarget(targetId: string | null, persist: boolean): void {
+    const el = sheetRef.current;
+    if (el === null) return;
+    const cur = docRef.current;
+    const shown = collapseView(cur);
+    let bounds = documentBounds(shown);
+    if (targetId !== null) {
+      const map = nodeMap(shown.nodes);
+      const node = map.get(shown.hiddenBy.get(targetId) ?? targetId);
+      const edge = node === undefined ? shown.edges.find((x) => x.id === targetId) : undefined;
+      const route = edge === undefined ? null : edgeRoute(edge, map);
+      if (node !== undefined) bounds = nodeRect(node);
+      else if (route !== null) bounds = boundsOf(route.map((p) => ({ x: p.x, y: p.y, width: 0, height: 0 })));
+    }
+    if (bounds === null) return;
+    const pad = Math.max(bounds.width, bounds.height) * 0.25 + 40;
+    const padded = { x: bounds.x - pad, y: bounds.y - pad, width: bounds.width + pad * 2, height: bounds.height + pad * 2 };
+    setView(fitViewport(padded, el.clientWidth, el.clientHeight, FIT_PADDING, MIN_ZOOM, Math.min(MAX_ZOOM, 2)), persist);
+  }
+
+  // ── Presentation mode ──────────────────────────────────────────────────────
+
+  function startPresentation(): void {
+    const steps = presentationSteps(docRef.current);
+    setMenu(null);
+    setEditing(null);
+    setSel(EMPTY_SEL);
+    setPresenting({ index: 0, steps, restore: docRef.current.viewport });
+    const root = rootRef.current;
+    if (root !== null && document.fullscreenElement === null && typeof root.requestFullscreen === 'function') {
+      void root.requestFullscreen().catch(() => { /* windowed presentation still works */ });
+    }
+  }
+
+  const stopPresentation = useCallback(() => {
+    setPresenting((p) => {
+      if (p !== null) window.setTimeout(() => { setView(p.restore, false); }, 0);
+      return null;
+    });
+    setActiveFootnote(null);
+    if (document.fullscreenElement !== null) void document.exitFullscreen().catch(() => { /* already closed */ });
+  }, [setView]);
+
+  function stepPresentation(delta: number): void {
+    setPresenting((p) => (p === null ? p : { ...p, index: Math.max(0, Math.min(p.steps.length - 1, p.index + delta)) }));
+  }
+
+  const presentStep = presenting === null ? null : presenting.steps[presenting.index] ?? null;
+  useEffect(() => {
+    if (presenting === null) return;
+    const step = presenting.steps[presenting.index];
+    if (step === undefined) return;
+    const fn = step.number === null ? undefined : footnotesOf(docRef.current)[step.number - 1];
+    setActiveFootnote(fn?.id ?? null);
+    const t = window.setTimeout(() => { focusTarget(step.targetId, false); }, 60);
+    return () => { window.clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presenting?.index, presenting?.steps, size.width, size.height]);
+
+  useEffect(() => {
+    if (presenting === null) return undefined;
+    const onFs = (): void => { if (document.fullscreenElement === null) stopPresentation(); };
+    document.addEventListener('fullscreenchange', onFs);
+    return () => { document.removeEventListener('fullscreenchange', onFs); };
+  }, [presenting, stopPresentation]);
+
+  // ── Deep link to a footnote (/think?mapId=…&footnote=n) ─────────────────────
+
+  const deepLinkedRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (initialFootnote === undefined || deepLinkedRef.current === initialFootnote || size.width === 0) return;
+    deepLinkedRef.current = initialFootnote;
+    const fn = footnotesOf(docRef.current)[initialFootnote - 1];
+    if (fn === undefined) { notify('info', `Footnote ${initialFootnote} no longer exists on this diagram.`, { key: 'footnote-link' }); return; }
+    setNotesHidden(false);
+    selectFootnoteTarget(fn.targetId, fn.id);
+    window.setTimeout(() => { focusTarget(fn.targetId, false); }, 60);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFootnote, size.width]);
+
   function distribute(axis: 'horizontal' | 'vertical'): void { commit(distributeNodes(docRef.current, topLevelSelection(docRef.current.nodes, selRef.current.nodes), axis)); }
 
   function toggleGrid(): void {
@@ -888,7 +1075,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     for (const id of ids) { const b = blobsRef.current.get(id); if (b !== undefined) map.set(id, b); }
     setExporting(true);
     try {
-      await exportDiagram(cur, map, exportFormat, exportBg, exportGrid);
+      await exportDiagram(cur, map, exportFormat, exportBg, exportGrid, { footnotes: exportFootnotes, legend: exportLegend && cur.legend?.visible === true });
       setMenu(null);
     } catch (err) {
       notify('error', `Export failed: ${describeError(err).message}`, { key: 'export' });
@@ -934,7 +1121,38 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       return;
     }
     const s = selRef.current;
+    if (presenting !== null) {
+      if (role === 'footnote') {
+        const index = presenting.steps.findIndex((st) => st.number !== null && footnotesOf(cur)[st.number - 1]?.id === id);
+        if (index >= 0) setPresenting({ ...presenting, index });
+        return;
+      }
+      begin({ kind: 'pan', pointerId, start: toScreen(e.clientX, e.clientY), origin: cur.viewport });
+      return;
+    }
     switch (role) {
+      case 'footnote': {
+        e.preventDefault();
+        const fn = footnotesOf(cur).find((f) => f.id === id);
+        if (fn === undefined) return;
+        setNotesHidden(false);
+        selectFootnoteTarget(fn.targetId, fn.id);
+        return;
+      }
+      case 'collapse': {
+        e.preventDefault();
+        toggleCollapsed(id);
+        return;
+      }
+      case 'edge-label': {
+        if (remappedEdges.has(id)) return;
+        const edge = cur.edges.find((x) => x.id === id);
+        if (edge === undefined) return;
+        if (e.shiftKey) { setSel({ ...s, edges: s.edges.includes(id) ? s.edges.filter((x) => x !== id) : [...s.edges, id] }); return; }
+        setSel({ nodes: [], edges: [id] });
+        begin({ kind: 'label', pointerId, edgeId: id, startScreen: toScreen(e.clientX, e.clientY), start: world, origin: edge.labelOffset ?? { x: 0, y: 0 }, before: cur, moved: false });
+        return;
+      }
       case 'line-end': {
         const node = byId.get(id);
         if (node === undefined) return;
@@ -996,6 +1214,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       }
       case 'edge': {
         e.preventDefault();
+        if (remappedEdges.has(id)) return;
         if (e.shiftKey) setSel({ ...s, edges: s.edges.includes(id) ? s.edges.filter((x) => x !== id) : [...s.edges, id] });
         else setSel({ nodes: [], edges: [id] });
         return;
@@ -1038,7 +1257,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       }
       case 'marquee': {
         const rect = normalizeRect(d.start, world);
-        const hits = nodesInRect(cur.nodes, rect);
+        const hits = nodesInRect(collapseView(cur).nodes, rect);
         const hitSet = new Set(hits);
         const edges = cur.edges.filter((x) => hitSet.has(x.sourceId) && hitSet.has(x.targetId)).map((x) => x.id);
         setSel({ nodes: [...new Set([...d.base.nodes, ...hits])], edges: [...new Set([...d.base.edges, ...edges])] });
@@ -1069,8 +1288,17 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       case 'connect':
       case 'endpoint': {
         const exclude = new Set<string>(d.kind === 'connect' ? [d.sourceId] : []);
-        const hit = hitTestNode(cur.nodes.filter(n => n.kind !== 'line'), world, exclude);
+        const hit = hitTestNode(collapseView(cur).nodes.filter(n => n.kind !== 'line'), world, exclude);
         setDrag({ ...d, current: world, targetId: hit?.id ?? null, targetPort: hit === null ? null : nearestPort(nodeRect(hit), world, hit.kind) });
+        return;
+      }
+      case 'label': {
+        const sp = toScreen(e.clientX, e.clientY);
+        if (!d.moved && distance(sp, d.startScreen) < DRAG_THRESHOLD_PX) return;
+        const clamp = (v: number): number => Math.max(-LABEL_OFFSET_MAX, Math.min(LABEL_OFFSET_MAX, Math.round(v)));
+        const offset = { x: clamp(d.origin.x + world.x - d.start.x), y: clamp(d.origin.y + world.y - d.start.y) };
+        setDoc({ ...cur, edges: cur.edges.map((x) => (x.id === d.edgeId ? { ...x, labelOffset: offset } : x)) });
+        if (!d.moved) setDrag({ ...d, moved: true });
         return;
       }
       case 'bend': {
@@ -1091,7 +1319,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     setDrag(null);
     setDropTargetId(null);
     if (cancelled) {
-      if (d.kind === 'move' || d.kind === 'resize' || d.kind === 'bend' || d.kind === 'line-end') setDoc({ ...d.before, viewport: docRef.current.viewport });
+      if (d.kind === 'move' || d.kind === 'resize' || d.kind === 'bend' || d.kind === 'line-end' || d.kind === 'label') setDoc({ ...d.before, viewport: docRef.current.viewport });
       return;
     }
     const cur = docRef.current;
@@ -1122,6 +1350,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       case 'bend':
       case 'line-end':
         commit(cur, d.before);
+        return;
+      case 'label':
+        if (d.moved) commit(cur, d.before);
         return;
       case 'connect': {
         const source = byId.get(d.sourceId);
@@ -1174,7 +1405,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       setEditing({ kind: 'node', id, value: n.label });
       return;
     }
-    if (role === 'edge' || role === 'midpoint') {
+    if (role === 'footnote' || role === 'collapse') return;
+    if (role === 'edge' || role === 'midpoint' || role === 'edge-label') {
+      if (remappedEdges.has(id)) return;
       const edge = cur.edges.find((x) => x.id === id);
       if (edge === undefined) return;
       setSel({ nodes: [], edges: [id] });
@@ -1184,14 +1417,15 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     if (role === null) {
       const world = toWorld(e.clientX, e.clientY);
       // Pointer capture can retarget double-clicks to the sheet instead of the shape.
-      const hit = hitTestNode(cur.nodes, world);
+      const shown = collapseView(cur);
+      const hit = hitTestNode(shown.nodes, world);
       if (hit !== null) {
         setSel({ nodes: [hit.id], edges: [] });
         if (hit.kind === 'line') return;
         setEditing({ kind: 'node', id: hit.id, value: hit.label });
         return;
       }
-      const edge = hitTestEdge(cur.edges, byId, world, 6 / cur.viewport.zoom);
+      const edge = hitTestEdge(shown.edges.filter((x) => !remappedEdges.has(x.id)), byId, world, 6 / cur.viewport.zoom);
       if (edge !== null) { setSel({ nodes: [], edges: [edge.id] }); setEditing({ kind: 'edge', id: edge.id, value: edge.label }); return; }
       const node = placeNode('process', world);
       addNodes([node]);
@@ -1205,6 +1439,14 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     if (isTypingTarget(e.target)) return;
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
+    if (presenting !== null) {
+      if (e.key === 'Escape') { e.preventDefault(); stopPresentation(); }
+      else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); stepPresentation(1); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); stepPresentation(-1); }
+      else if (e.key === 'Home') { e.preventDefault(); setPresenting({ ...presenting, index: 0 }); }
+      else if (e.key === 'End') { e.preventDefault(); setPresenting({ ...presenting, index: presenting.steps.length - 1 }); }
+      return;
+    }
     if (e.key === 'Escape' && lineTool) {
       e.preventDefault(); setLineTool(false);
       const active = dragRef.current;
@@ -1372,7 +1614,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   const z = view.zoom;
   const inv = 1 / z;
-  const ordered = useMemo(() => renderOrder(doc.nodes), [doc.nodes]);
+  const ordered = useMemo(() => renderOrder(display.nodes), [display.nodes]);
   const selNodeSet = new Set(sel.nodes);
   const selEdgeSet = new Set(sel.edges);
   const selectedNodes = doc.nodes.filter((n) => selNodeSet.has(n.id));
@@ -1380,7 +1622,15 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const singleNode = selectedNodes.length === 1 && selectedEdges.length === 0 ? selectedNodes[0] : undefined;
   const singleEdge = selectedNodes.length === 0 && selectedEdges.length === 1 ? selectedEdges[0] : undefined;
   const topSelected = topLevelSelection(doc.nodes, sel.nodes);
-  const routes = useMemo(() => new Map(doc.edges.map((x) => [x.id, edgeRoute(x, byId)] as const)), [doc.edges, byId]);
+  const routes = useMemo(() => new Map(display.edges.map((x) => [x.id, edgeRoute(x, byId)] as const)), [display.edges, byId]);
+  const footnotes = footnotesOf(doc);
+  const notesPosition = doc.notesPanel ?? 'bottom';
+  const showNotes = footnotes.length > 0 && !notesHidden;
+  const elementNotes = canvas?.elementNotes ?? [];
+  const keyDim = (stroke: string | undefined): boolean => keyFilter !== null && (stroke ?? '').toLowerCase() !== keyFilter;
+  const footnoteR = FOOTNOTE_RADIUS * Math.max(1, 0.75 / z);
+  const singleId = singleNode?.id ?? singleEdge?.id;
+  const singleFootnote = singleId === undefined ? undefined : footnotes.find((f) => f.targetId === singleId);
   const markerIds = useMemo(() => {
     const m = new Map<string, string>();
     for (const x of doc.edges) if (!m.has(x.stroke)) m.set(x.stroke, `${markerBase}-arrow-${m.size}`);
@@ -1419,7 +1669,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       const route = routes.get(editing.id);
       const edge = doc.edges.find((x) => x.id === editing.id);
       if (route === undefined || route === null || edge === undefined) return null;
-      const m = worldToScreen(pointAlong(route, 0.5), view);
+      const m = worldToScreen(edgeLabelCenter(route, edge), view);
       const fontSize = Math.max(11, (edge.fontSize ?? 12) * z);
       const height = Math.max(36, fontSize * 1.25 + 12);
       return { left: m.x - 90, top: m.y - height / 2, width: 180, height, fontSize };
@@ -1466,7 +1716,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   return (
     <div
       ref={rootRef}
-      className="dg-editor"
+      className={`dg-editor${presenting !== null ? ' dg-editor--presenting' : ''}`}
       tabIndex={0}
       aria-label="Diagram editor"
       onKeyDown={onKeyDown}
@@ -1489,6 +1739,48 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           <IconBtn label="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={() => { stepHistory('redo'); }}><Redo size={16} /></IconBtn>
           <span className="dg-divider" aria-hidden="true" />
           <IconBtn label={doc.grid ? 'Hide grid and snapping' : 'Show grid and snap to it'} pressed={doc.grid} onClick={toggleGrid}><Grid size={16} /></IconBtn>
+          <IconBtn label={doc.legend?.visible === true ? 'Hide colour key' : 'Show colour key'} pressed={doc.legend?.visible === true}
+            onClick={() => { const visible = doc.legend?.visible !== true; changeAnnotations(setLegend(doc, { ...(doc.legend ?? DEFAULT_LEGEND), visible }), true); if (!visible) setKeyFilter(null); }}>
+            <Legend size={16} />
+          </IconBtn>
+          <IconBtn label={footnotes.length === 0 ? 'Notes — add a footnote from a shape or connector toolbar' : showNotes ? 'Hide notes' : 'Show notes'}
+            pressed={showNotes} disabled={footnotes.length === 0} onClick={() => { setNotesHidden(showNotes); }}>
+            <ListNumbered size={16} />
+          </IconBtn>
+          <div className="dg-anchor">
+            <IconBtn label="Check text" pressed={menu === 'text-check'} onClick={() => { setMenu(menu === 'text-check' ? null : 'text-check'); }}><SpellCheck size={16} /></IconBtn>
+            {menu === 'text-check' && (
+              <div className="dg-popover dg-popover--end dg-popover--wide" role="dialog" aria-label="Check text">
+                <DiagramTextCheck doc={doc}
+                  onFix={(issues) => { commit(fixTextIssues(docRef.current, issues)); }}
+                  onSelect={(targetId) => {
+                    const cur = docRef.current;
+                    if (cur.nodes.some((n) => n.id === targetId)) setSel({ nodes: [targetId], edges: [] });
+                    else if (cur.edges.some((x) => x.id === targetId)) setSel({ nodes: [], edges: [targetId] });
+                    else { const fn = footnotesOf(cur).find((f) => f.id === targetId); if (fn !== undefined) { setNotesHidden(false); selectFootnoteTarget(fn.targetId, fn.id); } }
+                  }} />
+              </div>
+            )}
+          </div>
+          <div className="dg-anchor">
+            <IconBtn label="Named versions" pressed={menu === 'versions'} onClick={() => { setMenu(menu === 'versions' ? null : 'versions'); }}><RecentlyViewed size={16} /></IconBtn>
+            {menu === 'versions' && (
+              <div className="dg-popover dg-popover--end dg-popover--wide" role="dialog" aria-label="Named versions">
+                <DiagramVersions canvasId={canvasId} doc={doc} assets={blobsRef.current} flush={saveNow}
+                  notify={(message) => { notify('info', message, { key: 'versions' }); }}
+                  onRestore={(version) => {
+                    const cur = docRef.current;
+                    const next = { ...normalizeDocument(version.document), viewport: cur.viewport, grid: cur.grid };
+                    commit(next);
+                    pruneSelection(next);
+                    setMenu(null);
+                    notify('info', `Restored “${version.name}”. Undo (Ctrl+Z) to go back.`, { key: 'versions' });
+                  }} />
+              </div>
+            )}
+          </div>
+          <IconBtn label="Present" disabled={doc.nodes.length === 0} onClick={startPresentation}><PresentationFile size={16} /></IconBtn>
+          <span className="dg-divider" aria-hidden="true" />
           <button type="button" className="dg-text-btn" aria-expanded={propertiesOpen && !athenaOpen} onClick={() => { setAthenaOpen(false); setPropertiesOpen(athenaOpen || !propertiesOpen); }}>Properties</button>
           <button type="button" className={`dg-text-btn${athenaOpen ? ' dg-text-btn--active' : ''}`} aria-expanded={athenaOpen} onClick={() => { setAthenaMounted(true); setAthenaOpen(!athenaOpen); }}>Athena</button>
           <div className="dg-anchor">
@@ -1507,6 +1799,17 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   <label className="dg-check">
                     <input type="checkbox" className="dg-check__input" checked={exportGrid} onChange={(e) => { setExportGrid(e.target.checked); }} />
                     <span className="dg-check__label">Include grid</span>
+                  </label>
+                </section>
+                <section className="dg-popover__section">
+                  <h3 className="dg-popover__heading">Annotations</h3>
+                  <label className="dg-check">
+                    <input type="checkbox" className="dg-check__input" checked={exportFootnotes} disabled={footnotes.length === 0} onChange={(e) => { setExportFootnotes(e.target.checked); }} />
+                    <span className="dg-check__label">Include footnotes</span>
+                  </label>
+                  <label className="dg-check">
+                    <input type="checkbox" className="dg-check__input" checked={exportLegend} disabled={doc.legend?.visible !== true} onChange={(e) => { setExportLegend(e.target.checked); }} />
+                    <span className="dg-check__label">Include colour key</span>
                   </label>
                 </section>
                 <button type="button" className="dg-primary-btn" disabled={exporting || doc.nodes.length === 0} onClick={() => { void runExport(); }}>
@@ -1577,6 +1880,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           </button>
         </div>
 
+        <div className={`dg-stage dg-stage--${notesPosition}`}>
         <div ref={sheetRef} className={sheetClass} onDragOver={onDragOver} onDragLeave={() => { setDropHint(false); }} onDrop={onDrop}>
           <svg
             ref={svgRef} className="dg-canvas" role="application" aria-label="Diagram sheet"
@@ -1602,18 +1906,21 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {drag?.kind === 'draw-line' && <line className="dg-preview-line" x1={drag.start.x} y1={drag.start.y}
                 x2={drag.current.x} y2={drag.current.y} />}
               {ordered.map((n) => (
-                <NodeShape key={n.id} node={n} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id} />
+                <NodeShape key={n.id} node={n} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id}
+                  dimmed={n.kind !== 'line' && keyDim(n.stroke)} hiddenCount={display.hiddenCount.get(n.id) ?? 0} />
               ))}
-              {doc.edges.map((edge) => {
+              {display.edges.map((edge) => {
                 const route = routes.get(edge.id);
                 if (route === undefined || route === null) return null;
                 const d = pathD(route);
                 const marker = `url(#${markerIds.get(edge.stroke) ?? ''})`;
-                const mid = pointAlong(route, 0.5);
+                const mid = edgeLabelCenter(route, edge);
                 const { lines: labelLines, width: labelW, height: labelH, fontSize: labelFont, lineHeight } = edgeLabelLayout(edge);
                 const lines = editing?.kind === 'edge' && editing.id === edge.id ? [] : labelLines;
+                const remapped = remappedEdges.has(edge.id);
+                const edgeCls = ['dg-edge', selEdgeSet.has(edge.id) ? 'dg-edge--selected' : '', remapped ? 'dg-edge--collapsed' : '', keyFilter !== null ? 'dg-edge--dimmed' : ''].filter(Boolean).join(' ');
                 return (
-                  <g key={edge.id} className={`dg-edge${selEdgeSet.has(edge.id) ? ' dg-edge--selected' : ''}`} data-dg="edge" data-id={edge.id}>
+                  <g key={edge.id} className={edgeCls} data-dg={remapped ? undefined : 'edge'} data-id={edge.id}>
                     <path className="dg-edge__hit" d={d} strokeWidth={Math.max(14 * inv, (edge.strokeWidth ?? 1.5) + 6 * inv)} />
                     <path className="dg-edge__halo" d={d} style={{ strokeWidth: (edge.strokeWidth ?? 1.5) * z + 4 }} />
                     <path
@@ -1624,13 +1931,29 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                       markerStart={edge.arrows === 'both' ? marker : undefined}
                     />
                     {lines.length > 0 && (
-                      <g className="dg-edge__label">
+                      <g className="dg-edge__label" data-dg={remapped ? undefined : 'edge-label'} data-id={edge.id}>
+                        {!remapped && <title>Drag to move the label</title>}
                         <rect x={mid.x - labelW / 2} y={mid.y - labelH / 2} width={labelW} height={labelH} rx={3} />
                         <text x={mid.x} y={mid.y - labelH / 2 + 3 + labelFont} fontSize={labelFont} textAnchor="middle" fill={diagramEditorInk(edge.stroke === 'none' ? '#161616' : edge.stroke)}>
                           {lines.map((l, i) => <tspan key={i} x={mid.x} dy={i === 0 ? 0 : lineHeight}>{l}</tspan>)}
                         </text>
                       </g>
                     )}
+                  </g>
+                );
+              })}
+              {footnotes.map((fn, i) => {
+                if (display.hiddenBy.has(fn.targetId)) return null;
+                const at = footnoteAnchor(display, fn.targetId, byId);
+                if (at === null) return null;
+                const target = byId.get(fn.targetId);
+                const dimmed = target !== undefined ? target.kind !== 'line' && keyDim(target.stroke) : keyFilter !== null;
+                const cls = ['dg-marker', activeFootnote === fn.id ? 'dg-marker--active' : '', dimmed ? 'dg-marker--dimmed' : ''].filter(Boolean).join(' ');
+                return (
+                  <g key={fn.id} className={cls} data-dg="footnote" data-id={fn.id} role="link" aria-label={`Footnote ${i + 1}`}>
+                    <title>{`Footnote ${i + 1} — show its note`}</title>
+                    <circle cx={at.x} cy={at.y} r={footnoteR} />
+                    <text x={at.x} y={at.y} fontSize={footnoteR * (i + 1 >= 10 ? 1 : 1.2)} textAnchor="middle" dominantBaseline="central">{i + 1}</text>
                   </g>
                 );
               })}
@@ -1643,10 +1966,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 const host = byId.get(dropTargetId);
                 return host === undefined ? null : <rect className="dg-drop-target" x={host.x} y={host.y} width={host.width} height={host.height} />;
               })()}
-              {selectedNodes.map((n) => (
-                <rect key={`sel-${n.id}`} className="dg-selection-box" x={n.x - 3 * inv} y={n.y - 3 * inv} width={n.width + 6 * inv} height={n.height + 6 * inv} />
-              ))}
-              {singleNode !== undefined && singleNode.kind !== 'line' && !busyDrag && RESIZE_HANDLES.map((h) => {
+              {selectedNodes.map((raw) => {
+                const n = byId.get(raw.id) ?? raw;
+                return <rect key={`sel-${n.id}`} className="dg-selection-box" x={n.x - 3 * inv} y={n.y - 3 * inv} width={n.width + 6 * inv} height={n.height + 6 * inv} />;
+              })}
+              {singleNode !== undefined && singleNode.kind !== 'line' && singleNode.collapsed !== true && !busyDrag && RESIZE_HANDLES.map((h) => {
                 const pt = handlePoint(nodeRect(singleNode), h);
                 return <rect key={h} className={`dg-handle dg-handle--${h}`} data-dg="resize" data-id={singleNode.id} data-handle={h} x={pt.x - 4 * inv} y={pt.y - 4 * inv} width={8 * inv} height={8 * inv} />;
               })}
@@ -1712,6 +2036,24 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             </div>
           )}
 
+          <DiagramLegend doc={doc} filter={keyFilter} onFilter={setKeyFilter} onChange={changeAnnotations} readOnly={presenting !== null} />
+
+          {presenting !== null && (
+            <div className="dg-present" role="region" aria-label="Presentation" onPointerDown={(e) => { e.stopPropagation(); }}>
+              <div className="dg-present__caption">
+                <p className="dg-present__step">{presentStep?.number !== null && presentStep?.number !== undefined ? `Note ${presentStep.number}` : 'Step'} · {presenting.index + 1} of {presenting.steps.length}</p>
+                {presentStep !== null && presentStep.title !== '' && <h3 className="dg-present__title">{presentStep.title}</h3>}
+                {presentStep !== null && presentStep.text !== '' && <p className="dg-present__text">{presentStep.text}</p>}
+              </div>
+              <div className="dg-present__controls">
+                <IconBtn label="Previous (←)" disabled={presenting.index === 0} onClick={() => { stepPresentation(-1); }}><ChevronLeft size={16} /></IconBtn>
+                <IconBtn label="Next (→)" disabled={presenting.index >= presenting.steps.length - 1} onClick={() => { stepPresentation(1); }}><ChevronRight size={16} /></IconBtn>
+                <IconBtn label="Show whole diagram" onClick={() => { focusTarget(null, false); }}><FitToScreen size={16} /></IconBtn>
+                <button type="button" className="dg-text-btn" onClick={stopPresentation}>Exit (Esc)</button>
+              </div>
+            </div>
+          )}
+
           {toolbarPos !== null && selectedNodes.length > 0 && (
             <div className="dg-context" role="toolbar" aria-label="Shape actions" style={{ left: toolbarPos.left, top: toolbarPos.top }} onPointerDown={(e) => { e.stopPropagation(); }}>
               {singleNode !== undefined && singleNode.kind !== 'line' && <IconBtn label={singleNode.kind === 'image' ? 'Edit caption (Enter)' : 'Edit label (Enter)'} onClick={startEditing}><Edit size={16} /></IconBtn>}
@@ -1757,6 +2099,15 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                         </div>
                       </section>
                     )}
+                    {topSelected.length >= 2 && (
+                      <section className="dg-popover__section">
+                        <h3 className="dg-popover__heading">Match size (to first selected)</h3>
+                        <div className="dg-popover__row">
+                          <button type="button" className="dg-text-btn" onClick={() => { matchSize('width'); }}>Same width</button>
+                          <button type="button" className="dg-text-btn" onClick={() => { matchSize('height'); }}>Same height</button>
+                        </div>
+                      </section>
+                    )}
                     {topSelected.length >= 3 && (
                       <section className="dg-popover__section">
                         <h3 className="dg-popover__heading">Distribute</h3>
@@ -1785,6 +2136,15 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 )}
               </div>
               {singleNode?.kind === 'image' && <IconBtn label="Replace image" onClick={() => { chooseFile(singleNode.id); }}><Upload size={16} /></IconBtn>}
+              {singleNode !== undefined && isContainerKind(singleNode.kind) && (
+                <IconBtn label={singleNode.collapsed === true ? 'Expand container' : 'Collapse container'} pressed={singleNode.collapsed === true} onClick={() => { toggleCollapsed(singleNode.id); }}>
+                  {singleNode.collapsed === true ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                </IconBtn>
+              )}
+              {singleNode !== undefined && <>
+                <IconBtn label={singleFootnote === undefined ? 'Add footnote' : `Show footnote ${footnotes.indexOf(singleFootnote) + 1}`} pressed={singleFootnote !== undefined} onClick={() => { addFootnoteFor(singleNode.id); }}><ListNumbered size={16} /></IconBtn>
+                <IconBtn label="Ask Athena about this shape" onClick={() => { askAthena(singleNode.id); }}><Chat size={16} /></IconBtn>
+              </>}
               <span className="dg-divider" aria-hidden="true" />
               <IconBtn label="Duplicate (Ctrl+D)" onClick={duplicate}><Copy size={16} /></IconBtn>
               <IconBtn label="Delete (Del)" danger onClick={deleteSelected}><TrashCan size={16} /></IconBtn>
@@ -1794,6 +2154,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           {toolbarPos !== null && selectedNodes.length === 0 && selectedEdges.length > 0 && (
             <div className="dg-context" role="toolbar" aria-label="Connector actions" style={{ left: toolbarPos.left, top: toolbarPos.top }} onPointerDown={(e) => { e.stopPropagation(); }}>
               {singleEdge !== undefined && <IconBtn label="Edit label (Enter)" onClick={startEditing}><Edit size={16} /></IconBtn>}
+              {singleEdge !== undefined && <>
+                <IconBtn label={singleFootnote === undefined ? 'Add footnote' : `Show footnote ${footnotes.indexOf(singleFootnote) + 1}`} pressed={singleFootnote !== undefined} onClick={() => { addFootnoteFor(singleEdge.id); }}><ListNumbered size={16} /></IconBtn>
+                <IconBtn label="Ask Athena about this connector" onClick={() => { askAthena(singleEdge.id); }}><Chat size={16} /></IconBtn>
+                {singleEdge.labelOffset !== undefined && <IconBtn label="Reset label position" onClick={() => { updateEdges([singleEdge.id], (x) => { const { labelOffset: _drop, ...rest } = x; return rest; }); }}><Reset size={16} /></IconBtn>}
+              </>}
               <Segmented
                 label="Connector route" value={only(edgeRoutes) ?? ''} compact
                 options={[{ value: 'straight', label: 'Straight', glyph: <LineGlyph kind="straight" /> }, { value: 'orthogonal', label: 'Elbow', glyph: <LineGlyph kind="orthogonal" /> }]}
@@ -1862,6 +2227,19 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             </div>
           )}
         </div>
+        {showNotes && presenting === null && (
+          <DiagramFootnotesPanel
+            canvasId={canvasId} doc={doc} activeId={activeFootnote} position={notesPosition} elementNotes={elementNotes}
+            onChange={changeAnnotations}
+            onSelectTarget={(targetId, footnoteId) => { selectFootnoteTarget(targetId, footnoteId); }}
+            onPosition={(position) => { changeAnnotations({ ...docRef.current, notesPanel: position }, false); }}
+            onHide={() => { setNotesHidden(true); }}
+            onOpenNote={onOpenNote}
+            beforeLink={beforeElementLink}
+            onCopied={(message) => { notify('info', message, { key: 'footnote-copy' }); }}
+          />
+        )}
+        </div>
       </div>
 
       {athenaMounted && <aside className="dg-athena" aria-label="Diagram Athena" hidden={!athenaOpen}>
@@ -1869,7 +2247,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         <p className="dg-athena__hint">{saveStatus === 'saved'
           ? 'Athena reads saved shapes, descriptions and connectors, and can compare other diagrams.'
           : 'Changes are not saved yet. Athena can only read the last saved diagram.'}</p>
-        <ThinkAthenaPanel pageContext={athenaContext} />
+        <ThinkAthenaPanel pageContext={athenaContext} promptRequest={athenaPrompt} />
       </aside>}
       {propertiesOpen && !athenaOpen && <aside className="dg-properties" aria-label="Diagram properties">
         <div className="dg-properties__heading"><h3>Properties</h3><IconBtn label="Close properties" onClick={() => { setPropertiesOpen(false); }}><Close size={16} /></IconBtn></div>
@@ -1915,6 +2293,16 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             else { setDoc(next); markDirty(SAVE_DELAY_MS); }
           }}
         /> : <p className="dg-properties__empty">{sel.nodes.length + sel.edges.length > 1 ? 'Select one shape or connector to edit its properties.' : 'Select a shape or connector to edit its title and description.'}</p>}
+        {singleId !== undefined && <DiagramElementNotes
+          key={`notes-${singleId}`} canvasId={canvasId} elementId={singleId} title="Notes linked to this shape"
+          notes={elementNotes.filter((l) => l.elementId === singleId)} onOpenNote={onOpenNote} beforeChange={beforeElementLink}
+        />}
+        {singleId !== undefined && <div className="dg-properties__actions">
+          <button type="button" className="dg-text-btn" onClick={() => { addFootnoteFor(singleId); }}>
+            <ListNumbered size={16} /> {singleFootnote === undefined ? 'Add footnote' : `Footnote ${footnotes.indexOf(singleFootnote) + 1}`}
+          </button>
+          <button type="button" className="dg-text-btn" onClick={() => { askAthena(singleId); }}><Chat size={16} /> Ask Athena</button>
+        </div>}
         <DiagramNoteLinks canvasId={canvasId} notes={canvas?.linkedNotes ?? []} onOpenNote={onOpenNote} />
       </aside>}
       </div>
@@ -1951,7 +2339,7 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
   return <div className="dg-properties__fields">
     <p className="dg-properties__kind">{kind}</p>
     <label className="dg-properties__field">Title
-      <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label}
+      <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label} spellCheck
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('label', e.target.value); }} />
     </label>
     <div className="dg-properties__border">
@@ -1977,7 +2365,7 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
     </label>
     </div>
     <label className="dg-properties__field">Description
-      <textarea aria-label="Shape or connector description" rows={8} maxLength={10000} value={item.description ?? ''}
+      <textarea aria-label="Shape or connector description" rows={8} maxLength={10000} value={item.description ?? ''} spellCheck
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('description', e.target.value); }} />
     </label>
     {(!('kind' in item) || item.kind !== 'line') && <div className="dg-properties__alignment">
@@ -2026,9 +2414,9 @@ function TextLines({ lines, cx, cy, fontSize, color, anchorX, anchor = 'middle',
   );
 }
 
-interface NodeShapeProps { node: DiagramNode; asset: AssetState | undefined; selected: boolean; editing: boolean }
+interface NodeShapeProps { node: DiagramNode; asset: AssetState | undefined; selected: boolean; editing: boolean; dimmed?: boolean; hiddenCount?: number }
 
-const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, editing }: NodeShapeProps): React.ReactElement {
+const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, editing, dimmed = false, hiddenCount = 0 }: NodeShapeProps): React.ReactElement {
   const { x, y, width: w, height: h, fontSize: fs } = n;
   const { fill, stroke, textColor: color } = diagramEditorNodeColours(n);
   const cx = x + w / 2;
@@ -2115,10 +2503,38 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
     const layout = diagramTextLayout({ ...n, label });
     text = <TextLines lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
   }
+  const collapsible = n.kind === 'container' || n.kind === 'swimlane';
+  const collapsed = collapsible && n.collapsed === true;
+  let extra: React.ReactNode = null;
+  if (collapsed) {
+    const badge = hiddenCount > 0 ? `+${hiddenCount}` : '';
+    body = <rect {...common} x={x} y={y} width={w} height={h} rx={4} />;
+    text = <TextLines lines={wrapText(label, Math.max(20, w - 76), fs, 1)} cx={x + 30} cy={y + h / 2} anchor="start" fontSize={fs} color={color} weight={600} />;
+    extra = badge === '' ? null : (
+      <g className="dg-collapse-badge" pointerEvents="none">
+        <rect x={x + w - 44} y={y + h / 2 - 9} width={36} height={18} rx={9} />
+        <text x={x + w - 26} y={y + h / 2} fontSize={11} textAnchor="middle" dominantBaseline="central">{badge}</text>
+      </g>
+    );
+  }
+  const toggle = collapsible && (collapsed || selected) ? (() => {
+    const cx0 = x + 15;
+    const cy0 = collapsed ? y + h / 2 : n.kind === 'swimlane' ? y + 14 : y + Math.min(containerHeader(n).height, h) / 2;
+    return (
+      <g className="dg-collapse" data-dg="collapse" data-id={n.id}>
+        <title>{collapsed ? 'Expand' : 'Collapse'}</title>
+        <rect x={cx0 - 9} y={cy0 - 9} width={18} height={18} rx={3} />
+        <path d={collapsed ? `M${cx0 - 2} ${cy0 - 4} L${cx0 + 3} ${cy0} L${cx0 - 2} ${cy0 + 4}` : `M${cx0 - 4} ${cy0 - 2} L${cx0} ${cy0 + 3} L${cx0 + 4} ${cy0 - 2}`} />
+      </g>
+    );
+  })() : null;
+  const cls = ['dg-node', `dg-node--${n.kind}`, n.stroke === 'none' ? 'dg-node--borderless' : '', selected ? 'dg-node--selected' : '', dimmed ? 'dg-node--dimmed' : '', collapsed ? 'dg-node--collapsed' : ''].filter(Boolean).join(' ');
   return (
-    <g className={`dg-node dg-node--${n.kind}${n.stroke === 'none' ? ' dg-node--borderless' : ''}${selected ? ' dg-node--selected' : ''}`} data-dg="node" data-id={n.id}>
+    <g className={cls} data-dg="node" data-id={n.id}>
       {body}
       {text}
+      {extra}
+      {toggle}
     </g>
   );
 });
@@ -2236,7 +2652,7 @@ function LabelEditor({ initial, box, multiline, onCommit, onCancel }: {
   };
   return (
     <textarea
-      ref={ref} className={`dg-label-editor${multiline ? '' : ' dg-label-editor--single'}`} aria-label="Label" value={value}
+      ref={ref} spellCheck className={`dg-label-editor${multiline ? '' : ' dg-label-editor--single'}`} aria-label="Label" value={value}
       style={{ left: box.left, top: box.top, width: box.width, height: box.height, fontSize: box.fontSize }}
       onChange={(e) => { setValue(e.target.value); }}
       onBlur={() => { finish(true); }}

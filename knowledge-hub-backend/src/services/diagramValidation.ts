@@ -10,7 +10,7 @@
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { ValidationError } from '../types/errors.js';
 import type {
-  DiagramDocument, DiagramEdge, DiagramKind, DiagramNode, DiagramPoint, DiagramPort,
+  DiagramDocument, DiagramEdge, DiagramFootnote, DiagramKind, DiagramLegend, DiagramLegendEntry, DiagramNode, DiagramPoint, DiagramPort,
 } from '../types/diagram.js';
 
 export const DIAGRAM_LIMITS = {
@@ -24,6 +24,10 @@ export const DIAGRAM_LIMITS = {
   maxNodeLabelChars: 2000,
   maxEdgeLabelChars: 500,
   maxDescriptionChars: 10_000,
+  maxFootnotes: 200,
+  maxLegendEntries: 50,
+  maxLegendLabelChars: 120,
+  maxLabelOffset: 10_000,
   minFontSize: 6,
   maxFontSize: 200,
   /** |x|, |y| of the viewport pan. */
@@ -58,6 +62,11 @@ const ROUTES: readonly DiagramEdge['route'][] = ['straight', 'orthogonal'];
 const ARROWS: readonly DiagramEdge['arrows'][] = ['none', 'end', 'both'];
 
 const DOC_KEYS = ['version', 'nodes', 'edges', 'grid', 'viewport'] as const;
+const DOC_OPTIONAL_KEYS = ['footnotes', 'legend', 'notesPanel'] as const;
+const FOOTNOTE_KEYS = ['id', 'targetId', 'source'] as const;
+const LEGEND_KEYS = ['visible', 'position', 'entries'] as const;
+const LEGEND_ENTRY_KEYS = ['colour', 'label'] as const;
+const LEGEND_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
 const VIEWPORT_KEYS = ['x', 'y', 'zoom'] as const;
 const POINT_KEYS = ['x', 'y'] as const;
 const NODE_KEYS = ['id', 'kind', 'label', 'x', 'y', 'width', 'height', 'parentId', 'fill', 'stroke', 'textColor', 'fontSize', 'assetId'] as const;
@@ -129,6 +138,12 @@ export function validateRevision(v: unknown): number {
   return v;
 }
 
+function labelOffset(v: unknown, path: string): DiagramPoint {
+  const o = exactObject(v, POINT_KEYS, path);
+  const m = DIAGRAM_LIMITS.maxLabelOffset;
+  return { x: num(o['x'], `${path}.x`, -m, m), y: num(o['y'], `${path}.y`, -m, m) };
+}
+
 function validatePoint(v: unknown, path: string): DiagramPoint {
   const o = exactObject(v, POINT_KEYS, path);
   const c = DIAGRAM_LIMITS.maxCoordinate;
@@ -136,7 +151,7 @@ function validatePoint(v: unknown, path: string): DiagramPoint {
 }
 
 function validateNode(v: unknown, path: string): DiagramNode {
-  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd']);
+  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd', 'collapsed']);
   const c = DIAGRAM_LIMITS.maxCoordinate;
   const kind = oneOf(o['kind'], KINDS, `${path}.kind`);
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
@@ -166,12 +181,47 @@ function validateNode(v: unknown, path: string): DiagramNode {
     fontSize: num(o['fontSize'], `${path}.fontSize`, DIAGRAM_LIMITS.minFontSize, DIAGRAM_LIMITS.maxFontSize),
     ...(o['textAlign'] !== undefined ? { textAlign: oneOf(o['textAlign'], ['left', 'center', 'right'] as const, `${path}.textAlign`) } : {}),
     ...(o['textVerticalAlign'] !== undefined ? { textVerticalAlign: oneOf(o['textVerticalAlign'], ['top', 'middle', 'bottom'] as const, `${path}.textVerticalAlign`) } : {}),
+    ...(o['collapsed'] !== undefined ? { collapsed: collapsedFlag(o['collapsed'], kind, `${path}.collapsed`) } : {}),
     assetId,
   };
 }
 
+function collapsedFlag(v: unknown, kind: DiagramKind, path: string): boolean {
+  if (!PARENT_KINDS.has(kind)) fail(path, 'is only allowed on containers and swimlanes');
+  return bool(v, path);
+}
+
+function validateFootnote(v: unknown, path: string): DiagramFootnote {
+  const o = exactObject(v, FOOTNOTE_KEYS, path, ['text']);
+  const source = oneOf(o['source'], ['description', 'custom'] as const, `${path}.source`);
+  return {
+    id: uuid(o['id'], `${path}.id`),
+    targetId: uuid(o['targetId'], `${path}.targetId`),
+    source,
+    ...(o['text'] !== undefined ? { text: str(o['text'], `${path}.text`, DIAGRAM_LIMITS.maxDescriptionChars) } : {}),
+  };
+}
+
+function validateLegend(v: unknown, path: string): DiagramLegend {
+  const o = exactObject(v, LEGEND_KEYS, path);
+  const colours = new Set<string>();
+  const entries = array(o['entries'], `${path}.entries`, DIAGRAM_LIMITS.maxLegendEntries).map((e, i): DiagramLegendEntry => {
+    const at = `${path}.entries[${i}]`;
+    const entry = exactObject(e, LEGEND_ENTRY_KEYS, at, ['hidden']);
+    const colour = color(entry['colour'], `${at}.colour`);
+    if (colours.has(colour.toLowerCase())) fail(`${at}.colour`, 'is a duplicate colour');
+    colours.add(colour.toLowerCase());
+    return {
+      colour,
+      label: str(entry['label'], `${at}.label`, DIAGRAM_LIMITS.maxLegendLabelChars),
+      ...(entry['hidden'] !== undefined ? { hidden: bool(entry['hidden'], `${at}.hidden`) } : {}),
+    };
+  });
+  return { visible: bool(o['visible'], `${path}.visible`), position: oneOf(o['position'], LEGEND_POSITIONS, `${path}.position`), entries };
+}
+
 function validateEdge(v: unknown, path: string): DiagramEdge {
-  const o = exactObject(v, EDGE_KEYS, path, ['description', 'strokeWidth', 'fontSize']);
+  const o = exactObject(v, EDGE_KEYS, path, ['description', 'strokeWidth', 'fontSize', 'labelOffset']);
   const waypoints = array(o['waypoints'], `${path}.waypoints`, DIAGRAM_LIMITS.maxWaypointsPerEdge)
     .map((p, i) => validatePoint(p, `${path}.waypoints[${i}]`));
   return {
@@ -183,6 +233,7 @@ function validateEdge(v: unknown, path: string): DiagramEdge {
     route: oneOf(o['route'], ROUTES, `${path}.route`),
     waypoints,
     label: str(o['label'], `${path}.label`, DIAGRAM_LIMITS.maxEdgeLabelChars),
+    ...(o['labelOffset'] !== undefined ? { labelOffset: labelOffset(o['labelOffset'], `${path}.labelOffset`) } : {}),
     ...(o['fontSize'] !== undefined ? { fontSize: num(o['fontSize'], `${path}.fontSize`, DIAGRAM_LIMITS.minFontSize, DIAGRAM_LIMITS.maxFontSize) } : {}),
     ...(o['description'] !== undefined ? { description: str(o['description'], `${path}.description`, DIAGRAM_LIMITS.maxDescriptionChars) } : {}),
     stroke: color(o['stroke'], `${path}.stroke`),
@@ -198,7 +249,7 @@ function validateEdge(v: unknown, path: string): DiagramEdge {
  * image nodes may only reference those.
  */
 export function validateDiagramDocument(input: unknown, knownAssetIds: ReadonlySet<string>): DiagramDocument {
-  const o = exactObject(input, DOC_KEYS, 'document');
+  const o = exactObject(input, DOC_KEYS, 'document', DOC_OPTIONAL_KEYS);
   if (o['version'] !== 1) fail('document.version', 'must be 1');
   const nodes = array(o['nodes'], 'document.nodes', DIAGRAM_LIMITS.maxNodes).map((n, i) => validateNode(n, `document.nodes[${i}]`));
   const edges = array(o['edges'], 'document.edges', DIAGRAM_LIMITS.maxEdges).map((e, i) => validateEdge(e, `document.edges[${i}]`));
@@ -210,6 +261,10 @@ export function validateDiagramDocument(input: unknown, knownAssetIds: ReadonlyS
     zoom: num(vp['zoom'], 'document.viewport.zoom', DIAGRAM_LIMITS.minZoom, DIAGRAM_LIMITS.maxZoom),
   };
   const grid = bool(o['grid'], 'document.grid');
+  const footnotes = o['footnotes'] === undefined ? undefined
+    : array(o['footnotes'], 'document.footnotes', DIAGRAM_LIMITS.maxFootnotes).map((f, i) => validateFootnote(f, `document.footnotes[${i}]`));
+  const legend = o['legend'] === undefined ? undefined : validateLegend(o['legend'], 'document.legend');
+  const notesPanel = o['notesPanel'] === undefined ? undefined : oneOf(o['notesPanel'], ['bottom', 'right'] as const, 'document.notesPanel');
 
   // Ids are unique across nodes and edges (case-insensitively); references match exactly.
   const seen = new Set<string>();
@@ -253,7 +308,25 @@ export function validateDiagramDocument(input: unknown, knownAssetIds: ReadonlyS
     for (const id of chain) state.set(id, 'done');
   });
 
-  return { version: 1, nodes, edges, grid, viewport };
+  if (footnotes !== undefined) {
+    const edgeIds = new Set(edges.map(e => e.id));
+    const targets = new Set<string>();
+    footnotes.forEach((f, i) => {
+      const key = f.id.toLowerCase();
+      if (seen.has(key)) fail(`document.footnotes[${i}].id`, 'is a duplicate id');
+      seen.add(key);
+      if (!byId.has(f.targetId) && !edgeIds.has(f.targetId)) fail(`document.footnotes[${i}].targetId`, 'references a missing shape or connector');
+      if (targets.has(f.targetId)) fail(`document.footnotes[${i}].targetId`, 'already has a footnote');
+      targets.add(f.targetId);
+    });
+  }
+
+  return {
+    version: 1, nodes, edges, grid, viewport,
+    ...(footnotes !== undefined ? { footnotes } : {}),
+    ...(legend !== undefined ? { legend } : {}),
+    ...(notesPanel !== undefined ? { notesPanel } : {}),
+  };
 }
 
 // ─── Assets ─────────────────────────────────────────────────────────────────

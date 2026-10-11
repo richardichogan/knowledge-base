@@ -635,7 +635,19 @@ export function normalizeDocument(doc: DiagramDocument): DiagramDocument {
     .map((e) => ({ ...e, waypoints: Array.isArray(e.waypoints) ? e.waypoints : [] }));
   const v = doc.viewport;
   const viewport = v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.zoom) && v.zoom > 0 ? v : { x: 0, y: 0, zoom: 1 };
-  return { version: 1, nodes: fixed, edges, grid: doc.grid !== false, viewport };
+  const targets = new Set([...ids, ...edges.map((e) => e.id)]);
+  const used = new Set<string>();
+  const footnotes = (Array.isArray(doc.footnotes) ? doc.footnotes : []).filter((f) => {
+    if (!targets.has(f.targetId) || used.has(f.targetId)) return false;
+    used.add(f.targetId);
+    return true;
+  });
+  return {
+    version: 1, nodes: fixed, edges, grid: doc.grid !== false, viewport,
+    ...(footnotes.length > 0 ? { footnotes } : {}),
+    ...(doc.legend !== undefined ? { legend: doc.legend } : {}),
+    ...(doc.notesPanel !== undefined ? { notesPanel: doc.notesPanel } : {}),
+  };
 }
 
 // ── Viewport ─────────────────────────────────────────────────────────────────
@@ -722,9 +734,15 @@ export function edgePoints(edge: DiagramEdge, nodes: readonly DiagramNode[]): Di
 export const EDGE_LABEL_WIDTH = 160;
 export const EDGE_LABEL_FONT = 12;
 
+/** Centre of a connector label: the route midpoint plus the user's drag offset. */
+export function edgeLabelCenter(route: readonly DiagramPoint[], edge: Pick<DiagramEdge, 'labelOffset'>): DiagramPoint {
+  const m = pointAlong(route, 0.5);
+  return edge.labelOffset === undefined ? m : { x: m.x + edge.labelOffset.x, y: m.y + edge.labelOffset.y };
+}
+
 export function edgeLabelLayout(edge: Pick<DiagramEdge, 'label' | 'fontSize'>): { fontSize: number; lines: string[]; lineHeight: number; width: number; height: number } {
   const fontSize = edge.fontSize ?? EDGE_LABEL_FONT;
-  const lines = edge.label.trim() === '' ? [] : wrapText(edge.label, EDGE_LABEL_WIDTH, fontSize, 3);
+  const lines = edge.label.trim() === '' ? [] : wrapText(edge.label.trim(), EDGE_LABEL_WIDTH, fontSize, 3);
   const lineHeight = fontSize * 1.25;
   return {
     fontSize, lines, lineHeight,
@@ -745,7 +763,7 @@ export function diagramBounds(doc: Pick<DiagramDocument, 'nodes' | 'edges'>, pad
       const layout = edgeLabelLayout(e);
       const w = layout.width + 4;
       const h = layout.height + 6;
-      const m = pointAlong(route, 0.5);
+      const m = edgeLabelCenter(route, e);
       rects.push({ x: m.x - w / 2, y: m.y - h / 2 - 8, width: w, height: h + 8 });
     }
   }

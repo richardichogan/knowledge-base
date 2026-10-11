@@ -18,7 +18,8 @@ import type { Pool, PoolClient } from 'pg';
 import { getDb } from '../db/db.js';
 import { upsertNode } from './nodeService.js';
 import { canvasTypeMismatch, initDiagram } from './diagramService.js';
-import type { CanvasType } from '../types/diagram.js';
+import type { CanvasType, DiagramDocument } from '../types/diagram.js';
+import { NotFoundError, ValidationError } from '../types/errors.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,12 @@ export type NodeType = 'hub_ref' | 'text' | 'ai_output';
 export type RefType  = 'discover_item' | 'spark' | 'note' | 'content_item' | 'ai_session';
 
 export interface LinkedNote { id: string; title: string }
+
+/** A Think note linked to one shape, connector or footnote of a diagram. */
+export interface ElementNote { elementId: string; noteId: string; title: string }
+
+/** The diagram element a note is linked to, for that note's Connections tab. */
+export interface LinkedElement { elementId: string; label: string; footnote: number | null }
 
 export interface CanvasSummary {
   id: string;
@@ -38,6 +45,8 @@ export interface CanvasSummary {
   /** Brainstorm cards, or diagram nodes for a diagram canvas. */
   nodeCount: number;
   canvasType: CanvasType;
+  /** Only when listing canvases for a note: diagram elements that note is linked to. */
+  linkedElements?: LinkedElement[];
 }
 
 export interface CanvasNode {
@@ -73,6 +82,8 @@ export interface CanvasFull extends CanvasSummary {
   viewport: { x: number; y: number; zoom: number };
   nodes: CanvasNode[];
   edges: CanvasEdge[];
+  /** Diagram canvases: notes linked to individual shapes, connectors and footnotes. */
+  elementNotes: ElementNote[];
 }
 
 /** One change to a canvas. Ids are client-generated UUIDs, so changes apply optimistically. */
@@ -197,12 +208,47 @@ export function assertBrainstorm(map: Pick<CanvasSummary, 'canvasType'>): void {
 
 export async function listCanvases(noteId?: string): Promise<CanvasSummary[]> {
   const db = getDb();
-  const res = noteId === undefined
-    ? await db.query<Record<string, unknown>>(`${SUMMARY_SQL} ORDER BY c.updated_at DESC`)
-    : await db.query<Record<string, unknown>>(
-      `${SUMMARY_SQL} WHERE EXISTS (SELECT 1 FROM canvas_notes l WHERE l.canvas_id = c.id AND l.note_id = $1) ORDER BY c.updated_at DESC`,
-      [noteId]);
-  return res.rows.map(rowToSummary);
+  if (noteId === undefined) {
+    const res = await db.query<Record<string, unknown>>(`${SUMMARY_SQL} ORDER BY c.updated_at DESC`);
+    return res.rows.map(rowToSummary);
+  }
+  const [res, elements] = await Promise.all([
+    db.query<Record<string, unknown>>(
+      `${SUMMARY_SQL} WHERE EXISTS (SELECT 1 FROM canvas_notes l WHERE l.canvas_id = c.id AND l.note_id = $1)
+          OR EXISTS (SELECT 1 FROM diagram_element_notes e WHERE e.canvas_id = c.id AND e.note_id = $1)
+        ORDER BY c.updated_at DESC`,
+      [noteId]),
+    db.query<{ canvas_id: string; element_id: string; document: DiagramDocument | null }>(
+      `SELECT e.canvas_id::text, e.element_id::text, d.document
+         FROM diagram_element_notes e LEFT JOIN canvas_diagrams d ON d.canvas_id = e.canvas_id
+        WHERE e.note_id = $1 ORDER BY e.created_at`,
+      [noteId]),
+  ]);
+  const byCanvas = new Map<string, LinkedElement[]>();
+  for (const row of elements.rows) {
+    const element = describeElement(row.document, row.element_id);
+    if (element === null) continue;
+    byCanvas.set(row.canvas_id, [...(byCanvas.get(row.canvas_id) ?? []), element]);
+  }
+  return res.rows.map(rowToSummary).map((c) => {
+    const linkedElements = byCanvas.get(c.id);
+    return linkedElements === undefined ? c : { ...c, linkedElements };
+  });
+}
+
+/** Label and footnote number for a node, edge or footnote id in a diagram document. */
+export function describeElement(document: DiagramDocument | null, elementId: string): LinkedElement | null {
+  if (document === null) return null;
+  const footnotes = document.footnotes ?? [];
+  const footnoteIndex = footnotes.findIndex((f) => f.id === elementId);
+  const targetId = footnoteIndex >= 0 ? footnotes[footnoteIndex]!.targetId : elementId;
+  const node = document.nodes.find((n) => n.id === targetId);
+  const edge = node === undefined ? document.edges.find((e) => e.id === targetId) : undefined;
+  if (node === undefined && edge === undefined) return null;
+  const marker = footnoteIndex >= 0 ? footnoteIndex : footnotes.findIndex((f) => f.targetId === targetId);
+  const raw = (node?.label ?? edge?.label ?? '').trim().replace(/\s+/g, ' ');
+  const label = raw !== '' ? raw : node !== undefined ? `Untitled ${node.kind}` : 'Connector';
+  return { elementId, label, footnote: marker >= 0 ? marker + 1 : null };
 }
 
 export interface CreateMapInput {
@@ -268,6 +314,7 @@ export async function getCanvas(id: string): Promise<CanvasFull | null> {
     viewport: vp.rows[0]?.viewport ?? { x: 0, y: 0, zoom: 1 },
     nodes: nodesRes.rows.map(rowToNode),
     edges: edgesRes.rows.map(rowToEdge),
+    elementNotes: await listElementNotes(db, id),
   };
 }
 
@@ -311,6 +358,34 @@ export async function unlinkNote(canvasId: string, noteId: string): Promise<void
   await db.query(`DELETE FROM canvas_notes WHERE canvas_id = $1 AND note_id = $2`, [canvasId, noteId]);
   await db.query(`UPDATE canvases SET updated_at = NOW() WHERE id = $1`, [canvasId]);
   scheduleGraphSync(canvasId);
+}
+
+// ─── Diagram element notes ───────────────────────────────────────────────────
+
+async function listElementNotes(db: Pool | PoolClient, canvasId: string): Promise<ElementNote[]> {
+  const r = await db.query<{ element_id: string; note_id: string; title: string }>(
+    `SELECT e.element_id::text, e.note_id, ${NOTE_TITLE_SQL} AS title
+       FROM diagram_element_notes e JOIN notes n ON n.id::text = e.note_id AND n.status = 'active'
+      WHERE e.canvas_id = $1 ORDER BY e.created_at`, [canvasId]);
+  return r.rows.map((row) => ({ elementId: row.element_id, noteId: row.note_id, title: row.title }));
+}
+
+/** Links a Think note to one diagram element. 404 if the note isn't an active note. */
+export async function linkElementNote(canvasId: string, elementId: string, noteId: string): Promise<void> {
+  const db = getDb();
+  if (!UUID_RE.test(elementId)) throw new ValidationError('elementId must be a UUID', { elementId: 'invalid' });
+  if (await noteTitle(db, noteId) === null) throw new NotFoundError('Note');
+  await db.query(
+    `INSERT INTO diagram_element_notes (canvas_id, element_id, note_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+    [canvasId, elementId, noteId]);
+  await db.query(`UPDATE canvases SET updated_at = NOW() WHERE id = $1`, [canvasId]);
+}
+
+export async function unlinkElementNote(canvasId: string, elementId: string, noteId: string): Promise<void> {
+  if (!UUID_RE.test(elementId)) throw new ValidationError('elementId must be a UUID', { elementId: 'invalid' });
+  const db = getDb();
+  await db.query(`DELETE FROM diagram_element_notes WHERE canvas_id = $1 AND element_id = $2 AND note_id = $3`, [canvasId, elementId, noteId]);
+  await db.query(`UPDATE canvases SET updated_at = NOW() WHERE id = $1`, [canvasId]);
 }
 
 // ─── Changes ──────────────────────────────────────────────────────────────────

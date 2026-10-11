@@ -1524,6 +1524,37 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /** Link a note to one diagram shape, connector or footnote. */
+  async linkElementNote(id: string, elementId: string, noteId: string): Promise<ApiResponse<CanvasFullApi>> {
+    const r = await this.client.post<ApiResponse<CanvasFullApi>>(`/api/canvases/${id}/elements/${elementId}/notes`, { noteId });
+    return r.data;
+  }
+
+  async unlinkElementNote(id: string, elementId: string, noteId: string): Promise<ApiResponse<CanvasFullApi>> {
+    const r = await this.client.delete<ApiResponse<CanvasFullApi>>(`/api/canvases/${id}/elements/${elementId}/notes/${encodeURIComponent(noteId)}`);
+    return r.data;
+  }
+
+  async listDiagramVersions(id: string): Promise<ApiResponse<DiagramVersionSummaryApi[]>> {
+    const r = await this.client.get<ApiResponse<DiagramVersionSummaryApi[]>>(`/api/canvases/${id}/versions`);
+    return r.data;
+  }
+
+  /** Saves the last saved document (not unsaved edits) as a named version. */
+  async createDiagramVersion(id: string, name: string): Promise<ApiResponse<DiagramVersionSummaryApi>> {
+    const r = await this.client.post<ApiResponse<DiagramVersionSummaryApi>>(`/api/canvases/${id}/versions`, { name });
+    return r.data;
+  }
+
+  async getDiagramVersion(id: string, versionId: string): Promise<ApiResponse<DiagramVersionApi>> {
+    const r = await this.client.get<ApiResponse<DiagramVersionApi>>(`/api/canvases/${id}/versions/${versionId}`);
+    return r.data;
+  }
+
+  async deleteDiagramVersion(id: string, versionId: string): Promise<void> {
+    await this.client.delete(`/api/canvases/${id}/versions/${versionId}`);
+  }
+
   /** Related content for an idea; its current text is sent so unsaved edits count. */
   async getCanvasSuggestions(id: string, idea: { nodeId?: string; label?: string; body?: string; contextLabels?: string } = {}): Promise<ApiResponse<MapSuggestionApi[]>> {
     const r = await this.client.get<ApiResponse<MapSuggestionApi[]>>(`/api/canvases/${id}/suggestions`, {
@@ -1723,7 +1754,13 @@ export interface CanvasSummaryApi {
   project: string | null; createdAt: string; updatedAt: string;
   linkedNotes: Array<{ id: string; title: string }>;
   nodeCount: number;
+  /** Only when listed for a note: the diagram shapes/connectors/footnotes that note is linked to. */
+  linkedElements?: Array<{ elementId: string; label: string; footnote: number | null }>;
 }
+
+export interface DiagramElementNoteApi { elementId: string; noteId: string; title: string }
+export interface DiagramVersionSummaryApi { id: string; name: string; revision: number; createdAt: string }
+export interface DiagramVersionApi extends DiagramVersionSummaryApi { document: DiagramDocument }
 
 /** A card on a canvas: content (refType/refId) or your own idea. `body` is your annotation. */
 export interface CanvasNodeApi {
@@ -1749,6 +1786,8 @@ export interface CanvasFullApi extends CanvasSummaryApi {
   viewport: { x: number; y: number; zoom: number };
   nodes: CanvasNodeApi[];
   edges: CanvasEdgeApi[];
+  /** Diagram only: notes linked to individual shapes, connectors and footnotes. */
+  elementNotes?: DiagramElementNoteApi[];
 }
 
 /** One change to a canvas (ids are client-generated UUIDs). */

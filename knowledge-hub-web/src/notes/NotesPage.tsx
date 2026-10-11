@@ -113,7 +113,10 @@ export const NotesPage: React.FC = () => {
     const linkedMapId = searchParams.get('mapId');
     if (linkedMapId !== null) {
       openMap(linkedMapId);
+      const footnote = Number(searchParams.get('footnote'));
+      if (Number.isInteger(footnote) && footnote > 0) setCanvasFootnote(footnote);
       searchParams.delete('mapId');
+      searchParams.delete('footnote');
       setSearchParams(searchParams, { replace: true });
     }
     const linkedId = searchParams.get('noteId');
@@ -231,9 +234,12 @@ export const NotesPage: React.FC = () => {
 
   // Side-panel tab a canvas opens on (Suggestions for a new one, so related content is one drag away).
   const [canvasOpenTab, setCanvasOpenTab] = useState<string | undefined>(undefined);
+  // Footnote number from a /think?mapId=…&footnote=n link, shown when the diagram opens.
+  const [canvasFootnote, setCanvasFootnote] = useState<number | undefined>(undefined);
   function openMap(mapId: string, tab?: string): void {
     setMode('canvas');
     setCanvasOpenTab(tab);
+    setCanvasFootnote(undefined);
     setSelectedCanvasId(mapId);
   }
 
@@ -585,6 +591,7 @@ export const NotesPage: React.FC = () => {
                 key={selectedCanvasId}
                 canvasId={selectedCanvasId}
                 openTab={canvasOpenTab}
+                initialFootnote={canvasFootnote}
                 onOpenNote={openNoteFromMap}
                 onNoteChanged={refreshNoteIfOpen}
                 onDeleted={() => { setSelectedCanvasId(null); }}
@@ -615,7 +622,7 @@ export const NotesPage: React.FC = () => {
   );
 };
 
-const ThinkCanvas: React.FC<React.ComponentProps<typeof CanvasEditor>> = (props) => {
+const ThinkCanvas: React.FC<React.ComponentProps<typeof CanvasEditor> & { initialFootnote?: number | undefined }> = ({ initialFootnote, ...props }) => {
   const { data, isLoading, isError, refetch } = useQuery<CanvasFullApi>({
     queryKey: ['canvas', props.canvasId],
     queryFn: async () => {
@@ -628,7 +635,7 @@ const ThinkCanvas: React.FC<React.ComponentProps<typeof CanvasEditor>> = (props)
   if (isLoading) return <InlineLoading description="Loading canvas..." />;
   if (isError || !data) return <p className="mm-canvas-error" role="alert">Could not load canvas. <button type="button" onClick={() => { void refetch(); }}>Retry</button></p>;
   return data.canvasType === 'diagram'
-    ? <DiagramEditor canvasId={props.canvasId} onDeleted={props.onDeleted} onOpenNote={props.onOpenNote} />
+    ? <DiagramEditor canvasId={props.canvasId} onDeleted={props.onDeleted} onOpenNote={props.onOpenNote} initialFootnote={initialFootnote} />
     : <CanvasEditor {...props} />;
 };
 
