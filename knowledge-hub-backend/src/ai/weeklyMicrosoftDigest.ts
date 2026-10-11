@@ -3,7 +3,8 @@
  *
  * Collates every Microsoft and GitHub update Discover picked up in the last
  * 7 days (shelved ones included, so nothing is missed) into:
- *   - a blog draft for The Microsoft Cloud Blog, saved as a Think note (contentType "blog"), and
+ *   - a full CMS blog package for The Microsoft Cloud Blog (title, slug, image, content, excerpt, TL;DR,
+ *     takeaways, categories, tags, LinkedIn and X posts), saved as a Think note (contentType "blog"), and
  *   - a Slack-ready summary, posted to SLACK_WEBHOOK_URL when it is set.
  * Both are saved in a pinned "Weekly Microsoft updates" Athena chat. Runs once
  * per week (Mondays from 08:00 UK, see scheduler.ts) or on demand.
@@ -17,6 +18,7 @@ import { getSyncState, upsertSyncState } from '../db/queries.js';
 import { workToday, WORK_TIMEZONE } from '../integrations/ibm/ibmMeetings.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
 import { createNoteRecord, scheduleNoteIndexing } from '../routes/notes.js';
+import { BLOG_PACKAGE_RULES } from './blogHouseStyle.js';
 
 const STATE_KEY = 'weekly-microsoft-digest';
 export const DIGEST_HOUR = 8;
@@ -26,7 +28,7 @@ export const DIGEST_SOURCE_GROUPS = ['Microsoft', 'GitHub'] as const;
 const LOOKBACK_DAYS = 7;
 const MAX_ARTICLES = 80;
 const SUMMARY_CHARS = 320;
-const BLOG_MAX_TOKENS = 3_000;
+const BLOG_MAX_TOKENS = 5_000;
 const SLACK_MAX_TOKENS = 1_200;
 const SLACK_TIMEOUT_MS = 15_000;
 
@@ -160,20 +162,28 @@ const VOICE_RULES = [
   'Only use facts and links from the input. Never invent announcements, dates, or URLs.',
 ].join('\n');
 
-const BLOG_PROMPT = [
-  'Write the weekly Microsoft round-up post for The Microsoft Cloud Blog from the updates below.',
+export const BLOG_PROMPT = [
+  'Write the weekly Microsoft round-up post for The Microsoft Cloud Blog from the updates below, as a complete ' +
+    'CMS-ready package. The format is already decided (a full post, 800 to 1,200 words of body content) and the angle ' +
+    'is the theme of the week, so do not ask anything, just produce the package.',
   VOICE_RULES,
-  'Format (Markdown):',
-  '- First line: "# " plus an editorial, specific title for the week (not "Weekly round-up").',
-  '- A two or three sentence opening on the theme of the week.',
-  '- "## " sections by area (e.g. AI and Copilot, Azure, Microsoft 365, Security and Identity, Power Platform and ' +
-    'Dynamics, GitHub, Research). Skip empty areas.',
-  '- In each section, cover every notable update: what it is, in a sentence or two, linked to its source ' +
-    '([title](url)), and why it matters for architects and IT leaders where that is clear. Group minor items ' +
-    'into one short paragraph rather than dropping them. Prose, not bullet lists.',
-  '- "## The one to watch": the single update that matters most and why, in his voice.',
-  '- End with a horizontal rule and "*Sources: the links above, collated from Microsoft and GitHub blogs.*"',
-  'Aim for 700 to 1,100 words.',
+  '',
+  BLOG_PACKAGE_RULES,
+  '',
+  '### How to apply this to a weekly round-up',
+  '- Output Markdown. The very first line is "# " plus the CMS title. Then give each of the 10 CMS fields under its ' +
+    'own "## " heading, using exactly these names in this order: Title, Slug, Featured image URL, Image prompt, ' +
+    'Content, Excerpt, Summary TL;DR, Key takeaways, Categories, Tags. Then "## LinkedIn post" and "## Twitter/X post".',
+  '- Title: editorial and specific to what actually happened this week, never "Weekly round-up" or "This week in Microsoft".',
+  '- Featured image URL: only an image URL that appears in the input; otherwise write "None available, use the image prompt".',
+  '- Content: open with two or three sentences on the theme of the week, then "### " sections by area (e.g. AI and ' +
+    'Copilot, Azure, Microsoft 365, Security and Identity, Power Platform and Dynamics, GitHub, Research), skipping ' +
+    'empty areas. Cover every notable update in prose: what it is, linked to its source as [title](url), and why it ' +
+    'matters for architects and IT leaders where that is clear. Fold minor items into one short paragraph rather than ' +
+    'dropping them. Include a "### The one to watch" section near the end. The source reference that ends the body ' +
+    'is a horizontal rule, then "*Sources: [title](url), [title](url), ...*" listing every article linked above.',
+  '- Twitter/X post: use the URL of the "one to watch" article. LinkedIn post: no URLs.',
+  '- Never invent announcements, dates, figures, or URLs; use only what is in the input.',
 ].join('\n');
 
 const SLACK_PROMPT = [

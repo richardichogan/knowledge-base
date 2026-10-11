@@ -4,7 +4,7 @@ import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
 
 process.env['DATABASE_URL'] ??= 'postgresql://isolated.invalid/offline';
-const { digestWeekKey, digestDueAt, gatherDigestArticles, formatDigestFacts, postToSlack } = await import('../src/ai/weeklyMicrosoftDigest.js');
+const { BLOG_PROMPT, digestWeekKey, digestDueAt, gatherDigestArticles, formatDigestFacts, postToSlack } = await import('../src/ai/weeklyMicrosoftDigest.js');
 
 test('week key is the UK Monday of the week', () => {
   assert.equal(digestWeekKey(new Date('2025-06-09T07:30:00Z')), '2025-06-09'); // Monday 08:30 BST
@@ -55,4 +55,13 @@ test('gathers every Microsoft/GitHub article from the last week, shelved include
 test('Slack is skipped without a webhook', async () => {
   assert.equal(await postToSlack('hi', undefined), false);
   assert.equal(await postToSlack('hi', ''), false);
+});
+
+test('blog prompt asks for the full CMS and social package', () => {
+  for (const field of ['Title', 'Slug', 'Featured image URL', 'Image prompt', 'Content', 'Excerpt', 'Summary TL;DR',
+    'Key takeaways', 'Categories', 'Tags', 'LinkedIn post', 'Twitter/X post']) {
+    assert.ok(BLOG_PROMPT.includes(field), `missing ${field}`);
+  }
+  assert.match(BLOG_PROMPT, /AI & Copilot, Azure, Microsoft 365/);
+  assert.match(BLOG_PROMPT, /Please ensure the image is in high resolution/);
 });
