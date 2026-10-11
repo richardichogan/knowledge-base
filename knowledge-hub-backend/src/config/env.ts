@@ -39,6 +39,8 @@ export const env = {
   NODE_ENV: optionalWithDefault('NODE_ENV', 'development'),
   PORT: parseInt(optionalWithDefault('PORT', '3000'), 10),
   CONTAINER_APP_NAME: optional('CONTAINER_APP_NAME'),
+  /** Slack incoming webhook for the weekly Microsoft digest; the digest is only saved in Athena when unset. */
+  SLACK_WEBHOOK_URL: optional('SLACK_WEBHOOK_URL'),
 
   DATABASE_URL: required('DATABASE_URL'),
 

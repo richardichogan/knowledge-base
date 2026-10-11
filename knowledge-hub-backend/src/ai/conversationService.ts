@@ -3,6 +3,7 @@ import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { getFoundryClient, AiStoppedError } from './foundryClient.js';
 import { describeToolActivity } from './turnActivity.js';
+import { ASSET_WRITE_TOOLS } from './assetTools.js';
 import type { ModelRoute } from './modelChoices.js';
 import { spreadsheetsBlock } from './chatFiles.js';
 import { getExcludedSources, filterExcluded, recordToolSources, type ContextUsed } from './contextUsage.js';
@@ -61,7 +62,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'remember', 'forget_memory', 'save_output']);
+const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'remember', 'forget_memory', 'save_output', ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;

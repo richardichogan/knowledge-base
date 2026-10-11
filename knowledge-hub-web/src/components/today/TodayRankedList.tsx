@@ -9,6 +9,11 @@ import { TodayRankedRow } from './TodayRankedRow';
 
 const DEFAULT_VISIBLE_ITEMS = 4;
 
+/** Articles directly useful to a live project (e.g. IMAGINE) go to the top of "Awaiting a decision". */
+function directProjectFit(item: DiscoverItem): number {
+  return (item.projectFit ?? []).some((f) => f.fit === 2) ? 1 : 0;
+}
+
 /** Overdue severity tiers used for border and context color only. */
 type OverdueSeverity = 'neutral' | 'warning' | 'critical';
 
@@ -46,6 +51,8 @@ export const TodayRankedList: React.FC = () => {
   const awaitingDecision = ranked
     .filter((item) => item.type === 'to-review')
     .sort((a, b) => {
+      const fitDiff = directProjectFit(b.payload as DiscoverItem) - directProjectFit(a.payload as DiscoverItem);
+      if (fitDiff !== 0) return fitDiff;
       const aTime = new Date((a.payload as DiscoverItem).publishedAt).getTime();
       const bTime = new Date((b.payload as DiscoverItem).publishedAt).getTime();
       return bTime - aTime;

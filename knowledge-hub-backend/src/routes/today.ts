@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { getDb } from '../db/db.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { getTodaysBriefing, generateMorningBriefing, type Briefing } from '../ai/morningBriefing.js';
+import { generateWeeklyMicrosoftDigest, type WeeklyDigest } from '../ai/weeklyMicrosoftDigest.js';
 
 export const todayRouter = Router();
 
@@ -94,6 +95,21 @@ todayRouter.post('/briefing', (_req: Request, res: Response, next: NextFunction)
     try {
       briefingInFlight ??= generateMorningBriefing(getDb()).finally(() => { briefingInFlight = null; });
       const body: ApiSuccess<Briefing> = { success: true, data: await briefingInFlight };
+      res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+let digestInFlight: Promise<WeeklyDigest> | null = null;
+
+/** Generates (or regenerates) this week's Microsoft digest on demand. */
+todayRouter.post('/weekly-microsoft-digest', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      digestInFlight ??= generateWeeklyMicrosoftDigest(getDb()).finally(() => { digestInFlight = null; });
+      const body: ApiSuccess<WeeklyDigest> = { success: true, data: await digestInFlight };
       res.json(body);
     } catch (err) {
       next(err);

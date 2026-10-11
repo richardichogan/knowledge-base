@@ -217,7 +217,7 @@ function summariseNote(row: { id: string; content: string; created_at: string; u
 const INDEX_SETTLE_MS = 30_000;
 const pendingIndexTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-function scheduleNoteIndexing(db: ReturnType<typeof getDb>, note: Note): void {
+export function scheduleNoteIndexing(db: ReturnType<typeof getDb>, note: Note): void {
   const existing = pendingIndexTimers.get(note.id);
   if (existing !== undefined) clearTimeout(existing);
   const timer = setTimeout(() => {

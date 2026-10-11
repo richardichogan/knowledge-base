@@ -23,6 +23,7 @@ import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useAthenaContext } from '../context/AthenaContext';
 import { LinkedInDraftModal } from '../components/discover/LinkedInDraftModal';
+import { ProjectFitChips } from '../components/discover/ProjectFitChips';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -327,9 +328,10 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           {item.alreadyCovered === 2 ? 'You’ve already covered this' : 'Related to something you’ve written'}: <em>{item.coveredBy}</em>
         </p>
       )}
+      <ProjectFitChips fits={item.projectFit} />
       {item.workflowState === 'shelved' && item.shelvedAt !== null && item.shelvedAt !== undefined && (
         <p className="dc-card-shelved">
-          Shelved {formatDate(item.shelvedAt)} — {item.shelvedReason === 'low' ? 'scored low' : 'unactioned for a week'}; still searchable by Athena
+          Shelved {formatDate(item.shelvedAt)} — {item.shelvedReason === 'low' ? 'scored low' : 'unactioned too long'}; still searchable by Athena
         </p>
       )}
 

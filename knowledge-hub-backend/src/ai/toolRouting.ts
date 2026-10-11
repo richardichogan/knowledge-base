@@ -35,6 +35,8 @@ function findToolName(tools: LlmToolDefinition[], predicate: (name: string) => b
  * the first model call; after the tool result is present, the normal automatic
  * tool loop resumes so the model can synthesize or perform another lookup.
  */
+const DIAGRAM_CREATE_PATTERN = /\b(?:create|draw|make|build|sketch|generate)\s+(?:me\s+)?(?:a|an|the|new|another)?\s*(?:new\s+)?(?:architecture\s+|flow\s+|process\s+)?diagram\b/i;
+
 export function selectRequiredToolChoice(
   userMessage: string,
   tools: LlmToolDefinition[],
@@ -83,6 +85,12 @@ export function selectRequiredToolChoice(
     if (searchToolName !== undefined) {
       return { type: 'function', function: { name: searchToolName } };
     }
+  }
+
+  // Asked to draw a new diagram: create it rather than searching existing ones.
+  if (DIAGRAM_CREATE_PATTERN.test(userMessage)) {
+    const createTool = findToolName(tools, name => name === 'create_diagram');
+    if (createTool !== undefined) return { type: 'function', function: { name: createTool } };
   }
 
   if (/\bdiagrams?\b/i.test(userMessage) &&

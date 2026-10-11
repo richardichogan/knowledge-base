@@ -83,6 +83,6 @@ export async function inspectDiscoverFeed(db: Pool, feedUrl: string, reader = re
     recentArticles: articles.slice(0, FEED_SAMPLE_SIZE).map(article => ({
       title: article.title, url: article.url, publishedAt: article.publishedAt?.toISOString() ?? null,
     })),
-    note: articles.length === 0 ? 'Readable feed, but no usable articles. Do not recommend as an active source without noting this.' : 'Read-only check. No subscription was added or articles imported.',
+    note: articles.length === 0 ? 'Readable feed, but no usable articles. Do not recommend as an active source without noting this.' : 'Read-only check. No subscription was added — call add_discover_source to subscribe.',
   };
 }

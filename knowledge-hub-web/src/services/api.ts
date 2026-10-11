@@ -370,6 +370,15 @@ export interface DiscoverItem {
   shelvedAt?: string | null;
   /** Why: 'low' = scored as not worth content, 'stale' = unactioned for its time in To Review */
   shelvedReason?: string | null;
+  /** Live projects this article is useful to (fit 2 = directly, 1 = background), strongest first */
+  projectFit?: DiscoverProjectFit[];
+}
+
+export interface DiscoverProjectFit {
+  projectId: string;
+  name: string;
+  fit: 1 | 2;
+  why: string;
 }
 
 /** A feed Athena reads for article discovery. */

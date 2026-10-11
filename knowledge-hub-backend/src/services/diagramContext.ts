@@ -12,6 +12,7 @@ export const DIAGRAM_READING_GUIDANCE = [
   'elementNotes are Think notes linked to one specific shape, connector or footnote (elementId).',
   'Linked notes are supporting context, not diagram shapes. Asset names identify uploaded icons only: their pixels have not been analysed.',
   'Truncated content is incomplete: do not claim an omitted shape, connector or detail is absent.',
+  'To change a diagram (add shapes, connectors, footnotes or key entries), call update_diagram with its id; to draw a new one, call create_diagram.',
   'You may analyse and recommend changes but cannot modify diagrams. propose_map_changes is for brainstorm canvases only.',
 ].join('\n');
 

@@ -7,6 +7,7 @@ import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
 import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
 import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
+import { weeklyDigestDue, generateWeeklyMicrosoftDigest } from '../ai/weeklyMicrosoftDigest.js';
 import { tickBuildRunner } from '../build/buildRunner.js';
 import { archiveCompletedTasks } from '../services/taskArchiveService.js';
 import { isConnectionCheckInProgress } from './connectionWork.js';
@@ -34,6 +35,7 @@ let lastConnectionCheckAt = Date.now();
 let lastArchiveDay = ''; // Date string of the last completed-task archive sweep
 let lastMemoryReviewWeek = ''; // Week key of the last weekly memory review
 let briefingRunning = false;
+let weeklyDigestRunning = false;
 /** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
 const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
@@ -128,6 +130,21 @@ export function startSyncScheduler(): void {
         console.warn('[Scheduler] Checking new/updated connections (15-minute interval)...');
         void runInferredEdgeJob(db).catch((err: unknown) => {
           console.error('[Scheduler] Inferred edge job failed:', err instanceof Error ? err.message : String(err));
+        });
+      }
+
+      // Weekly Microsoft digest — production only, Mondays from 08:00 UK,
+      // once per week (persisted), after any running sync has finished.
+      if (!env.isDevelopment && !weeklyDigestRunning && !isSyncInProgress()) {
+        void weeklyDigestDue(db).then((due) => {
+          if (!due || weeklyDigestRunning) return;
+          weeklyDigestRunning = true;
+          console.warn('[Scheduler] Generating weekly Microsoft digest...');
+          return generateWeeklyMicrosoftDigest(db)
+            .then((d) => { console.warn(`[Scheduler] Weekly Microsoft digest ready (${d.articleCount.toString()} updates, Slack ${d.slackPosted ? 'posted' : 'not posted'}).`); })
+            .finally(() => { weeklyDigestRunning = false; });
+        }).catch((err: unknown) => {
+          console.error('[Scheduler] Weekly Microsoft digest failed:', err instanceof Error ? err.message : String(err));
         });
       }
 

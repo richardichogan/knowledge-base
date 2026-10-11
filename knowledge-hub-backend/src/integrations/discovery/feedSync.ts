@@ -1,8 +1,9 @@
 /**
  * integrations/discovery/feedSync.ts — article discovery. Reads every active
  * source in `discovery_sources`, files new articles (last 14 days only) into
- * the Discover list as source='discovered-article', scores them, and shelves
- * articles that have sat unactioned (7 days; 14 for strong ones).
+ * the Discover list as source='discovered-article', scores them, rates them
+ * against his focus projects, and shelves articles that have sat unactioned
+ * (7 days; 14 for strong ones; 30 for ones directly useful to IMAGINE etc.).
  *
  * This replaced reading discovered articles from the blog site's API.
  */
@@ -12,6 +13,7 @@ import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import { env } from '../../config/env.js';
 import { readFeed, fetchPageDescription } from './feedReader.js';
 import { scoreUnscored } from '../cms/discoveredArticlesSync.js';
+import { runProjectFitPass, PROJECT_PROTECT_BOOST } from './projectFit.js';
 
 const SYNC_STATE_KEY = 'discovered-articles';
 /** Only articles published this recently are filed — also bounds a brand-new source's first fetch. */
@@ -26,6 +28,10 @@ const SCORING_BATCHES_PER_RUN = 6;
 export const SHELVE_AFTER_DAYS = 7;
 export const SHELVE_AFTER_DAYS_STRONG = 14;
 export const STRONG_SCORE = 0.8;
+/** Articles directly useful to a high-importance project (e.g. IMAGINE) wait this long instead. */
+export const SHELVE_AFTER_DAYS_PROJECT = 30;
+/** Project-fit passes per sync run (60 articles each). */
+const PROJECT_FIT_PASSES_PER_RUN = 4;
 
 export interface DiscoverySource {
   id: string;
@@ -124,7 +130,9 @@ export async function shelveStaleArticles(db: Pool): Promise<number> {
             metadata = metadata || jsonb_build_object('shelvedAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'shelvedReason', 'low')
       WHERE source = 'discovered-article' AND workflow_state = 'to-review'
         AND metadata->>'platform' = 'Archive' AND COALESCE((metadata->>'scoringVersion')::int, 1) >= 2
-        AND COALESCE(NULLIF(metadata->>'restoredAt', ''), '') = ''`,
+        AND COALESCE(NULLIF(metadata->>'restoredAt', ''), '') = ''
+        AND COALESCE((metadata->>'projectBoost')::numeric, 0) < $1::numeric`,
+    [PROJECT_PROTECT_BOOST],
   );
   const result = await db.query(
     `UPDATE content_items
@@ -133,8 +141,9 @@ export async function shelveStaleArticles(db: Pool): Promise<number> {
       WHERE source = 'discovered-article'
         AND workflow_state = 'to-review'
         AND GREATEST(indexed_at, COALESCE(NULLIF(metadata->>'restoredAt', '')::timestamptz, 'epoch'::timestamptz))
-            < now() - (CASE WHEN COALESCE(relevance_score, 0) >= $1::real THEN $2::int ELSE $3::int END) * interval '1 day'`,
-    [STRONG_SCORE, SHELVE_AFTER_DAYS_STRONG, SHELVE_AFTER_DAYS],
+            < now() - (CASE WHEN COALESCE((metadata->>'projectBoost')::numeric, 0) >= $4::numeric THEN $5::int
+                            WHEN COALESCE(relevance_score, 0) >= $1::real THEN $2::int ELSE $3::int END) * interval '1 day'`,
+    [STRONG_SCORE, SHELVE_AFTER_DAYS_STRONG, SHELVE_AFTER_DAYS, PROJECT_PROTECT_BOOST, SHELVE_AFTER_DAYS_PROJECT],
   );
   return (low.rowCount ?? 0) + (result.rowCount ?? 0);
 }
@@ -148,6 +157,11 @@ function startBackgroundWork(db: Pool): void {
     for (let i = 0; i < SCORING_BATCHES_PER_RUN; i++) {
       const scored = await scoreUnscored(db).catch((err: unknown) => { console.warn('[Discovery] scoring failed:', err); return 0; });
       if (scored === 0) break;
+    }
+    // Then how much each article matters to his live projects (lifts IMAGINE-relevant reading in Discover).
+    for (let i = 0; i < PROJECT_FIT_PASSES_PER_RUN; i++) {
+      const assessed = await runProjectFitPass(db).catch((err: unknown) => { console.warn('[Discovery] project fit failed:', err); return 0; });
+      if (assessed === 0) break;
     }
     // Strong articles get a deeper assessment (read in full, checked against his own work) for the daily content pick.
     const { runPendingDeepDives } = await import('../../ai/contentPick.js');

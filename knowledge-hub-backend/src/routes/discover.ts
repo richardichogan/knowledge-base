@@ -66,6 +66,8 @@ export interface DiscoverItem {
   shelvedAt: string | null;
   /** Why: 'low' = scored as not worth content, 'stale' = unactioned past its time in To Review */
   shelvedReason: string | null;
+  /** Live projects this article is useful to (fit 2 = directly, 1 = background), strongest first */
+  projectFit: Array<{ projectId: string; name: string; fit: 1 | 2; why: string }>;
 }
 
 const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived', 'published', 'shelved'];
@@ -144,6 +146,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       // from the stored tier/type STRING (via CASE, built from the same TS weight maps) rather
       // than from a stored weight NUMBER, so tuning SOURCE_AUTHORITY_WEIGHTS/ARTICLE_TYPE_WEIGHTS
       // takes effect immediately for every row, with no backfill ever required again.
+      // Articles useful to a live project (projectFit.ts) are lifted by their stored project boost.
       const halfLifeParamIndex = p++;
       params.push(DISCOVER_RECENCY_HALF_LIFE_DAYS);
       const authorityWeightExpr = buildWeightCaseExpr(`ci.metadata->>'sourceAuthorityTier'`, SOURCE_AUTHORITY_WEIGHTS, 1);
@@ -151,7 +154,8 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       const rankScoreExpr = `COALESCE(ci.relevance_score, 0)
            * EXP(- EXTRACT(EPOCH FROM (NOW() - ci.published_at)) / 86400.0 / $${halfLifeParamIndex} * LN(2))
            * (${authorityWeightExpr})
-           * (${typeWeightExpr})`;
+           * (${typeWeightExpr})
+           * (1 + COALESCE((ci.metadata->>'projectBoost')::real, 0))`;
 
       const [countResult, dataResult] = await Promise.all([
         db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ci ${where}`, params.slice(0, halfLifeParamIndex - 1)),
@@ -214,6 +218,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         sourceGroup: typeof row.metadata['sourceGroup'] === 'string' ? row.metadata['sourceGroup'] : null,
         shelvedAt: typeof row.metadata['shelvedAt'] === 'string' ? row.metadata['shelvedAt'] : null,
         shelvedReason: typeof row.metadata['shelvedReason'] === 'string' ? row.metadata['shelvedReason'] : null,
+        projectFit: Array.isArray(row.metadata['projectFit']) ? row.metadata['projectFit'] as DiscoverItem['projectFit'] : [],
       }));
 
       const response: ApiSuccess<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }> = {

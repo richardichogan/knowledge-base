@@ -30,6 +30,17 @@ const LABELS: Record<string, string> = {
   save_output: 'Saving to Outputs',
   forget_memory: 'Updating memory',
   list_memories: 'Checking what I remember',
+  add_discover_source: 'Adding a Discover source',
+  update_discover_source: 'Updating a Discover source',
+  set_discover_item_state: 'Moving a Discover article',
+  update_spark: 'Updating a Spark',
+  create_project: 'Creating a project',
+  update_project: 'Updating a project',
+  update_note: 'Updating a Think note',
+  create_diagram: 'Drawing a diagram',
+  update_diagram: 'Updating a diagram',
+  create_mind_map: 'Creating a mind map',
+  create_weekly_microsoft_digest: 'Collating this week\'s Microsoft updates',
 };
 
 /** One line describing a tool call, including what it's looking for when that's short. */

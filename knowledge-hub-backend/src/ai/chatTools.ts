@@ -22,7 +22,7 @@ import type { Pool } from 'pg';
 import { saveOutputVersion, getOutput } from './chatOutputs.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
 export { textToBlocks } from './markdownToNoteBlocks.js';
-import type { LlmToolDefinition } from './foundryClient.js';
+import { FoundryClient, type LlmToolDefinition } from './foundryClient.js';
 import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db/queries.js';
 import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
 import { canonicalContentSql } from '../db/contentVisibility.js';
@@ -44,6 +44,8 @@ import { findDiagramContext } from '../services/diagramContext.js';
 import { createSpark } from '../services/sparkService.js';
 import { loadCurrentProjectContext } from './projectContext.js';
 import { getDiscoverSources, inspectDiscoverFeed } from './discoveryContext.js';
+import { getAssetToolDefinitions, isAssetTool, executeAssetTool } from './assetTools.js';
+import { searchKnowledgeGraph as searchGraph } from './graphInference.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -164,15 +166,16 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
         name: 'search_knowledge_graph',
         description:
           'Searches the knowledge graph — explicit, typed connections between items (notes, discovered ' +
-          'articles, documents, tasks, commits, sparks, canvases, CFP items), each with a confidence score. ' +
-          'This answers "what is X actually linked to?" in a way full-text search cannot, since two items ' +
-          'can be explicitly connected without sharing any matching words. Use it whenever the user asks how ' +
-          'things relate/connect, or after finding something relevant via search_knowledge_base and you want ' +
-          "to check what else it's explicitly linked to. Matches node titles by substring (case-insensitive).",
+          'articles, documents, tasks, commits, sparks, canvases, CFP items) across ALL projects, each with a ' +
+          'confidence score. This answers "what is X actually linked to?" in a way full-text search cannot, since ' +
+          'two items can be connected without sharing any matching words. Returns each matching item\'s strongest ' +
+          'connections (with project), plus "bridges": items linked to several matches, which show how separate ' +
+          'work relates. Use it whenever the user asks how things relate/connect, what else bears on a topic, or ' +
+          'for implications across projects. Matches titles by phrase or all words, and tags.',
         parameters: {
           type: 'object',
           properties: {
-            query: { type: 'string', description: 'Text to match against graph node titles (e.g. a project or note name).' },
+            query: { type: 'string', description: 'A topic, product, project or item title (e.g. "agent-first platforms", "IMAGINE", "Copilot Studio").' },
             limit: { type: 'integer', description: `Max matching nodes to seed from (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: ['query'],
@@ -576,7 +579,10 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             projectId: {
               type: 'string',
               description:
-                'Project id to file this under. Defaults to "ibm-thought-leadership" for Athena-created article drafts if unsure.',
+                'Project id to file this under: the project the material most directly serves (e.g. "imagine" for anything ' +
+                'about the IMAGINE platform or agent platforms it relies on), taken from the project catalogue. Set it ' +
+                'whenever you can tell. If omitted, the active project is used, else the best-fitting live project is ' +
+                'inferred, falling back to "ibm-thought-leadership" for general article drafts.',
             },
           },
           required: ['title', 'content'],
@@ -608,6 +614,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     // remote MCP server so we track whatever it currently advertises rather
     // than hardcoding a schema that may drift. Empty array (not an error) if
     // the server is unreachable this turn.
+    ...getAssetToolDefinitions(),
     ...learnTools,
     // Tavily MCP tools (tavily-search, tavily-extract as of writing) — real
     // internet search/page extraction, distinct from fetch_web_page (which
@@ -659,6 +666,8 @@ export async function executeToolCall(
     args['projectId'] === undefined && activeProjectId !== undefined && activeProjectId.trim() !== ''
       ? { ...args, projectId: activeProjectId }
       : args;
+
+  if (isAssetTool(name)) return executeAssetTool(db, name, contextualArgs, turn.noteId);
 
   switch (name) {
     case 'get_discover_sources': return getDiscoverSources(db);
@@ -769,7 +778,7 @@ export async function executeToolCall(
     }
     case 'propose_map_changes': {
       if (turn.mapCanvas !== undefined && turn.mapCanvas.canvasType !== 'brainstorm') {
-        return { error: 'The open canvas is a diagram, not a brainstorm canvas: propose_map_changes cannot change it. Tell the user to edit the diagram in the diagram editor.' };
+        return { error: 'The open canvas is a diagram, not a brainstorm canvas: propose_map_changes cannot change it. Use update_diagram with the diagram id instead.' };
       }
       if (turn.mapAliases === undefined || turn.mapCanvas === undefined) return { error: 'No canvas is open next to this chat.' };
       const { proposals, problems } = await resolveMapChanges(db, args['changes'], turn.mapCanvas, turn.mapAliases);
@@ -927,55 +936,7 @@ async function searchKnowledgeGraph(db: Pool, args: Record<string, unknown>): Pr
   const limit = Number.isFinite(rawLimit) && rawLimit > 0
     ? Math.min(Math.trunc(rawLimit), AI_TOOL_SEARCH_MAX_LIMIT)
     : AI_TOOL_SEARCH_DEFAULT_LIMIT;
-
-  const seedRows = await db.query<{ id: string; ref_type: string; title: string; tags: string[] }>(
-    `SELECT id, ref_type, title, tags FROM nodes WHERE title ILIKE $1 ORDER BY updated_at DESC LIMIT $2`,
-    [`%${query}%`, limit],
-  );
-  if (seedRows.rows.length === 0) {
-    return { resultCount: 0, results: [], message: 'No knowledge graph nodes matched that title — try a shorter/broader term.' };
-  }
-
-  const seedIds = seedRows.rows.map((r) => r.id);
-  const edgeRows = await db.query<{
-    source_node_id: string; target_node_id: string; edge_type: string; confidence: string;
-  }>(
-    `SELECT source_node_id, target_node_id, edge_type, confidence FROM edges
-     WHERE source_node_id = ANY($1) OR target_node_id = ANY($1)`,
-    [seedIds],
-  );
-
-  const neighbourIds = new Set<string>();
-  for (const e of edgeRows.rows) {
-    neighbourIds.add(e.source_node_id);
-    neighbourIds.add(e.target_node_id);
-  }
-
-  const neighbourRows = neighbourIds.size > 0
-    ? await db.query<{ id: string; ref_type: string; title: string }>(
-        `SELECT id, ref_type, title FROM nodes WHERE id = ANY($1)`,
-        [Array.from(neighbourIds)],
-      )
-    : { rows: [] as Array<{ id: string; ref_type: string; title: string }> };
-  const neighbourMap = new Map(neighbourRows.rows.map((n) => [n.id, n]));
-
-  const results = seedRows.rows.map((seed) => {
-    const connections = edgeRows.rows
-      .filter((e) => e.source_node_id === seed.id || e.target_node_id === seed.id)
-      .map((e) => {
-        const otherId = e.source_node_id === seed.id ? e.target_node_id : e.source_node_id;
-        const other = neighbourMap.get(otherId);
-        return {
-          title: other?.title ?? 'Unknown',
-          type: other?.ref_type ?? 'unknown',
-          edgeType: e.edge_type,
-          confidence: Number(e.confidence),
-        };
-      });
-    return { title: seed.title, type: seed.ref_type, tags: seed.tags, connections };
-  });
-
-  return { resultCount: results.length, results };
+  return searchGraph(db, query, limit);
 }
 
 /**
@@ -1697,25 +1658,77 @@ async function createNoteDraft(db: Pool, args: Record<string, unknown>): Promise
   const contentType = NOTE_CONTENT_TYPES.includes(args['contentType'] as typeof NOTE_CONTENT_TYPES[number])
     ? args['contentType'] as string
     : inferAthenaDraftContentType(title, content) ?? 'note';
-  const projectId =
-    typeof args['projectId'] === 'string' && args['projectId'].trim() !== ''
-      ? args['projectId'].trim()
-      : DEFAULT_ATHENA_NOTE_PROJECT_ID;
+  const requested = typeof args['projectId'] === 'string' && args['projectId'].trim() !== '' ? args['projectId'].trim() : null;
+  const projectId = await resolveNoteProject(db, requested, title, content, contentType);
 
   const blocks = textToBlocks(content);
   const wrapper = { title, contentType, contentJson: JSON.stringify(blocks) };
 
   const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), tags: [], projectId });
+  const linkedArticles = await linkNoteToDiscoveredArticles(db, note.id, projectId, content).catch(() => 0);
   return {
     success: true,
     note: {
       id: note.id,
       title,
       contentType,
+      projectId,
+      ...(linkedArticles > 0 ? { linkedDiscoverArticles: linkedArticles } : {}),
       // Deep link back into the Think library — same pattern as summariseTask().
       url: `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`,
     },
   };
+}
+
+/**
+ * Picks the project a new Athena note belongs to: a valid requested project, else the live project it most
+ * directly serves (so an IMAGINE-relevant source note lands in IMAGINE, not the blog bucket), else the default.
+ */
+async function resolveNoteProject(db: Pool, requested: string | null, title: string, content: string, contentType: string): Promise<string> {
+  if (requested !== null) {
+    const { rows } = await db.query<{ id: string }>(`SELECT id FROM projects WHERE id = $1 OR lower(name) = lower($1) LIMIT 1`, [requested]);
+    if (rows[0] !== undefined) return rows[0].id;
+  }
+  if (contentType !== 'blog' && contentType !== 'newsletter') {
+    try {
+      const { loadFocusProjects, assessProjectFit } = await import('../integrations/discovery/projectFit.js');
+      const projects = await loadFocusProjects(db);
+      const fits = (await assessProjectFit(new FoundryClient('note-project'), projects, [{ id: 'note', title, body: content, url: null }])).get('note') ?? [];
+      const best = fits.find((f) => f.fit === 2)
+        ?? fits.find((f) => f.fit === 1 && projects.find((p) => p.id === f.projectId)?.importance === 'high');
+      if (best !== undefined) return best.projectId;
+    } catch (err) {
+      console.warn('[create_note_draft] project inference failed:', err instanceof Error ? err.message : String(err));
+    }
+  }
+  return DEFAULT_ATHENA_NOTE_PROJECT_ID;
+}
+
+/**
+ * When a note is written from a discovered article (e.g. a shared link), records the link on the article and, if the
+ * note sits in a live project, treats the article as directly relevant to it — restoring it from Shelved.
+ */
+async function linkNoteToDiscoveredArticles(db: Pool, noteId: string, projectId: string, content: string): Promise<number> {
+  const urls = [...new Set((content.match(/https?:\/\/[^\s)<>"\]]+/g) ?? []).map((u) => u.replace(/[.,;:]+$/, '')))].slice(0, 10);
+  if (urls.length === 0) return 0;
+  const { rows: projectRows } = await db.query<{ name: string; importance: string | null }>(`SELECT name, importance FROM projects WHERE id = $1`, [projectId]);
+  const project = projectRows[0];
+  const { PROJECT_BOOST } = await import('../integrations/discovery/projectFit.js');
+  const boost = project === undefined ? 0 : project.importance === 'high' ? PROJECT_BOOST.highDirect : PROJECT_BOOST.normalDirect;
+  const fit = project === undefined ? null : JSON.stringify([{ projectId, name: project.name, fit: 2, why: 'You wrote a Think note from it' }]);
+  const result = await db.query(
+    `UPDATE content_items
+        SET metadata = metadata
+              || jsonb_build_object('linkedNoteIds', COALESCE(metadata->'linkedNoteIds', '[]'::jsonb) || to_jsonb($2::text))
+              || (CASE WHEN $4::numeric > COALESCE((metadata->>'projectBoost')::numeric, 0)
+                       THEN jsonb_build_object('projectBoost', $4::numeric, 'projectFit', $3::jsonb) ELSE '{}'::jsonb END)
+              || (CASE WHEN workflow_state = 'shelved' THEN jsonb_build_object('restoredAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'restoredReason', 'note') ELSE '{}'::jsonb END),
+            workflow_state = CASE WHEN workflow_state = 'shelved' THEN 'to-review' ELSE workflow_state END
+      WHERE source = 'discovered-article' AND rtrim(url, '/') = ANY($1::text[])
+        AND NOT COALESCE(metadata->'linkedNoteIds', '[]'::jsonb) ? $2`,
+    [urls.map((u) => u.replace(/\/+$/, '')), noteId, fit ?? '[]', boost],
+  );
+  return result.rowCount ?? 0;
 }
 
 // ── fetch_web_page ──────────────────────────────────────────────────────────

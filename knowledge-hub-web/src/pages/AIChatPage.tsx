@@ -198,6 +198,43 @@ const STARTER_PROMPTS: readonly string[] = [
 const SESSION_STORAGE_KEY_STANDALONE = 'kh-athena-session-id-standalone';
 const SESSION_STORAGE_KEY_WIDGET = 'kh-athena-session-id-widget';
 const SESSION_STORAGE_KEY_PAGE = 'kh-athena-session-id-page';
+const LAST_SHARE_STORAGE_KEY = 'kh-athena-last-share';
+/** A second delivery of the same share within this window is treated as a duplicate. */
+const REPEAT_SHARE_WINDOW_MS = 2 * 60_000;
+
+interface SharedLink { title: string; url: string; text: string }
+
+function hasShareParams(params: URLSearchParams): boolean {
+  return ['title', 'url', 'text'].some((key) => (params.get(key) ?? '').trim() !== '');
+}
+
+/** Share params, with the link pulled out of `text` when the sharing app puts it there (Android usually does). */
+function readSharedLink(params: URLSearchParams): SharedLink {
+  const title = (params.get('title') ?? '').trim();
+  let url = (params.get('url') ?? '').trim();
+  let text = (params.get('text') ?? '').trim();
+  if (url === '') {
+    const found = /https?:\/\/\S+/.exec(text);
+    if (found !== null) {
+      url = found[0];
+      text = text.replace(found[0], '').trim();
+    }
+  }
+  if (text === url || text === title) text = '';
+  return { title, url, text };
+}
+
+function isRepeatShare(share: SharedLink): boolean {
+  const key = `${share.url}|${share.title}|${share.text}`;
+  try {
+    const previous = JSON.parse(window.sessionStorage.getItem(LAST_SHARE_STORAGE_KEY) ?? 'null') as { key: string; at: number } | null;
+    const repeat = previous !== null && previous.key === key && Date.now() - previous.at < REPEAT_SHARE_WINDOW_MS;
+    window.sessionStorage.setItem(LAST_SHARE_STORAGE_KEY, JSON.stringify({ key, at: Date.now() }));
+    return repeat;
+  } catch {
+    return false;
+  }
+}
 
 // Mobile breakpoint shared with the CSS in global.scss (.kh-chat-sidebar,
 // .ai-float-panel mobile rules) — keep these in sync.
@@ -262,8 +299,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [savingResponseIndex, setSavingResponseIndex] = useState<number | null>(null);
+  // A link shared from the phone or browser (manifest share_target → /chat?title&text&url) always starts a new chat.
+  const [isShareLaunch] = useState(() => standalone && hasShareParams(new URLSearchParams(window.location.search)));
   const [sessionId, setSessionId] = useState<string | null>(() => {
-    if (isNoteLinkedPanel) return null;
+    if (isNoteLinkedPanel || isShareLaunch) return null;
     try {
       // /chat?session=<id> — opens that chat (e.g. from a Plan task's linked chat).
       const linked = standalone ? new URLSearchParams(window.location.search).get('session') : null;
@@ -518,26 +557,25 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     }
   }
 
-  // Android Share Target handler — fires once history restore is complete so
-  // the auto-sent message lands in a fresh conversation without overwriting
-  // existing history. Params come from the manifest share_target GET action:
-  // /chat?title=...&text=...&url=...
+  // Share Target handler (phone or installed browser app). The page was opened
+  // with no stored session (see isShareLaunch), so the share always lands in a
+  // brand-new chat rather than an unrelated existing one. Params come from the
+  // manifest share_target GET action: /chat?title=...&text=...&url=...
   useEffect(() => {
-    if (isRestoringHistory) return;
+    if (!isShareLaunch) return;
     if (shareProcessedRef.current) return;
-    const sharedTitle = searchParams.get('title') ?? '';
-    const sharedUrl   = searchParams.get('url')   ?? '';
-    const sharedText  = searchParams.get('text')  ?? '';
-    if (!sharedTitle && !sharedUrl && !sharedText) return;
-
     shareProcessedRef.current = true;
     // Clean the share params from the URL so a reload doesn't re-trigger.
     setSearchParams({}, { replace: true });
+    const share = readSharedLink(searchParams);
+    // The OS sometimes delivers the same share twice; send it once.
+    if (isRepeatShare(share)) return;
+    const { title: sharedTitle, url: sharedUrl, text: sharedText } = share;
 
-    const contextLines: string[] = ['[Shared from Android]'];
+    const contextLines: string[] = ['[Shared link]'];
     if (sharedTitle) contextLines.push(`Title: ${sharedTitle}`);
     if (sharedUrl)   contextLines.push(`URL: ${sharedUrl}`);
-    if (sharedText && sharedText.trim() !== sharedUrl.trim()) contextLines.push(`Description: ${sharedText}`);
+    if (sharedText) contextLines.push(`Description: ${sharedText}`);
 
     // The user-visible bubble is a short label; the message Athena receives
     // has full context and the question — mirrors the file-upload pattern.
@@ -545,7 +583,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     const athenaMessage = [
       contextLines.join('\n'),
       '',
-      'The user has shared a link from Android.',
+      'The user has shared a link from their phone or browser. This is a new chat about this link only.',
       'First, ask a concise clarification question and wait for their reply.',
       'Offer these options: Spark, blog source, Think note, Discover item, or chat-only.',
       'Do not create, update, or file anything until the user explicitly chooses one option.',

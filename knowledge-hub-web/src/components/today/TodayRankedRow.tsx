@@ -12,6 +12,7 @@ import { api } from '../../services/api';
 import type { DiscoverItem, SparkCluster } from '../../services/api';
 import type { UrgencyItem, Task } from '../../services/todayUrgencyService';
 import { DiscoverActions } from '../discover/DiscoverActions';
+import { ProjectFitChips } from '../discover/ProjectFitChips';
 import { createNote } from '../../notes/noteStorage';
 
 // ── SparkCluster inline actions ───────────────────────────────────────────────
@@ -156,6 +157,7 @@ export const TodayRankedRow: React.FC<TodayRankedRowProps> = ({
           {item.title}
         </div>
         <div className="today-ranked-row__context">{item.contextLine}</div>
+        {item.type === 'to-review' && <ProjectFitChips fits={(item.payload as DiscoverItem).projectFit} directOnly />}
       </div>
 
       <div className="today-ranked-row__actions">

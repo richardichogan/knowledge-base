@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 import { downloadBlobAsText } from '../integrations/cms/blobClient.js';
 import { env } from '../config/env.js';
 import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
+import { graphConnectionsFor, formatGraphConnections } from './graphInference.js';
 import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
 import { IMAGINE_DEMO_BRIEF_SKILL } from './imagineDemoBriefSkill.js';
@@ -274,8 +275,10 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- `search_knowledge_graph`: covers explicit, typed connections between items (e.g. "this note is linked ' +
     'to that PR/discovered article/task"), each with a confidence score — this is different from ' +
     'search_knowledge_base\'s text matching, since two items can be genuinely connected without sharing any ' +
-    'words. Call it whenever the user asks how things relate/connect to each other, or to check what else a ' +
-    'relevant note/document/task is explicitly linked to after finding it via search_knowledge_base.',
+    'words. It spans every project. Call it whenever the user asks how things relate/connect, what else bears ' +
+    'on a topic, or what a finding means for other work — and after finding a relevant note/document/task via ' +
+    'search_knowledge_base, to see what else it links to. Reason from its "bridges" (items linked to several ' +
+    'results) to draw connections across projects, naming each item\'s project.',
   '- `get_content_pipeline` / `set_content_plan`: his content plan. The podcast and newsletter alternate fortnights and ' +
     'the dates move. Use get_content_pipeline when he asks what to write, record or post next or about today\'s pick; use ' +
     'set_content_plan when he moves a date or answers the pick ("going with it" = done, "not that one" = dropped).',
@@ -307,7 +310,17 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- `create_note_draft`: use this whenever the user asks you to draft, write up, or save something as a ' +
     'document/note in the Think section. When a file the user just uploaded is attached as chat context, do ' +
     'NOT call this (or create_task) proactively — the upload is already stored and searchable on its own; ' +
-    'only create a note/task from it if the user explicitly asks you to.',
+    'only create a note/task from it if the user explicitly asks you to. File it under the project the material ' +
+    'most directly serves (projectId) — e.g. anything bearing on the IMAGINE platform goes in "imagine".',
+  '- You can create and change any asset in the app, so never tell the user you lack a tool for it: ' +
+    'add_discover_source / update_discover_source (subscribe, rename, regroup, disable Discover feeds), ' +
+    'set_discover_item_state (restore/shelve/save Discover articles), update_spark, create_project / ' +
+    'update_project, update_note (any saved note by id — append, replace, rename, move project; use ' +
+    'propose_note_edit for the note open beside the chat), create_diagram / update_diagram (shapes, connectors, ' +
+    'colours, footnotes, legend), create_mind_map, and create_weekly_microsoft_digest (the Monday blog draft and ' +
+    'Slack summary of all Microsoft/GitHub updates). When asked to do one of these, just do it. Report ' +
+    'something as added, verified or changed only when the tool result says success; if a feed fails to read, ' +
+    'say so and do not add it.',
   '- `tavily-search`: real internet search. You MUST use it before answering about an unfamiliar acronym, ' +
     'a term the user says is new or only recently appeared, current/recent technology, an explicit request ' +
     'to search or look something up, or after the user challenges an unsupported factual answer. Never invent ' +
@@ -328,7 +341,8 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'real record — never just name a task, note, or document without a way to open it:',
   '- For `list_tasks` / `create_task` / `update_task` results: after the task\'s Status/Priority/Project/Due ' +
     'lines, add a line exactly formatted as `Link: <url>` using that task\'s url field.',
-  '- For `create_note_draft` results: add a line `Link: <url>` using the note\'s url field.',
+  '- For `create_note_draft`, `update_note`, `create_diagram`, `update_diagram` and `create_mind_map` results: add ' +
+    'a line `Link: <url>` using the result\'s url field.',
   '- For `search_knowledge_base` / `search_library` results: format each as a markdown link, ' +
     '`[Title](url)`, instead of writing the title as plain text — this is the only way the user can open ' +
     'the underlying commit, PR, issue, email, or document you found.',
@@ -992,13 +1006,28 @@ export async function buildAiContext(
           'Cross-project reading does not change this conversation\'s project or reassign notes/tasks. ' +
           'Task-board queries and new note filing default to the conversation project unless another is specified.',
       ].filter(Boolean).join('\n');
-  const projectCatalog = !noBackground
-    ? await db.query<{ id: string; name: string }>('SELECT id, name FROM projects ORDER BY name')
-    : null;
+  const [projectCatalog, graphConnections] = await Promise.all([
+    !noBackground
+      ? db.query<{ id: string; name: string; importance: string | null; lifecycle_state: string | null; goal: string | null }>(
+        'SELECT id, name, importance, lifecycle_state, goal FROM projects ORDER BY name')
+      : Promise.resolve(null),
+    graphConnectionsFor(db, ragItems).catch((error: unknown) => {
+      console.error('[Athena] Graph connections failed:', error);
+      return [];
+    }),
+  ]);
   const catalogContext = projectCatalog && projectCatalog.rows.length > 0
     ? [
         '## Saved projects',
-        ...projectCatalog.rows.map((project) => `- ${project.name} (id: ${project.id})`),
+        ...projectCatalog.rows.map((project) => {
+          const flags = [
+            project.importance !== null && project.importance !== 'normal' ? `${project.importance} importance` : '',
+            project.lifecycle_state !== null && project.lifecycle_state !== 'active' ? project.lifecycle_state : '',
+          ].filter(Boolean).join(', ');
+          const goal = (project.goal ?? '').trim();
+          return `- ${project.name} (id: ${project.id})${flags !== '' ? ` — ${flags}` : ''}${goal !== '' ? `. Goal: ${goal.length > 160 ? `${goal.slice(0, 157)}…` : goal}` : ''}`;
+        }),
+        'Projects overlap: something learned for one (a platform, a pattern, a client need) often bears on others. When an answer for one project has implications for another — especially a high-importance one — say so.',
         'When discussing a named project, call get_project_details for its current saved goal, role, ownership, dates and expected outputs. Do not substitute old profile text or memories for current project information.',
       ].join('\n')
     : '';
@@ -1011,7 +1040,7 @@ export async function buildAiContext(
       discoverContext = '## Discover configuration read failed\nThe current subscriptions could not be loaded. Retry get_discover_sources; if unavailable, report that failure and do not claim recommendations are non-duplicates.';
     }
   }
-  const projectContext = [activeProjectContext, catalogContext, storedProjectContext, discoverContext].filter((block) => block !== '').join('\n\n');
+  const projectContext = [activeProjectContext, catalogContext, storedProjectContext, discoverContext, formatGraphConnections(graphConnections)].filter((block) => block !== '').join('\n\n');
 
   return {
     staticContext,
