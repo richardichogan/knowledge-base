@@ -35,7 +35,7 @@ import {
 } from './diagramTypes';
 import {
   PORTS, RESIZE_HANDLES, MIN_NODE_SIZE, containerHeader, SWIMLANE_HEADER, isContainerKind, nodeRect, boundsOf,
-  documentBounds, normalizeRect, rectContainsRect, portPoint, nearestPort, nodeMap, withDescendants, topLevelSelection,
+  documentBounds, diagramBounds, normalizeRect, rectContainsRect, portPoint, nearestPort, nodeMap, withDescendants, topLevelSelection,
   canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, pathD,
   pointAlong, insertWaypoint, hitTestNode, hitTestEdge, nodesInRect, alignNodes, distributeNodes, reorderNodes,
   cloneSelection, removeSelection, normalizeDocument, screenToWorld, worldToScreen, clampZoom, zoomAt, fitViewport,
@@ -46,10 +46,10 @@ import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { DiagramMetadata } from './DiagramMetadata';
 import { exportDiagram } from './diagramExport';
 import {
-  addFootnote, collapseView, fixTextIssues, footnoteAnchor, footnotesOf, presentationSteps, pruneFootnotes, setLegend,
-  DEFAULT_LEGEND, FOOTNOTE_RADIUS, type PresentationStep,
+  addFootnote, collapseView, fixTextIssues, footnoteAnchor, footnoteBlock, footnoteHref, footnotesOf, presentationSteps, pruneFootnotes, setLegend,
+  DEFAULT_LEGEND, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT, type FootnoteBlock, type PresentationStep,
 } from './diagramAnnotations';
-import { DiagramFootnotesPanel } from './DiagramFootnotesPanel';
+import { DiagramFootnoteControls } from './DiagramFootnoteControls';
 import { DiagramLegend } from './DiagramLegend';
 import { DiagramVersions } from './DiagramVersions';
 import { DiagramTextCheck } from './DiagramTextCheck';
@@ -193,6 +193,15 @@ type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; snapshot: DiagramSnapshot };
+
+const EMPTY_NOTE = 'No description yet. Add one in Properties.';
+
+/** The numbered notes drawn on the sheet, beneath or beside the shapes. */
+function notesBlockOf(d: DiagramDocument, hidden: boolean): FootnoteBlock | null {
+  if (hidden || footnotesOf(d).length === 0) return null;
+  const shown = collapseView(d);
+  return footnoteBlock(d, diagramBounds({ nodes: shown.nodes, edges: shown.edges }, 0), d.notesPanel ?? 'bottom', EMPTY_NOTE);
+}
 
 export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote, initialFootnote }) => {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
@@ -554,9 +563,33 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const fit = useCallback((persist = true) => {
     const el = sheetRef.current;
     if (el === null) return;
-    const v = fitViewport(documentBounds(docRef.current), el.clientWidth, el.clientHeight, FIT_PADDING, MIN_ZOOM, MAX_ZOOM);
+    const cur = docRef.current;
+    const block = notesBlockOf(cur, notesHidden);
+    const content = documentBounds(cur);
+    const bounds = block === null ? content : content === null ? block.rect : boundsOf([content, block.rect]);
+    const v = fitViewport(bounds, el.clientWidth, el.clientHeight, FIT_PADDING, MIN_ZOOM, MAX_ZOOM);
     setView(v, persist);
+  }, [setView, notesHidden]);
+
+  /** Pan (keeping the zoom) so a diagram-space rectangle is on screen. */
+  const revealRect = useCallback((r: Rect) => {
+    const el = sheetRef.current;
+    if (el === null) return;
+    const v = docRef.current.viewport;
+    const W = el.clientWidth; const H = el.clientHeight; const m = 24;
+    const sx = r.x * v.zoom + v.x; const sy = r.y * v.zoom + v.y;
+    const sw = r.width * v.zoom; const sh = r.height * v.zoom;
+    if (sx >= m && sy >= m && sx + sw <= W - m && sy + sh <= H - m) return;
+    const x = sw > W - m * 2 ? m - r.x * v.zoom : W / 2 - (r.x + r.width / 2) * v.zoom;
+    const y = sh > H - m * 2 ? m - r.y * v.zoom : H / 2 - (r.y + r.height / 2) * v.zoom;
+    setView({ x, y, zoom: v.zoom }, false);
   }, [setView]);
+
+  /** Show the numbered note for a footnote on the sheet. */
+  const revealNote = useCallback((footnoteId: string) => {
+    const item = notesBlockOf(docRef.current, false)?.items.find((i) => i.id === footnoteId);
+    if (item !== undefined) revealRect(item.rect);
+  }, [revealRect]);
 
   function zoomBy(factor: number): void {
     const v = docRef.current.viewport;
@@ -980,7 +1013,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     if (fn === undefined) { notify('info', `Footnote ${initialFootnote} no longer exists on this diagram.`, { key: 'footnote-link' }); return; }
     setNotesHidden(false);
     selectFootnoteTarget(fn.targetId, fn.id);
-    window.setTimeout(() => { focusTarget(fn.targetId, false); }, 60);
+    window.setTimeout(() => { revealNote(fn.id); }, 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFootnote, size.width]);
 
@@ -1122,7 +1155,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     }
     const s = selRef.current;
     if (presenting !== null) {
-      if (role === 'footnote') {
+      if (role === 'footnote' || role === 'footnote-item') {
         const index = presenting.steps.findIndex((st) => st.number !== null && footnotesOf(cur)[st.number - 1]?.id === id);
         if (index >= 0) setPresenting({ ...presenting, index });
         return;
@@ -1137,6 +1170,21 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         if (fn === undefined) return;
         setNotesHidden(false);
         selectFootnoteTarget(fn.targetId, fn.id);
+        window.setTimeout(() => { revealNote(fn.id); }, 0);
+        return;
+      }
+      case 'footnote-item': {
+        e.preventDefault();
+        const fn = footnotesOf(cur).find((f) => f.id === id);
+        if (fn === undefined) return;
+        selectFootnoteTarget(fn.targetId, fn.id);
+        const shown = collapseView(cur);
+        const map = nodeMap(shown.nodes);
+        const node = map.get(shown.hiddenBy.get(fn.targetId) ?? fn.targetId);
+        const edge = node === undefined ? shown.edges.find((x) => x.id === fn.targetId) : undefined;
+        const route = edge === undefined ? null : edgeRoute(edge, map);
+        const target = node !== undefined ? nodeRect(node) : route === null ? null : boundsOf(route.map((p) => ({ x: p.x, y: p.y, width: 0, height: 0 })));
+        if (target !== null) revealRect(target);
         return;
       }
       case 'collapse': {
@@ -1405,7 +1453,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       setEditing({ kind: 'node', id, value: n.label });
       return;
     }
-    if (role === 'footnote' || role === 'collapse') return;
+    if (role === 'footnote' || role === 'footnote-item' || role === 'collapse') return;
     if (role === 'edge' || role === 'midpoint' || role === 'edge-label') {
       if (remappedEdges.has(id)) return;
       const edge = cur.edges.find((x) => x.id === id);
@@ -1626,6 +1674,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const footnotes = footnotesOf(doc);
   const notesPosition = doc.notesPanel ?? 'bottom';
   const showNotes = footnotes.length > 0 && !notesHidden;
+  const notesBlock = useMemo(() => notesBlockOf(doc, notesHidden), [doc, notesHidden]);
   const elementNotes = canvas?.elementNotes ?? [];
   const keyDim = (stroke: string | undefined): boolean => keyFilter !== null && (stroke ?? '').toLowerCase() !== keyFilter;
   const footnoteR = FOOTNOTE_RADIUS * Math.max(1, 0.75 / z);
@@ -1880,7 +1929,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           </button>
         </div>
 
-        <div className={`dg-stage dg-stage--${notesPosition}`}>
+        <div className="dg-stage">
         <div ref={sheetRef} className={sheetClass} onDragOver={onDragOver} onDragLeave={() => { setDropHint(false); }} onDrop={onDrop}>
           <svg
             ref={svgRef} className="dg-canvas" role="application" aria-label="Diagram sheet"
@@ -1957,6 +2006,32 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   </g>
                 );
               })}
+              {notesBlock !== null && (
+                <g className="dg-noteblock" aria-label="Diagram notes">
+                  <rect className="dg-noteblock__frame" x={notesBlock.rect.x} y={notesBlock.rect.y} width={notesBlock.rect.width} height={notesBlock.rect.height} rx={4} />
+                  <text className="dg-noteblock__heading" x={notesBlock.heading.x} y={notesBlock.heading.y} fontSize={NOTE_HEADING_FONT} dominantBaseline="hanging">Notes</text>
+                  {notesBlock.items.map((item) => {
+                    const cls = ['dg-noteblock__item', activeFootnote === item.id ? 'dg-noteblock__item--active' : ''].filter(Boolean).join(' ');
+                    return (
+                      <a key={item.id} id={`dg-footnote-${item.number}`} className={cls} data-dg="footnote-item" data-id={item.id}
+                        href={footnoteHref(canvasId, item.number)} aria-label={`Note ${item.number}: show it on the diagram`}
+                        onClick={(e) => { e.preventDefault(); }}>
+                        <rect className="dg-noteblock__hit" x={item.rect.x} y={item.rect.y} width={item.rect.width} height={item.rect.height} rx={3} />
+                        <g className="dg-marker">
+                          <circle cx={item.marker.x} cy={item.marker.y} r={FOOTNOTE_RADIUS} />
+                          <text x={item.marker.x} y={item.marker.y} fontSize={item.number >= 10 ? FOOTNOTE_RADIUS : FOOTNOTE_RADIUS * 1.2} textAnchor="middle" dominantBaseline="central">{item.number}</text>
+                        </g>
+                        <text className="dg-noteblock__text" fontSize={NOTE_FONT}>
+                          {item.lines.map((line, j) => (
+                            <tspan key={j} x={line.x} y={line.y} fontWeight={line.bold ? 600 : 400}
+                              className={line.muted ? 'dg-noteblock__muted' : undefined}>{line.text}</tspan>
+                          ))}
+                        </text>
+                      </a>
+                    );
+                  })}
+                </g>
+              )}
               {singleNode?.kind === 'line' && !busyDrag && linePoints(singleNode).map((point, index) => (
                 <circle key={`line-end-${index}`} className="dg-endpoint" data-dg="line-end" data-id={singleNode.id}
                   data-end={index} cx={point.x} cy={point.y} r={5 * inv}><title>Drag line endpoint</title></circle>
@@ -2227,18 +2302,6 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             </div>
           )}
         </div>
-        {showNotes && presenting === null && (
-          <DiagramFootnotesPanel
-            canvasId={canvasId} doc={doc} activeId={activeFootnote} position={notesPosition} elementNotes={elementNotes}
-            onChange={changeAnnotations}
-            onSelectTarget={(targetId, footnoteId) => { selectFootnoteTarget(targetId, footnoteId); }}
-            onPosition={(position) => { changeAnnotations({ ...docRef.current, notesPanel: position }, false); }}
-            onHide={() => { setNotesHidden(true); }}
-            onOpenNote={onOpenNote}
-            beforeLink={beforeElementLink}
-            onCopied={(message) => { notify('info', message, { key: 'footnote-copy' }); }}
-          />
-        )}
         </div>
       </div>
 
@@ -2297,10 +2360,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           key={`notes-${singleId}`} canvasId={canvasId} elementId={singleId} title="Notes linked to this shape"
           notes={elementNotes.filter((l) => l.elementId === singleId)} onOpenNote={onOpenNote} beforeChange={beforeElementLink}
         />}
+        {singleFootnote !== undefined && <DiagramFootnoteControls canvasId={canvasId} doc={doc} footnoteId={singleFootnote.id}
+          onChange={changeAnnotations} onCopied={(message) => { notify('info', message, { key: 'footnote-copy' }); }} />}
         {singleId !== undefined && <div className="dg-properties__actions">
-          <button type="button" className="dg-text-btn" onClick={() => { addFootnoteFor(singleId); }}>
-            <ListNumbered size={16} /> {singleFootnote === undefined ? 'Add footnote' : `Footnote ${footnotes.indexOf(singleFootnote) + 1}`}
-          </button>
+          {singleFootnote === undefined && <button type="button" className="dg-text-btn" onClick={() => { addFootnoteFor(singleId); }}>
+            <ListNumbered size={16} /> Add footnote
+          </button>}
           <button type="button" className="dg-text-btn" onClick={() => { askAthena(singleId); }}><Chat size={16} /> Ask Athena</button>
         </div>}
         <DiagramNoteLinks canvasId={canvasId} notes={canvas?.linkedNotes ?? []} onOpenNote={onOpenNote} />

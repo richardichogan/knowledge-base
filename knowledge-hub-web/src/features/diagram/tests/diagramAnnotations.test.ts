@@ -4,7 +4,7 @@
  */
 import type { DiagramDocument, DiagramEdge, DiagramNode } from '../diagramTypes';
 import {
-  addFootnote, collapseView, diffDocuments, fixTextIssues, footnoteHref, footnoteText, legendRows, moveFootnote,
+  addFootnote, collapseView, diffDocuments, fixTextIssues, footnoteBlock, footnoteHref, footnoteText, legendRows, moveFootnote,
   presentationSteps, pruneFootnotes, removeFootnote, textIssues,
 } from '../diagramAnnotations';
 
@@ -31,13 +31,14 @@ const doc = (nodes: DiagramNode[], edges: DiagramEdge[] = [], extra: Partial<Dia
   ({ version: 1, nodes, edges, grid: true, viewport: { x: 0, y: 0, zoom: 1 }, ...extra });
 
 // ── Footnotes ──
-test('addFootnote uses description when present, custom otherwise, and never duplicates', () => {
+test('addFootnote always shows the description and never duplicates', () => {
   let d = doc([node('a', { description: 'Alpha desc' }), node('b')]);
   d = addFootnote(d, 'a', 'f1');
   d = addFootnote(d, 'b', 'f2');
   d = addFootnote(d, 'a', 'f3');
-  eq(d.footnotes?.map((f) => [f.id, f.source]), [['f1', 'description'], ['f2', 'custom']]);
+  eq(d.footnotes?.map((f) => [f.id, f.source]), [['f1', 'description'], ['f2', 'description']]);
   eq(footnoteText(d, d.footnotes![0]!), 'Alpha desc');
+  eq(footnoteText(d, d.footnotes![1]!), '');
   eq(addFootnote(d, 'missing', 'f4'), d, 'unknown target ignored');
 });
 test('moveFootnote reorders and removeFootnote drops the empty array', () => {
@@ -49,10 +50,25 @@ test('moveFootnote reorders and removeFootnote drops the empty array', () => {
   ok(!('footnotes' in d), 'footnotes key removed when empty');
 });
 test('pruneFootnotes removes footnotes for deleted elements', () => {
-  const d = doc([node('a')], [], { footnotes: [{ id: 'f1', targetId: 'a', source: 'description' }, { id: 'f2', targetId: 'gone', source: 'custom', text: 'x' }] });
+  const d = doc([node('a')], [], { footnotes: [{ id: 'f1', targetId: 'a', source: 'description' }, { id: 'f2', targetId: 'gone', source: 'description' }] });
   eq(pruneFootnotes(d).footnotes?.map((f) => f.id), ['f1']);
   const clean = doc([node('a')], [], { footnotes: [{ id: 'f1', targetId: 'a', source: 'description' }] });
   ok(pruneFootnotes(clean) === clean, 'unchanged doc returned as-is');
+});
+test('footnoteBlock lays notes out beneath or beside the content, numbered in order', () => {
+  const d = doc([node('a', { label: 'Alpha', description: 'Alpha desc' }), node('b', { label: 'Beta' })], [], {
+    footnotes: [{ id: 'f1', targetId: 'a', source: 'description' }, { id: 'f2', targetId: 'b', source: 'description' }],
+  });
+  const content = { x: 0, y: 0, width: 500, height: 200 };
+  const below = footnoteBlock(d, content, 'bottom', 'empty')!;
+  ok(below.rect.y > 200 && below.rect.x === 0, 'bottom block sits under the content');
+  eq(below.items.map((i) => [i.number, i.lines.map((l) => l.text)]), [[1, ['Alpha', 'Alpha desc']], [2, ['Beta', 'empty']]]);
+  ok(below.items[1]!.lines[1]!.muted, 'missing description is muted');
+  ok(below.items[1]!.rect.y >= below.items[0]!.rect.y + below.items[0]!.rect.height - 1, 'items do not overlap');
+  const right = footnoteBlock(d, content, 'right')!;
+  ok(right.rect.x > 500 && right.rect.y === 0, 'right block sits beside the content');
+  eq(right.items[1]!.lines.map((l) => l.text), ['Beta'], 'exports omit the empty placeholder');
+  ok(footnoteBlock(doc([node('a')]), content, 'bottom') === null, 'no footnotes, no block');
 });
 test('footnoteHref deep-links to the numbered note', () => {
   ok(footnoteHref('c1', 3).includes('footnote=3'), footnoteHref('c1', 3));
@@ -118,8 +134,8 @@ test('textIssues catches misspellings, repeats and padded labels; fixTextIssues 
 
 // ── Presentation ──
 test('presentationSteps follows footnote order', () => {
-  const d = doc([node('a', { label: 'A', description: 'about a' }), node('b', { label: 'B' })], [], {
-    footnotes: [{ id: 'f2', targetId: 'b', source: 'custom', text: 'about b' }, { id: 'f1', targetId: 'a', source: 'description' }],
+  const d = doc([node('a', { label: 'A', description: 'about a' }), node('b', { label: 'B', description: 'about b' })], [], {
+    footnotes: [{ id: 'f2', targetId: 'b', source: 'description' }, { id: 'f1', targetId: 'a', source: 'description' }],
   });
   eq(presentationSteps(d).map((s) => [s.targetId, s.number, s.text]), [['b', 1, 'about b'], ['a', 2, 'about a']]);
 });

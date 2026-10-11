@@ -682,61 +682,31 @@ $dg-ink: #f4f4f4;
   min-width: 0;
   min-height: 0;
   display: flex;
-  &--bottom { flex-direction: column; }
-  &--right { flex-direction: row; }
+  flex-direction: column;
   > .dg-sheet { flex: 1; min-height: 0; }
 }
 
-.dg-footnotes {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--cds-layer-01);
-  font-size: 0.8125rem;
-  &--bottom { flex: 0 0 auto; max-height: 34%; border-top: 1px solid var(--cds-border-subtle-01); }
-  &--right { flex: 0 0 320px; min-width: 0; border-left: 1px solid var(--cds-border-subtle-01); }
-  &__head {
-    display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
-    padding: 0.375rem 0.75rem; border-bottom: 1px solid var(--cds-border-subtle-00);
-    h3 { margin: 0; font-size: 0.875rem; font-weight: 600; }
-  }
-  &__tools { display: flex; align-items: center; gap: 0.25rem; }
-  &__list { list-style: none; margin: 0; padding: 0.25rem 0; overflow-y: auto; min-height: 0; }
-  &--bottom &__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr)); }
+// Numbered notes drawn on the sheet as part of the diagram
+.dg-noteblock {
+  &__frame { fill: rgba(255, 255, 255, 0.03); stroke: rgba(141, 141, 141, 0.55); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+  &__heading { fill: $dg-ink; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-weight: 600; pointer-events: none; user-select: none; }
+  &__text { fill: $dg-ink; font-family: 'IBM Plex Sans', system-ui, sans-serif; pointer-events: none; user-select: none; }
+  &__muted { fill: #8d8d8d; font-style: italic; }
+  &__hit { fill: transparent; stroke: transparent; stroke-width: 2px; vector-effect: non-scaling-stroke; }
+  &__item { cursor: pointer; outline: none; }
+  &__item:hover &__hit { fill: rgba(15, 98, 254, 0.08); }
+  &__item:focus-visible &__hit { stroke: $dg-select; }
+  &__item--active &__hit { fill: rgba(15, 98, 254, 0.14); stroke: #0f62fe; }
 }
 
-.dg-footnote {
-  display: flex;
-  gap: 0.625rem;
-  padding: 0.5rem 0.75rem;
-  border-left: 3px solid transparent;
-  scroll-margin: 0.5rem;
-  &--active { border-left-color: var(--kh-accent); background: var(--cds-layer-selected-01, rgba(255, 255, 255, 0.06)); }
-  &__num {
-    flex: 0 0 auto;
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 1.5rem; height: 1.5rem; border-radius: 50%;
-    background: #0f62fe; color: #fff; font-size: 0.75rem; font-weight: 600; text-decoration: none;
-    &:hover { background: #0353e9; }
-    &:focus-visible { @include dg-focus; }
-  }
-  &__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.375rem; }
-  &__title { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-  &__target {
-    background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--cds-text-primary);
-    cursor: pointer; text-align: left; overflow-wrap: anywhere;
-    &:hover { text-decoration: underline; }
-    &:focus-visible { @include dg-focus; }
-  }
-  &__kind { color: var(--cds-text-secondary); font-size: 0.75rem; }
-  &__text { margin: 0; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--cds-text-primary); &--empty { color: var(--cds-text-secondary); font-style: italic; } }
-  &__input {
-    box-sizing: border-box; width: 100%; min-height: 3.5rem; resize: vertical; padding: 0.5rem;
-    background: var(--cds-field-01); color: var(--cds-text-primary); border: 1px solid var(--cds-border-subtle-01);
-    font: inherit; line-height: 1.4;
-    &:focus { @include dg-focus; }
-  }
-  &__actions { display: flex; flex-direction: column; gap: 0.125rem; }
+.dg-footnote-controls {
+  padding: 1rem 0 0;
+  margin-top: 1rem;
+  border-top: 1px solid var(--cds-border-subtle-01);
+  font-size: 0.8125rem;
+  h4 { margin: 0 0 0.25rem; font-size: inherit; font-weight: 600; }
+  &__hint { margin: 0 0 0.5rem; color: var(--cds-text-secondary); font-size: 0.75rem; }
+  &__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; margin-bottom: 0.5rem; }
 }
 
 .dg-element-notes {
@@ -920,8 +890,5 @@ $dg-ink: #f4f4f4;
 }
 
 @media (max-width: 700px) {
-  .dg-stage--right { flex-direction: column; }
-  .dg-footnotes--right { flex: 0 0 auto; max-height: 34%; border-left: 0; border-top: 1px solid var(--cds-border-subtle-01); }
-  .dg-footnotes--bottom .dg-footnotes__list { grid-template-columns: 1fr; }
   .dg-present { flex-direction: column; align-items: stretch; }
 }

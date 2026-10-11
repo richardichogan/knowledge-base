@@ -4,7 +4,8 @@
  * version comparison, text tidy-ups and presentation steps.
  */
 import type { DiagramDocument, DiagramEdge, DiagramFootnote, DiagramLegend, DiagramLegendEntry, DiagramNode, DiagramPoint } from './diagramTypes';
-import { containerHeader, edgeLabelCenter, edgeLabelLayout, edgeRoute, isContainerKind, linePoints, nodeMap } from './diagramGeometry';
+import type { Rect } from './diagramGeometry';
+import { containerHeader, edgeLabelCenter, edgeLabelLayout, edgeRoute, isContainerKind, linePoints, nodeMap, wrapText } from './diagramGeometry';
 
 type Doc = DiagramDocument;
 
@@ -33,9 +34,8 @@ function kindName(n: DiagramNode): string {
   return n.kind === 'terminator' ? 'Start / end' : n.kind.charAt(0).toUpperCase() + n.kind.slice(1);
 }
 
-/** The text a footnote shows: its target's description, or its own custom text. */
+/** A footnote always shows its shape's or connector's description. */
 export function footnoteText(doc: Pick<Doc, 'nodes' | 'edges'>, fn: DiagramFootnote): string {
-  if (fn.source === 'custom') return fn.text ?? '';
   return elementInfo(doc, fn.targetId)?.description ?? '';
 }
 
@@ -44,12 +44,7 @@ export function addFootnote(doc: Doc, targetId: string, id: string): Doc {
   if (list.some((f) => f.targetId === targetId)) return doc;
   const info = elementInfo(doc, targetId);
   if (info === null) return doc;
-  const fn: DiagramFootnote = info.description.trim() !== '' ? { id, targetId, source: 'description' } : { id, targetId, source: 'custom', text: '' };
-  return { ...doc, footnotes: [...list, fn] };
-}
-
-export function updateFootnote(doc: Doc, id: string, patch: Partial<Pick<DiagramFootnote, 'source' | 'text'>>): Doc {
-  return withFootnotes(doc, footnotesOf(doc).map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  return { ...doc, footnotes: [...list, { id, targetId, source: 'description' }] };
 }
 
 export function removeFootnote(doc: Doc, id: string): Doc {
@@ -115,6 +110,56 @@ export function footnoteAnchor(doc: Pick<Doc, 'nodes' | 'edges'>, targetId: stri
 /** Relative link that opens this diagram on a footnote. */
 export function footnoteHref(canvasId: string, number: number): string {
   return `/think?mapId=${encodeURIComponent(canvasId)}&footnote=${number}`;
+}
+
+// ── Footnote block drawn on the sheet (and in exports) ───────────────────────
+
+export const NOTE_FONT = 12;
+export const NOTE_LINE = NOTE_FONT * 1.35;
+export const NOTE_HEADING_FONT = 14;
+const BLOCK_GAP = 40;
+const BLOCK_PAD = 12;
+const TEXT_INDENT = 30;
+
+export interface FootnoteBlockLine { text: string; x: number; y: number; bold: boolean; muted: boolean }
+export interface FootnoteBlockItem { id: string; targetId: string; number: number; marker: DiagramPoint; lines: FootnoteBlockLine[]; rect: Rect }
+export interface FootnoteBlock { rect: Rect; heading: DiagramPoint; items: FootnoteBlockItem[] }
+
+/**
+ * Lay out the numbered notes as part of the diagram, beside (`right`) or
+ * beneath (`bottom`) the content bounds. Coordinates are in diagram space so
+ * the block pans, zooms and exports with the shapes. `emptyText` is shown for
+ * notes without text (the editor uses it; exports omit it).
+ */
+export function footnoteBlock(doc: Pick<Doc, 'nodes' | 'edges' | 'footnotes'>, content: Rect, position: 'bottom' | 'right', emptyText?: string): FootnoteBlock | null {
+  const list = footnotesOf(doc);
+  if (list.length === 0) return null;
+  const width = position === 'right' ? 360 : Math.min(900, Math.max(420, content.width));
+  const x = position === 'right' ? content.x + content.width + BLOCK_GAP : content.x;
+  const y = position === 'right' ? content.y : content.y + content.height + BLOCK_GAP;
+  const textX = x + BLOCK_PAD + TEXT_INDENT;
+  const textWidth = width - BLOCK_PAD * 2 - TEXT_INDENT;
+  let cursor = y + BLOCK_PAD + NOTE_HEADING_FONT + 12;
+  const items = list.map((fn, i): FootnoteBlockItem => {
+    const title = elementInfo(doc, fn.targetId)?.label ?? 'Missing item';
+    const body = footnoteText(doc, fn).trim();
+    const raw: Array<{ text: string; bold: boolean; muted: boolean }> = [
+      ...wrapText(title, textWidth, NOTE_FONT, 2).map((text) => ({ text, bold: true, muted: false })),
+      ...(body !== ''
+        ? body.split('\n').flatMap((para) => (para.trim() === '' ? [] : wrapText(para, textWidth, NOTE_FONT, 40))).map((text) => ({ text, bold: false, muted: false }))
+        : emptyText !== undefined ? [{ text: emptyText, bold: false, muted: true }] : []),
+    ];
+    const top = cursor;
+    const lines = raw.map((l, j) => ({ ...l, x: textX, y: top + NOTE_FONT + j * NOTE_LINE }));
+    const height = Math.max(FOOTNOTE_RADIUS * 2, raw.length * NOTE_LINE) + 4;
+    cursor += height + 10;
+    return {
+      id: fn.id, targetId: fn.targetId, number: i + 1, lines,
+      marker: { x: x + BLOCK_PAD + FOOTNOTE_RADIUS, y: top + FOOTNOTE_RADIUS - 2 },
+      rect: { x: x + 4, y: top - 5, width: width - 8, height: height + 10 },
+    };
+  });
+  return { rect: { x, y, width, height: cursor - y + BLOCK_PAD - 10 }, heading: { x: x + BLOCK_PAD, y: y + BLOCK_PAD }, items };
 }
 
 // ── Colour key (border colours only) ──────────────────────────────────────────
@@ -263,7 +308,7 @@ const MISSPELLINGS: Record<string, string> = {
 export interface TextIssue {
   key: string;
   targetId: string;
-  field: 'label' | 'description' | 'footnote';
+  field: 'label' | 'description';
   kind: 'spelling' | 'spacing' | 'repeat';
   found: string;
   fix: string;
@@ -297,7 +342,7 @@ function issuesIn(text: string, targetId: string, field: TextIssue['field']): Te
 
 const tidySpaces = (text: string): string => text.split('\n').map((l) => l.replace(/ {2,}/g, ' ').trim()).join('\n').trim();
 
-export function textIssues(doc: Pick<Doc, 'nodes' | 'edges' | 'footnotes'>): TextIssue[] {
+export function textIssues(doc: Pick<Doc, 'nodes' | 'edges'>): TextIssue[] {
   const out: TextIssue[] = [];
   for (const n of doc.nodes) {
     out.push(...issuesIn(n.label, n.id, 'label'));
@@ -307,7 +352,6 @@ export function textIssues(doc: Pick<Doc, 'nodes' | 'edges' | 'footnotes'>): Tex
     out.push(...issuesIn(e.label, e.id, 'label'));
     if (e.description !== undefined) out.push(...issuesIn(e.description, e.id, 'description'));
   }
-  for (const f of footnotesOf(doc)) if (f.source === 'custom' && f.text !== undefined) out.push(...issuesIn(f.text, f.id, 'footnote'));
   return out;
 }
 
@@ -321,10 +365,6 @@ export function fixTextIssues(doc: Doc, issues: readonly TextIssue[]): Doc {
   let next = doc;
   for (const issue of issues) {
     const edit = (s: string): string => applyFix(s, issue);
-    if (issue.field === 'footnote') {
-      next = { ...next, footnotes: footnotesOf(next).map((f) => (f.id === issue.targetId ? { ...f, text: edit(f.text ?? '') } : f)) };
-      continue;
-    }
     const field = issue.field;
     next = {
       ...next,

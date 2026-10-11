@@ -1,8 +1,8 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
-import { collapseView, footnoteAnchor, footnoteText, footnotesOf, legendRows, elementInfo, FOOTNOTE_RADIUS } from './diagramAnnotations';
+import { collapseView, footnoteAnchor, footnoteBlock, footnotesOf, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
 import { diagramTextLayout } from './diagramText';
 import { diagramBorderDash } from './diagramStroke';
-import { containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, wrapText } from './diagramGeometry';
+import { boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
 
 const escapeXml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
   '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;',
@@ -32,7 +32,7 @@ function nodeText(node: DiagramNode): string {
 }
 
 export interface DiagramExportOptions {
-  /** Numbered footnote markers plus the footnote text beneath the diagram (default true when footnotes exist). */
+  /** Numbered footnote markers plus the notes block beside or beneath the diagram (default true when footnotes exist). */
   footnotes?: boolean;
   /** The colour key beneath the diagram (default: when the key is shown in the editor). */
   legend?: boolean;
@@ -41,8 +41,6 @@ export interface DiagramExportOptions {
 }
 
 const FONT = `font-family="'IBM Plex Sans', system-ui, sans-serif"`;
-const NOTE_FONT = 12;
-const NOTE_LINE = NOTE_FONT * 1.35;
 
 interface BuiltSvg { svg: string; width: number; height: number }
 
@@ -54,44 +52,44 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
   const view = collapseView(source);
   const document: DiagramDocument = { ...source, nodes: view.nodes, edges: view.edges };
   const byId = nodeMap(document.nodes);
-  const bounds = diagramBounds(document);
+  const content = diagramBounds(document, 0);
   const fns = (options.footnotes ?? true) ? footnotesOf(source) : [];
   const rows = (options.legend ?? source.legend?.visible === true) ? legendRows(source).filter((r) => !r.hidden) : [];
   const ink = background === 'white' ? '#161616' : '#525252';
-  // Annotation blocks sit below the diagram.
-  const blockWidth = Math.max(420, Math.ceil(bounds.width));
   const extras: string[] = [];
-  let cursor = bounds.y + bounds.height + 24;
+  const block = fns.length > 0 ? footnoteBlock(source, content, source.notesPanel ?? 'bottom') : null;
+  const rects: Rect[] = [content];
+  if (block !== null) {
+    rects.push(block.rect);
+    extras.push(`<rect x="${block.rect.x}" y="${block.rect.y}" width="${block.rect.width}" height="${block.rect.height}" rx="4" fill="none" stroke="#c6c6c6" stroke-width="1"/>`);
+    extras.push(`<text x="${block.heading.x}" y="${block.heading.y}" ${FONT} font-size="${NOTE_HEADING_FONT}" font-weight="600" fill="${ink}" dominant-baseline="hanging">Notes</text>`);
+    for (const item of block.items) {
+      extras.push(marker(item.marker.x, item.marker.y, item.number));
+      extras.push(`<text ${FONT} font-size="${NOTE_FONT}" fill="${ink}">${item.lines.map((line) => `<tspan x="${line.x}" y="${line.y}"${line.bold ? ' font-weight="600"' : ''}>${escapeXml(line.text)}</tspan>`).join('')}</text>`);
+    }
+  }
   if (rows.length > 0) {
-    extras.push(`<text x="${bounds.x}" y="${cursor}" ${FONT} font-size="13" font-weight="600" fill="${ink}" dominant-baseline="hanging">Key</text>`);
+    const above = boundsOf(rects) ?? content;
+    const left = content.x;
+    const keyWidth = Math.max(420, above.width);
+    let cursor = above.y + above.height + 32;
+    const top = cursor;
+    extras.push(`<text x="${left}" y="${cursor}" ${FONT} font-size="13" font-weight="600" fill="${ink}" dominant-baseline="hanging">Key</text>`);
     cursor += 22;
-    let x = bounds.x;
+    let x = left;
     for (const r of rows) {
       const text = r.label.trim() !== '' ? r.label.trim() : r.colour;
       const w = 28 + Math.min(260, text.length * 6.6) + 20;
-      if (x > bounds.x && x + w > bounds.x + blockWidth) { x = bounds.x; cursor += 22; }
+      if (x > left && x + w > left + keyWidth) { x = left; cursor += 22; }
       extras.push(`<rect x="${x}" y="${cursor}" width="16" height="14" rx="2" fill="none" stroke="${escapeXml(r.colour)}" stroke-width="2.5"/><text x="${x + 24}" y="${cursor + 7}" ${FONT} font-size="${NOTE_FONT}" fill="${ink}" dominant-baseline="central">${escapeXml(text)}</text>`);
       x += w;
     }
-    cursor += 30;
+    rects.push({ x: left, y: top, width: keyWidth, height: cursor + 16 - top });
   }
-  if (fns.length > 0) {
-    extras.push(`<text x="${bounds.x}" y="${cursor}" ${FONT} font-size="13" font-weight="600" fill="${ink}" dominant-baseline="hanging">Notes</text>`);
-    cursor += 24;
-    fns.forEach((fn, i) => {
-      const title = elementInfo(source, fn.targetId)?.label ?? '';
-      const body = footnoteText(source, fn).trim();
-      const lines = [
-        ...wrapText(title, blockWidth - 36, NOTE_FONT, 2),
-        ...body.split('\n').flatMap((para) => (para.trim() === '' ? [] : wrapText(para, blockWidth - 36, NOTE_FONT, 40))),
-      ];
-      extras.push(marker(bounds.x + FOOTNOTE_RADIUS, cursor + FOOTNOTE_RADIUS - 2, i + 1));
-      extras.push(`<text ${FONT} font-size="${NOTE_FONT}" fill="${ink}">${lines.map((line, j) => `<tspan x="${bounds.x + 30}" y="${cursor + NOTE_FONT + j * NOTE_LINE}"${j === 0 ? ' font-weight="600"' : ''}>${escapeXml(line)}</tspan>`).join('')}</text>`);
-      cursor += Math.max(FOOTNOTE_RADIUS * 2, lines.length * NOTE_LINE) + 12;
-    });
-  }
-  const width = Math.max(1, Math.ceil(extras.length > 0 ? Math.max(bounds.width, blockWidth) : bounds.width));
-  const height = Math.max(1, Math.ceil(extras.length > 0 ? cursor - bounds.y : bounds.height));
+  const all = boundsOf(rects) ?? content;
+  const bounds = { x: all.x - 24, y: all.y - 24, width: all.width + 48, height: all.height + 48 };
+  const width = Math.max(1, Math.ceil(bounds.width));
+  const height = Math.max(1, Math.ceil(bounds.height));
   const embedded = new Map<string, string>();
   for (const node of document.nodes) {
     if (node.assetId !== null && !embedded.has(node.assetId)) {
