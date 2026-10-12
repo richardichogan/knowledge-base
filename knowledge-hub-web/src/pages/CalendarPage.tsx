@@ -16,7 +16,6 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   InlineLoading,
-  InlineNotification,
   Tag,
   ClickableTile,
   Button,
@@ -27,6 +26,7 @@ import { api } from '../services/api';
 import type { ContentItemSummary } from '../types';
 import { localDateKey } from '../utils/dateOnly';
 import { calendarDateKey, loadCalendarItems } from '../services/calendarItems';
+import { DataNotice } from '../components/DataNotice';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -258,15 +258,15 @@ export const CalendarPage: React.FC<{ filterProject?: string; filterTag?: string
   const startKey = localDateKey(windowStart);
   const endKey = localDateKey(windowEnd);
 
-  const { data, isPending, isError, error } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ['calendar-week', rangeStart, rangeEnd, filterProject, filterTag],
     queryFn: () => loadCalendarItems(api, { rangeStart, rangeEnd, project: filterProject, tag: filterTag }),
-    staleTime: 5 * 60_000,
+    staleTime: 0,
   });
 
   if (isPending && !isError) return <InlineLoading description="Loading calendar…" />;
   if (isError) return (
-    <InlineNotification kind="error" title="Error" subtitle={String(error)} lowContrast />
+    <DataNotice title="Calendar is unavailable" error={error} onRetry={() => { void refetch(); }} />
   );
   // Index items by date key, filtered to the visible 7-day window
   const byDay = new Map<string, ContentItemSummary[]>();

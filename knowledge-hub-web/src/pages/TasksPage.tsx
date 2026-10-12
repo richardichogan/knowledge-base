@@ -17,6 +17,9 @@ import { TagPicker } from '../components/TagPicker';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import type { PlanTask as Task, TaskStatus, TaskPriority, TaskType } from '../types/task';
 import { dateOnlyToLocal, localDateKey } from '../utils/dateOnly';
+import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
+import { DataNotice } from '../components/DataNotice';
+import type { ApiSuccess, PaginatedList } from '../types/apiResponse';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -63,10 +66,11 @@ function isDueOverdue(iso: string): boolean {
 
 const CardMenu: React.FC<{
   task: Task;
+  busy: boolean;
   onMove: (s: TaskStatus) => void;
   onEdit: () => void;
   onDelete: () => void;
-}> = ({ task, onMove, onEdit, onDelete }) => {
+}> = ({ task, busy, onMove, onEdit, onDelete }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -81,7 +85,7 @@ const CardMenu: React.FC<{
 
   return (
     <div className="kb-menu-anchor" ref={ref} onClick={(e) => e.stopPropagation()}>
-      <button className="kb-menu-trigger" title="Options" onClick={() => setOpen((v) => !v)}>
+      <button className="kb-menu-trigger" title="Options" disabled={busy} onClick={() => setOpen((v) => !v)}>
         <OverflowMenuVertical size={16} />
       </button>
       {open && (
@@ -122,11 +126,12 @@ const CardMenu: React.FC<{
 
 const TaskCard: React.FC<{
   task: Task;
+  busy: boolean;
   projects: ProjectRecord[];
   onMove: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
   onEdit: (task: Task) => void;
-}> = ({ task, projects, onMove, onDelete, onEdit }) => {
+}> = ({ task, busy, projects, onMove, onDelete, onEdit }) => {
   const [dragging, setDragging] = useState(false);
   const flatTags = useFlatTags();
 
@@ -141,19 +146,21 @@ const TaskCard: React.FC<{
     <article
       className={`kb-card${dragging ? ' kb-card--dragging' : ''}`}
       style={{ borderTopColor: PRIORITY_BORDER[task.priority] }}
-      draggable
+      draggable={!busy}
+      aria-busy={busy}
       onDragStart={(e) => {
         e.dataTransfer.setData('taskId', task.id);
         e.dataTransfer.effectAllowed = 'move';
         setDragging(true);
       }}
       onDragEnd={() => { setDragging(false); }}
-      onClick={() => onEdit(task)}
+      onClick={() => { if (!busy) onEdit(task); }}
     >
     <div className="kb-card__header">
       <span className="kb-card__title">{task.title}</span>
       <CardMenu
         task={task}
+        busy={busy}
         onMove={(s) => onMove(task.id, s)}
         onEdit={() => onEdit(task)}
         onDelete={() => onDelete(task.id)}
@@ -632,9 +639,9 @@ const TaskModal: React.FC<{
       modalHeading={initial != null ? 'Edit Task' : 'New Task'}
       primaryButtonText={saving ? 'Saving…' : 'Save'}
       secondaryButtonText="Cancel"
-      onRequestClose={onClose}
+      onRequestClose={() => { if (!saving) onClose(); }}
       onRequestSubmit={() => {
-        if (!title.trim()) return;
+        if (saving || !title.trim()) return;
         onSave({
           title: title.trim(),
           body: body.trim(),
@@ -653,7 +660,7 @@ const TaskModal: React.FC<{
       primaryButtonDisabled={saving || !title.trim()}
       size="md"
     >
-      <div className="kb-modal-form">
+      <fieldset className="kb-modal-form" disabled={saving} aria-label="Task fields">
         {error != null && (
           <InlineNotification kind="error" title="Save failed" subtitle={error} lowContrast hideCloseButton />
         )}
@@ -723,8 +730,9 @@ const TaskModal: React.FC<{
             ))}
             <TagPicker
               selectedIds={linkedTagIds}
+              disabled={saving}
               onChange={setLinkedTagIds}
-              trigger={<button type="button" className="notes-tag-picker-trigger">+ Add tag</button>}
+              trigger={<button type="button" className="notes-tag-picker-trigger" disabled={saving}>+ Add tag</button>}
             />
           </div>
         </div>
@@ -785,7 +793,7 @@ const TaskModal: React.FC<{
         {initial != null && (
           <ConnectionsPanel refId={initial.id} refType="task" />
         )}
-      </div>
+      </fieldset>
     </Modal>
   );
 };
@@ -818,9 +826,9 @@ export const TasksPage: React.FC<{
 
   const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
 
-  const { data, isPending, isError } = useQuery({
+  const { data, isPending, isError, error: loadError, refetch } = useQuery({
     queryKey: ['tasks', filterProject],
-    queryFn:  () => api.getTasks(filterProject ? { projectId: filterProject } : undefined),
+    queryFn: async () => requireApiSuccess(await api.getTasks(filterProject ? { projectId: filterProject } : undefined)),
     staleTime: 0,
   });
 
@@ -841,17 +849,33 @@ export const TasksPage: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, searchParams]);
 
+  const savePending = useRef(false);
   const createMutation = useMutation({
-    mutationFn: (input: Partial<Task> & { title: string }) => api.createTask(input),
+    mutationFn: async (input: Partial<Task> & { title: string }) => requireApiData(await api.createTask(input)),
     onSuccess:  () => { void queryClient.invalidateQueries({ queryKey: ['tasks'] }); setModalOpen(false); },
+    onError: (error) => { setSaveError(describeApiError(error)); },
+    onSettled: () => { savePending.current = false; },
   });
 
   const [saveError, setSaveError] = useState<string | null>(null);
+  const taskActions = useRef(new Set<string>());
+  const [busyTaskIds, setBusyTaskIds] = useState<Set<string>>(() => new Set());
+  function beginTaskAction(id: string): boolean {
+    if (taskActions.current.has(id)) return false;
+    taskActions.current.add(id);
+    setBusyTaskIds(new Set(taskActions.current));
+    setSaveError(null);
+    return true;
+  }
+  function finishTaskAction(id: string): void {
+    taskActions.current.delete(id);
+    setBusyTaskIds(new Set(taskActions.current));
+  }
 
   // Separate mutations for editing (full save) vs drag-drop (status only)
   const updateMutation = useMutation({
-    mutationFn: ({ id, ...input }: Partial<Task> & { id: string }) =>
-      api.updateTask(id, input as Record<string, unknown>),
+    mutationFn: async ({ id, ...input }: Partial<Task> & { id: string }) =>
+      requireApiData(await api.updateTask(id, input)),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
       setSaveError(null);
@@ -863,30 +887,42 @@ export const TasksPage: React.FC<{
       setSaveError(msg);
       console.error('[TasksPage] updateMutation error:', err);
     },
+    onSettled: () => { savePending.current = false; },
   });
 
   const moveTaskMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: TaskStatus }) =>
-      api.updateTask(id, { status }),
+    mutationFn: async ({ id, status }: { id: string; status: TaskStatus }) =>
+      requireApiData(await api.updateTask(id, { status })),
     onMutate: async ({ id, status }) => {
-      await queryClient.cancelQueries({ queryKey: ['tasks'] });
-      const prev = queryClient.getQueryData<unknown>(['tasks', filterProject]);
-      queryClient.setQueryData(['tasks', filterProject], (old: unknown) => {
-        const typed = old as { success: boolean; data: { items: Task[] } } | undefined;
-        if (!typed?.success) return old;
-        return { ...typed, data: { ...typed.data, items: typed.data.items.map((t) => t.id === id ? { ...t, status } : t) } };
+      const queryKey = ['tasks', filterProject] as const;
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<ApiSuccess<PaginatedList<Task>>>(queryKey)?.data.items.find((task) => task.id === id);
+      queryClient.setQueryData<ApiSuccess<PaginatedList<Task>>>(queryKey, (current) => {
+        if (current === undefined) return current;
+        return { ...current, data: { ...current.data, items: current.data.items.map((task) => task.id === id ? { ...task, status } : task) } };
       });
-      return { prev };
+      return { previous, queryKey };
     },
-    onError: (_err, _vars, ctx) => {
-      if (ctx?.prev !== undefined) queryClient.setQueryData(['tasks', filterProject], ctx.prev);
+    onError: (error, { id }, ctx) => {
+      const previous = ctx?.previous;
+      if (ctx !== undefined && previous !== undefined) {
+        queryClient.setQueryData<ApiSuccess<PaginatedList<Task>>>(ctx.queryKey, (current) => current === undefined ? current : ({
+          ...current, data: { ...current.data, items: current.data.items.map((task) => task.id === id ? previous : task) },
+        }));
+      }
+      setSaveError(describeApiError(error));
     },
-    onSettled: () => { void queryClient.invalidateQueries({ queryKey: ['tasks'] }); },
+    onSettled: (_data, _error, { id }) => {
+      finishTaskAction(id);
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteTask(id),
-    onSuccess:  () => void queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+    mutationFn: async (id: string) => requireApiData(await api.deleteTask(id)),
+    onSuccess: () => { setSaveError(null); void queryClient.invalidateQueries({ queryKey: ['tasks'] }); },
+    onError: (error) => { setSaveError(describeApiError(error)); },
+    onSettled: (_data, _error, id) => { finishTaskAction(id); },
   });
 
   return (
@@ -944,7 +980,8 @@ export const TasksPage: React.FC<{
       </div>
 
       {isPending && <InlineLoading description="Loading…" />}
-      {isError   && <InlineNotification kind="error" title="Failed to load tasks" lowContrast />}
+      {isError && <DataNotice title="Tasks are unavailable" error={loadError} onRetry={() => { void refetch(); }} />}
+      {saveError !== null && !modalOpen && <DataNotice title="Task change was not saved" error={saveError} />}
 
       <div className="kb-board">
         {COLUMNS.map((col) => {
@@ -963,7 +1000,7 @@ export const TasksPage: React.FC<{
                 e.preventDefault();
                 setDragOverCol(null);
                 const taskId = e.dataTransfer.getData('taskId');
-                if (taskId) { moveTaskMutation.mutate({ id: taskId, status: col.id }); }
+                if (taskId && beginTaskAction(taskId)) { moveTaskMutation.mutate({ id: taskId, status: col.id }); }
               }}
             >
 
@@ -979,9 +1016,10 @@ export const TasksPage: React.FC<{
                   <TaskCard
                     key={task.id}
                     task={task}
+                    busy={busyTaskIds.has(task.id)}
                     projects={projects}
-                    onMove={(id, s) => moveTaskMutation.mutate({ id, status: s })}
-                    onDelete={(id) => deleteMutation.mutate(id)}
+                    onMove={(id, s) => { if (beginTaskAction(id)) moveTaskMutation.mutate({ id, status: s }); }}
+                    onDelete={(id) => { if (beginTaskAction(id)) deleteMutation.mutate(id); }}
                     onEdit={(t) => { setEditTask(t); setModalOpen(true); }}
                   />
                 ))}
@@ -1014,6 +1052,8 @@ export const TasksPage: React.FC<{
         error={saveError}
         onClose={() => { setModalOpen(false); setEditTask(null); setSaveError(null); }}
         onSave={(input) => {
+          if (savePending.current) return;
+          savePending.current = true;
           setSaveError(null);
           if (editTask != null) {
             updateMutation.mutate({ id: editTask.id, ...input });

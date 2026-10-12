@@ -29,6 +29,8 @@ import { ThinkAthenaPanel } from '../notes/ThinkAthenaPanel';
 import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { alertDialog } from '../services/appDialogs';
+import { requireApiSuccess, describeApiError } from '../services/apiError';
+import { DataNotice } from '../components/DataNotice';
 
 // Same cap as Think notes: enough for long specs, bounded for the model.
 const DOC_CONTEXT_MAX_CHARS = 100_000;
@@ -96,18 +98,21 @@ export const DocumentsPage: React.FC = () => {
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadProjectId, setUploadProjectId] = useState('personal');
   const [uploadLoading, setUploadLoading] = useState(false);
+  const [tagSaving, setTagSaving] = useState(false);
+  const tagSavingRef = useRef(false);
+  const [tagError, setTagError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
   const { pageContext, setAthenaContext } = useAthenaContext();
   const showAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
   const [athenaBusy, setAthenaBusy] = useState(false);
   const { data: projectRecords = [] } = useProjects();
-  const projectOptions = projectRecords.length > 0 ? projectRecords : PROJECTS;
+  const projectOptions = projectRecords;
 
   // ── Fetch unified library ──────────────────────────────────────────────────
-  const { data: libraryData, isPending: libraryPending } = useQuery({
+  const { data: libraryData, isPending: libraryPending, error: libraryError, refetch: reloadLibrary } = useQuery({
     queryKey: ['documents-library'],
-    queryFn: () => api.getDocumentLibrary(EXTRA_REPOS, REPO_LABELS),
+    queryFn: async () => requireApiSuccess(await api.getDocumentLibrary(EXTRA_REPOS, REPO_LABELS)),
     staleTime: 5 * 60_000,
   });
 
@@ -161,24 +166,33 @@ export const DocumentsPage: React.FC = () => {
 
   // ── Tag save handler ───────────────────────────────────────────────────────
   const handleDocTagChange = useCallback(async (ids: string[]) => {
-    if (!selectedDoc) return;
+    if (!selectedDoc || tagSavingRef.current) return;
+    tagSavingRef.current = true;
+    setTagSaving(true);
+    setTagError(null);
+    const previousOverride = tagOverrides.get(selectedDoc.id);
     setTagOverrides((prev) => new Map([...prev, [selectedDoc.id, ids]]));
     try {
-      await api.setDocumentTags(selectedDoc.id, ids);
+      requireApiSuccess(await api.setDocumentTags(selectedDoc.id, ids));
       void qc.invalidateQueries({ queryKey: ['documents-library'] });
-    } catch {
+    } catch (error) {
+      setTagError(`Tags for ${selectedDoc.title} were not saved: ${describeApiError(error)}`);
       setTagOverrides((prev) => {
         const next = new Map(prev);
-        next.delete(selectedDoc.id);
+        if (previousOverride === undefined) next.delete(selectedDoc.id);
+        else next.set(selectedDoc.id, previousOverride);
         return next;
       });
+    } finally {
+      tagSavingRef.current = false;
+      setTagSaving(false);
     }
-  }, [selectedDoc, qc]);
+  }, [selectedDoc, qc, tagOverrides]);
 
   // ── Fetch selected document content ───────────────────────────────────────
-  const { data: contentData, isPending: contentPending } = useQuery({
+  const { data: contentData, isPending: contentPending, error: contentError, refetch: reloadContent } = useQuery({
     queryKey: ['document-content', selectedDoc?.repo, selectedDoc?.path],
-    queryFn: () => api.getDocumentContent(selectedDoc!.repo, selectedDoc!.path),
+    queryFn: async () => requireApiSuccess(await api.getDocumentContent(selectedDoc!.repo, selectedDoc!.path)),
     enabled: selectedDoc !== null,
     staleTime: 10 * 60_000,
   });
@@ -198,7 +212,10 @@ export const DocumentsPage: React.FC = () => {
     }
     // Wait for the text: Athena's opening summary is generated as soon as the
     // context appears, and with only the path it could only guess.
-    if (contentPending) return;
+    if (contentPending || contentData?.success !== true) {
+      setAthenaContext(null);
+      return;
+    }
     const meta = [
       `Project: ${selectedDoc.sourceLabel}`,
       `Repo: ${selectedDoc.repo}`,
@@ -213,7 +230,7 @@ export const DocumentsPage: React.FC = () => {
       ...(selectedDoc.projectId !== 'personal' && { projectId: selectedDoc.projectId }),
     });
     return () => { setAthenaContext(null); };
-  }, [selectedDoc, docText, contentPending, setAthenaContext]);
+  }, [selectedDoc, docText, contentPending, contentData?.success, setAthenaContext]);
 
   // ── Upload handler ─────────────────────────────────────────────────────────
   const handleUpload = useCallback(async (file: File) => {
@@ -342,11 +359,13 @@ export const DocumentsPage: React.FC = () => {
           )}
 
           {libraryPending && <InlineLoading description="Loading documents…" className="docs-loading" />}
+          {libraryError !== null && <DataNotice title="Sources are unavailable" error={libraryError} onRetry={() => { void reloadLibrary(); }} />}
+          {tagError !== null && <DataNotice title="Source tags were not saved" error={tagError} />}
 
           {/* Group by source (project) */}
           <div className="docs-list">
             {(() => {
-              if (visibleDocs.length === 0 && !libraryPending) {
+              if (visibleDocs.length === 0 && !libraryPending && libraryError === null) {
                 return (
                   <p className="docs-empty">
                     {activeTagIds.size > 0 ? 'No documents match the selected tags.' : 'No documents found.'}
@@ -396,6 +415,7 @@ export const DocumentsPage: React.FC = () => {
           {selectedDoc !== null && contentPending && (
             <InlineLoading description={`Loading ${selectedDoc.title}…`} className="docs-loading" />
           )}
+          {selectedDoc !== null && contentError !== null && <DataNotice title="Document content is unavailable" error={contentError} onRetry={() => { void reloadContent(); }} />}
 
           {selectedDoc !== null && !contentPending && contentData?.success === true && (
             <>
@@ -428,7 +448,6 @@ export const DocumentsPage: React.FC = () => {
               )}
               <div
                 className="docs-viewer__content"
-                // eslint-disable-next-line react/no-danger
                 dangerouslySetInnerHTML={{ __html: renderedHtml }}
               />
             </>
@@ -525,9 +544,10 @@ export const DocumentsPage: React.FC = () => {
                 )}
               </div>
               <TagPicker
+                disabled={tagSaving}
                 selectedIds={selectedDoc.taxonomyTagIds ?? []}
                 onChange={(ids) => { void handleDocTagChange(ids); }}
-                trigger={<button className="notes-tag-picker-trigger">+ Add tag</button>}
+                trigger={<button className="notes-tag-picker-trigger" disabled={tagSaving}>{tagSaving ? 'Saving tags...' : '+ Add tag'}</button>}
               />
             </div>
 
@@ -596,6 +616,7 @@ export const DocumentsPage: React.FC = () => {
                 onChange={(e) => { setUploadProjectId(e.target.value); }}
                 disabled={uploadLoading}
               >
+                {!projectOptions.some((project) => project.id === 'personal') && <option value="personal">Personal / unassigned</option>}
                 {projectOptions.map((project) => (
                   <option key={project.id} value={project.id}>{project.name}</option>
                 ))}

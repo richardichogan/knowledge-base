@@ -3,14 +3,19 @@
  * place: suggestions to approve, standing instructions by scope (edit, pause,
  * delete), liked example replies, and your profile.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { InlineLoading } from '@carbon/react';
+import { ComboBox, InlineLoading, InlineNotification } from '@carbon/react';
 import { Add } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { confirmDialog } from '../services/appDialogs';
 import type { AthenaMemory, MemoryScopeType } from '../types';
 import { PERSONAS } from '../components/athena/personas';
+import { useProjects } from '../hooks/useProjects';
+import { describeApiError, requireApiData } from '../services/apiError';
+import type { ApiResponse } from '../types/apiResponse';
+
+type MemoryAction = (key: string, action: () => Promise<ApiResponse<unknown>>, onSaved?: () => void) => Promise<void>;
 
 const SCOPE_TITLES: Record<MemoryScopeType, string> = {
   global: 'Everywhere',
@@ -19,11 +24,11 @@ const SCOPE_TITLES: Record<MemoryScopeType, string> = {
   output: 'Per kind of output',
 };
 
-function scopeLabel(m: Pick<AthenaMemory, 'scopeType' | 'scopeValue'>): string {
+function scopeLabel(m: Pick<AthenaMemory, 'scopeType' | 'scopeValue'>, projects: Array<{ id: string; name: string }> = []): string {
   if (m.scopeType === 'global') return 'Everywhere';
   if (m.scopeType === 'persona') return PERSONAS.find((p) => p.id === m.scopeValue)?.label ?? m.scopeValue ?? '';
   if (m.scopeType === 'output') return `When producing: ${m.scopeValue ?? ''}`;
-  return `Project: ${m.scopeValue ?? ''}`;
+  return `Project: ${projects.find((project) => project.id === m.scopeValue)?.name ?? m.scopeValue ?? ''}`;
 }
 
 function when(iso: string | null): string {
@@ -36,53 +41,68 @@ const ORIGIN_LABEL: Record<AthenaMemory['origin'], string> = {
 };
 
 /** Scope picker used when adding or editing an instruction. */
-const ScopeFields: React.FC<{ scopeType: MemoryScopeType; scopeValue: string; onChange: (t: MemoryScopeType, v: string) => void }> = ({ scopeType, scopeValue, onChange }) => (
-  <>
-    <select className="memory-select" value={scopeType} aria-label="Applies to" onChange={(e) => { onChange(e.target.value as MemoryScopeType, ''); }}>
+const ScopeFields: React.FC<{ scopeType: MemoryScopeType; scopeValue: string; disabled?: boolean; onChange: (t: MemoryScopeType, v: string) => void }> = ({ scopeType, scopeValue, disabled = false, onChange }) => {
+  const projectPickerId = useId();
+  const { data: projects = [], error, refetch } = useProjects();
+  const options = projects.map(({ id, name }) => ({ id, name }));
+  if (scopeValue !== '' && !options.some((project) => project.id === scopeValue)) {
+    options.push({ id: scopeValue, name: `Legacy / unknown project: ${scopeValue}` });
+  }
+  return <>
+    <select className="memory-select" disabled={disabled} value={scopeType} aria-label="Applies to" onChange={(e) => { onChange(e.target.value as MemoryScopeType, ''); }}>
       <option value="global">Everywhere</option>
       <option value="persona">One persona</option>
       <option value="project">One project</option>
       <option value="output">One kind of output</option>
     </select>
     {scopeType === 'persona' && (
-      <select className="memory-select" value={scopeValue} aria-label="Persona" onChange={(e) => { onChange(scopeType, e.target.value); }}>
+      <select className="memory-select" disabled={disabled} value={scopeValue} aria-label="Persona" onChange={(e) => { onChange(scopeType, e.target.value); }}>
         <option value="">Choose…</option>
         {PERSONAS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
       </select>
     )}
-    {(scopeType === 'project' || scopeType === 'output') && (
-      <input className="memory-input memory-input--short" value={scopeValue} aria-label={scopeType === 'project' ? 'Project id' : 'Kind of output'}
-        placeholder={scopeType === 'project' ? 'e.g. imagine' : 'e.g. blog post'} onChange={(e) => { onChange(scopeType, e.target.value); }} />
+    {scopeType === 'project' && <div className="memory-project-picker">
+      <ComboBox id={projectPickerId} titleText="Project" disabled={disabled} items={options}
+        selectedItem={options.find((project) => project.id === scopeValue) ?? null}
+        itemToString={(project) => project?.name ?? ''} placeholder="Search projects"
+        onChange={({ selectedItem }) => { onChange(scopeType, selectedItem?.id ?? ''); }} />
+      {error !== null && <div className="memory-notice" role="alert">
+        Could not load projects. <button type="button" className="kb-import-btn" onClick={() => { void refetch(); }}>Retry</button>
+      </div>}
+    </div>}
+    {scopeType === 'output' && (
+      <input className="memory-input memory-input--short" disabled={disabled} value={scopeValue} aria-label="Kind of output"
+        placeholder="e.g. blog post" onChange={(e) => { onChange(scopeType, e.target.value); }} />
     )}
-  </>
-);
+  </>;
+};
 
-const InstructionRow: React.FC<{ m: AthenaMemory; onChanged: () => void }> = ({ m, onChanged }) => {
+const InstructionRow: React.FC<{ m: AthenaMemory; run: MemoryAction; busy: boolean; scopeText: string }> = ({ m, run, busy, scopeText }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ content: m.content, scopeType: m.scopeType, scopeValue: m.scopeValue ?? '' });
   const paused = m.status === 'paused';
   const save = (): void => {
-    void api.updateMemory(m.id, { content: draft.content, scopeType: draft.scopeType, scopeValue: draft.scopeType === 'global' ? null : draft.scopeValue }).then(() => { setEditing(false); onChanged(); });
+    void run(m.id, () => api.updateMemory(m.id, { content: draft.content, scopeType: draft.scopeType, scopeValue: draft.scopeType === 'global' ? null : draft.scopeValue }), () => { setEditing(false); });
   };
   return (
     <li className={`memory-item${paused ? ' memory-item--paused' : ''}`}>
       {editing ? (
         <div className="memory-edit">
-          <textarea className="memory-input" rows={2} value={draft.content} aria-label="Instruction" onChange={(e) => { setDraft({ ...draft, content: e.target.value }); }} />
+          <textarea className="memory-input" disabled={busy} rows={2} value={draft.content} aria-label="Instruction" onChange={(e) => { setDraft({ ...draft, content: e.target.value }); }} />
           <div className="memory-row">
-            <ScopeFields scopeType={draft.scopeType} scopeValue={draft.scopeValue} onChange={(t, v) => { setDraft({ ...draft, scopeType: t, scopeValue: v }); }} />
-            <button type="button" className="kb-import-btn" onClick={save}>Save</button>
-            <button type="button" className="kb-import-btn" onClick={() => { setEditing(false); }}>Cancel</button>
+            <ScopeFields disabled={busy} scopeType={draft.scopeType} scopeValue={draft.scopeValue} onChange={(t, v) => { setDraft({ ...draft, scopeType: t, scopeValue: v }); }} />
+            <button type="button" className="kb-import-btn" disabled={busy || draft.content.trim() === '' || (draft.scopeType !== 'global' && draft.scopeValue.trim() === '')} onClick={save}>{busy ? 'Saving...' : 'Save'}</button>
+            <button type="button" className="kb-import-btn" disabled={busy} onClick={() => { setEditing(false); }}>Cancel</button>
           </div>
         </div>
       ) : (
         <>
           <p className="memory-item__text">{m.content}</p>
-          <p className="memory-item__meta">{scopeLabel(m)} · {ORIGIN_LABEL[m.origin]} · {paused ? 'paused' : when(m.lastAppliedAt)}</p>
+          <p className="memory-item__meta">{scopeText} · {ORIGIN_LABEL[m.origin]} · {paused ? 'paused' : when(m.lastAppliedAt)}</p>
           <div className="memory-item__actions">
-            <button type="button" className="kb-import-btn" onClick={() => { setEditing(true); }}>Edit</button>
-            <button type="button" className="kb-import-btn" onClick={() => { void api.updateMemory(m.id, { status: paused ? 'active' : 'paused' }).then(onChanged); }}>{paused ? 'Resume' : 'Pause'}</button>
-            <button type="button" className="kb-import-btn kb-import-btn--danger" onClick={async () => { if (await confirmDialog('Delete this instruction?', { title: 'Delete instruction', confirmLabel: 'Delete', tone: 'danger' })) void api.deleteMemory(m.id).then(onChanged); }}>Delete</button>
+            <button type="button" className="kb-import-btn" disabled={busy} onClick={() => { setEditing(true); }}>Edit</button>
+            <button type="button" className="kb-import-btn" disabled={busy} onClick={() => { void run(m.id, () => api.updateMemory(m.id, { status: paused ? 'active' : 'paused' })); }}>{paused ? 'Resume' : 'Pause'}</button>
+            <button type="button" className="kb-import-btn kb-import-btn--danger" disabled={busy} onClick={async () => { if (await confirmDialog('Delete this instruction?', { title: 'Delete instruction', confirmLabel: 'Delete', tone: 'danger' })) void run(m.id, () => api.deleteMemory(m.id)); }}>Delete</button>
           </div>
         </>
       )}
@@ -92,15 +112,36 @@ const InstructionRow: React.FC<{ m: AthenaMemory; onChanged: () => void }> = ({ 
 
 export const MemoryPage: React.FC = () => {
   const qc = useQueryClient();
-  const { data: memories = [], isLoading } = useQuery({
+  const { data: memories = [], isLoading, error: loadError, refetch } = useQuery({
     queryKey: ['memories'],
-    queryFn: async () => { const r = await api.listMemories(); return r.success ? r.data.memories : []; },
+    queryFn: async () => requireApiData(await api.listMemories()).memories,
   });
   const refresh = (): void => { void qc.invalidateQueries({ queryKey: ['memories'] }); };
   const [adding, setAdding] = useState(false);
   const [newItem, setNewItem] = useState({ content: '', scopeType: 'global' as MemoryScopeType, scopeValue: '' });
   const profile = memories.find((m) => m.kind === 'profile');
   const [profileDraft, setProfileDraft] = useState<string | null>(null);
+  const { data: projects = [] } = useProjects();
+  const busyRef = useRef(new Set<string>());
+  const [busyIds, setBusyIds] = useState(new Set<string>());
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const run: MemoryAction = async (key, action, onSaved) => {
+    if (busyRef.current.has(key)) return;
+    busyRef.current.add(key);
+    setBusyIds(new Set(busyRef.current));
+    setActionError(null);
+    try {
+      requireApiData(await action());
+      onSaved?.();
+      refresh();
+    } catch (error) {
+      setActionError(describeApiError(error));
+    } finally {
+      busyRef.current.delete(key);
+      setBusyIds(new Set(busyRef.current));
+    }
+  };
 
   const suggestions = memories.filter((m) => m.status === 'suggested');
   const instructions = memories.filter((m) => m.kind === 'instruction' && (m.status === 'active' || m.status === 'paused'));
@@ -111,8 +152,8 @@ export const MemoryPage: React.FC = () => {
 
   const addInstruction = (): void => {
     if (newItem.content.trim() === '') return;
-    void api.createMemory({ content: newItem.content, scopeType: newItem.scopeType, scopeValue: newItem.scopeType === 'global' ? null : newItem.scopeValue })
-      .then(() => { setAdding(false); setNewItem({ content: '', scopeType: 'global', scopeValue: '' }); refresh(); });
+    void run('new', () => api.createMemory({ content: newItem.content, scopeType: newItem.scopeType, scopeValue: newItem.scopeType === 'global' ? null : newItem.scopeValue }),
+      () => { setAdding(false); setNewItem({ content: '', scopeType: 'global', scopeValue: '' }); });
   };
 
   return (
@@ -126,15 +167,20 @@ export const MemoryPage: React.FC = () => {
       </div>
 
       {isLoading && <InlineLoading description="Loading memory…" />}
+      {loadError !== null && <div className="memory-notice">
+        <InlineNotification kind="error" title="Memory is unavailable" subtitle={describeApiError(loadError)} lowContrast hideCloseButton />
+        <button type="button" className="kb-import-btn" onClick={() => { void refetch(); }}>Retry</button>
+      </div>}
+      {actionError !== null && <InlineNotification className="memory-notice" kind="error" title="Change was not saved" subtitle={actionError} lowContrast hideCloseButton />}
 
       {adding && (
         <section className="memory-section memory-add">
-          <textarea className="memory-input" rows={2} autoFocus placeholder="e.g. Always use UK spelling" aria-label="New instruction"
+          <textarea className="memory-input" disabled={busyIds.has('new')} rows={2} autoFocus placeholder="e.g. Always use UK spelling" aria-label="New instruction"
             value={newItem.content} onChange={(e) => { setNewItem({ ...newItem, content: e.target.value }); }} />
           <div className="memory-row">
-            <ScopeFields scopeType={newItem.scopeType} scopeValue={newItem.scopeValue} onChange={(t, v) => { setNewItem({ ...newItem, scopeType: t, scopeValue: v }); }} />
-            <button type="button" className="kb-import-btn" onClick={addInstruction}>Save</button>
-            <button type="button" className="kb-import-btn" onClick={() => { setAdding(false); }}>Cancel</button>
+            <ScopeFields disabled={busyIds.has('new')} scopeType={newItem.scopeType} scopeValue={newItem.scopeValue} onChange={(t, v) => { setNewItem({ ...newItem, scopeType: t, scopeValue: v }); }} />
+            <button type="button" className="kb-import-btn" disabled={busyIds.has('new') || newItem.content.trim() === '' || (newItem.scopeType !== 'global' && newItem.scopeValue.trim() === '')} onClick={addInstruction}>{busyIds.has('new') ? 'Saving...' : 'Save'}</button>
+            <button type="button" className="kb-import-btn" disabled={busyIds.has('new')} onClick={() => { setAdding(false); }}>Cancel</button>
           </div>
         </section>
       )}
@@ -146,10 +192,10 @@ export const MemoryPage: React.FC = () => {
             {suggestions.map((m) => (
               <li key={m.id} className="memory-item">
                 <p className="memory-item__text">{m.content}</p>
-                <p className="memory-item__meta">{scopeLabel(m)} · {ORIGIN_LABEL[m.origin]}{m.sourceExcerpt ? ` · “${m.sourceExcerpt.slice(0, 120)}”` : ''}</p>
+                <p className="memory-item__meta">{scopeLabel(m, projects)} · {ORIGIN_LABEL[m.origin]}{m.sourceExcerpt ? ` · “${m.sourceExcerpt.slice(0, 120)}”` : ''}</p>
                 <div className="memory-item__actions">
-                  <button type="button" className="kb-import-btn" onClick={() => { void api.updateMemory(m.id, { status: 'active' }).then(refresh); }}>Approve</button>
-                  <button type="button" className="kb-import-btn" onClick={() => { void api.updateMemory(m.id, { status: 'dismissed' }).then(refresh); }}>Dismiss</button>
+                  <button type="button" className="kb-import-btn" disabled={busyIds.has(m.id)} onClick={() => { void run(m.id, () => api.updateMemory(m.id, { status: 'active' })); }}>Approve</button>
+                  <button type="button" className="kb-import-btn" disabled={busyIds.has(m.id)} onClick={() => { void run(m.id, () => api.updateMemory(m.id, { status: 'dismissed' })); }}>Dismiss</button>
                 </div>
               </li>
             ))}
@@ -159,18 +205,18 @@ export const MemoryPage: React.FC = () => {
 
       <section className="memory-section">
         <h2 className="memory-section__title">Standing instructions ({instructions.length})</h2>
-        {instructions.length === 0 && <p className="memory-empty">None yet. Tell Athena “from now on…” in any chat, or add one here.</p>}
+        {!isLoading && loadError === null && instructions.length === 0 && <p className="memory-empty">None yet. Tell Athena “from now on…” in any chat, or add one here.</p>}
         {byScope.map((g) => (
           <div key={g.scope} className="memory-group">
             <h3 className="memory-group__title">{SCOPE_TITLES[g.scope]}</h3>
-            <ul className="memory-list">{g.items.map((m) => <InstructionRow key={m.id} m={m} onChanged={refresh} />)}</ul>
+            <ul className="memory-list">{g.items.map((m) => <InstructionRow key={m.id} m={m} run={run} busy={busyIds.has(m.id)} scopeText={scopeLabel(m, projects)} />)}</ul>
           </div>
         ))}
       </section>
 
       <section className="memory-section">
         <h2 className="memory-section__title">Replies you liked ({examples.length})</h2>
-        {examples.length === 0 && <p className="memory-empty">Use 👍 on a reply and Athena will use it as a reference for that persona.</p>}
+        {!isLoading && loadError === null && examples.length === 0 && <p className="memory-empty">Use 👍 on a reply and Athena will use it as a reference for that persona.</p>}
         <ul className="memory-list">
           {examples.map((m) => (
             <li key={m.id} className="memory-item">
@@ -178,9 +224,9 @@ export const MemoryPage: React.FC = () => {
                 <summary className="memory-item__text">{m.content.replace(/\s+/g, ' ').slice(0, 160)}…</summary>
                 <pre className="memory-example">{m.content}</pre>
               </details>
-              <p className="memory-item__meta">{scopeLabel(m)} · {when(m.lastAppliedAt)}</p>
+              <p className="memory-item__meta">{scopeLabel(m, projects)} · {when(m.lastAppliedAt)}</p>
               <div className="memory-item__actions">
-                <button type="button" className="kb-import-btn kb-import-btn--danger" onClick={() => { void api.deleteMemory(m.id).then(refresh); }}>Remove</button>
+                <button type="button" className="kb-import-btn kb-import-btn--danger" disabled={busyIds.has(m.id)} onClick={() => { void run(m.id, () => api.deleteMemory(m.id)); }}>Remove</button>
               </div>
             </li>
           ))}
@@ -190,11 +236,11 @@ export const MemoryPage: React.FC = () => {
       {profile !== undefined && (
         <section className="memory-section">
           <h2 className="memory-section__title">About you (profile Athena always uses)</h2>
-          <textarea className="memory-input memory-profile" rows={12} aria-label="Profile"
+          <textarea className="memory-input memory-profile" disabled={busyIds.has(profile.id)} rows={12} aria-label="Profile"
             value={profileDraft ?? profile.content} onChange={(e) => { setProfileDraft(e.target.value); }} />
           <div className="memory-row">
-            <button type="button" className="kb-import-btn" disabled={profileDraft === null || profileDraft === profile.content}
-              onClick={() => { void api.updateMemory(profile.id, { content: profileDraft ?? profile.content }).then(() => { setProfileDraft(null); refresh(); }); }}>
+            <button type="button" className="kb-import-btn" disabled={busyIds.has(profile.id) || profileDraft === null || profileDraft === profile.content}
+              onClick={() => { void run(profile.id, () => api.updateMemory(profile.id, { content: profileDraft ?? profile.content }), () => { setProfileDraft(null); }); }}>
               Save profile
             </button>
           </div>

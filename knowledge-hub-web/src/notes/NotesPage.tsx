@@ -4,17 +4,17 @@
  * panel (Athena / Metadata / Connections).
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, Document, Idea, Draw, TrashCan, Renew } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
 import { NoteEditor } from './NoteEditor';
 import { ImportNoteModal } from './ImportNoteModal';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
-import { fetchNotes, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
-import type { NoteContentBlock } from './noteStorage';
+import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
+import type { NoteContentBlock, NoteListPage, NoteListFilters } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
 import { CanvasEditor } from '../features/canvas/CanvasEditor';
@@ -25,6 +25,7 @@ import { useAthenaContext } from '../context/AthenaContext';
 import { usePersistedBoolean } from '../hooks/usePersistedState';
 import type { CanvasFullApi, CanvasSummaryApi } from '../services/api';
 import '../features/diagram/diagramIntegration.scss';
+import { DataNotice } from '../components/DataNotice';
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
 
@@ -59,6 +60,9 @@ export const NotesPage: React.FC = () => {
   const [mode,             setMode]             = useState<ViewMode>('notes');
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
+  const deletingNoteRef = useRef<string | null>(null);
+  const creatingNoteRef = useRef(false);
+  const [creatingNote, setCreatingNote] = useState(false);
   const [importModalOpen,  setImportModalOpen]  = useState(false);
   const [sparkModalOpen,   setSparkModalOpen]   = useState(false);
   const [canvasError, setCanvasError] = useState<string | null>(null);
@@ -67,18 +71,35 @@ export const NotesPage: React.FC = () => {
   // icon can pull focus into the box every time — a boolean would only fire on
   // the first expand of a session.
   const [focusSearchSignal, setFocusSearchSignal] = useState(0);
-  const { pageContext, setAthenaContext } = useAthenaContext();
+  const { setAthenaContext } = useAthenaContext();
   // Command-bar element NoteEditor portals its note actions (Export, Push, Delete) into.
   const [docActionsSlot, setDocActionsSlot] = useState<HTMLDivElement | null>(null);
 
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const refreshInFlight = useRef(false);
-  const { data: notes = NO_NOTES, isLoading, isError, isFetching, refetch } = useQuery<NoteListItem[]>({
-    queryKey: ['notes-list'],
-    queryFn: fetchNotes,
+  const [listFilters, setListFilters] = useState<NoteListFilters>({ sort: 'modified' });
+  const onListFilters = useCallback((next: NoteListFilters): void => {
+    setListFilters((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+  }, []);
+  const { data: notePages, isLoading, isError, error: listError, isFetching, refetch,
+    hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: ['notes-list', listFilters],
+    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listFilters),
+    initialPageParam: 1,
+    getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined,
     staleTime: 30_000,
     retry: 1,
   });
+  const notes = useMemo(() => {
+    if (notePages === undefined) return NO_NOTES;
+    const seen = new Set<string>();
+    return notePages.pages.flatMap((page) => page.items).filter((note) => {
+      if (seen.has(note.id)) return false;
+      seen.add(note.id);
+      return true;
+    });
+  }, [notePages]);
+  const noteTotal = notePages?.pages[0]?.total ?? 0;
 
   async function refreshNotes(): Promise<void> {
     if (refreshInFlight.current || isFetching) return;
@@ -154,38 +175,56 @@ export const NotesPage: React.FC = () => {
   }
 
   async function handleCreateNote(): Promise<void> {
-    const doc = await createNote({ title: 'Untitled', contentType: 'note', contentJson: '[]' });
-    if (doc !== null) {
-      await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
-      setSelectedId(doc.id);
-      setOpenDoc(doc);
+    if (creatingNoteRef.current) return;
+    creatingNoteRef.current = true;
+    setCreatingNote(true);
+    try {
+      const doc = await createNote({ title: 'Untitled', contentType: 'note', contentJson: '[]' });
+      if (doc !== null) {
+        await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+        latestSelectRef.current = doc.id;
+        setSelectedId(doc.id);
+        setOpenDoc(doc);
+      }
+    } catch (err) {
+      await alertDialog(err instanceof Error ? err.message : 'Could not create the note.', { title: 'Could not create note', tone: 'danger' });
+    } finally {
+      creatingNoteRef.current = false;
+      setCreatingNote(false);
     }
   }
 
   async function handleImported(doc: NoteDocument): Promise<void> {
     setImportModalOpen(false);
     await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+    latestSelectRef.current = doc.id;
     setSelectedId(doc.id);
     setOpenDoc(doc);
   }
 
   async function handleDeleteNote(id: string): Promise<void> {
+    if (deletingNoteRef.current !== null) return;
+    deletingNoteRef.current = id;
     setDeletingNoteId(id);
     try {
       await deleteNote(id);
       await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
-      if (selectedId === id) {
+      if (latestSelectRef.current === id) {
         const remaining = notes.filter((n) => n.id !== id);
         const next = remaining[0];
         if (next !== undefined) {
           setSelectedId(null); // force re-fetch via handleSelectNote
           await handleSelectNote(next.id);
         } else {
+          latestSelectRef.current = null;
           setSelectedId(null);
           setOpenDoc(null);
         }
       }
+    } catch (err) {
+      await alertDialog(err instanceof Error ? err.message : 'Could not delete the note. Your open writing is unchanged.', { title: 'Could not delete note', tone: 'danger' });
     } finally {
+      deletingNoteRef.current = null;
       setDeletingNoteId(null);
     }
   }
@@ -273,21 +312,26 @@ export const NotesPage: React.FC = () => {
 
   function handleNoteSaved(updated: NoteDocument): void {
     setOpenDoc(updated);
-    // Patch the sidebar row in place rather than re-fetching the whole list
-    // on every autosave that changes the title.
+    // Show the accepted save immediately, then reconcile server ordering and filters.
     const preview = buildPreview(updated.contentJson, updated.title);
-    queryClient.setQueryData<NoteListItem[]>(['notes-list'], (list) => list?.map((n): NoteListItem => {
+    const patchRow = (n: NoteListItem): NoteListItem => {
       if (n.id !== updated.id) return n;
-      const { body: _body, projectId: _projectId, ...rest } = n;
-      return {
-        ...rest,
+      const next: NoteListItem = {
+        ...n,
         title: updated.title,
         contentType: updated.contentType,
-        updatedAt: new Date().toISOString(),
-        ...(preview !== '' && { body: preview }),
-        ...(updated.projectId !== undefined && { projectId: updated.projectId }),
+        updatedAt: updated.updatedAt,
       };
+      if (preview === '') delete next.body;
+      else next.body = preview;
+      if (updated.projectId === undefined) delete next.projectId;
+      else next.projectId = updated.projectId;
+      return next;
+    };
+    queryClient.setQueriesData<InfiniteData<NoteListPage>>({ queryKey: ['notes-list'] }, (current) => current === undefined || !Array.isArray(current.pages) ? undefined : ({
+      ...current, pages: current.pages.map((page) => ({ ...page, items: page.items.map(patchRow) })),
     }));
+    void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
   }
 
   /** Recursively walk BlockNote's Block[] JSON and collect every image block's URL. */
@@ -379,14 +423,6 @@ export const NotesPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
 
-  if (isLoading) return <InlineLoading description="Loading documents…" />;
-  if (isError && notes === NO_NOTES) return (
-    <div className="notes-error-state">
-      <p>Failed to load documents.</p>
-      <button className="notes-retry-btn" onClick={() => { void refetch(); }}>Retry</button>
-    </div>
-  );
-
   return (
     <div className="notes-page">
       {/* ── Header + command bar (matches Plan / Library) ── */}
@@ -447,6 +483,7 @@ export const NotesPage: React.FC = () => {
 
       {mode === 'notes' && refreshMessage !== null && <p className="notes-refresh-message notes-refresh-message--error"
         role="alert">{refreshMessage}</p>}
+      {mode === 'notes' && isError && <DataNotice title="Note list is unavailable. Your open note is unchanged." error={listError} onRetry={() => { void refetch(); }} />}
       {canvasError !== null && <p className="mm-canvas-error" role="alert">{canvasError}</p>}
       <div className="notes-root">
         {/* ── Left panel ── */}
@@ -517,6 +554,14 @@ export const NotesPage: React.FC = () => {
               onImport={() => { setImportModalOpen(true); }}
               deletingId={deletingNoteId}
               focusSearchSignal={focusSearchSignal}
+              onFiltersChange={onListFilters}
+              creating={creatingNote}
+              total={noteTotal}
+              loading={isLoading}
+              unavailable={isError}
+              hasMore={hasNextPage}
+              loadingMore={isFetchingNextPage}
+              onLoadMore={() => { void fetchNextPage(); }}
             />
           )}
 

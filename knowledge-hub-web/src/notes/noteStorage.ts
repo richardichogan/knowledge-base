@@ -10,6 +10,17 @@ import { api } from '../services/api';
 import type { NoteDocument, NoteListItem } from './types';
 import type { ContentType } from './constants';
 import { UNTITLED_DOCUMENT } from './constants';
+import { requireApiData } from '../services/apiError';
+
+export interface NoteListFilters {
+  q?: string;
+  contentType?: string;
+  projectId?: string;
+  tagIds?: string;
+  projectTagIds?: string;
+  sort?: 'modified' | 'created' | 'title';
+}
+export interface NoteListPage { items: NoteListItem[]; total: number; page: number; hasMore: boolean }
 
 // ── Serialisation ─────────────────────────────────────────────────────────────
 
@@ -107,9 +118,18 @@ export function buildPreview(contentJson: string, title: string): string {
  * prone to timing out.
  */
 export async function fetchNotes(): Promise<NoteListItem[]> {
-  const result = await api.getNoteSummaries(1, 100);
-  if (!result.success) throw new Error(result.error.message);
-  return result.data.items.map((n) => ({
+  const notes: NoteListItem[] = [];
+  for (let page = 1; page <= 100; page++) {
+    const result = await fetchNotesPage(page);
+    notes.push(...result.items);
+    if (!result.hasMore) return notes;
+  }
+  throw new Error('Note list is too large. Use filtered browsing.');
+}
+
+export async function fetchNotesPage(page = 1, filters: NoteListFilters = {}): Promise<NoteListPage> {
+  const result = requireApiData(await api.getNoteSummaries(page, 100, filters));
+  const items = result.items.map((n) => ({
     id: n.id,
     title: n.title || UNTITLED_DOCUMENT,
     contentType: n.contentType as ContentType,
@@ -119,13 +139,13 @@ export async function fetchNotes(): Promise<NoteListItem[]> {
     tagIds: n.taxonomyTagIds,
     ...(n.projectId !== undefined && { projectId: n.projectId }),
   }));
+  return { items, total: result.total, page: result.page, hasMore: result.hasMore };
 }
 
 /** Loads one note's full body (previously fetched the whole list to find it). */
 export async function fetchNote(id: string): Promise<NoteDocument | null> {
   const result = await api.getNote(id);
-  if (!result.success) return null;
-  const note = result.data;
+  const note = requireApiData(result);
   return fromApiNote(note);
 }
 
@@ -134,8 +154,7 @@ export async function createNote(
   projectId?: string,
 ): Promise<NoteDocument | null> {
   const result = await api.createNote({ content: serialise(doc), tags: [], ...(projectId !== undefined && { projectId }) });
-  if (!result.success) return null;
-  return fromApiNote(result.data);
+  return fromApiNote(requireApiData(result));
 }
 
 export function fromApiNote(note: import('../types/contentItem').Note): NoteDocument {
@@ -151,5 +170,5 @@ export async function saveNote(doc: NoteDocument): Promise<NoteDocument> {
 }
 
 export async function deleteNote(id: string): Promise<void> {
-  await api.deleteNote(id);
+  requireApiData(await api.deleteNote(id));
 }

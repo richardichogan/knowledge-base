@@ -2,7 +2,7 @@
  * ProjectsPage — editable project cards backed by /api/projects (PostgreSQL).
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Button, TextInput, TextArea, Modal,
@@ -23,7 +23,8 @@ import {
   type UpdateProjectInput,
 } from '../services/useProjects';
 import { api } from '../services/api';
-import { describeApiError } from '../services/apiError';
+import { describeApiError, requireApiData } from '../services/apiError';
+import { DataNotice } from '../components/DataNotice';
 import { parseExpectedOutputs, validateProjectContext } from '../services/projectFormValidation';
 
 // ── GitLab SVG icon ───────────────────────────────────────────────────────────
@@ -226,11 +227,11 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
       secondaryButtonText="Cancel"
       primaryButtonDisabled={saving}
       onRequestSubmit={() => { void handleSave(); }}
-      onRequestClose={onClose}
-      onSecondarySubmit={onClose}
+      onRequestClose={() => { if (!saving) onClose(); }}
+      onSecondarySubmit={() => { if (!saving) onClose(); }}
       size="sm"
     >
-      <div className="proj-modal-body">
+      <fieldset className="proj-modal-body" disabled={saving} aria-label="Project fields">
         {err && (
           <InlineNotification kind="error" title={err} lowContrast hideCloseButton />
         )}
@@ -463,7 +464,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
             </div>
           )}
         </div>
-      </div>
+      </fieldset>
     </Modal>
   );
 };
@@ -471,20 +472,24 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export const ProjectsPage: React.FC = () => {
-  const { projects, loading, error, createProject, updateProject, deleteProject } = useProjects();
+  const { projects, loading, error, reload, createProject, updateProject, deleteProject } = useProjects();
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState<ProjectCategory | 'all'>('all');
   const [filterLifecycle, setFilterLifecycle] = useState<ProjectLifecycleState | 'all'>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editProject, setEditProject] = useState<ProjectRecord | null>(null);
   const [saving, setSaving] = useState(false);
+  const savePending = useRef(false);
   const [deleteConfirm, setDeleteConfirm] = useState<ProjectRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const deletePending = useRef(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const { data: globalTagsData } = useQuery<string[]>({
+  const { data: globalTagsData, error: tagsError, refetch: reloadTags } = useQuery<string[]>({
     queryKey: ['global-tags'],
     queryFn: async () => {
       const res = await api.getTags();
-      return res.success ? res.data : [];
+      return requireApiData(res);
     },
     staleTime: 60_000,
     retry: 1,
@@ -511,6 +516,8 @@ export const ProjectsPage: React.FC = () => {
   const openEdit = (p: ProjectRecord): void => { setEditProject(p); setModalOpen(true); };
 
   const handleSave = async (data: CreateProjectInput | UpdateProjectInput): Promise<void> => {
+    if (savePending.current) return;
+    savePending.current = true;
     setSaving(true);
     try {
       if (editProject != null) {
@@ -521,14 +528,25 @@ export const ProjectsPage: React.FC = () => {
       setModalOpen(false);
       setEditProject(null);
     } finally {
+      savePending.current = false;
       setSaving(false);
     }
   };
 
   const handleDelete = async (): Promise<void> => {
-    if (!deleteConfirm) return;
-    await deleteProject(deleteConfirm.id);
-    setDeleteConfirm(null);
+    if (!deleteConfirm || deletePending.current) return;
+    deletePending.current = true;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteProject(deleteConfirm.id);
+      setDeleteConfirm(null);
+    } catch (err) {
+      setDeleteError(describeApiError(err));
+    } finally {
+      deletePending.current = false;
+      setDeleting(false);
+    }
   };
 
   return (
@@ -565,14 +583,15 @@ export const ProjectsPage: React.FC = () => {
           <span className="proj-result-count" role="status">{visible.length} of {projects.length} projects</span>
       </div>
 
-      {error && <InlineNotification kind="warning" title={error} lowContrast hideCloseButton className="proj-notice" />}
+      {error && <DataNotice title="Projects could not be refreshed." error={error} onRetry={() => { void reload(); }} />}
+      {tagsError && <DataNotice title="Project tag suggestions are unavailable." error={tagsError} onRetry={() => { void reloadTags(); }} />}
 
       {/* ── Grid ── */}
       {loading ? (
         <p className="proj-loading" role="status">Loading projects...</p>
       ) : (
         <>
-        {visible.length === 0 && <p className="proj-empty">{projects.length === 0
+        {visible.length === 0 && !error && <p className="proj-empty">{projects.length === 0
           ? 'No projects yet. Create a project to organise your work.'
           : 'No projects match these filters. Try another search or category.'}</p>}
         <div className="proj-grid">
@@ -603,7 +622,7 @@ export const ProjectsPage: React.FC = () => {
                       {source === 'gitlab' && <span className="proj-source-badge proj-source-badge--gitlab" title="GitLab"><GitLabIcon size={18} /></span>}
                       {source === 'github' && <span className="proj-source-badge proj-source-badge--github" title="GitHub"><LogoGithub size={18} /></span>}
                       <button type="button" className="proj-icon-btn" aria-label={`Edit ${project.name}`} title="Edit" onClick={() => openEdit(project)}><Edit size={16} /></button>
-                      <button type="button" className="proj-icon-btn proj-icon-btn--danger" aria-label={`Delete ${project.name}`} title="Delete" onClick={() => setDeleteConfirm(project)}><TrashCan size={16} /></button>
+                      <button type="button" className="proj-icon-btn proj-icon-btn--danger" aria-label={`Delete ${project.name}`} title="Delete" onClick={() => { setDeleteError(null); setDeleteConfirm(project); }}><TrashCan size={16} /></button>
                     </div>
                   </div>
 
@@ -703,14 +722,16 @@ export const ProjectsPage: React.FC = () => {
         open={deleteConfirm != null}
         danger
         modalHeading={`Delete "${deleteConfirm?.name}"?`}
-        primaryButtonText="Delete"
+        primaryButtonText={deleting ? 'Deleting...' : 'Delete'}
+        primaryButtonDisabled={deleting}
         secondaryButtonText="Cancel"
         onRequestSubmit={() => { void handleDelete(); }}
-        onRequestClose={() => setDeleteConfirm(null)}
-        onSecondarySubmit={() => setDeleteConfirm(null)}
+        onRequestClose={() => { if (!deletePending.current) setDeleteConfirm(null); }}
+        onSecondarySubmit={() => { if (!deletePending.current) setDeleteConfirm(null); }}
         size="xs"
       >
-        <p>This only removes the project from your local store. GitLab and GitHub data is unaffected.</p>
+        <p>This removes the project from Athena. GitLab and GitHub data is unaffected.</p>
+        {deleteError && <DataNotice title="Project was not deleted. Please try again." error={deleteError} />}
       </Modal>
 
     </main>

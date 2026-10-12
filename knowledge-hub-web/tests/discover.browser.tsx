@@ -8,9 +8,12 @@ import { AthenaContextProvider } from '../src/context/AthenaContext';
 import { api } from '../src/services/api';
 import { alertDialog, confirmDialog } from '../src/services/appDialogs';
 import type { ApiResponse } from '../src/types/apiResponse';
+import type { CfpItem } from '../src/services/api';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
+const failure = <T,>(): ApiResponse<T> => ({ success: false, error: { code: 'FIXTURE', message: 'Fixture read unavailable' } });
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 const articleId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const emailId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee';
 const post = 'Microsoft has announced a new cloud management capability.\n\nFor enterprise IT, this could simplify governance.';
@@ -54,7 +57,7 @@ api.updateDiscoverWorkflow = async (id, state) => {
 };
 
 createRoot(document.getElementById('root')!).render(
-  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  <QueryClientProvider client={queryClient}>
     <MemoryRouter><AthenaContextProvider>
       <AppDialogHost /><div className="kh-content" style={{ height: '100%' }}><DiscoverPage /></div>
     </AthenaContextProvider></MemoryRouter>
@@ -156,6 +159,92 @@ export async function runDiscoverChecks(): Promise<string[]> {
   click('Close');
   await waitFor(() => document.querySelector('dialog[open]') === null);
   checks.push('Inbox email action and exact original mailbox link');
+  const inboxRead = api.getTimeline;
+  api.getTimeline = async () => failure();
+  await queryClient.invalidateQueries({ queryKey: ['discover-emails'] });
+  await waitFor(() => document.body.textContent?.includes('Discovery feed is unavailable') === true);
+  check(document.querySelector('.dc-empty') === null, 'Failed inbox read cannot claim to be empty');
+  api.getTimeline = inboxRead;
+  click('Retry');
+  await waitFor(() => document.querySelector('.kh-data-notice') === null);
+  click('To Review');
+  await waitFor(() => document.querySelector('.dc-card') !== null);
+  const articleRead = api.getDiscoverFeed;
+  api.getDiscoverFeed = async () => failure();
+  await queryClient.invalidateQueries({ queryKey: ['discover'] });
+  await waitFor(() => document.body.textContent?.includes('Discovery feed is unavailable') === true);
+  check(document.querySelector('.dc-empty') === null && document.querySelector('.dc-card') !== null,
+    'Failed articles retain cached cards without claiming an empty feed');
+  api.getDiscoverFeed = articleRead;
+  click('Retry');
+  await waitFor(() => document.querySelector('.kh-data-notice') === null);
+  const sourceRead = api.getDiscoverSources;
+  api.getDiscoverSources = async () => failure();
+  await queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
+  await waitFor(() => document.body.textContent?.includes('Source filters are unavailable') === true);
+  api.getDiscoverSources = sourceRead;
+  click('Retry');
+  await waitFor(() => document.querySelector('.kh-data-notice') === null);
+  api.getCfpItems = async () => failure();
+  click('CFPs');
+  await waitFor(() => document.body.textContent?.includes('Discovery feed is unavailable') === true);
+  check(document.querySelector('.dc-empty') === null, 'Failed CFP read cannot claim no calls for papers');
+  api.getCfpItems = async () => success([]);
+  click('Retry');
+  await waitFor(() => document.querySelector('.kh-data-notice') === null && document.querySelector('.dc-empty') !== null);
+  checks.push('False article, inbox, CFP and source envelopes show scoped Retry notices rather than false-empty feeds');
+  let cfp: CfpItem = { id: 'cfp-fixture', source: 'callingallpapers', conferenceName: 'Reliable CFP fixture',
+    description: null, tags: [], eventUri: null, cfpUri: 'https://example.com/cfp', cfpDeadline: now,
+    eventStart: null, eventEnd: null, location: null, isVirtual: true, relevanceScore: null,
+    relevanceReason: null, workflowState: 'to_review', discoveredAt: now };
+  api.getCfpItems = async (state) => success(state === cfp.workflowState ? [cfp] : []);
+  await queryClient.invalidateQueries({ queryKey: ['cfps'] });
+  await waitFor(() => document.querySelector('.dc-card--cfp') !== null);
+  let cfpWrites = 0;
+  let cfpFailure = true;
+  api.updateCfpState = async (_id, state) => {
+    cfpWrites++;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    if (cfpFailure) return failure();
+    cfp = { ...cfp, workflowState: state };
+    return success({});
+  };
+  const saveCfp = document.querySelector<HTMLButtonElement>('.dc-card--cfp .dc-action--save')!;
+  saveCfp.click();
+  saveCfp.click();
+  await waitFor(() => saveCfp.disabled);
+  await waitFor(() => document.body.textContent?.includes('Discovery change was not saved') === true && !saveCfp.disabled);
+  check(cfpWrites === 1 && document.querySelector('.dc-card--cfp') !== null, 'CFP failed state update retains the card and rejects duplicate requests');
+  cfpFailure = false;
+  saveCfp.click();
+  await waitFor(() => document.querySelector('.dc-card--cfp') === null && document.querySelector('.kh-data-notice') === null);
+  api.getDiscoverFeed = async (...args) => {
+    const response = await articleRead(...args);
+    return response.success ? success({ ...response.data, items: response.data.items.map(item => ({ ...item, workflowState: 'published' as const })) }) : response;
+  };
+  click('Published');
+  await waitFor(() => document.querySelector('.dc-published-url-input') !== null);
+  let urlWrites = 0;
+  let urlFailure = true;
+  api.updateDiscoverPublishedUrl = async () => {
+    urlWrites++;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return urlFailure ? failure() : success({});
+  };
+  const urlInput = document.querySelector<HTMLInputElement>('.dc-published-url-input')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(urlInput, 'https://example.com/retained-post');
+  urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const saveUrl = document.querySelector<HTMLButtonElement>('.dc-published-url-save')!;
+  saveUrl.click();
+  saveUrl.click();
+  await waitFor(() => urlInput.disabled);
+  await waitFor(() => document.querySelector('.dc-published-url-error') !== null && !urlInput.disabled);
+  check(urlWrites === 1 && urlInput.value === 'https://example.com/retained-post', 'Failed published URL save preserves input and prevents repeated writes');
+  urlFailure = false;
+  saveUrl.click();
+  await waitFor(() => !urlInput.disabled && document.querySelector('.dc-published-url-error') === null);
+  checks.push('Failed CFP and published URL writes retain cards/drafts, lock pending actions and retry once');
   const confirmation = confirmDialog('Delete this test item? This cannot be undone.', { title: 'Delete item', confirmLabel: 'Delete', tone: 'danger' });
   await waitFor(() => document.querySelector('dialog[open]') !== null);
   check(document.activeElement?.textContent === 'Cancel', 'Destructive confirmation defaults to Cancel');

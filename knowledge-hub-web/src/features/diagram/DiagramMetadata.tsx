@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useProjects } from '../../hooks/useProjects';
 import { api, type CanvasFullApi, type CanvasSummaryApi } from '../../services/api';
 
 export function DiagramMetadata({ canvas, onSaved }: {
@@ -16,16 +16,7 @@ export function DiagramMetadata({ canvas, onSaved }: {
     setDescription(canvas.description ?? '');
     setProject(canvas.project ?? '');
   }, [canvas.id, canvas.title, canvas.description, canvas.project]);
-  const projects = useQuery({
-    queryKey: ['projects', 'diagram-properties'],
-    queryFn: async () => {
-      const response = await api.getProjects();
-      if (!response.success) throw new Error(response.error.message);
-      return response.data;
-    },
-    retry: false,
-    refetchOnWindowFocus: false,
-  });
+  const projects = useProjects();
   const changed = title.trim() !== canvas.title || description !== (canvas.description ?? '') || project !== (canvas.project ?? '');
   async function save(event: React.FormEvent): Promise<void> {
     event.preventDefault();

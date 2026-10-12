@@ -13,6 +13,8 @@ import { api } from '../services/api';
 import { useProjects } from '../hooks/useProjects';
 import { localDateKey, dateOnlyToLocal } from '../utils/dateOnly';
 import type { PlanTask as Task, TaskStatus, TaskPriority } from '../types/task';
+import { requireApiData, requireApiSuccess } from '../services/apiError';
+import { DataNotice } from '../components/DataNotice';
 
 // ── Types (mirror TasksPage — kept local to avoid coupling) ──────────────────
 
@@ -61,9 +63,9 @@ export const TaskListView: React.FC<{ filterProject?: string; filterTag?: string
   const queryClient = useQueryClient();
   const { data: projects = [] } = useProjects();
 
-  const { data, isPending, isError } = useQuery({
+  const { data, isPending, isError, error: loadError, refetch } = useQuery({
     queryKey: ['tasks'],
-    queryFn:  () => api.getTasks(),
+    queryFn: async () => requireApiSuccess(await api.getTasks()),
     staleTime: 0,
   });
 
@@ -93,7 +95,7 @@ export const TaskListView: React.FC<{ filterProject?: string; filterTag?: string
   const nonEmptyGroups = STATUS_ORDER.filter((s) => (groups.get(s)?.length ?? 0) > 0);
 
   const markDoneMutation = useMutation({
-    mutationFn: (id: string) => api.updateTask(id, { status: 'completed' }),
+    mutationFn: async (id: string) => requireApiData(await api.updateTask(id, { status: 'completed' })),
     onSuccess:  () => { void queryClient.invalidateQueries({ queryKey: ['tasks'] }); },
   });
 
@@ -127,7 +129,8 @@ export const TaskListView: React.FC<{ filterProject?: string; filterTag?: string
 
       {/* Task list */}
       {isPending && <p className="tl-empty">Loading…</p>}
-      {isError   && <p className="tl-empty tl-empty--error">Failed to load tasks.</p>}
+      {isError && <DataNotice title="Tasks are unavailable" error={loadError} onRetry={() => { void refetch(); }} />}
+      {markDoneMutation.isError && <DataNotice title="Task was not completed" error={markDoneMutation.error} />}
 
       {!isPending && !isError && filtered.length === 0 && (
         <div className="tl-empty">
@@ -171,6 +174,7 @@ export const TaskListView: React.FC<{ filterProject?: string; filterTag?: string
                     type="button"
                     className="tl-item__done-btn"
                     title="Mark as completed"
+                    disabled={markDoneMutation.isPending}
                     onClick={() => { markDoneMutation.mutate(task.id); }}
                   >
                     <CheckmarkFilled size={18} />

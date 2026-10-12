@@ -21,6 +21,8 @@ import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types/apiResponse';
 import type { PlanTask } from '../src/types/task';
 import { localDateKey } from '../src/utils/dateOnly';
+import { runDataReliabilityChecks, SummaryFixture } from './data-reliability.browser';
+import { AppDialogHost } from '../src/components/AppDialog';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -52,6 +54,9 @@ api.listSparkClusters = async () => success([]);
 api.listSparks = async () => success([]);
 api.getTimeline = async () => success(paginated([]));
 api.getTasks = async () => success(paginated([]));
+api.getTaskNotes = async () => success([]);
+api.getTaskLinks = async () => success([]);
+api.getConnections = async () => success({});
 api.getSources = async () => success([]);
 api.triggerSync = async () => { syncWrites++; return success({}); };
 api.listMemories = async () => success({ memories: [] });
@@ -106,7 +111,8 @@ function MetadataFixture(): React.ReactElement {
 }
 createRoot(document.getElementById('root')!).render(
   <SignInGate><Theme theme="g100"><QueryClientProvider client={queryClient}><AthenaContextProvider>
-    <MemoryRouter><Probe /><Routes><Route path="/chat" element={<AIChatPage standalone />} /><Route path="/" element={<AppShell />}>
+    <AppDialogHost /><MemoryRouter><Probe /><Routes><Route path="/chat" element={<AIChatPage standalone />} />
+      <Route path="/summary-fixture/:noteId" element={<SummaryFixture />} /><Route path="/" element={<AppShell />}>
       <Route index element={<Overview title="Today" />} />
       <Route path="discover" element={<Overview title="Discover" />} />
       <Route path="plan" element={<PlanPage />} />
@@ -154,7 +160,10 @@ function menuItem(label: string): HTMLElement {
 }
 async function go(path: string): Promise<void> {
   navigateFixture(path);
-  await waitFor(() => selector('#navigation-probe').dataset.path === path);
+  await waitFor(() => {
+    const actual = selector('#navigation-probe').dataset.path;
+    return actual === path || (path.includes('?') && actual === path.split('?')[0]);
+  });
 }
 function assertFrame(): void {
   const header = selector('.kh-header').getBoundingClientRect();
@@ -347,6 +356,7 @@ export async function runNavigationChecks(): Promise<string[]> {
     githubRepos: [], hasIcaDocumentCollection: false, icaDocumentCollectionName: '',
     icaDocumentCollectionId: '', links: [], tags: ['Architecture'], createdAt: '', updatedAt: '',
   })));
+  await queryClient.invalidateQueries({ queryKey: ['projects'] });
   await go('/projects');
   await waitFor(() => document.querySelectorAll('.proj-card').length === 4);
   check(selector('.proj-page').classList.contains('page-root'), 'Projects uses shared primary page frame');
@@ -442,6 +452,7 @@ export async function runNavigationChecks(): Promise<string[]> {
   await waitFor(() => selector('#navigation-probe').dataset.path === '/');
   assertFrame();
   results.push('Supporting service failures do not affect primary navigation or Tools membership');
+  results.push(...await runDataReliabilityChecks(queryClient, go));
 
   let releaseBriefing = (): void => undefined;
   const delayedBriefing = new Promise<void>((resolve) => { releaseBriefing = resolve; });

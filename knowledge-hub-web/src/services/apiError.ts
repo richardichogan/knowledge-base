@@ -1,4 +1,14 @@
 import { isAxiosError } from 'axios';
+import type { ApiResponse, ApiSuccess } from '../types/apiResponse';
+
+export function requireApiSuccess<T>(response: ApiResponse<T>): ApiSuccess<T> {
+  if (!response.success) throw new Error(response.error.message);
+  return response;
+}
+
+export function requireApiData<T>(response: ApiResponse<T>): T {
+  return requireApiSuccess(response).data;
+}
 
 export function describeApiError(error: unknown): string {
   if (isAxiosError(error)) {

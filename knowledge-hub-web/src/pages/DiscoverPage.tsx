@@ -8,11 +8,13 @@
  * CFPs (Calls for Papers) appear in their own tab — scored, sorted by deadline.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { Bookmark, Edit, Archive, Renew, Launch, ArrowRight, Link, Checkmark, Microphone, Diagram, Search, Close } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { requireApiData, requireApiSuccess } from '../services/apiError';
+import { DataNotice } from '../components/DataNotice';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import type { ContentItemSummary } from '../types';
 import { SparkCaptureButton } from '../components/sparks/SparkCaptureButton';
@@ -184,9 +186,10 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
   const [value, setValue] = useState(item.publishedUrl ?? '');
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const savePending = useRef(false);
 
   const mutation = useMutation({
-    mutationFn: (url: string | null) => api.updateDiscoverPublishedUrl(item.id, url),
+    mutationFn: async (url: string | null) => requireApiData(await api.updateDiscoverPublishedUrl(item.id, url)),
     onSuccess: () => {
       setSaved(true);
       setError(null);
@@ -196,6 +199,7 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
     onError: (err: unknown) => {
       setError(err instanceof Error ? err.message : 'Save failed');
     },
+    onSettled: () => { savePending.current = false; },
   });
 
   return (
@@ -210,11 +214,17 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
           type="url"
           placeholder="https://yourblog.com/post…"
           value={value}
+          disabled={mutation.isPending}
           onChange={(e) => { setValue(e.target.value); setSaved(false); }}
         />
         <button
           className={`dc-published-url-save${saved ? ' dc-published-url-save--ok' : ''}`}
-          onClick={() => { mutation.mutate(value.trim() || null); }}
+          onClick={() => {
+            if (savePending.current) return;
+            savePending.current = true;
+            setError(null);
+            mutation.mutate(value.trim() || null);
+          }}
           disabled={mutation.isPending}
         >
           {saved ? <Checkmark size={14} /> : 'Save'}
@@ -479,6 +489,7 @@ export const DiscoverPage: React.FC = () => {
   const [sourceFilter, setSourceFilter] = useState<string | undefined>(undefined);
   const [cfpStateFilter, setCfpStateFilter] = useState<CfpWorkflowState>('to_review');
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
+  const updatingIdsRef = useRef(new Set<string>());
   const [page, setPage] = useState(1);
   const [titleSearch, setTitleSearch] = useState('');
   const [debouncedTitleSearch, setDebouncedTitleSearch] = useState('');
@@ -516,38 +527,39 @@ export const DiscoverPage: React.FC = () => {
 
   const feedQuery = useQuery({
     queryKey: ['discover', workflowState, sourceFilter, page, debouncedTitleSearch],
-    queryFn: () => api.getDiscoverFeed(workflowState, sourceFilter, page, PAGE_SIZE, debouncedTitleSearch || undefined),
+    queryFn: async () => requireApiSuccess(await api.getDiscoverFeed(workflowState, sourceFilter, page, PAGE_SIZE, debouncedTitleSearch || undefined)),
     enabled: !isInbox && !isCfps,
   });
 
   const cfpQuery = useQuery({
     queryKey: ['cfps', cfpStateFilter],
-    queryFn: () => api.getCfpItems(cfpStateFilter),
+    queryFn: async () => requireApiSuccess(await api.getCfpItems(cfpStateFilter)),
     staleTime: 60_000,
     enabled: isCfps,
   });
 
   const emailQuery = useQuery({
     queryKey: ['discover-emails'],
-    queryFn: () => api.getTimeline({ source: 'email', pageSize: 50 }),
+    queryFn: async () => requireApiSuccess(await api.getTimeline({ source: 'email', pageSize: 50 })),
     staleTime: 60_000,
     enabled: isInbox,
   });
 
   const sourcesQuery = useQuery({
     queryKey: ['discover-sources', workflowState],
-    queryFn: () => api.getDiscoverSources(workflowState),
+    queryFn: async () => requireApiSuccess(await api.getDiscoverSources(workflowState)),
     staleTime: 60_000,
     enabled: !isInbox && !isCfps,
   });
 
   const workflowMutation = useMutation({
-    mutationFn: ({ id, state }: { id: string; state: DiscoverWorkflowState }) =>
-      api.updateDiscoverWorkflow(id, state),
+    mutationFn: async ({ id, state }: { id: string; state: DiscoverWorkflowState }) =>
+      requireApiData(await api.updateDiscoverWorkflow(id, state)),
     onMutate: ({ id }) => {
       setUpdatingIds((prev) => new Set([...prev, id]));
     },
     onSettled: (_data, _err, { id }) => {
+      updatingIdsRef.current.delete(id);
       setUpdatingIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -558,10 +570,11 @@ export const DiscoverPage: React.FC = () => {
   });
 
   const cfpMutation = useMutation({
-    mutationFn: ({ id, state }: { id: string; state: CfpWorkflowState }) =>
-      api.updateCfpState(id, state),
+    mutationFn: async ({ id, state }: { id: string; state: CfpWorkflowState }) =>
+      requireApiData(await api.updateCfpState(id, state)),
     onMutate: ({ id }) => { setUpdatingIds((prev) => new Set([...prev, id])); },
     onSettled: (_data, _err, { id }) => {
+      updatingIdsRef.current.delete(id);
       setUpdatingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
       void queryClient.invalidateQueries({ queryKey: ['cfps'] });
     },
@@ -569,6 +582,8 @@ export const DiscoverPage: React.FC = () => {
 
   const handleStateChange = useCallback(
     (id: string, state: DiscoverWorkflowState) => {
+      if (updatingIdsRef.current.has(id)) return;
+      updatingIdsRef.current.add(id);
       workflowMutation.mutate({ id, state });
     },
     [workflowMutation],
@@ -576,6 +591,8 @@ export const DiscoverPage: React.FC = () => {
 
   const handleCfpStateChange = useCallback(
     (id: string, state: CfpWorkflowState) => {
+      if (updatingIdsRef.current.has(id)) return;
+      updatingIdsRef.current.add(id);
       cfpMutation.mutate({ id, state });
     },
     [cfpMutation],
@@ -585,12 +602,14 @@ export const DiscoverPage: React.FC = () => {
   const allSources = sourcesQuery.data?.success ? sourcesQuery.data.data : [];
   void sources; // suppress unused warning — we use allSources
 
-  const items: DiscoverItem[] =
-    feedQuery.data?.success ? feedQuery.data.data.items : [];
+  const items = useMemo<DiscoverItem[]>(() =>
+    feedQuery.data?.success ? feedQuery.data.data.items : [], [feedQuery.data]);
   const total: number =
     feedQuery.data?.success ? feedQuery.data.data.total : 0;
 
   const activeTabDef = STATE_TABS.find((t) => t.key === activeTab) ?? STATE_TABS[0];
+  const activeQuery = isCfps ? cfpQuery : isInbox ? emailQuery : feedQuery;
+  const changeError = isCfps ? cfpMutation.error : workflowMutation.error;
 
   useEffect(() => {
     const activeItem = items.find((item) => item.id === activeItemId) ?? null;
@@ -640,6 +659,10 @@ export const DiscoverPage: React.FC = () => {
             </button>
           ))}
         </div>
+
+        {activeQuery.isError && <DataNotice title="Discovery feed is unavailable" error={activeQuery.error} onRetry={() => { void activeQuery.refetch(); }} />}
+        {changeError !== null && <DataNotice title="Discovery change was not saved" error={changeError} />}
+        {!isInbox && !isCfps && sourcesQuery.isError && <DataNotice title="Source filters are unavailable" error={sourcesQuery.error} onRetry={() => { void sourcesQuery.refetch(); }} />}
 
         <div className="dc-toolbar__filters">
           {/* Title search — plain text, article tabs only */}
@@ -702,7 +725,7 @@ export const DiscoverPage: React.FC = () => {
       {isCfps && (
         <div className="dc-feed">
           {cfpQuery.isLoading && <div className="dc-loading"><InlineLoading description="Loading CFPs…" /></div>}
-          {!cfpQuery.isLoading && (cfpQuery.data?.success ? cfpQuery.data.data : []).length === 0 && (
+          {!cfpQuery.isLoading && !cfpQuery.isError && (cfpQuery.data?.success ? cfpQuery.data.data : []).length === 0 && (
             <div className="dc-empty"><p>No CFPs in <strong>{cfpStateFilter.replace('_', ' ')}</strong>.</p></div>
           )}
           {(cfpQuery.data?.success ? cfpQuery.data.data : []).map((cfp) => (
@@ -723,10 +746,6 @@ export const DiscoverPage: React.FC = () => {
             <div className="dc-loading">
               <InlineLoading description="Loading articles…" />
             </div>
-          )}
-
-          {feedQuery.isError && (
-            <p className="dc-error">Failed to load articles. Check backend connection.</p>
           )}
 
           {!feedQuery.isLoading && !feedQuery.isError && items.length === 0 && (
@@ -779,7 +798,7 @@ export const DiscoverPage: React.FC = () => {
           {emailQuery.isLoading && (
             <div className="dc-loading"><InlineLoading description="Loading emails…" /></div>
           )}
-          {!emailQuery.isLoading && (emailQuery.data?.success ? emailQuery.data.data.items : []).length === 0 && (
+          {!emailQuery.isLoading && !emailQuery.isError && (emailQuery.data?.success ? emailQuery.data.data.items : []).length === 0 && (
             <div className="dc-empty"><p>No emails indexed.</p></div>
           )}
           {(emailQuery.data?.success ? emailQuery.data.data.items : []).map((email: ContentItemSummary) => {

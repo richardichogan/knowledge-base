@@ -6,7 +6,7 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
   Button,
@@ -15,8 +15,10 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Export, Copy, View, OverflowMenuHorizontal, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
-import { PROJECTS } from '../config/projects';
+import { useProjects } from '../hooks/useProjects';
+import { DataNotice } from '../components/DataNotice';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
 import { LiveReply } from '../components/athena/LiveReply';
 import { SideTabsPanel } from '../components/SideTabsPanel';
@@ -319,6 +321,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [noteSummary, setNoteSummary] = useState<string | null>(null);
   const [isNoteSummaryLoading, setIsNoteSummaryLoading] = useState(false);
+  const [noteSummaryError, setNoteSummaryError] = useState<string | null>(null);
+  const noteSummaryRequest = useRef(0);
+  const noteSummaryIdentity = useRef(currentNoteId);
+  noteSummaryIdentity.current = currentNoteId;
+  useEffect(() => () => { noteSummaryRequest.current++; }, []);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   // Shown once the user has scrolled well up from the latest message.
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
@@ -395,15 +402,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // A message whose turn was cut off by a server restart (offered for resend).
   const [interruptedTurn, setInterruptedTurn] = useState<{ sessionId: string; message: string } | null>(null);
 
-  const projectsQuery = useQuery({
-    queryKey: ['projects', 'athena-upload'],
-    queryFn: async () => {
-      const res = await api.getProjects();
-      return res.success && res.data.length > 0 ? res.data : PROJECTS;
-    },
-    staleTime: 30_000,
-  });
-  const uploadProjectOptions = projectsQuery.data && projectsQuery.data.length > 0 ? projectsQuery.data : PROJECTS;
+  const projectsQuery = useProjects();
+  const uploadProjectOptions = (projectsQuery.data ?? []).map(({ id, name }) => ({ id, name }));
+  if (!uploadProjectOptions.some((project) => project.id === 'personal')) {
+    uploadProjectOptions.unshift({ id: 'personal', name: 'Personal / unassigned' });
+  }
+  for (const id of [uploadProjectId, activeProjectId]) {
+    if (id !== '' && !uploadProjectOptions.some((project) => project.id === id)) {
+      uploadProjectOptions.push({ id, name: `Legacy / unknown project: ${id}` });
+    }
+  }
   const uploadProjectName = uploadProjectOptions.find((p) => p.id === uploadProjectId)?.name ?? uploadProjectId;
 
   // Auto-grow the message textarea up to a max height, then let it scroll —
@@ -484,11 +492,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
    * the currently-linked note has no chat started yet.
    */
   async function loadNoteSummary(noteTitle: string, noteDetail: string): Promise<void> {
+    const request = ++noteSummaryRequest.current;
+    const noteId = currentNoteId;
+    const isCurrent = (): boolean => request === noteSummaryRequest.current && noteSummaryIdentity.current === noteId;
     setNoteSummary(null);
+    setNoteSummaryError(null);
     setIsNoteSummaryLoading(true);
-    const result = await api.summarizeNote(noteTitle, noteDetail);
-    setNoteSummary(result.success ? result.data.summary : null);
-    setIsNoteSummaryLoading(false);
+    try {
+      const result = requireApiData(await api.summarizeNote(noteTitle, noteDetail));
+      if (isCurrent()) setNoteSummary(result.summary);
+    } catch (error) {
+      if (isCurrent()) setNoteSummaryError(describeApiError(error));
+    } finally {
+      if (isCurrent()) setIsNoteSummaryLoading(false);
+    }
   }
 
   /** Tracks the note id the panel is currently showing a chat/summary for, so switching notes is only handled once per note. */
@@ -502,6 +519,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     if (!isNoteLinkedPanel || currentNoteId === undefined) return;
     if (noteSwitchTrackingRef.current === currentNoteId) return;
     noteSwitchTrackingRef.current = currentNoteId;
+    noteSummaryRequest.current++;
 
     let cancelled = false;
     detachLiveTurn();
@@ -509,6 +527,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setSessionId(null);
     setPendingActions([]);
     setNoteSummary(null);
+    setNoteSummaryError(null);
+    setIsNoteSummaryLoading(false);
     setIsRestoringHistory(true);
     setHistoryError(null);
 
@@ -1996,6 +2016,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               <p className="ai-note-summary-card__label">Summary</p>
               {isNoteSummaryLoading ? (
                 <InlineLoading description="Summarising this note…" />
+              ) : noteSummaryError !== null ? (
+                <div className="ai-history-error" role="alert">
+                  <p>Could not summarise this note: {noteSummaryError}</p>
+                  <Button kind="ghost" size="sm" onClick={() => { void loadNoteSummary(pageContext?.title ?? 'Untitled', pageContext?.detail ?? ''); }}>Retry summary</Button>
+                </div>
               ) : noteSummary !== null ? (
                 <p className="ai-note-summary-card__text">{noteSummary}</p>
               ) : (
@@ -2276,6 +2301,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           {sessionId !== null && <Button kind="ghost" size="sm" onClick={() => handleSelectSession(sessionId, true)}>Retry loading conversation</Button>}
         </div>}
 
+        {projectsQuery.error !== null && <DataNotice title="Project choices could not be refreshed." error={projectsQuery.error}
+          onRetry={() => { void projectsQuery.refetch(); }} />}
         <form onSubmit={handleSend} className="ai-input-row">
           <input
             ref={fileInputRef}

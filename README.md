@@ -65,6 +65,8 @@ changes using `node ../scripts/check-lint-baseline.mjs --update`.
 From the repository root, run `node scripts/run-browser-checks.mjs` with
 `TODAY_BROWSER_PATH` pointing to installed Chromium/Edge. It starts and stops
 its own strict-port fixture server and blocks live API/auth requests.
+The fixture server uses a separate reusable Vite dependency cache, so running
+checks cannot invalidate the normal development server's prebundled modules.
 
 Plan's Calendar requests the displayed half-open time range and loads all pages,
 rather than using the latest timeline snapshot. Native tasks use their due date
@@ -74,6 +76,30 @@ Board, Calendar and List, and date-only task values remain local calendar dates.
 Recurring completion, successor creation and tag writes commit together; migration
 `063_task_recurrence_identity.sql` prevents repeated completion from creating
 multiple successors. External integration/indexing work runs only after commit.
+
+Think browses note summaries in 100-item pages with a matching total and explicit
+Load more. Search matches literal text in saved writing, including later pages;
+type, project and taxonomy filters and modified/created/title sorting run on the
+server with stable ID tie-breaking. This is not semantic/full-text search.
+Legacy taxonomy-only project assignment remains supported, and full note bodies
+are fetched only when opened. Filtering, loading and failed queries retain the
+open editor and filter controls. Migration `064_note_list_metadata.sql` safely
+reads legacy/wrapped metadata without changing stored writing or explicit titles.
+Accepted saves reconcile server ordering/filter membership, and overlapping
+pages are deduplicated by note ID; offset pagination is not a snapshot of
+concurrent edits. Taxonomy-only project choices are available before their notes
+have been loaded.
+
+Project selectors share one live cache across workspaces, including Today,
+Athena uploads and diagram properties. A valid empty list does not invent
+configured projects; failures can retain real cached records with visible errors
+and retry. Personal/unassigned and existing unknown scope IDs remain explicit.
+Memory, Library, Discover and Plan now expose failed reads/changes, retain edit
+input and prevent duplicate pending submissions. Note summaries are tied to the
+current note/request, so obsolete responses cannot replace a newer note's summary.
+Project/task edit fields stay locked while saves are pending. Task status changes
+roll back only the affected task in the original filter cache, and pending
+move/delete actions cannot be submitted again for that task.
 
 Build auto-merge currently trusts the three named GitHub Actions checks for
 this repository only, with actual successful conclusions on the inspected head.

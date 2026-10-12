@@ -15,6 +15,7 @@ const tests = frontend ? [
 ] : [
   'scripts/note-history.test.ts', 'scripts/build.test.ts', 'scripts/turn-jobs.test.ts',
   'scripts/task-calendar.test.ts', 'scripts/today-activity.test.ts',
+  'scripts/note-list.test.ts',
 ];
 // Do not inherit local integration credentials or let dotenv load application settings.
 const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'COMSPEC', 'PATHEXT']);

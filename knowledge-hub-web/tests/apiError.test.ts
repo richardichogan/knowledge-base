@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { describeApiError } from '../src/services/apiError';
+import { describeApiError, requireApiData, requireApiSuccess } from '../src/services/apiError';
 
 test('project saves show server validation details rather than the generic HTTP status', () => {
   assert.equal(describeApiError({
@@ -8,6 +8,15 @@ test('project saves show server validation details rather than the generic HTTP 
     message: 'Request failed with status code 422',
     response: { data: { success: false, error: { message: 'goal must be a string of at most 2000 characters' } } },
   }), 'goal must be a string of at most 2000 characters');
+});
+
+test('failed envelopes throw, while valid empty responses remain valid empty data', () => {
+  const failure = { success: false as const, error: { code: 'TEST', message: 'Unavailable, not empty' } };
+  assert.throws(() => requireApiData(failure), /Unavailable, not empty/);
+  assert.throws(() => requireApiSuccess(failure), /Unavailable, not empty/);
+  assert.deepEqual(requireApiData({ success: true, data: [] }), []);
+  assert.equal(requireApiData({ success: true, data: null }), null);
+  assert.equal(requireApiData({ success: true, data: undefined }), undefined);
 });
 
 test('malformed server errors and network failures retain their original message', () => {

@@ -8,8 +8,8 @@ const reservation = createServer();
 reservation.listen(5197, '127.0.0.1');
 await once(reservation, 'listening');
 await new Promise((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
-const vite = spawn(process.execPath, [resolve(web, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', '5197', '--strictPort'],
-  { cwd: web, stdio: ['ignore', 'inherit', 'inherit'] });
+const vite = spawn(process.execPath, [resolve(web, 'node_modules/vite/bin/vite.js'), '--config', 'tests/vite.fixture.config.ts',
+  '--host', '127.0.0.1', '--port', '5197', '--strictPort'], { cwd: web, stdio: ['ignore', 'inherit', 'inherit'] });
 let started = false;
 try {
   for (let attempt = 0; attempt < 100; attempt++) {

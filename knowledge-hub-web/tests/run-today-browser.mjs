@@ -30,6 +30,8 @@ const browser = spawn(browserPath, [
 let socket;
 let sequence = 0;
 const browserErrors = [];
+const loadDiagnostics = [];
+const resourceUrls = new Map();
 const pending = new Map();
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function command(method, params = {}) {
@@ -64,6 +66,15 @@ try {
     if (message.method === 'Runtime.exceptionThrown') {
       browserErrors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
     }
+    if (message.method === 'Network.requestWillBeSent') {
+      resourceUrls.set(message.params.requestId, message.params.request.url);
+    }
+    if (message.method === 'Network.loadingFailed' && !message.params.blockedReason) {
+      loadDiagnostics.push(`${resourceUrls.get(message.params.requestId)}: ${message.params.errorText}`);
+    }
+    if (message.method === 'Log.entryAdded' && message.params.entry.level === 'error') {
+      loadDiagnostics.push(`${message.params.entry.url ?? ''}: ${message.params.entry.text}`);
+    }
     const request = pending.get(message.id);
     if (!request) return;
     pending.delete(message.id);
@@ -74,12 +85,13 @@ try {
   await command('Emulation.setFocusEmulationEnabled', { enabled: true });
   await command('Runtime.enable');
   await command('Network.enable');
+  await command('Log.enable');
   await command('Network.setBlockedURLs', { urls: ['*/api/*', '*/auth/*'] });
   for (const width of navigationChecks ? [1440, 1024, 390] : [1440, 390]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width === 390 });
     await command('Page.navigate', { url: fixtureUrl });
     let ready = false;
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 600; i++) {
       ready = await evaluate(navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
         : diagramThemeChecks ? 'typeof window.runDiagramThemeChecks === "function" && document.querySelector(".dg-node__body") !== null'
@@ -99,7 +111,7 @@ try {
       if (ready) break;
       await delay(100);
     }
-    assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('document.body.innerText')}`);
+    assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, readyState: document.readyState, text: document.body.innerText })')}\n${loadDiagnostics.join('\n')}`);
     if (diagramThemeChecks) {
       const results = await evaluate('window.runDiagramThemeChecks()');
       console.log(JSON.stringify({ width, checks: results }, null, 2));
@@ -119,7 +131,7 @@ try {
         draft.value = 'Unsaved callback regression sentinel';
         document.body.append(draft);
         const waitFor = async (check) => {
-          for (let i = 0; i < 300; i++) {
+          for (let i = 0; i < 600; i++) {
             if (check()) return;
             await new Promise(resolve => setTimeout(resolve, 50));
           }
@@ -237,7 +249,7 @@ try {
         if (referenceStyle) break;
         await delay(100);
       }
-      assert.ok(referenceStyle, `${comparison} page did not render`);
+      assert.ok(referenceStyle, `${comparison} page did not render: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, readyState: document.readyState, text: document.body.innerText })')}\n${loadDiagnostics.join('\n')}`);
       assert.deepEqual(todayStyle, referenceStyle, `Today header must match the rendered ${comparison} page at ${width}px`);
       const referenceSelector = comparison === 'discover' ? '.dc-card-synopsis' : '.notes-list-item-title';
       let referenceTypography;

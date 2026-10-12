@@ -14,9 +14,10 @@ interface TagPickerProps {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   trigger: React.ReactNode;
+  disabled?: boolean;
 }
 
-export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, trigger }) => {
+export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, trigger, disabled = false }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -134,6 +135,7 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
               <div className="tag-picker-parent-row">
                 {hasChildren ? (
                   <button
+                    disabled={disabled}
                     className={`tag-picker-chevron${isExpanded ? ' tag-picker-chevron--open' : ''}`}
                     onClick={() => { toggleExpand(parent.id); }}
                     aria-label={isExpanded ? 'Collapse' : 'Expand'}
@@ -144,6 +146,7 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
                   <span className="tag-picker-chevron-spacer" />
                 )}
                 <button
+                  disabled={disabled}
                   className={`tag-picker-item${isSelected ? ' tag-picker-item--selected' : ''}`}
                   onClick={() => { toggle(parent.id); }}
                 >
@@ -159,6 +162,7 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
                 const childSelected = selectedIds.includes(child.id);
                 return (
                   <button
+                    disabled={disabled}
                     key={child.id}
                     className={`tag-picker-item tag-picker-item--child${childSelected ? ' tag-picker-item--selected' : ''}`}
                     onClick={() => { toggle(child.id); }}
@@ -181,7 +185,7 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
 
   return (
     <div className="tag-picker-root" ref={triggerRef}>
-      <div onClick={() => { setOpen((v) => !v); }}>{trigger}</div>
+      <div aria-disabled={disabled} onClick={() => { if (!disabled) setOpen((v) => !v); }}>{trigger}</div>
       {dropdown}
     </div>
   );

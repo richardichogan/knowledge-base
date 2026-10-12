@@ -455,10 +455,13 @@ export class KnowledgeHubApi {
   }
 
   /** Lightweight note list for the Think sidebar: titles/previews only, no bodies. */
-  async getNoteSummaries(page = 1, pageSize = 100): Promise<ApiResponse<PaginatedList<NoteSummary>>> {
+  async getNoteSummaries(page = 1, pageSize = 100, filters?: {
+    q?: string; contentType?: string; projectId?: string; tagIds?: string; projectTagIds?: string;
+    sort?: 'modified' | 'created' | 'title';
+  }): Promise<ApiResponse<PaginatedList<NoteSummary>>> {
     const r = await this.client.get<ApiResponse<PaginatedList<NoteSummary>>>(
       '/api/notes',
-      { params: { page, pageSize, view: 'summary' } },
+      { params: { page, pageSize, view: 'summary', ...filters } },
     );
     return r.data;
   }

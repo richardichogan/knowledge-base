@@ -1,152 +1,30 @@
-/**
- * useProjects — fetches projects from /api/projects (JSON file store).
- * Falls back to the static PROJECTS config if the API is unreachable.
- * Exposes create / update / delete with optimistic local state.
- */
+/** Compatibility facade for consumers of the original project hook. */
+import {
+  useProjects as useProjectQuery, useCreateProject, useUpdateProject, useDeleteProject,
+} from '../hooks/useProjects';
+import { describeApiError } from './apiError';
+import type { Project } from './api';
 
-import { useState, useEffect, useCallback } from 'react';
-import { api } from '../services/api';
-import { PROJECTS } from '../config/projects';
-
-export type ProjectColour =
-  | 'blue' | 'cyan' | 'teal' | 'purple' | 'green'
-  | 'magenta' | 'warm-gray' | 'gray' | 'red';
-
-export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
-export type ProjectPriority = 'low' | 'medium' | 'high';
-export type ProjectType = 'standard' | 'formal-client';
-export type ProjectLifecycleState = 'active' | 'paused' | 'completed' | 'archived';
-export type ProjectImportance = 'critical' | 'high' | 'normal' | 'low';
-
-export interface ProjectLink {
-  label: string;
-  url: string;
-}
-
-export interface ProjectRecord {
-  id: string;
-  name: string;
-  colour: ProjectColour;
-  category: ProjectCategory;
-  priority: ProjectPriority;
-  projectType: ProjectType;
-  description: string;
-  goal: string;
-  role: string;
-  ownership: string;
-  lifecycleState: ProjectLifecycleState;
-  startDate: string | null;
-  targetEndDate: string | null;
-  importance: ProjectImportance;
-  expectedOutputs: string[];
-  gitlabPaths: string[];
-  githubRepos: string[];
-  hasIcaDocumentCollection: boolean;
-  icaDocumentCollectionName: string;
-  icaDocumentCollectionId: string;
-  links: ProjectLink[];
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type CreateProjectInput = Omit<ProjectRecord, 'createdAt' | 'updatedAt'>;
-export type UpdateProjectInput = Partial<Omit<ProjectRecord, 'id' | 'createdAt' | 'updatedAt'>>;
-
-/** Convert static config project to ProjectRecord shape (for fallback) */
-function configToRecord(p: typeof PROJECTS[0]): ProjectRecord {
-  return {
-    id: p.id,
-    name: p.name,
-    colour: p.colour as ProjectColour,
-    category: 'work',
-    priority: 'medium' as ProjectPriority,
-    projectType: p.projectType ?? 'standard',
-    description: p.description ?? '',
-    goal: '',
-    role: '',
-    ownership: '',
-    lifecycleState: 'active',
-    startDate: null,
-    targetEndDate: null,
-    importance: 'normal',
-    expectedOutputs: [],
-    gitlabPaths: p.gitlabPaths ?? [],
-    githubRepos: p.githubRepos ?? [],
-    hasIcaDocumentCollection: p.hasIcaDocumentCollection ?? false,
-    icaDocumentCollectionName: p.icaDocumentCollectionName ?? '',
-    icaDocumentCollectionId: p.icaDocumentCollectionId ?? '',
-    links: (p.links ?? []) as ProjectLink[],
-    tags: p.tags ?? [],
-    createdAt: '',
-    updatedAt: '',
-  };
-}
-
-function normalizeProject(project: ProjectRecord): ProjectRecord {
-  return {
-    ...project,
-    goal: project.goal ?? '',
-    role: project.role ?? '',
-    ownership: project.ownership ?? '',
-    lifecycleState: project.lifecycleState ?? 'active',
-    startDate: project.startDate ?? null,
-    targetEndDate: project.targetEndDate ?? null,
-    importance: project.importance ?? 'normal',
-    expectedOutputs: project.expectedOutputs ?? [],
-    links: project.links ?? [],
-    tags: project.tags ?? [],
-  };
-}
+export type {
+  ProjectColour, ProjectCategory, ProjectPriority, ProjectType,
+  ProjectLifecycleState, ProjectImportance, ProjectLink,
+} from './api';
+export type ProjectRecord = Project;
+export type CreateProjectInput = Omit<Project, 'createdAt' | 'updatedAt'>;
+export type UpdateProjectInput = Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>;
 
 export function useProjects() {
-  const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.getProjects();
-      if (res.success && res.data.length > 0) {
-        setProjects(res.data.map((project) => normalizeProject(project as ProjectRecord)));
-      } else {
-        setProjects(PROJECTS.map(configToRecord));
-      }
-    } catch {
-      // Fallback to static config
-      setProjects(PROJECTS.filter((p) => p.id !== 'personal').map(configToRecord));
-      setError('Using local config — backend unavailable');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const createProject = useCallback(async (input: CreateProjectInput): Promise<ProjectRecord> => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await api.createProject(input as any);
-    if (!res.success) throw new Error(res.error.message);
-    const created = normalizeProject((res as { success: true; data: ProjectRecord }).data);
-    setProjects((prev) => [...prev, created]);
-    return created;
-  }, []);
-
-  const updateProject = useCallback(async (id: string, input: UpdateProjectInput): Promise<ProjectRecord> => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await api.updateProject(id, input as any);
-    if (!res.success) throw new Error(res.error.message);
-    const updated = normalizeProject((res as { success: true; data: ProjectRecord }).data);
-    setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
-    return updated;
-  }, []);
-
-  const deleteProject = useCallback(async (id: string): Promise<void> => {
-    await api.deleteProject(id);
-    setProjects((prev) => prev.filter((p) => p.id !== id));
-  }, []);
-
-  return { projects, loading, error, reload: load, createProject, updateProject, deleteProject };
+  const query = useProjectQuery();
+  const create = useCreateProject();
+  const update = useUpdateProject();
+  const remove = useDeleteProject();
+  return {
+    projects: query.data ?? [],
+    loading: query.isPending,
+    error: query.error === null ? null : describeApiError(query.error),
+    reload: async (): Promise<void> => { await query.refetch(); },
+    createProject: (input: CreateProjectInput): Promise<Project> => create.mutateAsync(input),
+    updateProject: (id: string, input: UpdateProjectInput): Promise<Project> => update.mutateAsync({ id, ...input }),
+    deleteProject: (id: string): Promise<void> => remove.mutateAsync(id),
+  };
 }

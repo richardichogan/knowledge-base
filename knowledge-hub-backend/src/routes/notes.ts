@@ -26,6 +26,7 @@ import { checkPublication, listRepositoryFolders, listWritableRepositories, publ
 import { githubMarkdownBlocks } from '../services/noteMarkdown.js';
 import { GitHubClient } from '../integrations/github/githubClient.js';
 import { ConflictError } from '../types/errors.js';
+import { positiveInteger } from '../utils/queryValidation.js';
 
 const router = Router();
 const MAX_REPOSITORY_PAGE = 100;
@@ -162,8 +163,8 @@ function blockText(blocks: unknown[]): string[] {
     if (typeof b !== 'object' || b === null) continue;
     const block = b as { content?: unknown; children?: unknown };
     if (Array.isArray(block.content)) {
-      const t = (block.content as { text?: unknown }[])
-        .map((c) => (typeof c.text === 'string' ? c.text : ''))
+      const t = (block.content as unknown[])
+        .map((c) => (typeof c === 'object' && c !== null && 'text' in c && typeof c.text === 'string' ? c.text : ''))
         .join('')
         .trim();
       if (t !== '') out.push(t);
@@ -178,27 +179,13 @@ function blockText(blocks: unknown[]): string[] {
  * web client used when it derived these from full bodies (preview skips
  * leading lines that just repeat the title).
  */
-function summariseNote(row: { id: string; content: string; created_at: string; updated_at: string; project_id: string | null; taxonomy_tag_ids: string[] }): NoteSummary {
-  let title = 'Untitled';
-  let contentType = 'note';
-  let preview = '';
-  try {
-    const wrapper = JSON.parse(row.content) as { title?: unknown; contentType?: unknown; contentJson?: unknown };
-    if (typeof wrapper.title === 'string') title = wrapper.title;
-    if (typeof wrapper.contentType === 'string') contentType = wrapper.contentType;
-    if (typeof wrapper.contentJson === 'string') {
-      const blocks = JSON.parse(wrapper.contentJson) as unknown;
-      if (Array.isArray(blocks)) {
-        const lines = blockText(blocks);
-        const t = title.trim().toLowerCase();
-        let start = 0;
-        while (start < lines.length && (lines[start] ?? '').trim().toLowerCase() === t) start += 1;
-        preview = lines.slice(start).join('\n').slice(0, NOTE_PREVIEW_CHARS);
-      }
-    }
-  } catch {
-    // Unparseable legacy content — keep the defaults.
-  }
+function summariseNote(row: { id: string; content: string; created_at: string; updated_at: string; project_id: string | null; taxonomy_tag_ids: string[]; list_metadata: { title: string; contentType: string } }): NoteSummary {
+  const { title, contentType } = row.list_metadata;
+  const lines = blockText(parseNoteContent(row.content).blocks);
+  const t = title.trim().toLowerCase();
+  let start = 0;
+  while (start < lines.length && (lines[start] ?? '').trim().toLowerCase() === t) start += 1;
+  const preview = lines.slice(start).join('\n').slice(0, NOTE_PREVIEW_CHARS);
   return {
     id: row.id,
     title,
@@ -249,12 +236,66 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const db = getDb();
-      const page = Math.max(1, parseInt(String(req.query['page'] ?? '1'), 10));
-      const pageSize = Math.min(
-        MAX_PAGE_SIZE,
-        Math.max(1, parseInt(String(req.query['pageSize'] ?? String(DEFAULT_PAGE_SIZE)), 10)),
-      );
+      const page = positiveInteger(req.query['page'], 'page', 1);
+      const pageSize = positiveInteger(req.query['pageSize'], 'pageSize', DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
       const offset = (page - 1) * pageSize;
+      if (!Number.isSafeInteger(offset)) throw new ValidationError('Note page is too large');
+      const conditions = ["n.status = 'active'"];
+      const params: unknown[] = [];
+      const filterValue = (name: string): string | undefined => {
+        const value = req.query[name];
+        if (value === undefined || value === '') return undefined;
+        if (typeof value !== 'string') throw new ValidationError(`${name} must be a string`);
+        return value;
+      };
+      const q = filterValue('q');
+      if (q !== undefined) {
+        params.push(`%${q.replace(/[\\%_]/g, '\\$&')}%`);
+        conditions.push(`n.content ILIKE $${params.length}`);
+      }
+      const contentType = filterValue('contentType');
+      if (contentType !== undefined) {
+        params.push(contentType);
+        conditions.push(`note_list_metadata(n.content)->>'contentType' = $${params.length}`);
+      }
+      const parseTagIds = (name: string): string[] => {
+        const value = filterValue(name);
+        if (value === undefined) return [];
+        const ids = value.split(',');
+        if (ids.length > MAX_PAGE_SIZE || ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+          throw new ValidationError(`${name} must contain valid tag IDs`);
+        }
+        return ids;
+      };
+      const tagIds = parseTagIds('tagIds');
+      if (tagIds.length > 0) {
+        params.push(tagIds);
+        conditions.push(`EXISTS (SELECT 1 FROM note_tags filtered WHERE filtered.note_id = n.id AND filtered.tag_id = ANY($${params.length}::uuid[]))`);
+      }
+      const projectId = filterValue('projectId');
+      const projectTagIds = parseTagIds('projectTagIds');
+      if (projectId === '__none__') {
+        conditions.push(`n.project_id IS NULL AND NOT EXISTS (
+          SELECT 1 FROM note_tags legacy JOIN tags tag ON tag.id = legacy.tag_id
+          WHERE legacy.note_id = n.id AND tag.parent_id IS NOT NULL)`);
+      } else if (projectId !== undefined) {
+        params.push(projectId);
+        const explicit = `n.project_id::text = $${params.length}`;
+        if (projectTagIds.length > 0) {
+          params.push(projectTagIds);
+          conditions.push(`(${explicit} OR (n.project_id IS NULL AND (
+            SELECT legacy.tag_id FROM note_tags legacy JOIN tags tag ON tag.id = legacy.tag_id
+            WHERE legacy.note_id = n.id AND tag.parent_id IS NOT NULL
+            ORDER BY legacy.tag_id LIMIT 1) = ANY($${params.length}::uuid[])))`);
+        } else conditions.push(explicit);
+      }
+      const sort = filterValue('sort') ?? 'created';
+      if (!['created', 'modified', 'title'].includes(sort)) throw new ValidationError('Invalid note sort');
+      const order = sort === 'title' ? `lower(note_list_metadata(n.content)->>'title') ASC`
+        : sort === 'modified' ? 'n.updated_at DESC' : 'n.created_at DESC';
+      const where = conditions.join(' AND ');
+      const limitIndex = params.length + 1;
+      const offsetIndex = limitIndex + 1;
 
       const [rowsResult, countResult] = await Promise.all([
         db.query<{
@@ -268,19 +309,21 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
           project_id: string | null;
           taxonomy_tag_ids: string[];
           revision: number;
+          list_metadata: { title: string; contentType: string };
         }>(
           `SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id, n.revision,
-                  COALESCE(ARRAY_AGG(nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
+                  note_list_metadata(n.content) AS list_metadata,
+                  COALESCE(ARRAY_AGG(nt.tag_id ORDER BY nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
            FROM notes n
            LEFT JOIN note_tags nt ON nt.note_id = n.id
-           WHERE n.status = 'active'
+           WHERE ${where}
            GROUP BY n.id
-           ORDER BY n.created_at DESC
-           LIMIT $1 OFFSET $2`,
-          [pageSize, offset],
+           ORDER BY ${order}, n.id DESC
+           LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+          [...params, pageSize, offset],
         ),
         db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM notes WHERE status = 'active'`,
+          `SELECT COUNT(*) AS count FROM notes n WHERE ${where}`, params,
         ),
       ]);
 

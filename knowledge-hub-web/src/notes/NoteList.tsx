@@ -13,6 +13,7 @@ import { useProjects } from '../hooks/useProjects';
 import { usePersistedBoolean, usePersistedChoice } from '../hooks/usePersistedState';
 import { CONTENT_TYPE_OPTIONS } from './constants';
 import type { ContentType } from './constants';
+import type { NoteListFilters } from './noteStorage';
 
 const SORT_OPTIONS = ['modified', 'created', 'title'] as const;
 type SortKey = (typeof SORT_OPTIONS)[number];
@@ -33,6 +34,14 @@ interface NoteListProps {
   deletingId?: string | null;
   /** Bumped by the parent to pull focus into the search box (e.g. after expanding from the rail). */
   focusSearchSignal?: number;
+  onFiltersChange?: (filters: NoteListFilters) => void;
+  total?: number;
+  loading?: boolean;
+  unavailable?: boolean;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
+  creating?: boolean;
 }
 
 function formatDate(iso: string): string {
@@ -63,6 +72,14 @@ export const NoteList: React.FC<NoteListProps> = ({
   onImport,
   deletingId = null,
   focusSearchSignal = 0,
+  onFiltersChange,
+  total,
+  loading = false,
+  unavailable = false,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+  creating = false,
 }) => {
   const [filter, setFilter] = useState('');
   const [activeProjectId, setActiveProjectId] = useState('');
@@ -95,6 +112,25 @@ export const NoteList: React.FC<NoteListProps> = ({
   const projectIdByName = new Map(
     projects.map((project) => [project.name.trim().toLocaleLowerCase(), project.id]),
   );
+  useEffect(() => {
+    if (onFiltersChange === undefined) return;
+    const projectName = projects.find((project) => project.id === activeProjectId)?.name.trim().toLocaleLowerCase();
+    const projectTags = parents.flatMap((parent) => parent.children ?? [])
+      .filter((tag) => tag.id === activeProjectId || tag.name.trim().toLocaleLowerCase() === projectName)
+      .map((tag) => tag.id);
+    const selectedTags = activeTagId === '' ? [] : [...expandTagIds(activeTagId, parents)];
+    const timer = setTimeout(() => {
+      onFiltersChange({
+        ...(filter.trim() !== '' && { q: filter.trim() }),
+        ...(activeProjectId !== '' && { projectId: activeProjectId }),
+        ...(projectTags.length > 0 && { projectTagIds: projectTags.sort().join(',') }),
+        ...(activeContentType !== '' && { contentType: activeContentType }),
+        ...(selectedTags.length > 0 && { tagIds: selectedTags.sort().join(',') }),
+        sort: sortKey,
+      });
+    }, 250);
+    return () => { clearTimeout(timer); };
+  }, [onFiltersChange, filter, activeProjectId, activeContentType, activeTagId, sortKey, parents, projects]);
 
   // Build a flat map of tagId â†’ tag name, and a set of all "project child" tag IDs.
   // A project child is any tag whose parent is a top-level project group tag.
@@ -128,6 +164,14 @@ export const NoteList: React.FC<NoteListProps> = ({
   ].filter(Boolean).length;
 
   const availableProjectIds = new Set(notes.map(resolveNoteProjectId));
+  if (onFiltersChange !== undefined) {
+    projects.forEach((project) => availableProjectIds.add(project.id));
+    parents.forEach((parent) => parent.children?.forEach((tag) => {
+      availableProjectIds.add(projectIdByName.get(tag.name.trim().toLocaleLowerCase()) ?? tag.id);
+    }));
+    availableProjectIds.add('__none__');
+    if (activeProjectId !== '') availableProjectIds.add(activeProjectId);
+  }
   const availableProjectOptions = [...availableProjectIds]
     .map((id) => ({
       id,
@@ -140,7 +184,7 @@ export const NoteList: React.FC<NoteListProps> = ({
       if (b.id === '__none__') return -1;
       return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
     });
-  const availableContentTypes = CONTENT_TYPE_OPTIONS.filter((option) =>
+  const availableContentTypes = onFiltersChange !== undefined ? CONTENT_TYPE_OPTIONS : CONTENT_TYPE_OPTIONS.filter((option) =>
     notes.some((note) => note.contentType === option.id),
   );
   const flatTags = parents.flatMap((parent) => [
@@ -149,6 +193,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   ]);
 
   const filteredNotes = notes.filter((n) => {
+    if (onFiltersChange !== undefined) return true;
     if (!n.title.toLowerCase().includes(filter.toLowerCase())) return false;
     if (activeProjectId !== '' && resolveNoteProjectId(n) !== activeProjectId) return false;
     if (activeContentType !== '' && n.contentType !== activeContentType) return false;
@@ -159,10 +204,7 @@ export const NoteList: React.FC<NoteListProps> = ({
     return true;
   });
 
-  // Sorting is applied before grouping so both the flat list and the grouped
-  // list obey the same chosen order. The API orders by created_at, which is
-  // not a proxy for "most recently edited", so order is always re-derived
-  // client-side rather than trusted.
+  // Standalone lists sort locally; paginated lists preserve the server's global order.
   const compareNotes = (a: NoteListItem, b: NoteListItem): number => {
     if (sortKey === 'title') return a.title.localeCompare(b.title);
     const field = sortKey === 'created' ? 'createdAt' : 'updatedAt';
@@ -171,7 +213,7 @@ export const NoteList: React.FC<NoteListProps> = ({
     return bTime - aTime;
   };
 
-  const sortedNotes = [...filteredNotes].sort(compareNotes);
+  const sortedNotes = onFiltersChange === undefined ? [...filteredNotes].sort(compareNotes) : filteredNotes;
 
   // Group by the explicit project first, falling back to older taxonomy-only
   // notes that predate first-class project assignment.
@@ -230,6 +272,7 @@ export const NoteList: React.FC<NoteListProps> = ({
           type="button"
           className="notes-list-search__action"
           title="New note"
+          disabled={creating}
           aria-label="New note"
           onClick={onCreate}
         >
@@ -318,7 +361,7 @@ export const NoteList: React.FC<NoteListProps> = ({
             />
             <span>Filters{activeFilterCount > 0 ? ` Â· ${activeFilterCount} active` : ''}</span>
             <span className="notes-list-filters__result-count">
-              {filteredNotes.length} of {notes.length}
+              {filteredNotes.length} of {total ?? notes.length}
             </span>
           </button>
           {activeFilterCount > 0 && (
@@ -386,7 +429,8 @@ export const NoteList: React.FC<NoteListProps> = ({
 
       {/* Notes grouped by project */}
       <div className="notes-list">
-        {sortedNotes.length === 0 && (
+        {loading && <p className="notes-list-progress" role="status">Loading notes...</p>}
+        {!loading && !unavailable && sortedNotes.length === 0 && (
           <div className="notes-list-empty">No documents found</div>
         )}
         {groupByProject
@@ -401,6 +445,7 @@ export const NoteList: React.FC<NoteListProps> = ({
                     onSelect={onSelect}
                     onDelete={onDelete}
                     deleting={deletingId === note.id}
+                    deletePending={deletingId !== null}
                     showPreview={showPreviews}
                     sortKey={sortKey}
                     tagNameMap={tagNameMap}
@@ -417,12 +462,15 @@ export const NoteList: React.FC<NoteListProps> = ({
                 onSelect={onSelect}
                 onDelete={onDelete}
                 deleting={deletingId === note.id}
+                deletePending={deletingId !== null}
                 showPreview={showPreviews}
                 sortKey={sortKey}
                 tagNameMap={tagNameMap}
                 tagColourMap={tagColourMap}
               />
             ))}
+        {hasMore && onLoadMore !== undefined && <button type="button" className="notes-list-more" disabled={loadingMore}
+          onClick={onLoadMore}>{loadingMore ? 'Loading...' : `Load more (${notes.length} of ${total ?? notes.length})`}</button>}
       </div>
     </>
   );
@@ -433,12 +481,13 @@ const NoteCard: React.FC<{
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   deleting: boolean;
+  deletePending: boolean;
   showPreview: boolean;
   /** Drives which timestamp the card shows, so the visible dates match the chosen order. */
   sortKey: SortKey;
   tagNameMap: Map<string, string>;
   tagColourMap: Map<string, string>;
-}> = ({ note, selectedId, onSelect, onDelete, deleting, showPreview, sortKey, tagNameMap, tagColourMap }) => {
+}> = ({ note, selectedId, onSelect, onDelete, deleting, deletePending, showPreview, sortKey, tagNameMap, tagColourMap }) => {
   const isActive = selectedId === note.id;
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -452,7 +501,7 @@ const NoteCard: React.FC<{
 
   const st = TYPE_STYLE[note.contentType] ?? TYPE_STYLE['note'] ?? { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' };
   const preview = note.body ?? '';
-  const snippet = preview.replace(/[#*_`>\[\]\n]+/g, ' ').trim().slice(0, 120);
+  const snippet = preview.replace(/[#*_`>[\]\n]+/g, ' ').trim().slice(0, 120);
   // Encode as "name|colour" so the canvas renderer can use the correct colour
   const tagEntries = (note.tagIds ?? [])
     .map((id) => {
@@ -481,7 +530,7 @@ const NoteCard: React.FC<{
       <button
         className="notes-list-item__delete"
         title="Delete note"
-        disabled={deleting}
+        disabled={deleting || deletePending}
         onClick={async (e) => {
           e.stopPropagation();
           if (!await confirmDialog(`Delete "${note.title}"? This cannot be undone.`, { title: 'Delete note', confirmLabel: 'Delete', tone: 'danger' })) return;

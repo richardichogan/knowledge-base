@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { fetchNotes } from '../notes/noteStorage';
+import { useProjects } from '../hooks/useProjects';
 import { buildTodayModel, readTodayTasks, todayChangesSince, type TodayChatDetails } from './todayViewModel';
 import type { ApiResponse } from '../types/apiResponse';
 
@@ -34,7 +35,7 @@ export function useTodayBrief() {
     queryFn: async () => readTodayTasks(requireTodayData(await api.getTasks())),
   });
   const notes = useQuery({ queryKey: ['today', 'notes'], queryFn: fetchNotes });
-  const projects = useQuery({ queryKey: ['today', 'projects'], queryFn: async () => requireTodayData(await api.getProjects()) });
+  const projects = useProjects();
   const activity = useQuery({
     queryKey: ['today', 'activity', since],
     queryFn: async () => requireTodayData(await api.getTimeline({ pageSize: 100, since })).items,
