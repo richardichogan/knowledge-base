@@ -44,7 +44,7 @@ import {
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { DiagramMetadata } from './DiagramMetadata';
-import { exportDiagram } from './diagramExport';
+import { exportDiagram, type DiagramExportFormat } from './diagramExport';
 import {
   addFootnote, collapseView, fixTextIssues, footnoteAnchor, footnoteBlock, footnoteHref, footnotesOf, presentationSteps, pruneFootnotes, setLegend,
   DEFAULT_LEGEND, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT, type FootnoteBlock, type PresentationStep,
@@ -307,7 +307,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [lineTool, setLineTool] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [exporting, setExporting] = useState(false);
-  const [exportFormat, setExportFormat] = useState<'png' | 'svg'>('png');
+  const [exportFormat, setExportFormat] = useState<DiagramExportFormat>('png');
   const [exportBg, setExportBg] = useState<'white' | 'transparent'>('white');
   const [exportGrid, setExportGrid] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
@@ -1102,7 +1102,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     for (const id of ids) { const b = blobsRef.current.get(id); if (b !== undefined) map.set(id, b); }
     setExporting(true);
     try {
-      await exportDiagram(cur, map, exportFormat, exportBg, exportGrid, { footnotes: exportFootnotes, legend: exportLegend && cur.legend?.visible === true });
+      await exportDiagram(cur, map, exportFormat, exportBg, exportGrid, { footnotes: exportFootnotes, legend: exportLegend && cur.legend?.visible === true, name: canvas?.title });
       setMenu(null);
     } catch (err) {
       notify('error', `Export failed: ${describeError(err).message}`, { key: 'export' });
@@ -1834,16 +1834,17 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               <div className="dg-popover dg-popover--end" role="dialog" aria-label="Export diagram">
                 <section className="dg-popover__section">
                   <h3 className="dg-popover__heading">Format</h3>
-                  <Segmented value={exportFormat} onChange={setExportFormat} options={[{ value: 'png', label: 'PNG' }, { value: 'svg', label: 'SVG' }]} label="Export format" />
+                  <Segmented value={exportFormat} onChange={setExportFormat} options={[{ value: 'png', label: 'PNG' }, { value: 'svg', label: 'SVG' }, { value: 'drawio', label: 'draw.io' }]} label="Export format" />
+                  {exportFormat === 'drawio' && <p className="dg-popover__hint">An editable file for draw.io (diagrams.net). Shapes, connectors, groups and icons stay editable; footnotes and the key come across as shapes.</p>}
                 </section>
-                <section className="dg-popover__section">
+                {exportFormat !== 'drawio' && <section className="dg-popover__section">
                   <h3 className="dg-popover__heading">Background</h3>
                   <Segmented value={exportBg} onChange={setExportBg} options={[{ value: 'white', label: 'White' }, { value: 'transparent', label: 'Transparent' }]} label="Export background" />
                   <label className="dg-check">
                     <input type="checkbox" className="dg-check__input" checked={exportGrid} onChange={(e) => { setExportGrid(e.target.checked); }} />
                     <span className="dg-check__label">Include grid</span>
                   </label>
-                </section>
+                </section>}
                 <section className="dg-popover__section">
                   <h3 className="dg-popover__heading">Annotations</h3>
                   <label className="dg-check">
@@ -1856,7 +1857,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   </label>
                 </section>
                 <button type="button" className="dg-primary-btn" disabled={exporting || doc.nodes.length === 0} onClick={() => { void runExport(); }}>
-                  {exporting ? <><InProgress size={16} className="dg-spin" /> Exporting…</> : <><Download size={16} /> Export {exportFormat.toUpperCase()}</>}
+                  {exporting ? <><InProgress size={16} className="dg-spin" /> Exporting…</> : <><Download size={16} /> Export {exportFormat === 'drawio' ? 'draw.io' : exportFormat.toUpperCase()}</>}
                 </button>
                 {doc.nodes.length === 0 && <p className="dg-popover__hint">Add something to the diagram to export it.</p>}
               </div>

@@ -1,0 +1,183 @@
+/**
+ * draw.io (diagrams.net) export: the diagram as an editable .drawio file.
+ *
+ * Shapes, groups, lanes, connectors (with ports, bends, arrows and label offsets), lines, icons and
+ * descriptions (as draw.io tooltips) map one-to-one. Footnote badges, the notes and the colour key
+ * become ordinary draw.io shapes and text, placed where the PNG/SVG export puts them. Collapsed
+ * groups are exported expanded so nothing is lost.
+ */
+import type { DiagramDocument, DiagramEdge, DiagramNode, DiagramPort } from './diagramTypes';
+import { footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
+import { boundsOf, containerHeader, diagramBounds, linePoints, nodeMap, renderOrder, SWIMLANE_HEADER, type Rect } from './diagramGeometry';
+
+export interface DrawioOptions {
+  footnotes?: boolean | undefined;
+  legend?: boolean | undefined;
+  /** Page name shown in draw.io. */
+  name?: string | undefined;
+}
+
+const xml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
+  '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;',
+}[c] ?? c));
+
+/** A plain-text label as draw.io html label content (escaped, line breaks kept). */
+const htmlLabel = (text: string): string => xml(text).replace(/\r?\n/g, '<br>');
+
+const colour = (c: string | undefined, fallback = 'none'): string => {
+  const v = (c ?? '').trim();
+  return v === '' || v === 'none' || v === 'transparent' ? fallback : v;
+};
+
+const style = (parts: Record<string, string | number | undefined>): string =>
+  Object.entries(parts).filter(([, v]) => v !== undefined).map(([k, v]) => (v === '' ? k : `${k}=${String(v)}`)).join(';') + ';';
+
+const PORT: Record<DiagramPort, [number, number]> = { top: [0.5, 0], right: [1, 0.5], bottom: [0.5, 1], left: [0, 0.5] };
+
+function borderStyle(n: Pick<DiagramNode, 'strokeStyle'>): Record<string, string | number> {
+  if (n.strokeStyle === 'dashed') return { dashed: 1 };
+  if (n.strokeStyle === 'dotted') return { dashed: 1, dashPattern: '1 3' };
+  return {};
+}
+
+function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
+  const common = {
+    html: 1, whiteSpace: 'wrap',
+    fillColor: colour(n.fill), strokeColor: colour(n.stroke), strokeWidth: n.strokeWidth ?? 1.5,
+    fontColor: colour(n.textColor, '#161616'), fontSize: n.fontSize,
+    ...borderStyle(n),
+  };
+  const align = n.textAlign ?? (n.kind === 'container' ? 'left' : 'center');
+  const verticalAlign = n.textVerticalAlign ?? (n.kind === 'image' && n.textAlign === undefined ? 'bottom' : 'middle');
+  const children = hasChildren ? { container: 1 } : {};
+  switch (n.kind) {
+    case 'container':
+      return style({ swimlane: '', ...common, startSize: containerHeader(n).height, fontStyle: 1, align, spacingLeft: 4, collapsible: 1, container: 1 });
+    case 'swimlane':
+      return style({ swimlane: '', ...common, horizontal: 0, startSize: SWIMLANE_HEADER, fontStyle: 1, collapsible: 1, container: 1 });
+    case 'decision':
+      return style({ rhombus: '', ...common, align, verticalAlign, ...children });
+    case 'document':
+      return style({ shape: 'document', ...common, boundedLbl: 1, size: 0.15, align, verticalAlign, ...children });
+    case 'terminator':
+      return style({ rounded: 1, arcSize: 50, ...common, align, verticalAlign, ...children });
+    case 'text':
+      return style({ text: '', ...common, align: n.textAlign ?? 'center', verticalAlign, ...children });
+    case 'image':
+      return style({ rounded: 1, absoluteArcSize: 1, arcSize: 8, ...common, align, verticalAlign, spacingBottom: 2, ...children });
+    default:
+      return style({ rounded: 1, absoluteArcSize: 1, arcSize: 12, ...common, align, verticalAlign, ...children });
+  }
+}
+
+/** draw.io wants `data:<type>,<base64>` (no `;base64`, since `;` separates style entries). */
+export function drawioImage(dataUrl: string): string {
+  return dataUrl.replace(/^data:([^;,]+);base64,/, 'data:$1,');
+}
+
+interface Cell { id: string; xml: string }
+
+function vertexCell(id: string, value: string, styleText: string, parent: string, r: Rect, tooltip?: string): Cell {
+  const geometry = `<mxGeometry x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" as="geometry"/>`;
+  if (tooltip !== undefined && tooltip.trim() !== '') {
+    return { id, xml: `<UserObject label="${xml(value)}" tooltip="${xml(tooltip)}" id="${xml(id)}"><mxCell style="${xml(styleText)}" vertex="1" parent="${xml(parent)}">${geometry}</mxCell></UserObject>` };
+  }
+  return { id, xml: `<mxCell id="${xml(id)}" value="${xml(value)}" style="${xml(styleText)}" vertex="1" parent="${xml(parent)}">${geometry}</mxCell>` };
+}
+
+function edgeStyle(e: DiagramEdge): string {
+  const [sx, sy] = PORT[e.sourcePort];
+  const [tx, ty] = PORT[e.targetPort];
+  const arrow = { endArrow: e.arrows === 'none' ? 'none' : 'block', endFill: 1, startArrow: e.arrows === 'both' ? 'block' : 'none', startFill: 1 };
+  return style({
+    edgeStyle: e.route === 'orthogonal' ? 'orthogonalEdgeStyle' : 'none', rounded: 0, html: 1,
+    strokeColor: colour(e.stroke, '#161616'), strokeWidth: e.strokeWidth ?? 1.5, ...(e.dashed ? { dashed: 1 } : {}), ...arrow,
+    fontSize: e.fontSize ?? 11, fontColor: colour(e.stroke, '#161616'), labelBackgroundColor: '#ffffff',
+    exitX: sx, exitY: sy, exitDx: 0, exitDy: 0, exitPerimeter: 0,
+    entryX: tx, entryY: ty, entryDx: 0, entryDy: 0, entryPerimeter: 0,
+  });
+}
+
+/**
+ * The diagram as a draw.io file. `images` maps asset ids to data URLs (the caller reads the blobs).
+ * Nodes are absolute in Athena; draw.io children are relative to their parent, so geometry is offset.
+ */
+export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<string, string>, options: DrawioOptions = {}): string {
+  const byId = nodeMap(doc.nodes);
+  const parentIds = new Set(doc.nodes.flatMap((n) => (n.parentId !== null && byId.has(n.parentId) ? [n.parentId] : [])));
+  const cells: Cell[] = [];
+  const parentOf = (n: DiagramNode): DiagramNode | undefined => (n.parentId !== null ? byId.get(n.parentId) : undefined);
+
+  for (const n of renderOrder(doc.nodes)) {
+    const parent = parentOf(n);
+    const parentId = parent?.id ?? '1';
+    const ox = parent?.x ?? 0;
+    const oy = parent?.y ?? 0;
+    if (n.kind === 'line') {
+      const [a, b] = linePoints(n);
+      const lineStyle = style({ endArrow: 'none', startArrow: 'none', html: 1, rounded: 0, strokeColor: colour(n.stroke, '#161616'), strokeWidth: n.strokeWidth ?? 1.5, ...borderStyle(n) });
+      cells.push({ id: n.id, xml: `<mxCell id="${xml(n.id)}" value="" style="${xml(lineStyle)}" edge="1" parent="${xml(parentId)}"><mxGeometry relative="1" as="geometry"><mxPoint x="${a.x - ox}" y="${a.y - oy}" as="sourcePoint"/><mxPoint x="${b.x - ox}" y="${b.y - oy}" as="targetPoint"/></mxGeometry></mxCell>` });
+      continue;
+    }
+    cells.push(vertexCell(n.id, htmlLabel(n.label), shapeStyle(n, parentIds.has(n.id)), parentId,
+      { x: n.x - ox, y: n.y - oy, width: n.width, height: n.height }, n.description));
+    const src = n.assetId !== null ? images.get(n.assetId) : undefined;
+    if (src !== undefined) {
+      const caption = n.label.trim() !== '' ? Math.round(n.fontSize * 1.3 + 10) : 0;
+      cells.push(vertexCell(`${n.id}-image`, '', style({ shape: 'image', imageAspect: 1, aspect: 'fixed', html: 1, connectable: 0, image: drawioImage(src) }), n.id,
+        { x: 4, y: 4, width: Math.max(1, n.width - 8), height: Math.max(1, n.height - caption - 8) }));
+    }
+  }
+
+  for (const e of doc.edges) {
+    if (!byId.has(e.sourceId) || !byId.has(e.targetId)) continue;
+    const points = e.waypoints.length > 0 ? `<Array as="points">${e.waypoints.map((p) => `<mxPoint x="${p.x}" y="${p.y}"/>`).join('')}</Array>` : '';
+    const offset = e.labelOffset !== undefined ? `<mxPoint x="${e.labelOffset.x}" y="${e.labelOffset.y}" as="offset"/>` : '';
+    const geometry = `<mxGeometry relative="1" as="geometry">${points}${offset}</mxGeometry>`;
+    const attrs = `style="${xml(edgeStyle(e))}" edge="1" parent="1" source="${xml(e.sourceId)}" target="${xml(e.targetId)}"`;
+    cells.push(e.description !== undefined && e.description.trim() !== ''
+      ? { id: e.id, xml: `<UserObject label="${xml(htmlLabel(e.label))}" tooltip="${xml(e.description)}" id="${xml(e.id)}"><mxCell ${attrs}>${geometry}</mxCell></UserObject>` }
+      : { id: e.id, xml: `<mxCell id="${xml(e.id)}" value="${xml(htmlLabel(e.label))}" ${attrs}>${geometry}</mxCell>` });
+  }
+
+  const content = diagramBounds(doc, 0);
+  const regions: Rect[] = [content];
+  const fns = (options.footnotes ?? true) ? footnotesOf(doc) : [];
+  const badge = (id: string, n: number, cx: number, cy: number): Cell => vertexCell(id, String(n),
+    style({ ellipse: '', html: 1, fillColor: '#0f62fe', strokeColor: '#ffffff', strokeWidth: 1.5, fontColor: '#ffffff', fontSize: 11, fontStyle: 1 }), '1',
+    { x: cx - FOOTNOTE_RADIUS, y: cy - FOOTNOTE_RADIUS, width: FOOTNOTE_RADIUS * 2, height: FOOTNOTE_RADIUS * 2 });
+  fns.forEach((fn, i) => {
+    const at = footnoteAnchor(doc, fn.targetId, byId);
+    if (at !== null) cells.push(badge(`footnote-${fn.id}`, i + 1, at.x, at.y));
+  });
+  const block = fns.length > 0 ? footnoteBlock(doc, content, doc.notesPanel ?? 'bottom') : null;
+  if (block !== null) {
+    regions.push(block.rect);
+    cells.push(vertexCell('notes-frame', '', style({ rounded: 1, absoluteArcSize: 1, arcSize: 8, html: 1, fillColor: 'none', strokeColor: '#c6c6c6', strokeWidth: 1 }), '1', block.rect));
+    cells.push(vertexCell('notes-heading', 'Notes', style({ text: '', html: 1, align: 'left', verticalAlign: 'top', fontSize: NOTE_HEADING_FONT, fontStyle: 1, spacing: 0 }), '1',
+      { x: block.heading.x, y: block.heading.y, width: 120, height: NOTE_HEADING_FONT + 6 }));
+    for (const item of block.items) {
+      cells.push(badge(`note-badge-${item.id}`, item.number, item.marker.x, item.marker.y));
+      const textX = item.lines[0]?.x ?? item.rect.x;
+      const value = item.lines.map((l) => (l.bold ? `<b>${xml(l.text)}</b>` : xml(l.text))).join('<br>');
+      cells.push(vertexCell(`note-${item.id}`, value, style({ text: '', html: 1, whiteSpace: 'wrap', align: 'left', verticalAlign: 'top', fontSize: NOTE_FONT, spacing: 0 }), '1',
+        { x: textX, y: item.rect.y + 4, width: item.rect.x + item.rect.width - textX, height: item.rect.height - 4 }));
+    }
+  }
+  const rows = (options.legend ?? doc.legend?.visible === true) ? legendRows(doc).filter((r) => !r.hidden) : [];
+  if (rows.length > 0) {
+    const key = keyLayout(rows, boundsOf(regions) ?? content, content.x);
+    cells.push(vertexCell('key-heading', 'Key', style({ text: '', html: 1, align: 'left', verticalAlign: 'top', fontSize: 13, fontStyle: 1, spacing: 0 }), '1',
+      { x: key.heading.x, y: key.heading.y, width: 120, height: 20 }));
+    key.items.forEach((k, i) => {
+      cells.push(vertexCell(`key-swatch-${i.toString()}`, '', style({ rounded: 1, absoluteArcSize: 1, arcSize: 4, html: 1, fillColor: 'none', strokeColor: k.colour, strokeWidth: 2.5 }), '1',
+        { x: k.x, y: k.y, width: 16, height: 14 }));
+      cells.push(vertexCell(`key-label-${i.toString()}`, xml(k.text), style({ text: '', html: 1, align: 'left', verticalAlign: 'middle', fontSize: NOTE_FONT, spacing: 0 }), '1',
+        { x: k.x + 24, y: k.y - 3, width: Math.min(260, k.text.length * 6.6) + 16, height: 20 }));
+    });
+  }
+
+  const name = xml(options.name?.trim() || 'Diagram');
+  const model = `<mxGraphModel dx="0" dy="0" grid="${doc.grid ? 1 : 0}" gridSize="20" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/>${cells.map((c) => c.xml).join('')}</root></mxGraphModel>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<mxfile host="Athena" type="device"><diagram id="athena" name="${name}">${model}</diagram></mxfile>\n`;
+}

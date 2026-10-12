@@ -178,6 +178,26 @@ export function legendRows(doc: Pick<Doc, 'nodes' | 'legend'>): LegendRow[] {
   }));
 }
 
+export interface KeyLayoutItem { x: number; y: number; colour: string; text: string }
+export interface KeyLayout { heading: DiagramPoint; items: KeyLayoutItem[]; rect: Rect }
+
+/** The colour key as laid out in exports: a "Key" heading, then swatches flowing left to right beneath `above`. */
+export function keyLayout(rows: readonly LegendRow[], above: Rect, left: number): KeyLayout {
+  const keyWidth = Math.max(420, above.width);
+  const top = above.y + above.height + 32;
+  let cursor = top + 22;
+  let x = left;
+  const items = rows.map((r): KeyLayoutItem => {
+    const text = r.label.trim() !== '' ? r.label.trim() : r.colour;
+    const w = 28 + Math.min(260, text.length * 6.6) + 20;
+    if (x > left && x + w > left + keyWidth) { x = left; cursor += 22; }
+    const item = { x, y: cursor, colour: r.colour, text };
+    x += w;
+    return item;
+  });
+  return { heading: { x: left, y: top }, items, rect: { x: left, y: top, width: keyWidth, height: cursor + 16 - top } };
+}
+
 export const DEFAULT_LEGEND: DiagramLegend = { visible: true, position: 'bottom-right', entries: [] };
 
 export function setLegend(doc: Doc, patch: Partial<DiagramLegend>): Doc {

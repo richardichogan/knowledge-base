@@ -1,6 +1,7 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
-import { collapseView, footnoteAnchor, footnoteBlock, footnotesOf, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
+import { collapseView, footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
 import { diagramTextLayout } from './diagramText';
+import { diagramDrawioXml } from './diagramDrawio';
 import { diagramBorderDash } from './diagramStroke';
 import { boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
 
@@ -38,6 +39,8 @@ export interface DiagramExportOptions {
   legend?: boolean;
   /** Draw a placeholder instead of failing when an icon has not loaded (version previews). */
   tolerateMissingAssets?: boolean;
+  /** Diagram title, used for the file name and the draw.io page name. */
+  name?: string | undefined;
 }
 
 const FONT = `font-family="'IBM Plex Sans', system-ui, sans-serif"`;
@@ -69,22 +72,12 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     }
   }
   if (rows.length > 0) {
-    const above = boundsOf(rects) ?? content;
-    const left = content.x;
-    const keyWidth = Math.max(420, above.width);
-    let cursor = above.y + above.height + 32;
-    const top = cursor;
-    extras.push(`<text x="${left}" y="${cursor}" ${FONT} font-size="13" font-weight="600" fill="${ink}" dominant-baseline="hanging">Key</text>`);
-    cursor += 22;
-    let x = left;
-    for (const r of rows) {
-      const text = r.label.trim() !== '' ? r.label.trim() : r.colour;
-      const w = 28 + Math.min(260, text.length * 6.6) + 20;
-      if (x > left && x + w > left + keyWidth) { x = left; cursor += 22; }
-      extras.push(`<rect x="${x}" y="${cursor}" width="16" height="14" rx="2" fill="none" stroke="${escapeXml(r.colour)}" stroke-width="2.5"/><text x="${x + 24}" y="${cursor + 7}" ${FONT} font-size="${NOTE_FONT}" fill="${ink}" dominant-baseline="central">${escapeXml(text)}</text>`);
-      x += w;
+    const key = keyLayout(rows, boundsOf(rects) ?? content, content.x);
+    extras.push(`<text x="${key.heading.x}" y="${key.heading.y}" ${FONT} font-size="13" font-weight="600" fill="${ink}" dominant-baseline="hanging">Key</text>`);
+    for (const k of key.items) {
+      extras.push(`<rect x="${k.x}" y="${k.y}" width="16" height="14" rx="2" fill="none" stroke="${escapeXml(k.colour)}" stroke-width="2.5"/><text x="${k.x + 24}" y="${k.y + 7}" ${FONT} font-size="${NOTE_FONT}" fill="${ink}" dominant-baseline="central">${escapeXml(k.text)}</text>`);
     }
-    rects.push({ x: left, y: top, width: keyWidth, height: cursor + 16 - top });
+    rects.push(key.rect);
   }
   const all = boundsOf(rects) ?? content;
   const bounds = { x: all.x - 24, y: all.y - 24, width: all.width + 48, height: all.height + 48 };
@@ -155,7 +148,32 @@ export async function diagramSvg(document: DiagramDocument, assets: Map<string, 
   return (await buildSvg(document, assets, background, includeGrid, options)).svg;
 }
 
-export async function exportDiagram(document: DiagramDocument, assets: Map<string, Blob>, format: 'png' | 'svg', background: 'white' | 'transparent', includeGrid = false, options: DiagramExportOptions = {}): Promise<void> {
+export type DiagramExportFormat = 'png' | 'svg' | 'drawio';
+
+/** A safe file name from the diagram title. */
+export function exportFileName(name: string | undefined, format: DiagramExportFormat): string {
+  const base = (name ?? '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+  return `${base === '' ? 'diagram' : base}.${format}`;
+}
+
+function download(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = window.document.createElement('a');
+  link.href = url; link.download = fileName;
+  window.document.body.append(link);
+  link.click(); link.remove();
+  // Keep the URL alive until the browser has started the download.
+  window.setTimeout(() => { URL.revokeObjectURL(url); }, 30_000);
+}
+
+export async function exportDiagram(document: DiagramDocument, assets: Map<string, Blob>, format: DiagramExportFormat, background: 'white' | 'transparent', includeGrid = false, options: DiagramExportOptions = {}): Promise<void> {
+  if (format === 'drawio') {
+    const images = new Map<string, string>();
+    for (const [id, blob] of assets) images.set(id, await readDataUrl(blob));
+    const xml = diagramDrawioXml(document, images, options);
+    download(new Blob([xml], { type: 'application/xml' }), exportFileName(options.name, format));
+    return;
+  }
   const { svg, width, height } = await buildSvg(document, assets, background, includeGrid, options);
   let blob = new Blob([svg], { type: 'image/svg+xml' });
   if (format === 'png') {
@@ -180,11 +198,5 @@ export async function exportDiagram(document: DiagramDocument, assets: Map<strin
       });
     } finally { URL.revokeObjectURL(url); }
   }
-  const download = URL.createObjectURL(blob);
-  const link = window.document.createElement('a');
-  link.href = download; link.download = `diagram.${format}`;
-  window.document.body.append(link);
-  link.click(); link.remove();
-  // Keep the URL alive until the browser has started the download.
-  window.setTimeout(() => { URL.revokeObjectURL(download); }, 30_000);
+  download(blob, exportFileName(options.name, format));
 }

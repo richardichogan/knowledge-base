@@ -50,6 +50,12 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/** Colour band for the relevance badge on each card. */
+function scoreTier(score: number | null): 'high' | 'mid' | 'low' {
+  if (score === null) return 'low';
+  return score >= 0.75 ? 'high' : score >= 0.5 ? 'mid' : 'low';
+}
+
 function scoreLabel(score: number | null): string {
   if (score === null) return 'Unscored';
   return `${Math.round(score * 100)}% relevant`;
@@ -300,11 +306,11 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         <span className="dc-card-meta-spacer" />
         {(item.spark === true || item.relevanceScore !== null) && (
           <span
-            className={`dc-score${item.spark === true ? ' dc-score--spark' : ''}`}
+            className={`dc-score dc-score--${scoreTier(item.relevanceScore)}${item.spark === true ? ' dc-score--spark' : ''}`}
             title={item.spark === true ? (item.sparkReason ?? 'High value content') : 'Relevance to your interests'}
           >
-            {item.spark === true && '⚡ '}
-            {item.relevanceScore !== null && `${Math.round(item.relevanceScore * 100).toString()}%`}
+            {item.spark === true && <span className="dc-score__spark" aria-hidden>⚡</span>}
+            {item.relevanceScore !== null && <span className="dc-score__value">{Math.round(item.relevanceScore * 100).toString()}<small>%</small></span>}
           </span>
         )}
       </div>
