@@ -16,6 +16,7 @@ export type ContentSource =
   | 'github-issue'
   | 'graph-calendar'
   | 'graph-todo'
+  | 'task'
   | 'email'
   | 'spotify-podcast'
   | 'rss-podcast'

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { positiveInteger } from '../utils/queryValidation.js';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { HTTP_STATUS, DISCOVER_RECENCY_HALF_LIFE_DAYS } from '../config/constants.js';
@@ -113,11 +114,8 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       const state = (req.query['state'] as string) || 'to-review';
       const sourceFilter = req.query['source'] as string | undefined;
       const titleFilter = (req.query['title'] as string | undefined)?.trim();
-      const page = Math.max(1, parseInt((req.query['page'] as string) || '1', 10));
-      const pageSize = Math.min(
-        DISCOVER_PAGE_SIZE_MAX,
-        Math.max(1, parseInt((req.query['pageSize'] as string) || String(DISCOVER_PAGE_SIZE_DEFAULT), 10)),
-      );
+      const page = positiveInteger(req.query['page'], 'page', 1);
+      const pageSize = positiveInteger(req.query['pageSize'], 'pageSize', DISCOVER_PAGE_SIZE_DEFAULT, DISCOVER_PAGE_SIZE_MAX);
       const offset = (page - 1) * pageSize;
 
       const conditions: string[] = [`ci.source = 'discovered-article'`];

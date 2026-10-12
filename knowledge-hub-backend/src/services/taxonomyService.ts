@@ -140,7 +140,7 @@ Return ONLY JSON: {"tags": ["Tag Name"]${mayPropose ? ', "new_tag": "Name or nul
 }
 
 /** Marks a tag removed from an item by the user, so the same auto tag is not applied again. */
-export async function rememberRejection(db: Pool, kind: string, contentId: string, tagIds: string[]): Promise<void> {
+export async function rememberRejection(db: Pick<Pool, 'query'>, kind: string, contentId: string, tagIds: string[]): Promise<void> {
   for (const tagId of tagIds) {
     await db.query(`INSERT INTO tag_rejections (content_kind, content_id, tag_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [kind, contentId, tagId]);
   }

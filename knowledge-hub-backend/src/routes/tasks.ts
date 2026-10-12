@@ -12,6 +12,7 @@ import { FoundryClient } from '../ai/foundryClient.js';
 import { env } from '../config/env.js';
 import { upsertContentItem } from '../db/queries.js';
 import { indexContentItem } from '../ai/foundryIqIndexer.js';
+import type { PoolClient } from 'pg';
 
 const router = Router();
 
@@ -23,6 +24,7 @@ export interface Task {
   projectId: string;
   tags: string[];
   priority: 'low' | 'normal' | 'high' | 'urgent';
+  task_type: 'standard' | 'cert_session' | 'cert_review';
   dueDate: string | null;
   startDate: string | null;
   endDate: string | null;
@@ -36,8 +38,11 @@ export interface Task {
 }
 
 export function rowToTask(row: Record<string, unknown>): Task {
+  const DATE_PART_WIDTH = 2;
   const toDate = (val: unknown): string | null =>
-    val ? new Date(val as string).toISOString().substring(0, 'YYYY-MM-DD'.length) : null;
+    val instanceof Date
+      ? `${val.getFullYear()}-${String(val.getMonth() + 1).padStart(DATE_PART_WIDTH, '0')}-${String(val.getDate()).padStart(DATE_PART_WIDTH, '0')}`
+      : typeof val === 'string' ? val.slice(0, 'YYYY-MM-DD'.length) : null;
   return {
     id: row['id'] as string,
     title: row['title'] as string,
@@ -46,6 +51,7 @@ export function rowToTask(row: Record<string, unknown>): Task {
     projectId: row['project_id'] as string,
     tags: row['tags'] as string[],
     priority: row['priority'] as Task['priority'],
+    task_type: (row['task_type'] as Task['task_type'] | undefined) ?? 'standard',
     dueDate: toDate(row['due_date']),
     startDate: toDate(row['start_date']),
     endDate: toDate(row['end_date']),
@@ -120,7 +126,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       const result = await db.query<Record<string, unknown>>(
         `SELECT t.id, t.title, t.body, t.status, t.project_id, t.tags, t.priority,
                 t.due_date, t.start_date, t.end_date, t.external_url, t.linked_tag_id,
-                t.recurring_cadence, t.archived, t.created_at, t.updated_at,
+                t.recurring_cadence, t.task_type, t.archived, t.created_at, t.updated_at,
                 ARRAY_REMOVE(ARRAY_AGG(tt.tag_id), NULL) AS taxonomy_tag_ids
          FROM tasks t
          LEFT JOIN task_tags tt ON tt.task_id = t.id
@@ -141,13 +147,17 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
 
 router.post('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
+    let client: PoolClient | undefined;
     try {
-      const db = getDb();
-      const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; dueDate: string; startDate: string; endDate: string; pushToTodo: boolean; pushToGithub: boolean; githubRepo: string; taxonomyTagIds: string[]; recurringCadence: string }>;
+      const db = await getDb().connect();
+      client = db;
+      const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string; startDate: string; endDate: string; pushToTodo: boolean; pushToGithub: boolean; githubRepo: string; taxonomyTagIds: string[]; recurringCadence: string }>;
       if (!input.title?.trim()) throw new ValidationError('title is required', { title: 'required' });
+      if (input.task_type !== undefined && !['standard', 'cert_session', 'cert_review'].includes(input.task_type)) throw new ValidationError('Invalid task type');
+      await db.query('BEGIN');
       const result = await db.query<Record<string, unknown>>(
-        `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date, start_date, end_date, recurring_cadence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-        [input.title.trim(), input.body?.trim() ?? '', input.status ?? 'backlog', input.projectId ?? 'personal', input.tags ?? [], input.priority ?? 'normal', input.dueDate ?? null, input.startDate ?? null, input.endDate ?? null, input.recurringCadence ?? null],
+        `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date, start_date, end_date, recurring_cadence, task_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        [input.title.trim(), input.body?.trim() ?? '', input.status ?? 'backlog', input.projectId ?? 'personal', input.tags ?? [], input.priority ?? 'normal', input.dueDate ?? null, input.startDate ?? null, input.endDate ?? null, input.recurringCadence ?? null, input.task_type ?? 'standard'],
       );
       const task = rowToTask(result.rows[0] as Record<string, unknown>);
 
@@ -158,30 +168,47 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
         await db.query(`INSERT INTO task_tags (task_id, tag_id) VALUES ${vals} ON CONFLICT DO NOTHING`, [task.id, ...tagIds]);
         task.taxonomyTagIds = tagIds;
       }
+      await db.query('COMMIT');
+      client.release();
+      client = undefined;
       if (input.pushToTodo === true) {
         try { await createTodoTask({ title: task.title, ...(task.body !== '' && { body: task.body }) }); } catch (e) { console.error('[tasks] MS Todo push failed:', e); }
       }
       if (input.pushToGithub === true && input.githubRepo) {
         try {
           const url = await createGitHubIssue(input.githubRepo, task.title, task.body);
-          await db.query(`UPDATE tasks SET external_url=$1, updated_at=NOW() WHERE id=$2`, [url, task.id]);
+          await getDb().query(`UPDATE tasks SET external_url=$1, updated_at=NOW() WHERE id=$2`, [url, task.id]);
           task.externalUrl = url;
         } catch (e) { console.error('[tasks] GitHub issue push failed:', e); }
       }
       const body: ApiSuccess<Task> = { success: true, data: task };
       res.status(HTTP_STATUS.CREATED).json(body);
-      syncTaskToTimeline(db, task);
-      queueAutoTag(db, 'task', task.id);
-    } catch (err) { next(err); }
+      syncTaskToTimeline(getDb(), task);
+      queueAutoTag(getDb(), 'task', task.id);
+    } catch (err) {
+      if (client !== undefined) await client.query('ROLLBACK').catch((rollbackError: unknown) => {
+        console.error('[tasks] Failed to roll back task creation:', rollbackError);
+      });
+      next(err);
+    } finally {
+      client?.release();
+    }
   })();
 });
 
 router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
+    let client: PoolClient | undefined;
     try {
-      const db = getDb();
+      const db = await getDb().connect();
+      client = db;
+      await db.query('BEGIN');
       const { id } = req.params;
-      const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null }>;
+      const previous = await db.query<{ status: Task['status'] }>('SELECT status FROM tasks WHERE id = $1 FOR UPDATE', [id]);
+      const previousStatus = previous.rows[0]?.status;
+      if (previousStatus === undefined) throw new NotFoundError(`Task ${id} not found`);
+      const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null }>;
+      if (input.task_type !== undefined && !['standard', 'cert_session', 'cert_review'].includes(input.task_type)) throw new ValidationError('Invalid task type');
       const fields: string[] = [];
       const params: unknown[] = [];
       const add = (col: string, val: unknown): void => { params.push(val); fields.push(`${col} = $${params.length}`); };
@@ -191,6 +218,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (input.projectId !== undefined) add('project_id', input.projectId);
       if (input.tags !== undefined) add('tags', input.tags);
       if (input.priority !== undefined) add('priority', input.priority);
+      if (input.task_type !== undefined) add('task_type', input.task_type);
       if ('dueDate' in input) add('due_date', input.dueDate ?? null);
       if ('startDate' in input) add('start_date', input.startDate ?? null);
       if ('endDate' in input) add('end_date', input.endDate ?? null);
@@ -214,6 +242,8 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         task = rowToTask(result.rows[0] as Record<string, unknown>);
       }
 
+      const existingTags = await db.query<{ tag_id: string }>('SELECT tag_id::text FROM task_tags WHERE task_id = $1', [id]);
+      task.taxonomyTagIds = existingTags.rows.map((row) => row.tag_id);
       if (syncTags) {
         const tagIds = input.taxonomyTagIds ?? [];
         // An auto tag he takes off is remembered, so it isn't put back.
@@ -227,43 +257,67 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         }
         task.taxonomyTagIds = tagIds;
       }
-      if (input.title !== undefined || input.body !== undefined) queueAutoTag(db, 'task', String(id));
+      const spawnedTasks: Task[] = [];
 
       // Auto-spawn next instance when a recurring task is completed
-      if (input.status === 'completed' && task.recurringCadence != null) {
+      if (input.status === 'completed' && previousStatus !== 'completed' && task.recurringCadence != null) {
         const cadence = task.recurringCadence;
         const DATE_LEN = 'YYYY-MM-DD'.length;
         const todayStr = new Date().toISOString().substring(0, DATE_LEN);
-        const baseStr: string = task.startDate ?? todayStr;
+        const baseStr: string = task.startDate ?? task.dueDate ?? todayStr;
         const base = new Date(baseStr);
         const next = new Date(base);
-        if (cadence === 'daily')            { next.setDate(base.getDate() + 1); }
-        else if (cadence === 'weekly')      { next.setDate(base.getDate() + 7); }
-        else if (cadence === 'fortnightly') { next.setDate(base.getDate() + 14); }
-        else                               { next.setMonth(base.getMonth() + 1); }
+        const WEEK_DAYS = 7;
+        const FORTNIGHT_DAYS = 14;
+        if (cadence === 'daily')            { next.setUTCDate(base.getUTCDate() + 1); }
+        else if (cadence === 'weekly')      { next.setUTCDate(base.getUTCDate() + WEEK_DAYS); }
+        else if (cadence === 'fortnightly') { next.setUTCDate(base.getUTCDate() + FORTNIGHT_DAYS); }
+        else                               { next.setUTCMonth(base.getUTCMonth() + 1); }
         const nextStart = next.toISOString().substring(0, DATE_LEN);
+        const nextDue = task.dueDate === null ? null : new Date(
+          new Date(task.dueDate).getTime() + next.getTime() - base.getTime(),
+        ).toISOString().substring(0, DATE_LEN);
         // Don't spawn if next start would be after the recurrence end date
         const shouldSpawn = task.endDate == null || nextStart <= task.endDate;
         if (shouldSpawn) {
           const spawnResult = await db.query<Record<string, unknown>>(
-            `INSERT INTO tasks (title, body, status, project_id, tags, priority, start_date, end_date, recurring_cadence)
-             VALUES ($1,$2,'backlog',$3,$4,$5,$6,$7,$8) RETURNING *`,
-            [task.title, task.body, task.projectId, task.tags, task.priority, nextStart, task.endDate, cadence],
+            `INSERT INTO tasks (title, body, status, project_id, tags, priority, start_date, end_date, recurring_cadence, task_type, recurring_parent_id, due_date)
+             VALUES ($1,$2,'backlog',$3,$4,$5,$6,$7,$8,$9,$10,$11)
+             ON CONFLICT (recurring_parent_id) WHERE recurring_parent_id IS NOT NULL DO NOTHING RETURNING *`,
+            [task.title, task.body, task.projectId, task.tags, task.priority, nextStart, task.endDate, cadence, task.task_type, id, nextDue],
           );
-          const spawned = rowToTask(spawnResult.rows[0] as Record<string, unknown>);
-          if (task.taxonomyTagIds.length > 0) {
-            const tagOffset = 2;
-            const vals = task.taxonomyTagIds.map((_, i) => `($1, $${i + tagOffset})`).join(', ');
-            await db.query(`INSERT INTO task_tags (task_id, tag_id) VALUES ${vals}`, [spawned.id, ...task.taxonomyTagIds]);
+          const spawnedRow = spawnResult.rows[0];
+          if (spawnedRow !== undefined) {
+            const spawned = rowToTask(spawnedRow);
+            if (task.taxonomyTagIds.length > 0) {
+              const tagOffset = 2;
+              const vals = task.taxonomyTagIds.map((_, i) => `($1, $${i + tagOffset})`).join(', ');
+              await db.query(`INSERT INTO task_tags (task_id, tag_id) VALUES ${vals}`, [spawned.id, ...task.taxonomyTagIds]);
+              spawned.taxonomyTagIds = task.taxonomyTagIds;
+            }
+            spawnedTasks.push(spawned);
           }
-          syncTaskToTimeline(db, spawned);
         }
       }
 
+      await db.query('COMMIT');
+      client.release();
+      client = undefined;
       const body: ApiSuccess<Task> = { success: true, data: task };
       res.status(HTTP_STATUS.OK).json(body);
-      syncTaskToTimeline(db, task);
-    } catch (err) { next(err); }
+      syncTaskToTimeline(getDb(), task);
+      for (const spawned of spawnedTasks) syncTaskToTimeline(getDb(), spawned);
+      if (input.title !== undefined || input.body !== undefined) queueAutoTag(getDb(), 'task', String(id));
+    } catch (err) {
+      if (client !== undefined) {
+        await client.query('ROLLBACK').catch((rollbackError: unknown) => {
+          console.error('[tasks] Failed to roll back task update:', rollbackError);
+        });
+      }
+      next(err);
+    } finally {
+      client?.release();
+    }
   })();
 });
 

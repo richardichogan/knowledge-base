@@ -66,6 +66,15 @@ From the repository root, run `node scripts/run-browser-checks.mjs` with
 `TODAY_BROWSER_PATH` pointing to installed Chromium/Edge. It starts and stops
 its own strict-port fixture server and blocks live API/auth requests.
 
+Plan's Calendar requests the displayed half-open time range and loads all pages,
+rather than using the latest timeline snapshot. Native tasks use their due date
+(or the start date of a recurring occurrence); external To Do tasks use source
+due-date metadata. Completed tasks are excluded. Project/tag filters apply across
+Board, Calendar and List, and date-only task values remain local calendar dates.
+Recurring completion, successor creation and tag writes commit together; migration
+`063_task_recurrence_identity.sql` prevents repeated completion from creating
+multiple successors. External integration/indexing work runs only after commit.
+
 Build auto-merge currently trusts the three named GitHub Actions checks for
 this repository only, with actual successful conclusions on the inspected head.
 Missing/skipped checks or unknown repository policy require manual approval;

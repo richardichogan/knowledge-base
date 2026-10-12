@@ -49,26 +49,26 @@ export const PlanPage: React.FC = () => {
       <div className="plan-header page-header">
         <h1 className="page-title">Plan</h1>
         <div className="plan-header__right">
-          {view === 'board' && (
+          {(
             <>
-              <Select id="plan-filter-project" labelText="" hideLabel size="sm"
+              <Select id="plan-filter-project" labelText="Filter by project" hideLabel size="sm"
                 value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
                 <SelectItem value="" text="All projects" />
                 {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
               </Select>
-              <Select id="plan-filter-tag" labelText="" hideLabel size="sm"
+              <Select id="plan-filter-tag" labelText="Filter by tag" hideLabel size="sm"
                 value={filterTag} onChange={(e) => setFilterTag(e.target.value)}>
                 <SelectItem value="" text="All tags" />
                 {flatTags.map((t) => <SelectItem key={t.id} value={t.id} text={t.name} />)}
               </Select>
-              <button
+              {view === 'board' && <button
                 type="button"
                 className="kb-import-btn"
                 onClick={() => setImportOpen(true)}
                 title="Import tasks from a markdown file"
               >
                 <Upload size={16} /> Import tasks
-              </button>
+              </button>}
             </>
           )}
           <div className="plan-view-toggle">
@@ -76,6 +76,7 @@ export const PlanPage: React.FC = () => {
               <button
                 key={key}
                 className={`plan-view-btn${view === key ? ' plan-view-btn--active' : ''}`}
+                aria-pressed={view === key}
                 onClick={() => { setView(key); }}
               >
                 <Icon size={16} />
@@ -88,8 +89,8 @@ export const PlanPage: React.FC = () => {
 
       {/* Sub-page — .page-header inside is hidden via CSS */}
       <div className="plan-inner">
-        {view === 'calendar' && <CalendarPage />}
-        {view === 'list'     && <TaskListView />}
+        {view === 'calendar' && <CalendarPage filterProject={filterProject} filterTag={filterTag} />}
+        {view === 'list'     && <TaskListView filterProject={filterProject} filterTag={filterTag} />}
         {view === 'board'    && (
           <TasksPage
             onImportOpen={() => setImportOpen(true)}

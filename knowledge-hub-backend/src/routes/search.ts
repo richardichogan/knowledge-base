@@ -6,6 +6,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, HTTP_STATUS } from '../config/constan
 import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess, PaginatedList } from '../types/apiResponse.js';
 import type { ContentItemSummary } from '../types/contentItem.js';
+import { positiveInteger } from '../utils/queryValidation.js';
 
 const router = Router();
 
@@ -20,9 +21,8 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       if (!q) throw new ValidationError('q is required', { q: 'Query string required' });
 
       const db = getDb();
-      const page = parseInt(String(req.query['page'] ?? '1'), 10);
-      const rawPageSize = parseInt(String(req.query['pageSize'] ?? String(DEFAULT_PAGE_SIZE)), 10);
-      const pageSize = Math.min(rawPageSize, MAX_PAGE_SIZE);
+      const page = positiveInteger(req.query['page'], 'page', 1);
+      const pageSize = positiveInteger(req.query['pageSize'], 'pageSize', DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
       const source = req.query['source'] ? String(req.query['source']) : undefined;
 
       const { items, total } = await searchContentItems(db, q, {

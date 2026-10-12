@@ -25,17 +25,14 @@ import {
 import { ChevronLeft, ChevronRight } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { ContentItemSummary } from '../types';
+import { localDateKey } from '../utils/dateOnly';
+import { calendarDateKey, loadCalendarItems } from '../services/calendarItems';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 type TagType = 'blue' | 'cyan' | 'teal' | 'purple' | 'green' | 'magenta' | 'red' | 'gray' | 'warm-gray';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** "YYYY-MM-DD" string from any ISO string */
-function toDateKey(iso: string): string {
-  return iso.slice(0, 10);
-}
 
 /** "Mon 13" */
 function formatColHeader(date: Date): string {
@@ -133,13 +130,13 @@ interface DayColProps {
 }
 
 const DayCol: React.FC<DayColProps> = ({ date, todayKey, items }) => {
-  const dateKey = toDateKey(date.toISOString());
+  const dateKey = localDateKey(date);
   const isToday = dateKey === todayKey;
   const isPast = dateKey < todayKey;
 
   // Forward-looking: calendar events + tasks only
   const calItems = items.filter((i) => i.source === 'graph-calendar');
-  const taskItems = items.filter((i) => i.source === 'graph-todo');
+  const taskItems = items.filter((i) => i.source === 'graph-todo' || i.source === 'task');
 
   // Historical extras (no commits — those belong in My Work)
   const blogItems = items.filter((i) => i.source === 'cms-blog' || i.source === 'cms-newsletter');
@@ -177,14 +174,15 @@ const DayCol: React.FC<DayColProps> = ({ date, todayKey, items }) => {
 
         {/* Tasks (always shown) */}
         {taskItems.map((item) => {
-          const isOverdue = item.publishedAt < todayKey && item.source === 'graph-todo';
+          const scheduled = calendarDateKey(item);
+          const isOverdue = scheduled !== null && scheduled < todayKey;
           return (
             <ItemCard
               key={item.id}
               tag="Task"
               tagType={isOverdue ? 'red' : 'purple'}
               title={item.title}
-              subtitle={formatTime(item.publishedAt)}
+              {...(scheduled !== null && { subtitle: `Due ${scheduled}` })}
               {...(item.url != null && { href: item.url })}
             />
           );
@@ -241,10 +239,10 @@ const DayCol: React.FC<DayColProps> = ({ date, todayKey, items }) => {
 
 // ── Page component ────────────────────────────────────────────────────────────
 
-export const CalendarPage: React.FC = () => {
+export const CalendarPage: React.FC<{ filterProject?: string; filterTag?: string }> = ({ filterProject = '', filterTag = '' }) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todayKey = toDateKey(today.toISOString());
+  const todayKey = localDateKey(today);
 
   // windowStart is the Monday of the displayed week, offset by weekOffset * 7 days
   const [weekOffset, setWeekOffset] = useState(0);
@@ -255,12 +253,14 @@ export const CalendarPage: React.FC = () => {
   const days: Date[] = Array.from({ length: 7 }, (_, i) => addDays(windowStart, i));
 
   // Date range strings for query key (to refetch when window changes)
-  const rangeStart = toDateKey(windowStart.toISOString());
-  const rangeEnd = toDateKey(windowEnd.toISOString());
+  const rangeStart = windowStart.toISOString();
+  const rangeEnd = addDays(windowEnd, 1).toISOString();
+  const startKey = localDateKey(windowStart);
+  const endKey = localDateKey(windowEnd);
 
   const { data, isPending, isError, error } = useQuery({
-    queryKey: ['calendar-week', rangeStart, rangeEnd],
-    queryFn: () => api.getTimeline({ pageSize: 100 }),
+    queryKey: ['calendar-week', rangeStart, rangeEnd, filterProject, filterTag],
+    queryFn: () => loadCalendarItems(api, { rangeStart, rangeEnd, project: filterProject, tag: filterTag }),
     staleTime: 5 * 60_000,
   });
 
@@ -268,15 +268,11 @@ export const CalendarPage: React.FC = () => {
   if (isError) return (
     <InlineNotification kind="error" title="Error" subtitle={String(error)} lowContrast />
   );
-  if (!data.success) return (
-    <InlineNotification kind="error" title="Error" subtitle={data.error.message} lowContrast />
-  );
-
   // Index items by date key, filtered to the visible 7-day window
   const byDay = new Map<string, ContentItemSummary[]>();
-  for (const item of data.data.items) {
-    const key = toDateKey(item.publishedAt);
-    if (key < rangeStart || key > rangeEnd) continue;
+  for (const item of data ?? []) {
+    const key = calendarDateKey(item);
+    if (key === null || key < startKey || key > endKey) continue;
     const existing = byDay.get(key) ?? [];
     existing.push(item);
     byDay.set(key, existing);
@@ -321,7 +317,7 @@ export const CalendarPage: React.FC = () => {
       {/* 7-column grid */}
       <div className="c7-grid">
         {days.map((day) => {
-          const key = toDateKey(day.toISOString());
+          const key = localDateKey(day);
           return (
             <DayCol
               key={key}

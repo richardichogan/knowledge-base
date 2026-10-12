@@ -7926,6 +7926,32 @@ body.kh-pane-resizing {
   flex-wrap: nowrap;
 }
 
+.plan-root .plan-header {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.plan-root .plan-header__right {
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+
+  .cds--form-item {
+    flex: 1 1 150px;
+    min-width: 0;
+  }
+
+  .plan-view-toggle {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .plan-view-btn {
+    padding-inline: 10px;
+  }
+}
+
 .kb-import-btn {
   display: inline-flex;
   align-items: center;

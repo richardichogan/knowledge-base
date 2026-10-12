@@ -15,30 +15,9 @@ import { useProjects, type ProjectRecord } from '../services/useProjects';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { TagPicker } from '../components/TagPicker';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import type { PlanTask as Task, TaskStatus, TaskPriority, TaskType } from '../types/task';
+import { dateOnlyToLocal, localDateKey } from '../utils/dateOnly';
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-interface Task {
-  id: string;
-  title: string;
-  body: string;
-  status: TaskStatus;
-  projectId: string;
-  tags: string[];
-  priority: TaskPriority;
-  task_type: TaskType;
-  dueDate: string | null;
-  startDate: string | null;
-  endDate: string | null;
-  externalUrl: string | null;
-  linkedTagId: string | null;
-  taxonomyTagIds: string[];
-  recurringCadence: 'daily' | 'weekly' | 'fortnightly' | 'monthly' | null;
-  createdAt: string;
-}
-
-type TaskStatus   = 'backlog' | 'in-progress' | 'blocked' | 'awaiting-feedback' | 'completed';
-type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
-type TaskType     = 'standard' | 'cert_session' | 'cert_review';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -73,11 +52,11 @@ function getProjectName(id: string, projects: ProjectRecord[]): string {
 }
 
 function formatDue(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return dateOnlyToLocal(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 function isDueOverdue(iso: string): boolean {
-  return new Date(iso) < new Date();
+  return iso < localDateKey(new Date());
 }
 
 // ── Card overflow menu ────────────────────────────────────────────────────────
@@ -845,10 +824,7 @@ export const TasksPage: React.FC<{
     staleTime: 0,
   });
 
-  const tasks: Task[] =
-    (data as { success: boolean; data?: { items: Task[] } } | undefined)?.success === true
-      ? (data as { data: { items: Task[] } }).data.items
-      : [];
+  const tasks: Task[] = data?.success === true ? data.data.items : [];
 
   // Deep-link support: a chat reply's "View task" link points at
   // /plan?taskId=<id> — open that task's edit modal directly once it's
@@ -866,7 +842,7 @@ export const TasksPage: React.FC<{
   }, [tasks, searchParams]);
 
   const createMutation = useMutation({
-    mutationFn: (input: Partial<Task> & { title: string }) => api.createTask(input as never),
+    mutationFn: (input: Partial<Task> & { title: string }) => api.createTask(input),
     onSuccess:  () => { void queryClient.invalidateQueries({ queryKey: ['tasks'] }); setModalOpen(false); },
   });
 

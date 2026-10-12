@@ -47,4 +47,4 @@ export type {
   ContextUsedApi,
 } from './ai';
 
-export type { TaskDestination, CreateTaskInput } from './task';
+export type { TaskDestination, CreateTaskInput, PlanTask } from './task';

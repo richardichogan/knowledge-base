@@ -158,6 +158,8 @@ export async function queryTimeline(
     pageSize: number;
     before?: string; // ISO date cursor — fetch items published before this datetime
     since?: string; // Recent activity uses source update time, not original publication time
+    rangeStart?: string;
+    rangeEnd?: string;
   },
 ): Promise<{ items: ContentItemSummary[]; total: number }> {
   const conditions: string[] = [canonicalContentSql('ci')];
@@ -179,6 +181,13 @@ export async function queryTimeline(
   if (options.since) {
     conditions.push(`${ACTIVITY_AT_SQL} > $${paramIndex++}`, `${ACTIVITY_AT_SQL} <= NOW()`);
     params.push(options.since);
+  }
+  if (options.rangeStart !== undefined && options.rangeEnd !== undefined) {
+    // To Do publication is creation time; Calendar needs the scheduled due time.
+    const scheduledAt = `CASE WHEN ci.source = 'graph-todo'
+      THEN NULLIF(ci.metadata->>'dueDateTime', '')::timestamptz ELSE ci.published_at END`;
+    conditions.push(`${scheduledAt} >= $${paramIndex++}`, `${scheduledAt} < $${paramIndex++}`);
+    params.push(options.rangeStart, options.rangeEnd);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -204,7 +213,7 @@ export async function queryTimeline(
      LEFT JOIN content_item_tags cit ON cit.content_item_id = ci.id
      ${where}
      GROUP BY ci.id
-     ORDER BY ${options.since ? ACTIVITY_AT_SQL : 'ci.published_at'} DESC
+     ORDER BY ${options.since ? ACTIVITY_AT_SQL : 'ci.published_at'} DESC, ci.id DESC
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     dataParams,
   );

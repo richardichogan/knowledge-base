@@ -11,29 +11,15 @@ import { DatePicker, DatePickerInput, Tag } from '@carbon/react';
 import { CheckmarkFilled, CircleDash, WarningFilled, Time, ChevronRight } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { useProjects } from '../hooks/useProjects';
+import { localDateKey, dateOnlyToLocal } from '../utils/dateOnly';
+import type { PlanTask as Task, TaskStatus, TaskPriority } from '../types/task';
 
 // ── Types (mirror TasksPage — kept local to avoid coupling) ──────────────────
-
-type TaskStatus   = 'backlog' | 'in-progress' | 'blocked' | 'awaiting-feedback' | 'completed';
-type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
-
-interface Task {
-  id: string;
-  title: string;
-  body: string;
-  status: TaskStatus;
-  projectId: string;
-  priority: TaskPriority;
-  dueDate: string | null;
-  startDate: string | null;
-  recurringCadence: string | null;
-  createdAt: string;
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toDateStr(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return localDateKey(d);
 }
 
 function todayStr(): string {
@@ -45,7 +31,7 @@ function getProjectName(id: string, projects: Array<{ id: string; name: string }
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  return dateOnlyToLocal(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 const STATUS_ORDER: TaskStatus[] = ['in-progress', 'blocked', 'awaiting-feedback', 'backlog', 'completed'];
@@ -70,7 +56,7 @@ function StatusIcon({ status }: { status: TaskStatus }): React.ReactElement {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export const TaskListView: React.FC = () => {
+export const TaskListView: React.FC<{ filterProject?: string; filterTag?: string }> = ({ filterProject = '', filterTag = '' }) => {
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
   const queryClient = useQueryClient();
   const { data: projects = [] } = useProjects();
@@ -81,18 +67,18 @@ export const TaskListView: React.FC = () => {
     staleTime: 0,
   });
 
-  const allTasks: Task[] =
-    (data as { success: boolean; data?: { items: Task[] } } | undefined)?.success === true
-      ? (data as { data: { items: Task[] } }).data.items
-      : [];
+  const allTasks: Task[] = data?.success === true ? data.data.items : [];
 
   // Filter to tasks due on the selected date (or overdue if showing today)
   const isToday = selectedDate === todayStr();
   const filtered = allTasks.filter((t) => {
+    if (filterProject !== '' && t.projectId !== filterProject) return false;
+    if (filterTag !== '' && !t.taxonomyTagIds?.includes(filterTag)) return false;
     if (t.status === 'completed') return false;
-    if (!t.dueDate) return false;
-    if (isToday) return t.dueDate <= selectedDate; // include overdue on today view
-    return t.dueDate === selectedDate;
+    const due = t.dueDate ?? (t.recurringCadence ? t.startDate : null);
+    if (!due) return false;
+    if (isToday) return due <= selectedDate; // include overdue on today view
+    return due === selectedDate;
   });
 
   // Group by status, sorted by priority within each group

@@ -25,6 +25,7 @@ import type {
   AthenaPersona,
   ExportToThinkResponse,
   CreateTaskInput,
+  PlanTask,
   CreateNoteInput,
   Note,
   NoteSummary,
@@ -116,6 +117,8 @@ export interface NoteVersion extends NoteVersionSummary {
 }
 
 export interface TimelineQuery {
+  rangeStart?: string;
+  rangeEnd?: string;
   since?: string; // Recent activity by source update time, excluding future events
   page?: number;
   pageSize?: number;
@@ -1070,18 +1073,18 @@ export class KnowledgeHubApi {
 
   // ─── Tasks ────────────────────────────────────────────────────────────────
 
-  async getTasks(params?: { status?: string; projectId?: string }): Promise<ApiResponse<unknown>> {
-    const r = await this.client.get<ApiResponse<unknown>>('/api/tasks', { params });
+  async getTasks(params?: { status?: string; projectId?: string }): Promise<ApiResponse<PaginatedList<PlanTask>>> {
+    const r = await this.client.get<ApiResponse<PaginatedList<PlanTask>>>('/api/tasks', { params });
     return r.data;
   }
 
-  async createTask(input: CreateTaskInput): Promise<ApiResponse<unknown>> {
-    const r = await this.client.post<ApiResponse<unknown>>('/api/tasks', input);
+  async createTask(input: CreateTaskInput): Promise<ApiResponse<PlanTask>> {
+    const r = await this.client.post<ApiResponse<PlanTask>>('/api/tasks', input);
     return r.data;
   }
 
-  async updateTask(id: string, input: Record<string, unknown>): Promise<ApiResponse<unknown>> {
-    const r = await this.client.patch<ApiResponse<unknown>>(`/api/tasks/${id}`, input);
+  async updateTask(id: string, input: Record<string, unknown>): Promise<ApiResponse<PlanTask>> {
+    const r = await this.client.patch<ApiResponse<PlanTask>>(`/api/tasks/${id}`, input);
     return r.data;
   }
 

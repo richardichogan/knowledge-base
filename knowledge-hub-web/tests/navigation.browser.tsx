@@ -13,11 +13,14 @@ import { RepoProjectMappingsPage } from '../src/pages/RepoProjectMappingsPage';
 import { NotesPage } from '../src/notes/NotesPage';
 import { BuildPage } from '../src/features/build/BuildPage';
 import { ProjectsPage } from '../src/pages/ProjectsPage';
+import { PlanPage } from '../src/pages/PlanPage';
 import { AIChatPage } from '../src/pages/AIChatPage';
 import { SignInGate } from '../src/components/SignInGate';
 import { MetadataPanel } from '../src/notes/MetadataPanel';
 import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types/apiResponse';
+import type { PlanTask } from '../src/types/task';
+import { localDateKey } from '../src/utils/dateOnly';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -48,6 +51,7 @@ api.listCanvases = async () => success([]);
 api.listSparkClusters = async () => success([]);
 api.listSparks = async () => success([]);
 api.getTimeline = async () => success(paginated([]));
+api.getTasks = async () => success(paginated([]));
 api.getSources = async () => success([]);
 api.triggerSync = async () => { syncWrites++; return success({}); };
 api.listMemories = async () => success({ memories: [] });
@@ -105,7 +109,7 @@ createRoot(document.getElementById('root')!).render(
     <MemoryRouter><Probe /><Routes><Route path="/chat" element={<AIChatPage standalone />} /><Route path="/" element={<AppShell />}>
       <Route index element={<Overview title="Today" />} />
       <Route path="discover" element={<Overview title="Discover" />} />
-      <Route path="plan" element={<Overview title="Plan" />} />
+      <Route path="plan" element={<PlanPage />} />
       <Route path="projects" element={<ProjectsPage />} />
       <Route path="build" element={<BuildPage />} />
       <Route path="think" element={<NotesPage />} />
@@ -247,6 +251,56 @@ export async function runNavigationChecks(): Promise<string[]> {
   await waitFor(() => document.querySelector('.page-title')?.textContent === 'Sources');
   check(selector('.kh-tools-location').textContent === 'Tools / Sources', 'Sources secondary label');
   results.push('Existing tag/mapping panels and direct Sources/Memory/Graph/settings routes preserved');
+
+  const scheduledDate = localDateKey(new Date());
+  const plannedTask: PlanTask = {
+    id: 'fixture-native', title: 'Native task scheduled today', body: '', status: 'backlog', projectId: 'personal',
+    tags: [], priority: 'normal', task_type: 'cert_review', dueDate: scheduledDate, startDate: null, endDate: null,
+    externalUrl: null, linkedTagId: null, taxonomyTagIds: [], recurringCadence: null,
+    archived: false, createdAt: '', updatedAt: '2020-01-01T00:00:00Z',
+  };
+  api.getTasks = async (params) => success(paginated(
+    params?.projectId && params.projectId !== 'personal' ? [] : [
+      plannedTask, { ...plannedTask, id: 'completed-native', title: 'Completed fixture must be hidden', status: 'completed' },
+    ],
+  ));
+  let calendarPages = 0;
+  api.getTimeline = async (query) => {
+    if (!query?.rangeStart) return success(paginated([]));
+    calendarPages++;
+    const items = Array.from({ length: 101 }, (_, i) => ({
+      id: `range-${i}`, sourceId: `range-${i}`, source: 'graph-calendar' as const,
+      title: `Scheduled event ${i}`, summary: '',
+      publishedAt: new Date(`${scheduledDate}T12:00:00`).toISOString(),
+    }));
+    const page = query.page ?? 1;
+    return success({ items: items.slice((page - 1) * 100, page * 100), total: 101, page, pageSize: 100, hasMore: page === 1 });
+  };
+  await go('/plan');
+  await waitFor(() => document.querySelector('.plan-view-toggle') !== null);
+  const calendarButton = [...document.querySelectorAll<HTMLButtonElement>('.plan-view-toggle button')]
+    .find((button) => button.textContent?.trim() === 'Calendar')!;
+  calendarButton.click();
+  await waitFor(() => document.querySelectorAll('.c7-card--blue').length === 101);
+  check(calendarPages === 2, 'Calendar loads more than 100 range items');
+  check(selector('.c7-day-col--today').textContent?.includes('Native task scheduled today') === true,
+    'Native tasks appear on their due date, not indexing date');
+  check(!selector('.c7-grid').textContent?.includes('Completed fixture must be hidden'), 'Completed native tasks are hidden');
+  check(calendarButton.getAttribute('aria-pressed') === 'true', 'Selected Plan view is exposed');
+  check(selector('#plan-filter-project').getAttribute('aria-label') === 'Filter by project'
+    || document.querySelector('label[for="plan-filter-project"]')?.textContent === 'Filter by project', 'Project filter is named');
+  check(selector('.plan-header').scrollWidth <= selector('.plan-header').clientWidth + 1,
+    `Plan controls fit narrow widths: ${JSON.stringify([...document.querySelectorAll<HTMLElement>('.plan-header, .plan-header__right, .plan-header__right > *')].map((element) => ({
+      class: element.className, width: element.clientWidth, scroll: element.scrollWidth,
+      min: getComputedStyle(element).minWidth, flex: getComputedStyle(element).flex,
+    })))}`);
+  const listButton = [...document.querySelectorAll<HTMLButtonElement>('.plan-view-toggle button')]
+    .find((button) => button.textContent?.trim() === 'List')!;
+  listButton.click();
+  await waitFor(() => document.querySelector('.tl-list')?.textContent?.includes('Native task scheduled today') === true);
+  check(document.querySelector('#plan-filter-project') !== null && document.querySelector('#plan-filter-tag') !== null,
+    'Project and tag scope stays available across Plan modes');
+  results.push('Calendar range beyond 100, date-only native tasks, completed exclusion and responsive shared Plan scope');
 
   selector<HTMLButtonElement>('[aria-label="Search"]').click();
   await waitFor(() => document.querySelector('[aria-label="Command palette"]') !== null);

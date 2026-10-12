@@ -6,6 +6,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, HTTP_STATUS } from '../config/constan
 import type { ApiSuccess, PaginatedList } from '../types/apiResponse.js';
 import type { ContentItemSummary } from '../types/contentItem.js';
 import { ValidationError } from '../types/errors.js';
+import { positiveInteger, queryDate } from '../utils/queryValidation.js';
 
 const router = Router();
 
@@ -19,20 +20,21 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
     try {
       const db = getDb();
-      const page = parseInt(String(req.query['page'] ?? '1'), 10);
-      const rawPageSize = parseInt(String(req.query['pageSize'] ?? String(DEFAULT_PAGE_SIZE)), 10);
-      const pageSize = Math.min(rawPageSize, MAX_PAGE_SIZE);
-
-      if (page < 1) throw new ValidationError('page must be >= 1', { page: 'Must be >= 1' });
+      const page = positiveInteger(req.query['page'], 'page', 1);
+      const pageSize = positiveInteger(req.query['pageSize'], 'pageSize', DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
 
       const source = req.query['source'] ? String(req.query['source']) : undefined;
       const projectContext = req.query['projectContext']
         ? String(req.query['projectContext'])
         : undefined;
-      const before = req.query['before'] ? String(req.query['before']) : undefined;
-      const since = req.query['since'] ? String(req.query['since']) : undefined;
-      if (since !== undefined && !Number.isFinite(Date.parse(since))) {
-        throw new ValidationError('since must be a valid date', { since: 'Must be a valid date' });
+      const before = queryDate(req.query['before'], 'before');
+      const since = queryDate(req.query['since'], 'since');
+      const rangeStart = queryDate(req.query['rangeStart'], 'rangeStart');
+      const rangeEnd = queryDate(req.query['rangeEnd'], 'rangeEnd');
+      if ((rangeStart === undefined) !== (rangeEnd === undefined)) throw new ValidationError('rangeStart and rangeEnd must be supplied together');
+      if (rangeStart !== undefined && rangeEnd !== undefined &&
+        (rangeStart >= rangeEnd || since !== undefined || before !== undefined)) {
+        throw new ValidationError('Range must be increasing and cannot be combined with since or before');
       }
       if (since !== undefined && before !== undefined) {
         throw new ValidationError('since and before cannot be combined');
@@ -45,6 +47,8 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         ...(projectContext !== undefined && { projectContext }),
         ...(before !== undefined && { before }),
         ...(since !== undefined && { since }),
+        ...(rangeStart !== undefined && { rangeStart }),
+        ...(rangeEnd !== undefined && { rangeEnd }),
       });
 
       const body: ApiSuccess<PaginatedList<ContentItemSummary>> = {
