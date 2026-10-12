@@ -160,6 +160,11 @@ try {
       continue;
     }
     if (discoverChecks) {
+      if (process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `discover-card-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
       const results = await evaluate('window.runDiscoverChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       const focusStayedInDialog = await evaluate('document.querySelector("dialog").contains(document.activeElement)');

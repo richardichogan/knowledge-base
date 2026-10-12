@@ -88,6 +88,19 @@ export async function runDiscoverChecks(): Promise<string[]> {
     `Rank number is prominently sized on desktop and mobile (actual ${rankFontSize})`);
   check(parseFloat(getComputedStyle(card.querySelector('.dc-score__value small')!).fontSize) >= 14,
     'Rank label remains readable');
+  const metaBounds = card.querySelector('.dc-card-meta')!.getBoundingClientRect();
+  const titleBounds = card.querySelector('.dc-card-title')!.getBoundingClientRect();
+  const scoreBounds = card.querySelector('.dc-score')!.getBoundingClientRect();
+  check(parseFloat(getComputedStyle(card.querySelector('.dc-card-title')!).fontSize) >= 15.75,
+    'Article title is slightly larger than the previous 14px');
+  if (window.innerWidth > 600) {
+    check(titleBounds.top - metaBounds.bottom <= 8, 'Title stays directly below metadata, not below the large rank');
+    check(titleBounds.top < scoreBounds.bottom, 'Rank sits beside the heading rather than pushing it down');
+    check(titleBounds.right < scoreBounds.left, 'Heading text and rank have separate non-overlapping columns');
+  } else {
+    check(card.querySelector('.dc-card-title-row')!.getBoundingClientRect().width >= card.clientWidth - 24,
+      'Mobile title keeps the full card width instead of being squeezed beside rank');
+  }
   checks.push('Weighted ranking badge preserves boosted values and explains ordering');
   const more = card.querySelector<HTMLElement>('.dc-card-actions__more')!;
   check(!card.matches(':hover') && !card.matches(':focus-within'), 'Check actions before hovering or focusing the card');

@@ -292,18 +292,28 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
       data-ctx-ref-type="discover_item"
       {...(taxonomyTags.length > 0 ? { 'data-ctx-tags': taxonomyTags.map((t) => t.colour ? `${t.name}|${t.colour}` : t.name).join(',') } : {})}
     >
-      {/* ── Top meta: source · date · type tags · relevance ── */}
-      <div className="dc-card-meta">
-        <span className="dc-card-source">{item.sourceTitle}</span>
-        <span className="dc-card-dot">·</span>
-        <span className="dc-card-date">{formatDate(item.publishedAt)}</span>
-        {item.articleType !== null && (
-          <>
+      <div className="dc-card-heading">
+        <div className="dc-card-heading__text">
+          <div className="dc-card-meta">
+            <span className="dc-card-source">{item.sourceTitle}</span>
             <span className="dc-card-dot">·</span>
-            <span className="dc-card-type">{ARTICLE_TYPE_LABEL[item.articleType] ?? item.articleType}</span>
-          </>
-        )}
-        <span className="dc-card-meta-spacer" />
+            <span className="dc-card-date">{formatDate(item.publishedAt)}</span>
+            {item.articleType !== null && (
+              <>
+                <span className="dc-card-dot">·</span>
+                <span className="dc-card-type">{ARTICLE_TYPE_LABEL[item.articleType] ?? item.articleType}</span>
+              </>
+            )}
+          </div>
+          <div className="dc-card-title-row">
+            <h3 className="dc-card-title">{item.title}</h3>
+            {item.url !== null && (
+              <a href={item.url} target="_blank" rel="noreferrer" className="dc-card-ext-link" title="Open article">
+                <Launch size={16} />
+              </a>
+            )}
+          </div>
+        </div>
         {(item.spark === true || item.rankScore != null) && (
           <span
             className={`dc-score dc-score--${scoreTier(item.rankScore ?? null)}${item.spark === true ? ' dc-score--spark' : ''}`}
@@ -312,16 +322,6 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
             {item.spark === true && <span className="dc-score__spark" aria-hidden>⚡</span>}
             {item.rankScore != null && <span className="dc-score__value">{(item.rankScore * 100).toFixed(1)}<small>rank</small></span>}
           </span>
-        )}
-      </div>
-
-      {/* ── Title ── */}
-      <div className="dc-card-title-row">
-        <h3 className="dc-card-title">{item.title}</h3>
-        {item.url !== null && (
-          <a href={item.url} target="_blank" rel="noreferrer" className="dc-card-ext-link" title="Open article">
-            <Launch size={16} />
-          </a>
         )}
       </div>
 
