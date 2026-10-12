@@ -10,15 +10,12 @@ import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData } from '@
 import { InlineLoading } from '@carbon/react';
 import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, Document, Idea, Draw, TrashCan, Renew } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
-import { NoteEditor } from './NoteEditor';
-import { ImportNoteModal } from './ImportNoteModal';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import type { NoteContentBlock, NoteListPage, NoteListFilters } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SparkPanel } from '../features/sparks/SparkPanel';
-import { CanvasEditor } from '../features/canvas/CanvasEditor';
-import { DiagramEditor } from '../features/diagram/DiagramEditor';
+import { deferredView } from '../utils/deferredView';
 import { api } from '../services/api';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
 import { useAthenaContext } from '../context/AthenaContext';
@@ -26,6 +23,11 @@ import { usePersistedBoolean } from '../hooks/usePersistedState';
 import type { CanvasFullApi, CanvasSummaryApi } from '../services/api';
 import '../features/diagram/diagramIntegration.scss';
 import { DataNotice } from '../components/DataNotice';
+
+const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
+const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
+const DiagramEditor = deferredView('Diagram', async () => ({ default: (await import('../features/diagram/DiagramEditor')).DiagramEditor }));
+const ImportNoteModal = deferredView('Note import', async () => ({ default: (await import('./ImportNoteModal')).ImportNoteModal }));
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
 
@@ -64,6 +66,8 @@ export const NotesPage: React.FC = () => {
   const creatingNoteRef = useRef(false);
   const [creatingNote, setCreatingNote] = useState(false);
   const [importModalOpen,  setImportModalOpen]  = useState(false);
+  const [importHasOpened, setImportHasOpened] = useState(false);
+  useEffect(() => { if (importModalOpen) setImportHasOpened(true); }, [importModalOpen]);
   const [sparkModalOpen,   setSparkModalOpen]   = useState(false);
   const [canvasError, setCanvasError] = useState<string | null>(null);
   const [listCollapsed, setListCollapsed] = usePersistedBoolean('kh_think_list_collapsed', false);
@@ -656,11 +660,11 @@ export const NotesPage: React.FC = () => {
         )}
       </div>
 
-      <ImportNoteModal
+      {(importModalOpen || importHasOpened) && <ImportNoteModal
         open={importModalOpen}
         onClose={() => { setImportModalOpen(false); }}
         onImported={(doc) => { void handleImported(doc); }}
-      />
+      />}
 
       <QuickSparkModal open={sparkModalOpen} onClose={() => { setSparkModalOpen(false); }} />
     </div>

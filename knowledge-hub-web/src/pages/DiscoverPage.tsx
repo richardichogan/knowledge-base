@@ -289,10 +289,15 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
   return (
     <div
       className={`dc-card${isUpdating ? ' dc-card--updating' : ''}`}
-      role="button"
+      role="article"
+      aria-label={item.title}
       tabIndex={0}
       onClick={() => { onActivate?.(item); }}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onActivate?.(item); }}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        onActivate?.(item);
+      }}
       data-ctx-title={item.title}
       data-ctx-body={item.relevanceExplanation ?? undefined}
       data-ctx-source={item.sourceTitle ?? undefined}
@@ -653,6 +658,7 @@ export const DiscoverPage: React.FC = () => {
             <button
               key={tab.key}
               className={`dc-tab${activeTab === tab.key ? ' dc-tab--active' : ''}`}
+              aria-pressed={activeTab === tab.key}
               onClick={() => { handleTabChange(tab.key); }}
             >
               {tab.label}

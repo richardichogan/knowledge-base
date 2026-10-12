@@ -7,9 +7,11 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Close } from '@carbon/icons-react';
-import { AIChatPage } from '../pages/AIChatPage';
+import { deferredView } from '../utils/deferredView';
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { useAthenaContext } from '../context/AthenaContext';
+
+const AIChatPage = deferredView('Athena', async () => ({ default: (await import('../pages/AIChatPage')).AIChatPage }));
 
 interface FloatingAIChatProps {
   pageContext?: AthenaPageContext | undefined;

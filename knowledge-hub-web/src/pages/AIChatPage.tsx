@@ -35,7 +35,6 @@ import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers 
 import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
 import { CHAT_IMAGE_TYPES, isChatImage, clipboardImageName } from '../components/athena/attachments';
 import { createNote } from '../notes/noteStorage';
-import { markdownToNoteBlocks } from '../notes/markdownToBlocks';
 import type { ContentType } from '../notes/constants';
 import {
   buildComposerIntent,
@@ -1344,7 +1343,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         const note = await createNote({
           title,
           contentType: 'note',
-          contentJson: JSON.stringify(markdownToNoteBlocks(fileText)),
+          contentJson: JSON.stringify((await import('../notes/markdownToBlocks')).markdownToNoteBlocks(fileText)),
         }, uploadProjectId);
         if (!note) throw new Error('could not save the file to Think');
         storedIn = `Think under ${uploadProjectName}`;
@@ -1548,7 +1547,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       const note = await createNote({
         title: save.title,
         contentType,
-        contentJson: JSON.stringify(markdownToNoteBlocks(noteMarkdown)),
+        contentJson: JSON.stringify((await import('../notes/markdownToBlocks')).markdownToNoteBlocks(noteMarkdown)),
       }, save.projectId);
       if (note === null) throw new Error('Could not save response to Think');
       await queryClient.invalidateQueries({ queryKey: ['notes-list'] });

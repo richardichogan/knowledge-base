@@ -3,7 +3,7 @@
  * Right-side detail panel shown when a single node is selected.
  * Actions: "Open in hub" and "Start here" (re-centre graph on seed).
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Tag } from '@carbon/react';
 import type { GraphNode, GraphEdge } from '../../services/api';
@@ -17,12 +17,12 @@ interface GraphNodeDetailProps {
 
 /** Maps ref_type to its native hub route. */
 function routeForNode(refType: string, refId: string): string {
-  if (refType === 'note')                              return '/think';
+  if (refType === 'note')                              return `/think?noteId=${encodeURIComponent(refId)}`;
   if (refType === 'document')                         return '/library';
   if (refType === 'task')                             return '/plan';
   if (refType === 'discover_item' || refType === 'cfp_item') return '/discover';
   if (refType === 'spark')                            return '/think';
-  return `/my-work?highlight=${refId}`;
+  return `/my-work?highlight=${encodeURIComponent(refId)}`;
 }
 
 /** Counts edges by type for the summary list. */
@@ -41,13 +41,19 @@ function summariseEdges(nodeId: string, edges: GraphEdge[]): Record<string, numb
  */
 export const GraphNodeDetail: React.FC<GraphNodeDetailProps> = ({ node, edges, onStartHere, onClose }) => {
   const navigate = useNavigate();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    panelRef.current?.focus();
+    return () => { if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus(); };
+  }, [node.id]);
   const edgeSummary = summariseEdges(node.id, edges);
   const createdDate = new Date(node.createdAt).toLocaleDateString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric',
   });
 
   return (
-    <div className="graph-detail-panel">
+    <div ref={panelRef} className="graph-detail-panel" role="region" aria-label="Graph node details" tabIndex={-1}>
       <div className="graph-detail-panel__header">
         <span className="graph-detail-panel__type">{node.refType}</span>
         <button className="graph-detail-panel__close" onClick={onClose} aria-label="Close detail panel">✕</button>

@@ -3,7 +3,7 @@
  * Floating control panel over the top-left of the graph canvas.
  * Collapsible. Contains date range slider, node/edge type filters, search, and reset.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Search } from '@carbon/react';
 import type { GraphNode, GraphEdge } from '../../services/api';
 
@@ -15,6 +15,8 @@ const EDGE_LABELS: Record<string, string> = {
 };
 
 interface GraphControlsProps {
+  view: 'canvas' | 'list';
+  onViewChange: (view: 'canvas' | 'list') => void;
   days: number;
   onDaysChange: (v: number) => void;
   allNodeTypes: string[];
@@ -42,18 +44,21 @@ interface GraphControlsProps {
  * Collapsible floating control panel for the graph visualisation.
  */
 export const GraphControls: React.FC<GraphControlsProps> = ({
+  view, onViewChange,
   days, onDaysChange,
   allNodeTypes, selectedNodeTypes, onNodeTypesChange,
   allEdgeTypes, selectedEdgeTypes, onEdgeTypesChange,
   searchQuery, onSearchChange,
   onReset, onReleasePins, confidenceThreshold, onConfidenceChange,
   colourMode, onColourModeChange,
-  truncated, totalNodes,
+  truncated, totalNodes, filteredNodes,
 }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => view === 'list' && window.matchMedia('(max-width: 768px)').matches);
   // Buffer both sliders locally — only fire the fetch-triggering callback on mouseUp
   const [localDays, setLocalDays]               = useState(days);
   const [localConfidence, setLocalConfidence]   = useState(Math.round(confidenceThreshold * 100));
+  useEffect(() => { setLocalDays(days); }, [days]);
+  useEffect(() => { setLocalConfidence(Math.round(confidenceThreshold * 100)); }, [confidenceThreshold]);
 
   function toggleNodeType(type: string): void {
     if (selectedNodeTypes.includes(type)) {
@@ -74,11 +79,12 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
   return (
     <div className={`graph-controls${collapsed ? ' graph-controls--collapsed' : ''}`}>
       <div className="graph-controls__header">
-        <span className="graph-controls__title">Graph</span>
+        <span className="graph-controls__title">{view === 'list' ? 'Graph · Relationships' : 'Graph'}</span>
         <button
           className="graph-controls__chevron"
           onClick={() => { setCollapsed((v) => !v); }}
           aria-label={collapsed ? 'Expand controls' : 'Collapse controls'}
+          aria-expanded={!collapsed}
         >
           {collapsed ? '▸' : '▾'}
         </button>
@@ -87,12 +93,26 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
       {!collapsed && (
         <div className="graph-controls__body">
           <div className="graph-controls__section">
+            <p className="graph-controls__label">View</p>
+            <div className="graph-controls__chips">
+              {(['canvas', 'list'] as const).map(mode => <button key={mode}
+                className={`graph-controls__chip${view === mode ? ' graph-controls__chip--active' : ''}`}
+                aria-pressed={view === mode} onClick={() => {
+                  onViewChange(mode);
+                  if (mode === 'list' && window.matchMedia('(max-width: 768px)').matches) setCollapsed(true);
+                }}>
+                {mode === 'canvas' ? 'Canvas' : 'Relationships'}
+              </button>)}
+            </div>
+          </div>
+          <div className="graph-controls__section">
             <p className="graph-controls__label">Colour by</p>
             <div className="graph-controls__chips">
               {(['type', 'concept'] as const).map((m) => (
                 <button
                   key={m}
                   className={`graph-controls__chip${colourMode === m ? ' graph-controls__chip--active' : ''}`}
+                  aria-pressed={colourMode === m}
                   onClick={() => { onColourModeChange(m); }}
                 >
                   {m === 'type' ? 'Type' : 'Concept area'}
@@ -114,6 +134,8 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
               onChange={(e) => { setLocalDays(parseInt(e.target.value, 10)); }}
               onMouseUp={(e) => { onDaysChange(parseInt((e.target as HTMLInputElement).value, 10)); }}
               onTouchEnd={(e) => { onDaysChange(parseInt((e.target as HTMLInputElement).value, 10)); }}
+              onKeyUp={(e) => { onDaysChange(parseInt(e.currentTarget.value, 10)); }}
+              onBlur={(e) => { onDaysChange(parseInt(e.currentTarget.value, 10)); }}
               className="graph-controls__slider"
             />
           </div>
@@ -125,6 +147,7 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
                 <button
                   key={t}
                   className={`graph-controls__chip${selectedNodeTypes.includes(t) ? ' graph-controls__chip--active' : ''}`}
+                  aria-pressed={selectedNodeTypes.includes(t)}
                   onClick={() => { toggleNodeType(t); }}
                 >
                   {t}
@@ -140,6 +163,7 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
                 <button
                   key={t}
                   className={`graph-controls__chip${selectedEdgeTypes.includes(t) ? ' graph-controls__chip--active' : ''}`}
+                  aria-pressed={selectedEdgeTypes.includes(t)}
                   onClick={() => { toggleEdgeType(t); }}
                 >
                   {EDGE_LABELS[t] ?? t}
@@ -176,6 +200,8 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
               onChange={(e) => { setLocalConfidence(parseInt(e.target.value, 10)); }}
               onMouseUp={(e) => { onConfidenceChange(parseInt((e.target as HTMLInputElement).value, 10) / 100); }}
               onTouchEnd={(e) => { onConfidenceChange(parseInt((e.target as HTMLInputElement).value, 10) / 100); }}
+              onKeyUp={(e) => { onConfidenceChange(parseInt(e.currentTarget.value, 10) / 100); }}
+              onBlur={(e) => { onConfidenceChange(parseInt(e.currentTarget.value, 10) / 100); }}
               className="graph-controls__slider"
             />
           </div>
@@ -186,7 +212,8 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
 
           {truncated && (
             <p className="graph-controls__truncation">
-              Showing 500 of {totalNodes} nodes. Narrow the date range or filter by node type to see the full set.
+              Showing {filteredNodes} visible nodes from an incomplete loaded set of {totalNodes} indexed nodes.
+              Narrow the date range to request a smaller set; client-side filters cannot recover omitted nodes.
             </p>
           )}
         </div>

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Theme } from '@carbon/react';
@@ -23,12 +23,26 @@ import type { PlanTask } from '../src/types/task';
 import { localDateKey } from '../src/utils/dateOnly';
 import { runDataReliabilityChecks, SummaryFixture } from './data-reliability.browser';
 import { AppDialogHost } from '../src/components/AppDialog';
+import type { GraphResponse } from '../src/services/api';
+import { PLAN_PREFERENCES_KEY } from '../src/utils/planPreferences';
+import { deferredView } from '../src/utils/deferredView';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
 const paginated = <T,>(items: T[]) => ({ items, total: items.length, page: 1, pageSize: 100, hasMore: false });
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
 let syncWrites = 0;
+const graphFixture: GraphResponse = {
+  nodes: Array.from({ length: 112 }, (_, i) => ({
+    id: `graph-${i}`, refId: `note-${i}`, refType: 'note', title: i === 0 ? 'Long graph title '.repeat(50) : `Graph note ${i}`,
+    tags: [], createdAt: '2026-10-12T08:00:00Z', conceptParent: null,
+  })),
+  edges: Array.from({ length: 101 }, (_, i) => ({
+    id: `edge-${i}`, source: `graph-${i}`, target: `graph-${i + 1}`, edgeType: 'thematically_related',
+    confidence: 0.8, metadata: null,
+  })),
+  stats: { totalNodes: 800, totalEdges: 1000, filteredNodes: 112, filteredEdges: 101, truncated: true },
+};
 api.getPendingTags = async () => success([]);
 api.getTaxonomy = async () => success([]);
 api.getRepoMappings = async () => success([]);
@@ -112,6 +126,20 @@ function MetadataFixture(): React.ReactElement {
       onRestoreVersion={async () => {}} historyRefresh={0} prepareDemoBrief={async () => 'Fixture brief'} />
   </div></div>;
 }
+let deferredLoads = 0;
+const DeferredFixture = deferredView('Fixture heavy view', async () => {
+  deferredLoads++;
+  if (deferredLoads === 1) throw new Error('Fixture deferred view unavailable');
+  return { default: ({ label }: { label: string }) => <p className="graph-empty__hint" id="deferred-loaded">{label}</p> };
+});
+function RecoveryFixture(): React.ReactElement {
+  const [label, setLabel] = useState('Loaded fixture');
+  return <main className="page-root">
+    <input id="deferred-draft" className="cmd-input" aria-label="Draft outside deferred view" defaultValue="Exact unsaved fixture draft" />
+    <button className="kb-import-btn" onClick={() => { setLabel('Updated fixture'); }}>Change fixture props</button>
+    <DeferredFixture label={label} />
+  </main>;
+}
 createRoot(document.getElementById('root')!).render(
   <SignInGate><Theme theme="g100"><QueryClientProvider client={queryClient}><AthenaContextProvider>
     <AppDialogHost /><MemoryRouter><Probe /><Routes><Route path="/chat" element={<AIChatPage standalone />} />
@@ -128,6 +156,7 @@ createRoot(document.getElementById('root')!).render(
       <Route path="memory" element={<MemoryPage />} />
       <Route path="graph" element={<GraphPage />} />
       <Route path="settings/repo-mappings" element={<RepoProjectMappingsPage />} />
+      <Route path="_deferred-fixture" element={<RecoveryFixture />} />
     </Route></Routes></MemoryRouter>
   </AthenaContextProvider></QueryClientProvider></Theme></SignInGate>,
 );
@@ -138,10 +167,10 @@ async function waitFor(condition: () => boolean): Promise<void> {
     if (condition()) return;
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
-  throw new Error(`Timed out waiting for navigation fixture; focus: ${document.activeElement?.outerHTML}`);
+  throw new Error(`Timed out waiting for navigation fixture at ${document.querySelector<HTMLElement>('#navigation-probe')?.dataset.path}; focus: ${document.activeElement?.outerHTML}; page: ${document.body.innerText}`);
 }
-function key(element: EventTarget, value: string): void {
-  element.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true }));
+function key(element: EventTarget, value: string, options: Pick<KeyboardEventInit, 'shiftKey'> = {}): void {
+  element.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true, ...options }));
 }
 const selector = <T extends HTMLElement,>(query: string): T => {
   const element = document.querySelector<T>(query);
@@ -259,6 +288,38 @@ export async function runNavigationChecks(): Promise<string[]> {
   await go('/graph');
   await waitFor(() => document.querySelector('.graph-page') !== null);
   assertFrame();
+  api.getGraph = async () => ({ success: false, error: { code: 'FIXTURE_GRAPH', message: 'Fixture graph unavailable' } });
+  await queryClient.invalidateQueries({ queryKey: ['graph'] });
+  await waitFor(() => document.body.textContent?.includes('Graph data is unavailable') === true);
+  check(document.body.textContent?.includes('NO CONNECTIONS YET') !== true, 'Failed graph envelope is not an empty graph');
+  const graph = graphFixture;
+  let graphDays = 0;
+  api.getGraph = async (params) => { graphDays = params.days ?? 0; return success(graph); };
+  selector<HTMLButtonElement>('.kh-data-notice button').click();
+  await waitFor(() => document.querySelector('.graph-controls') !== null);
+  [...document.querySelectorAll<HTMLButtonElement>('.graph-controls__chip')].find(control => control.textContent === 'Relationships')!.click();
+  await waitFor(() => document.querySelector('.graph-relationships') !== null);
+  check(document.querySelectorAll('.graph-relationships__row').length === 50, 'Graph relationship DOM is paginated');
+  check(document.querySelector('.graph-relationships__coverage')?.textContent?.includes('truncated') === true,
+    'Relationship list honestly reports indexing and truncated coverage');
+  check(selector('.graph-relationships').scrollWidth <= selector('.graph-relationships').clientWidth,
+    'Long relationship titles fit desktop and mobile without overflow');
+  const graphNode = selector<HTMLButtonElement>('.graph-relationships__node');
+  graphNode.focus();
+  graphNode.click();
+  await waitFor(() => document.activeElement === document.querySelector('.graph-detail-panel'));
+  selector<HTMLButtonElement>('[aria-label="Close detail panel"]').click();
+  await waitFor(() => document.activeElement === graphNode);
+  selector<HTMLButtonElement>('.graph-relationships__pagination button:last-child').click();
+  await waitFor(() => document.querySelector('.graph-relationships__pagination')?.textContent?.includes('Page 2') === true);
+  check(selector('.graph-relationships__node').textContent !== graph.nodes[0]!.title, 'Next relationship page changes rows');
+  if (document.querySelector('#graph-days-slider') === null) selector<HTMLButtonElement>('.graph-controls__chevron').click();
+  await waitFor(() => document.querySelector('#graph-days-slider') !== null);
+  const slider = selector<HTMLInputElement>('#graph-days-slider');
+  slider.value = '31';
+  slider.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+  await waitFor(() => graphDays === 31);
+  results.push('Graph failures offer Retry; bounded keyboard-accessible relationships show inference/truncation and preserve selection focus');
   await go('/library');
   await waitFor(() => document.querySelector('.page-title')?.textContent === 'Sources');
   check(selector('.kh-tools-location').textContent === 'Tools / Sources', 'Sources secondary label');
@@ -314,13 +375,40 @@ export async function runNavigationChecks(): Promise<string[]> {
     'Project and tag scope stays available across Plan modes');
   results.push('Calendar range beyond 100, date-only native tasks, completed exclusion and responsive shared Plan scope');
 
-  selector<HTMLButtonElement>('[aria-label="Search"]').click();
+  const searchTrigger = selector<HTMLButtonElement>('[aria-label="Search"]');
+  searchTrigger.focus();
+  searchTrigger.click();
   await waitFor(() => document.querySelector('[aria-label="Command palette"]') !== null);
   const palette = selector('[aria-label="Command palette"]');
   check(palette.textContent?.includes('Tools / Context and records') === true && palette.textContent?.includes('Projects') === true, 'Palette mirrors groups');
   check(palette.textContent?.includes('Sources') === true && palette.textContent?.includes('Activity') === true, 'Palette supporting labels updated');
+  check(palette instanceof HTMLDialogElement && palette.open, 'Palette uses the existing native dialog convention');
+  if (window.matchMedia('(max-width: 600px)').matches) check(getComputedStyle(selector('.cmd-item')).display === 'grid',
+    'Phone palette gives complete labels and subtitles their own rows');
+  [...document.querySelectorAll<HTMLButtonElement>('.cmd-item')].at(-1)!.focus();
+  key(document.activeElement!, 'Tab');
+  check(document.activeElement === document.querySelector('.cmd-input'), 'Palette traps forward Tab');
+  key(document.activeElement!, 'Tab', { shiftKey: true });
+  check(document.activeElement === [...document.querySelectorAll('.cmd-item')].at(-1), 'Palette traps reverse Tab');
   key(selector('[aria-label="Command palette search"]'), 'Escape');
   await waitFor(() => document.querySelector('[aria-label="Command palette"]') === null);
+  check(document.activeElement === searchTrigger, 'Palette restores the launching control focus');
+  await go('/library');
+  await go('/plan');
+  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'List');
+  check(JSON.parse(localStorage.getItem(PLAN_PREFERENCES_KEY)!).view === 'list', 'Plan preference survives a workspace round trip');
+  await go('/_deferred-fixture');
+  await waitFor(() => document.body.textContent?.includes('Fixture heavy view could not open') === true);
+  const draftOutsideView = selector<HTMLInputElement>('#deferred-draft');
+  const shellBeforeRetry = document.querySelector('.kh-header');
+  selector<HTMLButtonElement>('.kh-data-notice button').click();
+  await waitFor(() => document.querySelector('#deferred-loaded')?.textContent === 'Loaded fixture');
+  check(deferredLoads === 2 && draftOutsideView.isConnected && draftOutsideView.value === 'Exact unsaved fixture draft'
+    && document.querySelector('.kh-header') === shellBeforeRetry, 'Explicit view Retry reloads its failed loader without remounting the shell or other writing');
+  [...document.querySelectorAll<HTMLButtonElement>('button')].find(control => control.textContent === 'Change fixture props')!.click();
+  await waitFor(() => document.querySelector('#deferred-loaded')?.textContent === 'Updated fixture');
+  check(deferredLoads === 2, 'Normal prop updates never recreate the deferred loader');
+  results.push('Deferred view Retry preserves the shell and outside drafts; Plan preferences and native palette focus survive workspace changes');
   await go('/');
   selector<HTMLButtonElement>('[aria-label="Open Athena"]').click();
   await waitFor(() => document.activeElement === document.querySelector('.ai-float-panel textarea'));
@@ -534,4 +622,12 @@ async function verifyChatReload(expected: { sessionId: string; draft: string }):
   return 'Actual reload preserves draft/session; failed history load is visible and retry restores messages; only server acceptance clears draft';
 }
 
-Object.assign(window, { runNavigationChecks, verifyChatReload });
+async function showGraphReview(): Promise<void> {
+  api.getGraph = async () => success(graphFixture);
+  await queryClient.invalidateQueries({ queryKey: ['graph'] });
+  await go('/graph');
+  await waitFor(() => document.querySelector('.graph-controls') !== null);
+  [...document.querySelectorAll<HTMLButtonElement>('.graph-controls__chip')].find(control => control.textContent === 'Relationships')!.click();
+  await waitFor(() => document.querySelector('.graph-relationships') !== null);
+}
+Object.assign(window, { runNavigationChecks, verifyChatReload, showGraphReview });

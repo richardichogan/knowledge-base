@@ -43,15 +43,23 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   // Focus input when opened
   useEffect(() => {
     if (open) {
+      const previousFocus = document.activeElement;
+      const dialog = dialogRef.current;
       setQuery('');
       setActiveIndex(0);
-      setTimeout(() => { inputRef.current?.focus(); }, 30);
+      dialog?.showModal();
+      inputRef.current?.focus();
+      return () => {
+        dialog?.close();
+        if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+      };
     }
   }, [open]);
 
@@ -118,10 +126,20 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      e.stopPropagation();
+      if (e.key === 'Tab') {
+        const controls = [inputRef.current, ...Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+          .filter((control): control is HTMLInputElement | HTMLButtonElement => control !== null);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+        return;
+      }
       if (e.key === 'Escape') { onClose(); return; }
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setActiveIndex((i) => Math.min(i + 1, allItems.length - 1));
+        setActiveIndex((i) => Math.max(0, Math.min(i + 1, allItems.length - 1)));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setActiveIndex((i) => Math.max(i - 1, 0));
@@ -147,14 +165,12 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
   let globalIndex = 0;
 
   return (
-    <div className="cmd-backdrop" onClick={onClose}>
+    <dialog ref={dialogRef} className="cmd-backdrop" aria-label="Command palette"
+      onCancel={(e) => { e.preventDefault(); onClose(); }} onClick={onClose}>
       <div
         className="cmd-panel"
         onClick={(e) => { e.stopPropagation(); }}
         onKeyDown={handleKeyDown}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Command palette"
       >
         {/* Input */}
         <div className="cmd-input-row">
@@ -208,6 +224,6 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
           <span><kbd>esc</kbd> close</span>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 };

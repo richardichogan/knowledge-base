@@ -6,7 +6,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Export } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { createNote } from '../../notes/noteStorage';
-import { markdownToNoteBlocks } from '../../notes/markdownToBlocks';
 import { alertDialog } from '../../services/appDialogs';
 
 interface MoveToThinkProps {
@@ -43,6 +42,7 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
       const draft = await api.draftSpecFromSession(sessionId);
       if (!draft.success) throw new Error(draft.error.message);
       setBusy('Creating the note…');
+      const { markdownToNoteBlocks } = await import('../../notes/markdownToBlocks');
       const note = await createNote({ title: draft.data.title, contentType: 'note', contentJson: JSON.stringify(markdownToNoteBlocks(draft.data.markdown)) }, projectId !== '' ? projectId : undefined);
       if (note === null) throw new Error('The note could not be saved.');
       savedTitle = note.title;

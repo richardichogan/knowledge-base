@@ -65,6 +65,12 @@ changes using `node ../scripts/check-lint-baseline.mjs --update`.
 From the repository root, run `node scripts/run-browser-checks.mjs` with
 `TODAY_BROWSER_PATH` pointing to installed Chromium/Edge. It starts and stops
 its own strict-port fixture server and blocks live API/auth requests.
+Use `--modes=auth-session,auth-callback,note-history,markdown-export,diagram-theme`
+for the isolated authentication/editor/export regression set, or select
+`navigation`, `discover` and `today` individually. Unsupported/live modes are
+rejected. The navigation fixture intentionally fails one deferred loader to
+exercise Retry; only that exact fixture error is excluded from the unexpected
+JavaScript-error gate. Artifact captures use the active emulated browser page.
 The fixture server uses a separate reusable Vite dependency cache, so running
 checks cannot invalidate the normal development server's prebundled modules.
 
@@ -153,6 +159,36 @@ do not enable multiple replicas without lease/ownership recovery changes.
 The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
 
 Search remains available through the header or Cmd+K / Ctrl+K. Its command palette uses the same destination groups. The toolbar is the only global Athena launcher: it opens the existing popout or reveals and focuses the Sources rail without changing context. It is disabled throughout Think, which uses its built-in Athena panel. There is no floating launcher on any screen. Sparks and Canvas remain Think modes, and quick Spark capture remains available in Think or with Cmd+. / Ctrl+. All existing URLs and redirects are preserved. No global project selector or new administration/search functionality is added.
+
+The command palette is a native modal dialog, traps Tab/Shift+Tab, and returns
+focus to its launching control. Discovery exposes selected filter states; a
+card's Enter/Space selection never intercepts a nested action's keyboard event.
+Plan remembers its mode and exact project/tag scope in a versioned browser-local
+record. Missing project/tag choices stay visibly scoped until explicitly changed;
+an unavailable saved scope never silently widens to all content.
+
+Heavy routes, Athena's popout, Think's editors/import and the graph canvas load
+on demand. Recovery belongs to the failed view, outside AppShell's implementation:
+**Retry** creates a fresh loader without reloading the page, authentication or
+other mounted work. Normal prop changes do not recreate the loader/editor.
+This is view recovery, not a backup or a guarantee that a crashing component's
+own in-memory state survives.
+
+The measured raw bootstrap entry is **2,425.4 KiB**, versus the review's
+**4,658.7 KiB** baseline (about 48% smaller). The build now emits separate Athena,
+Note editor, Diagram and Graph canvas entry chunks; Markdown conversion and its
+editor dependencies are also deferred until requested. Shared dependencies and
+syntax grammars may load with these features. Global Carbon/application CSS
+remains substantial; these are build-byte measurements, not claimed production
+transfer timings or Core Web Vitals.
+
+Knowledge graph read failures offer **Retry**, including failed API envelopes.
+**Relationships** presents the loaded graph as keyboard-accessible, paginated
+text (50 rows at a time), using the same type/confidence filters. Inferred
+relationships retain their confidence label. Coverage distinguishes indexed
+data from source content, and a truncated graph is explicitly incomplete;
+client-side filtering cannot restore nodes omitted by the server. Selecting a
+node focuses its details and closing returns focus to the selected control.
 
 Navigation regressions use the same isolated fixture server and Chromium executable as the Today checks below. Run `node tests/run-navigation-browser.mjs` from `knowledge-hub-web` with `TODAY_BROWSER_PATH` set. The fixture covers 1440px, 1024px and 390px, keyboard/focus behaviour, supporting routes, existing management panels, embedded Athena launch and failed supporting services. API/auth requests are blocked. Unit tests run with `node --import tsx/esm --test ../knowledge-hub-web/tests/navigation.test.ts` from the backend folder.
 

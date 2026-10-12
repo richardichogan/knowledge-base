@@ -308,6 +308,8 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
   });
   await queryClient.invalidateQueries({ queryKey: ['tasks'] });
   await go('/plan');
+  await waitFor(() => document.querySelector('.plan-view-toggle') !== null);
+  button('Board').click();
   await waitFor(() => document.querySelector('.kb-card') !== null);
   taskFailure = true;
   await queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -516,7 +518,8 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
     await waitFor(() => document.querySelector('dialog[open]') === null && !newNoteButton.disabled);
     noteCreateFailure = false;
     newNoteButton.click();
-    await waitFor(() => document.querySelectorAll('.notes-list-item').length === 106 && getActiveBlockNoteEditor() !== editor,
+    await waitFor(() => document.querySelectorAll('.notes-list-item').length === 106
+      && getActiveBlockNoteEditor() !== null && getActiveBlockNoteEditor() !== editor,
       'create retry selected new note');
     const createdEditor = getActiveBlockNoteEditor();
     let noteDeletes = 0;

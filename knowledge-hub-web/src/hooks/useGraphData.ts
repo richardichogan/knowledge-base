@@ -5,6 +5,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../services/api';
 import type { GraphResponse } from '../services/api';
+import { requireApiData } from '../services/apiError';
 
 export interface GraphQueryParams {
   days: number;
@@ -22,22 +23,23 @@ export function useGraphData(params: GraphQueryParams): {
   data: GraphResponse | null;
   isLoading: boolean;
   isError: boolean;
+  error: unknown;
+  retry: () => Promise<unknown>;
 } {
   const { days, seed, depth, edgeTypes, nodeTypes } = params;
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['graph', days, seed, depth, edgeTypes?.join(','), nodeTypes?.join(',')],
-    queryFn: () => {
+    queryFn: async () => {
       const p: Parameters<typeof api.getGraph>[0] = { days };
       if (seed) p.seed = seed;
       if (depth !== undefined) p.depth = depth;
       if (edgeTypes !== undefined) p.edgeTypes = edgeTypes;
       if (nodeTypes !== undefined) p.nodeTypes = nodeTypes;
-      return api.getGraph(p);
+      return requireApiData(await api.getGraph(p));
     },
     staleTime: 60_000,
-    select: (res) => (res.success ? res.data : null),
   });
 
-  return { data: data ?? null, isLoading, isError };
+  return { data: data ?? null, isLoading, isError, error, retry: refetch };
 }

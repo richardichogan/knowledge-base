@@ -17,8 +17,8 @@ import { TaskListView } from './TaskListView';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useDueNotifications } from '../hooks/useDueNotifications';
 import { useProjects } from '../hooks/useProjects';
-
-type PlanView = 'calendar' | 'board' | 'list';
+import { readStored, writeStored } from '../hooks/usePersistedState';
+import { DEFAULT_PLAN_PREFERENCES, PLAN_PREFERENCES_KEY, parsePlanPreferences, type PlanPreferences, type PlanView } from '../utils/planPreferences';
 
 interface ViewTab {
   key: PlanView;
@@ -33,10 +33,21 @@ const VIEW_TABS: ViewTab[] = [
 ];
 
 export const PlanPage: React.FC = () => {
-  const [view, setView] = useState<PlanView>('board');
+  const [preferences, setPreferences] = useState<PlanPreferences>(() => {
+    try { return parsePlanPreferences(readStored(PLAN_PREFERENCES_KEY)); } catch (error) {
+      console.warn('[Plan] Could not restore preferences; using the default view.', error);
+      return { ...DEFAULT_PLAN_PREFERENCES };
+    }
+  });
+  const { view, project: filterProject, tag: filterTag } = preferences;
+  const updatePreferences = (patch: Partial<Omit<PlanPreferences, 'version'>>): void => {
+    setPreferences(previous => {
+      const next = { ...previous, ...patch };
+      writeStored(PLAN_PREFERENCES_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
   const [importOpen, setImportOpen] = useState(false);
-  const [filterProject, setFilterProject] = useState('');
-  const [filterTag,     setFilterTag]     = useState('');
   const flatTags = useFlatTags();
   const { data: projects = [] } = useProjects();
 
@@ -52,13 +63,17 @@ export const PlanPage: React.FC = () => {
           {(
             <>
               <Select id="plan-filter-project" labelText="Filter by project" hideLabel size="sm"
-                value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
+                value={filterProject} onChange={(e) => updatePreferences({ project: e.target.value })}>
                 <SelectItem value="" text="All projects" />
+                {filterProject !== '' && !projects.some(project => project.id === filterProject)
+                  && <SelectItem value={filterProject} text="Saved project scope (not available)" />}
                 {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
               </Select>
               <Select id="plan-filter-tag" labelText="Filter by tag" hideLabel size="sm"
-                value={filterTag} onChange={(e) => setFilterTag(e.target.value)}>
+                value={filterTag} onChange={(e) => updatePreferences({ tag: e.target.value })}>
                 <SelectItem value="" text="All tags" />
+                {filterTag !== '' && !flatTags.some(tag => tag.id === filterTag)
+                  && <SelectItem value={filterTag} text="Saved tag scope (not available)" />}
                 {flatTags.map((t) => <SelectItem key={t.id} value={t.id} text={t.name} />)}
               </Select>
               {view === 'board' && <button
@@ -77,7 +92,7 @@ export const PlanPage: React.FC = () => {
                 key={key}
                 className={`plan-view-btn${view === key ? ' plan-view-btn--active' : ''}`}
                 aria-pressed={view === key}
-                onClick={() => { setView(key); }}
+                onClick={() => { updatePreferences({ view: key }); }}
               >
                 <Icon size={16} />
                 {label}

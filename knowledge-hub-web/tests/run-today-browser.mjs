@@ -71,7 +71,8 @@ try {
   socket.addEventListener('message', ({ data }) => {
     const message = JSON.parse(data);
     if (message.method === 'Runtime.exceptionThrown') {
-      browserErrors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
+      const description = message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text;
+      if (!(navigationChecks && /^Error: Fixture deferred view unavailable(?:\n|$)/.test(description))) browserErrors.push(description);
     }
     if (message.method === 'Network.requestWillBeSent') {
       resourceUrls.set(message.params.requestId, message.params.request.url);
@@ -89,6 +90,7 @@ try {
     else request.resolve(message.result);
   });
   await command('Page.enable');
+  await command('Page.bringToFront');
   await command('Emulation.setFocusEmulationEnabled', { enabled: true });
   await command('Runtime.enable');
   await command('Network.enable');
@@ -235,6 +237,13 @@ try {
         await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
         const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
         await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `navigation-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+        await evaluate('window.showGraphReview()');
+        const graphScreenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `graph-${width}.png`), Buffer.from(graphScreenshot.data, 'base64'));
+        await evaluate('document.querySelector(\'[aria-label="Search"]\').click()');
+        await delay(100);
+        const paletteScreenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `palette-${width}.png`), Buffer.from(paletteScreenshot.data, 'base64'));
       }
       continue;
     }

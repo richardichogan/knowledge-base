@@ -4,6 +4,10 @@ import { once } from 'node:events';
 import { createServer } from 'node:net';
 
 const web = resolve(import.meta.dirname, '../knowledge-hub-web');
+const allowedModes = ['navigation', 'discover', 'today', 'auth-session', 'auth-callback', 'note-history', 'markdown-export', 'diagram-theme'];
+const selection = process.argv.find(argument => argument.startsWith('--modes='));
+const modes = selection === undefined ? ['navigation', 'discover', 'today'] : selection.slice('--modes='.length).split(',');
+if (modes.length === 0 || modes.some(mode => !allowedModes.includes(mode))) throw new Error('Select only supported isolated browser fixture modes.');
 const reservation = createServer();
 reservation.listen(5197, '127.0.0.1');
 await once(reservation, 'listening');
@@ -21,7 +25,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   if (!started) throw new Error('Fixture server did not become ready');
-  for (const mode of ['navigation', 'discover', 'today']) {
+  for (const mode of modes) {
     const child = spawn(process.execPath, [resolve(web, 'tests/run-today-browser.mjs')], {
       cwd: web, stdio: 'inherit',
       env: { ...process.env, ATHENA_BROWSER_CHECKS: mode, TODAY_FIXTURE_URL: `http://127.0.0.1:5197/tests/${mode}.html` },
