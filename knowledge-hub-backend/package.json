@@ -9,6 +9,8 @@
     "dev": "node --import tsx/esm --watch src/server.ts",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "typecheck": "tsc --noEmit",
+    "lint:check": "node ../scripts/check-lint-baseline.mjs",
+    "test:isolated": "node ../scripts/run-isolated-tests.mjs",
     "migrate": "node --import tsx/esm src/db/migrate.ts",
     "validate:ibm-calendar": "node --import tsx/esm scripts/validate-ibm-calendar.ts",
     "retag-discover": "node --import tsx/esm scripts/retag-discover-items.ts",

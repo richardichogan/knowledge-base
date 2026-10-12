@@ -51,6 +51,7 @@ export interface CheckSummary {
   pending: number;
   failed: number;
   failedNames: string[];
+  successfulNames: string[];
 }
 
 export interface CreatedIssue { number: number; url: string }
@@ -76,7 +77,7 @@ export interface AgentGitHub {
   getAgentActivity(repo: string, prNumber: number): Promise<AgentActivity>;
   getChecks(repo: string, sha: string): Promise<CheckSummary>;
   markReadyForReview(repo: string, prNumber: number): Promise<void>;
-  mergePullRequest(repo: string, prNumber: number, title: string, method?: MergeMethod): Promise<void>;
+  mergePullRequest(repo: string, prNumber: number, title: string, method?: MergeMethod, expectedSha?: string): Promise<void>;
   deleteBranch(repo: string, branch: string): Promise<void>;
   /** Create `branch` from the tip of `fromBranch`; an existing branch is reused. */
   createBranch(repo: string, branch: string, fromBranch: string): Promise<void>;
@@ -277,7 +278,7 @@ export class GitHubAgentClient implements AgentGitHub {
   }
 
   public async getChecks(repo: string, sha: string): Promise<CheckSummary> {
-    const data = await this.rest<{ check_runs: { name: string; status: string; conclusion: string | null }[] }>(
+    const data = await this.rest<{ total_count: number; check_runs: { name: string; head_sha: string; status: string; conclusion: string | null; app: { slug: string } }[] }>(
       'GET', `/repos/${repo}/commits/${sha}/check-runs?per_page=100`,
     );
     const runs = data?.check_runs ?? [];
@@ -285,9 +286,12 @@ export class GitHubAgentClient implements AgentGitHub {
     const failed = runs.filter((r) => r.status === 'completed' && !ok.has(r.conclusion ?? ''));
     return {
       total: runs.length,
-      pending: runs.filter((r) => r.status !== 'completed').length,
+      // Fail closed when GitHub truncates the check list.
+      pending: runs.filter((r) => r.status !== 'completed').length + Math.max(0, (data?.total_count ?? 0) - runs.length),
       failed: failed.length,
       failedNames: failed.map((r) => r.name),
+      successfulNames: runs.filter((r) => r.status === 'completed' && r.conclusion === 'success'
+        && r.head_sha === sha && r.app.slug === 'github-actions').map((r) => r.name),
     };
   }
 
@@ -297,8 +301,10 @@ export class GitHubAgentClient implements AgentGitHub {
     await this.graphql('mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){clientMutationId}}', { id: raw.node_id });
   }
 
-  public async mergePullRequest(repo: string, prNumber: number, title: string, method: MergeMethod = 'squash'): Promise<void> {
-    await this.rest('PUT', `/repos/${repo}/pulls/${prNumber}/merge`, { merge_method: method, commit_title: `${title} (#${prNumber})` });
+  public async mergePullRequest(repo: string, prNumber: number, title: string, method: MergeMethod = 'squash', expectedSha?: string): Promise<void> {
+    const result = await this.rest<{ merged: boolean; message?: string }>('PUT', `/repos/${repo}/pulls/${prNumber}/merge`,
+      { merge_method: method, commit_title: `${title} (#${prNumber})`, ...(expectedSha !== undefined && { sha: expectedSha }) });
+    if (result?.merged !== true) throw new IntegrationError('github', result?.message ?? 'GitHub did not confirm the merge');
   }
 
   public async createBranch(repo: string, branch: string, fromBranch: string): Promise<void> {

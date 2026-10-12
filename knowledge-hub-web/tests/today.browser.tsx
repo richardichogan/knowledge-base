@@ -145,7 +145,9 @@ export async function runTodayChecks(): Promise<string[]> {
   await waitFor(() => document.querySelector('.ai-float-panel') === null);
   document.querySelector<HTMLButtonElement>('[aria-label="Open Athena"]')!.click();
   await waitFor(() => document.querySelector('.ai-float-panel textarea') !== null);
-  check(document.querySelector<HTMLTextAreaElement>('.ai-float-panel textarea')!.value === '', 'A consumed prompt must not replay on reopen');
+  check(document.querySelector<HTMLTextAreaElement>('.ai-float-panel textarea')!.value === 'Help me work out the next step for this item.', 'Reopening preserves the unsent draft');
+  check(document.querySelector('#athena-probe')!.getAttribute('data-prompt') === '', 'A consumed launch request must not replay on reopen');
+  check(document.querySelector('.ai-message--user') === null, 'Reopening must not automatically send the preserved draft');
   document.querySelector<HTMLButtonElement>('[aria-label="Close AI Chat"]')!.click();
   await waitFor(() => document.querySelector('.ai-float-panel') === null);
   results.push('Existing popout opens, focuses, accepts prompts and closes; item project/context handoff');

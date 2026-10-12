@@ -5,7 +5,7 @@
  * merges green PRs and releases dependent tasks.
  *
  * Safety rails:
- *  - auto-merge only when at least one check ran and every check passed;
+ *  - auto-merge only with the repository's known required checks on the current head;
  *  - PRs touching .github/workflows/** always wait for the user;
  *  - at most MAX_FIX_ATTEMPTS fix requests per task, then it's blocked;
  *  - a failed merge call (e.g. branch protection) blocks the task, never retries blindly;
@@ -20,6 +20,11 @@ import {
 } from './buildStore.js';
 
 export const MAX_FIX_ATTEMPTS = 2;
+export const ATHENA_REQUIRED_CHECKS = ['Backend checks', 'Frontend checks', 'Browser checks'] as const;
+
+function requiredAutoMergeChecks(repo: string): readonly string[] | null {
+  return repo.toLowerCase() === 'richardichogan/knowledge-base' ? ATHENA_REQUIRED_CHECKS : null;
+}
 const MINUTE = 60_000;
 /* eslint-disable @typescript-eslint/no-magic-numbers -- timeouts read best as minutes */
 /** Agent should open its (draft) PR within minutes of assignment. */
@@ -104,7 +109,7 @@ async function nudge(deps: RunnerDeps, spec: BuildSpec, task: BuildTask, pr: Age
 async function mergeTask(deps: RunnerDeps, spec: BuildSpec, task: BuildTask, pr: AgentPullRequest): Promise<void> {
   try {
     if (pr.draft) await deps.gh.markReadyForReview(spec.repo, pr.number);
-    await deps.gh.mergePullRequest(spec.repo, pr.number, task.title);
+    await deps.gh.mergePullRequest(spec.repo, pr.number, task.title, 'squash', pr.headSha);
   } catch (err) {
     await block(deps, spec, task, `Merge failed: ${errMsg(err)}`);
     return;
@@ -186,6 +191,17 @@ async function followPullRequest(deps: RunnerDeps, spec: BuildSpec, task: BuildT
     return;
   }
   if (!spec.autoMerge) { await awaitApproval(deps, spec, task, 'Checks passed — auto-merge is off'); return; }
+  const required = requiredAutoMergeChecks(spec.repo);
+  if (required === null) {
+    await awaitApproval(deps, spec, task, 'No verified required-check policy for this repository — review and merge manually');
+    return;
+  }
+  const missing = required.filter((name) => !checks.successfulNames.includes(name));
+  if (missing.length > 0) {
+    if (elapsed(deps, doneSeenAt) < CHECKS_GRACE_MS) return;
+    await awaitApproval(deps, spec, task, `Required checks have not succeeded on this head: ${missing.join(', ')} — review and merge manually`);
+    return;
+  }
   if (pr.mergeableState === 'unknown') return;
   await mergeTask(deps, spec, task, pr);
 }
@@ -312,7 +328,7 @@ export async function mergeFinalPullRequest(spec: BuildSpec, deps: RunnerDeps = 
   if (!pr.merged) {
     if (pr.state === 'closed') throw new Error(`#${pr.number.toString()} was closed without merging — reopen it on GitHub first`);
     if (pr.draft) await deps.gh.markReadyForReview(spec.repo, pr.number);
-    await deps.gh.mergePullRequest(spec.repo, pr.number, `Build: ${spec.title}`, 'merge');
+    await deps.gh.mergePullRequest(spec.repo, pr.number, `Build: ${spec.title}`, 'merge', pr.headSha);
   }
   await recordFinalMerged(deps, spec, `merged (#${pr.number.toString()})`);
 }

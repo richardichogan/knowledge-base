@@ -46,6 +46,33 @@ A unified personal intelligence layer that aggregates content, code activity, ca
 
 ---
 
+## Local quality gates
+
+CI runs **Backend checks**, **Frontend checks** and **Browser checks** on pull
+requests, including integration-branch PRs. Each application provides
+`npm run typecheck`, `npm run build`, `npm run lint:check` and
+`npm run test:isolated`. Frontend model tests resolve the existing backend
+TypeScript runner, so install both lockfiles before running them.
+Isolated tests use an allowlisted environment, an unreachable fixture database
+and no application dotenv file; they never require production credentials.
+
+`npm run lint` remains the full lint report. `lint:check` rejects new or changed
+violations against explicit source-fingerprinted `.eslint-baseline.json` debt;
+it does not claim the old debt is fixed. Do not refresh a baseline to hide a new
+failure. To deliberately reduce debt, fix code and review the generated baseline
+changes using `node ../scripts/check-lint-baseline.mjs --update`.
+
+From the repository root, run `node scripts/run-browser-checks.mjs` with
+`TODAY_BROWSER_PATH` pointing to installed Chromium/Edge. It starts and stops
+its own strict-port fixture server and blocks live API/auth requests.
+
+Build auto-merge currently trusts the three named GitHub Actions checks for
+this repository only, with actual successful conclusions on the inspected head.
+Missing/skipped checks or unknown repository policy require manual approval;
+the GitHub merge is bound to the inspected SHA. Explicit manual merging remains
+available. Existing workflow-change approval and integration-branch safeguards
+are preserved. CI is not a deployment pipeline.
+
 ## Navigation
 
 The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.

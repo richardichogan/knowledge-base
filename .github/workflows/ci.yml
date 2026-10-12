@@ -3,13 +3,58 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  backend:
+    name: Backend checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run checks
-        run: echo "Add your build/test steps here"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: knowledge-hub-backend/package-lock.json
+      - run: npm ci
+        working-directory: knowledge-hub-backend
+      - run: npm run typecheck && npm run build && npm run lint:check && npm run test:isolated
+        working-directory: knowledge-hub-backend
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            knowledge-hub-backend/package-lock.json
+            knowledge-hub-web/package-lock.json
+      - run: npm ci
+        working-directory: knowledge-hub-backend
+      - run: npm ci
+        working-directory: knowledge-hub-web
+      - run: npm run typecheck && npm run build && npm run lint:check && npm run test:isolated
+        working-directory: knowledge-hub-web
+  browser:
+    name: Browser checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: knowledge-hub-web/package-lock.json
+      - run: npm ci
+        working-directory: knowledge-hub-web
+      - name: Run isolated browser journeys
+        working-directory: knowledge-hub-web
+        env:
+          TODAY_BROWSER_PATH: /usr/bin/google-chrome
+        run: node ../scripts/run-browser-checks.mjs

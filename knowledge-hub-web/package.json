@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .ts,.tsx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint:check": "node ../scripts/check-lint-baseline.mjs",
+    "test:isolated": "node ../scripts/run-isolated-tests.mjs --frontend"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.23.0",

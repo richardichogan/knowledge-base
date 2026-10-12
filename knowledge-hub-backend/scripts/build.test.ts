@@ -1,12 +1,13 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import { validateTaskGraph, normaliseDrafts, type TaskDraft } from '../src/build/decompose.js';
 import {
   runSpecOnce, ensureWorkBranch, mergeFinalPullRequest, workBranchName,
-  MAX_FIX_ATTEMPTS, CHECKS_GRACE_MS, NO_PR_TIMEOUT_MS, type RunnerDeps, type RunnerStore,
+  MAX_FIX_ATTEMPTS, CHECKS_GRACE_MS, NO_PR_TIMEOUT_MS, ATHENA_REQUIRED_CHECKS, type RunnerDeps, type RunnerStore,
 } from '../src/build/buildRunner.js';
 import type { AgentGitHub, AgentPullRequest, CheckSummary, AgentActivity } from '../src/build/githubAgents.js';
+import { GitHubAgentClient } from '../src/build/githubAgents.js';
 import type { BuildSpec, BuildTask, TaskStatus } from '../src/build/buildStore.js';
 
 // ── validateTaskGraph ──────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ const T0 = new Date('2026-01-01T00:00:00Z');
 
 function makeSpec(over: Partial<BuildSpec> = {}): BuildSpec {
   return {
-    id: 'spec', projectId: null, noteId: null, chatOutputId: null, title: 'Spec', specMarkdown: 'x', repo: 'o/r',
+    id: 'spec', projectId: null, noteId: null, chatOutputId: null, title: 'Spec', specMarkdown: 'x', repo: 'richardichogan/knowledge-base',
     baseBranch: 'main', useWorkBranch: false, workBranch: null, finalPrNumber: null, finalPrUrl: null, finalPrMergedAt: null,
     status: 'running', maxParallel: 2, autoMerge: true, planNotes: '', lastError: null,
     createdAt: T0.toISOString(), updatedAt: T0.toISOString(), ...over,
@@ -78,7 +79,7 @@ function harness(spec: BuildSpec, tasks: BuildTask[]): Harness {
   const calls: string[] = [];
   const clock = { now: T0 };
   const ghState: Harness['gh'] = {
-    pr: null, checks: { total: 1, pending: 0, failed: 0, failedNames: [] },
+    pr: null, checks: { total: 3, pending: 0, failed: 0, failedNames: [], successfulNames: [...ATHENA_REQUIRED_CHECKS] },
     activity: { working: false, lastFinishedAt: T0.toISOString() }, mergeFails: false,
     finalPr: { number: 99, url: 'https://github.com/o/r/pull/99' }, baseRefs: [],
   };
@@ -90,7 +91,11 @@ function harness(spec: BuildSpec, tasks: BuildTask[]): Harness {
     getAgentActivity: () => Promise.resolve(ghState.activity),
     getChecks: () => Promise.resolve(ghState.checks),
     markReadyForReview: () => { calls.push('ready'); return Promise.resolve(); },
-    mergePullRequest: (_r, _n, _t, method) => { calls.push(method === 'merge' ? 'merge-commit' : 'merge'); return ghState.mergeFails ? Promise.reject(new Error('protected')) : Promise.resolve(); },
+    mergePullRequest: (_r, _n, _t, method, sha) => {
+      assert.equal(sha, ghState.pr?.headSha, 'Merge must be bound to the inspected head');
+      calls.push(method === 'merge' ? 'merge-commit' : 'merge');
+      return ghState.mergeFails ? Promise.reject(new Error('protected')) : Promise.resolve();
+    },
     deleteBranch: (_r, b) => { calls.push(b.startsWith('build/') ? `delete-branch:${b}` : 'delete-branch'); return Promise.resolve(); },
     createBranch: (_r, b, from) => { calls.push(`branch:${b}:${from}`); return Promise.resolve(); },
     createPullRequest: (_r, head, base) => { calls.push(`final-pr:${head}:${base}`); return Promise.resolve(ghState.finalPr); },
@@ -176,7 +181,7 @@ test('runner waits while the agent is working or checks are pending', async () =
   assert.equal(status(h, 'a'), 'pr_open');
 
   h.gh.activity = { working: false, lastFinishedAt: T0.toISOString() };
-  h.gh.checks = { total: 2, pending: 1, failed: 0, failedNames: [] };
+  h.gh.checks = { total: 2, pending: 1, failed: 0, failedNames: [], successfulNames: [] };
   await runSpecOnce('spec', h.deps);
   assert.equal(status(h, 'a'), 'pr_open');
   assert.ok(!h.calls.includes('merge'));
@@ -185,7 +190,7 @@ test('runner waits while the agent is working or checks are pending', async () =
 test('failing checks nudge the agent, and block after MAX_FIX_ATTEMPTS', async () => {
   const h = harness(makeSpec(), [openTask()]);
   h.gh.pr = makePr();
-  h.gh.checks = { total: 1, pending: 0, failed: 1, failedNames: ['build'] };
+  h.gh.checks = { total: 1, pending: 0, failed: 1, failedNames: ['build'], successfulNames: [] };
   await runSpecOnce('spec', h.deps);
   assert.equal(h.tasks.get('a')?.fixAttempts, 1);
   assert.ok(h.calls.some((c) => c.startsWith('comment:10:@copilot') && c.includes('build')));
@@ -216,7 +221,7 @@ test('merge conflicts nudge the agent to merge the base branch', async () => {
 test('no CI checks → awaiting approval after the grace period, never auto-merged', async () => {
   const h = harness(makeSpec(), [openTask()]);
   h.gh.pr = makePr();
-  h.gh.checks = { total: 0, pending: 0, failed: 0, failedNames: [] };
+  h.gh.checks = { total: 0, pending: 0, failed: 0, failedNames: [], successfulNames: [] };
   await runSpecOnce('spec', h.deps);
   assert.equal(status(h, 'a'), 'pr_open');
   h.clock.now = later(CHECKS_GRACE_MS + 1);
@@ -236,6 +241,57 @@ test('workflow changes and auto-merge off wait for the user', async () => {
   await runSpecOnce('spec', off.deps);
   assert.equal(status(off, 'a'), 'awaiting_approval');
   assert.ok(!off.calls.includes('merge'));
+});
+
+test('placeholder, skipped or incomplete required checks never enable auto-merge', async () => {
+  for (const successfulNames of [['build'], ATHENA_REQUIRED_CHECKS.slice(0, 2), []]) {
+    const h = harness(makeSpec(), [openTask()]);
+    h.gh.pr = makePr();
+    h.gh.checks = { total: 3, pending: 0, failed: 0, failedNames: [], successfulNames };
+    await runSpecOnce('spec', h.deps);
+    assert.equal(status(h, 'a'), 'pr_open');
+    h.clock.now = later(CHECKS_GRACE_MS + 1);
+    await runSpecOnce('spec', h.deps);
+    assert.equal(status(h, 'a'), 'awaiting_approval');
+    assert.ok(!h.calls.includes('merge'));
+  }
+});
+
+test('unknown repository requires approval even when named checks are green', async () => {
+  const h = harness(makeSpec({ repo: 'unknown/repository' }), [openTask()]);
+  h.gh.pr = makePr();
+  await runSpecOnce('spec', h.deps);
+  assert.equal(status(h, 'a'), 'awaiting_approval');
+  assert.ok(!h.calls.includes('merge'));
+});
+
+test('GitHub checks require actual success, the requested SHA and GitHub Actions provenance', async () => {
+  const runs = [
+    { name: 'Backend checks', head_sha: 'sha1', status: 'completed', conclusion: 'success', app: { slug: 'github-actions' } },
+    { name: 'Frontend checks', head_sha: 'old-sha', status: 'completed', conclusion: 'success', app: { slug: 'github-actions' } },
+    { name: 'Browser checks', head_sha: 'sha1', status: 'completed', conclusion: 'skipped', app: { slug: 'github-actions' } },
+    { name: 'Third party', head_sha: 'sha1', status: 'completed', conclusion: 'success', app: { slug: 'other-app' } },
+  ];
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({ total_count: 5, check_runs: runs }));
+  try {
+    const checks = await new GitHubAgentClient('fixture-token').getChecks('fixture/repo', 'sha1');
+    assert.deepEqual(checks.successfulNames, ['Backend checks']);
+    assert.equal(checks.pending, 1, 'Truncated check lists must fail closed');
+  } finally {
+    fetchMock.mock.restore();
+  }
+});
+
+test('GitHub merge includes inspected SHA and requires explicit merge confirmation', async () => {
+  const fetchMock = mock.method(globalThis, 'fetch', async (_url: unknown, init: RequestInit) => {
+    assert.equal(JSON.parse(String(init.body)).sha, 'sha1');
+    return Response.json({ merged: false, message: 'Head changed' });
+  });
+  try {
+    await assert.rejects(new GitHubAgentClient('fixture-token').mergePullRequest('fixture/repo', 1, 'Task', 'squash', 'sha1'), /Head changed/);
+  } finally {
+    fetchMock.mock.restore();
+  }
 });
 
 test('draft PRs are marked ready before merging; failed merges block', async () => {
