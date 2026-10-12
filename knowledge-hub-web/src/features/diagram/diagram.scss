@@ -695,6 +695,7 @@ $dg-ink: #f4f4f4;
 // Numbered notes drawn on the sheet as part of the diagram
 .dg-noteblock {
   &__frame { fill: none; stroke: none; pointer-events: none; }
+  &__divider { stroke: #8d8d8d; stroke-opacity: 0.65; stroke-width: 1; stroke-dasharray: 6 6; pointer-events: none; }
   &__heading { fill: $dg-ink; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-weight: 600; pointer-events: none; user-select: none; }
   &__text { fill: $dg-ink; font-family: 'IBM Plex Sans', system-ui, sans-serif; pointer-events: none; user-select: none; }
   &__muted { fill: #8d8d8d; font-style: italic; }

@@ -2007,6 +2007,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {notesBlock !== null && (
                 <g className="dg-noteblock" aria-label="Diagram notes">
                   <rect className="dg-noteblock__frame" x={notesBlock.rect.x} y={notesBlock.rect.y} width={notesBlock.rect.width} height={notesBlock.rect.height} rx={4} />
+                  <line className="dg-noteblock__divider" x1={notesBlock.rect.x} x2={notesBlock.rect.x + notesBlock.rect.width}
+                    y1={notesBlock.rect.y} y2={notesBlock.rect.y} aria-hidden="true" />
                   <text className="dg-noteblock__heading" x={notesBlock.heading.x} y={notesBlock.heading.y} fontSize={NOTE_HEADING_FONT} dominantBaseline="hanging">Notes</text>
                   {notesBlock.items.map((item) => {
                     return (

@@ -88,10 +88,12 @@ test('lines, icons, footnotes and the colour key come across', () => {
   ok(cell(xml, 'footnote-f1').includes('value="1"') && cell(xml, 'footnote-f1').includes('fillColor=#0f62fe'), 'badge');
   ok(cell(xml, 'note-f1').includes('&lt;b&gt;a&lt;/b&gt;&lt;br&gt;Explains A'), 'note text');
   ok(!xml.includes('id="notes-frame"'), 'notes have no surrounding frame');
+  ok(cell(xml, 'notes-divider').includes('dashed=1') && cell(xml, 'notes-divider').includes('endArrow=none'),
+    'notes have a subtle dashed divider without arrows');
   ok(xml.includes('value="Key"') && xml.includes('value="Platform"'), 'colour key');
   const off = diagramDrawioXml(doc([node('a')], [], { footnotes: [{ id: 'f1', targetId: 'a', source: 'description' }], legend: { visible: true, position: 'bottom-right', entries: [] } }),
     new Map(), { footnotes: false, legend: false });
-  ok(!off.includes('footnote-f1') && !off.includes('value="Key"'), 'annotations can be left out');
+  ok(!off.includes('footnote-f1') && !off.includes('notes-divider') && !off.includes('value="Key"'), 'annotations can be left out');
 });
 
 test('helpers', () => {

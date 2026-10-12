@@ -201,6 +201,12 @@ async function runDiagramChecks(): Promise<string[]> {
   const blockBox = window.document.querySelector('.dg-noteblock__frame')!.getBoundingClientRect();
   const frameStyle = getComputedStyle(window.document.querySelector('.dg-noteblock__frame')!);
   check(frameStyle.fill === 'none' && frameStyle.stroke === 'none', 'Footnote area is transparent and borderless');
+  const divider = window.document.querySelector('.dg-noteblock__divider')!;
+  const dividerStyle = getComputedStyle(divider);
+  check(dividerStyle.strokeDasharray === '6px, 6px' && dividerStyle.strokeWidth === '1px'
+    && dividerStyle.pointerEvents === 'none', 'Notes divider is thin, dashed and non-interactive');
+  check(Number(divider.getAttribute('y1')) < Number(window.document.querySelector('.dg-noteblock__heading')!.getAttribute('y')),
+    'Divider sits above the Notes heading');
   const columnNodes = Array.from({ length: 9 }, (_, i) => ({
     ...workforce, id: crypto.randomUUID(), parentId: null, label: `Footnote column ${i + 1}`, description: `Detail ${i + 1}`,
   }));
@@ -218,6 +224,10 @@ async function runDiagramChecks(): Promise<string[]> {
     'SVG export retains the four-notes-per-column layout');
   check(![...columnExport.querySelectorAll('rect')].some(r => r.getAttribute('stroke') === '#c6c6c6'),
     'SVG export has no footnote frame');
+  const exportedDivider = columnExport.querySelector('line[stroke-dasharray="6 6"]')!;
+  check(exportedDivider !== null && Number(exportedDivider.getAttribute('x2')) - Number(exportedDivider.getAttribute('x1')) === columnLayout.rect.width
+    && Number(exportedDivider.getAttribute('y1')) < Number([...columnExport.querySelectorAll('text')].find(t => t.textContent === 'Notes')!.getAttribute('y')),
+    'Notes divider spans all footnote columns in export');
   check(blockBox.top > markerBox.bottom, 'Notes sit beneath the diagram by default');
   clickButton('Notes right');
   await waitFor(() => snapshot.document.notesPanel === 'right');
