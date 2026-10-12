@@ -166,7 +166,7 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
   const block = fns.length > 0 ? footnoteBlock(doc, content, doc.notesPanel ?? 'bottom') : null;
   if (block !== null) {
     regions.push(block.rect);
-    cells.push({ id: 'notes-divider', xml: `<mxCell id="notes-divider" style="${xml(style({ endArrow: 'none', startArrow: 'none', strokeColor: '#8d8d8d', strokeOpacity: 65, strokeWidth: 1, dashed: 1, dashPattern: '6 6' }))}" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="${block.rect.x}" y="${block.rect.y}" as="sourcePoint"/><mxPoint x="${block.rect.x + block.rect.width}" y="${block.rect.y}" as="targetPoint"/></mxGeometry></mxCell>` });
+    cells.push({ id: 'notes-divider', xml: `<mxCell id="notes-divider" style="${xml(style({ endArrow: 'none', startArrow: 'none', strokeColor: '#8d8d8d', strokeOpacity: 65, strokeWidth: 1, dashed: 1, dashPattern: '6 6' }))}" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="${block.divider.x}" y="${block.divider.y}" as="sourcePoint"/><mxPoint x="${block.divider.x + block.divider.width}" y="${block.divider.y}" as="targetPoint"/></mxGeometry></mxCell>` });
     cells.push(vertexCell('notes-heading', 'Notes', style({ text: '', html: 1, align: 'left', verticalAlign: 'top', fontSize: NOTE_HEADING_FONT, fontStyle: 1, spacing: 0 }), '1',
       { x: block.heading.x, y: block.heading.y, width: 120, height: NOTE_HEADING_FONT + 6 }));
     for (const item of block.items) {

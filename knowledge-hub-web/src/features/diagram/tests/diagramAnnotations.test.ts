@@ -74,6 +74,19 @@ test('footnoteHref deep-links to the numbered note', () => {
   ok(footnoteHref('c1', 3).includes('footnote=3'), footnoteHref('c1', 3));
   ok(footnoteHref('c1', 3).includes('c1'), 'includes canvas id');
 });
+test('notes divider follows diagram width rather than column or viewport width', () => {
+  const nodes = Array.from({ length: 9 }, (_, i) => node(`n${i}`));
+  const d = doc(nodes, [], { footnotes: nodes.map(n => ({ id: `f-${n.id}`, targetId: n.id, source: 'description' })) });
+  for (const width of [180, 600, 2400]) {
+    for (const position of ['bottom', 'right'] as const) {
+      const block = footnoteBlock(d, { x: -80, y: 20, width, height: 300 }, position)!;
+      eq(block.divider.width, width);
+      eq(block.divider.x, position === 'bottom' ? -80 : -80 + width + 40);
+      ok(block.rect.width >= width, 'fit and export bounds include the full divider');
+      ok(block.divider.y < block.heading.y, 'divider remains above Notes');
+    }
+  }
+});
 test('footnotes flow down four per column with non-overlapping variable-height text', () => {
   for (const count of [4, 5, 8, 9]) {
     const nodes = Array.from({ length: count }, (_, i) => node(`n${i}`, {

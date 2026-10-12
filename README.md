@@ -255,7 +255,9 @@ Large diagrams and note excerpts are bounded and explicitly marked as incomplete
 Athena's transcript scrolls only when the conversation exceeds the available
 height; prompt-pinning space does not create a scrollbar for short conversations.
 Diagram footnotes are transparent and borderless, with a subtle dashed horizontal
-divider above the Notes heading in the canvas and SVG/PNG/draw.io exports, flowing down four notes per
+divider above the Notes heading in the canvas and SVG/PNG/draw.io exports.
+The divider matches the diagram content width, not the viewport or notes columns.
+Footnotes flow down four notes per
 column before starting the next column to the right. Canvas, SVG/PNG and draw.io
 exports share this layout.
 

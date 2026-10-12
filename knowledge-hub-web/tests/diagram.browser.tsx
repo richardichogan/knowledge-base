@@ -8,7 +8,7 @@ import type { ApiResponse } from '../src/types';
 import type { DiagramDocument, DiagramNode, DiagramSnapshot } from '../src/features/diagram/diagramTypes';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
 import { footnoteBlock } from '../src/features/diagram/diagramAnnotations';
-import { documentWaveDepth, edgeEndpoints, lineGeometry, linePoints, portPoint } from '../src/features/diagram/diagramGeometry';
+import { diagramBounds, documentWaveDepth, edgeEndpoints, lineGeometry, linePoints, portPoint } from '../src/features/diagram/diagramGeometry';
 import { DIAGRAM_CALLOUT_TYPES } from '../src/features/diagram/diagramTypes';
 import { calloutLayout, DIAGRAM_CALLOUTS } from '../src/features/diagram/diagramCallouts';
 import { NoteMaps } from '../src/features/canvas/NoteMaps';
@@ -207,6 +207,10 @@ async function runDiagramChecks(): Promise<string[]> {
     && dividerStyle.pointerEvents === 'none', 'Notes divider is thin, dashed and non-interactive');
   check(Number(divider.getAttribute('y1')) < Number(window.document.querySelector('.dg-noteblock__heading')!.getAttribute('y')),
     'Divider sits above the Notes heading');
+  const contentBounds = diagramBounds(snapshot.document, 0);
+  check(Number(divider.getAttribute('x1')) === contentBounds.x
+    && Number(divider.getAttribute('x2')) === contentBounds.x + contentBounds.width,
+    'Notes divider spans the actual diagram, independently of canvas or notes width');
   const columnNodes = Array.from({ length: 9 }, (_, i) => ({
     ...workforce, id: crypto.randomUUID(), parentId: null, label: `Footnote column ${i + 1}`, description: `Detail ${i + 1}`,
   }));
@@ -225,9 +229,11 @@ async function runDiagramChecks(): Promise<string[]> {
   check(![...columnExport.querySelectorAll('rect')].some(r => r.getAttribute('stroke') === '#c6c6c6'),
     'SVG export has no footnote frame');
   const exportedDivider = columnExport.querySelector('line[stroke-dasharray="6 6"]')!;
-  check(exportedDivider !== null && Number(exportedDivider.getAttribute('x2')) - Number(exportedDivider.getAttribute('x1')) === columnLayout.rect.width
+  const exportedContent = diagramBounds(columnDoc, 0);
+  check(exportedDivider !== null && Number(exportedDivider.getAttribute('x1')) === exportedContent.x
+    && Number(exportedDivider.getAttribute('x2')) === exportedContent.x + exportedContent.width
     && Number(exportedDivider.getAttribute('y1')) < Number([...columnExport.querySelectorAll('text')].find(t => t.textContent === 'Notes')!.getAttribute('y')),
-    'Notes divider spans all footnote columns in export');
+    'Export divider uses diagram width even when the notes have more columns');
   check(blockBox.top > markerBox.bottom, 'Notes sit beneath the diagram by default');
   clickButton('Notes right');
   await waitFor(() => snapshot.document.notesPanel === 'right');

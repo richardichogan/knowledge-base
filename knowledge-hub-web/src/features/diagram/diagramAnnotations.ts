@@ -123,7 +123,7 @@ const TEXT_INDENT = 30;
 
 export interface FootnoteBlockLine { text: string; x: number; y: number; bold: boolean; muted: boolean }
 export interface FootnoteBlockItem { id: string; targetId: string; number: number; marker: DiagramPoint; lines: FootnoteBlockLine[]; rect: Rect }
-export interface FootnoteBlock { rect: Rect; heading: DiagramPoint; items: FootnoteBlockItem[] }
+export interface FootnoteBlock { rect: Rect; divider: Rect; heading: DiagramPoint; items: FootnoteBlockItem[] }
 
 /**
  * Lay out the numbered notes as part of the diagram, beside (`right`) or
@@ -167,7 +167,11 @@ export function footnoteBlock(doc: Pick<Doc, 'nodes' | 'edges' | 'footnotes'>, c
       rect: { x: columnX + 4, y: top - 5, width: columnWidth - 8, height: height + 10 },
     };
   });
-  return { rect: { x, y, width, height: bottom - y + BLOCK_PAD }, heading: { x: x + BLOCK_PAD, y: y + BLOCK_PAD }, items };
+  return {
+    rect: { x, y, width: Math.max(width, content.width), height: bottom - y + BLOCK_PAD },
+    divider: { x, y, width: content.width, height: 0 },
+    heading: { x: x + BLOCK_PAD, y: y + BLOCK_PAD }, items,
+  };
 }
 
 // ── Colour key (border colours only) ──────────────────────────────────────────
