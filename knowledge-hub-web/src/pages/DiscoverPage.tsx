@@ -26,10 +26,13 @@ import { useFlatTags } from '../hooks/useTaxonomy';
 import { useAthenaContext } from '../context/AthenaContext';
 import { LinkedInDraftModal } from '../components/discover/LinkedInDraftModal';
 import { ProjectFitChips } from '../components/discover/ProjectFitChips';
+import { DiscoverReview } from '../components/discover/DiscoverReview';
+import { SavedViews } from '../components/SavedViews';
+import { DEFAULT_DISCOVER_VIEW, DISCOVER_PREFERENCES_KEY, parseWorkspaceView, type DiscoverPreferences, type DiscoverTab } from '../utils/savedViews';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-type ActiveTab = DiscoverWorkflowState | 'inbox' | 'cfps';
+type ActiveTab = DiscoverTab;
 
 interface TabDef {
   key: ActiveTab;
@@ -332,7 +335,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         {(item.spark === true || item.rankScore != null) && (
           <span
             className={`dc-score dc-score--${scoreTier(item.rankScore ?? null)}${item.spark === true ? ' dc-score--spark' : ''}`}
-            title={`Ranking score used to order articles: relevance weighted by freshness, source authority, article type and project fit. Boosts can take it above 100.${item.spark === true ? ` ${item.sparkReason ?? 'High value content'}` : ''}`}
+            title={`Weighted rank: relevance weighted by freshness, source authority, article type and project fit. The sort control chooses rank, editorial relevance or publication date. Boosts can take rank above 100.${item.spark === true ? ` ${item.sparkReason ?? 'High value content'}` : ''}`}
           >
             {item.spark === true && <span className="dc-score__spark" aria-hidden>⚡</span>}
             {item.rankScore != null && <span className="dc-score__value">{(item.rankScore * 100).toFixed(1)}<small>rank</small></span>}
@@ -350,6 +353,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         </p>
       )}
       <ProjectFitChips fits={item.projectFit} />
+      <DiscoverReview item={item} />
       {item.workflowState === 'shelved' && item.shelvedAt !== null && item.shelvedAt !== undefined && (
         <p className="dc-card-shelved">
           Shelved {formatDate(item.shelvedAt)} — {item.shelvedReason === 'low' ? 'scored low' : 'unactioned too long'}; still searchable by Athena
@@ -490,14 +494,27 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export const DiscoverPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('to-review');
-  const [sourceFilter, setSourceFilter] = useState<string | undefined>(undefined);
-  const [cfpStateFilter, setCfpStateFilter] = useState<CfpWorkflowState>('to_review');
+  const [restored] = useState(() => {
+    try {
+      const raw = localStorage.getItem(DISCOVER_PREFERENCES_KEY);
+      const view = raw === null ? { ...DEFAULT_DISCOVER_VIEW } : parseWorkspaceView(JSON.parse(raw) as unknown);
+      if (view.kind !== 'discover') throw new Error('Invalid Discovery preferences.');
+      return { view, error: null };
+    } catch (error) {
+      console.warn('[Discover] Could not restore device-local filters.', error);
+      return { view: { ...DEFAULT_DISCOVER_VIEW }, error };
+    }
+  });
+  const [preferenceError, setPreferenceError] = useState<unknown>(restored.error);
+  const [activeTab, setActiveTab] = useState<ActiveTab>(restored.view.tab);
+  const [sourceFilter, setSourceFilter] = useState<string | undefined>(restored.view.source || undefined);
+  const [cfpStateFilter, setCfpStateFilter] = useState<CfpWorkflowState>(restored.view.cfpState);
+  const [sort, setSort] = useState(restored.view.sort);
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
   const updatingIdsRef = useRef(new Set<string>());
   const [page, setPage] = useState(1);
-  const [titleSearch, setTitleSearch] = useState('');
-  const [debouncedTitleSearch, setDebouncedTitleSearch] = useState('');
+  const [titleSearch, setTitleSearch] = useState(restored.view.title);
+  const [debouncedTitleSearch, setDebouncedTitleSearch] = useState(restored.view.title);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [linkedInItem, setLinkedInItem] = useState<{ id: string; title: string } | null>(null);
@@ -509,6 +526,14 @@ export const DiscoverPage: React.FC = () => {
   const isInbox = activeTab === 'inbox';
   const isCfps  = activeTab === 'cfps';
   const workflowState = isInbox ? 'to-review' : activeTab as DiscoverWorkflowState;
+
+  useEffect(() => {
+    try {
+      const preferences: DiscoverPreferences = { version: 1, kind: 'discover', tab: activeTab,
+        source: sourceFilter ?? '', title: titleSearch, sort, cfpState: cfpStateFilter };
+      localStorage.setItem(DISCOVER_PREFERENCES_KEY, JSON.stringify(parseWorkspaceView(preferences)));
+    } catch (error) { console.warn('[Discover] Filters could not be remembered.', error); setPreferenceError(error); }
+  }, [activeTab, sourceFilter, titleSearch, sort, cfpStateFilter]);
 
   // Debounce the title search so we don't fire a request on every keystroke.
   useEffect(() => {
@@ -531,8 +556,8 @@ export const DiscoverPage: React.FC = () => {
   }
 
   const feedQuery = useQuery({
-    queryKey: ['discover', workflowState, sourceFilter, page, debouncedTitleSearch],
-    queryFn: async () => requireApiSuccess(await api.getDiscoverFeed(workflowState, sourceFilter, page, PAGE_SIZE, debouncedTitleSearch || undefined)),
+    queryKey: ['discover', workflowState, sourceFilter, page, debouncedTitleSearch, sort],
+    queryFn: async () => requireApiSuccess(await api.getDiscoverFeed(workflowState, sourceFilter, page, PAGE_SIZE, debouncedTitleSearch || undefined, sort)),
     enabled: !isInbox && !isCfps,
   });
 
@@ -650,6 +675,13 @@ export const DiscoverPage: React.FC = () => {
         </button>
       </div>
       {sourcesOpen && <DiscoverSources onClose={() => { setSourcesOpen(false); }} />}
+      {preferenceError != null && <DataNotice title="Discovery filters could not be remembered or restored" error={preferenceError} />}
+      <SavedViews current={{ version: 1, kind: 'discover', tab: activeTab, source: sourceFilter ?? '',
+        title: titleSearch, sort, cfpState: cfpStateFilter }} onApply={next => {
+        if (next.kind !== 'discover') return;
+        setActiveTab(next.tab); setSourceFilter(next.source || undefined); setTitleSearch(next.title);
+        setDebouncedTitleSearch(next.title.trim()); setCfpStateFilter(next.cfpState); setSort(next.sort); setPage(1);
+      }} />
 
       {/* ── Combined toolbar: state tabs + optional filters ── */}
       <div className="dc-toolbar">
@@ -671,6 +703,13 @@ export const DiscoverPage: React.FC = () => {
         {!isInbox && !isCfps && sourcesQuery.isError && <DataNotice title="Source filters are unavailable" error={sourcesQuery.error} onRetry={() => { void sourcesQuery.refetch(); }} />}
 
         <div className="dc-toolbar__filters">
+          {!isInbox && !isCfps && <select className="dc-filter-select dc-sort-select" aria-label="Sort articles" value={sort}
+            onChange={event => {
+              const next = event.target.value;
+              if (next === 'weighted' || next === 'editorial' || next === 'latest') { setSort(next); setPage(1); }
+            }}>
+            <option value="weighted">Weighted rank</option><option value="editorial">Editorial relevance</option><option value="latest">Latest</option>
+          </select>}
           {/* Title search — plain text, article tabs only */}
           {!isInbox && !isCfps && (
             <div className="dc-search">
@@ -680,6 +719,7 @@ export const DiscoverPage: React.FC = () => {
                 className="dc-search__input"
                 placeholder="Search titles…"
                 value={titleSearch}
+                maxLength={256}
                 onChange={(e) => { handleTitleSearchChange(e.target.value); }}
                 aria-label="Search articles by title"
               />
@@ -697,7 +737,7 @@ export const DiscoverPage: React.FC = () => {
           )}
 
           {/* Source filter — select dropdown on article tabs */}
-          {!isInbox && !isCfps && allSources.length > 0 && (
+          {!isInbox && !isCfps && (allSources.length > 0 || sourceFilter !== undefined) && (
             <select
               className="dc-filter-select"
               value={sourceFilter ?? ''}
@@ -705,6 +745,8 @@ export const DiscoverPage: React.FC = () => {
               aria-label="Filter by source"
             >
               <option value="">All sources ({allSources.reduce((n, s) => n + s.count, 0)})</option>
+              {sourceFilter && !allSources.some(source => source.title === sourceFilter)
+                && <option value={sourceFilter}>{sourceFilter} (saved scope, not currently available)</option>}
               {allSources.map((s) => (
                 <option key={s.title} value={s.title}>{s.title} ({s.count})</option>
               ))}
@@ -748,6 +790,8 @@ export const DiscoverPage: React.FC = () => {
       {/* Articles feed */}
       {!isInbox && !isCfps && (
         <div className="dc-feed">
+          {sort !== 'weighted' && <p className="dc-sort-note">Ordered by {sort === 'editorial' ? 'editorial relevance' : 'publication date'}.
+            {' '}Badges still show weighted rank.</p>}
           {feedQuery.isLoading && (
             <div className="dc-loading">
               <InlineLoading description="Loading articles…" />

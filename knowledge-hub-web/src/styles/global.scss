@@ -10899,6 +10899,60 @@ $project-colour-map: (
   overflow: hidden;
 }
 
+.kh-saved-views, .dc-review {
+  color: var(--cds-text-secondary);
+  font-size: 0.875rem;
+  min-width: 0;
+  summary {
+    box-sizing: border-box;
+    cursor: pointer; padding: 8px 0; color: var(--cds-text-primary); min-height: 36px;
+    &:hover { color: var(--kh-accent); }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  }
+  p { line-height: 1.45; overflow-wrap: anywhere; margin: 8px 0; }
+  label { display: block; margin: 12px 0 6px; color: var(--cds-text-primary); }
+  input, select, textarea {
+    box-sizing: border-box;
+    min-width: 0; width: 100%; color: var(--cds-text-primary); background: var(--cds-field-01);
+    border: 1px solid var(--cds-border-strong-01); border-radius: 0; padding: 8px; font: inherit;
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 1px; }
+    &:disabled { opacity: 0.6; }
+  }
+  textarea { min-height: 80px; resize: vertical; }
+  button {
+    box-sizing: border-box;
+    border: 1px solid var(--cds-border-strong-01); background: transparent; color: var(--cds-text-primary);
+    min-height: 36px; padding: 8px 12px; font: inherit; cursor: pointer;
+    &:hover:not(:disabled) { background: var(--cds-layer-hover-01); }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+}
+.kh-saved-views {
+  margin-bottom: 12px;
+  &__body { max-width: 640px; padding: 0 0 12px; }
+  &__row { display: flex; gap: 8px; align-items: stretch; > input, > select { flex: 1; } > button { flex-shrink: 0; } }
+}
+.dc-review {
+  margin-top: 8px;
+  &__rank, &__feedback { border-top: 1px solid var(--cds-border-subtle-01); }
+  dl { display: grid; gap: 6px; margin: 8px 0; }
+  dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+  dt { overflow-wrap: anywhere; }
+  dd { margin: 0; color: var(--cds-text-primary); font-variant-numeric: tabular-nums; }
+  form { padding-bottom: 12px; }
+  form > button { margin-top: 12px; }
+}
+.dc-sort-note { color: var(--cds-text-secondary); font-size: 0.875rem; line-height: 1.5; margin: 0 0 12px; }
+@media (max-width: 600px) {
+  .dc-sort-select { box-sizing: border-box; min-height: 44px; font-size: 1rem; }
+  .kh-saved-views, .dc-review {
+    summary, button, select, input { min-height: 44px; }
+    input, select, textarea { font-size: 1rem; }
+  }
+  .kh-saved-views__row { flex-wrap: wrap; > input, > select { flex-basis: 100%; } }
+}
+
 .tp-link-results__item {
   display: flex;
   align-items: center;

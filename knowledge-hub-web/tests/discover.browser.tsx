@@ -9,6 +9,7 @@ import { api } from '../src/services/api';
 import { alertDialog, confirmDialog } from '../src/services/appDialogs';
 import type { ApiResponse } from '../src/types/apiResponse';
 import type { CfpItem } from '../src/services/api';
+import { DEFAULT_DISCOVER_VIEW, DISCOVER_PREFERENCES_KEY, SAVED_VIEWS_KEY } from '../src/utils/savedViews';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -23,6 +24,14 @@ let failWorkflow = true;
 let fail = false;
 let denied = false;
 let clipboard = '';
+localStorage.removeItem(DISCOVER_PREFERENCES_KEY);
+localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify({ version: 1, items: [{
+  id: '11111111-1111-4111-8111-111111111111', name: 'Unavailable source scope',
+  view: { ...DEFAULT_DISCOVER_VIEW, source: 'Unavailable feed', title: '50%_literal', sort: 'latest' },
+}] }));
+let requestedSort = '';
+let requestedSource: string | undefined;
+let requestedTitle: string | undefined;
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
   writeText: async (value: string) => {
     if (denied) throw new Error('Denied');
@@ -32,12 +41,16 @@ Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
 const now = new Date().toISOString();
 api.getTaxonomy = async () => success([]);
 api.getDiscoverSources = async () => success([]);
-api.getDiscoverFeed = async () => success({ items: [{
+api.getDiscoverFeed = async (_state, source, _page, _pageSize, title, sort) => {
+  requestedSort = sort ?? 'weighted'; requestedSource = source; requestedTitle = title;
+  return success({ items: [{
   id: articleId, sourceId: 'test', title: 'A public cloud management announcement', url: 'https://example.com/news',
   description: 'Public news', publishedAt: now, indexedAt: now, sourceTitle: 'Test newsletter', workflowState: 'to-review',
   relevanceScore: 0.8, rankScore: 1.248, relevanceExplanation: 'A useful enterprise IT update.', publishedUrl: null, taxonomyTagIds: [],
   articleType: null, platform: null, sourceType: null, spark: false, sparkReason: null, compositeScore: null,
+  rankFactors: { editorial: 0.8, recency: 1, authority: 1.3, articleType: 1.2, project: 1, halfLifeDays: 7, computedAt: now },
 }], total: 1, page: 1, pageSize: 25 });
+};
 api.getTimeline = async () => success({ items: [{
   id: emailId, sourceId: 'email', source: 'email', title: 'Cloud news by email', summary: 'A public product newsletter.',
   publishedAt: now, metadata: { from: 'Newsletter', accountLabel: 'Personal' },
@@ -70,7 +83,10 @@ async function waitFor(condition: () => boolean): Promise<void> {
     if (condition()) return;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error('Fixture timed out');
+  throw new Error(`Fixture timed out: ${JSON.stringify({
+    sort: requestedSort, source: requestedSource, title: requestedTitle,
+    feedbackWrites: requests, workflowWrites, text: document.body.innerText,
+  })}`);
 }
 function click(text: string): void {
   const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === text);
@@ -115,12 +131,100 @@ export async function runDiscoverChecks(): Promise<string[]> {
   }
   check(document.documentElement.scrollWidth <= window.innerWidth, 'Visible actions do not cause horizontal page overflow');
   checks.push('All article actions visible before hover/focus on desktop and touch layouts');
+  const setInput = (input: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+    const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const rankDetails = card.querySelector<HTMLDetailsElement>('.dc-review__rank')!;
+  rankDetails.open = true;
+  check(rankDetails.textContent?.includes('124.8 rank points') === true && rankDetails.textContent.includes('x 1.300000'),
+    'Accessible breakdown shows exact returned factors and boosted rank');
+  const feedbackDetails = card.querySelector<HTMLDetailsElement>('.dc-review__feedback')!;
+  feedbackDetails.open = true;
+  if (window.innerWidth <= 600) {
+    check(feedbackDetails.querySelector('select')!.getBoundingClientRect().height >= 44
+      && feedbackDetails.querySelector('select')!.getBoundingClientRect().height <= 46, 'Mobile review controls use compact 44px targets');
+  }
+  const feedbackText = feedbackDetails.querySelector<HTMLTextAreaElement>('textarea')!;
+  setInput(feedbackText, 'Keep this exact explanation after a lost response.');
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const requestIds: string[] = [];
+  let failFeedback = true;
+  api.saveDiscoverFeedback = async (id, payload) => {
+    check(id === articleId, 'Feedback uses exact source identity');
+    requestIds.push(payload.requestId);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    if (failFeedback) return failure();
+    return success({ requestId: payload.requestId });
+  };
+  const submitFeedback = feedbackDetails.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  submitFeedback.click(); submitFeedback.click();
+  await waitFor(() => feedbackDetails.querySelector('.kh-data-notice') !== null && !submitFeedback.disabled);
+  check(requestIds.length === 1 && feedbackText.value === 'Keep this exact explanation after a lost response.',
+    'Feedback failures retain exact input and prevent same-tick duplicates');
+  failFeedback = false;
+  submitFeedback.click();
+  await waitFor(() => feedbackDetails.textContent?.includes('Feedback recorded.') === true);
+  check(requestIds.length === 2 && requestIds[0] === requestIds[1] && workflowWrites === 0,
+    'Retry reuses durable feedback identity without changing workflow');
+  rankDetails.open = false; feedbackDetails.open = false;
+
+  const sortControl = document.querySelector<HTMLSelectElement>('[aria-label="Sort articles"]')!;
+  sortControl.value = 'editorial'; sortControl.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => requestedSort === 'editorial');
+  const views = document.querySelector<HTMLDetailsElement>('.kh-saved-views')!;
+  views.open = true;
+  const viewName = views.querySelector<HTMLInputElement>('input')!;
+  setInput(viewName, 'Editorial review');
+  await new Promise(resolve => setTimeout(resolve, 30));
+  click('Save current view');
+  await waitFor(() => views.textContent?.includes('View saved on this device.') === true);
+  const stored = JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY)!) as { items: Array<{ id: string; name: string; view: { sort: string } }> };
+  const editorialView = stored.items.find(item => item.name === 'Editorial review')!;
+  check(editorialView.view.sort === 'editorial', 'Named view persists the server sort');
+  sortControl.value = 'latest'; sortControl.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => requestedSort === 'latest');
+  const picker = views.querySelector<HTMLSelectElement>('select')!;
+  picker.value = ''; picker.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  picker.value = editorialView.id; picker.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => requestedSort === 'editorial');
+  click('Copy view link');
+  await waitFor(() => views.textContent?.includes('View link copied.') === true);
+  const shared = new URL(clipboard);
+  check((JSON.parse(shared.searchParams.get('view')!) as { sort: string }).sort === 'editorial',
+    'Shared link contains the selected sort, not article writing');
+  picker.value = '11111111-1111-4111-8111-111111111111'; picker.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => requestedSource === 'Unavailable feed' && requestedTitle === '50%_literal' && requestedSort === 'latest');
+  check(document.querySelector<HTMLSelectElement>('[aria-label="Filter by source"]')?.value === 'Unavailable feed',
+    'Unavailable saved source remains an explicit scope instead of widening to all feeds');
+  await waitFor(() => (JSON.parse(localStorage.getItem(DISCOVER_PREFERENCES_KEY)!) as { source: string }).source === 'Unavailable feed');
+  const write = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(key: string, value: string): void {
+    if (key === SAVED_VIEWS_KEY) throw new Error('Fixture device storage is full');
+    write.call(this, key, value);
+  };
+  try {
+    setInput(viewName, 'Retained name after storage failure');
+    await new Promise(resolve => setTimeout(resolve, 30));
+    click('Save current view');
+    await waitFor(() => document.body.textContent?.includes('View could not be loaded or saved') === true);
+    check(viewName.value === 'Retained name after storage failure', 'Storage failure preserves the unsaved view name');
+  } finally { Storage.prototype.setItem = write; }
+  click('Save current view');
+  await waitFor(() => document.querySelector('.kh-data-notice') === null);
+  picker.value = editorialView.id; picker.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => requestedSource === undefined && requestedTitle === undefined && requestedSort === 'editorial');
+  check(document.documentElement.scrollWidth <= window.innerWidth, 'Saved views and review forms fit every viewport');
+  views.open = false;
+  checks.push('All server sort choices, named device-local views, sharing and retry-safe feedback preserve workflow and exact input');
   const trigger = document.querySelector<HTMLButtonElement>('.dc-action--linkedin')!;
   trigger.focus();
   trigger.click();
   await waitFor(() => document.querySelector('dialog[open]') !== null);
   check(document.querySelector('.kh-dialog__actions button:last-child')?.hasAttribute('disabled') === true, 'Copy disabled while generating');
-  await waitFor(() => document.querySelector('textarea')?.value === post);
+  await waitFor(() => document.querySelector<HTMLTextAreaElement>('dialog textarea')?.value === post);
   check(document.querySelector('dialog a')?.getAttribute('href') === 'https://example.com/news', 'Original article link');
   check(workflowWrites === 0, 'Generating does not move the article');
   click('Copy post + link');
@@ -143,7 +247,7 @@ export async function runDiscoverChecks(): Promise<string[]> {
   check(document.querySelector<HTMLButtonElement>('.kh-dialog__actions button:last-child')!.disabled, 'No copying stale draft after failure');
   fail = false;
   click('Generate again');
-  await waitFor(() => document.querySelector('textarea')?.value === post);
+  await waitFor(() => document.querySelector<HTMLTextAreaElement>('dialog textarea')?.value === post);
   click('Close');
   await waitFor(() => document.querySelector('dialog[open]') === null);
   check(document.activeElement === trigger, 'Focus returns to launching control');

@@ -343,6 +343,9 @@ export interface GraphResponse {
   };
 }
 
+export type DiscoverSort = 'weighted' | 'editorial' | 'latest';
+export type DiscoverFeedbackReason = 'too-high' | 'too-low' | 'not-relevant' | 'already-covered' | 'incorrect-classification';
+
 export interface DiscoverItem {
   id: string;
   sourceId: string;
@@ -357,6 +360,10 @@ export interface DiscoverItem {
   relevanceExplanation: string | null;
   /** Live weighted score used by the backend to order articles; may exceed 1. */
   rankScore?: number | null;
+  rankFactors?: {
+    editorial: number | null; recency: number | null; authority: number; articleType: number;
+    project: number; halfLifeDays: number; computedAt: string;
+  };
   /** URL of the user's own blog post written about this article */
   publishedUrl: string | null;
   /** Taxonomy tag UUIDs from discover_item_tags */
@@ -1288,12 +1295,17 @@ export class KnowledgeHubApi {
     page = 1,
     pageSize = 50,
     title?: string,
+    sort: DiscoverSort = 'weighted',
   ): Promise<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>> {
     const r = await this.client.get<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>>(
       '/api/discover',
-      { params: { state, source, page, pageSize, title } },
+      { params: { state, source, page, pageSize, title, sort } },
     );
     return r.data;
+  }
+
+  async saveDiscoverFeedback(id: string, feedback: { requestId: string; reason: DiscoverFeedbackReason; explanation: string }): Promise<ApiResponse<{ requestId: string }>> {
+    return (await this.client.post<ApiResponse<{ requestId: string }>>(`/api/discover/${id}/feedback`, feedback)).data;
   }
 
   async getDiscoverSources(state?: string): Promise<ApiResponse<Array<{ title: string; count: number }>>> {

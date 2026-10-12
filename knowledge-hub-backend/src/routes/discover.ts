@@ -9,6 +9,7 @@ import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync
 import { readFeed } from '../integrations/discovery/feedReader.js';
 import { SOURCE_AUTHORITY_WEIGHTS, ARTICLE_TYPE_WEIGHTS } from '../integrations/cms/articleScoringPrompt.js';
 import { generateLinkedInDraft, generateShortSocialDraft, type LinkedInSource } from '../ai/linkedInDraft.js';
+import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 
 /**
  * Builds a SQL CASE expression mapping a metadata text column's value to its weight, generated
@@ -57,6 +58,10 @@ export interface DiscoverItem {
   sourceAuthorityTier: string | null;
   /** Live-computed rank score actually used for ordering (relevance_score with recency decay applied) */
   rankScore: number | null;
+  rankFactors: {
+    editorial: number | null; recency: number | null; authority: number; articleType: number;
+    project: number; halfLifeDays: number; computedAt: string;
+  };
   /** 0 = not covered, 1 = same story from another angle, 2 = he has already made this argument */
   alreadyCovered: number | null;
   /** Title of his own piece that covers it */
@@ -74,6 +79,54 @@ export interface DiscoverItem {
 const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived', 'published', 'shelved'];
 const DISCOVER_PAGE_SIZE_DEFAULT = 50;
 const DISCOVER_PAGE_SIZE_MAX = 100;
+const DISCOVER_ENUM_MAX_LENGTH = 32;
+const DISCOVER_FILTER_MAX_LENGTH = 256;
+const FEEDBACK_EXPLANATION_MAX_LENGTH = 2000;
+const ASCII_SPACE = 32;
+const FEEDBACK_REASONS = ['too-high', 'too-low', 'not-relevant', 'already-covered', 'incorrect-classification'] as const;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function queryText(value: unknown, name: string, maximum: number): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.length > maximum || [...value].some(character => character.charCodeAt(0) < ASCII_SPACE)) {
+    throw new ValidationError(`Invalid ${name}`);
+  }
+  return value.trim() || undefined;
+}
+
+discoverRouter.post('/:id/feedback', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const id = req.params['id'];
+      const body: unknown = req.body;
+      if (!id || !UUID.test(id) || typeof body !== 'object' || body === null) {
+        throw new ValidationError('Invalid Discovery feedback');
+      }
+      const { requestId, reason, explanation = '' } = body as Record<string, unknown>;
+      if (typeof requestId !== 'string' || !UUID.test(requestId) || typeof reason !== 'string'
+        || !FEEDBACK_REASONS.some(value => value === reason) || typeof explanation !== 'string'
+        || explanation.length > FEEDBACK_EXPLANATION_MAX_LENGTH || explanation.includes('\u0000')) {
+        throw new ValidationError('Choose a feedback reason and keep the explanation within 2,000 characters.');
+      }
+      const db = getDb();
+      const item = await db.query(`SELECT id FROM content_items WHERE id=$1 AND source='discovered-article'`, [id]);
+      if (item.rows.length === 0) throw new NotFoundError('Discover item');
+      const inserted = await db.query(
+        `INSERT INTO discover_feedback (request_id,item_id,reason,explanation) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (request_id) DO NOTHING RETURNING request_id`,
+        [requestId, id, reason, explanation],
+      );
+      const saved = await db.query<{ item_id: string; reason: string; explanation: string }>(
+        'SELECT item_id,reason,explanation FROM discover_feedback WHERE request_id=$1', [requestId],
+      );
+      const feedback = saved.rows[0];
+      if (!feedback || feedback.item_id !== id.toLowerCase() || feedback.reason !== reason || feedback.explanation !== explanation) {
+        throw new ConflictError('This feedback request was already used for different feedback.', 'FEEDBACK_CONFLICT');
+      }
+      res.status(inserted.rows.length ? HTTP_STATUS.CREATED : HTTP_STATUS.OK).json({ success: true, data: { requestId } });
+    } catch (error) { next(error); }
+  })();
+});
 
 discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
@@ -111,12 +164,22 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
   void (async (): Promise<void> => {
     try {
       const db = getDb();
-      const state = (req.query['state'] as string) || 'to-review';
-      const sourceFilter = req.query['source'] as string | undefined;
-      const titleFilter = (req.query['title'] as string | undefined)?.trim();
+      const state = queryText(req.query['state'], 'state', DISCOVER_ENUM_MAX_LENGTH) ?? 'to-review';
+      if (!VALID_STATES.some(value => value === state)) throw new ValidationError('Unsupported Discovery state');
+      const sort = queryText(req.query['sort'], 'sort', DISCOVER_ENUM_MAX_LENGTH) ?? 'weighted';
+      const orders: Record<string, string> = {
+        weighted: 'rank_score DESC NULLS LAST, ci.published_at DESC NULLS LAST, ci.id ASC',
+        editorial: 'ci.relevance_score DESC NULLS LAST, ci.published_at DESC NULLS LAST, ci.id ASC',
+        latest: 'ci.published_at DESC NULLS LAST, ci.id ASC',
+      };
+      const order = orders[sort];
+      if (!Object.hasOwn(orders, sort) || !order) throw new ValidationError('Unsupported Discovery sort');
+      const sourceFilter = queryText(req.query['source'], 'source', DISCOVER_FILTER_MAX_LENGTH);
+      const titleFilter = queryText(req.query['title'], 'title', DISCOVER_FILTER_MAX_LENGTH);
       const page = positiveInteger(req.query['page'], 'page', 1);
       const pageSize = positiveInteger(req.query['pageSize'], 'pageSize', DISCOVER_PAGE_SIZE_DEFAULT, DISCOVER_PAGE_SIZE_MAX);
       const offset = (page - 1) * pageSize;
+      if (!Number.isSafeInteger(offset)) throw new ValidationError('Discovery page is too large');
 
       const conditions: string[] = [`ci.source = 'discovered-article'`];
       const params: unknown[] = [];
@@ -132,7 +195,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       }
       if (titleFilter) {
         conditions.push(`title ILIKE $${p++}`);
-        params.push(`%${titleFilter}%`);
+        params.push(`%${titleFilter.replace(/[\\%_]/g, '\\$&')}%`);
       }
 
       const where = `WHERE ${conditions.join(' AND ')}`;
@@ -149,11 +212,13 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       params.push(DISCOVER_RECENCY_HALF_LIFE_DAYS);
       const authorityWeightExpr = buildWeightCaseExpr(`ci.metadata->>'sourceAuthorityTier'`, SOURCE_AUTHORITY_WEIGHTS, 1);
       const typeWeightExpr = buildWeightCaseExpr(`ci.metadata->>'articleType'`, ARTICLE_TYPE_WEIGHTS, 1);
+      const recencyExpr = `EXP(- EXTRACT(EPOCH FROM (NOW() - ci.published_at)) / 86400.0 / $${halfLifeParamIndex} * LN(2))`;
+      const projectExpr = `(1 + COALESCE((ci.metadata->>'projectBoost')::real, 0))`;
       const rankScoreExpr = `COALESCE(ci.relevance_score, 0)
-           * EXP(- EXTRACT(EPOCH FROM (NOW() - ci.published_at)) / 86400.0 / $${halfLifeParamIndex} * LN(2))
+           * ${recencyExpr}
            * (${authorityWeightExpr})
            * (${typeWeightExpr})
-           * (1 + COALESCE((ci.metadata->>'projectBoost')::real, 0))`;
+           * ${projectExpr}`;
 
       const [countResult, dataResult] = await Promise.all([
         db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ci ${where}`, params.slice(0, halfLifeParamIndex - 1)),
@@ -171,18 +236,24 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
           relevance_explanation: string | null;
           taxonomy_tag_ids: string[] | null;
           rank_score: number | null;
+          recency_factor: number | null;
+          authority_factor: number;
+          type_factor: number;
+          project_factor: number;
+          rank_computed_at: Date;
         }>(
           `SELECT ci.id, ci.source_id, ci.title, ci.url, ci.body, ci.published_at, ci.indexed_at,
                   ci.metadata, ci.workflow_state, ci.relevance_score, ci.relevance_explanation,
                   array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids,
-                  ${rankScoreExpr} AS rank_score
+                  ${rankScoreExpr} AS rank_score,
+                  ${recencyExpr} AS recency_factor, (${authorityWeightExpr}) AS authority_factor,
+                  (${typeWeightExpr}) AS type_factor, ${projectExpr} AS project_factor,
+                  NOW() AS rank_computed_at
            FROM content_items ci
            LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
            ${where}
            GROUP BY ci.id
-           ORDER BY
-             rank_score DESC,
-             ci.published_at DESC
+           ORDER BY ${order}
            LIMIT $${p++} OFFSET $${p}`,
           [...params, pageSize, offset],
         ),
@@ -211,6 +282,13 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         compositeScore: typeof row.metadata['compositeScore'] === 'number' ? row.metadata['compositeScore'] : null,
         sourceAuthorityTier: typeof row.metadata['sourceAuthorityTier'] === 'string' ? row.metadata['sourceAuthorityTier'] : null,
         rankScore: row.rank_score,
+        rankFactors: {
+          editorial: row.relevance_score === null ? null : Number(row.relevance_score),
+          recency: row.recency_factor === null ? null : Number(row.recency_factor),
+          authority: Number(row.authority_factor), articleType: Number(row.type_factor),
+          project: Number(row.project_factor), halfLifeDays: DISCOVER_RECENCY_HALF_LIFE_DAYS,
+          computedAt: row.rank_computed_at.toISOString(),
+        },
         alreadyCovered: typeof row.metadata['alreadyCovered'] === 'number' ? row.metadata['alreadyCovered'] : null,
         coveredBy: typeof row.metadata['coveredBy'] === 'string' && row.metadata['coveredBy'] !== '' ? row.metadata['coveredBy'] : null,
         sourceGroup: typeof row.metadata['sourceGroup'] === 'string' ? row.metadata['sourceGroup'] : null,

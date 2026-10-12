@@ -7,7 +7,7 @@
  * via the .plan-inner wrapper.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { CarbonIconType } from '@carbon/icons-react';
 import { Calendar, Dashboard, Upload, List } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
@@ -17,8 +17,9 @@ import { TaskListView } from './TaskListView';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useDueNotifications } from '../hooks/useDueNotifications';
 import { useProjects } from '../hooks/useProjects';
-import { readStored, writeStored } from '../hooks/usePersistedState';
 import { DEFAULT_PLAN_PREFERENCES, PLAN_PREFERENCES_KEY, parsePlanPreferences, type PlanPreferences, type PlanView } from '../utils/planPreferences';
+import { SavedViews } from '../components/SavedViews';
+import { DataNotice } from '../components/DataNotice';
 
 interface ViewTab {
   key: PlanView;
@@ -33,17 +34,22 @@ const VIEW_TABS: ViewTab[] = [
 ];
 
 export const PlanPage: React.FC = () => {
-  const [preferences, setPreferences] = useState<PlanPreferences>(() => {
-    try { return parsePlanPreferences(readStored(PLAN_PREFERENCES_KEY)); } catch (error) {
+  const [restored] = useState(() => {
+    try { return { preferences: parsePlanPreferences(localStorage.getItem(PLAN_PREFERENCES_KEY)), error: null }; } catch (error) {
       console.warn('[Plan] Could not restore preferences; using the default view.', error);
-      return { ...DEFAULT_PLAN_PREFERENCES };
+      return { preferences: { ...DEFAULT_PLAN_PREFERENCES }, error };
     }
   });
+  const [preferences, setPreferences] = useState<PlanPreferences>(restored.preferences);
+  const [preferenceError, setPreferenceError] = useState<unknown>(restored.error);
+  useEffect(() => {
+    try { localStorage.setItem(PLAN_PREFERENCES_KEY, JSON.stringify(preferences)); }
+    catch (error) { console.warn('[Plan] Could not remember current filters.', error); setPreferenceError(error); }
+  }, [preferences]);
   const { view, project: filterProject, tag: filterTag } = preferences;
   const updatePreferences = (patch: Partial<Omit<PlanPreferences, 'version'>>): void => {
     setPreferences(previous => {
       const next = { ...previous, ...patch };
-      writeStored(PLAN_PREFERENCES_KEY, JSON.stringify(next));
       return next;
     });
   };
@@ -101,6 +107,11 @@ export const PlanPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {preferenceError != null && <DataNotice title="Plan view could not be remembered or restored" error={preferenceError} />}
+      <SavedViews current={{ ...preferences, kind: 'plan' }} onApply={next => {
+        if (next.kind === 'plan') updatePreferences({ view: next.view, project: next.project, tag: next.tag });
+      }} />
 
       {/* Sub-page — .page-header inside is hidden via CSS */}
       <div className="plan-inner">

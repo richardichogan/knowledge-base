@@ -167,6 +167,18 @@ Plan remembers its mode and exact project/tag scope in a versioned browser-local
 record. Missing project/tag choices stay visibly scoped until explicitly changed;
 an unavailable saved scope never silently widens to all content.
 
+**Saved views** in Plan and Discover names the current filters and view mode
+(including Discovery's sort/CFP state). Up to 20 versioned views are stored on
+this device, not synced between accounts/devices. Saving the same name updates
+it; deleting a view does not change current filters. **Copy view link** captures
+validated filter values in a versioned URL parameter, not underlying writing.
+Shared links apply only to their matching workspace; malformed/duplicate links
+show an error and retain current scope. Unavailable project/tag/source choices
+remain visible rather than silently widening a saved filter. Storage failures
+retain the entered name, and invalid stored views can be explicitly reset after
+confirmation. Browser-local preferences and links may include project/tag IDs,
+source names and title searches: share them only with intended recipients.
+
 Heavy routes, Athena's popout, Think's editors/import and the graph canvas load
 on demand. Recovery belongs to the failed view, outside AppShell's implementation:
 **Retry** creates a fresh loader without reloading the page, authentication or
@@ -194,11 +206,29 @@ Navigation regressions use the same isolated fixture server and Chromium executa
 
 ## Quick LinkedIn posts from Discover
 
-Discover article badges show the live **rank** used to order the feed, not the
+Discover article badges show the live weighted **rank**, the default feed order, not the
 original relevance percentage. Rank is relevance weighted by freshness, source
 authority, article type and project fit, displayed on a 100-point scale with one
 decimal place. Boosts can take it above 100; it is not a percentage. CFP scores
 and deadline ordering are unchanged.
+
+Articles can also sort by **Editorial relevance** or **Latest**. Each server
+order uses stable ID ties and the same workflow/source/literal-title filters
+across pages; badges remain weighted ranks and alternative sorting is labelled.
+This is offset pagination of live data, not a frozen snapshot during concurrent
+ingestion or scoring. **Why this rank?** exposes the actual SQL relevance,
+freshness, source/type and project factors, half-life and computation timestamp.
+Multiply the relevance points and factors to reproduce the rank within display
+rounding (stored REAL scores can incur floating-point rounding). Missing factors
+are labelled unavailable, never reconstructed from guessed weights.
+
+**Give relevance feedback** stores an explicit bounded reason and optional
+2,000-character explanation for review. It does not retrain scoring, change
+weights, archive/publish an article or start an AI call. Failed submissions keep
+the exact explanation and reuse their request identity on retry; duplicate
+requests cannot create duplicate rows, and a reused identity with different
+content is rejected. Additive migration `066_discover_feedback.sql` stores this
+authenticated feedback separately from article workflow/scoring.
 
 The rank sits in its own heading column beside the source and article title,
 so its larger number does not expand the metadata row or push the title down.

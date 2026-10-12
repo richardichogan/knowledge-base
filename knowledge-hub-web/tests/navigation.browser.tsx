@@ -375,6 +375,39 @@ export async function runNavigationChecks(): Promise<string[]> {
     'Project and tag scope stays available across Plan modes');
   results.push('Calendar range beyond 100, date-only native tasks, completed exclusion and responsive shared Plan scope');
 
+  const sharedPlan = { version: 1, kind: 'plan', view: 'calendar', project: 'unavailable-project', tag: 'unavailable-tag' };
+  await go(`/plan?view=${encodeURIComponent(JSON.stringify(sharedPlan))}`);
+  await waitFor(() => selector<HTMLSelectElement>('#plan-filter-project').value === 'unavailable-project'
+    && selector<HTMLSelectElement>('#plan-filter-tag').value === 'unavailable-tag');
+  check(selector('.plan-view-btn--active').textContent?.trim() === 'Calendar',
+    'Shared Plan view preserves exact mode and unavailable scopes');
+  const savedViews = selector<HTMLDetailsElement>('.kh-saved-views');
+  savedViews.open = true;
+  const savedName = savedViews.querySelector<HTMLInputElement>('input')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(savedName, 'Project calendar scope');
+  savedName.dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  savedViews.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+  await waitFor(() => savedViews.textContent?.includes('View saved on this device.') === true);
+  [...document.querySelectorAll<HTMLButtonElement>('.plan-view-toggle button')].find(button => button.textContent?.trim() === 'Board')!.click();
+  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'Board');
+  const savedPicker = savedViews.querySelector<HTMLSelectElement>('select')!;
+  savedPicker.value = ''; savedPicker.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  savedPicker.selectedIndex = savedPicker.options.length - 1;
+  savedPicker.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'Calendar');
+  check(selector<HTMLSelectElement>('#plan-filter-project').value === 'unavailable-project'
+    && selector<HTMLSelectElement>('#plan-filter-tag').value === 'unavailable-tag', 'Named Plan view cannot widen scope across modes');
+  await go('/plan?view=%7B');
+  await waitFor(() => document.body.textContent?.includes('Shared view link is invalid; current filters were retained') === true);
+  check(selector<HTMLSelectElement>('#plan-filter-project').value === 'unavailable-project', 'Malformed link retains current scope visibly');
+  await go(`/plan?view=${encodeURIComponent(JSON.stringify({ ...sharedPlan, view: 'list', project: '', tag: '' }))}`);
+  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'List'
+    && selector<HTMLSelectElement>('#plan-filter-project').value === '');
+  check(document.body.textContent?.includes('Shared view link is invalid') !== true, 'Valid shared link clears its previous error');
+  results.push('Named and shared Plan views retain unavailable project/tag scopes, switch modes and reject malformed links visibly');
+
   const searchTrigger = selector<HTMLButtonElement>('[aria-label="Search"]');
   searchTrigger.focus();
   searchTrigger.click();
