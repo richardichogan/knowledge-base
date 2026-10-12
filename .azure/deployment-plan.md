@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Frontend-only Discovery card alignment correction and slightly larger article titles. Existing backend v180 unchanged.
 
@@ -202,6 +202,14 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-12 following the 11:53 BST request:
+
+- Production SWA deployment succeeded for `91c5c24` (application `9e29ec9`).
+- Both production hosts serve matching release HTML at `/discover`;
+  `/assets/index-DcclTItg.js` SHA-256 matches the local production build.
+- Backend v180 and ranking logic unchanged.
+- Production: https://athena.themicrosoftcloudblog.com/discover
 
 Validated 2026-10-12 following the 11:53 BST request:
 
