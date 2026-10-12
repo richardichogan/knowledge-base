@@ -40,6 +40,7 @@ import { KnowledgeHubError, PayloadTooLargeError } from './types/errors.js';
 import { voiceRouter } from './routes/voiceRoutes.js';
 import { todayRouter } from './routes/today.js';
 import { repoProjectMappingsRouter } from './routes/repoProjectMappings.js';
+import { knowledgeHealthRouter } from './routes/knowledgeHealth.js';
 import { env } from './config/env.js';
 import type { RuntimePhase } from './runtime.js';
 const SERVICE_UNAVAILABLE = 503;
@@ -153,6 +154,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/build', buildRouter);
   app.use('/api/today', todayRouter);
   app.use('/api/repo-project-mappings', repoProjectMappingsRouter);
+  app.use('/api/health', knowledgeHealthRouter);
 
   // ── 404 handler ───────────────────────────────────────────────────────────
   app.use((_req: Request, res: Response) => {

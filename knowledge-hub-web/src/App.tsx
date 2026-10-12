@@ -38,6 +38,7 @@ const AIChatPage = deferredView('Athena', async () => ({ default: (await import(
 const RepoProjectMappingsPage = deferredView('Project mappings', async () => ({ default: (await import('./pages/RepoProjectMappingsPage')).RepoProjectMappingsPage }));
 const ProjectsPage = deferredView('Projects', async () => ({ default: (await import('./pages/ProjectsPage')).ProjectsPage }));
 const BuildPage = deferredView('Build', async () => ({ default: (await import('./features/build/BuildPage')).BuildPage }));
+const KnowledgeHealthPage = deferredView('Knowledge health', async () => ({ default: (await import('./pages/KnowledgeHealthPage')).KnowledgeHealthPage }));
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -67,6 +68,7 @@ const App: React.FC = () => {
                 <Route path="blog-post" element={<Navigate to="/chat" replace />} />
                 <Route path="graph"    element={<GraphPage />} />
                 <Route path="settings/repo-mappings" element={<RepoProjectMappingsPage />} />
+                <Route path="health" element={<KnowledgeHealthPage />} />
                 <Route path="timeline"  element={<Navigate to="/discover" replace />} />
                 <Route path="search"    element={<Navigate to="/discover" replace />} />
                 <Route path="ai"        element={<Navigate to="/discover" replace />} />

@@ -1,0 +1,30 @@
+import { Router } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import { getDb } from '../db/db.js';
+import { getKnowledgeHealth, parseHealthQuery, type KnowledgeHealth } from '../health/knowledgeHealth.js';
+import type { ApiSuccess } from '../types/apiResponse.js';
+
+export const knowledgeHealthRouter = Router();
+
+function queryText(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * GET /api/health/knowledge?from=YYYY-MM-DD&to=YYYY-MM-DD&environment=prod&feature=&persona=&deployment=
+ * Read-only aggregates: AI usage, sync runs and index freshness. Contains no prompts, content or error text.
+ */
+knowledgeHealthRouter.get('/knowledge', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const filters = parseHealthQuery({
+        from: queryText(req.query['from']), to: queryText(req.query['to']), environment: queryText(req.query['environment']),
+        feature: queryText(req.query['feature']), persona: queryText(req.query['persona']), deployment: queryText(req.query['deployment']),
+      });
+      const body: ApiSuccess<KnowledgeHealth> = { success: true, data: await getKnowledgeHealth(getDb(), filters) };
+      res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});

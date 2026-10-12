@@ -53,11 +53,11 @@ interface ChatCompletionResponse {
     message: { role: string; content: string | null; tool_calls?: LlmToolCall[] };
     finish_reason: string;
   }>;
-  usage: {
+  usage?: {
     prompt_tokens: number; completion_tokens: number; total_tokens: number;
     prompt_tokens_details?: { cached_tokens?: number };
     completion_tokens_details?: { reasoning_tokens?: number };
-  };
+  } | undefined;
 }
 
 /**
@@ -509,10 +509,10 @@ export class FoundryClient {
       : data.status === 'incomplete' && data.incomplete_details?.reason === 'max_output_tokens' ? 'length' : 'stop';
     return {
       choices: [{ message: { role: 'assistant', content: text === '' ? null : text, ...(toolCalls.length > 0 && { tool_calls: toolCalls }) }, finish_reason: finishReason }],
-      usage: {
-        prompt_tokens: data.usage?.input_tokens ?? 0, completion_tokens: data.usage?.output_tokens ?? 0, total_tokens: data.usage?.total_tokens ?? 0,
-        prompt_tokens_details: { cached_tokens: data.usage?.input_tokens_details?.cached_tokens ?? 0 },
-        completion_tokens_details: { reasoning_tokens: data.usage?.output_tokens_details?.reasoning_tokens ?? 0 },
+      usage: data.usage === undefined ? undefined : {
+        prompt_tokens: data.usage.input_tokens ?? 0, completion_tokens: data.usage.output_tokens ?? 0, total_tokens: data.usage.total_tokens ?? 0,
+        prompt_tokens_details: { cached_tokens: data.usage.input_tokens_details?.cached_tokens ?? 0 },
+        completion_tokens_details: { reasoning_tokens: data.usage.output_tokens_details?.reasoning_tokens ?? 0 },
       },
     };
   }

@@ -1,6 +1,6 @@
 import {
   Home, Compass, CalendarTools, Idea, Portfolio, Activity, Book,
-  Network_3, MachineLearningModel, Renew, Tag, Settings, Code,
+  Network_3, MachineLearningModel, Renew, Tag, Settings, Code, Analytics,
 } from '@carbon/icons-react';
 
 export type NavigationAction = 'tags' | 'repo-tags';
@@ -40,6 +40,7 @@ export const TOOL_GROUPS: NavigationGroup[] = [
     { id: 'tags', action: 'tags', label: 'Tag Manager', icon: Tag, description: 'Manage tags and review suggestions' },
     { id: 'repo-tags', action: 'repo-tags', label: 'Repo to Tag Mappings', icon: Settings, description: 'Manage repository-to-tag mappings' },
     { id: 'repo-projects', path: '/settings/repo-mappings', label: 'Repo project mappings', icon: Settings, description: 'Manage repository filing project tags' },
+    { id: 'health', path: '/health', label: 'Knowledge health', icon: Analytics, description: 'AI usage, sync runs and index freshness' },
   ] },
 ];
 

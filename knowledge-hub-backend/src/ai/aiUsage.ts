@@ -6,11 +6,15 @@
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
 
+const MAX_ERROR_LENGTH = 300;
+
 export interface TokenUsage {
   promptTokens: number;
   cachedTokens: number;
   completionTokens: number;
   reasoningTokens: number;
+  /** True only when the provider reported usage; absent usage is unmeasured, not zero. */
+  known?: boolean;
 }
 
 export interface UsageRecord extends Partial<TokenUsage> {
@@ -30,7 +34,7 @@ export interface UsageRecord extends Partial<TokenUsage> {
 export function tokenUsageFrom(u: Record<string, unknown> | undefined): TokenUsage {
   const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
   const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null ? v as Record<string, unknown> : {});
-  if (u === undefined) return { promptTokens: 0, cachedTokens: 0, completionTokens: 0, reasoningTokens: 0 };
+  if (u === undefined) return { promptTokens: 0, cachedTokens: 0, completionTokens: 0, reasoningTokens: 0, known: false };
   const promptDetails = obj(u['prompt_tokens_details'] ?? u['input_tokens_details']);
   const completionDetails = obj(u['completion_tokens_details'] ?? u['output_tokens_details']);
   return {
@@ -38,6 +42,7 @@ export function tokenUsageFrom(u: Record<string, unknown> | undefined): TokenUsa
     cachedTokens: num(promptDetails['cached_tokens']),
     completionTokens: num(u['completion_tokens'] ?? u['output_tokens']),
     reasoningTokens: num(completionDetails['reasoning_tokens']),
+    known: typeof (u['prompt_tokens'] ?? u['input_tokens']) === 'number' || typeof (u['completion_tokens'] ?? u['output_tokens']) === 'number',
   };
 }
 
@@ -46,12 +51,12 @@ export function recordAiUsage(r: UsageRecord): void {
     void getDb().query(
       `INSERT INTO ai_usage_log
          (environment, feature, persona, session_id, slot, deployment, api,
-          prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, duration_ms, ok, error)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, duration_ms, ok, error, usage_known)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [
         env.isDevelopment ? 'dev' : 'prod', r.feature, r.persona ?? null, r.sessionId ?? null, r.slot, r.deployment, r.api,
         r.promptTokens ?? 0, r.cachedTokens ?? 0, r.completionTokens ?? 0, r.reasoningTokens ?? 0,
-        Math.round(r.durationMs), r.ok, r.error?.slice(0, 300) ?? null,
+        Math.round(r.durationMs), r.ok,         r.error?.slice(0, MAX_ERROR_LENGTH) ?? null, r.known === true,
       ],
     ).catch(() => { /* logging must never affect a model call */ });
   } catch { /* same */ }

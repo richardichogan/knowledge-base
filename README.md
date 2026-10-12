@@ -198,8 +198,11 @@ cannot clear another turn's metadata. Live reconnect remains in-memory while the
 process survives. These safeguards assume the existing single-replica deployment;
 do not enable multiple replicas without lease/ownership recovery changes.
 
-## Navigation
+## Knowledge health
 
+**Tools → Knowledge health** (`/health`, `GET /api/health/knowledge`) is a read-only view of AI usage, recent sync runs and index freshness, filtered by UTC date range (inclusive, up to 90 days; default last 7), environment, feature, persona and deployment. Every query is bounded and each section fails independently. Token totals count only calls where the provider reported usage (`ai_usage_log.usage_known`, added by migration 067); earlier rows and calls without usage show as "Not measured" rather than zero. No monetary estimate is shown because no pricing is configured, and prompts, content, session ids and error text are never returned.
+
+## Navigation
 The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
 
 Search remains available through the header or Cmd+K / Ctrl+K. Its command palette uses the same destination groups. The toolbar is the only global Athena launcher: it opens the existing popout or reveals and focuses the Sources rail without changing context. It is disabled throughout Think, which uses its built-in Athena panel. There is no floating launcher on any screen. Sparks and Canvas remain Think modes, and quick Spark capture remains available in Think or with Cmd+. / Ctrl+. All existing URLs and redirects are preserved. No global project selector or new administration/search functionality is added.

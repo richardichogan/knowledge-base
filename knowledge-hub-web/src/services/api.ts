@@ -133,6 +133,35 @@ export interface SearchQuery {
   pageSize?: number;
 }
 
+export type HealthSection<T> = { available: true; data: T } | { available: false; message: string };
+export interface HealthUsageTotals {
+  calls: number; failures: number; measuredCalls: number; unmeasuredCalls: number;
+  promptTokens: number; cachedPromptTokens: number; completionTokens: number; reasoningCompletionTokens: number;
+  totalTokens: number; avgLatencyMs: number | null;
+}
+export interface KnowledgeHealth {
+  generatedAt: string;
+  filters: { from: string; to: string; environment: 'prod' | 'dev'; feature: string | null; persona: string | null; deployment: string | null };
+  windowStart: string;
+  windowEnd: string;
+  usage: HealthSection<{
+    totals: HealthUsageTotals;
+    rows: Array<HealthUsageTotals & { feature: string; persona: string | null; deployment: string }>;
+    rowsTruncated: boolean;
+    facets: { features: string[]; personas: string[]; deployments: string[] };
+    firstRecordedAt: string | null;
+  }>;
+  syncRuns: HealthSection<{
+    runs: Array<{ id: string; status: string; startedAt: string; finishedAt: string | null; sources: Array<{ source: string; indexed: number; errors: number }> }>;
+    jobs: Array<{ job: string; period: string; status: string; startedAt: string; finishedAt: string | null }>;
+  }>;
+  index: HealthSection<{
+    sources: Array<{ source: string; items: number; lastIndexedAt: string | null }>;
+    scoring: { discoveredArticles: number; unscored: number };
+  }>;
+}
+export interface KnowledgeHealthParams { from?: string; to?: string; environment?: 'prod' | 'dev'; feature?: string; persona?: string; deployment?: string }
+
 export interface SourceStatus {
   source: string;
   lastSyncAt: string | null;
@@ -445,6 +474,11 @@ export class KnowledgeHubApi {
   }
 
   // ─── Sources ──────────────────────────────────────────────────────────────
+
+  async getKnowledgeHealth(params: KnowledgeHealthParams): Promise<ApiResponse<KnowledgeHealth>> {
+    const r = await this.client.get<ApiResponse<KnowledgeHealth>>('/api/health/knowledge', { params });
+    return r.data;
+  }
 
   async getSources(): Promise<ApiResponse<SourceStatus[]>> {
     const r = await this.client.get<ApiResponse<SourceStatus[]>>('/api/sources');
