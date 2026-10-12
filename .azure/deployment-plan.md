@@ -1,10 +1,16 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Frontend-only prominent Discovery weighted-rank display. Existing backend v180 unchanged.
+**Deployment:** Frontend-only Discovery card alignment correction and slightly larger article titles. Existing backend v180 unchanged.
 
 ## 1. Scope
+
+Approved 2026-10-12 at 11:53 BST: deploy application `9e29ec9`.
+Separate rank from metadata/title flow; keep mobile titles full-width and
+increase title size slightly. Existing SWA only; backend/ranking unchanged.
+No infrastructure, environment, secret, role or migration changes.
+Remote main `f7c1dda` integrated. Rollback application `75a5fbc`.
 
 Approved 2026-10-12 at 11:44 BST: deploy application `75a5fbc`.
 Discovery shows its actual weighted rank with a larger number and readable label.
@@ -196,6 +202,18 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-12 following the 11:53 BST request:
+
+- Remote main fetched/merged: already current.
+- Both applications `npx tsc --noEmit` and frontend production build passed.
+- Build log: `%TEMP%\athena-discovery-layout-deploy-build.log`.
+- Fixture typecheck and Discovery browser checks passed at 1440/390.
+- Screenshots inspected at both widths: desktop title directly below metadata,
+  independent rank column, mobile title full-width with no squeezed text.
+- Existing article/email/dialog workflows passed; weighted rank unchanged.
+- Azure target reads confirm production SWA and backend v180.
+- Provisioning/IaC/RBAC checks N/A: existing static release only.
 
 Deployed 2026-10-12 following the 11:44 BST request:
 
