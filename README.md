@@ -206,6 +206,16 @@ do not enable multiple replicas without lease/ownership recovery changes.
 
 Each project card has a **Cockpit** button (`GET /api/projects/:id/cockpit`) showing the outcome, blocked/open commitments, a register of questions, risks and issues, and collapsed supporting evidence (chat decisions, notes, outputs). Sections fail independently and lists are capped with totals. The register (`/api/projects/:id/register`, migration 068) is created, resolved and linked to tasks by the user; "Add to register" on a chat decision is idempotent and never changes the decision. Diagram callouts are not yet promotable. No completion percentage is invented.
 
+## Remaining roadmap
+
+Implemented: recovery, knowledge health (migration 067), project cockpit and register (migration 068). Still to do, in order:
+
+1. **Review packets and AI evaluation.** Deterministic review packets built from explicitly selected project outputs, notes and decisions, with source links, captured version identities, checklist state and a stale-source indicator. Approval is recorded separately from publication; generating or approving a packet never posts, creates issues or starts Build. Add a curated offline evaluation set (grounding, provenance, project scope, missing/stale evidence, action confirmation) using model/tool mocks with no network calls; live AI evaluation stays opt-in and separately approved.
+2. **Operational documentation.** Per-release identity, migration compatibility, smoke checks and rollback limits; backup/restore verification and environment-isolation runbooks rehearsed offline against disposable data. Cloud backup/probe verification and a real restore rehearsal are separate, permissioned work and are not claimed as verified from repository code.
+3. **Build trial run.** Exercise the Build feature end to end against a scratch repository.
+
+Next free migration number: 069.
+
 ## Navigation
 The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
 
