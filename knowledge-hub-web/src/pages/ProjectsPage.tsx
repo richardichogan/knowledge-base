@@ -8,7 +8,7 @@ import {
   Button, TextInput, TextArea, Modal,
   Select, SelectItem, InlineNotification, ComboBox, Tag, Checkbox,
 } from '@carbon/react';
-import { Add, Dashboard, Edit, TrashCan, LogoGithub, Launch } from '@carbon/icons-react';
+import { Add, Dashboard, Edit, TrashCan, LogoGithub, Launch, ChevronDown, ChevronUp } from '@carbon/icons-react';
 import {
   useProjects,
   type ProjectRecord,
@@ -593,9 +593,13 @@ export const ProjectsPage: React.FC = () => {
         <p className="proj-loading" role="status">Loading projects...</p>
       ) : (
         <>
-        {visible.length === 0 && !error && <p className="proj-empty">{projects.length === 0
-          ? 'No projects yet. Create a project to organise your work.'
-          : 'No projects match these filters. Try another search or category.'}</p>}
+        {visible.length === 0 && !error && (
+          <p className="proj-empty">
+            {projects.length === 0
+              ? 'No projects yet. Create a project to organise your work.'
+              : 'No projects match these filters. Try another search or category.'}
+          </p>
+        )}
         <div className="proj-grid">
           {visible.map((project) => {
             const repos = [
@@ -608,88 +612,184 @@ export const ProjectsPage: React.FC = () => {
             const lifecycle = project.lifecycleState ?? 'active';
             const importanceClass = `proj-importance--${project.importance ?? 'normal'}`;
             const projectDates = [
-              project.startDate ? `Start ${project.startDate}` : null,
-              project.targetEndDate ? `Target end ${project.targetEndDate}` : null,
+              project.startDate ? `Start: ${project.startDate}` : null,
+              project.targetEndDate ? `Target end: ${project.targetEndDate}` : null,
             ].filter((value): value is string => value !== null);
+
+            const hasDetails = Boolean(
+              project.goal ||
+              project.role ||
+              project.ownership ||
+              projectDates.length > 0 ||
+              project.expectedOutputs.length > 0 ||
+              project.description
+            );
 
             return (
               <article key={project.id} className="proj-card">
                 <div className={`proj-card-top proj-card-top--${project.colour}`} />
 
                 <div className="proj-card-body">
-                  {/* Name row */}
-                  <div className="proj-card-name-row">
-                    <h2 className="proj-card-name">{project.name}</h2>
-                    <div className="proj-card-name-icons">
-                      {source === 'gitlab' && <span className="proj-source-badge proj-source-badge--gitlab" title="GitLab"><GitLabIcon size={18} /></span>}
-                      {source === 'github' && <span className="proj-source-badge proj-source-badge--github" title="GitHub"><LogoGithub size={18} /></span>}
-                      <button type="button" className="proj-icon-btn" aria-label={`Open ${project.name} cockpit`} title="Cockpit" onClick={() => setCockpitProject(project)}><Dashboard size={16} /></button>
-                      <button type="button" className="proj-icon-btn" aria-label={`Edit ${project.name}`} title="Edit" onClick={() => openEdit(project)}><Edit size={16} /></button>
-                      <button type="button" className="proj-icon-btn proj-icon-btn--danger" aria-label={`Delete ${project.name}`} title="Delete" onClick={() => { setDeleteError(null); setDeleteConfirm(project); }}><TrashCan size={16} /></button>
+                  {/* Card Header */}
+                  <div className="proj-card-header">
+                    <div className="proj-card-title-col">
+                      <div className="proj-card-title-row">
+                        <h2 className="proj-card-name" title={project.name}>{project.name}</h2>
+                        {source === 'gitlab' && (
+                          <span className="proj-source-badge proj-source-badge--gitlab" title="GitLab repository">
+                            <GitLabIcon size={16} />
+                          </span>
+                        )}
+                        {source === 'github' && (
+                          <span className="proj-source-badge proj-source-badge--github" title="GitHub repository">
+                            <LogoGithub size={16} />
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Badges / metadata */}
+                      <div className="proj-card-badges">
+                        <span className={`proj-cat-badge ${cat.cls}`}>{cat.label}</span>
+                        <span className={`proj-pri-badge ${pri.cls}`}>{pri.label} priority</span>
+                        <span className={`proj-lifecycle-badge proj-lifecycle-badge--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
+                        {project.importance && project.importance !== 'normal' && (
+                          <span className={`proj-importance-badge ${importanceClass}`}>{project.importance}</span>
+                        )}
+                        {project.projectType === 'formal-client' && (
+                          <span className="proj-client-badge">Formal client</span>
+                        )}
+                        {project.hasIcaDocumentCollection && (
+                          <span className="proj-ica-badge" title={project.icaDocumentCollectionName || project.icaDocumentCollectionId}>
+                            ICA docs
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quick actions */}
+                    <div className="proj-card-actions">
+                      <button
+                        type="button"
+                        className="proj-cockpit-btn"
+                        aria-label={`Open ${project.name} cockpit`}
+                        onClick={() => setCockpitProject(project)}
+                      >
+                        <Dashboard size={14} />
+                        <span>Cockpit</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="proj-icon-btn"
+                        aria-label={`Edit ${project.name}`}
+                        title="Edit project"
+                        onClick={() => openEdit(project)}
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="proj-icon-btn proj-icon-btn--danger"
+                        aria-label={`Delete ${project.name}`}
+                        title="Delete project"
+                        onClick={() => { setDeleteError(null); setDeleteConfirm(project); }}
+                      >
+                        <TrashCan size={16} />
+                      </button>
                     </div>
                   </div>
 
-                  {/* Category + Priority badges */}
-                  <div className="proj-card-badges">
-                    <span className={`proj-cat-badge ${cat.cls}`}>{cat.label}</span>
-                    <span className={`proj-pri-badge ${pri.cls}`}>{pri.label} priority</span>
-                    <span className={`proj-lifecycle-badge proj-lifecycle-badge--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
-                    {project.importance && project.importance !== 'normal' && <span className={`proj-importance-badge ${importanceClass}`}>{project.importance} importance</span>}
-                    {project.projectType === 'formal-client' && (
-                      <span className="proj-client-badge">Formal client</span>
-                    )}
-                    {project.hasIcaDocumentCollection && (
-                      <span className="proj-ica-badge" title={project.icaDocumentCollectionName || project.icaDocumentCollectionId}>
-                        ICA docs
-                      </span>
-                    )}
-                  </div>
+                  {/* Summary / description */}
+                  {(project.goal || project.description) && (
+                    <p className="proj-card-summary">
+                      {project.goal || project.description}
+                    </p>
+                  )}
 
-                  {(project.goal || project.description) && <p className="proj-card-summary">{project.goal || project.description}</p>}
-                  {(project.goal || project.description || project.role || project.ownership || projectDates.length > 0 || project.expectedOutputs.length > 0) && (
+                  {/* Expandable Project Details */}
+                  {hasDetails && (
                     <details className="proj-card-details">
-                      <summary>Project details{project.expectedOutputs.length > 0 ? ` · ${project.expectedOutputs.length} expected outputs` : ''}</summary>
+                      <summary>
+                        <span>Project details{project.expectedOutputs.length > 0 ? ` · ${project.expectedOutputs.length} outputs` : ''}</span>
+                        <ChevronDown size={14} className="proj-details-chevron" />
+                      </summary>
                       <div className="proj-card-details__body">
-                        {project.goal && <div><h3>Goal</h3><p className="proj-card-goal">{project.goal}</p></div>}
-                        {(project.role || project.ownership) && (
-                          <div className="proj-card-context">
-                            {project.role && <span><strong>Your role</strong>{project.role}</span>}
-                            {project.ownership && <span><strong>Ownership</strong>{project.ownership}</span>}
+                        {project.goal && (
+                          <div className="proj-detail-section">
+                            <h3 className="proj-detail-heading">Goal</h3>
+                            <p className="proj-card-goal">{project.goal}</p>
                           </div>
                         )}
-                        {projectDates.length > 0 && <p className="proj-card-dates">{projectDates.join(' · ')}</p>}
+                        {(project.role || project.ownership || projectDates.length > 0) && (
+                          <div className="proj-card-context">
+                            {project.role && (
+                              <div className="proj-context-item">
+                                <span className="proj-context-label">Role</span>
+                                <span className="proj-context-value">{project.role}</span>
+                              </div>
+                            )}
+                            {project.ownership && (
+                              <div className="proj-context-item">
+                                <span className="proj-context-label">Ownership</span>
+                                <span className="proj-context-value">{project.ownership}</span>
+                              </div>
+                            )}
+                            {projectDates.length > 0 && (
+                              <div className="proj-context-item">
+                                <span className="proj-context-label">Timeline</span>
+                                <span className="proj-context-value">{projectDates.join(' · ')}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {project.expectedOutputs.length > 0 && (
-                          <div>
-                            <h3>Expected outputs</h3>
+                          <div className="proj-detail-section">
+                            <h3 className="proj-detail-heading">Expected outputs</h3>
                             <ul className="proj-card-outputs">
-                              {project.expectedOutputs.map((output, index) => <li key={index}>{output}</li>)}
+                              {project.expectedOutputs.map((output, index) => (
+                                <li key={index}>{output}</li>
+                              ))}
                             </ul>
                           </div>
                         )}
-                        {project.description && <div><h3>Description</h3><p className="proj-card-desc">{project.description}</p></div>}
+                        {project.description && (
+                          <div className="proj-detail-section">
+                            <h3 className="proj-detail-heading">Description</h3>
+                            <p className="proj-card-desc">{project.description}</p>
+                          </div>
+                        )}
                       </div>
                     </details>
                   )}
 
-                  {/* Footer */}
+                  {/* Footer with Repos, Links & Tags */}
                   {(repos.length > 0 || project.links.length > 0 || project.tags.length > 0) && (
                     <div className="proj-card-footer">
-                      {repos.length > 0 && (
+                      {(repos.length > 0 || project.links.length > 0) && (
                         <div className="proj-card-repos">
                           {repos.map((r) => (
-                            <a key={r.url} href={r.url} target="_blank" rel="noreferrer" className={`proj-repo proj-repo--${r.type}`}>
-                              {r.type === 'gitlab' ? <GitLabIcon size={11} /> : <LogoGithub size={11} />}
+                            <a
+                              key={r.url}
+                              href={r.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`proj-repo proj-repo--${r.type}`}
+                              title={r.name}
+                            >
+                              {r.type === 'gitlab' ? <GitLabIcon size={12} /> : <LogoGithub size={12} />}
                               <span>{r.name}</span>
-                              <Launch size={10} />
+                              <Launch size={11} />
                             </a>
                           ))}
-                        </div>
-                      )}
-                      {project.links.length > 0 && (
-                        <div className="proj-card-repos">
                           {project.links.map((link) => (
-                            <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="proj-repo proj-repo--reference">
-                              <Launch size={11} />
+                            <a
+                              key={link.url}
+                              href={link.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="proj-repo proj-repo--reference"
+                              title={link.label}
+                            >
+                              <Launch size={12} />
                               <span>{link.label}</span>
                             </a>
                           ))}
@@ -697,7 +797,9 @@ export const ProjectsPage: React.FC = () => {
                       )}
                       {project.tags.length > 0 && (
                         <div className="proj-card-tags">
-                          {project.tags.map((t) => <span key={t} className="proj-tag-pill">{t}</span>)}
+                          {project.tags.map((t) => (
+                            <span key={t} className="proj-tag-pill">{t}</span>
+                          ))}
                         </div>
                       )}
                     </div>
