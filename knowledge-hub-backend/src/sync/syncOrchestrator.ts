@@ -26,6 +26,8 @@ import { syncCfps } from '../services/cfpSyncService.js';
 import { syncAllNodes } from '../services/nodeService.js';
 import { populateExplicitEdges } from '../jobs/explicitEdgePopulator.js';
 import { isConnectionCheckInProgress } from './connectionWork.js';
+import { createSyncRun, recordSyncProgress, syncOutcome, type SyncRun } from './runStore.js';
+import { ConflictError } from '../types/errors.js';
 
 export interface SyncResult {
   source: string;
@@ -61,13 +63,6 @@ export function isSyncInProgress(): boolean {
   return syncInProgress;
 }
 
-const EMPTY_RESULT: OrchestratorResult = {
-  results: [],
-  totalIndexed: 0,
-  totalErrors: 0,
-  totalDurationMs: 0,
-};
-
 /**
  * Runs all Tier 1 source syncs sequentially.
  * Running in parallel exhausted the pg connection pool (max 10) causing
@@ -78,24 +73,39 @@ const EMPTY_RESULT: OrchestratorResult = {
  * Guarded against concurrent invocation — if a sync is already running, the
  * call is skipped (see the re-entrancy guard note above).
  */
-export async function runTier1Sync(db: Pool): Promise<OrchestratorResult> {
+export async function startTier1Sync(db: Pool, claimKey?: string): Promise<{ run: SyncRun; completion: Promise<OrchestratorResult> }> {
   if (syncInProgress || isConnectionCheckInProgress()) {
     const runningForSec = syncStartedAt ? Math.round((Date.now() - syncStartedAt) / 1000) : 0;
     console.warn(`[Sync] Skipped — sync/connection work is already in progress (sync running for ${runningForSec}s). Refusing to start an overlapping run.`);
-    return EMPTY_RESULT;
+    throw new ConflictError('Sync or connection work is already running. Retry after it finishes.', 'SYNC_BUSY');
   }
 
   syncInProgress = true;
   syncStartedAt = Date.now();
   try {
-    return await runTier1SyncInner(db);
-  } finally {
+    const run = await createSyncRun(db, claimKey);
+    if (run === null) throw new ConflictError('Sync is running or this scheduled occurrence has already been claimed.', 'SYNC_CLAIMED');
+    const completion = runTier1SyncInner(db, run.id).catch(async (error: unknown) => {
+      await db.query("UPDATE sync_runs SET status='failed', finished_at=NOW() WHERE id=$1 AND status='running'", [run.id]);
+      throw error;
+    }).finally(() => {
+      syncInProgress = false;
+      syncStartedAt = null;
+    });
+    return { run, completion };
+  } catch (error) {
     syncInProgress = false;
     syncStartedAt = null;
+    throw error;
   }
 }
 
-async function runTier1SyncInner(db: Pool): Promise<OrchestratorResult> {
+export async function runTier1Sync(db: Pool, claimKey?: string): Promise<OrchestratorResult> {
+  const { completion } = await startTier1Sync(db, claimKey);
+  return completion;
+}
+
+async function runTier1SyncInner(db: Pool, runId: string): Promise<OrchestratorResult> {
   const sources: Array<{ name: string; sync: (db: Pool) => Promise<{ indexed: number; errors: number }> }> = [
     { name: 'note-github-publications', sync: syncNotePublications },
     { name: 'github-content-store', sync: syncContentStore },
@@ -137,11 +147,8 @@ async function runTier1SyncInner(db: Pool): Promise<OrchestratorResult> {
       console.error(`[Sync] ${name} failed entirely: ${message}`);
       results.push({ source: name, indexed: 0, errors: 1, durationMs: Date.now() - start });
     }
+    await recordSyncProgress(db, runId, results);
   }
-
-  const totalIndexed = results.reduce((sum, r) => sum + r.indexed, 0);
-  const totalErrors = results.reduce((sum, r) => sum + r.errors, 0);
-  const totalDurationMs = results.reduce((sum, r) => sum + r.durationMs, 0);
 
   // Sync all nodes from content tables, then rebuild explicit edges.
   // Errors are logged but do not fail the overall sync result.
@@ -150,6 +157,7 @@ async function runTier1SyncInner(db: Pool): Promise<OrchestratorResult> {
     console.warn('[Sync] syncAllNodes complete');
   } catch (err) {
     console.error('[Sync] syncAllNodes failed:', err instanceof Error ? err.message : String(err));
+    results.push({ source: 'nodes', indexed: 0, errors: 1, durationMs: 0 });
   }
 
   try {
@@ -157,7 +165,12 @@ async function runTier1SyncInner(db: Pool): Promise<OrchestratorResult> {
     console.warn('[Sync] populateExplicitEdges complete');
   } catch (err) {
     console.error('[Sync] populateExplicitEdges failed:', err instanceof Error ? err.message : String(err));
+    results.push({ source: 'explicit-edges', indexed: 0, errors: 1, durationMs: 0 });
   }
 
+  const totalIndexed = results.reduce((sum, r) => sum + r.indexed, 0);
+  const totalErrors = results.reduce((sum, r) => sum + r.errors, 0);
+  const totalDurationMs = results.reduce((sum, r) => sum + r.durationMs, 0);
+  await recordSyncProgress(db, runId, results, syncOutcome(results));
   return { results, totalIndexed, totalErrors, totalDurationMs };
 }

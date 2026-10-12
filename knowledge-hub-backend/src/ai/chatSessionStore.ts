@@ -13,6 +13,7 @@
  */
 
 import type { Pool } from 'pg';
+import { ConflictError } from '../types/errors.js';
 import {
   AI_ROLLING_SUMMARY_TRIGGER_MESSAGES,
   AI_ROLLING_SUMMARY_KEEP_TAIL,
@@ -400,20 +401,25 @@ export interface PendingTurn {
   turnId: string;
   message: string;
   startedAt: string;
+  status?: 'running' | 'interrupted';
 }
 
 /** Records (or clears, with null) the turn currently running for a session. */
-export async function setPendingTurn(db: Pool, sessionId: string, turn: PendingTurn | null): Promise<void> {
+export async function setPendingTurn(db: Pool, sessionId: string, turn: PendingTurn | null, expectedTurnId?: string): Promise<void> {
   if (turn === null) {
     // UPDATE, not upsert: clearing must not recreate a chat deleted mid-turn.
-    await db.query(`UPDATE ai_chat_sessions SET pending_turn = NULL WHERE id = $1`, [sessionId]);
+    await db.query(`UPDATE ai_chat_sessions SET pending_turn = NULL WHERE id = $1
+      AND ($2::text IS NULL OR pending_turn->>'turnId' = $2)`, [sessionId, expectedTurnId ?? null]);
     return;
   }
-  await db.query(
+  const { rows } = await db.query(
     `INSERT INTO ai_chat_sessions (id, pending_turn) VALUES ($1, $2)
-     ON CONFLICT (id) DO UPDATE SET pending_turn = EXCLUDED.pending_turn`,
-    [sessionId, JSON.stringify(turn)],
+     ON CONFLICT (id) DO UPDATE SET pending_turn = EXCLUDED.pending_turn
+     WHERE ai_chat_sessions.pending_turn IS NULL OR ai_chat_sessions.pending_turn->>'status' = 'interrupted'
+     RETURNING id`,
+    [sessionId, JSON.stringify({ ...turn, status: 'running' })],
   );
+  if (rows.length === 0) throw new ConflictError('A turn is already running for this chat. Reconnect or stop it before sending again.', 'TURN_RUNNING');
 }
 
 export async function getPendingTurn(db: Pool, sessionId: string): Promise<PendingTurn | null> {

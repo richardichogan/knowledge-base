@@ -322,7 +322,7 @@ router.post('/chat/turns', (req: Request, res: Response, next: NextFunction): vo
       startTurnJob(
         turnId, sessionId, shown,
         (hooks) => runChatTurn({ ...reqBody, sessionId }, { ...hooks, budgetMs: AI_BACKGROUND_TURN_BUDGET_MS }),
-        () => { void setPendingTurn(db, sessionId, null).catch((err: unknown) => { console.error('[turn] could not clear pending turn:', err); }); },
+        () => { void setPendingTurn(db, sessionId, null, turnId).catch((err: unknown) => { console.error('[turn] could not clear pending turn:', err); }); },
       );
       const body: ApiSuccess<{ turnId: string; sessionId: string }> = { success: true, data: { turnId, sessionId } };
       res.status(HTTP_STATUS.OK).json(body);
@@ -400,8 +400,11 @@ router.delete('/session/:sessionId/turn', (req: Request, res: Response, next: Ne
   void (async () => {
     try {
       const sessionId = req.params['sessionId'] ?? '';
-      if (getSessionTurnJob(sessionId) === null) await setPendingTurn(getDb(), sessionId, null);
-      const body: ApiSuccess<{ cleared: boolean }> = { success: true, data: { cleared: true } };
+      const { rows } = await getDb().query(
+        `UPDATE ai_chat_sessions SET pending_turn = NULL
+         WHERE id = $1 AND pending_turn->>'status' = 'interrupted' RETURNING id`, [sessionId],
+      );
+      const body: ApiSuccess<{ cleared: boolean }> = { success: true, data: { cleared: rows.length > 0 } };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
       next(err);

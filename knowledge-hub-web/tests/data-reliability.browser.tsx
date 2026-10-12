@@ -7,6 +7,7 @@ import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types/apiResponse';
 import type { NoteSummary, AthenaMemory } from '../src/types';
 import type { PlanTask } from '../src/types/task';
+import type { SyncRun } from '../src/services/api';
 import { getActiveBlockNoteEditor } from '../src/utils/activeBlockNoteEditor';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -384,6 +385,48 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
   button('Delete', element('.kb-menu')).click();
   await waitFor(() => document.querySelector('.kb-card') === null && document.querySelector('.kh-data-notice') === null);
   results.push('Task read/save/delete failures retain work; pending actions lock, and failed completion rolls back its original scope only');
+
+  let syncStarts = 0;
+  let startFailure = true;
+  let latestSync: SyncRun | null = null;
+  const syncRun: SyncRun = { id: 'runtime-sync-fixture', status: 'running', startedAt: '2026-10-12T08:00:00Z',
+    finishedAt: null, results: [] };
+  api.getLatestSyncRun = async () => success(latestSync);
+  api.triggerSync = async () => {
+    syncStarts++;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    if (startFailure) return failure();
+    latestSync = syncRun;
+    return success(syncRun);
+  };
+  let finishSync = (_run: SyncRun): void => {};
+  api.getSyncRun = async (id) => {
+    check(id === syncRun.id, 'Timeline polls the exact accepted run');
+    return success(await new Promise<SyncRun>(resolve => { finishSync = resolve; }));
+  };
+  await queryClient.invalidateQueries({ queryKey: ['sync-run-latest'] });
+  await go('/my-work');
+  await waitFor(() => document.querySelector('.page-title')?.textContent === 'Activity');
+  const syncButton = button('Sync Now');
+  syncButton.click();
+  syncButton.click();
+  await waitFor(() => document.body.textContent?.includes('Sync failed') === true);
+  check(syncStarts === 1, 'Failed sync start is visible and duplicate submits are blocked');
+  startFailure = false;
+  button('Sync Now').click();
+  await waitFor(() => document.body.textContent?.includes('Sync started') === true);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  check(button('Syncing…').disabled && document.body.textContent?.includes('Sync complete') !== true,
+    'Source timestamps cannot declare the run complete');
+  latestSync = { ...syncRun, status: 'partial', finishedAt: '2026-10-12T08:30:00Z',
+    results: [{ source: 'fixture-source', indexed: 2, errors: 1, durationMs: 100 }] };
+  finishSync(latestSync);
+  await waitFor(() => document.body.textContent?.includes('Sync partial') === true
+    && document.querySelector('.tl-sync-run__heading')?.textContent?.includes('partial') === true);
+  check(element('.tl-sync-run__results').textContent?.includes('2 indexed · 1 errors') === true,
+    'Sync panel exposes exact source outcomes, not a false success');
+  check(element('.tl-sync-run').scrollWidth <= window.innerWidth, 'Run results fit the responsive sync panel');
+  results.push('Timeline uses accepted run IDs, rejects duplicate starts and displays partial outcomes rather than timestamp-inferred success');
 
   const now = '2026-10-05T10:00:00Z';
   const notes: NoteSummary[] = Array.from({ length: 105 }, (_, i) => ({

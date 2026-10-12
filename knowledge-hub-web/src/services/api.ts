@@ -184,6 +184,14 @@ export type DiscoverWorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' 
 /** Workflow states for CFP items (separate from article workflow) */
 export type CfpWorkflowState = 'to_review' | 'saved' | 'submitted' | 'archived';
 
+export interface SyncRun {
+  id: string;
+  status: 'running' | 'succeeded' | 'partial' | 'failed' | 'interrupted';
+  startedAt: string;
+  finishedAt: string | null;
+  results: { source: string; indexed: number; errors: number; durationMs: number }[];
+}
+
 export interface CfpItem {
   id: string;
   source: 'callingallpapers' | 'adatosystems';
@@ -436,8 +444,16 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async triggerSync(): Promise<ApiResponse<unknown>> {
-    const r = await this.client.post<ApiResponse<unknown>>('/api/sources/sync');
+  async triggerSync(): Promise<ApiResponse<SyncRun>> {
+    const r = await this.client.post<ApiResponse<SyncRun>>('/api/sources/sync');
+    return r.data;
+  }
+  async getSyncRun(id: string, signal?: AbortSignal): Promise<ApiResponse<SyncRun>> {
+    const r = await this.client.get<ApiResponse<SyncRun>>(`/api/sources/runs/${encodeURIComponent(id)}`, signal === undefined ? {} : { signal });
+    return r.data;
+  }
+  async getLatestSyncRun(): Promise<ApiResponse<SyncRun | null>> {
+    const r = await this.client.get<ApiResponse<SyncRun | null>>('/api/sources/runs/latest');
     return r.data;
   }
 

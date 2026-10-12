@@ -50,6 +50,13 @@ async function evaluate(expression) {
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? 'Browser evaluation failed');
   return result.result.value;
 }
+async function retryAbortedMount(attempt) {
+  if (attempt !== 299 || browserErrors.length > 0
+    || !loadDiagnostics.some(entry => /\/src\/.+\.tsx?: net::ERR_ABORTED$/.test(entry))
+    || await evaluate('document.body.innerText.trim() !== ""')) return;
+  console.warn('Retrying blank fixture mount once after an aborted source-module request; application errors and checks are never retried.');
+  await command('Page.reload', { ignoreCache: true });
+}
 
 try {
   let port;
@@ -109,6 +116,7 @@ try {
         : thinkSearchChecks ? 'typeof window.runThinkSearchChecks === "function" && document.querySelector("#notes-search") !== null'
         : 'typeof window.runTodayChecks === "function" && document.querySelectorAll(".today-brief__attention article").length === 5');
       if (ready) break;
+      await retryAbortedMount(i);
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, readyState: document.readyState, text: document.body.innerText })')}\n${loadDiagnostics.join('\n')}`);
@@ -244,9 +252,10 @@ try {
     for (const comparison of ['discover', 'think']) {
       await command('Page.navigate', { url: `${fixtureUrl}?compare=${comparison}` });
       let referenceStyle;
-      for (let i = 0; i < 300; i++) {
+      for (let i = 0; i < 600; i++) {
         referenceStyle = await evaluate('typeof window.readPageStyle === "function" ? window.readPageStyle() : null');
         if (referenceStyle) break;
+        await retryAbortedMount(i);
         await delay(100);
       }
       assert.ok(referenceStyle, `${comparison} page did not render: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, readyState: document.readyState, text: document.body.innerText })')}\n${loadDiagnostics.join('\n')}`);

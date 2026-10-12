@@ -35,17 +35,20 @@ import { graphRouter } from './routes/graphRoutes.js';
 import { canvasRouter } from './routes/canvasRoutes.js';
 import { buildRouter } from './routes/build.js';
 import { DIAGRAM_LIMITS } from './services/diagramValidation.js';
+import { HTTP_STATUS } from './config/constants.js';
 import { KnowledgeHubError, PayloadTooLargeError } from './types/errors.js';
 import { voiceRouter } from './routes/voiceRoutes.js';
 import { todayRouter } from './routes/today.js';
 import { repoProjectMappingsRouter } from './routes/repoProjectMappings.js';
 import { env } from './config/env.js';
+import type { RuntimePhase } from './runtime.js';
+const SERVICE_UNAVAILABLE = 503;
 
 /**
  * Creates and configures the Express application.
  * Middleware order matters — security headers first, then auth, then routes.
  */
-export function createApp(): express.Application {
+export function createApp(readiness: () => RuntimePhase = () => 'starting'): express.Application {
   const app = express();
   // ACA appends the verified sender as the rightmost forwarded IP; earlier
   // entries are client-controlled. Local/direct deployments trust no proxy.
@@ -102,6 +105,10 @@ export function createApp(): express.Application {
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+  app.get('/ready', (_req: Request, res: Response) => {
+    const phase = readiness();
+    res.status(phase === 'ready' ? HTTP_STATUS.OK : SERVICE_UNAVAILABLE).json({ status: phase });
+  });
 
   // ── OAuth routes — unauthenticated (must be before /api middleware) ──────
   app.use('/auth/graph', graphAuthRouter);
@@ -109,6 +116,13 @@ export function createApp(): express.Application {
 
   // ── API routes — all authenticated ────────────────────────────────────────
   app.use('/api', authenticate);
+  app.use('/api', (_req: Request, res: Response, next) => {
+    if (readiness() !== 'ready') {
+      res.status(SERVICE_UNAVAILABLE).json({ success: false, error: { code: 'NOT_READY', message: 'The service is not ready. Please retry shortly.' } });
+      return;
+    }
+    next();
+  });
   app.use('/api/timeline', timelineRouter);
   app.use('/api/search', searchRouter);
   app.use('/api/sources', sourcesRouter);

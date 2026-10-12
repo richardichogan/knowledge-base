@@ -34,6 +34,14 @@ interface TurnJob {
 const KEEP_FINISHED_MS = 10 * 60_000;
 const jobs = new Map<string, TurnJob>();
 const jobBySession = new Map<string, string>();
+let stopping = false;
+
+export function stopTurnJobs(): void {
+  stopping = true;
+  for (const job of jobs.values()) {
+    if (job.outcome === null) job.controller.abort(new Error('The server is restarting. This turn was interrupted and will not be replayed automatically.'));
+  }
+}
 
 function emit(job: TurnJob, e: TurnEvent): void {
   if (e.type === 'activity') job.activity = e.text;
@@ -85,7 +93,7 @@ export function startTurnJob(
     })
     .finally(() => {
       clearTimeout(deadline);
-      onFinished();
+      if (!stopping) onFinished();
       if (jobBySession.get(sessionId) === job.id) jobBySession.delete(sessionId);
       setTimeout(() => { jobs.delete(job.id); }, KEEP_FINISHED_MS).unref();
     });

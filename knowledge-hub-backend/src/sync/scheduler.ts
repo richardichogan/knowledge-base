@@ -11,6 +11,8 @@ import { weeklyDigestDue, generateWeeklyMicrosoftDigest } from '../ai/weeklyMicr
 import { tickBuildRunner } from '../build/buildRunner.js';
 import { archiveCompletedTasks } from '../services/taskArchiveService.js';
 import { isConnectionCheckInProgress } from './connectionWork.js';
+import { runClaimedJob } from './runStore.js';
+import { ukClock } from './ukClock.js';
 
 /**
  * Scheduler for sync jobs.
@@ -23,6 +25,7 @@ import { isConnectionCheckInProgress } from './connectionWork.js';
  */
 
 const SYNC_HOURS = [8, 14, 20]; // Run at these hours only
+const MEMORY_REVIEW_HOUR = 8;
 const SYNC_CHECK_INTERVAL = 5 * MS_PER_MINUTE; // Check every 5 min if it's time to run
 const CONNECTION_CHECK_MINUTES = 15;
 export const CONNECTION_CHECK_INTERVAL_MS = CONNECTION_CHECK_MINUTES * MS_PER_MINUTE;
@@ -30,6 +33,8 @@ const FOUNDRY_BACKFILL_INTERVAL_MS = 60 * MS_PER_MINUTE; // Sweep for un-indexed
 const BUILD_RUNNER_INTERVAL_MS = 2 * MS_PER_MINUTE; // Poll cloud-agent PRs for running build specs
 
 const timers: ReturnType<typeof setInterval>[] = [];
+let initialTimer: ReturnType<typeof setTimeout> | undefined;
+let started = false;
 let lastSyncHour = -1; // Track the last hour we ran sync to avoid double-runs
 let lastConnectionCheckAt = Date.now();
 let lastArchiveDay = ''; // Date string of the last completed-task archive sweep
@@ -41,13 +46,12 @@ const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
 
 function isWithinWorkingHours(): boolean {
-  const hour = new Date().getHours();
+  const hour = ukClock().hour;
   return hour >= 8 && hour <= 20;
 }
 
 function shouldRunSync(): boolean {
-  const now = new Date();
-  const currentHour = now.getHours();
+  const currentHour = ukClock().hour;
   if (!SYNC_HOURS.includes(currentHour)) return false;
   if (lastSyncHour === currentHour) return false;
   return true;
@@ -62,6 +66,9 @@ function shouldRunFoundryBackfill(): boolean {
 }
 
 export function startSyncScheduler(): void {
+  if (started) return;
+  if (env.NODE_ENV !== 'production') throw new Error('Scheduled jobs require production mode.');
+  started = true;
   console.warn('[Scheduler] Starting sync scheduler (08:00, 14:00, 20:00 — no overnight)...');
 
   const db = getDb();
@@ -77,11 +84,14 @@ export function startSyncScheduler(): void {
   });
 
   // Initial sync on startup (if within working hours)
-  setTimeout(() => {
+  initialTimer = setTimeout(() => {
+    initialTimer = undefined;
+    if (!started) return;
     if (isWithinWorkingHours()) {
       console.warn('[Scheduler] Running initial sync on startup...');
-      lastSyncHour = new Date().getHours();
-      runTier1Sync(db).catch((err: unknown) => {
+      const clock = ukClock();
+      lastSyncHour = clock.hour;
+      runTier1Sync(db, `sync:${clock.day}:${clock.hour}`).catch((err: unknown) => {
         console.error('[Scheduler] Initial sync failed:', err instanceof Error ? err.message : String(err));
       });
     } else {
@@ -92,11 +102,13 @@ export function startSyncScheduler(): void {
   // Check every 5 minutes if it's time to run the scheduled sync
   timers.push(
     setInterval(() => {
+      if (!started) return;
       if (shouldRunSync() && !isConnectionCheckInProgress()) {
-        const hour = new Date().getHours();
+        const clock = ukClock();
+        const hour = clock.hour;
         lastSyncHour = hour;
         console.warn(`[Scheduler] Running scheduled sync (${hour}:00)...`);
-        runTier1Sync(db).catch((err: unknown) => {
+        runTier1Sync(db, `sync:${clock.day}:${hour}`).catch((err: unknown) => {
           console.error('[Scheduler] Tier 1 sync failed:', err instanceof Error ? err.message : String(err));
         });
       }
@@ -104,10 +116,10 @@ export function startSyncScheduler(): void {
       // Archive completed tasks older than 14 days — production only (the dev
       // .env points at the production DB), once per day. Cheap single UPDATE,
       // so it doesn't need to wait for a sync to finish.
-      const archiveDay = new Date().toDateString();
+      const archiveDay = ukClock().day;
       if (!env.isDevelopment && lastArchiveDay !== archiveDay) {
         lastArchiveDay = archiveDay;
-        void archiveCompletedTasks(db).catch((err: unknown) => {
+        void runClaimedJob(db, 'archive-tasks', archiveDay, () => archiveCompletedTasks(db)).catch((err: unknown) => {
           console.error('[Scheduler] Task archive failed:', err instanceof Error ? err.message : String(err));
         });
       }
@@ -115,12 +127,12 @@ export function startSyncScheduler(): void {
       // Weekly memory review — production only, Mondays 08:00. Suggests
       // standing instructions from preferences the user kept repeating;
       // suggestions only, never applied until approved on the Memory page.
-      const nowForReview = new Date();
-      const reviewWeek = `${nowForReview.getFullYear().toString()}-${Math.floor(nowForReview.getTime() / (7 * 86_400_000)).toString()}`;
-      if (!env.isDevelopment && nowForReview.getDay() === 1 && nowForReview.getHours() === 8 && lastMemoryReviewWeek !== reviewWeek && !isSyncInProgress()) {
+      const nowForReview = ukClock();
+      const reviewWeek = nowForReview.week;
+      if (!env.isDevelopment && nowForReview.weekday === 'Mon' && nowForReview.hour === MEMORY_REVIEW_HOUR && lastMemoryReviewWeek !== reviewWeek && !isSyncInProgress()) {
         lastMemoryReviewWeek = reviewWeek;
-        void runWeeklyMemoryReview(db)
-          .then((n) => { console.warn(`[Scheduler] Weekly memory review: ${n.toString()} suggestion(s)`); })
+        void runClaimedJob(db, 'memory-review', reviewWeek, () => runWeeklyMemoryReview(db))
+          .then((ran) => { console.warn(`[Scheduler] Weekly memory review claimed: ${ran.toString()}`); })
           .catch((err: unknown) => { console.error('[Scheduler] Weekly memory review failed:', err instanceof Error ? err.message : String(err)); });
       }
 
@@ -128,7 +140,7 @@ export function startSyncScheduler(): void {
       if (!env.isDevelopment && connectionCheckDue(Date.now(), lastConnectionCheckAt) && !isSyncInProgress() && !isConnectionCheckInProgress()) {
         lastConnectionCheckAt = Date.now();
         console.warn('[Scheduler] Checking new/updated connections (15-minute interval)...');
-        void runInferredEdgeJob(db).catch((err: unknown) => {
+        void runClaimedJob(db, 'connections', String(Math.floor(Date.now() / CONNECTION_CHECK_INTERVAL_MS)), () => runInferredEdgeJob(db)).catch((err: unknown) => {
           console.error('[Scheduler] Inferred edge job failed:', err instanceof Error ? err.message : String(err));
         });
       }
@@ -137,11 +149,11 @@ export function startSyncScheduler(): void {
       // once per week (persisted), after any running sync has finished.
       if (!env.isDevelopment && !weeklyDigestRunning && !isSyncInProgress()) {
         void weeklyDigestDue(db).then((due) => {
-          if (!due || weeklyDigestRunning) return;
+          if (!started || !due || weeklyDigestRunning) return;
           weeklyDigestRunning = true;
           console.warn('[Scheduler] Generating weekly Microsoft digest...');
-          return generateWeeklyMicrosoftDigest(db)
-            .then((d) => { console.warn(`[Scheduler] Weekly Microsoft digest ready (${d.articleCount.toString()} updates, Slack ${d.slackPosted ? 'posted' : 'not posted'}).`); })
+          return runClaimedJob(db, 'weekly-digest', ukClock().week, () => generateWeeklyMicrosoftDigest(db))
+            .then((ran) => { console.warn(`[Scheduler] Weekly Microsoft digest claimed: ${ran.toString()}`); })
             .finally(() => { weeklyDigestRunning = false; });
         }).catch((err: unknown) => {
           console.error('[Scheduler] Weekly Microsoft digest failed:', err instanceof Error ? err.message : String(err));
@@ -152,10 +164,10 @@ export function startSyncScheduler(): void {
       // morning sync has finished (so overnight GitHub activity is in).
       if (!env.isDevelopment && !briefingRunning && !isSyncInProgress() && workHour() < BRIEFING_LATEST_HOUR) {
         void briefingDue(db).then((due) => {
-          if (!due || briefingRunning) return;
+          if (!started || !due || briefingRunning) return;
           briefingRunning = true;
           console.warn('[Scheduler] Generating morning briefing...');
-          return generateMorningBriefing(db)
+          return runClaimedJob(db, 'morning-briefing', ukClock().day, () => generateMorningBriefing(db))
             .then(() => { console.warn('[Scheduler] Morning briefing ready.'); })
             .finally(() => { briefingRunning = false; });
         }).catch((err: unknown) => {
@@ -173,7 +185,7 @@ export function startSyncScheduler(): void {
       if (!env.isDevelopment && shouldRunFoundryBackfill() && !isSyncInProgress() && !isConnectionCheckInProgress()) {
         lastFoundryBackfillAt = Date.now();
         console.warn('[Scheduler] Running Foundry IQ backfill sweep...');
-        void runFoundryIqBackfillJob(db).catch((err: unknown) => {
+        void runClaimedJob(db, 'foundry-backfill', String(Math.floor(Date.now() / FOUNDRY_BACKFILL_INTERVAL_MS)), () => runFoundryIqBackfillJob(db)).catch((err: unknown) => {
           console.error('[Scheduler] Foundry IQ backfill job failed:', err instanceof Error ? err.message : String(err));
         });
       }
@@ -190,6 +202,7 @@ export function startSyncScheduler(): void {
   // Cheap no-op (one indexed query) when nothing is running.
   timers.push(
     setInterval(() => {
+      if (!started) return;
       void tickBuildRunner().catch((err: unknown) => {
         console.error('[Scheduler] Build runner tick failed:', err instanceof Error ? err.message : String(err));
       });
@@ -199,6 +212,9 @@ export function startSyncScheduler(): void {
 
 /** Clears all scheduled timers. Call on graceful shutdown. */
 export function stopSyncScheduler(): void {
+  started = false;
+  if (initialTimer !== undefined) clearTimeout(initialTimer);
+  initialTimer = undefined;
   for (const timer of timers) clearInterval(timer);
   timers.length = 0;
   console.warn('[Scheduler] Sync scheduler stopped.');

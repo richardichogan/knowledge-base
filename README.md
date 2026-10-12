@@ -108,6 +108,46 @@ the GitHub merge is bound to the inspected SHA. Explicit manual merging remains
 available. Existing workflow-change approval and integration-branch safeguards
 are preserved. CI is not a deployment pipeline.
 
+### Runtime and job safety
+
+`/health` is process liveness only. `/ready` returns 503 until migrations,
+database verification and interrupted-work recovery complete, and again while
+stopping. API routes reject requests while unready. Initialization failure starts
+no schedulers and exits nonzero; unrecoverable exceptions trigger bounded shutdown
+(15 seconds), clearing initial/interval timers and interrupting live AI jobs.
+Cloud probe configuration has not been changed or verified by these code changes.
+
+Non-production server and migration-CLI startup require an explicit
+`DATABASE_MODE=local` (a loopback database URL) or `DATABASE_MODE=disposable`
+(an explicitly selected disposable database). Do not point disposable mode at
+production. Development/test servers never start scheduled integration/AI jobs.
+Isolated tests still block dotenv and use disposable fixtures, not application
+database settings.
+
+Migrations use a dedicated PostgreSQL connection and session advisory lock;
+each migration and its tracking row commit together. The existing SQL files were
+checked for transaction-incompatible statements; none require a nontransactional
+exception. Historical migrations include destructive canvas rebuilds, so this
+does not make schema downgrade/replay safe or restore deleted data. No existing
+migration SQL was changed. Additive migration `065_runtime_runs.sql` stores sync
+runs and scheduler claims.
+
+Manual sync returns a run ID; Timeline polls that run rather than inferring
+completion from any source timestamp. Runs retain source results and distinguish
+running/succeeded/partial/failed/interrupted. Monitoring is bounded to 30 minutes
+even if reads fail; timeout is not success and does not cancel/restart server work.
+The sync panel displays the latest run and per-source outcomes.
+
+Daily/weekly scheduler identities use Europe/London dates and hours. Claimed
+occurrences are not replayed after failure/restart: this avoids duplicating
+external side effects, but a failed/interrupted job requires explicit operator
+review; manual sync creates a new run. Startup marks unfinished sync/claimed jobs
+and pending chat turns interrupted without executing their actions. A new chat
+request is explicit, duplicate running turns are rejected, and late completion
+cannot clear another turn's metadata. Live reconnect remains in-memory while the
+process survives. These safeguards assume the existing single-replica deployment;
+do not enable multiple replicas without lease/ownership recovery changes.
+
 ## Navigation
 
 The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
@@ -452,7 +492,7 @@ $env:TODAY_BROWSER_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe
 node tests\run-today-browser.mjs
 ```
 
-The browser runner uses a temporary profile, checks 1440px and 390px layouts, and blocks `/api` and `/auth` requests. It does not require a backend or authenticated production session. The fixture covers local loading/failure states, refresh, completion, disclosures and the real popout's prompt/context handoff. It also renders the actual Discover and Think pages with test-only data to compare Today's shared header typography, gutters and divider, Discover body typography and Think note-title typography. Today uses the existing left-aligned page frame, not a separate centred container.
+The browser runner uses a temporary profile, checks 1440px and 390px layouts, and blocks `/api` and `/auth` requests. It does not require a backend or authenticated production session. A blank initial fixture with an aborted source-module transport request may reload once within the bounded mount wait; JavaScript errors and application assertions are never retried. The fixture covers local loading/failure states, refresh, completion, disclosures and the real popout's prompt/context handoff. It also renders the actual Discover and Think pages with test-only data to compare Today's shared header typography, gutters and divider, Discover body typography and Think note-title typography. Today uses the existing left-aligned page frame, not a separate centred container.
 
 ## Repository structure
 

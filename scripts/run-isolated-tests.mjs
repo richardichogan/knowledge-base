@@ -12,10 +12,12 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/diagramTheme.test.ts',
   '../knowledge-hub-web/tests/note-filename.test.ts',
   '../knowledge-hub-web/tests/calendar.test.ts',
+  '../knowledge-hub-web/tests/syncPolling.test.ts',
 ] : [
   'scripts/note-history.test.ts', 'scripts/build.test.ts', 'scripts/turn-jobs.test.ts',
   'scripts/task-calendar.test.ts', 'scripts/today-activity.test.ts',
   'scripts/note-list.test.ts',
+  'scripts/runtime.test.ts',
 ];
 // Do not inherit local integration credentials or let dotenv load application settings.
 const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'COMSPEC', 'PATHEXT']);

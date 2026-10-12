@@ -43,6 +43,7 @@ export const env = {
   SLACK_WEBHOOK_URL: optional('SLACK_WEBHOOK_URL'),
 
   DATABASE_URL: required('DATABASE_URL'),
+  DATABASE_MODE: optionalWithDefault('DATABASE_MODE', ''),
 
   JWT_SECRET: optionalWithDefault('JWT_SECRET', 'dev-secret-change-in-production'),
   JWT_EXPIRES_IN: optionalWithDefault('JWT_EXPIRES_IN', '7d'),

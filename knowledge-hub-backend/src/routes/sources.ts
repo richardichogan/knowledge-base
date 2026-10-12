@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
-import { runTier1Sync, isSyncInProgress } from '../sync/syncOrchestrator.js';
+import { startTier1Sync } from '../sync/syncOrchestrator.js';
+import { getSyncRun, latestSyncRun } from '../sync/runStore.js';
+import { NotFoundError, ValidationError } from '../types/errors.js';
 import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { SYNC_CADENCE_MINUTES } from '../config/constants.js';
@@ -46,27 +48,28 @@ router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
  * Triggers a manual Tier 1 sync in the background. Returns immediately.
  */
 router.post('/sync', (_req: Request, res: Response, next: NextFunction): void => {
-  try {
-    const db = getDb();
-    // Don't queue an overlapping run — overlapping syncs were starving the pg
-    // pool and taking the whole app down. Report the conflict instead.
-    if (isSyncInProgress()) {
-      const body: ApiSuccess<{ message: string }> = {
-        success: true,
-        data: { message: 'A sync is already in progress — ignoring duplicate request.' },
-      };
-      res.status(HTTP_STATUS.CONFLICT).json(body);
-      return;
-    }
-    const body: ApiSuccess<{ message: string }> = { success: true, data: { message: 'Sync started' } };
-    res.status(HTTP_STATUS.ACCEPTED).json(body);
-    runTier1Sync(db).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error('[Sources] Manual sync failed:', message);
-    });
-  } catch (err) {
-    next(err);
-  }
+  void (async (): Promise<void> => {
+    try {
+      const { run, completion } = await startTier1Sync(getDb());
+      void completion.catch((error: unknown) => { console.error('[Sources] Manual sync failed:', error); });
+      res.status(HTTP_STATUS.ACCEPTED).json({ success: true, data: run });
+    } catch (error) { next(error); }
+  })();
+});
+
+router.get('/runs/latest', (_req: Request, res: Response, next: NextFunction): void => {
+  void latestSyncRun(getDb()).then(data => { res.json({ success: true, data }); }).catch(next);
+});
+router.get('/runs/:runId', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const id = req.params['runId'] ?? '';
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new ValidationError('Invalid sync run ID');
+      const data = await getSyncRun(getDb(), id);
+      if (data === null) throw new NotFoundError('Sync run');
+      res.json({ success: true, data });
+    } catch (error) { next(error); }
+  })();
 });
 
 /**

@@ -58,7 +58,10 @@ api.getTaskNotes = async () => success([]);
 api.getTaskLinks = async () => success([]);
 api.getConnections = async () => success({});
 api.getSources = async () => success([]);
-api.triggerSync = async () => { syncWrites++; return success({}); };
+api.triggerSync = async () => { syncWrites++; return success({ id: 'sync-fixture', status: 'running',
+  startedAt: '', finishedAt: null, results: [] }); };
+api.getLatestSyncRun = async () => success(null);
+api.getSyncRun = async () => success({ id: 'sync-fixture', status: 'succeeded', startedAt: '', finishedAt: '', results: [] });
 api.listMemories = async () => success({ memories: [] });
 api.getRepoProjectMappingConfig = async () => success({ repos: [], filingTags: [], mappings: [] });
 api.getGraph = async () => success({ nodes: [], edges: [], stats: {

@@ -20,6 +20,9 @@ import { inferProjectId, PROJECT_MAP, type Project } from '../config/projects';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { useLocation } from 'react-router-dom';
+import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
+import { pollSyncRun } from '../services/syncPolling';
+import { DataNotice } from '../components/DataNotice';
 
 // ── Source metadata ───────────────────────────────────────────────────────────
 
@@ -255,83 +258,75 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
     if (new URLSearchParams(location.search).get('sync') === '1') setSyncPanelOpen(true);
   }, [location.key, location.search]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const syncPending = useRef(false);
   const queryClient = useQueryClient();
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastSyncTsRef = useRef<number>(0);
+  const pollRef = useRef<AbortController | null>(null);
+  const lastSyncRunRef = useRef<string | null>(null);
   const loadPageRef = useRef<((p: number) => Promise<void>) | null>(null);
   const pageRef = useRef<number>(1);
 
   // Live sources query — refetches every 10s passively, every 5s while a sync is running
-  const { data: sourcesData } = useQuery({
+  const { data: sourcesData, error: sourcesError, refetch: retrySources } = useQuery({
     queryKey: ['sources-status'],
-    queryFn: () => api.getSources(),
+    queryFn: async () => requireApiSuccess(await api.getSources()),
     refetchInterval: isSyncing ? 5_000 : 10_000,
     staleTime: 0,
   });
 
-  // Auto-refresh timeline when background scheduler completes a sync
+  const { data: latestRun, error: runError, refetch: retryRun } = useQuery({
+    queryKey: ['sync-run-latest'],
+    queryFn: async () => requireApiData(await api.getLatestSyncRun()),
+    refetchInterval: 10_000,
+  });
+
+  // Refresh only on a completed run identity, not one source's timestamp.
   React.useEffect(() => {
-    if (!sourcesData?.success) return;
-    const latest = Math.max(0, ...sourcesData.data.map((s: SourceStatus) => new Date(s.lastSyncAt ?? 0).getTime()));
-    if (lastSyncTsRef.current === 0) {
-      lastSyncTsRef.current = latest;
-      return;
-    }
-    if (latest > lastSyncTsRef.current) {
-      lastSyncTsRef.current = latest;
-      if (!isSyncing && loadPageRef.current) {
-        void loadPageRef.current(pageRef.current);
-      }
-    }
-  }, [sourcesData, isSyncing]);
+    if (!latestRun || latestRun.status === 'running' || lastSyncRunRef.current === latestRun.id) return;
+    const previous = lastSyncRunRef.current;
+    lastSyncRunRef.current = latestRun.id;
+    if (previous !== null && !isSyncing) void loadPageRef.current?.(pageRef.current);
+  }, [latestRun, isSyncing]);
 
   function stopPolling(): void {
     if (pollRef.current !== null) {
-      clearInterval(pollRef.current);
+      pollRef.current.abort();
       pollRef.current = null;
     }
   }
+  React.useEffect(() => () => { stopPolling(); }, []);
 
   const syncMutation = useMutation({
     mutationFn: async () => {
-      // Snapshot the most recent lastSyncAt before triggering, so we can
-      // detect when the background job has actually finished.
-      const before = await api.getSources();
-      const beforeTs = before.success
-        ? Math.max(0, ...before.data.map((s: SourceStatus) => new Date(s.lastSyncAt ?? 0).getTime()))
-        : 0;
-      await api.triggerSync();
-      return beforeTs;
+      return requireApiData(await api.triggerSync());
     },
-    onSuccess: (beforeTs: number) => {
+    onSuccess: (startedRun) => {
       setNotification({ kind: 'success', msg: 'Sync started — will refresh when complete…' });
       setIsSyncing(true);
       setSyncPanelOpen(true);
       stopPolling();
 
-      const POLL_INTERVAL_MS = 5_000;
-      const POLL_TIMEOUT_MS = 120_000;
-      const started = Date.now();
-
-      pollRef.current = setInterval(() => {
-        void api.getSources().then((res) => {
-          if (!res.success) return;
+      const controller = new AbortController();
+      pollRef.current = controller;
+      void pollSyncRun(async (signal) => requireApiData(await api.getSyncRun(startedRun.id, signal)), controller.signal)
+        .then((run) => {
+          if (controller.signal.aborted) return;
+          setNotification({ kind: run.status === 'succeeded' ? 'success' : 'error',
+            msg: run.status === 'succeeded' ? 'Sync complete — timeline updated.'
+              : `Sync ${run.status} — inspect source results. No automatic rerun was started.` });
+          void loadPage(1);
           void queryClient.invalidateQueries({ queryKey: ['sources-status'] });
-          const latest = Math.max(0, ...res.data.map((s: SourceStatus) => new Date(s.lastSyncAt ?? 0).getTime()));
-          const timedOut = Date.now() - started > POLL_TIMEOUT_MS;
-          if (latest > beforeTs || timedOut) {
-            stopPolling();
-            setIsSyncing(false);
-            void loadPage(1);
-            void queryClient.invalidateQueries({ queryKey: ['sources-status'] });
-            setNotification({ kind: 'success', msg: timedOut ? 'Sync timed out — timeline refreshed.' : 'Sync complete — timeline updated.' });
-            setTimeout(() => { setNotification(null); }, 4_000);
-          }
+          void queryClient.invalidateQueries({ queryKey: ['sync-run-latest'] });
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) setNotification({ kind: 'error', msg: describeApiError(error) });
+        })
+        .finally(() => {
+          if (pollRef.current === controller) { pollRef.current = null; syncPending.current = false; setIsSyncing(false); }
         });
-      }, POLL_INTERVAL_MS);
     },
     onError: (err: unknown) => {
       stopPolling();
+      syncPending.current = false;
       setIsSyncing(false);
       setNotification({ kind: 'error', msg: `Sync failed: ${String(err)}` });
       setTimeout(() => { setNotification(null); }, 6_000);
@@ -346,12 +341,12 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
   const loadPage = useCallback(async (p: number) => {
     setLoading(true);
     try {
-      const res = await api.getTimeline({ page: p, pageSize: PAGE_SIZE });
-      if (res.success) {
-        setPageData({ items: res.data.items, total: res.data.total });
-        setPage(p);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
+      const data = requireApiData(await api.getTimeline({ page: p, pageSize: PAGE_SIZE }));
+      setPageData({ items: data.items, total: data.total });
+      setPage(p);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error) {
+      setNotification({ kind: 'error', msg: `Timeline could not be refreshed: ${describeApiError(error)}` });
     } finally {
       setLoading(false);
     }
@@ -397,7 +392,11 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
             size="sm"
             renderIcon={Renew}
             iconDescription="Sync now"
-            onClick={() => { syncMutation.mutate(); }}
+            onClick={() => {
+              if (syncPending.current) return;
+              syncPending.current = true;
+              syncMutation.mutate();
+            }}
             disabled={syncMutation.isPending || isSyncing}
           >
             {isSyncing ? 'Syncing…' : 'Sync Now'}
@@ -416,6 +415,17 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
 
         {syncPanelOpen && (
           <div className="tl-sync-panel">
+            {sourcesError !== null && <DataNotice title="Source status is unavailable" error={sourcesError} onRetry={() => { void retrySources(); }} />}
+            {runError !== null && <DataNotice title="Sync run status is unavailable" error={runError} onRetry={() => { void retryRun(); }} />}
+            {latestRun !== null && latestRun !== undefined && <section className="tl-sync-run" aria-label="Latest sync run">
+              <h3 className="tl-sync-run__heading">Latest run: {latestRun.status}</h3>
+              <p className="tl-sync-run__meta">{formatTime(latestRun.startedAt)} · {latestRun.id}</p>
+              <ul className="tl-sync-run__results">
+                {latestRun.results.map(result => <li key={result.source} className={result.errors > 0 ? 'tl-sync-run__result--error' : ''}>
+                  <span>{result.source}</span><span>{result.indexed} indexed · {result.errors} errors</span>
+                </li>)}
+              </ul>
+            </section>}
             <div className="tl-sync-panel__title">
               Source sync status
               {isSyncing && <InlineLoading description="Syncing…" className="tl-sync-panel__spinner" />}
@@ -435,7 +445,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
                   </div>
                 );
               })}
-              {(!sourcesData?.success) && <span className="tl-sync-loading">Loading…</span>}
+              {(!sourcesData?.success) && sourcesError === null && <span className="tl-sync-loading">Loading…</span>}
             </div>
           </div>
         )}
