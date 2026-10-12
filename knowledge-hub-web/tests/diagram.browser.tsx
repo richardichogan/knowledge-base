@@ -7,6 +7,7 @@ import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types';
 import type { DiagramDocument, DiagramNode, DiagramSnapshot } from '../src/features/diagram/diagramTypes';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
+import { footnoteBlock } from '../src/features/diagram/diagramAnnotations';
 import { documentWaveDepth, edgeEndpoints, lineGeometry, linePoints, portPoint } from '../src/features/diagram/diagramGeometry';
 import { NoteMaps } from '../src/features/canvas/NoteMaps';
 import '../src/styles/global.scss';
@@ -191,10 +192,30 @@ async function runDiagramChecks(): Promise<string[]> {
   await waitFor(() => snapshot.document.footnotes?.[0]?.targetId === workforce.id);
   check(window.document.querySelector('.dg-footnotes') === null, 'Footnotes are drawn on the diagram, not in a separate pane');
   check(window.document.querySelector('a.dg-noteblock__item')?.getAttribute('href')?.includes('footnote=1') === true, 'Footnote number links to its note');
-  check(window.document.querySelector('.dg-noteblock__item--active') !== null, 'New footnote is highlighted on the diagram');
+  check(window.document.querySelector(`g.dg-node[data-id="${workforce.id}"]`)?.classList.contains('dg-node--selected') === true,
+    'New footnote keeps its shape selected');
   check(window.document.querySelector('.dg-noteblock__item')?.textContent?.includes(workforce.label) === true, 'Note shows the shape title');
   const markerBox = window.document.querySelector('g.dg-node[data-id="' + workforce.id + '"]')!.getBoundingClientRect();
   const blockBox = window.document.querySelector('.dg-noteblock__frame')!.getBoundingClientRect();
+  const frameStyle = getComputedStyle(window.document.querySelector('.dg-noteblock__frame')!);
+  check(frameStyle.fill === 'none' && frameStyle.stroke === 'none', 'Footnote area is transparent and borderless');
+  const columnNodes = Array.from({ length: 9 }, (_, i) => ({
+    ...workforce, id: crypto.randomUUID(), parentId: null, label: `Footnote column ${i + 1}`, description: `Detail ${i + 1}`,
+  }));
+  const columnDoc: DiagramDocument = { ...snapshot.document, nodes: columnNodes, edges: [],
+    footnotes: columnNodes.map(n => ({ id: crypto.randomUUID(), targetId: n.id, source: 'description' })) };
+  const columnLayout = footnoteBlock(columnDoc, { x: 0, y: 0, width: 500, height: 200 }, 'bottom')!;
+  check(columnLayout.items[4]!.marker.x > columnLayout.items[3]!.marker.x
+    && columnLayout.items[4]!.marker.y === columnLayout.items[0]!.marker.y
+    && columnLayout.items[8]!.marker.x > columnLayout.items[4]!.marker.x,
+    'Footnotes five and nine start new columns');
+  const columnExport = new DOMParser().parseFromString(await diagramSvg(columnDoc, new Map(), 'transparent'), 'image/svg+xml');
+  const exportedTitles = [...columnExport.querySelectorAll('tspan[font-weight="600"]')].filter(t => t.textContent?.startsWith('Footnote column'));
+  check(exportedTitles.length === 9 && exportedTitles[4]!.getAttribute('x') !== exportedTitles[0]!.getAttribute('x')
+    && exportedTitles[4]!.getAttribute('y') === exportedTitles[0]!.getAttribute('y'),
+    'SVG export retains the four-notes-per-column layout');
+  check(![...columnExport.querySelectorAll('rect')].some(r => r.getAttribute('stroke') === '#c6c6c6'),
+    'SVG export has no footnote frame');
   check(blockBox.top > markerBox.bottom, 'Notes sit beneath the diagram by default');
   clickButton('Notes right');
   await waitFor(() => snapshot.document.notesPanel === 'right');
@@ -218,7 +239,8 @@ async function runDiagramChecks(): Promise<string[]> {
   window.document.querySelector('.dg-noteblock__hit')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }));
   window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 1 }));
   await waitFor(() => window.document.querySelector('.dg-footnote-controls') !== null);
-  check(window.document.querySelector('.dg-noteblock__item--active') !== null, 'Clicking a note selects its shape');
+  check(window.document.querySelector(`g.dg-node[data-id="${workforce.id}"]`)?.classList.contains('dg-node--selected') === true,
+    'Clicking a note selects its shape');
   clickButton('Remove footnote 1');
   await waitFor(() => window.document.querySelector('g.dg-marker') === null && window.document.querySelector('.dg-noteblock') === null && (snapshot.document.footnotes ?? []).length === 0);
   clickButton('Link a note');

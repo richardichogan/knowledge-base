@@ -134,13 +134,20 @@ export interface FootnoteBlock { rect: Rect; heading: DiagramPoint; items: Footn
 export function footnoteBlock(doc: Pick<Doc, 'nodes' | 'edges' | 'footnotes'>, content: Rect, position: 'bottom' | 'right', emptyText?: string): FootnoteBlock | null {
   const list = footnotesOf(doc);
   if (list.length === 0) return null;
-  const width = position === 'right' ? 360 : Math.min(900, Math.max(420, content.width));
+  const columnWidth = position === 'right' ? 360 : 420;
+  const columnGap = 32;
+  const columnCount = Math.ceil(list.length / 4);
+  const width = columnCount * columnWidth + (columnCount - 1) * columnGap;
   const x = position === 'right' ? content.x + content.width + BLOCK_GAP : content.x;
   const y = position === 'right' ? content.y : content.y + content.height + BLOCK_GAP;
-  const textX = x + BLOCK_PAD + TEXT_INDENT;
-  const textWidth = width - BLOCK_PAD * 2 - TEXT_INDENT;
-  let cursor = y + BLOCK_PAD + NOTE_HEADING_FONT + 12;
+  const textWidth = columnWidth - BLOCK_PAD * 2 - TEXT_INDENT;
+  const firstRow = y + BLOCK_PAD + NOTE_HEADING_FONT + 12;
+  let cursor = firstRow;
+  let bottom = firstRow;
   const items = list.map((fn, i): FootnoteBlockItem => {
+    if (i % 4 === 0) cursor = firstRow;
+    const columnX = x + Math.floor(i / 4) * (columnWidth + columnGap);
+    const textX = columnX + BLOCK_PAD + TEXT_INDENT;
     const title = elementInfo(doc, fn.targetId)?.label ?? 'Missing item';
     const body = footnoteText(doc, fn).trim();
     const raw: Array<{ text: string; bold: boolean; muted: boolean }> = [
@@ -153,13 +160,14 @@ export function footnoteBlock(doc: Pick<Doc, 'nodes' | 'edges' | 'footnotes'>, c
     const lines = raw.map((l, j) => ({ ...l, x: textX, y: top + NOTE_FONT + j * NOTE_LINE }));
     const height = Math.max(FOOTNOTE_RADIUS * 2, raw.length * NOTE_LINE) + 4;
     cursor += height + 10;
+    bottom = Math.max(bottom, cursor - 10);
     return {
       id: fn.id, targetId: fn.targetId, number: i + 1, lines,
-      marker: { x: x + BLOCK_PAD + FOOTNOTE_RADIUS, y: top + FOOTNOTE_RADIUS - 2 },
-      rect: { x: x + 4, y: top - 5, width: width - 8, height: height + 10 },
+      marker: { x: columnX + BLOCK_PAD + FOOTNOTE_RADIUS, y: top + FOOTNOTE_RADIUS - 2 },
+      rect: { x: columnX + 4, y: top - 5, width: columnWidth - 8, height: height + 10 },
     };
   });
-  return { rect: { x, y, width, height: cursor - y + BLOCK_PAD - 10 }, heading: { x: x + BLOCK_PAD, y: y + BLOCK_PAD }, items };
+  return { rect: { x, y, width, height: bottom - y + BLOCK_PAD }, heading: { x: x + BLOCK_PAD, y: y + BLOCK_PAD }, items };
 }
 
 // ── Colour key (border colours only) ──────────────────────────────────────────

@@ -153,7 +153,6 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
   const block = fns.length > 0 ? footnoteBlock(doc, content, doc.notesPanel ?? 'bottom') : null;
   if (block !== null) {
     regions.push(block.rect);
-    cells.push(vertexCell('notes-frame', '', style({ rounded: 1, absoluteArcSize: 1, arcSize: 8, html: 1, fillColor: 'none', strokeColor: '#c6c6c6', strokeWidth: 1 }), '1', block.rect));
     cells.push(vertexCell('notes-heading', 'Notes', style({ text: '', html: 1, align: 'left', verticalAlign: 'top', fontSize: NOTE_HEADING_FONT, fontStyle: 1, spacing: 0 }), '1',
       { x: block.heading.x, y: block.heading.y, width: 120, height: NOTE_HEADING_FONT + 6 }));
     for (const item of block.items) {

@@ -64,7 +64,6 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
   const rects: Rect[] = [content];
   if (block !== null) {
     rects.push(block.rect);
-    extras.push(`<rect x="${block.rect.x}" y="${block.rect.y}" width="${block.rect.width}" height="${block.rect.height}" rx="4" fill="none" stroke="#c6c6c6" stroke-width="1"/>`);
     extras.push(`<text x="${block.heading.x}" y="${block.heading.y}" ${FONT} font-size="${NOTE_HEADING_FONT}" font-weight="600" fill="${ink}" dominant-baseline="hanging">Notes</text>`);
     for (const item of block.items) {
       extras.push(marker(item.marker.x, item.marker.y, item.number));

@@ -74,6 +74,26 @@ test('footnoteHref deep-links to the numbered note', () => {
   ok(footnoteHref('c1', 3).includes('footnote=3'), footnoteHref('c1', 3));
   ok(footnoteHref('c1', 3).includes('c1'), 'includes canvas id');
 });
+test('footnotes flow down four per column with non-overlapping variable-height text', () => {
+  for (const count of [4, 5, 8, 9]) {
+    const nodes = Array.from({ length: count }, (_, i) => node(`n${i}`, {
+      description: i === 1 ? 'A longer description that wraps across multiple lines. '.repeat(12) : `Description ${i}`,
+    }));
+    const d = doc(nodes, [], { footnotes: nodes.map((n, i) => ({ id: `f${i}`, targetId: n.id, source: 'description' })) });
+    for (const position of ['bottom', 'right'] as const) {
+      const block = footnoteBlock(d, { x: 20, y: 30, width: 600, height: 200 }, position)!;
+      eq(block.items.map(i => i.number), Array.from({ length: count }, (_, i) => i + 1));
+      block.items.forEach((item, i) => {
+        eq(item.rect.x, block.items[Math.floor(i / 4) * 4]!.rect.x);
+        if (i % 4 === 0) eq(item.rect.y, block.items[0]!.rect.y, 'new columns start at the same height');
+        else ok(item.rect.y >= block.items[i - 1]!.rect.y + block.items[i - 1]!.rect.height, 'rows do not overlap');
+        if (i >= 4) ok(item.rect.x > block.items[i - 4]!.rect.x + block.items[i - 4]!.rect.width, 'columns do not overlap');
+        ok(item.rect.x + item.rect.width <= block.rect.x + block.rect.width, 'bounds include every column');
+        ok(item.rect.y + item.rect.height <= block.rect.y + block.rect.height, 'bounds include the tallest column');
+      });
+    }
+  }
+});
 
 // ── Colour key ──
 test('legendRows counts border colours case-insensitively and merges saved labels', () => {

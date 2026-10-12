@@ -248,6 +248,9 @@ and does not enable diagram editing by Athena. Unsaved edits are not included.
 Large diagrams and note excerpts are bounded and explicitly marked as incomplete.
 Athena's transcript scrolls only when the conversation exceeds the available
 height; prompt-pinning space does not create a scrollbar for short conversations.
+Diagram footnotes are transparent and borderless, flowing down four notes per
+column before starting the next column to the right. Canvas, SVG/PNG and draw.io
+exports share this layout.
 
 From a note, **Create diagram** opens a new blank diagram linked to that note;
 it does not automatically generate shapes from the note's prose. In a diagram,
