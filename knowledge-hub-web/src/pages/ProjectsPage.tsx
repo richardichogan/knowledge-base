@@ -8,7 +8,7 @@ import {
   Button, TextInput, TextArea, Modal,
   Select, SelectItem, InlineNotification, ComboBox, Tag, Checkbox,
 } from '@carbon/react';
-import { Add, Dashboard, Edit, TrashCan, LogoGithub, Launch, ChevronDown, ChevronUp } from '@carbon/icons-react';
+import { Add, Dashboard, Edit, TrashCan, LogoGithub, Launch, ChevronDown, ChevronUp, Search } from '@carbon/icons-react';
 import {
   useProjects,
   type ProjectRecord,
@@ -558,31 +558,48 @@ export const ProjectsPage: React.FC = () => {
       <div className="page-header">
         <div className="page-title-group">
           <h1 className="page-title">Projects</h1>
-          <p className="page-subtitle">Organise your work, knowledge and commitments.</p>
+          <p className="page-subtitle">{visible.length} of {projects.length} projects</p>
         </div>
         <div className="page-controls">
           <Button renderIcon={Add} size="md" onClick={openCreate}>New project</Button>
         </div>
       </div>
-      <div className="proj-toolbar" role="search" aria-label="Filter projects">
-          <TextInput
-            id="proj-search"
-            labelText="Search"
-            hideLabel
-            placeholder="Search…"
-            size="md"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="proj-search"
-          />
-          <Select id="proj-cat-filter" labelText="Category" hideLabel value={filterCat} onChange={(e) => setFilterCat(e.target.value as ProjectCategory | 'all')} className="proj-cat-select">
-            <SelectItem value="all" text="All categories" />
-            {CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value} text={c.label} />)}
-          </Select>
-          <Select id="proj-lifecycle-filter" labelText="Project state" hideLabel value={filterLifecycle} onChange={(e) => setFilterLifecycle(e.target.value as ProjectLifecycleState | 'all')} className="proj-lifecycle-select">
-            {LIFECYCLE_STATES.map((state) => <SelectItem key={state.value} value={state.value} text={state.label} />)}
-          </Select>
-          <span className="proj-result-count" role="status">{visible.length} of {projects.length} projects</span>
+      <div className="dc-toolbar">
+        <div className="dc-tabs">
+          {LIFECYCLE_STATES.map((state) => (
+            <button
+              key={state.value}
+              type="button"
+              className={`dc-tab${filterLifecycle === state.value ? ' dc-tab--active' : ''}`}
+              aria-pressed={filterLifecycle === state.value}
+              onClick={() => setFilterLifecycle(state.value)}
+            >
+              {state.label}
+            </button>
+          ))}
+        </div>
+        <div className="dc-toolbar__filters">
+          <select
+            className="dc-filter-select"
+            aria-label="Filter by category"
+            value={filterCat}
+            onChange={(e) => setFilterCat(e.target.value as ProjectCategory | 'all')}
+          >
+            <option value="all">All categories</option>
+            {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
+          <div className="dc-search">
+            <Search size={16} className="dc-search__icon" />
+            <input
+              type="text"
+              className="dc-search__input"
+              placeholder="Search projects…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search projects"
+            />
+          </div>
+        </div>
       </div>
 
       {error && <DataNotice title="Projects could not be refreshed." error={error} onRetry={() => { void reload(); }} />}
@@ -600,7 +617,7 @@ export const ProjectsPage: React.FC = () => {
               : 'No projects match these filters. Try another search or category.'}
           </p>
         )}
-        <div className="proj-grid">
+        <div className="dc-feed proj-feed">
           {visible.map((project) => {
             const repos = [
               ...(project.gitlabPaths ?? []).map((path) => ({ type: 'gitlab' as const, name: path.split('/').pop() ?? path, url: `https://gitlab.com/${path}` })),
@@ -626,9 +643,7 @@ export const ProjectsPage: React.FC = () => {
             );
 
             return (
-              <article key={project.id} className="proj-card">
-                <div className={`proj-card-top proj-card-top--${project.colour}`} />
-
+              <article key={project.id} className="dc-card proj-card">
                 <div className="proj-card-body">
                   {/* Card Header */}
                   <div className="proj-card-header">
