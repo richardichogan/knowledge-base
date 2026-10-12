@@ -1,10 +1,15 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Frontend-only dashed divider above diagram Notes. Existing backend v180 unchanged.
+**Deployment:** Frontend-only correction: Notes divider follows the actual diagram content width. Existing backend v180 unchanged.
 
 ## 1. Scope
+
+Approved 2026-10-12 at 11:17 BST: deploy application `2f49519`. Divider width
+comes from diagram content bounds, not viewport or notes columns, in canvas
+and exports. Existing production SWA only; no backend/configuration changes.
+Remote main `7d55877` integrated. Rollback frontend application `f27219c`.
 
 Approved 2026-10-12 at 11:09 BST: deploy `f27219c` to the existing production
 Static Web App. Subtle dashed divider above Notes on canvas and exports.
@@ -185,6 +190,17 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-12 following the 11:17 BST request:
+
+- Remote main fetched and merged; already current.
+- Both app `npx tsc --noEmit` checks and frontend production build passed.
+- Application `2f49519`: desktop/mobile diagram browser checks passed,
+  fixture typecheck passed, 13 annotation and 5 draw.io tests passed.
+- Live subscription/SWA/backend reads confirm established production targets
+  in Alliance Tenant Reporting, backend v180 unchanged.
+- No IaC, RBAC, migrations, container or environment changes; related checks N/A.
+- Build log: `%TEMP%\athena-full-width-divider-build.log`.
 
 Deployed 2026-10-12 following the 11:09 BST request:
 
