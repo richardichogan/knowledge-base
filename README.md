@@ -202,6 +202,10 @@ do not enable multiple replicas without lease/ownership recovery changes.
 
 **Tools → Knowledge health** (`/health`, `GET /api/health/knowledge`) is a read-only view of AI usage, recent sync runs and index freshness, filtered by UTC date range (inclusive, up to 90 days; default last 7), environment, feature, persona and deployment. Every query is bounded and each section fails independently. Token totals count only calls where the provider reported usage (`ai_usage_log.usage_known`, added by migration 067); earlier rows and calls without usage show as "Not measured" rather than zero. No monetary estimate is shown because no pricing is configured, and prompts, content, session ids and error text are never returned.
 
+## Project cockpit and register
+
+Each project card has a **Cockpit** button (`GET /api/projects/:id/cockpit`) showing the outcome, blocked/open commitments, a register of questions, risks and issues, and collapsed supporting evidence (chat decisions, notes, outputs). Sections fail independently and lists are capped with totals. The register (`/api/projects/:id/register`, migration 068) is created, resolved and linked to tasks by the user; "Add to register" on a chat decision is idempotent and never changes the decision. Diagram callouts are not yet promotable. No completion percentage is invented.
+
 ## Navigation
 The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
 

@@ -8,7 +8,7 @@ import {
   Button, TextInput, TextArea, Modal,
   Select, SelectItem, InlineNotification, ComboBox, Tag, Checkbox,
 } from '@carbon/react';
-import { Add, Edit, TrashCan, LogoGithub, Launch } from '@carbon/icons-react';
+import { Add, Dashboard, Edit, TrashCan, LogoGithub, Launch } from '@carbon/icons-react';
 import {
   useProjects,
   type ProjectRecord,
@@ -26,6 +26,7 @@ import { api } from '../services/api';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
 import { parseExpectedOutputs, validateProjectContext } from '../services/projectFormValidation';
+import { ProjectCockpitModal } from './ProjectCockpit';
 
 // ── GitLab SVG icon ───────────────────────────────────────────────────────────
 
@@ -484,6 +485,7 @@ export const ProjectsPage: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const deletePending = useRef(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [cockpitProject, setCockpitProject] = useState<ProjectRecord | null>(null);
 
   const { data: globalTagsData, error: tagsError, refetch: reloadTags } = useQuery<string[]>({
     queryKey: ['global-tags'],
@@ -621,6 +623,7 @@ export const ProjectsPage: React.FC = () => {
                     <div className="proj-card-name-icons">
                       {source === 'gitlab' && <span className="proj-source-badge proj-source-badge--gitlab" title="GitLab"><GitLabIcon size={18} /></span>}
                       {source === 'github' && <span className="proj-source-badge proj-source-badge--github" title="GitHub"><LogoGithub size={18} /></span>}
+                      <button type="button" className="proj-icon-btn" aria-label={`Open ${project.name} cockpit`} title="Cockpit" onClick={() => setCockpitProject(project)}><Dashboard size={16} /></button>
                       <button type="button" className="proj-icon-btn" aria-label={`Edit ${project.name}`} title="Edit" onClick={() => openEdit(project)}><Edit size={16} /></button>
                       <button type="button" className="proj-icon-btn proj-icon-btn--danger" aria-label={`Delete ${project.name}`} title="Delete" onClick={() => { setDeleteError(null); setDeleteConfirm(project); }}><TrashCan size={16} /></button>
                     </div>
@@ -716,6 +719,9 @@ export const ProjectsPage: React.FC = () => {
         onSave={handleSave}
         saving={saving}
       />
+
+      {/* ── Cockpit ── */}
+      <ProjectCockpitModal projectId={cockpitProject?.id ?? null} projectName={cockpitProject?.name ?? ''} onClose={() => setCockpitProject(null)} />
 
       {/* ── Delete confirm modal ── */}
       <Modal

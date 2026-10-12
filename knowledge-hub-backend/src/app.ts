@@ -20,6 +20,7 @@ import { graphAuthRouter } from './routes/graphAuth.js';
 import { allianceAuthRouter, allianceApiRouter } from './routes/allianceAuth.js';
 import { memoriesRouter } from './routes/memories.js';
 import { projectsRouter } from './routes/projects.js';
+import { projectCockpitRouter } from './routes/projectCockpit.js';
 import { tagsRouter } from './routes/tags.js';
 import { documentsRouter } from './routes/documents.js';
 import { discoverRouter } from './routes/discover.js';
@@ -136,6 +137,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/notes', notesRouter);
   app.use('/api/images', imagesRouter);
   app.use('/api/projects', projectsRouter);
+  app.use('/api/projects', projectCockpitRouter);
   app.use('/api/tags', tagsRouter);
   app.use('/api/documents', documentsRouter);
   app.use('/api/integrations/alliance', allianceApiRouter);

@@ -1,0 +1,29 @@
+.pcp { display: flex; flex-direction: column; gap: 16px; }
+.pcp-outcome { background: var(--cds-layer-01, #f4f4f4); padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.pcp-goal { font-size: 1.125rem; margin: 0; }
+.pcp-meta { color: var(--cds-text-secondary, #525252); font-size: 0.875rem; margin: 0; }
+.pcp-outputs { margin: 0; padding-left: 20px; }
+.pcp-step { font-size: 1rem; margin: 8px 0 0; }
+.pcp-block { display: flex; flex-direction: column; gap: 8px; }
+.pcp-block h3 { font-size: 0.875rem; font-weight: 600; margin: 0; display: flex; gap: 8px; align-items: center; }
+.pcp-count { background: var(--cds-layer-accent-01, #e0e0e0); border-radius: 10px; padding: 0 8px; font-weight: 400; }
+.pcp-list, .pcp-reg__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pcp-list li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--cds-border-subtle-01, #e0e0e0); }
+.pcp-list li a { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.pcp-empty, .pcp-more, .pcp-unavailable { color: var(--cds-text-secondary, #525252); font-size: 0.875rem; margin: 0; }
+.pcp-unavailable { color: var(--cds-text-error, #da1e28); }
+.pcp-evidence { border-top: 1px solid var(--cds-border-subtle-01, #e0e0e0); padding-top: 8px; }
+.pcp-evidence > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.pcp-evidence[open] > summary { margin-bottom: 8px; }
+.pcp-evidence[open] { display: flex; flex-direction: column; gap: 16px; }
+.pcp-reg__tabs { display: flex; gap: 8px; }
+.pcp-reg__new { display: grid; grid-template-columns: 140px 1fr auto; gap: 8px; align-items: end; }
+.pcp-reg { padding: 12px 0; border-bottom: 1px solid var(--cds-border-subtle-01, #e0e0e0); display: flex; flex-direction: column; gap: 8px; }
+.pcp-reg__head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pcp-reg__fields { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 8px; }
+.pcp-reg__actions, .pcp-pager { display: flex; gap: 8px; align-items: center; }
+.pcp-resolution { margin: 0; grid-column: span 1; }
+@media (max-width: 672px) {
+  .pcp-reg__new, .pcp-reg__fields { grid-template-columns: 1fr; }
+  .pcp-reg__new .cds--btn { width: 100%; max-width: none; }
+}

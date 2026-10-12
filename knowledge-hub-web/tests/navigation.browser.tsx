@@ -500,7 +500,11 @@ export async function runNavigationChecks(): Promise<string[]> {
   check(selector('.proj-page').scrollWidth <= selector('.proj-page').clientWidth + 1, 'Long project content has no horizontal overflow');
   const columns = getComputedStyle(selector('.proj-grid')).gridTemplateColumns.split(' ').length;
   check(columns === (window.innerWidth <= 800 ? 1 : 2), 'Responsive project grid');
-  selector<HTMLButtonElement>('.proj-icon-btn').click();
+  selector<HTMLButtonElement>('.proj-icon-btn[title="Cockpit"]').click();
+  await waitFor(() => document.querySelector('.cds--modal.is-visible') !== null);
+  key(document, 'Escape');
+  await waitFor(() => document.querySelector('.cds--modal.is-visible') === null);
+  selector<HTMLButtonElement>('.proj-icon-btn[title="Edit"]').click();
   await waitFor(() => document.querySelector<HTMLInputElement>('#pm-name')?.value.includes('long project') === true);
   check(selector<HTMLTextAreaElement>('#pm-expected-outputs').value.includes(output), 'Edit retains complete output text');
   const modal = selector('#pm-name').closest('.cds--modal-content')!;

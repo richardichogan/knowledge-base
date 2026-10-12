@@ -37,6 +37,30 @@ import { getApiToken } from './auth';
 import type { DiagramAsset, DiagramDocument, DiagramSnapshot } from '../features/diagram/diagramTypes';
 import type { GitHubPublication, GitHubPushPayload } from '../notes/types';
 
+export type ProjectRegisterKind = 'question' | 'risk' | 'issue';
+export interface ProjectRegisterItem {
+  id: string; projectId: string; kind: ProjectRegisterKind; title: string; detail: string;
+  status: 'open' | 'resolved'; resolution: string; owner: string; dueDate: string | null; taskId: string | null;
+  sourceType: 'manual' | 'chat_decision'; sourceId: string | null; createdAt: string; updatedAt: string; resolvedAt: string | null;
+}
+export interface ProjectRegisterPage { items: ProjectRegisterItem[]; total: number; limit: number; offset: number }
+export interface ProjectRegisterInput {
+  kind?: ProjectRegisterKind; title?: string; detail?: string; status?: 'open' | 'resolved'; resolution?: string;
+  owner?: string; dueDate?: string | null; taskId?: string | null;
+}
+export type CockpitSection<T> = { available: true; data: T; truncated: boolean; total: number } | { available: false; error: string };
+export interface CockpitLink { label: string; href: string; at: string | null; meta?: string; sourceId?: string }
+export interface ProjectCockpit {
+  projectId: string; generatedAt: string;
+  outcome: CockpitSection<{ goal: string; expectedOutputs: string[]; lifecycleState: string; targetEndDate: string | null }>;
+  commitments: CockpitSection<CockpitLink[]>;
+  blockers: CockpitSection<CockpitLink[]>;
+  register: CockpitSection<{ open: number; resolved: number; openByKind: Record<ProjectRegisterKind, number> }>;
+  decisions: CockpitSection<CockpitLink[]>;
+  notes: CockpitSection<CockpitLink[]>;
+  outputs: CockpitSection<CockpitLink[]>;
+}
+
 // Use relative base URL so all requests go through the Vite dev proxy.
 const BASE_URL = import.meta.env['VITE_API_URL'] as string | undefined ?? '';
 /** Backend origin ('' in dev, where Vite proxies /api and /auth). */
@@ -1211,6 +1235,35 @@ export class KnowledgeHubApi {
 
   async deleteProject(id: string): Promise<ApiResponse<void>> {
     const r = await this.client.delete<ApiResponse<void>>(`/api/projects/${id}`);
+    return r.data;
+  }
+
+  async getProjectCockpit(id: string): Promise<ApiResponse<ProjectCockpit>> {
+    const r = await this.client.get<ApiResponse<ProjectCockpit>>(`/api/projects/${encodeURIComponent(id)}/cockpit`);
+    return r.data;
+  }
+
+  async getProjectRegister(id: string, params: { status?: string; kind?: string; limit?: number; offset?: number }): Promise<ApiResponse<ProjectRegisterPage>> {
+    const r = await this.client.get<ApiResponse<ProjectRegisterPage>>(`/api/projects/${encodeURIComponent(id)}/register`, { params });
+    return r.data;
+  }
+
+  async createProjectRegisterItem(id: string, input: ProjectRegisterInput): Promise<ApiResponse<ProjectRegisterItem>> {
+    const r = await this.client.post<ApiResponse<ProjectRegisterItem>>(`/api/projects/${encodeURIComponent(id)}/register`, input);
+    return r.data;
+  }
+
+  async updateProjectRegisterItem(id: string, itemId: string, input: ProjectRegisterInput): Promise<ApiResponse<ProjectRegisterItem>> {
+    const r = await this.client.patch<ApiResponse<ProjectRegisterItem>>(`/api/projects/${encodeURIComponent(id)}/register/${encodeURIComponent(itemId)}`, input);
+    return r.data;
+  }
+
+  async deleteProjectRegisterItem(id: string, itemId: string): Promise<void> {
+    await this.client.delete(`/api/projects/${encodeURIComponent(id)}/register/${encodeURIComponent(itemId)}`);
+  }
+
+  async promoteProjectDecision(id: string, decisionId: string, kind: ProjectRegisterKind): Promise<ApiResponse<{ item: ProjectRegisterItem; created: boolean }>> {
+    const r = await this.client.post<ApiResponse<{ item: ProjectRegisterItem; created: boolean }>>(`/api/projects/${encodeURIComponent(id)}/register/promote`, { decisionId, kind });
     return r.data;
   }
 
