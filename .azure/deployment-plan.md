@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Frontend-only dashed divider above diagram Notes. Existing backend v180 unchanged.
 
@@ -185,6 +185,14 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-12 following the 11:09 BST request:
+
+- SWA production deployment succeeded for `8d162c1` (application `f27219c`).
+- Both production hosts serve exact release HTML at `/` and `/think`;
+  `/assets/index-fqk88lHh.js` SHA-256 matches the local build on both hosts.
+- Backend v180 unchanged. No infrastructure, secrets, roles or environment changes.
+- Production: https://athena.themicrosoftcloudblog.com/think
 
 Validated 2026-10-12 following the 11:09 BST deployment request:
 
