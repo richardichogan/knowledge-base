@@ -1,10 +1,16 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Frontend-only correction: Notes divider follows the actual diagram content width. Existing backend v180 unchanged.
+**Deployment:** Frontend-only prominent Discovery weighted-rank display. Existing backend v180 unchanged.
 
 ## 1. Scope
+
+Approved 2026-10-12 at 11:44 BST: deploy application `75a5fbc`.
+Discovery shows its actual weighted rank with a larger number and readable label.
+Ranking logic is unchanged. Existing production SWA only; no backend,
+infrastructure, environment, secrets, RBAC or migration changes.
+Remote main `0ccbe9f` integrated. Rollback frontend application `2f49519`.
 
 Approved 2026-10-12 at 11:17 BST: deploy application `2f49519`. Divider width
 comes from diagram content bounds, not viewport or notes columns, in canvas
@@ -190,6 +196,19 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-12 following the 11:44 BST deployment request:
+
+- `git fetch origin` and `git merge origin/main`: already current.
+- Both applications: `npx tsc --noEmit` passed.
+- Frontend production `npm run build` passed; log:
+  `%TEMP%\athena-discovery-rank-deploy-build.log`.
+- Frontend fixture typecheck and Discovery browser suite passed at 1440/390:
+  weighted rank (including values above 100), 28px number, readable label,
+  no horizontal overflow, and existing article/email/dialog workflows.
+- Azure CLI confirms Alliance Tenant Reporting, production `kh-prod-web`
+  and unchanged backend v180. Existing deployment-token authorization only.
+- Provisioning, IaC validation and RBAC changes N/A for this static release.
 
 Deployed 2026-10-12 following the 11:17 BST request:
 
