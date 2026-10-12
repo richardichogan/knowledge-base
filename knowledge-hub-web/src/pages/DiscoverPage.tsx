@@ -2,7 +2,7 @@
  * DiscoverPage — AI-curated inbound article feed + CFP speaking opportunities.
  *
  * Articles Athena discovers from its feeds (managed under Sources) are surfaced here with
- * relevance scores; ones left unactioned for a week are shelved. The user triages each article into one of:
+ * weighted ranking scores; ones left unactioned for a week are shelved. The user triages each article into one of:
  *   To Review (default) · Shelved · Saved · Blog · Published · Archived
  *
  * CFPs (Calls for Papers) appear in their own tab — scored, sorted by deadline.
@@ -304,13 +304,13 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           </>
         )}
         <span className="dc-card-meta-spacer" />
-        {(item.spark === true || item.relevanceScore !== null) && (
+        {(item.spark === true || item.rankScore != null) && (
           <span
-            className={`dc-score dc-score--${scoreTier(item.relevanceScore)}${item.spark === true ? ' dc-score--spark' : ''}`}
-            title={item.spark === true ? (item.sparkReason ?? 'High value content') : 'Relevance to your interests'}
+            className={`dc-score dc-score--${scoreTier(item.rankScore ?? null)}${item.spark === true ? ' dc-score--spark' : ''}`}
+            title={`Ranking score used to order articles: relevance weighted by freshness, source authority, article type and project fit. Boosts can take it above 100.${item.spark === true ? ` ${item.sparkReason ?? 'High value content'}` : ''}`}
           >
             {item.spark === true && <span className="dc-score__spark" aria-hidden>⚡</span>}
-            {item.relevanceScore !== null && <span className="dc-score__value">{Math.round(item.relevanceScore * 100).toString()}<small>%</small></span>}
+            {item.rankScore != null && <span className="dc-score__value">{(item.rankScore * 100).toFixed(1)}<small>rank</small></span>}
           </span>
         )}
       </div>

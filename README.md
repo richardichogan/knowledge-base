@@ -56,6 +56,12 @@ Navigation regressions use the same isolated fixture server and Chromium executa
 
 ## Quick LinkedIn posts from Discover
 
+Discover article badges show the live **rank** used to order the feed, not the
+original relevance percentage. Rank is relevance weighted by freshness, source
+authority, article type and project fit, displayed on a 100-point scale with one
+decimal place. Boosts can take it above 100; it is not a percentage. CFP scores
+and deadline ordering are unchanged.
+
 Connections reuse the existing shared graph, not a canvas-only relationship model.
 Use the existing right-click menu on selected Think note text to **Create Spark**.
 The Spark retains the selection and its source-note reference. After saving,

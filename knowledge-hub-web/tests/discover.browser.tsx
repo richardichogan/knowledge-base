@@ -32,7 +32,7 @@ api.getDiscoverSources = async () => success([]);
 api.getDiscoverFeed = async () => success({ items: [{
   id: articleId, sourceId: 'test', title: 'A public cloud management announcement', url: 'https://example.com/news',
   description: 'Public news', publishedAt: now, indexedAt: now, sourceTitle: 'Test newsletter', workflowState: 'to-review',
-  relevanceScore: null, relevanceExplanation: 'A useful enterprise IT update.', publishedUrl: null, taxonomyTagIds: [],
+  relevanceScore: 0.8, rankScore: 1.248, relevanceExplanation: 'A useful enterprise IT update.', publishedUrl: null, taxonomyTagIds: [],
   articleType: null, platform: null, sourceType: null, spark: false, sparkReason: null, compositeScore: null,
 }], total: 1, page: 1, pageSize: 25 });
 api.getTimeline = async () => success({ items: [{
@@ -79,6 +79,16 @@ export async function runDiscoverChecks(): Promise<string[]> {
   const checks: string[] = [];
   await waitFor(() => document.querySelector('.dc-action--linkedin') !== null);
   const card = document.querySelector<HTMLElement>('.dc-card')!;
+  check(card.querySelector('.dc-score__value')?.textContent === '124.8rank',
+    'Badge shows the actual weighted rank, not relevance or a clamped percentage');
+  check(card.querySelector('.dc-score')?.getAttribute('title')?.includes('freshness') === true,
+    'Rank tooltip explains the ordering factors');
+  const rankFontSize = getComputedStyle(card.querySelector('.dc-score__value')!).fontSize;
+  check(parseFloat(rankFontSize) >= 28,
+    `Rank number is prominently sized on desktop and mobile (actual ${rankFontSize})`);
+  check(parseFloat(getComputedStyle(card.querySelector('.dc-score__value small')!).fontSize) >= 14,
+    'Rank label remains readable');
+  checks.push('Weighted ranking badge preserves boosted values and explains ordering');
   const more = card.querySelector<HTMLElement>('.dc-card-actions__more')!;
   check(!card.matches(':hover') && !card.matches(':focus-within'), 'Check actions before hovering or focusing the card');
   check(getComputedStyle(more).opacity === '1', 'Secondary Discover actions remain visible without hover');
@@ -124,11 +134,11 @@ export async function runDiscoverChecks(): Promise<string[]> {
   checks.push('Clipboard denial, generation failure and retry, focus restoration');
   click('Inbox');
   await waitFor(() => document.querySelector('.dc-email-card') !== null);
-  click('LinkedIn post');
+  click('Socials');
   await waitFor(() => document.querySelector('dialog a')?.getAttribute('href')?.includes('outlook.office.com') === true);
   check(document.querySelector('dialog')!.textContent!.includes('mailbox access'), 'Private mailbox link warning');
   click('Copy post + link');
-  await waitFor(() => document.querySelector('dialog')?.textContent?.includes('Nothing has been posted to LinkedIn') === true);
+  await waitFor(() => document.querySelector('dialog')?.textContent?.includes('Nothing has been posted to social media') === true);
   check(workflowWrites === 2, 'Email copies do not use article workflow');
   click('Close');
   await waitFor(() => document.querySelector('dialog[open]') === null);

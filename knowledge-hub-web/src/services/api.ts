@@ -344,6 +344,8 @@ export interface DiscoverItem {
   workflowState: DiscoverWorkflowState;
   relevanceScore: number | null;
   relevanceExplanation: string | null;
+  /** Live weighted score used by the backend to order articles; may exceed 1. */
+  rankScore?: number | null;
   /** URL of the user's own blog post written about this article */
   publishedUrl: string | null;
   /** Taxonomy tag UUIDs from discover_item_tags */
