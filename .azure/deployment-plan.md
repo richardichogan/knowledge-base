@@ -1,10 +1,19 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Frontend-only popup login correction. Silent token renewal first; user-initiated initial sign-in and reauthentication use one popup without navigating Athena. Backend v176 unchanged.
+**Deployment:** Diagram text callout categories and transparent, four-per-column footnotes. Update the existing backend from v179 to v180, then deploy the matching frontend.
 
 ## 1. Scope
+
+Approved 2026-10-12 at 10:26 BST: deploy current application source `2e1af96`,
+including `a7713ea` (borderless footnotes) and `2e1af96` (semantic text callouts).
+Remote main `47e559a` is integrated; no newer remote commits were found.
+Use existing ACA/ACR/SWA resources in Alliance Tenant Reporting.
+No new migrations, infrastructure, secrets, environment, permissions or auth changes.
+Rollback: backend `cad79107555facr.azurecr.io/kh-prod-api:v179` and
+frontend source `47e559a`. The subscription confirmation prompt returned
+an instruction to proceed autonomously; retain the established production target.
 
 User-directed correction 2026-10-10 at 09:13 BST: restore popup sign-in
 and renewal instead of navigating the whole page. Preserve the early MSAL
@@ -171,6 +180,25 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-12 at 10:29 BST for application source `2e1af96`:
+
+- `git fetch origin` and `git merge origin/main`: already current with `47e559a`.
+- Both packages: `npx tsc --noEmit` and `npm run build` passed.
+- Frontend fixture `npx tsc --noEmit -p tests/tsconfig.json` passed.
+- Backend diagram validation/context tests: 37 passed; callout tests: 4 passed;
+  draw.io tests: 5 passed. Isolated mocked data only; no production writes.
+- Diagram browser regression passed at 1440px and 390px, including all six
+  callout icons/categories, plain-text removal, save/reopen, duplication,
+  undo/redo, export geometry and no page overflow.
+- Azure CLI authentication and live ACA/ACR/SWA reads passed. Current backend
+  v179, latest ready revision `kh-prod-api-vnet--0000176`; ACR state Succeeded.
+- Dockerfile and lockfile verified; Dockerfile copies all existing migrations.
+  ACR remote build must succeed before the production image is updated.
+- No IaC/RBAC changes: template/what-if/provisioning/static role checks N/A.
+  Existing registry uses its configured credentials, not a new managed identity.
+- `git diff --check` passed. Frontend build log:
+  `%TEMP%\athena-callout-deploy-build.log`.
 
 Deployed 2026-10-10: popup login correction `e154d32`.
 
