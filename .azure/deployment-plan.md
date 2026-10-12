@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Frontend-only prominent Discovery weighted-rank display. Existing backend v180 unchanged.
 
@@ -196,6 +196,14 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-12 following the 11:44 BST request:
+
+- Production SWA deployment succeeded for `de5d0a1` (application `75a5fbc`).
+- Both production hosts serve matching release HTML at `/` and `/discover`;
+  `/assets/index-IrMYqW-f.js` SHA-256 matches the local production build.
+- Backend v180 and ranking logic unchanged; no infrastructure/config changes.
+- Production: https://athena.themicrosoftcloudblog.com/discover
 
 Validated 2026-10-12 following the 11:44 BST deployment request:
 
