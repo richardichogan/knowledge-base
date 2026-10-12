@@ -1,10 +1,15 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Diagram text callout categories and transparent, four-per-column footnotes. Update the existing backend from v179 to v180, then deploy the matching frontend.
+**Deployment:** Frontend-only dashed divider above diagram Notes. Existing backend v180 unchanged.
 
 ## 1. Scope
+
+Approved 2026-10-12 at 11:09 BST: deploy `f27219c` to the existing production
+Static Web App. Subtle dashed divider above Notes on canvas and exports.
+No backend, migration, infrastructure, environment, secret or role changes.
+Remote main `7b58080` is integrated. Rollback frontend source `2e1af96`.
 
 Approved 2026-10-12 at 10:26 BST: deploy current application source `2e1af96`,
 including `a7713ea` (borderless footnotes) and `2e1af96` (semantic text callouts).
@@ -180,6 +185,16 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-12 following the 11:09 BST deployment request:
+
+- `git fetch origin` / `git merge origin/main`: already up to date.
+- Both app `npx tsc --noEmit` checks passed; frontend production build passed.
+- Exact application source `f27219c` already passed diagram browser checks at
+  1440px and 390px, fixture typecheck and five draw.io export tests.
+- Live Azure target reads passed: existing SWA `kh-prod-web`, backend v180.
+- No infrastructure, container or RBAC changes; related validation N/A.
+- Frontend build log: `%TEMP%\athena-divider-build.log`.
 
 Deployed 2026-10-12 at 10:34 BST:
 
