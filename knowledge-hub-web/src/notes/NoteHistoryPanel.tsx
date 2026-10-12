@@ -1,44 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useCreateBlockNote } from '@blocknote/react';
-import type { PartialBlock } from '@blocknote/core';
 import { api } from '../services/api';
-import type { NoteVersion } from '../services/api';
 import { confirmDialog } from '../services/appDialogs';
-import { editorSchema } from './editorSchema';
-import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
-import { BLOCKNOTE_G100_THEME } from './constants';
+import { NoteRecoveryPreview } from './NoteRecoveryPreview';
 
 const REASONS = { automatic: 'Automatic checkpoint', before_athena: 'Before Athena changes', before_restore: 'Before restore', before_github: 'Before accepting GitHub version' };
 function date(iso: string): string { return new Date(iso).toLocaleString('en-GB'); }
-
-class PreviewBoundary extends React.Component<{ children: React.ReactNode; onFailure: () => void }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError(): { failed: boolean } { return { failed: true }; }
-  componentDidCatch(error: Error): void {
-    console.error('[Think history] Preview failed:', error);
-    this.props.onFailure();
-  }
-  render(): React.ReactNode {
-    return this.state.failed
-      ? <p role="alert" className="note-history__error">This checkpoint cannot be displayed by the current editor. Its stored writing is unchanged; restore is disabled to avoid losing unsupported blocks.</p>
-      : this.props.children;
-  }
-}
-
-function Preview({ version }: { version: NoteVersion }): React.ReactElement {
-  const blocks = JSON.parse(version.writing.contentJson) as PartialBlock[];
-  const editor = useCreateBlockNote({ schema: editorSchema, initialContent: blocks.length ? blocks : [{ type: 'paragraph', content: '' }] });
-  const [missingImage, setMissingImage] = useState(false);
-  return <div className="note-history__preview" onErrorCapture={event => {
-    if (event.target instanceof HTMLImageElement) setMissingImage(true);
-  }}>
-    <h3>{version.writing.title}</h3>
-    <p className="note-history__type">{version.writing.contentType}</p>
-    {missingImage && <p role="status" className="note-history__error">An image is unavailable. Checkpoints retain references, not image files.</p>}
-    <BlockNoteViewWrapper editor={editor} theme={BLOCKNOTE_G100_THEME} editable={false} />
-  </div>;
-}
 
 export function NoteHistoryPanel({ noteId, refresh, onRestore }: {
   noteId: string; refresh: number; onRestore: (versionId: string) => Promise<void>;
@@ -108,9 +75,8 @@ export function NoteHistoryPanel({ noteId, refresh, onRestore }: {
       <button type="button" className="note-history__button" onClick={() => { void version.refetch(); }}>Retry preview</button>
     </div>}
     {selected && version.data && !version.isError && <>
-      <PreviewBoundary key={version.data.id} onFailure={() => { setPreviewFailed(true); }}>
-        <Preview version={version.data} />
-      </PreviewBoundary>
+      <NoteRecoveryPreview key={version.data.id} writing={version.data.writing} variant="history"
+        onFailure={() => { setPreviewFailed(true); }} />
       <button type="button" className="note-history__button note-history__button--restore" disabled={restoring || previewFailed} onClick={() => { void restore(); }}>{restoring ? 'Restoring...' : 'Restore writing'}</button>
     </>}
     {error && <p role="alert" className="note-history__error">{error}</p>}

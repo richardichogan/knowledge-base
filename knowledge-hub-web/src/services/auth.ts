@@ -13,6 +13,7 @@ import {
   type AccountInfo,
 } from '@azure/msal-browser';
 import { authSession, SessionExpiredError } from './authSession';
+import { clearAllNoteDrafts } from '../notes/noteDraftStorage';
 
 const CLIENT_ID = import.meta.env['VITE_ENTRA_CLIENT_ID'] as string | undefined ?? '';
 const TENANT_ID = import.meta.env['VITE_ENTRA_TENANT_ID'] as string | undefined ?? '';
@@ -66,8 +67,40 @@ export function signIn(): Promise<void> {
   return reauthenticate();
 }
 
-export function signOut(): Promise<void> {
-  if (msal === null) return Promise.resolve();
+let signingOut = false;
+const DRAFT_EPOCH_KEY = 'kh-note-draft-session-v1';
+const DRAFT_IDENTITY_EVENT = 'kh-note-draft-identity';
+export const noteDraftIdentity = {
+  get(): string | null {
+    if (signingOut) return null;
+    if (msal === null) return 'local-development';
+    const account = msal.getActiveAccount();
+    return account === null ? null : `${account.tenantId}:${account.homeAccountId}`;
+  },
+  epoch(): string { return window.localStorage.getItem(DRAFT_EPOCH_KEY) ?? 'initial'; },
+  snapshot(): string {
+    try { return `${noteDraftIdentity.get() ?? ''}:${noteDraftIdentity.epoch()}`; }
+    catch { return `${noteDraftIdentity.get() ?? ''}:storage-unavailable`; }
+  },
+  subscribe(listener: () => void): () => void {
+    window.addEventListener('storage', listener);
+    window.addEventListener(DRAFT_IDENTITY_EVENT, listener);
+    return () => { window.removeEventListener('storage', listener); window.removeEventListener(DRAFT_IDENTITY_EVENT, listener); };
+  },
+};
+
+export async function signOut(): Promise<void> {
+  signingOut = true;
+  try {
+    window.localStorage.setItem(DRAFT_EPOCH_KEY, crypto.randomUUID());
+    window.dispatchEvent(new Event(DRAFT_IDENTITY_EVENT));
+    clearAllNoteDrafts(window.localStorage);
+  }
+  catch (error) {
+    console.error('[auth] Local draft removal failed; sign-out stopped.', error);
+    throw new Error('Local note drafts could not be removed. Clear this site\'s local storage and retry sign-out.');
+  }
+  if (msal === null) return;
   return msal.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
 }
 
@@ -90,6 +123,8 @@ async function authenticateInPopup(): Promise<void> {
     : await msal.acquireTokenPopup({ ...request, account });
   if (result.account === null) throw new Error('Microsoft sign-in returned no account. Please try again.');
   msal.setActiveAccount(result.account);
+  signingOut = false;
+  window.dispatchEvent(new Event(DRAFT_IDENTITY_EVENT));
   saveHint(result.account.username);
   authSession.setExpired(false);
 }

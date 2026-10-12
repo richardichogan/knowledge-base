@@ -28,6 +28,7 @@ const NoteEditor = deferredView('Note editor', async () => ({ default: (await im
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
 const DiagramEditor = deferredView('Diagram', async () => ({ default: (await import('../features/diagram/DiagramEditor')).DiagramEditor }));
 const ImportNoteModal = deferredView('Note import', async () => ({ default: (await import('./ImportNoteModal')).ImportNoteModal }));
+const NoteRecoveryCentre = deferredView('Think recovery', async () => ({ default: (await import('./NoteRecoveryCentre')).NoteRecoveryCentre }));
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
 
@@ -66,6 +67,7 @@ export const NotesPage: React.FC = () => {
   const creatingNoteRef = useRef(false);
   const [creatingNote, setCreatingNote] = useState(false);
   const [importModalOpen,  setImportModalOpen]  = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [importHasOpened, setImportHasOpened] = useState(false);
   useEffect(() => { if (importModalOpen) setImportHasOpened(true); }, [importModalOpen]);
   const [sparkModalOpen,   setSparkModalOpen]   = useState(false);
@@ -441,6 +443,8 @@ export const NotesPage: React.FC = () => {
               <DocumentImport size={16} /> Import
             </button>
           )}
+          {mode === 'notes' && <button type="button" className="kb-import-btn notes-recovery-launch" aria-haspopup="dialog"
+            onClick={() => setRecoveryOpen(true)}><Renew size={16} /> Recovery</button>}
           <div className="plan-view-toggle" role="tablist" aria-label="Think view">
             {VIEW_MODES.map(({ key, label, Icon }) => (
               <button
@@ -485,6 +489,8 @@ export const NotesPage: React.FC = () => {
         </div>
       </div>
 
+      {recoveryOpen && <NoteRecoveryCentre onClose={() => setRecoveryOpen(false)}
+        onOpenNote={id => { setMode('notes'); void handleSelectNote(id); }} />}
       {mode === 'notes' && refreshMessage !== null && <p className="notes-refresh-message notes-refresh-message--error"
         role="alert">{refreshMessage}</p>}
       {mode === 'notes' && isError && <DataNotice title="Note list is unavailable. Your open note is unchanged." error={listError} onRetry={() => { void refetch(); }} />}

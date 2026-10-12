@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { NoteEditor } from '../src/notes/NoteEditor';
 import { GitHubModal } from '../src/notes/GitHubModal';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import type { Note } from '../src/types/contentItem';
 import type { GitHubPublication, GitHubPushPayload } from '../src/notes/types';
 import { fromApiNote } from '../src/notes/noteStorage';

@@ -21,7 +21,7 @@ import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput, ContentItem } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
-import { writeNote, listNoteVersions, getNoteVersion, parseWriting, writingFingerprint } from '../services/noteVersionService.js';
+import { writeNote, listNoteVersions, getNoteVersion, parseWriting, writingFingerprint, restoreArchivedNote } from '../services/noteVersionService.js';
 import { checkPublication, listRepositoryFolders, listWritableRepositories, publicationRow, publicationView, publishNote, remoteNote, scheduleGitHubPublish, startPublication } from '../services/noteGitHubService.js';
 import { githubMarkdownBlocks } from '../services/noteMarkdown.js';
 import { GitHubClient } from '../integrations/github/githubClient.js';
@@ -30,6 +30,11 @@ import { positiveInteger } from '../utils/queryValidation.js';
 
 const router = Router();
 const MAX_REPOSITORY_PAGE = 100;
+function noteStatus(value: unknown): 'active' | 'archived' {
+  if (value === undefined || value === 'active') return 'active';
+  if (value === 'archived') return 'archived';
+  throw new ValidationError('Note status must be active or archived');
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -240,8 +245,8 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       const pageSize = positiveInteger(req.query['pageSize'], 'pageSize', DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
       const offset = (page - 1) * pageSize;
       if (!Number.isSafeInteger(offset)) throw new ValidationError('Note page is too large');
-      const conditions = ["n.status = 'active'"];
-      const params: unknown[] = [];
+      const conditions = ['n.status = $1'];
+      const params: unknown[] = [noteStatus(req.query['status'])];
       const filterValue = (name: string): string | undefined => {
         const value = req.query[name];
         if (value === undefined || value === '') return undefined;
@@ -392,9 +397,9 @@ router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
                 COALESCE(ARRAY_AGG(nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
            FROM notes n
            LEFT JOIN note_tags nt ON nt.note_id = n.id
-          WHERE n.id::text = $1 AND n.status = 'active'
+          WHERE n.id::text = $1 AND n.status = $2
           GROUP BY n.id`,
-        [id],
+        [id, noteStatus(req.query['status'])],
       );
       const row = result.rows[0];
       if (row === undefined) throw new NotFoundError(`Note ${String(id)} not found`);
@@ -419,6 +424,47 @@ router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
 });
 
 // ── POST /api/notes ────────────────────────────────────────────────────────────
+
+const MAX_RECOVERY_TITLE = 10_000;
+const MAX_RECOVERY_CONTENT_TYPE = 128;
+const MAX_RECOVERY_BODY = 2_000_000;
+function recoveryNoteId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new ValidationError('A valid note ID is required');
+  }
+  return value;
+}
+
+router.post('/:id/restore-archive', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const expected: unknown = (req.body as Record<string, unknown> | undefined)?.['expectedRevision'];
+      if (typeof expected !== 'number' || !Number.isSafeInteger(expected) || expected < 0) throw new ValidationError('Current archived-note revision is required');
+      const result = await restoreArchivedNote(getDb(), recoveryNoteId(req.params['id']), expected);
+      if (result.restored) scheduleNoteIndexing(getDb(), result.note);
+      res.json({ success: true, data: result });
+    } catch (error) { next(error); }
+  })();
+});
+
+router.post('/:id/recover-draft', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const input = req.body as { writing?: unknown; expectedRevision?: number } | undefined;
+      if (!input || typeof input.writing !== 'object' || input.writing === null || Array.isArray(input.writing)) throw new ValidationError('Reviewed local writing is required');
+      if (typeof input.expectedRevision !== 'number' || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw new ValidationError('Reviewed saved-note revision is required');
+      const writing = input.writing as Record<string, unknown>;
+      if (typeof writing['title'] !== 'string' || writing['title'].length > MAX_RECOVERY_TITLE
+        || typeof writing['contentType'] !== 'string' || !writing['contentType'] || writing['contentType'].length > MAX_RECOVERY_CONTENT_TYPE
+        || typeof writing['contentJson'] !== 'string' || writing['contentJson'].length > MAX_RECOVERY_BODY) throw new ValidationError('Complete, bounded local writing is required');
+      const note = await writeNote(getDb(), recoveryNoteId(req.params['id']), {
+        expectedRevision: input.expectedRevision, restoreWriting: parseWriting(JSON.stringify(input.writing)),
+      });
+      scheduleNoteIndexing(getDb(), note);
+      res.json({ success: true, data: note });
+    } catch (error) { next(error); }
+  })();
+});
 
 /**
  * Creates a note record: inserts into `notes`, then fires off (non-blocking)
@@ -699,6 +745,8 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction): void =>
         throw new NotFoundError(`Note ${id} not found or already archived`);
       }
 
+      const pending = pendingIndexTimers.get(id);
+      if (pending !== undefined) { clearTimeout(pending); pendingIndexTimers.delete(id); }
       const body: ApiSuccess<void> = { success: true, data: undefined };
       res.status(HTTP_STATUS.OK).json(body);
       // Remove the note from content_items so it disappears from the timeline

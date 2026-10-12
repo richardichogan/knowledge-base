@@ -82,6 +82,7 @@ async function checkpoint(client: PoolClient, row: NoteRow, writing: Writing, re
 export interface NoteWrite {
   content?: string; tags?: string[]; projectId?: string | null; expectedRevision?: number | undefined;
   protect?: boolean; restoreId?: string; appendBlocks?: unknown[]; importGitHub?: boolean;
+  restoreWriting?: Writing;
 }
 /** All note writing and checkpoint decisions share the locked note transaction. */
 export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise<Note> {
@@ -96,7 +97,12 @@ export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise
     const before = parseWriting(input.restoreId !== undefined ? input.content ?? row.content : row.content);
     let content = input.content ?? row.content;
     let reason: Reason = 'automatic';
-    if (input.restoreId !== undefined) {
+    if (input.restoreWriting !== undefined) {
+      let wrapper: unknown;
+      try { wrapper = JSON.parse(row.content); } catch { wrapper = {}; }
+      content = JSON.stringify({ ...(object(wrapper) ? wrapper : {}), ...input.restoreWriting });
+      reason = 'before_restore';
+    } else if (input.restoreId !== undefined) {
       const version = await client.query<VersionRow>('SELECT * FROM note_versions WHERE id = $1 AND note_id = $2', [input.restoreId, id]);
       if (!version.rows[0]) throw new NotFoundError('Checkpoint not found for this note');
       const saved = version.rows[0].writing;
@@ -151,6 +157,28 @@ export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise
     await client.query('ROLLBACK');
     throw err;
   } finally { client.release(); }
+}
+
+export async function restoreArchivedNote(db: Pool, id: string, expectedRevision: number): Promise<{ note: Note; restored: boolean }> {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const current = await client.query<NoteRow>('SELECT * FROM notes WHERE id = $1 FOR UPDATE', [id]);
+    const row = current.rows[0];
+    if (!row) throw new NotFoundError('Note not found');
+    if (row.status === 'active') {
+      await client.query('COMMIT');
+      return { note: note(row), restored: false };
+    }
+    if (row.status !== 'archived') throw new ValidationError('Only archived notes can be restored');
+    requireRevision(expectedRevision, row);
+    const updated = await client.query<NoteRow>(
+      "UPDATE notes SET status='active',revision=revision+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING *", [id],
+    );
+    await client.query('COMMIT');
+    return { note: note(updated.rows[0]!), restored: true };
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
 }
 
 export async function listNoteVersions(db: Pool, id: string): Promise<Omit<VersionRow, 'writing' | 'fingerprint' | 'note_id'>[]> {

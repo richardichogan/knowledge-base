@@ -14,6 +14,7 @@ const connectionsChecks = process.env.ATHENA_BROWSER_CHECKS === 'connections';
 const authSessionChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-session';
 const noteCopyChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-copy';
 const noteHistoryChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-history';
+const noteRecoveryChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-recovery';
 const authCallbackChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-callback';
 const authLiveChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-live';
 const imagineBriefChecks = process.env.ATHENA_BROWSER_CHECKS === 'imagine-brief';
@@ -114,6 +115,7 @@ try {
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
         : noteHistoryChecks ? 'typeof window.runNoteHistoryChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
+        : noteRecoveryChecks ? 'typeof window.runNoteRecoveryChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
         : noteCopyChecks ? 'typeof window.runNoteCopyChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
         : thinkSearchChecks ? 'typeof window.runThinkSearchChecks === "function" && document.querySelector("#notes-search") !== null'
         : 'typeof window.runTodayChecks === "function" && document.querySelectorAll(".today-brief__attention article").length === 5');
@@ -122,6 +124,42 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, readyState: document.readyState, text: document.body.innerText })')}\n${loadDiagnostics.join('\n')}`);
+    if (noteRecoveryChecks) {
+      if (process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        await evaluate('window.prepareNoteRecoveryComparison()');
+        const comparison = await command('Page.captureScreenshot', { format: 'png' });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `recovery-comparison-${width}.png`), Buffer.from(comparison.data, 'base64'));
+      }
+      const before = await evaluate('window.runNoteRecoveryChecks()');
+      await evaluate('window.recoveryReloadMarker = true');
+      await command('Page.reload', { ignoreCache: true });
+      let reloaded = false;
+      for (let attempt = 0; attempt < 600; attempt++) {
+        reloaded = await evaluate('window.recoveryReloadMarker !== true && typeof window.runNoteRecoveryReloadChecks === "function" && document.querySelector(".notes-copy-btn") !== null');
+        if (reloaded) break;
+        await delay(100);
+      }
+      assert.ok(reloaded, 'Recovery fixture reload did not mount');
+      const after = await evaluate('window.runNoteRecoveryReloadChecks()');
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      if (process.env.TODAY_ARTIFACT_DIR) {
+        await evaluate('window.recoveryReloadMarker = true');
+        await command('Page.reload', { ignoreCache: true });
+        let captureReady = false;
+        for (let attempt = 0; attempt < 600; attempt++) {
+          captureReady = await evaluate('window.recoveryReloadMarker !== true && typeof window.prepareNoteRecoveryCentre === "function" && document.querySelector(".notes-copy-btn") !== null');
+          if (captureReady) break;
+          await delay(100);
+        }
+        assert.ok(captureReady, `Recovery capture did not mount: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, text: document.body.innerText })')}`);
+        await evaluate('window.prepareNoteRecoveryCentre()');
+        const centre = await command('Page.captureScreenshot', { format: 'png' });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `recovery-centre-${width}.png`), Buffer.from(centre.data, 'base64'));
+      }
+      console.log(JSON.stringify({ width, checks: [...before, ...after] }, null, 2));
+      continue;
+    }
     if (diagramThemeChecks) {
       const results = await evaluate('window.runDiagramThemeChecks()');
       console.log(JSON.stringify({ width, checks: results }, null, 2));

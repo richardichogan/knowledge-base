@@ -18,6 +18,7 @@ import { AIChatPage } from '../src/pages/AIChatPage';
 import { SignInGate } from '../src/components/SignInGate';
 import { MetadataPanel } from '../src/notes/MetadataPanel';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import type { ApiResponse } from '../src/types/apiResponse';
 import type { PlanTask } from '../src/types/task';
 import { localDateKey } from '../src/utils/dateOnly';

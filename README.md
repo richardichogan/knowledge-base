@@ -35,12 +35,56 @@ Conflicting writes pause autosave and keep the editor draft: copy it before
 reopening the saved note. History is Think-only, not task/Discover/canvas history
 or deleted-note recovery, and is not a substitute for backups.
 
+Think's **Recovery** button opens a modal without unmounting the current editor.
+**Recently archived notes** uses the existing soft archive: search and browse
+25 summaries per page, load a full read-only preview on demand, then explicitly
+restore. Restoration preserves writing, History, project, tags, links and GitHub
+settings; it increments the revision and queues normal indexing. A repeated or
+delayed retry reports an already-active note without rewriting newer writing.
+Normal note lists/deep links still exclude archived notes. This does not recover
+permanently deleted records or publish a note.
+
+Edits also capture a versioned **device-local writing copy**, scoped to the
+signed-in tenant/account, note and base revision, with separate writer IDs for
+different tabs/editor instances. Copies contain exact title, content type and
+rich-body JSON, not unsaved project/taxonomy changes, publication settings or
+image files. They are plain text in this browser's local storage, not encrypted,
+cross-device backups or an exhaustive edit log. Clearing site data, private
+browsing, unavailable storage or quota limits can prevent recovery; visible
+errors never imply a server save succeeded. Records are bounded to 2,000,000
+serialized characters; browsing reads at most 100 copies and explicitly reports
+unreadable records or incomplete coverage.
+
+Recovery offers preview, exact JSON/manual-copy fallback and explicit discard.
+Open a source note to compare earlier local copies with freshly fetched saved
+writing. Nothing restores automatically. A changed server revision requires
+review and confirmation; every restore uses that reviewed revision. Current
+server writing is preserved through the same 30-checkpoint History policy,
+while replaced unsaved open writing is retained as a separate local copy.
+An unsupported preview disables restore instead of converting away rich blocks.
+Late save acknowledgements remove only the exact submitted local snapshot, never
+newer typing. A lost response retains the local copy for review rather than
+blindly overwriting the server on retry.
+
+Explicit discard removes only the reviewed, unchanged record. Explicit sign-out
+removes all note-draft records on this device (not chat drafts or preferences)
+and changes a recovery-session marker so pending saves and previously mounted
+editors cannot recreate those copies. If cleanup fails, sign-out stops with an
+error rather than claiming the sensitive writing was removed. After a sign-out
+or account/session change, copy any still-open writing before reopening its note.
+
 Run the isolated history database regression from `knowledge-hub-backend` with
 `node --import tsx/esm --test scripts/note-history.test.ts`. It uses in-memory
 PostgreSQL, never the configured application database.
 The real-editor browser fixture is `knowledge-hub-web/tests/note-history.html`;
 use the existing browser runner with `ATHENA_BROWSER_CHECKS=note-history` and
 `TODAY_FIXTURE_URL` pointing at that fixture on an isolated Vite server.
+The credential-isolated root runner includes draft-storage and real recovery
+route/database tests. With `TODAY_BROWSER_PATH` pointing to Chromium,
+`node scripts/run-browser-checks.mjs --modes=note-recovery,note-history,markdown-export`
+checks real page reload, exact rich writing, response-loss/conflict protection,
+storage failure, archive retries, identity/sign-out and unchanged history/export
+at desktop and phone widths; API/auth traffic is blocked and logout is mocked.
 
 A unified personal intelligence layer that aggregates content, code activity, calendar events, and tasks from 10+ sources into a single, searchable, AI-queryable timeline — accessible from Android and Mac.
 

@@ -4,6 +4,7 @@ import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { NoteEditor } from '../src/notes/NoteEditor';
 import { getActiveBlockNoteEditor } from '../src/utils/activeBlockNoteEditor';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import type { NoteDocument } from '../src/notes/types';
 import { THINK_ATHENA_RAIL_QUERY } from '../src/hooks/useMediaQuery';
 

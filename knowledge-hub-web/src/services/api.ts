@@ -481,6 +481,7 @@ export class KnowledgeHubApi {
   async getNoteSummaries(page = 1, pageSize = 100, filters?: {
     q?: string; contentType?: string; projectId?: string; tagIds?: string; projectTagIds?: string;
     sort?: 'modified' | 'created' | 'title';
+    status?: 'active' | 'archived';
   }): Promise<ApiResponse<PaginatedList<NoteSummary>>> {
     const r = await this.client.get<ApiResponse<PaginatedList<NoteSummary>>>(
       '/api/notes',
@@ -490,9 +491,17 @@ export class KnowledgeHubApi {
   }
 
   /** One note with its full body. */
-  async getNote(id: string): Promise<ApiResponse<Note>> {
-    const r = await this.client.get<ApiResponse<Note>>(`/api/notes/${encodeURIComponent(id)}`);
+  async getNote(id: string, status: 'active' | 'archived' = 'active'): Promise<ApiResponse<Note>> {
+    const r = await this.client.get<ApiResponse<Note>>(`/api/notes/${encodeURIComponent(id)}`, { params: { status } });
     return r.data;
+  }
+
+  async restoreArchivedNote(id: string, expectedRevision: number): Promise<ApiResponse<{ note: Note; restored: boolean }>> {
+    return (await this.client.post<ApiResponse<{ note: Note; restored: boolean }>>(`/api/notes/${encodeURIComponent(id)}/restore-archive`, { expectedRevision })).data;
+  }
+
+  async recoverNoteDraft(id: string, writing: { title: string; contentType: string; contentJson: string }, expectedRevision: number): Promise<ApiResponse<Note>> {
+    return (await this.client.post<ApiResponse<Note>>(`/api/notes/${encodeURIComponent(id)}/recover-draft`, { writing, expectedRevision })).data;
   }
 
   async getNoteGitHub(id: string, check = false): Promise<ApiResponse<GitHubPublication | null>> {

@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { MoveToThink } from '../src/components/athena/MoveToThink';
 import { AppDialogHost } from '../src/components/AppDialog';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import '../src/styles/global.scss';
 
 let failSave = false;

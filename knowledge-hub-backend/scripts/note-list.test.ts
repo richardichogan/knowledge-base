@@ -27,6 +27,8 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
   const migration = await readFile(new URL('../src/db/migrations/064_note_list_metadata.sql', import.meta.url), 'utf8');
   await db.exec(migration);
   await db.exec(migration);
+  await db.exec(await readFile(new URL('../src/db/migrations/060_note_history.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../src/db/migrations/061_note_github_publications.sql', import.meta.url), 'utf8'));
   await db.query('INSERT INTO tags VALUES ($1,NULL),($2,$1),($3,NULL)', [parent, child, extra]);
   await db.query('INSERT INTO tags VALUES ($1,$2)', [otherChild, parent]);
   for (let i = 0; i < 105; i++) {
@@ -46,7 +48,18 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
 
   const pool = getDb();
   const query = mock.method(pool, 'query', (sql: string, values?: unknown[]) => db.query(sql, values));
+  const connect = mock.method(pool, 'connect', async () => ({ query: (sql: string, values?: unknown[]) => db.query(sql, values), release() {} }));
+  let queuedIndexing = 0;
+  const originalTimeout = globalThis.setTimeout;
+  const timers = mock.method(globalThis, 'setTimeout', (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (delay === 30_000) {
+      queuedIndexing++;
+      return originalTimeout(() => undefined, 0);
+    }
+    return originalTimeout(callback, delay, ...args);
+  });
   const app = express();
+  app.use(express.json());
   app.use('/api/notes', notesRouter);
   app.use(errorHandler);
   const server = app.listen(0, '127.0.0.1');
@@ -86,6 +99,27 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     assert.deepEqual((await read(`projectId=beta&projectTagIds=${child}`)).items.map((item) => item.id),
       [id(107), id(105)]);
     assert.equal((await read('projectId=__none__')).total, 2);
+    const archived = await read('status=archived&sort=modified');
+    assert.equal(archived.total, 1);
+    assert.deepEqual(archived.items.map(item => item.id), [id(109)]);
+    const hidden = await fetch(`http://127.0.0.1:${address.port}/api/notes/${id(109)}`);
+    assert.equal(hidden.status, 404, 'Normal deep links cannot open archived writing');
+    const preview = await fetch(`http://127.0.0.1:${address.port}/api/notes/${id(109)}?status=archived`);
+    assert.equal(preview.status, 200);
+    for (const [route, payload] of [
+      ['bad-id/restore-archive', { expectedRevision: 1 }],
+      [`${id(109)}/restore-archive`, { expectedRevision: -1 }],
+      ['bad-id/recover-draft', { expectedRevision: 1, writing: JSON.parse(writing('Local')) }],
+      [`${id(0)}/recover-draft`, { writing: JSON.parse(writing('Local')) }],
+      [`${id(0)}/recover-draft`, { expectedRevision: 1, writing: [] }],
+      [`${id(0)}/recover-draft`, { expectedRevision: 1, writing: { contentJson: '[]' } }],
+      [`${id(0)}/recover-draft`, { expectedRevision: 1, writing: { title: 'Local', contentType: 'note', contentJson: '{}' } }],
+    ] as const) {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/notes/${route}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      assert.equal(response.status, 422, `Recovery uses the existing validation envelope: ${route}`);
+    }
     assert.equal((await read(`tagIds=${child},${extra}`)).total, 3, 'multiple matching tags must not duplicate rows');
     assert.equal((await read(`projectId=alpha&projectTagIds=${child}&tagIds=${child}&contentType=blog&q=needle`)).total, 1);
     assert.equal((await read('q=Plain%20legacy')).items[0]?.title, 'Untitled');
@@ -94,13 +128,43 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
       'SELECT note_list_metadata($1) AS metadata', [writing('Wrapped title', 'article', 'Nested text')]);
     assert.deepEqual(metadata.rows[0]?.metadata, { title: 'Wrapped title', contentType: 'article' });
     for (const params of ['page=NaN', 'page=-1', 'page=1.5', 'pageSize=0', 'page=9007199254740991',
-      'sort=invalid', 'tagIds=invalid', 'projectTagIds=invalid', 'q=a&q=b']) {
+      'sort=invalid', 'tagIds=invalid', 'projectTagIds=invalid', 'q=a&q=b', 'status=all', 'status=active&status=archived']) {
       const response = await fetch(`http://127.0.0.1:${address.port}/api/notes?${params}`);
       assert.ok(response.status >= 400 && response.status < 500, params);
       assert.equal((await response.json() as { success: boolean }).success, false);
     }
+    const post = async (route: string, payload: unknown) => {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/notes/${route}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      return { status: response.status, body: await response.json() as { success: boolean; data: { revision?: number; content?: string; projectId?: string; restored?: boolean; note?: { revision: number } } } };
+    };
+    const exactWriting = JSON.parse(writing('Recovered route', 'note', 'Exact rich route body')) as { title: string; contentType: string; contentJson: string };
+    const recovered = await post(`${id(0)}/recover-draft`, { expectedRevision: 1, writing: exactWriting });
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.body.success, true);
+    assert.equal(recovered.body.data.revision, 2);
+    assert.equal(recovered.body.data.projectId, 'alpha');
+    assert.equal(JSON.parse(recovered.body.data.content!).contentJson, exactWriting.contentJson);
+    const checkpoint = await db.query<{ reason: string; writing: { title: string } }>('SELECT reason,writing FROM note_versions WHERE note_id = $1', [id(0)]);
+    assert.equal(checkpoint.rows[0]?.reason, 'before_restore');
+    assert.equal(checkpoint.rows[0]?.writing.title, 'Title 000');
+    const staleRecovery = await post(`${id(0)}/recover-draft`, { expectedRevision: 1, writing: exactWriting });
+    assert.equal(staleRecovery.status, 409);
+    const restoredArchive = await post(`${id(109)}/restore-archive`, { expectedRevision: 1 });
+    assert.equal(restoredArchive.status, 200);
+    assert.equal(restoredArchive.body.data.restored, true);
+    assert.equal(restoredArchive.body.data.note?.revision, 2);
+    const repeatedArchive = await post(`${id(109)}/restore-archive`, { expectedRevision: 1 });
+    assert.equal(repeatedArchive.status, 200);
+    assert.equal(repeatedArchive.body.data.restored, false);
+    assert.equal(repeatedArchive.body.data.note?.revision, 2);
+    assert.equal(queuedIndexing, 2, 'Only accepted writing recovery and actual archive transition queue normal indexing; fixture callbacks never execute.');
+    assert.equal((await read('status=archived')).total, 0);
   } finally {
     query.mock.restore();
+    connect.mock.restore();
+    timers.mock.restore();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await db.close();
   }

@@ -15,6 +15,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/syncPolling.test.ts',
   '../knowledge-hub-web/tests/planPreferences.test.ts',
   '../knowledge-hub-web/tests/savedViews.test.ts',
+  '../knowledge-hub-web/tests/noteDraftStorage.test.ts',
 ] : [
   'scripts/note-history.test.ts', 'scripts/build.test.ts', 'scripts/turn-jobs.test.ts',
   'scripts/task-calendar.test.ts', 'scripts/today-activity.test.ts',

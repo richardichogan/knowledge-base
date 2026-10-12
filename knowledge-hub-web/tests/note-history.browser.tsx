@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { NoteEditor } from '../src/notes/NoteEditor';
 import { NoteEditCard } from '../src/components/athena/NoteEditCard';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import type { NoteVersion } from '../src/services/api';
 import type { Note } from '../src/types/contentItem';
 import type { NoteDocument } from '../src/notes/types';

@@ -3,7 +3,7 @@
  * bottom toolbar, right metadata panel, and GitHub push modal.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useCreateBlockNote } from '@blocknote/react';
 import '@blocknote/mantine/style.css';
@@ -35,6 +35,9 @@ import { useProjects } from '../hooks/useProjects';
 import { editorSchema } from './editorSchema';
 import { parseTranscript, transcriptToBlocks } from './transcriptPaste';
 import { imagineDemoBriefPrompt } from './imagineDemoBrief';
+import { noteDraftIdentity } from '../services/auth';
+import { captureNoteDraft, removeNoteDraftIfUnchanged, storeNoteDraft, type NoteDraft } from './noteDraftStorage';
+import { NoteDraftReview } from './NoteDraftReview';
 
 interface NoteEditorProps {
   doc: NoteDocument;
@@ -261,6 +264,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const conflictRef = useRef(false);
   const [saveConflict, setSaveConflict] = useState(false);
   const mountedRef = useRef(true);
+  const [draftIdentity] = useState(() => noteDraftIdentity.get());
+  const recoverySnapshot = useSyncExternalStore(noteDraftIdentity.subscribe, noteDraftIdentity.snapshot);
+  const [draftEpoch] = useState<string | null>(() => {
+    try { return noteDraftIdentity.epoch(); } catch { return null; }
+  });
+  const [draftId] = useState(() => crypto.randomUUID());
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const localDraftRef = useRef<{ draft: NoteDraft; raw: string } | null>(null);
   useEffect(() => { editorRef.current = editor; }, [editor]);
 
   /**
@@ -388,6 +399,23 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     return imagineDemoBriefPrompt(title === UNTITLED_DOCUMENT ? savedDocRef.current.title : title, markdown);
   }, []);
 
+  const persistDraft = useCallback((): void => {
+    try {
+      if (draftIdentity === null || noteDraftIdentity.get() !== draftIdentity) throw new Error('Your original signed-in identity is required for local draft recovery.');
+      if (draftEpoch === null || noteDraftIdentity.epoch() !== draftEpoch) throw new Error('This editor\'s recovery session ended or device storage is unavailable. Copy your writing before reopening it.');
+      const draft = captureNoteDraft(draftIdentity, draftId, liveDocument());
+      localDraftRef.current = { draft, raw: storeNoteDraft(localStorage, draft) };
+      if (noteDraftIdentity.epoch() !== draftEpoch) {
+        removeNoteDraftIfUnchanged(localStorage, draft, localDraftRef.current.raw);
+        throw new Error('Sign-out ended this recovery session; its local copy was removed.');
+      }
+      if (mountedRef.current) setDraftError(null);
+    } catch (error) {
+      console.error('[Think recovery] Local writing could not be captured.', error);
+      if (mountedRef.current) setDraftError(`Local recovery copy unavailable: ${error instanceof Error ? error.message : 'Device storage failed'}. Keep this editor open and copy your writing.`);
+    }
+  }, [draftIdentity, draftEpoch, draftId, liveDocument]);
+
   const doSave = useCallback(async () => {
     if (historyBusyRef.current || conflictRef.current) return false;
     while (saveInFlightRef.current !== null) {
@@ -395,10 +423,26 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     }
     if (historyBusyRef.current || conflictRef.current) return false;
     if (!isDirtyRef.current) return true;
+    let sessionEnded = false;
+    try { sessionEnded = draftEpoch !== null && noteDraftIdentity.epoch() !== draftEpoch; }
+    catch (error) { console.error('[Think recovery] Recovery session could not be checked; server saving will still be attempted.', error); }
+    if (draftIdentity === null || noteDraftIdentity.get() !== draftIdentity || sessionEnded) {
+      if (mountedRef.current) setNotification({ kind: 'error', msg: 'Saving paused: the account or recovery session changed. Copy your writing before reopening this note.' });
+      return false;
+    }
+    persistDraft();
+    const submittedLocal = localDraftRef.current;
     isDirtyRef.current = false;
     let failure = 'Save failed - your draft is retained; will retry';
     const saving = saveNote(liveDocument()).then(saved => {
       savedDocRef.current = saved;
+      try {
+        if (isDirtyRef.current) persistDraft();
+        else if (submittedLocal) removeNoteDraftIfUnchanged(localStorage, submittedLocal.draft, submittedLocal.raw);
+      } catch (error) {
+        console.error('[Think recovery] Accepted save could not clear its local copy.', error);
+        if (mountedRef.current) setDraftError('Writing was saved to the server, but its local recovery copy could not be removed. Review or discard it in Recovery.');
+      }
       if (mountedRef.current) {
         onSavedRef.current(saved);
         setHistoryRefresh(value => value + 1);
@@ -424,20 +468,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       setTimeout(() => { setNotification(current => current?.kind === 'success' ? null : current); }, SAVED_BANNER_DURATION_MS);
     } else {
       isDirtyRef.current = true;
+      persistDraft();
       setNotification({ kind: 'error', msg: failure });
     }
     return ok;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const runExclusive = useCallback(async (work: () => Promise<void>): Promise<void> => {
+  const runExclusive = useCallback(async (work: () => Promise<void>, allowReviewedConflict = false): Promise<void> => {
     if (historyBusyRef.current) throw new Error('A note operation is already running. Please wait.');
-    if (conflictRef.current) throw new Error('The saved note changed elsewhere. Copy your draft before reopening the saved note.');
+    if (conflictRef.current && !allowReviewedConflict) throw new Error('The saved note changed elsewhere. Copy your draft before reopening the saved note.');
     historyBusyRef.current = true;
     setHistoryBusy(true);
     editorRef.current.isEditable = false;
     try {
       while (saveInFlightRef.current !== null) {
-        if (!await saveInFlightRef.current) throw new Error('The previous save failed. Your draft is retained; retry after saving.');
+        if (!await saveInFlightRef.current && !allowReviewedConflict) throw new Error('The previous save failed. Your draft is retained; retry after saving.');
       }
       if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) throw new Error('The open note changed. No editor changes applied.');
       await work();
@@ -462,12 +507,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         if (!result.success) throw new Error(result.error.message);
         savedDocRef.current = fromApiNote(result.data);
         isDirtyRef.current = true;
+        persistDraft();
         if (mountedRef.current) onSavedRef.current(savedDocRef.current);
       }
       if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) throw new Error('The open note changed. No Athena changes applied.');
       action();
     });
-  }), [doc.id, liveDocument, runExclusive]);
+  }), [doc.id, liveDocument, runExclusive, persistDraft]);
 
   const restoreVersion = useCallback(async (versionId: string): Promise<void> => {
     await runExclusive(async () => {
@@ -492,6 +538,35 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     });
   }, [doc.id, liveDocument, runExclusive]);
 
+  const recoverLocalWriting = useCallback(async (draft: NoteDraft, expectedRaw: string, reviewedRevision: number): Promise<void> => {
+    await runExclusive(async () => {
+      if (!draftIdentity || noteDraftIdentity.get() !== draftIdentity || draft.identity !== draftIdentity || draft.noteId !== doc.id
+        || draftEpoch === null || noteDraftIdentity.epoch() !== draftEpoch) {
+        throw new Error('The account or note changed. No local writing was restored.');
+      }
+      if (isDirtyRef.current) storeNoteDraft(localStorage, captureNoteDraft(draftIdentity, crypto.randomUUID(), liveDocument()));
+      const ownCopy = localDraftRef.current;
+      const result = await api.recoverNoteDraft(doc.id, draft.writing, reviewedRevision);
+      if (!result.success) throw new Error(result.error.message);
+      const restored = fromApiNote(result.data);
+      if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current || noteDraftIdentity.get() !== draftIdentity
+        || noteDraftIdentity.epoch() !== draftEpoch) throw new Error('Writing was restored on the server, but the open note or account changed. Reopen the source note to review it.');
+      suppressChangesRef.current = true;
+      try {
+        const blocks = JSON.parse(restored.contentJson) as PartialBlock[];
+        editorRef.current.replaceBlocks(editorRef.current.document, blocks.length ? blocks : [{ type: 'paragraph', content: '' }]);
+        restoredBodyRef.current = JSON.stringify(editorRef.current.document);
+        contentTypeRef.current = restored.contentType; setContentType(restored.contentType);
+        savedDocRef.current = restored; isDirtyRef.current = false;
+        conflictRef.current = false; setSaveConflict(false);
+        onSavedRef.current(restored);
+        if (!removeNoteDraftIfUnchanged(localStorage, draft, expectedRaw)) throw new Error('Server writing was restored, but the local copy changed and was retained for review.');
+        if (ownCopy) removeNoteDraftIfUnchanged(localStorage, ownCopy.draft, ownCopy.raw);
+        setNotification({ kind: 'success', msg: 'Local writing restored; previous saved writing is in History.' });
+      } finally { suppressChangesRef.current = false; }
+    }, true);
+  }, [doc.id, draftIdentity, draftEpoch, liveDocument, runExclusive]);
+
   const [creatingDiagram, setCreatingDiagram] = useState(false);
   async function createDiagram(): Promise<void> {
     if (onCreateDiagram === undefined || creatingDiagram) return;
@@ -514,6 +589,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       if (restoredBodyRef.current === JSON.stringify(editor.document)) { updateStats(); return; }
       restoredBodyRef.current = null;
       isDirtyRef.current = true;
+      persistDraft();
       updateStats();
       updateToolbarState();
       if (debounceTimer !== null) clearTimeout(debounceTimer);
@@ -524,7 +600,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       unsubscribe();
       if (debounceTimer !== null) clearTimeout(debounceTimer);
     };
-  }, [editor, doSave, updateStats, updateToolbarState]);
+  }, [editor, doSave, updateStats, updateToolbarState, persistDraft]);
+
+  useEffect(() => {
+    const capture = (): void => { if (isDirtyRef.current) persistDraft(); };
+    window.addEventListener('pagehide', capture);
+    window.addEventListener('beforeunload', capture);
+    return () => { window.removeEventListener('pagehide', capture); window.removeEventListener('beforeunload', capture); };
+  }, [persistDraft]);
 
   useEffect(() => {
     const unsubscribe = editor.onSelectionChange(() => { updateToolbarState(); });
@@ -633,7 +716,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; void doSave(); };
+    return () => { if (isDirtyRef.current) persistDraft(); mountedRef.current = false; void doSave(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleGitHubConfirm(repo: string, filePath: string, commitMessage: string): Promise<void> {
@@ -786,6 +869,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           </span>
         )}
         {saveConflict && <p role="alert" className="notes-save-status notes-save-status--error">This note changed elsewhere. Autosave paused. Copy your draft before reopening the saved note.</p>}
+        {draftError && <p role="alert" className="notes-save-status notes-save-status--error">{draftError}</p>}
+        <NoteDraftReview identity={recoverySnapshot === `${draftIdentity ?? ''}:${draftEpoch ?? ''}` ? draftIdentity : null}
+          noteId={doc.id} currentDraftId={draftId} onRestore={recoverLocalWriting} />
 
         {/* Editor scroll area — data-ctx-* enables right-click → Send to Canvas with note context */}
         <div
@@ -898,6 +984,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           contentTypeRef.current = value;
           isDirtyRef.current = true;
           if (value === 'use-case') applyUseCaseTemplate();
+          persistDraft();
         }}
         projectId={projectId}
         projects={projects}

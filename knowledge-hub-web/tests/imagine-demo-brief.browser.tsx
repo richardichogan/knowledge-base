@@ -10,6 +10,7 @@ import { AthenaContextProvider } from '../src/context/AthenaContext';
 import { imagineDemoBriefPrompt } from '../src/notes/imagineDemoBrief';
 import { getActiveBlockNoteEditor } from '../src/utils/activeBlockNoteEditor';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import '../src/styles/global.scss';
 
 const now = new Date().toISOString();

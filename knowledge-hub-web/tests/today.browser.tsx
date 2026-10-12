@@ -6,6 +6,7 @@ import type { ApiResponse } from '../src/types/apiResponse';
 import type { TodayTask } from '../src/services/todayViewModel';
 import { workDate } from '../src/services/todayViewModel';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import { AthenaContextProvider, useAthenaContext } from '../src/context/AthenaContext';
 import { HomePage } from '../src/pages/HomePage';
 import { FloatingAIChat } from '../src/components/FloatingAIChat';

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { NoteEditor } from '../src/notes/NoteEditor';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import { getActiveBlockNoteEditor } from '../src/utils/activeBlockNoteEditor';
 import '../src/styles/global.scss';
 

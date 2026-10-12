@@ -6,6 +6,7 @@ import { textToBlocks } from '../../knowledge-hub-backend/src/ai/markdownToNoteB
 import { IMAGINE_DEMO_BRIEF_TEMPLATE } from '../../knowledge-hub-backend/src/ai/imagineDemoBriefSkill';
 import { NoteEditor } from '../src/notes/NoteEditor';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import { getActiveBlockNoteEditor } from '../src/utils/activeBlockNoteEditor';
 import '../src/styles/global.scss';
 

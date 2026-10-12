@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { AIChatPage } from '../src/pages/AIChatPage';
 import { useAthenaContext } from '../src/context/AthenaContext';
 import { api } from '../src/services/api';
+import './note-draft-identity';
 import type { ApiResponse } from '../src/types/apiResponse';
 import type { NoteSummary, AthenaMemory } from '../src/types';
 import type { PlanTask } from '../src/types/task';
@@ -439,6 +440,7 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
   let noteFailure = false;
   let bodies = 0;
   api.getNoteSummaries = async (page = 1, pageSize = 100, filters = {}) => {
+    if (filters.status === 'archived') return failure();
     if (noteFailure) return failure();
     const filtered = notes.filter(note => (filters.q === undefined || `${note.title} ${note.preview}`.toLowerCase().includes(filters.q.toLowerCase()))
       && (filters.contentType === undefined || note.contentType === filters.contentType)
@@ -467,6 +469,15 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
     await waitFor(() => document.querySelectorAll('.notes-list-item').length === 105);
     check(document.querySelector('.notes-list-more') === null, 'Last page has no misleading load-more action');
     const editor = getActiveBlockNoteEditor();
+    const recovery = element<HTMLButtonElement>('.notes-recovery-launch');
+    recovery.focus(); recovery.click();
+    await waitFor(() => document.querySelector('dialog[open]')?.textContent?.includes('Archive list is unavailable') === true);
+    const recoveryDialog = element<HTMLDialogElement>('dialog[open]');
+    check(getActiveBlockNoteEditor() === editor && recoveryDialog.contains(document.activeElement), 'Think recovery stays inside the real shell without unmounting its editor');
+    if (innerWidth <= 600) check(recovery.getBoundingClientRect().height >= 44, 'Think recovery launcher has a phone touch target');
+    button('Close recovery', recoveryDialog).click();
+    await waitFor(() => document.querySelector('dialog[open]') === null);
+    check(document.activeElement === recovery && getActiveBlockNoteEditor() === editor, 'Recovery close restores launcher focus and open writing');
     const search = element<HTMLInputElement>('#notes-search');
     input('#notes-search', 'Hidden searchable');
     await waitFor(() => document.querySelectorAll('.notes-list-item').length === 1);
