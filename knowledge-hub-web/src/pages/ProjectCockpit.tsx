@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Button, InlineLoading, Modal, Select, SelectItem, Tag, TextInput } from '@carbon/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DataNotice } from '../components/DataNotice';
@@ -164,52 +165,62 @@ export const ProjectCockpitModal: React.FC<{ projectId: string | null; projectNa
     }
   };
 
-  return (
-    <Modal open={projectId !== null} passiveModal size="lg" modalHeading={`${projectName} — cockpit`} onRequestClose={onClose} className="pcp-modal">
-      {projectId !== null && (
-        <div className="pcp">
-          {cockpit.isLoading && <InlineLoading description="Loading cockpit…" />}
-          {cockpit.error && <DataNotice title="The cockpit could not be loaded." error={cockpit.error} onRetry={() => { void cockpit.refetch(); }} />}
-          {data && (
-            <>
-              <section className="pcp-outcome" aria-label="Outcome">
-                {data.outcome.available ? (
-                  <>
-                    <p className="pcp-goal">{data.outcome.data.goal || 'No goal recorded for this project yet.'}</p>
-                    <p className="pcp-meta">
-                      {data.outcome.data.lifecycleState}
-                      {data.outcome.data.targetEndDate ? ` · target ${data.outcome.data.targetEndDate}` : ''}
-                      {` · ${data.outcome.data.expectedOutputs.length} expected outputs`}
-                    </p>
-                    {data.outcome.data.expectedOutputs.length > 0 && (
-                      <ul className="pcp-outputs">{data.outcome.data.expectedOutputs.map((o, i) => <li key={i}>{o}</li>)}</ul>
-                    )}
-                  </>
-                ) : <Unavailable title="Outcome" />}
-                <p className="pcp-meta">Counts come from linked items only; no completion score is inferred. Updated {new Date(data.generatedAt).toLocaleTimeString('en-GB')}.</p>
-              </section>
+  if (projectId === null) return null;
 
-              <h2 className="pcp-step">Actionable work</h2>
-              <LinkList title="Blockers" section={data.blockers} empty="No blocked tasks." />
-              <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this project." />
-              <Register projectId={projectId} />
+  return createPortal(
+    <Modal
+      open
+      passiveModal
+      size="lg"
+      hasScrollingContent
+      modalLabel="Project Cockpit"
+      modalHeading={projectName}
+      onRequestClose={onClose}
+      className="pcp-modal"
+    >
+      <div className="pcp">
+        {cockpit.isLoading && <InlineLoading description="Loading cockpit…" />}
+        {cockpit.error && <DataNotice title="The cockpit could not be loaded." error={cockpit.error} onRetry={() => { void cockpit.refetch(); }} />}
+        {data && (
+          <>
+            <section className="pcp-outcome" aria-label="Outcome">
+              {data.outcome.available ? (
+                <>
+                  <p className="pcp-goal">{data.outcome.data.goal || 'No goal recorded for this project yet.'}</p>
+                  <p className="pcp-meta">
+                    {data.outcome.data.lifecycleState}
+                    {data.outcome.data.targetEndDate ? ` · target ${data.outcome.data.targetEndDate}` : ''}
+                    {` · ${data.outcome.data.expectedOutputs.length} expected outputs`}
+                  </p>
+                  {data.outcome.data.expectedOutputs.length > 0 && (
+                    <ul className="pcp-outputs">{data.outcome.data.expectedOutputs.map((o, i) => <li key={i}>{o}</li>)}</ul>
+                  )}
+                </>
+              ) : <Unavailable title="Outcome" />}
+              <p className="pcp-meta">Counts come from linked items only; no completion score is inferred. Updated {new Date(data.generatedAt).toLocaleTimeString('en-GB')}.</p>
+            </section>
 
-              <details className="pcp-evidence">
-                <summary>Supporting evidence</summary>
-                {promoteError && <DataNotice title="The decision was not promoted." error={promoteError} />}
-                <LinkList title="Chat decisions" section={data.decisions} empty="No chat decisions for this project."
-                  action={(link) => link.sourceId === undefined ? null : (
-                    <Button kind="ghost" size="sm" disabled={promoted.has(link.sourceId)} onClick={() => { void promote(link); }}>
-                      {promoted.has(link.sourceId) ? 'In register' : 'Add to register'}
-                    </Button>
-                  )} />
-                <LinkList title="Recent notes" section={data.notes} empty="No notes filed to this project." />
-                <LinkList title="Outputs" section={data.outputs} empty="No chat outputs for this project." />
-              </details>
-            </>
-          )}
-        </div>
-      )}
-    </Modal>
+            <h2 className="pcp-step">Actionable work</h2>
+            <LinkList title="Blockers" section={data.blockers} empty="No blocked tasks." />
+            <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this project." />
+            <Register projectId={projectId} />
+
+            <details className="pcp-evidence">
+              <summary>Supporting evidence</summary>
+              {promoteError && <DataNotice title="The decision was not promoted." error={promoteError} />}
+              <LinkList title="Chat decisions" section={data.decisions} empty="No chat decisions for this project."
+                action={(link) => link.sourceId === undefined ? null : (
+                  <Button kind="ghost" size="sm" disabled={promoted.has(link.sourceId)} onClick={() => { void promote(link); }}>
+                    {promoted.has(link.sourceId) ? 'In register' : 'Add to register'}
+                  </Button>
+                )} />
+              <LinkList title="Recent notes" section={data.notes} empty="No notes filed to this project." />
+              <LinkList title="Outputs" section={data.outputs} empty="No chat outputs for this project." />
+            </details>
+          </>
+        )}
+      </div>
+    </Modal>,
+    document.body
   );
 };

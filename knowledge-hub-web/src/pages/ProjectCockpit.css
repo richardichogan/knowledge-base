@@ -1,3 +1,23 @@
+.pcp-modal {
+  z-index: 9500;
+}
+.pcp-modal .cds--modal-container {
+  max-height: calc(100vh - 4rem);
+}
+@media (min-width: 672px) {
+  .pcp-modal .cds--modal-container {
+    max-height: calc(100vh - 4rem);
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+  }
+}
+.pcp-modal .cds--modal-header {
+  padding-right: 3.5rem;
+}
+.pcp-modal .cds--modal-content {
+  padding-bottom: 2rem;
+}
+
 .pcp { display: flex; flex-direction: column; gap: 16px; }
 .pcp-outcome { background: var(--cds-layer-01, #f4f4f4); padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 .pcp-goal { font-size: 1.125rem; margin: 0; }

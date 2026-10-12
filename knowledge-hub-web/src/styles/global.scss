@@ -88,6 +88,17 @@ body,
   bottom: 0;
 }
 
+// When any Carbon modal is open, elevate .kh-shell and lower .kh-header so modals
+// rendered inside routed pages paint above the fixed navigation bar.
+body.cds--body--with-modal-open {
+  .kh-header.cds--header {
+    z-index: 7000;
+  }
+  .kh-shell {
+    z-index: 9000;
+  }
+}
+
 // The content pane fills everything below the header.
 .kh-content {
   flex: 1;
