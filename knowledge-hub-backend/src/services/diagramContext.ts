@@ -7,6 +7,7 @@ export const DIAGRAM_READING_GUIDANCE = [
   'These are saved diagram records, not screenshots. Read shapes, labels, descriptions, explicit parent/container IDs and connectors as evidence.',
   'For arrows=end, direction is source to target; both means bidirectional; none means an undirected connection, not a directed flow.',
   'Standalone line objects are decorative marks, not connectors. Position, colour, proximity and matching labels do not establish a relationship.',
+  'Text shapes may have calloutType: question, risk, issue, assumption, decision or action. These are annotation categories, not workflow states; a decision callout does not prove approval and an action callout is not a saved Plan task.',
   'Compare diagrams using search_diagrams and read_diagram. Cite diagram titles and shape labels; distinguish explicit connections from inferred similarities or gaps.',
   'Footnotes are numbered annotations on a shape or connector (targetId); their text explains that element. The key maps border (stroke) colours to meanings; a shape\'s keyLabel is that meaning. Collapsed containers still contain their child shapes.',
   'elementNotes are Think notes linked to one specific shape, connector or footnote (elementId).',
@@ -58,6 +59,7 @@ export function diagramEvidence(document: DiagramDocument, budget = 24_000, sele
     if (node.label.length > 800 || (node.description?.length ?? 0) > 1500) shortened = true;
     const record = take({
       id: node.id, kind: node.kind, label: clipped(node.label, 800),
+      ...(node.calloutType !== undefined ? { calloutType: node.calloutType } : {}),
       description: clipped(node.description ?? '', 1500), parentId: node.parentId,
       bounds: { x: node.x, y: node.y, width: node.width, height: node.height },
       assetId: node.assetId, ...(node.id === selectedId ? { selected: true } : {}),
@@ -108,7 +110,7 @@ export async function findDiagramContext(db: Pool, args: {
         WHERE cn.canvas_id = c.id AND n.status = 'active' AND n.project_id = $2))
       AND ($3::text = '' OR strpos(lower(c.title || ' ' || COALESCE(c.description, '')), lower($3)) > 0
         OR EXISTS (SELECT 1 FROM jsonb_array_elements(d.document->'nodes') item
-          WHERE strpos(lower(COALESCE(item->>'label', '') || ' ' || COALESCE(item->>'description', '')), lower($3)) > 0)
+          WHERE strpos(lower(COALESCE(item->>'label', '') || ' ' || COALESCE(item->>'description', '') || ' ' || COALESCE(item->>'calloutType', '')), lower($3)) > 0)
         OR EXISTS (SELECT 1 FROM jsonb_array_elements(d.document->'edges') item
           WHERE strpos(lower(COALESCE(item->>'label', '') || ' ' || COALESCE(item->>'description', '')), lower($3)) > 0)
         OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(d.document->'footnotes', '[]'::jsonb)) item

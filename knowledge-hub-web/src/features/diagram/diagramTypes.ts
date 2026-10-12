@@ -1,11 +1,15 @@
 export interface DiagramPoint { x: number; y: number }
 export type DiagramPort = 'top' | 'right' | 'bottom' | 'left';
 export type DiagramKind = 'process' | 'decision' | 'terminator' | 'document' | 'line' | 'text' | 'image' | 'container' | 'swimlane';
+export const DIAGRAM_CALLOUT_TYPES = ['question', 'risk', 'issue', 'assumption', 'decision', 'action'] as const;
+export type DiagramCalloutType = typeof DIAGRAM_CALLOUT_TYPES[number];
 export interface DiagramNode {
   id: string;
   kind: DiagramKind;
   label: string;
   description?: string;
+  /** Text shapes only: a semantic annotation with an icon and type label. */
+  calloutType?: DiagramCalloutType;
   x: number;
   y: number;
   width: number;

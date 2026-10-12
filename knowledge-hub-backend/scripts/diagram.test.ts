@@ -13,7 +13,7 @@ import { cardSummaryBlocks, mapMarkdown, mapOutline, updateCanvas, type CanvasFu
 import { buildCanvasContext } from '../src/services/canvasContent.js';
 import { suggestionsFor } from '../src/services/mapSuggestions.js';
 import { resolveMapChanges } from '../src/ai/mapEdits.js';
-import { emptyDiagram, type DiagramDocument, type DiagramEdge, type DiagramNode } from '../src/types/diagram.js';
+import { DIAGRAM_CALLOUT_TYPES, emptyDiagram, type DiagramDocument, type DiagramEdge, type DiagramNode } from '../src/types/diagram.js';
 import { ConflictError, ValidationError } from '../src/types/errors.js';
 
 const NONE = new Set<string>();
@@ -43,6 +43,21 @@ function rejects(fn: () => unknown, field: RegExp): void {
 }
 
 // ─── Document validation ─────────────────────────────────────────────────────
+
+test('text callout categories round-trip, remain optional, and reject invalid types or shape kinds', () => {
+  const plain = node({ kind: 'text' });
+  assert.deepEqual(validateDiagramDocument(doc([plain]), NONE), doc([plain]));
+  for (const calloutType of DIAGRAM_CALLOUT_TYPES) {
+    const input = doc([{ ...plain, calloutType }]);
+    assert.deepEqual(validateDiagramDocument(JSON.parse(JSON.stringify(input)), NONE), input);
+    for (const kind of ['process', 'decision', 'container', 'swimlane', 'line', 'document', 'image', 'terminator'] as const) {
+      rejects(() => validateDiagramDocument(doc([{ ...plain, kind, calloutType }]), NONE), /calloutType/);
+    }
+  }
+  for (const calloutType of ['resolved', '', null, 1, {}, '<script>']) {
+    rejects(() => validateDiagramDocument({ ...doc([plain]), nodes: [{ ...plain, calloutType }] }, NONE), /calloutType/);
+  }
+});
 
 test('connector font size is optional for legacy diagrams and validated when present', () => {
   const a = node();

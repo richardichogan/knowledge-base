@@ -9,6 +9,7 @@
 import type { DiagramDocument, DiagramEdge, DiagramNode, DiagramPort } from './diagramTypes';
 import { footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
 import { boundsOf, containerHeader, diagramBounds, linePoints, nodeMap, renderOrder, SWIMLANE_HEADER, type Rect } from './diagramGeometry';
+import { calloutLayout } from './diagramCallouts';
 
 export interface DrawioOptions {
   footnotes?: boolean | undefined;
@@ -50,6 +51,7 @@ function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
   const align = n.textAlign ?? (n.kind === 'container' ? 'left' : 'center');
   const verticalAlign = n.textVerticalAlign ?? (n.kind === 'image' && n.textAlign === undefined ? 'bottom' : 'middle');
   const children = hasChildren ? { container: 1 } : {};
+  const callout = calloutLayout(n);
   switch (n.kind) {
     case 'container':
       return style({ swimlane: '', ...common, startSize: containerHeader(n).height, fontStyle: 1, align, spacingLeft: 4, collapsible: 1, container: 1 });
@@ -62,7 +64,8 @@ function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
     case 'terminator':
       return style({ rounded: 1, arcSize: 50, ...common, align, verticalAlign, ...children });
     case 'text':
-      return style({ text: '', ...common, align: n.textAlign ?? 'center', verticalAlign, ...children });
+      return style({ text: '', ...common, align: n.textAlign ?? 'center', verticalAlign,
+        ...(callout !== null ? { spacingTop: callout.height } : {}), ...children });
     case 'image':
       return style({ rounded: 1, absoluteArcSize: 1, arcSize: 8, ...common, align, verticalAlign, spacingBottom: 2, ...children });
     default:
@@ -121,6 +124,16 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     }
     cells.push(vertexCell(n.id, htmlLabel(n.label), shapeStyle(n, parentIds.has(n.id)), parentId,
       { x: n.x - ox, y: n.y - oy, width: n.width, height: n.height }, n.description));
+    const callout = calloutLayout(n);
+    if (callout !== null) {
+      const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="${callout.path}" fill="none" stroke="${xml(colour(n.textColor, '#161616'))}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      cells.push(vertexCell(`${n.id}-callout-icon`, '', style({ shape: 'image', html: 1, imageAspect: 1, connectable: 0,
+        image: `data:image/svg+xml,${encodeURIComponent(icon)}` }), n.id,
+      { x: callout.icon.x - n.x, y: callout.icon.y - n.y, width: callout.icon.size, height: callout.icon.size }));
+      cells.push(vertexCell(`${n.id}-callout-type`, callout.label, style({ text: '', html: 1, align: 'left', verticalAlign: 'middle',
+        fontColor: colour(n.textColor, '#161616'), fontSize: callout.text.fontSize, fontStyle: 1, spacing: 0, connectable: 0 }), n.id,
+      { x: callout.text.x - n.x, y: 0, width: Math.max(0, n.width - (callout.text.x - n.x) - 4), height: callout.height }));
+    }
     const src = n.assetId !== null ? images.get(n.assetId) : undefined;
     if (src !== undefined) {
       const caption = n.label.trim() !== '' ? Math.round(n.fontSize * 1.3 + 10) : 0;

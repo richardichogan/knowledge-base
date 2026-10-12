@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { PGlite } from '@electric-sql/pglite';
 import { diagramEvidence, findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../src/services/diagramContext.js';
-import { emptyDiagram, type DiagramNode, type DiagramDocument } from '../src/types/diagram.js';
+import { DIAGRAM_CALLOUT_TYPES, emptyDiagram, type DiagramNode, type DiagramDocument } from '../src/types/diagram.js';
 import { selectRequiredToolChoice } from '../src/ai/toolRouting.js';
 import { emptyContextUsed, filterExcluded, recordToolSources } from '../src/ai/contextUsage.js';
 
@@ -58,12 +58,21 @@ test('bounded evidence flags missing records and shortened text without breaking
   assert.deepEqual(empty.connectors, []);
 });
 
+test('Athena sees callout categories as annotations rather than task or approval states', () => {
+  const nodes = DIAGRAM_CALLOUT_TYPES.map(type => ({ ...makeNode(`callout-${type}`, 'text', 'Review this'), calloutType: type }));
+  const evidence = JSON.parse(diagramEvidence({ ...emptyDiagram(), nodes }));
+  assert.deepEqual(evidence.shapes.map((n: DiagramNode) => n.calloutType), DIAGRAM_CALLOUT_TYPES);
+  assert.match(DIAGRAM_READING_GUIDANCE, /not workflow states/);
+  assert.match(DIAGRAM_READING_GUIDANCE, /not prove approval/);
+});
+
 test('SQL retrieves saved structure across diagrams, matches metadata and notes, enforces project scope, and never writes', async () => {
   const pg = new PGlite();
   try {
     await pg.exec(`CREATE TABLE canvases (id text, title text, description text, project text, canvas_type text, updated_at timestamptz);
       CREATE TABLE canvas_diagrams (canvas_id text, revision integer, document jsonb, updated_at timestamptz);
       CREATE TABLE canvas_notes (canvas_id text, note_id text, created_at timestamptz);
+      CREATE TABLE diagram_element_notes (canvas_id text, element_id text, note_id text, created_at timestamptz);
       CREATE TABLE notes (id text, content text, status text, project_id text);
       CREATE TABLE canvas_diagram_assets (canvas_id text, id text, name text);`);
     for (const [id, project, type] of [[a, 'imagine', 'diagram'], [b, 'different', 'diagram'], [c, null, 'diagram'], ['brainstorm', 'imagine', 'brainstorm']]) {
@@ -78,6 +87,11 @@ test('SQL retrieves saved structure across diagrams, matches metadata and notes,
     const db = { query: async (sql: string, params: unknown[]) => {
       reads.push(sql); return pg.query(sql, params);
     } } as unknown as Pool;
+    const withCallout = { ...diagram, nodes: [...diagram.nodes, { ...makeNode('annotation', 'text', 'Review this'), calloutType: 'assumption' }] };
+    await pg.query('UPDATE canvas_diagrams SET document = $1 WHERE canvas_id = $2', [JSON.stringify(withCallout), a]);
+    const classified = await findDiagramContext(db, { query: 'assumption', projectId: 'imagine' });
+    assert.deepEqual(classified.results.map(r => r.id), [a]);
+    assert.match(classified.results[0]!.content, /"calloutType":"assumption"/);
     const found = await findDiagramContext(db, { query: 'Decision artefact', projectId: 'imagine' });
     assert.deepEqual(new Set(found.results.map(r => r.id)), new Set([a, c]));
     assert.equal(found.resultCount, 2);
@@ -151,7 +165,7 @@ test('actual chat prompt reads the saved diagram afresh and never exposes brains
     if (sql.includes('FROM canvases c JOIN canvas_diagrams')) {
       if (failReading) throw new Error('Fixture diagram read failure');
       return { rows: [{ id: a, title: 'Claims architecture', project: null, description: null, revision: 7,
-        updated_at: '2026-10-09', document: saved, linked_notes: [], assets: [] }] };
+        updated_at: '2026-10-09', document: saved, linked_notes: [], element_notes: [], assets: [] }] };
     }
     if (sql.includes('FROM canvases c')) return { rows: [{ id: a, title: 'Claims architecture', canvas_type: 'diagram' }] };
     if (sql.includes('SELECT project_id FROM ai_chat_sessions')) return { rows: [{ project_id: 'ikea' }] };

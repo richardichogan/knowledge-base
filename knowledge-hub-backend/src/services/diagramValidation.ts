@@ -9,6 +9,7 @@
  */
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { ValidationError } from '../types/errors.js';
+import { DIAGRAM_CALLOUT_TYPES } from '../types/diagram.js';
 import type {
   DiagramDocument, DiagramEdge, DiagramFootnote, DiagramKind, DiagramLegend, DiagramLegendEntry, DiagramNode, DiagramPoint, DiagramPort,
 } from '../types/diagram.js';
@@ -151,11 +152,12 @@ function validatePoint(v: unknown, path: string): DiagramPoint {
 }
 
 function validateNode(v: unknown, path: string): DiagramNode {
-  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd', 'collapsed']);
+  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd', 'collapsed', 'calloutType']);
   const c = DIAGRAM_LIMITS.maxCoordinate;
   const kind = oneOf(o['kind'], KINDS, `${path}.kind`);
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
   if (assetId !== null && kind !== 'image') fail(`${path}.assetId`, 'is only allowed on image nodes');
+  if (o['calloutType'] !== undefined && kind !== 'text') fail(`${path}.calloutType`, 'is only allowed on text nodes');
   const linePoint = (value: unknown, field: string): DiagramPoint => {
     if (kind !== 'line') fail(`${path}.${field}`, 'is only allowed on lines');
     const point = exactObject(value, POINT_KEYS, `${path}.${field}`);
@@ -182,6 +184,7 @@ function validateNode(v: unknown, path: string): DiagramNode {
     ...(o['textAlign'] !== undefined ? { textAlign: oneOf(o['textAlign'], ['left', 'center', 'right'] as const, `${path}.textAlign`) } : {}),
     ...(o['textVerticalAlign'] !== undefined ? { textVerticalAlign: oneOf(o['textVerticalAlign'], ['top', 'middle', 'bottom'] as const, `${path}.textVerticalAlign`) } : {}),
     ...(o['collapsed'] !== undefined ? { collapsed: collapsedFlag(o['collapsed'], kind, `${path}.collapsed`) } : {}),
+    ...(o['calloutType'] !== undefined ? { calloutType: oneOf(o['calloutType'], DIAGRAM_CALLOUT_TYPES, `${path}.calloutType`) } : {}),
     assetId,
   };
 }

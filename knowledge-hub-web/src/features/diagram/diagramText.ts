@@ -1,11 +1,15 @@
 import type { DiagramNode } from './diagramTypes';
 import { containerHeader, SWIMLANE_HEADER, documentWaveDepth, wrapText } from './diagramGeometry';
+import { calloutLayout } from './diagramCallouts';
 
 /** One label layout for the canvas and both export formats. */
 export function diagramTextLayout(node: DiagramNode): {
   lines: string[]; x: number; y: number; anchor: 'start' | 'middle' | 'end'; weight: number; rotation?: string;
 } {
-  const { x, y, width: w, height: h, fontSize: fs } = node;
+  const callout = calloutLayout(node);
+  const { x, width: w, fontSize: fs } = node;
+  const y = node.y + (callout?.height ?? 0);
+  const h = node.height - (callout?.height ?? 0);
   const aligned = node.textAlign !== undefined || node.textVerticalAlign !== undefined;
   if (node.kind === 'container') {
     const header = containerHeader(node);

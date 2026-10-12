@@ -1,6 +1,7 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
 import { collapseView, footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
 import { diagramTextLayout } from './diagramText';
+import { calloutLayout } from './diagramCallouts';
 import { diagramDrawioXml } from './diagramDrawio';
 import { diagramBorderDash } from './diagramStroke';
 import { boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
@@ -30,6 +31,12 @@ function nodeText(node: DiagramNode): string {
   const layout = diagramTextLayout(node);
   const text = textLines(layout.lines, layout.x, layout.y, node.fontSize, node.textColor, layout.anchor, layout.weight);
   return layout.rotation ? `<g transform="${layout.rotation}">${text}</g>` : text;
+}
+
+function calloutHeader(node: DiagramNode): string {
+  const callout = calloutLayout(node);
+  if (callout === null) return '';
+  return `<g data-callout-type="${callout.type}"><title>${callout.label} callout</title><path d="${callout.path}" fill="none" stroke="${escapeXml(node.textColor)}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(${callout.icon.x} ${callout.icon.y}) scale(${callout.icon.size / 20})"/><text x="${callout.text.x}" y="${callout.text.y}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${callout.text.fontSize}" fill="${escapeXml(node.textColor)}" font-weight="600" dominant-baseline="central">${callout.label}</text></g>`;
 }
 
 export interface DiagramExportOptions {
@@ -120,7 +127,7 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
       const header = Math.min(node.height, node.kind === 'swimlane' ? node.height : containerHeader(node).height);
       shape += `<text x="${node.x + node.width - 10}" y="${node.y + header / 2}" ${FONT} font-size="11" fill="${escapeXml(node.textColor)}" text-anchor="end" dominant-baseline="central">+${view.hiddenCount.get(node.id)}</text>`;
     }
-    return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node)}</g>`;
+    return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node)}${calloutHeader(node)}</g>`;
   });
   const definitions: string[] = [];
   const edges = document.edges.map((edge, i) => {

@@ -15,6 +15,7 @@
  */
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { diagramTextLayout } from './diagramText';
+import { calloutLayout, DIAGRAM_CALLOUTS } from './diagramCallouts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import {
@@ -30,7 +31,7 @@ import { ThinkAthenaPanel } from '../../notes/ThinkAthenaPanel';
 import type { AthenaPageContext } from '../../context/AthenaContext';
 import type { CanvasFullApi } from '../../services/api';
 import {
-  emptyDiagram, type DiagramDocument, type DiagramEdge, type DiagramKind, type DiagramNode, type DiagramPoint,
+  emptyDiagram, DIAGRAM_CALLOUT_TYPES, type DiagramCalloutType, type DiagramDocument, type DiagramEdge, type DiagramKind, type DiagramNode, type DiagramPoint,
   type DiagramPort, type DiagramSnapshot,
 } from './diagramTypes';
 import {
@@ -1726,6 +1727,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       const h = Math.max(30, captionHeight(n) * z);
       return { left: tl.x, top: tl.y + n.height * z - (n.label.trim() === '' ? 0 : h), width: Math.max(120, n.width * z), height: h, fontSize };
     }
+    const callout = calloutLayout(n);
+    if (callout !== null) return { left: tl.x, top: tl.y + callout.height * z, width: Math.max(80, n.width * z), height: Math.max(32, (n.height - callout.height) * z), fontSize };
     return { left: tl.x, top: tl.y, width: Math.max(80, n.width * z), height: Math.max(32, n.height * z), fontSize };
   })();
 
@@ -2323,6 +2326,14 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           item={(singleNode ?? singleEdge)!}
           kind={singleNode === undefined ? 'Connector' : KIND_LABEL[singleNode.kind]}
           titleLimit={singleNode === undefined ? 500 : 2000}
+          onCalloutTypeChange={(calloutType) => {
+            if (singleNode?.kind !== 'text') return;
+            updateNodes([singleNode.id], n => {
+              const { calloutType: previous, ...plain } = n;
+              return calloutType === undefined ? { ...plain, height: Math.max(MIN_NODE_SIZE, n.height - (calloutLayout(n)?.height ?? 0)) } : { ...n, calloutType,
+                height: previous === undefined ? Math.max(n.height + 32, 64) : n.height };
+            });
+          }}
           onFontSizeChange={(fontSize) => {
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, fontSize }));
             else if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => ({ ...edge, fontSize }));
@@ -2381,7 +2392,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   );
 };
 
-function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onBorderChange, onBackgroundChange, onFontSizeChange }: {
+function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
   onChange: (field: 'label' | 'description', value: string, first: boolean) => void;
   onAlignmentChange: (alignment: Partial<Pick<DiagramNode, 'textAlign' | 'textVerticalAlign'>>) => void;
@@ -2389,6 +2400,7 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
   onBorderChange: (border: Partial<Pick<DiagramNode, 'stroke' | 'strokeStyle'>>) => void;
   onBackgroundChange: (fill: string) => void;
   onFontSizeChange: (fontSize: number) => void;
+  onCalloutTypeChange: (calloutType: DiagramCalloutType | undefined) => void;
 }): React.ReactElement {
   const firstEdit = useRef(true);
   const change = (field: 'label' | 'description', value: string): void => {
@@ -2397,6 +2409,17 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
   };
   return <div className="dg-properties__fields">
     <p className="dg-properties__kind">{kind}</p>
+    {'kind' in item && item.kind === 'text' && <label className="dg-properties__field">Callout type
+      <select aria-label="Callout type" value={item.calloutType ?? ''}
+        onChange={event => {
+          const value = DIAGRAM_CALLOUT_TYPES.find(type => type === event.target.value);
+          onCalloutTypeChange(value);
+        }}>
+        <option value="">Plain text</option>
+        {DIAGRAM_CALLOUT_TYPES.map(type => <option key={type} value={type}>{DIAGRAM_CALLOUTS[type].label}</option>)}
+      </select>
+      <span className="dg-properties__hint">Adds a type label and icon. The title remains your callout text.</span>
+    </label>}
     <label className="dg-properties__field">Title
       <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label} spellCheck
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('label', e.target.value); }} />
@@ -2558,7 +2581,8 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       break;
     }
   }
-  if (n.kind !== 'line' && (n.kind === 'container' || n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined)) {
+  const callout = calloutLayout(n);
+  if (n.kind !== 'line' && (callout !== null || n.kind === 'container' || n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined)) {
     const layout = diagramTextLayout({ ...n, label });
     text = <TextLines lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
   }
@@ -2592,6 +2616,13 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
     <g className={cls} data-dg="node" data-id={n.id}>
       {body}
       {text}
+      {callout !== null && <g className="dg-callout" data-callout-type={callout.type} pointerEvents="none">
+        <title>{callout.label} callout</title>
+        <path className="dg-callout__icon" d={callout.path} stroke={color}
+          transform={`translate(${callout.icon.x} ${callout.icon.y}) scale(${callout.icon.size / 20})`} />
+        <text className="dg-callout__type" x={callout.text.x} y={callout.text.y} fontSize={callout.text.fontSize} fill={color}
+          dominantBaseline="central">{callout.label}</text>
+      </g>}
       {extra}
       {toggle}
     </g>

@@ -9,6 +9,8 @@ import type { DiagramDocument, DiagramNode, DiagramSnapshot } from '../src/featu
 import { diagramSvg } from '../src/features/diagram/diagramExport';
 import { footnoteBlock } from '../src/features/diagram/diagramAnnotations';
 import { documentWaveDepth, edgeEndpoints, lineGeometry, linePoints, portPoint } from '../src/features/diagram/diagramGeometry';
+import { DIAGRAM_CALLOUT_TYPES } from '../src/features/diagram/diagramTypes';
+import { calloutLayout, DIAGRAM_CALLOUTS } from '../src/features/diagram/diagramCallouts';
 import { NoteMaps } from '../src/features/canvas/NoteMaps';
 import '../src/styles/global.scss';
 
@@ -593,6 +595,60 @@ async function runDiagramChecks(): Promise<string[]> {
     'Dynamic multiline header survives reopening');
   check(snapshot.document.nodes.find(n => n.id === experience.id)?.fontSize === 14, 'Existing saved label sizes stay unchanged');
   check(!(await diagramSvg(snapshot.document, assets, 'white')).includes('Process owner: Operations'), 'Descriptions must not clutter visual exports');
+  clickButton('Add Text');
+  await waitFor(() => snapshot.document.nodes.some(n => n.kind === 'text' && n.label === 'Text'));
+  const calloutId = snapshot.document.nodes.find(n => n.kind === 'text' && n.label === 'Text')!.id;
+  await setProperty('Shape or connector title', 'Review the ownership');
+  await waitFor(() => snapshot.document.nodes.some(n => n.id === calloutId && n.label === 'Review the ownership'));
+  const setCallout = async (type: string): Promise<void> => {
+    const select = window.document.querySelector<HTMLSelectElement>('select[aria-label="Callout type"]')!;
+    check(select !== null, 'Text shapes expose Callout type in Properties');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, type);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => snapshot.document.nodes.find(n => n.id === calloutId)?.calloutType === (type === '' ? undefined : type));
+  };
+  const plainHeight = snapshot.document.nodes.find(n => n.id === calloutId)!.height;
+  for (const type of DIAGRAM_CALLOUT_TYPES) {
+    await setCallout(type);
+    const current = snapshot.document.nodes.find(n => n.id === calloutId)!;
+    const group = window.document.querySelector(`g.dg-node[data-id="${calloutId}"]`)!;
+    const header = calloutLayout(current)!;
+    check(group.querySelector('.dg-callout')?.getAttribute('data-callout-type') === type, 'Live callout category matches saved value');
+    check(group.querySelector('.dg-callout__type')?.textContent === DIAGRAM_CALLOUTS[type].label, 'Callout shows a readable category label');
+    const glyph = group.querySelector('.dg-callout__icon')!;
+    check(glyph.getAttribute('d') === header.path && getComputedStyle(glyph).stroke !== 'none', 'Callout has its own visible outline icon');
+    check(current.height === plainHeight + 32, 'Switching category does not repeatedly grow the text shape');
+    const exported = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'transparent'), 'image/svg+xml');
+    const exportedHeader = exported.querySelector(`[data-callout-type="${type}"]`)!;
+    check(exportedHeader.querySelector('path')!.getAttribute('transform') === glyph.getAttribute('transform'), 'SVG and canvas icon positions agree');
+    check(Number(group.querySelector('text.dg-node__label tspan')!.getAttribute('y')) - current.fontSize / 2 >= current.y + header.height,
+      'Callout body text clears the icon and category label');
+  }
+  await setCallout('');
+  check(window.document.querySelector(`g.dg-node[data-id="${calloutId}"] .dg-callout`) === null, 'Plain text removes the callout header');
+  check(snapshot.document.nodes.find(n => n.id === calloutId)!.height === plainHeight, 'Removing classification restores the body height');
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => snapshot.document.nodes.find(n => n.id === calloutId)?.calloutType === 'action');
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => snapshot.document.nodes.find(n => n.id === calloutId)?.calloutType === undefined);
+  await setCallout('risk');
+  const calloutGroup = window.document.querySelector(`g.dg-node[data-id="${calloutId}"]`)!;
+  calloutGroup.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  await waitFor(() => window.document.querySelector('.dg-label-editor') !== null);
+  const labelBox = window.document.querySelector<HTMLElement>('.dg-label-editor')!;
+  const current = snapshot.document.nodes.find(n => n.id === calloutId)!;
+  check(Math.abs(Number.parseFloat(labelBox.style.top) - (snapshot.document.viewport.y + (current.y + 32) * snapshot.document.viewport.zoom)) < 0.1,
+    'Inline callout editing starts below the type header');
+  labelBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await waitFor(() => window.document.querySelector('.dg-label-editor') === null);
+  clickButton('Duplicate (Ctrl+D)');
+  await waitFor(() => snapshot.document.nodes.filter(n => n.calloutType === 'risk' && n.label === 'Review the ownership').length === 2);
+  root.render(null);
+  await waitFor(() => window.document.querySelector('.dg-editor') === null);
+  queryClient.clear();
+  mountEditor();
+  await waitFor(() => window.document.querySelectorAll('.dg-callout[data-callout-type="risk"]').length === 2);
+  check(window.document.documentElement.scrollWidth <= innerWidth + 1, 'Callout controls fit desktop and mobile without page overflow');
   await waitFor(() => window.document.querySelectorAll('g.dg-node--image image').length === 3);
   root.render(null);
   await waitFor(() => window.document.querySelector('.dg-editor') === null);
@@ -612,6 +668,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Shape border colour, solid/dashed/dotted styles and no-border save and export consistently',
     'Five simple shape backgrounds match canvas and export and survive reopening',
     'Document artefacts add, edit, undo/redo, export and reopen',
+    'Text callouts show six distinct icons and categories, clear their text, save/reopen, duplicate, undo/redo and export',
     'Larger default labels and Properties text size persist and export',
     'Standalone horizontal, vertical and diagonal lines export without attachments or arrows',
     'Container divider grows with font size and multiline titles in canvas and exports',

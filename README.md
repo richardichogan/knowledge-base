@@ -123,6 +123,12 @@ In diagrams, double-click a shape to edit its text; double-click empty canvas
 to create a process shape.
 Shape Properties also provides left/center/right and top/middle/bottom text
 alignment. Alignment is saved with the diagram and used in SVG/PNG exports.
+Select a **Text** shape and choose **Properties > Callout type** to mark it as
+Question, Risk, Issue, Assumption, Decision or Action. Each has a distinct
+outline icon and type label above the text; Plain text removes the classification.
+Callouts retain text alignment, size and background controls and are preserved
+in saved diagrams, duplication, versions and SVG/PNG/draw.io exports. Athena can
+read and find these categories; they do not imply approval or create Plan tasks.
 Properties offers connector line and shape border thickness from 0.5 to 6 px.
 Shape border colour (including no border) and solid/dashed/dotted styles are
 also available in Properties and preserved in SVG/PNG exports.
