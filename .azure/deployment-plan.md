@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Diagram text callout categories and transparent, four-per-column footnotes. Update the existing backend from v179 to v180, then deploy the matching frontend.
 
@@ -180,6 +180,23 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-12 at 10:34 BST:
+
+- Release `a5bbc51` (application source `2e1af96`) pushed to remote main and
+  `richardichogan-link-think-chat-projects`.
+- ACR build `ca5p` succeeded; image `kh-prod-api:v180`, digest
+  `sha256:6b60f8df7d08147bdcbd3906a1e261ca0657fba26c87308e6f41ce2c1e3bbb63`.
+- Backend revision `kh-prod-api-vnet--0000177` Healthy / RunningAtMaxScale,
+  active with 100% traffic. `/health` returned HTTP 200 with status ok.
+  Startup logs show migration completion and pool readiness without errors.
+- SWA CLI production deployment succeeded after backend health verification.
+- Custom and default production hosts return matching release HTML at `/`,
+  `/think`, `/chat` and `/signin`; `/assets/index-0KswgK3c.js` SHA-256 matches
+  the local production build on both hosts.
+- No credentials, environment, infrastructure, RBAC or new migration changes.
+- Production: https://athena.themicrosoftcloudblog.com/
+- Backend: https://kh-prod-api-vnet.proudcoast-0a102078.uksouth.azurecontainerapps.io
 
 Validated 2026-10-12 at 10:29 BST for application source `2e1af96`:
 
