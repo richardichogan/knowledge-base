@@ -1,17 +1,16 @@
 import React, { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Launch, Renew, Upload } from '@carbon/icons-react';
-import { api } from '../../services/api';
+import { api, type BlogDraft } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
 
-interface Edits { title?: string; summary?: string; content?: string; takeaways?: string; categories?: string; tags?: string }
+interface Edits { postType?: BlogDraft['postType']; title?: string; summary?: string; content?: string; takeaways?: string; categories?: string; tags?: string }
 
 const lines = (value: string): string[] => value.split('\n').map(v => v.trim()).filter(Boolean);
 const commas = (value: string): string[] => value.split(',').map(v => v.trim()).filter(Boolean);
 
 export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose: () => void }> = ({ itemId, title, onClose }) => {
-  const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Edits>({});
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +26,7 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
   });
   const d = draft.data;
   const value = {
+    postType: edits.postType ?? d?.postType ?? 'article',
     title: edits.title ?? d?.title ?? '',
     summary: edits.summary ?? d?.summary ?? '',
     content: edits.content ?? d?.content ?? '',
@@ -44,13 +44,12 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
     setError(null);
     try {
       const r = await api.publishBlogPost(itemId, {
+        postType: value.postType,
         title: value.title.trim(), summary: value.summary.trim(), content: value.content.trim(),
         keyTakeaways: lines(value.takeaways), categories: commas(value.categories), tags: commas(value.tags),
       });
       if (!r.success) throw new Error(r.error?.message ?? 'Could not publish the post.');
       setResult(r.data);
-      void queryClient.invalidateQueries({ queryKey: ['discover'] });
-      void queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
     } catch (e) {
       setError(describeApiError(e));
     }
@@ -76,11 +75,17 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
     {draft.isFetching && <p className="dc-linkedin__status" role="status">Athena is writing a draft post...</p>}
     {draft.isError && <p className="dc-linkedin__error" role="alert">{describeApiError(draft.error)}</p>}
     {d && !draft.isFetching && !draft.isError && !result && <>
+      <label className="dc-linkedin__label" htmlFor="blog-type">Post type</label>
+      <select id="blog-type" className="dc-filter-select" value={value.postType}
+        onChange={(e) => { const next = e.target.value as BlogDraft['postType']; setEdits(c => ({ ...c, postType: next })); }}>
+        <option value="article">Article</option><option value="weekly">Weekly</option>
+        <option value="newsletter">Newsletter</option><option value="podcast">Podcast</option>
+      </select>
       <label className="dc-linkedin__label" htmlFor="blog-title">Title</label>
       <input id="blog-title" className="dc-linkedin__url" value={value.title} onChange={set('title')} />
       <label className="dc-linkedin__label" htmlFor="blog-summary">Summary</label>
       <textarea id="blog-summary" className="dc-linkedin__copy" rows={2} value={value.summary} onChange={set('summary')} />
-      <label className="dc-linkedin__label" htmlFor="blog-content">Post (Markdown)</label>
+      <label className="dc-linkedin__label" htmlFor="blog-content">Post (HTML)</label>
       <textarea id="blog-content" className="dc-linkedin__copy" rows={14} value={value.content} onChange={set('content')} />
       <label className="dc-linkedin__label" htmlFor="blog-takeaways">Key takeaways (one per line)</label>
       <textarea id="blog-takeaways" className="dc-linkedin__copy" rows={4} value={value.takeaways} onChange={set('takeaways')} />

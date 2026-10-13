@@ -482,7 +482,7 @@ export interface DiscoveryFeed {
 
 export interface BlogDraft {
   title: string; summary: string; content: string; keyTakeaways: string[]; categories: string[]; tags: string[];
-  postType: 'weekly'; sourceUrl: string | null;
+  postType: 'article' | 'weekly' | 'newsletter' | 'podcast'; sourceUrl: string | null;
 }
 
 export class KnowledgeHubApi {
@@ -1447,7 +1447,7 @@ export class KnowledgeHubApi {
     return (await this.client.post<ApiResponse<BlogDraft>>(`/api/discover/${id}/blog-draft`, {}, { timeout: CHAT_TIMEOUT_MS })).data;
   }
 
-  async publishBlogPost(id: string, post: Omit<BlogDraft, 'postType' | 'sourceUrl'>): Promise<ApiResponse<{ editUrl: string | null }>> {
+  async publishBlogPost(id: string, post: Omit<BlogDraft, 'sourceUrl'>): Promise<ApiResponse<{ editUrl: string | null }>> {
     return (await this.client.post<ApiResponse<{ editUrl: string | null }>>(`/api/discover/${id}/blog-publish`, post, { timeout: CHAT_TIMEOUT_MS })).data;
   }
 
