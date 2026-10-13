@@ -120,7 +120,9 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
       // native browser Selection object correctly — ask the editor directly
       // first (covers both plain text and table selections in notes).
       const editorSel = getActiveBlockNoteSelectedText();
-      const sel = editorSel.length > 2 ? editorSel
+      const inChatArea = target.closest('.ai-messages') !== null;
+      const sel = inChatArea && liveSel.length > 2 ? liveSel
+        : editorSel.length > 2 ? editorSel
         : liveSel.length > 2 ? liveSel
         : lastMouseDownSelection.current;
 
@@ -191,10 +193,10 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         return;
       }
       // 5. Right-click on an Athena reply with nothing selected: act on the whole reply
-      const reply = target.closest('.ai-bubble--ai .ai-bubble-text') as HTMLElement | null;
+      const reply = target.closest('.ai-bubble-text, .ai-bubble-text--md') as HTMLElement | null;
       if (reply) {
         const text = reply.innerText.trim();
-        if (text.length > 2) {
+        if (text.length > 2 && reply.closest('.ai-bubble--user') === null) {
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY,
             item: { title: 'Athena chat', body: text, fromSelection: true, fromChat: true, source: 'Athena chat', nodeType: 'note' } });
