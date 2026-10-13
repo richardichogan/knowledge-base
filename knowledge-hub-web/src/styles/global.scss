@@ -13718,6 +13718,18 @@ fieldset.proj-modal-body {
     // Opaque, so connections passing behind don't show through.
     background: linear-gradient(var(--kh-accent-bg), var(--kh-accent-bg)), var(--cds-layer-01);
   }
+  // Mind-map look: branches are rounded pills, the first card is the centre.
+  &--idea { border-radius: 22px; border-style: solid; padding: 0.5rem 1rem 0.6rem; }
+  &--root {
+    width: 230px;
+    border-radius: 32px;
+    border: 2px solid var(--kh-accent);
+    text-align: center;
+    padding: 0.9rem 1.25rem 1rem;
+    background: linear-gradient(rgba(61, 219, 217, 0.22), rgba(61, 219, 217, 0.22)), var(--cds-layer-01);
+    .cv-card__kind { justify-content: center; }
+    .cv-card__title { font-size: 1.0625rem; font-weight: 600; }
+  }
   &--pinned { border: 2px solid var(--kh-accent); }
   &--selected { box-shadow: 0 0 0 2px var(--kh-accent), 0 4px 12px rgba(0, 0, 0, 0.35); }
   &--dragging { opacity: 0.85; cursor: grabbing; z-index: 3; }

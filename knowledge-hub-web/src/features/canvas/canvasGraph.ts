@@ -274,6 +274,88 @@ export function arrange(
   return pos;
 }
 
+/** A smooth branch between two points, leaving and arriving along the longer axis. */
+export function curvePath(a: Point, b: Point): string {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const horizontal = Math.abs(dx) >= Math.abs(dy);
+  const c1 = horizontal ? { x: a.x + dx / 2, y: a.y } : { x: a.x, y: a.y + dy / 2 };
+  const c2 = horizontal ? { x: b.x - dx / 2, y: b.y } : { x: b.x, y: b.y - dy / 2 };
+  return `M${a.x},${a.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${b.x},${b.y}`;
+}
+
+const MIND_RING_STEP = 300;
+const MIND_ARC_SPACING = 80;
+
+/**
+ * Mind-map layout: the root sits at its own position and each branch fans out
+ * on rings around it, with every subtree given an angular sector sized by its
+ * number of leaves. Cards not connected to the root go on an outer ring.
+ */
+export function mindMapLayout(
+  nodes: CanvasNodeApi[],
+  edges: CanvasEdgeApi[],
+  rootId: string,
+  rootAt: Point,
+): Map<string, Point> {
+  const children = new Map<string, string[]>();
+  const depth = new Map<string, number>([[rootId, 0]]);
+  const queue = [rootId];
+  for (let i = 0; i < queue.length; i++) {
+    const id = queue[i] as string;
+    const kids: string[] = [];
+    for (const nb of connectedIds(edges, id)) {
+      if (depth.has(nb)) continue;
+      depth.set(nb, (depth.get(id) ?? 0) + 1);
+      kids.push(nb);
+      queue.push(nb);
+    }
+    children.set(id, kids);
+  }
+  const orphans = nodes.filter((n) => !depth.has(n.id)).map((n) => n.id);
+  const leaves = new Map<string, number>();
+  const countLeaves = (id: string): number => {
+    const kids = children.get(id) ?? [];
+    const n = kids.length === 0 ? 1 : kids.reduce((sum, k) => sum + countLeaves(k), 0);
+    leaves.set(id, n);
+    return n;
+  };
+  countLeaves(rootId);
+
+  const perDepth = new Map<number, number>();
+  for (const d of depth.values()) perDepth.set(d, (perDepth.get(d) ?? 0) + 1);
+  const radius = new Map<number, number>();
+  let prev = 0;
+  for (let d = 1; d <= Math.max(0, ...perDepth.keys()); d++) {
+    const needed = ((perDepth.get(d) ?? 0) * MIND_ARC_SPACING) / (2 * Math.PI);
+    prev = Math.max(prev + MIND_RING_STEP, needed);
+    radius.set(d, prev);
+  }
+
+  const pos = new Map<string, Point>([[rootId, { ...rootAt }]]);
+  const place = (id: string, start: number, end: number): void => {
+    const kids = children.get(id) ?? [];
+    const total = leaves.get(id) ?? 1;
+    let a = start;
+    for (const k of kids) {
+      const span = ((end - start) * (leaves.get(k) ?? 1)) / total;
+      const mid = a + span / 2;
+      const r = radius.get(depth.get(k) ?? 1) ?? MIND_RING_STEP;
+      pos.set(k, { x: rootAt.x + r * Math.cos(mid), y: rootAt.y + r * Math.sin(mid) * 0.8 });
+      place(k, a, a + span);
+      a += span;
+    }
+  };
+  place(rootId, -Math.PI, Math.PI);
+
+  const outer = (radius.get(Math.max(0, ...radius.keys())) ?? 0) + MIND_RING_STEP;
+  orphans.forEach((id, i) => {
+    const angle = (2 * Math.PI * i) / Math.max(orphans.length, 1);
+    pos.set(id, { x: rootAt.x + outer * Math.cos(angle), y: rootAt.y + outer * Math.sin(angle) * 0.8 });
+  });
+  return pos;
+}
+
 /**
  * Positions for every card: saved positions for placed cards; unplaced cards
  * start near a connected (or the first) card and are then tidied.

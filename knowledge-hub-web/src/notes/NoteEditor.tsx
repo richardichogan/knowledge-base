@@ -11,7 +11,7 @@ import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
-import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
+import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { noteFilename } from './noteFilename';
@@ -843,9 +843,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                 {(onMapNote || onCreateDiagram) && <li className="kb-menu__sep" role="separator" />}
                 {onMapNote && (
                   <li role="menuitem">
-                    <button type="button" className="kb-menu__item" title="Open this note's canvas, or start one with this note as its first card"
+                    <button type="button" className="kb-menu__item" title="Open the brainstorm linked to this note, or start one with this note as its centre"
                       onClick={() => { setExportMenuOpen(false); onMapNote(doc.id); }}>
-                      <Diagram size={16} /> Canvas
+                      <Idea size={16} /> Linked brainstorm
                     </button>
                   </li>
                 )}
@@ -853,7 +853,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                   <li role="menuitem">
                     <button type="button" className="kb-menu__item" disabled={creatingDiagram} title="Create an editable diagram linked to this note"
                       onClick={() => { setExportMenuOpen(false); void createDiagram(); }}>
-                      <Diagram size={16} /> {creatingDiagram ? 'Creating diagram...' : 'Create diagram'}
+                      <Diagram size={16} /> {creatingDiagram ? 'Creating diagram...' : 'Linked diagram'}
                     </button>
                   </li>
                 )}

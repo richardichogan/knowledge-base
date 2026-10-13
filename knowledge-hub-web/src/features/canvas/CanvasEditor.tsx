@@ -27,7 +27,7 @@ import { ThinkAthenaPanel } from '../../notes/ThinkAthenaPanel';
 import type { AthenaPageContext } from '../../context/AthenaContext';
 import type { PaneWidthOptions } from '../../hooks/usePersistedState';
 import {
-  applyOps, inverseOps, placeNear, initialPositions, arrange, estimateSize, connectedIds, canvasMarkdown,
+  applyOps, inverseOps, placeNear, initialPositions, mindMapLayout, curvePath, estimateSize, connectedIds, canvasMarkdown,
   LINK_TYPES, linkStyle, DEFAULT_LINK_TYPE, type GraphState, type Point, type Size,
 } from './canvasGraph';
 import { readCanvasItem, readPlainText } from './canvasClipboard';
@@ -357,14 +357,14 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   }
 
   async function tidy(): Promise<void> {
-    if (!await confirmDialog('Tidy the layout? Every card except the first will be rearranged (⌘Z undoes it).', { title: 'Tidy canvas', confirmLabel: 'Tidy' })) return;
+    if (!await confirmDialog('Tidy as a mind map? Every card except the first is rearranged around it, with branches fanning out (⌘Z undoes it).', { title: 'Tidy canvas', confirmLabel: 'Tidy' })) return;
     const nodes = mapRef.current.nodes;
-    const start = new Map(nodes.map((n) => [n.id, { x: n.x, y: n.y }]));
-    const movable = new Set(nodes.slice(1).map((n) => n.id));
-    const next = arrange(nodes, mapRef.current.edges, start, new Map(nodes.map((n) => [n.id, sizeOf(n)])), movable);
-    commit([...movable].map((id) => {
-      const p = next.get(id) ?? { x: 0, y: 0 };
-      return { op: 'position' as const, id, x: Math.round(p.x), y: Math.round(p.y) };
+    const root = nodes[0];
+    if (root === undefined) return;
+    const next = mindMapLayout(nodes, mapRef.current.edges, root.id, { x: root.x, y: root.y });
+    commit(nodes.slice(1).map((n) => {
+      const p = next.get(n.id) ?? { x: 0, y: 0 };
+      return { op: 'position' as const, id: n.id, x: Math.round(p.x), y: Math.round(p.y) };
     }));
     window.setTimeout(() => { fitRef.current(); }, 50);
   }
@@ -657,16 +657,16 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
               </defs>
               {links.map((l) => (
                 <g key={l.edge.id}>
-                  <line
+                  <path
                     className={`cv-link${l.edge.id === selectedLinkId ? ' cv-link--selected' : ''}`}
-                    x1={l.start.x} y1={l.start.y} x2={l.end.x} y2={l.end.y}
+                    d={curvePath(l.start, l.end)}
                     stroke={l.style.colour}
                     strokeDasharray={l.style.dashed ? '6 5' : undefined}
                     markerEnd={l.style.directed ? `url(#${markerId(l.style.colour)})` : undefined}
                   />
-                  <line
+                  <path
                     className="mm-link-hit mm-no-drag"
-                    x1={l.start.x} y1={l.start.y} x2={l.end.x} y2={l.end.y}
+                    d={curvePath(l.start, l.end)}
                     onPointerDown={(ev) => { ev.stopPropagation(); setSelectedLinkId(l.edge.id); containerRef.current?.focus(); }}
                   />
                 </g>
@@ -689,7 +689,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
               const Icon = cardIcon(n);
               const pinned = n.refType === 'note' && n.refId !== null && pinnedNoteIds.has(n.refId);
               const classes = [
-                'cv-card', isIdea ? 'cv-card--idea' : 'cv-card--content', pinned ? 'cv-card--pinned' : '',
+                'cv-card', isIdea ? 'cv-card--idea' : 'cv-card--content', n.id === map.nodes[0]?.id ? 'cv-card--root' : '', pinned ? 'cv-card--pinned' : '',
                 n.id === selectedId ? 'cv-card--selected' : '',
                 drag?.kind === 'card' && drag.id === n.id && drag.moved ? 'cv-card--dragging' : '',
                 (drag?.kind === 'link' && drag.overId === n.id) || dropTargetId === n.id ? 'cv-card--target' : '',
