@@ -8,7 +8,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Close } from '@carbon/icons-react';
+import type { CarbonIconType } from '@carbon/icons-react';
+import { ArrowRight, Close, Idea, TaskAdd, Diagram, DocumentAdd, ChatBot } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { NoteExtraction, NoteExtractionAction } from '../services/api';
 
@@ -26,6 +27,14 @@ function targetPath(x: NoteExtraction): string | null {
     default: return null;
   }
 }
+
+const ACTION_ICON: Record<NoteExtractionAction, CarbonIconType> = {
+  spark: Idea, task: TaskAdd, canvas: Diagram, note: DocumentAdd, athena: ChatBot,
+};
+const ACTION_VERB: Record<NoteExtractionAction, string> = {
+  spark: 'Saved as a Spark', task: 'Turned into a task', canvas: 'Added to canvas',
+  note: 'Extracted to a new note', athena: 'Discussed with Athena',
+};
 
 const norm = (t: string): string => t.replace(/\u00a0/g, ' ');
 
@@ -160,13 +169,20 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
   const root = scrollRef.current;
   const barLayer = root ? createPortal(
     <>
-      {bars.map((b) => (
-        <button key={b.key} type="button" className="extraction-bar"
-          style={{ top: b.top, height: Math.max(b.height, 18), left: b.left }}
-          title={`${ACTION_LABEL[b.items[0]!.action]}: ${b.items[0]!.targetLabel}`}
-          aria-label="Text used elsewhere; show details"
-          onClick={(e) => { e.stopPropagation(); setPopover({ x: e.clientX - 200, y: e.clientY, items: b.items }); }} />
-      ))}
+      {bars.map((b) => {
+        const x = b.items[0]!;
+        const Icon = ACTION_ICON[x.action];
+        const tip = x.action === 'athena' ? ACTION_VERB.athena : `${ACTION_VERB[x.action]}: ${x.targetLabel}`;
+        return (
+          <div key={b.key} className="extraction-bar" style={{ top: b.top, height: Math.max(b.height, 24), left: b.left }}>
+            <button type="button" className="extraction-bar__icon" data-tip={`${tip}. Click for details.`}
+              aria-label={tip}
+              onClick={(e) => { e.stopPropagation(); setPopover({ x: e.clientX - 220, y: e.clientY, items: b.items }); }}>
+              <Icon size={12} />
+            </button>
+          </div>
+        );
+      })}
     </>, root) : null;
   if (!popover) return barLayer;
   return (
