@@ -7317,9 +7317,10 @@ body.kh-pane-resizing {
 // Combined toolbar: tabs on left, filter select on right
 .dc-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.5rem 1rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid var(--cds-border-subtle-01);
 }
@@ -7329,9 +7330,10 @@ body.kh-pane-resizing {
 // toolbar's own space-between (which only has two flex children: tabs + this group).
 .dc-toolbar__filters {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  flex-shrink: 0;
+  max-width: 100%;
 }
 
 // Filter select — source or CFP state
@@ -7360,8 +7362,10 @@ body.kh-pane-resizing {
 
 .dc-tabs {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   gap: 0;
+  max-width: 100%;
 }
 
 // Title search — plain text input, article tabs only

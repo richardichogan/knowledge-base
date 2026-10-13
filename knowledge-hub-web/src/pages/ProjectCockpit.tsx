@@ -9,6 +9,7 @@ import type {
 } from '../services/api';
 import { describeApiError, requireApiData } from '../services/apiError';
 import './ProjectCockpit.css';
+import { ReviewPackets } from './ReviewPackets';
 
 const KIND_LABEL: Record<ProjectRegisterKind, string> = { question: 'Question', risk: 'Risk', issue: 'Issue' };
 const PAGE = 25;
@@ -204,6 +205,7 @@ export const ProjectCockpitModal: React.FC<{ projectId: string | null; projectNa
             <LinkList title="Blockers" section={data.blockers} empty="No blocked tasks." />
             <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this project." />
             <Register projectId={projectId} />
+            <ReviewPackets projectId={projectId} />
 
             <details className="pcp-evidence">
               <summary>Supporting evidence</summary>

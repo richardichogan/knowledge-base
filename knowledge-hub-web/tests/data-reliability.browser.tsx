@@ -80,7 +80,7 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
     projects = projects.map(project => project.id === id ? updated : project);
     return success(updated);
   };
-  element<HTMLButtonElement>('.proj-icon-btn[title="Edit"]').click();
+  element<HTMLButtonElement>('.proj-icon-btn[title="Edit project"]').click();
   await waitFor(() => document.querySelector('.cds--modal.is-visible #pm-name') !== null);
   input('#pm-name', 'Retained project edit');
   await waitFor(() => element<HTMLInputElement>('#pm-name').value === 'Retained project edit');

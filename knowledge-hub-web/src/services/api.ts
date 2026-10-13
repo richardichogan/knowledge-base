@@ -44,6 +44,18 @@ export interface ProjectRegisterItem {
   sourceType: 'manual' | 'chat_decision'; sourceId: string | null; createdAt: string; updatedAt: string; resolvedAt: string | null;
 }
 export interface ProjectRegisterPage { items: ProjectRegisterItem[]; total: number; limit: number; offset: number }
+
+export type PacketSourceType = 'note' | 'output' | 'decision';
+export interface PacketCandidate { sourceType: PacketSourceType; sourceId: string; label: string; identity: string; updatedAt: string | null }
+export interface ReviewPacketItem {
+  position: number; sourceType: PacketSourceType; sourceId: string; label: string; capturedIdentity: string;
+  capturedContent: string; checked: boolean; state: 'current' | 'changed' | 'missing'; currentIdentity: string | null; href: string;
+}
+export interface ReviewPacketSummary { id: string; title: string; status: 'draft' | 'approved'; approvedAt: string | null; createdAt: string; itemCount: number }
+export interface ReviewPacket {
+  id: string; projectId: string; title: string; status: 'draft' | 'approved'; approvedAt: string | null; createdAt: string;
+  items: ReviewPacketItem[]; staleCount: number;
+}
 export interface ProjectRegisterInput {
   kind?: ProjectRegisterKind; title?: string; detail?: string; status?: 'open' | 'resolved'; resolution?: string;
   owner?: string; dueDate?: string | null; taskId?: string | null;
@@ -1265,6 +1277,47 @@ export class KnowledgeHubApi {
   async promoteProjectDecision(id: string, decisionId: string, kind: ProjectRegisterKind): Promise<ApiResponse<{ item: ProjectRegisterItem; created: boolean }>> {
     const r = await this.client.post<ApiResponse<{ item: ProjectRegisterItem; created: boolean }>>(`/api/projects/${encodeURIComponent(id)}/register/promote`, { decisionId, kind });
     return r.data;
+  }
+
+  // ─── Review packets ───────────────────────────────────────────────────────
+
+  async getPacketCandidates(id: string): Promise<ApiResponse<{ items: PacketCandidate[]; limitPerType: number }>> {
+    const r = await this.client.get<ApiResponse<{ items: PacketCandidate[]; limitPerType: number }>>(`/api/projects/${encodeURIComponent(id)}/packet-candidates`);
+    return r.data;
+  }
+
+  async getReviewPackets(id: string): Promise<ApiResponse<ReviewPacketSummary[]>> {
+    const r = await this.client.get<ApiResponse<ReviewPacketSummary[]>>(`/api/projects/${encodeURIComponent(id)}/packets`);
+    return r.data;
+  }
+
+  async getReviewPacket(id: string, packetId: string): Promise<ApiResponse<ReviewPacket>> {
+    const r = await this.client.get<ApiResponse<ReviewPacket>>(`/api/projects/${encodeURIComponent(id)}/packets/${encodeURIComponent(packetId)}`);
+    return r.data;
+  }
+
+  async createReviewPacket(id: string, input: { title: string; items: Array<{ sourceType: PacketSourceType; sourceId: string }> }): Promise<ApiResponse<ReviewPacket>> {
+    const r = await this.client.post<ApiResponse<ReviewPacket>>(`/api/projects/${encodeURIComponent(id)}/packets`, input);
+    return r.data;
+  }
+
+  async setReviewPacketItemChecked(id: string, packetId: string, position: number, checked: boolean): Promise<ApiResponse<ReviewPacket>> {
+    const r = await this.client.patch<ApiResponse<ReviewPacket>>(`/api/projects/${encodeURIComponent(id)}/packets/${encodeURIComponent(packetId)}/items/${position}`, { checked });
+    return r.data;
+  }
+
+  async approveReviewPacket(id: string, packetId: string, acknowledgeStale: boolean): Promise<ApiResponse<ReviewPacket>> {
+    const r = await this.client.post<ApiResponse<ReviewPacket>>(`/api/projects/${encodeURIComponent(id)}/packets/${encodeURIComponent(packetId)}/approve`, { acknowledgeStale });
+    return r.data;
+  }
+
+  async exportReviewPacket(id: string, packetId: string): Promise<ApiResponse<{ filename: string; markdown: string }>> {
+    const r = await this.client.get<ApiResponse<{ filename: string; markdown: string }>>(`/api/projects/${encodeURIComponent(id)}/packets/${encodeURIComponent(packetId)}/export`);
+    return r.data;
+  }
+
+  async deleteReviewPacket(id: string, packetId: string): Promise<void> {
+    await this.client.delete(`/api/projects/${encodeURIComponent(id)}/packets/${encodeURIComponent(packetId)}`);
   }
 
   // ─── Repo-Tag Mappings ────────────────────────────────────────────────────
