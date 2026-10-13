@@ -43,6 +43,8 @@ export interface CtxItemData {
   taxonomyTagIds?: string[] | undefined;
   /** True when `body` is text the user selected (as opposed to a card's summary). */
   fromSelection?: boolean | undefined;
+  /** Selection made inside an Athena chat (no Discuss action there). */
+  fromChat?: boolean | undefined;
 }
 
 interface MenuState { x: number; y: number; item: CtxItemData; }
@@ -168,10 +170,13 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
       // 3. Text selection (no ctx element found)
       if (sel.length > 2) {
         e.preventDefault();
+        const inChat = target.closest('.ai-messages') !== null;
         setMenu({ x: e.clientX, y: e.clientY,
           item: {
-            title: sel.length > 80 ? sel.slice(0, 80) + '…' : sel,
-            ...(sel.length > 80 ? { body: sel } : {}),
+            title: inChat ? 'Athena chat' : sel.length > 80 ? sel.slice(0, 80) + '…' : sel,
+            body: sel,
+            fromSelection: true,
+            ...(inChat ? { fromChat: true, source: 'Athena chat' } : {}),
             nodeType: 'note',
           } });
         return;
@@ -368,7 +373,7 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
   const posStyle: React.CSSProperties = { left: x, top: y };
 
   const hasQuote = quote !== '';
-  const showSource = sourceNote !== null && sourceNote !== quote;
+  const showSource = (sourceNote !== null && sourceNote !== quote) || item.fromChat === true;
   if (panel === 'menu') return (
     <div ref={ref} className="gctx" style={posStyle}>
       <div className="gctx__preview">
@@ -376,7 +381,7 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
           ? <blockquote className="gctx__quote">{quote}</blockquote>
           : <span className="gctx__title">{item.title}</span>}
         {showSource && item.fromSelection === true
-          ? <span className="gctx__source">From note: {sourceNote}</span>
+          ? <span className="gctx__source">{item.fromChat === true ? 'From Athena chat' : `From note: ${sourceNote}`}</span>
           : item.source && item.fromSelection !== true && <span className="gctx__source">{item.source}</span>}
       </div>
       <div className="gctx__divider" />
@@ -403,9 +408,11 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
           <button className="gctx__item" disabled={extractingNote} onClick={() => { extractNote(); }}>
             <DocumentAdd size={15} /> {extractingNote ? 'Creating note…' : 'Extract to new note'}
           </button>
-          <button className="gctx__item" onClick={discuss}>
-            <ChatBot size={15} /> Discuss with Athena
-          </button>
+          {item.fromChat !== true && (
+            <button className="gctx__item" onClick={discuss}>
+              <ChatBot size={15} /> Discuss with Athena
+            </button>
+          )}
         </>
       )}
       {(item.url || hasQuote) && <div className="gctx__divider" />}
