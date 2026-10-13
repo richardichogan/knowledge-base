@@ -60,7 +60,7 @@ const KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'doc
 const PARENT_KINDS: ReadonlySet<DiagramKind> = new Set<DiagramKind>(['container', 'swimlane']);
 const PORTS: readonly DiagramPort[] = ['top', 'right', 'bottom', 'left'];
 const ROUTES: readonly DiagramEdge['route'][] = ['straight', 'orthogonal'];
-const ARROWS: readonly DiagramEdge['arrows'][] = ['none', 'end', 'both'];
+const ARROWS: readonly DiagramEdge['arrows'][] = ['none', 'start', 'end', 'both'];
 
 const DOC_KEYS = ['version', 'nodes', 'edges', 'grid', 'viewport'] as const;
 const DOC_OPTIONAL_KEYS = ['footnotes', 'legend', 'notesPanel'] as const;

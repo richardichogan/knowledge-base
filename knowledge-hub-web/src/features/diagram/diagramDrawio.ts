@@ -91,7 +91,7 @@ function vertexCell(id: string, value: string, styleText: string, parent: string
 function edgeStyle(e: DiagramEdge): string {
   const [sx, sy] = PORT[e.sourcePort];
   const [tx, ty] = PORT[e.targetPort];
-  const arrow = { endArrow: e.arrows === 'none' ? 'none' : 'block', endFill: 1, startArrow: e.arrows === 'both' ? 'block' : 'none', startFill: 1 };
+  const arrow = { endArrow: e.arrows === 'none' || e.arrows === 'start' ? 'none' : 'block', endFill: 1, startArrow: e.arrows === 'both' || e.arrows === 'start' ? 'block' : 'none', startFill: 1 };
   return style({
     edgeStyle: e.route === 'orthogonal' ? 'orthogonalEdgeStyle' : 'none', rounded: 0, html: 1,
     strokeColor: colour(e.stroke, '#161616'), strokeWidth: e.strokeWidth ?? 1.5, ...(e.dashed ? { dashed: 1 } : {}), ...arrow,

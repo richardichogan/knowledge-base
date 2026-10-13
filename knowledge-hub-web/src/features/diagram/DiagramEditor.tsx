@@ -1974,8 +1974,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                       className="dg-edge__line" d={d} stroke={diagramEditorInk(edge.stroke)}
                       strokeWidth={edge.strokeWidth ?? 1.5}
                       strokeDasharray={edge.dashed ? '6 4' : undefined}
-                      markerEnd={edge.arrows === 'none' ? undefined : marker}
-                      markerStart={edge.arrows === 'both' ? marker : undefined}
+                      markerEnd={edge.arrows === 'none' || edge.arrows === 'start' ? undefined : marker}
+                      markerStart={edge.arrows === 'both' || edge.arrows === 'start' ? marker : undefined}
                     />
                     {lines.length > 0 && (
                       <g className="dg-edge__label" data-dg={remapped ? undefined : 'edge-label'} data-id={edge.id}>
@@ -2240,7 +2240,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               />
               <Segmented
                 label="Arrowheads" value={only(edgeArrows) ?? ''} compact
-                options={[{ value: 'none', label: 'No arrows', glyph: <LineGlyph kind="none" /> }, { value: 'end', label: 'Arrow at end', glyph: <LineGlyph kind="end" /> }, { value: 'both', label: 'Arrows at both ends', glyph: <LineGlyph kind="both" /> }]}
+                options={[{ value: 'none', label: 'No arrows', glyph: <LineGlyph kind="none" /> }, { value: 'end', label: 'Arrow at end', glyph: <LineGlyph kind="end" /> }, { value: 'start', label: 'Arrow at start', glyph: <LineGlyph kind="start" /> }, { value: 'both', label: 'Arrows at both ends', glyph: <LineGlyph kind="both" /> }]}
                 onChange={(v) => { updateEdges(sel.edges, (x) => ({ ...x, arrows: v })); }}
               />
               <IconBtn label={allDashed ? 'Solid line' : 'Dashed line'} pressed={allDashed} onClick={() => { updateEdges(sel.edges, (x) => ({ ...x, dashed: !allDashed })); }}><LineGlyph kind="dashed" /></IconBtn>
@@ -2322,7 +2322,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           Could not load diagram properties: {canvasError.message}
           <button type="button" className="dg-text-btn" onClick={() => { void refetchCanvas(); }}>Retry diagram properties</button>
         </div>}
-        <h4 className="dg-metadata__heading">Selected shape or connector</h4>
+        <details className="dg-section" open>
+        <summary className="dg-section__summary">Shape or connector properties</summary>
         {singleNode !== undefined || singleEdge !== undefined ? <DiagramProperties
           key={singleNode?.id ?? singleEdge?.id}
           item={(singleNode ?? singleEdge)!}
@@ -2350,6 +2351,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, strokeWidth }));
             else if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => ({ ...edge, strokeWidth }));
           }}
+          onEdgeStyleChange={(patch) => {
+            if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => ({ ...edge, ...patch }));
+          }}
           onAlignmentChange={(alignment) => {
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, ...alignment }));
           }}
@@ -2375,6 +2379,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           </button>}
           <button type="button" className="dg-text-btn" onClick={() => { askAthena(singleId); }}><Chat size={16} /> Ask Athena</button>
         </div>}
+        </details>
         <DiagramNoteLinks canvasId={canvasId} notes={canvas?.linkedNotes ?? []} onOpenNote={onOpenNote} />
       </aside>}
       </div>
@@ -2394,11 +2399,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   );
 };
 
-function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange }: {
+function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onEdgeStyleChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
   onChange: (field: 'label' | 'description', value: string, first: boolean) => void;
   onAlignmentChange: (alignment: Partial<Pick<DiagramNode, 'textAlign' | 'textVerticalAlign'>>) => void;
   onThicknessChange: (strokeWidth: number) => void;
+  onEdgeStyleChange: (patch: Partial<Pick<DiagramEdge, 'dashed' | 'arrows'>>) => void;
   onBorderChange: (border: Partial<Pick<DiagramNode, 'stroke' | 'strokeStyle'>>) => void;
   onBackgroundChange: (fill: string) => void;
   onFontSizeChange: (fontSize: number) => void;
@@ -2437,6 +2443,20 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
         <Segmented label={item.kind === 'line' ? 'Line style' : 'Border style'} value={item.strokeStyle ?? 'solid'}
           options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' }]}
           onChange={(strokeStyle) => { onBorderChange({ strokeStyle }); }} />
+      </div>
+    </>}
+    {!('kind' in item) && <>
+      <div className="dg-properties__field">
+        <span>Line style</span>
+        <Segmented label="Connector line style" value={item.dashed ? 'dashed' : 'solid'}
+          options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }]}
+          onChange={(value) => { onEdgeStyleChange({ dashed: value === 'dashed' }); }} />
+      </div>
+      <div className="dg-properties__field">
+        <span>Arrowheads</span>
+        <Segmented label="Connector arrowheads" value={item.arrows}
+          options={[{ value: 'none', label: 'None' }, { value: 'end', label: 'End' }, { value: 'start', label: 'Start' }, { value: 'both', label: 'Both' }]}
+          onChange={(value) => { onEdgeStyleChange({ arrows: value }); }} />
       </div>
     </>}
     <label className="dg-properties__field">{'kind' in item && item.kind !== 'line' ? 'Border thickness' : 'Line thickness'}
@@ -2647,9 +2667,10 @@ function ShapeGlyph({ kind }: { kind: DiagramKind }): React.ReactElement {
   return <svg className="dg-glyph" width={20} height={20} viewBox="0 0 20 20" aria-hidden="true">{shape}</svg>;
 }
 
-function LineGlyph({ kind }: { kind: 'straight' | 'orthogonal' | 'none' | 'end' | 'both' | 'dashed' }): React.ReactElement {
+function LineGlyph({ kind }: { kind: 'straight' | 'orthogonal' | 'none' | 'start' | 'end' | 'both' | 'dashed' }): React.ReactElement {
   let shape: React.ReactNode;
   switch (kind) {
+    case 'start': shape = <><path d="M5 8h9" /><path className="dg-glyph__fill" d="M2 8l4-3v6z" /></>; break;
     case 'straight': shape = <path d="M2 14L14 2" />; break;
     case 'orthogonal': shape = <path d="M2 13h6V3h6" />; break;
     case 'none': shape = <path d="M2 8h12" />; break;

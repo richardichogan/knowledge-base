@@ -33,8 +33,9 @@ export function DiagramMetadata({ canvas, onSaved }: {
       setSaving(false);
     }
   }
-  return <form className="dg-metadata" aria-label="Diagram metadata" onSubmit={(event) => { void save(event); }}>
-    <h4 className="dg-metadata__heading">Diagram</h4>
+  return <details className="dg-section" open>
+  <summary className="dg-section__summary">Diagram properties</summary>
+  <form className="dg-metadata" aria-label="Diagram metadata" onSubmit={(event) => { void save(event); }}>
     <label className="dg-properties__field">Title
       <input aria-label="Diagram title property" maxLength={200} value={title} disabled={saving}
         onChange={(event) => { setTitle(event.target.value); }} />
@@ -58,5 +59,6 @@ export function DiagramMetadata({ canvas, onSaved }: {
     </div>}
     {error !== null && <p className="dg-metadata__error" role="alert">{error}</p>}
     <button className="dg-metadata__save" type="submit" disabled={saving || !changed}>{saving ? 'Saving…' : 'Save diagram properties'}</button>
-  </form>;
+  </form>
+  </details>;
 }

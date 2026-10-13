@@ -45,7 +45,7 @@ export interface DiagramEdge {
   stroke: string;
   strokeWidth?: number;
   dashed: boolean;
-  arrows: 'none' | 'end' | 'both';
+  arrows: 'none' | 'start' | 'end' | 'both';
 }
 export interface DiagramDocument {
   version: 1;
