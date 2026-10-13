@@ -190,7 +190,18 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
           item: { title: anchor.textContent?.trim() || anchor.href, url: anchor.href, nodeType: 'text' } });
         return;
       }
-      // 5. passthrough
+      // 5. Right-click on an Athena reply with nothing selected: act on the whole reply
+      const reply = target.closest('.ai-bubble--ai .ai-bubble-text') as HTMLElement | null;
+      if (reply) {
+        const text = reply.innerText.trim();
+        if (text.length > 2) {
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY,
+            item: { title: 'Athena chat', body: text, fromSelection: true, fromChat: true, source: 'Athena chat', nodeType: 'note' } });
+          return;
+        }
+      }
+      // 6. passthrough
     }
 
     document.addEventListener('contextmenu', onContextMenu, true);
