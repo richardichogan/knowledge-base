@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, OverflowMenuHorizontal, Document, Idea, Draw, TrashCan, Renew } from '@carbon/icons-react';
+import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, ChevronDown, Document, Idea, Draw, TrashCan, Renew } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
@@ -445,11 +445,11 @@ export const NotesPage: React.FC = () => {
         </div>
         <div className="plan-header__right">
           {mode === 'notes' && <div className="notes-doc-actions-slot" ref={setDocActionsSlot} />}
-          {mode === 'notes' && (
+          {mode === 'notes' && openDoc === null && (
             <div className="notes-export-anchor notes-more-anchor" ref={moreMenuRef}>
               <button type="button" className="kb-import-btn notes-more-btn" aria-haspopup="menu" aria-expanded={moreMenuOpen}
-                aria-label="More Think actions" title="More" onClick={() => { setMoreMenuOpen((v) => !v); }}>
-                <OverflowMenuHorizontal size={16} />
+                onClick={() => { setMoreMenuOpen((v) => !v); }}>
+                <ChevronDown size={16} /> Actions
               </button>
               {moreMenuOpen && (
                 <ul className="kb-menu" role="menu">
@@ -679,7 +679,7 @@ export const NotesPage: React.FC = () => {
         ) : (
           <div className="notes-editor-area">
             {openDoc !== null ? (
-              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
+              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }} onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>
             )}

@@ -11,7 +11,7 @@ import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
-import { TrashCan, ChevronDown, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
+import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { noteFilename } from './noteFilename';
@@ -50,6 +50,8 @@ interface NoteEditorProps {
   /** Open one of the note's canvases (listed in the Connections tab). */
   onOpenMap?: (mapId: string) => void;
   onCreateDiagram?: (noteId: string) => Promise<void>;
+  onImport?: () => void;
+  onRecovery?: () => void;
 }
 
 /** Renders `node` into `slot` via a portal when one is provided, otherwise in place. */
@@ -123,7 +125,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
@@ -818,7 +820,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
               aria-expanded={exportMenuOpen}
               onClick={() => { setExportMenuOpen((v) => !v); }}
             >
-              <ChevronDown size={16} /> {exporting ? 'Exporting…' : githubBusy ? 'Publishing…' : 'Note actions'}
+              <ChevronDown size={16} /> {exporting ? 'Exporting…' : githubBusy ? 'Publishing…' : 'Actions'}
             </button>
             {exportMenuOpen && (
               <ul className="kb-menu" role="menu">
@@ -868,6 +870,23 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                     <Code size={16} /> Send to Build
                   </button>
                 </li>
+                {(onImport || onRecovery) && <li className="kb-menu__sep" role="separator" />}
+                {onImport && (
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item" title="Import a Markdown or text file as a note"
+                      onClick={() => { setExportMenuOpen(false); onImport(); }}>
+                      <DocumentImport size={16} /> Import
+                    </button>
+                  </li>
+                )}
+                {onRecovery && (
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item notes-recovery-launch" aria-haspopup="dialog"
+                      onClick={() => { setExportMenuOpen(false); onRecovery(); }}>
+                      <Renew size={16} /> Recovery
+                    </button>
+                  </li>
+                )}
                 {onDelete && <li className="kb-menu__sep" role="separator" />}
                 {onDelete && (
                   <li role="menuitem">
