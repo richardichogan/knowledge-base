@@ -214,7 +214,7 @@ The cockpit has a **Review packets** panel (`/api/projects/:id/packets`, migrati
 
 Implemented: recovery, knowledge health (migration 067), project cockpit and register (migration 068), review packets (migration 069), operational documentation ([docs/operations.md](docs/operations.md): release identity, migration compatibility, smoke checks, rollback limits, backup/restore, environment isolation). Cloud backup/restore and isolation verification are separate, permissioned work and are not claimed as verified. Still to do:
 
-1. **Build trial run.** Exercise the Build feature end to end against a scratch repository.
+1. **Build trial run, UI half.** Agent assignment and agent PRs were verified against a scratch repository. Decompose, Start, the runner and the approval flow still need a signed-in session. See [docs/operations.md](docs/operations.md) section 8 for all findings.
 
 Next free migration number: 070.
 

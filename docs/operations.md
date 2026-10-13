@@ -60,3 +60,42 @@ Offline rehearsal (code): run `node scripts\run-isolated-tests.mjs` from the rep
 ## 7. Cloud verification still to do
 
 Each needs explicit permission before running: backup retention check, restore rehearsal into a scratch database, network-isolation probe, and confirmation that rollback to the previous image works.
+
+## 8. Build trial findings (2026-10)
+
+Trial of the Build feature against a scratch repository. Recorded in full, including the mistakes.
+
+### Mistakes made
+
+- A scratch repo was created in the personal account (`richardichogan/athena-build-trial`) without first checking that the coding agent could be assigned there. It could not: `suggestedActors` listed only the user. The empty repo is still there and needs deleting (the CLI token lacks `delete_repo`).
+- The trial was moved to `IBM-Project-Imagine/athena-build-trial`, where both agents are assignable. The check should have come first: `repository.suggestedActors(capabilities:[CAN_BE_ASSIGNED])`.
+- Local servers were started on the standard ports (3000 backend, 5173 frontend). Those ports serve a different project (IMAGINE). Run Athena on non-standard ports and confirm what is listening before opening a browser.
+- Time was spent asking questions instead of acting once the intent was clear.
+
+### What was verified
+
+- The production `github-access-token` secret is a PAT for `richardichogan`. It has push access to the Imagine org trial repo and both `copilot-swe-agent` and `anthropic-code-agent` are assignable there. There is no `github-agent-token` secret; Build falls back to `GITHUB_ACCESS_TOKEN`. The token was read into an environment variable, never printed, then cleared.
+- Issue creation with the agent assigned works (REST `assignees: ["copilot-swe-agent[bot]"]`, shown as `Copilot`). Issue #1 produced draft PR #2 on `copilot/add-hello-world-script` within about 90 seconds. The agent renamed the PR, changed 2 files, and the PR had no status checks. Under Build's rules a PR with no checks waits for manual approval instead of auto-merging.
+- Both issue #1 and PR #2 are still open in the trial repo. Nothing was merged.
+
+### What was not verified
+
+- Decompose, Start, the runner's 2-minute poll, Check now, the "awaiting approval" state, and Merge now. These need the signed-in UI. The Microsoft sign-in does not work inside the app's browser canvas panels, and the local app also requires sign-in. The GitHub half of the flow was exercised directly instead, which skips the Build service.
+
+### Hazards found
+
+- The local `knowledge-hub-backend\.env` points `DATABASE_URL` at the production PostgreSQL server. A local backend run would read and write production data (including Build specs and tasks). `BUILD_RUNNER_ENABLED` is unset, so the runner is off locally. Repoint it to a disposable database (see section 6).
+- Production `gitlab-access-token` returns 401 Unauthorized: the gitlab commits, MRs, issues and pipelines syncs all fail at every run. Rotate the token.
+- Pushing to `main` was accepted with "Bypassed rule violations" although main requires a pull request. The bypass is available to this account; the rule is not enforced here.
+- The pre-existing `sslmode` warning in the backend logs says the current `require` behaviour will change in a future `pg` version. Set `sslmode=verify-full` explicitly or `uselibpqcompat=true&sslmode=require`.
+- SMTP2GO configuration was not located beyond `knowledge-hub-backend\src\config\env.ts`; the question is parked.
+
+### Shell notes (Windows PowerShell)
+
+- `gh api graphql` with a hyphenated repo name in the inline query fails; pass `-f owner=... -f name=...` variables.
+- jq `select(.__typename=="Bot")` failed in this shell; parse with `ConvertFrom-Json`.
+- `az containerapp secret list --query "[].name"` lists names without exposing values.
+
+### Release state
+
+Backend `kh-prod-api:v182` (migration 069 applied) and the frontend with the Projects redesign were deployed to production on 2026-10-13. Main is at the commit that added this section's predecessor, `20b83de`.
