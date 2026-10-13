@@ -10464,6 +10464,9 @@ $project-colour-map: (
   gap: 32px;
   padding: 24px;
   max-width: 800px;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .spark-panel__section {

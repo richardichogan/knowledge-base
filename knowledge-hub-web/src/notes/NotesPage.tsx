@@ -521,7 +521,7 @@ export const NotesPage: React.FC = () => {
       {canvasError !== null && <p className="mm-canvas-error" role="alert">{canvasError}</p>}
       <div className="notes-root">
         {/* ── Left panel ── */}
-        {listCollapsed ? (
+        {mode === 'sparks' ? null : listCollapsed ? (
           // Collapsed rail. Search and "+" both expand the list rather than
           // opening cramped rail-width variants of those controls — at 56px
           // wide there is no room to show results or a title field.
