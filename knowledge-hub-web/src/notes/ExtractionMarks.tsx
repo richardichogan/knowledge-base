@@ -1,17 +1,18 @@
 /**
  * Marks passages of a note that have been turned into something (Spark, task,
- * canvas node, new note, Athena chat). Uses the CSS Custom Highlight API, so the
- * note content itself is never modified. Clicking a marked passage shows what
- * was done with it and links to each target.
+ * canvas node, new note, Athena chat) with a margin bar beside the passage, so the
+ * note content itself is never modified. Clicking the bar (or the passage) shows
+ * what was done with it and links to each target.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Close } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { NoteExtraction, NoteExtractionAction } from '../services/api';
 
-const HIGHLIGHT_NAME = 'kh-extracted';
+interface Bar { key: string; top: number; height: number; left: number; items: NoteExtraction[] }
 const ACTION_LABEL: Record<NoteExtractionAction, string> = {
   spark: 'Spark', task: 'Task', canvas: 'Canvas', note: 'New note', athena: 'Athena',
 };
@@ -67,6 +68,7 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
   const navigate = useNavigate();
   const qc = useQueryClient();
   const marked = useRef<Marked[]>([]);
+  const [bars, setBars] = useState<Bar[]>([]);
   const [popover, setPopover] = useState<{ x: number; y: number; items: NoteExtraction[] } | null>(null);
 
   const { data: extractions = [] } = useQuery({
@@ -80,11 +82,27 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
 
   const apply = useCallback(() => {
     const root = scrollRef.current;
-    const registry = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
-    if (!root || !registry || typeof Highlight === 'undefined') return;
+    if (!root) return;
     marked.current = findRanges(root, extractions);
-    if (marked.current.length === 0) { registry.delete(HIGHLIGHT_NAME); return; }
-    registry.set(HIGHLIGHT_NAME, new Highlight(...marked.current.map((m) => m.range)));
+    const rootRect = root.getBoundingClientRect();
+    const innerRect = (root.querySelector('.notes-editor-inner') ?? root).getBoundingClientRect();
+    const left = Math.round(innerRect.right - rootRect.left + root.scrollLeft + 6);
+    const byExtraction = new Map<string, Bar>();
+    for (const m of marked.current) {
+      const r = m.range.getBoundingClientRect();
+      if (r.height === 0) continue;
+      const top = r.top - rootRect.top + root.scrollTop;
+      const prev = byExtraction.get(m.extraction.id);
+      if (prev) {
+        const bottom = Math.max(prev.top + prev.height, top + r.height);
+        prev.top = Math.min(prev.top, top);
+        prev.height = bottom - prev.top;
+      } else {
+        byExtraction.set(m.extraction.id, { key: m.extraction.id, top, height: r.height, left, items: [m.extraction] });
+      }
+    }
+    const next = [...byExtraction.values()].map((x) => ({ ...x, top: Math.round(x.top), height: Math.round(x.height) }));
+    setBars((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
   }, [extractions, scrollRef]);
 
   useEffect(() => {
@@ -92,15 +110,17 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
     const root = scrollRef.current;
     if (!root || extractions.length === 0) return;
     let timer: number | undefined;
-    const observer = new MutationObserver(() => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(apply, 400);
+    const schedule = (): void => { window.clearTimeout(timer); timer = window.setTimeout(apply, 300); };
+    const observer = new MutationObserver((records) => {
+      if (records.every((r) => (r.target as HTMLElement).closest?.('.extraction-bar') !== null)) return;
+      schedule();
     });
     observer.observe(root, { childList: true, subtree: true, characterData: true });
+    window.addEventListener('resize', schedule);
     return () => {
       observer.disconnect();
+      window.removeEventListener('resize', schedule);
       window.clearTimeout(timer);
-      (CSS as unknown as { highlights?: Map<string, unknown> }).highlights?.delete(HIGHLIGHT_NAME);
     };
   }, [apply, extractions.length, scrollRef]);
 
@@ -132,13 +152,26 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
     return () => { document.removeEventListener('mousedown', close); };
   }, [popover]);
 
-  if (!popover) return null;
   const remove = async (id: string): Promise<void> => {
     await api.deleteNoteExtraction(noteId, id);
     setPopover(null);
     void qc.invalidateQueries({ queryKey: ['note-extractions', noteId] });
   };
+  const root = scrollRef.current;
+  const barLayer = root ? createPortal(
+    <>
+      {bars.map((b) => (
+        <button key={b.key} type="button" className="extraction-bar"
+          style={{ top: b.top, height: Math.max(b.height, 18), left: b.left }}
+          title={`${ACTION_LABEL[b.items[0]!.action]}: ${b.items[0]!.targetLabel}`}
+          aria-label="Text used elsewhere; show details"
+          onClick={(e) => { e.stopPropagation(); setPopover({ x: e.clientX - 200, y: e.clientY, items: b.items }); }} />
+      ))}
+    </>, root) : null;
+  if (!popover) return barLayer;
   return (
+    <>
+    {barLayer}
     <div className="extraction-pop" style={{ left: popover.x, top: popover.y + 14 }} role="dialog" aria-label="What was done with this text">
       <div className="extraction-pop__title">Used from this text</div>
       {popover.items.map((x) => {
@@ -153,5 +186,6 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
         );
       })}
     </div>
+    </>
   );
 };

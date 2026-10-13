@@ -4349,10 +4349,18 @@ input, textarea {
   }
 }
 
-::highlight(kh-extracted) {
-  background-color: rgba(61, 219, 217, 0.3);
-  text-decoration: underline solid rgba(61, 219, 217, 0.9) 1px;
-  text-underline-offset: 4px;
+.notes-editor-scroll { position: relative; }
+
+.extraction-bar {
+  position: absolute;
+  width: 4px;
+  padding: 0;
+  border: 0;
+  background: var(--kh-accent, #3ddbd9);
+  opacity: 0.75;
+  cursor: pointer;
+  &::after { content: ''; position: absolute; inset: 0 -6px; }
+  &:hover { opacity: 1; }
 }
 
 .extraction-pop {
