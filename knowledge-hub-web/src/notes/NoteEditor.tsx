@@ -11,7 +11,7 @@ import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
-import { TrashCan, Export, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
+import { TrashCan, ChevronDown, DocumentExport, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { noteFilename } from './noteFilename';
@@ -810,56 +810,83 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             provides a slot, otherwise inline above the editor. */}
         {portalInto(actionsSlot, (
         <div className={actionsSlot ? 'notes-doc-actions' : 'notes-top-bar'}>
-          <button type="button" className="kb-import-btn notes-copy-btn" title="Copy the whole note, including unsaved changes" disabled={copying}
-            onClick={() => { void handleCopyNote(); }}>
-            <Copy size={16} /> {copying ? 'Copying...' : 'Copy note'}
-          </button>
           <div className="notes-export-anchor" ref={exportMenuRef}>
             <button
+              type="button"
               className="kb-import-btn"
-              disabled={exporting}
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
               onClick={() => { setExportMenuOpen((v) => !v); }}
             >
-              <Export size={16} /> {exporting ? 'Exporting…' : 'Export'}
+              <ChevronDown size={16} /> {exporting ? 'Exporting…' : githubBusy ? 'Publishing…' : 'Note actions'}
             </button>
             {exportMenuOpen && (
               <ul className="kb-menu" role="menu">
                 <li role="menuitem">
-                  <button className="kb-menu__item" onClick={() => { void handleExportMarkdown(); }}>
+                  <button type="button" className="kb-menu__item" disabled={copying} title="Copy the whole note, including unsaved changes"
+                    onClick={() => { setExportMenuOpen(false); void handleCopyNote(); }}>
+                    <Copy size={16} /> {copying ? 'Copying...' : 'Copy note'}
+                  </button>
+                </li>
+                <li role="menuitem">
+                  <button type="button" className="kb-menu__item" disabled={exporting} onClick={() => { void handleExportMarkdown(); }}>
                     <DocumentExport size={16} /> Export as Markdown (.md)
                   </button>
                 </li>
                 <li role="menuitem">
-                  <button className="kb-menu__item" onClick={() => { void handleExportImage(); }}>
+                  <button type="button" className="kb-menu__item" disabled={exporting} onClick={() => { void handleExportImage(); }}>
                     <ImageIcon size={16} /> Export as Image (.png)
                   </button>
                 </li>
+                {(onMapNote || onCreateDiagram) && <li className="kb-menu__sep" role="separator" />}
+                {onMapNote && (
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item" title="Open this note's canvas, or start one with this note as its first card"
+                      onClick={() => { setExportMenuOpen(false); onMapNote(doc.id); }}>
+                      <Diagram size={16} /> Canvas
+                    </button>
+                  </li>
+                )}
+                {onCreateDiagram && (
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item" disabled={creatingDiagram} title="Create an editable diagram linked to this note"
+                      onClick={() => { setExportMenuOpen(false); void createDiagram(); }}>
+                      <Diagram size={16} /> {creatingDiagram ? 'Creating diagram...' : 'Create diagram'}
+                    </button>
+                  </li>
+                )}
+                <li className="kb-menu__sep" role="separator" />
+                <li role="menuitem">
+                  <button type="button" className="kb-menu__item" disabled={githubBusy}
+                    onClick={() => { setExportMenuOpen(false); if (publication?.status === 'conflict') void reviewGitHub(); else setGithubModalOpen(true); }}>
+                    <LogoGithub size={16} /> {githubBusy ? 'Publishing...' : 'Push to GitHub'}
+                  </button>
+                </li>
+                <li role="menuitem">
+                  <button type="button" className="kb-menu__item" title="Turn this note into a build spec for GitHub cloud coding agents"
+                    onClick={() => { setExportMenuOpen(false); setBuildDialogOpen(true); }}>
+                    <Code size={16} /> Send to Build
+                  </button>
+                </li>
+                {onDelete && <li className="kb-menu__sep" role="separator" />}
+                {onDelete && (
+                  <li role="menuitem">
+                    <button
+                      type="button"
+                      className="kb-menu__item kb-menu__item--danger"
+                      onClick={async () => {
+                        setExportMenuOpen(false);
+                        if (!await confirmDialog(`Delete "${savedDocRef.current.title}"? This cannot be undone.`, { title: 'Delete note', confirmLabel: 'Delete', tone: 'danger' })) return;
+                        onDelete(doc.id);
+                      }}
+                    >
+                      <TrashCan size={16} /> Delete
+                    </button>
+                  </li>
+                )}
               </ul>
             )}
           </div>
-          {onMapNote && (
-            <button className="kb-import-btn" title="Open this note's canvas, or start one with this note as its first card" onClick={() => { onMapNote(doc.id); }}>
-              <Diagram size={16} /> Canvas
-            </button>
-          )}
-          {onCreateDiagram && <button type="button" className="kb-import-btn" disabled={creatingDiagram} onClick={() => { void createDiagram(); }} title="Create an editable diagram linked to this note"><Diagram size={16} /> {creatingDiagram ? 'Creating diagram...' : 'Create diagram'}</button>}
-          <button className="kb-import-btn" disabled={githubBusy} onClick={() => { if (publication?.status === 'conflict') void reviewGitHub(); else setGithubModalOpen(true); }}>
-            <LogoGithub size={16} /> {githubBusy ? 'Publishing...' : 'Push to GitHub'}
-          </button>
-          <button className="kb-import-btn" title="Turn this note into a build spec for GitHub cloud coding agents" onClick={() => { setBuildDialogOpen(true); }}>
-            <Code size={16} /> Send to Build
-          </button>
-          {onDelete && (
-            <button
-              className="kb-import-btn kb-import-btn--danger"
-              onClick={async () => {
-                if (!await confirmDialog(`Delete "${savedDocRef.current.title}"? This cannot be undone.`, { title: 'Delete note', confirmLabel: 'Delete', tone: 'danger' })) return;
-                onDelete(doc.id);
-              }}
-            >
-              <TrashCan size={16} /> Delete
-            </button>
-          )}
         </div>
         ))}
 

@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, Document, Idea, Draw, TrashCan, Renew } from '@carbon/icons-react';
+import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, OverflowMenuHorizontal, Document, Idea, Draw, TrashCan, Renew } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
@@ -67,6 +67,16 @@ export const NotesPage: React.FC = () => {
   const creatingNoteRef = useRef(false);
   const [importModalOpen,  setImportModalOpen]  = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    const close = (e: MouseEvent): void => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) setMoreMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [moreMenuOpen]);
   const [importHasOpened, setImportHasOpened] = useState(false);
   useEffect(() => { if (importModalOpen) setImportHasOpened(true); }, [importModalOpen]);
   const [sparkModalOpen,   setSparkModalOpen]   = useState(false);
@@ -436,12 +446,29 @@ export const NotesPage: React.FC = () => {
         <div className="plan-header__right">
           {mode === 'notes' && <div className="notes-doc-actions-slot" ref={setDocActionsSlot} />}
           {mode === 'notes' && (
-            <button type="button" className="kb-import-btn" onClick={() => { setImportModalOpen(true); }} title="Import a Markdown or text file as a note">
-              <DocumentImport size={16} /> Import
-            </button>
+            <div className="notes-export-anchor notes-more-anchor" ref={moreMenuRef}>
+              <button type="button" className="kb-import-btn notes-more-btn" aria-haspopup="menu" aria-expanded={moreMenuOpen}
+                aria-label="More Think actions" title="More" onClick={() => { setMoreMenuOpen((v) => !v); }}>
+                <OverflowMenuHorizontal size={16} />
+              </button>
+              {moreMenuOpen && (
+                <ul className="kb-menu" role="menu">
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item" title="Import a Markdown or text file as a note"
+                      onClick={() => { setMoreMenuOpen(false); setImportModalOpen(true); }}>
+                      <DocumentImport size={16} /> Import
+                    </button>
+                  </li>
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item notes-recovery-launch" aria-haspopup="dialog"
+                      onClick={() => { setMoreMenuOpen(false); setRecoveryOpen(true); }}>
+                      <Renew size={16} /> Recovery
+                    </button>
+                  </li>
+                </ul>
+              )}
+            </div>
           )}
-          {mode === 'notes' && <button type="button" className="kb-import-btn notes-recovery-launch" aria-haspopup="dialog"
-            onClick={() => setRecoveryOpen(true)}><Renew size={16} /> Recovery</button>}
           <div className="plan-view-toggle" role="tablist" aria-label="Think view">
             {VIEW_MODES.map(({ key, label, Icon }) => (
               <button
