@@ -24,6 +24,7 @@ import { DiscoverActions } from '../components/discover/DiscoverActions';
 import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useAthenaContext } from '../context/AthenaContext';
+import { BlogPublishModal } from '../components/discover/BlogPublishModal';
 import { LinkedInDraftModal } from '../components/discover/LinkedInDraftModal';
 import { ProjectFitChips } from '../components/discover/ProjectFitChips';
 import { DiscoverReview } from '../components/discover/DiscoverReview';
@@ -265,9 +266,10 @@ interface CardProps {
   isUpdating: boolean;
   onActivate?: (item: DiscoverItem) => void;
   onLinkedIn: (item: DiscoverItem) => void;
+  onBlog: (item: DiscoverItem) => void;
 }
 
-const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate, onLinkedIn }) => {
+const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate, onLinkedIn, onBlog }) => {
   const isToReview  = item.workflowState === 'to-review';
   const isSaved     = item.workflowState === 'saved';
   const isBlog      = item.workflowState === 'blog';
@@ -391,6 +393,11 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
             onKeyDown={(e) => { e.stopPropagation(); }}
             onClick={(e) => { e.stopPropagation(); onLinkedIn(item); }}>
             <Edit size={14} /> Socials
+          </button>
+          <button type="button" className="dc-action dc-action--linkedin"
+            onKeyDown={(e) => { e.stopPropagation(); }}
+            onClick={(e) => { e.stopPropagation(); onBlog(item); }}>
+            <Launch size={14} /> Publish to blog
           </button>
           <div className="dc-card-actions__more">
           {item.url !== null && !isPublished && (
@@ -517,6 +524,7 @@ export const DiscoverPage: React.FC = () => {
   const [debouncedTitleSearch, setDebouncedTitleSearch] = useState(restored.view.title);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [blogItem, setBlogItem] = useState<{ id: string; title: string } | null>(null);
   const [linkedInItem, setLinkedInItem] = useState<{ id: string; title: string } | null>(null);
   const queryClient = useQueryClient();
   const { setAthenaContext } = useAthenaContext();
@@ -814,6 +822,7 @@ export const DiscoverPage: React.FC = () => {
               isUpdating={updatingIds.has(item.id)}
               onActivate={(nextItem) => { setActiveItemId(nextItem.id); }}
               onLinkedIn={(nextItem) => { setLinkedInItem(nextItem); }}
+              onBlog={(nextItem) => { setBlogItem(nextItem); }}
             />
           ))}
 
@@ -875,6 +884,8 @@ export const DiscoverPage: React.FC = () => {
           })}
         </div>
       )}
+      {blogItem && <BlogPublishModal key={blogItem.id} itemId={blogItem.id} title={blogItem.title}
+        onClose={() => { setBlogItem(null); }} />}
       {linkedInItem && <LinkedInDraftModal key={linkedInItem.id} itemId={linkedInItem.id} title={linkedInItem.title}
         onClose={() => { setLinkedInItem(null); }} />}
     </div>

@@ -173,6 +173,7 @@ export const HTTP_STATUS = {
   UNPROCESSABLE: 422,
   INTERNAL_ERROR: 500,
   BAD_GATEWAY: 502,
+  SERVICE_UNAVAILABLE: 503,
 } as const;
 
 // ── Images ────────────────────────────────────────────────────────────────────

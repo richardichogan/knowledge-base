@@ -164,6 +164,10 @@ export const env = {
   AZURE_VISION_ENDPOINT: optional('AZURE_VISION_ENDPOINT'),
   AZURE_VISION_KEY: optional('AZURE_VISION_KEY'),
 
+  // Blog publishing (themicrosoftcloudblog.com posts API)
+  BLOG_POSTS_API_KEY: optional('BLOG_POSTS_API_KEY'),
+  BLOG_POSTS_URL: optionalWithDefault('BLOG_POSTS_URL', 'https://themicrosoftcloudblog.com/api/v1/posts/'),
+
   // SMTP (newsletter via SMTP2GO)
   SMTP_HOST: optionalWithDefault('SMTP_HOST', 'mail.smtp2go.com'),
   SMTP_PORT: parseInt(optionalWithDefault('SMTP_PORT', '2525'), 10),
