@@ -1,12 +1,12 @@
 /**
- * notes/NoteList.tsx â€” left panel: searchable, filterable list of notes.
+ * notes/NoteList.tsx — left panel: searchable, filterable list of notes.
  * Flat and newest-first by default; grouping by project is an opt-in toggle.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import { confirmDialog } from '../services/appDialogs';
 import { TextInput } from '@carbon/react';
-import { ChevronDown, TrashCan, Add, DocumentImport, Close } from '@carbon/icons-react';
+import { TrashCan, Close, ChevronDown } from '@carbon/icons-react';
 import type { NoteListItem } from './types';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
@@ -29,8 +29,6 @@ interface NoteListProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
-  onCreate: () => void;
-  onImport: () => void;
   deletingId?: string | null;
   /** Bumped by the parent to pull focus into the search box (e.g. after expanding from the rail). */
   focusSearchSignal?: number;
@@ -41,7 +39,6 @@ interface NoteListProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
-  creating?: boolean;
 }
 
 function formatDate(iso: string): string {
@@ -68,8 +65,6 @@ export const NoteList: React.FC<NoteListProps> = ({
   selectedId,
   onSelect,
   onDelete,
-  onCreate,
-  onImport,
   deletingId = null,
   focusSearchSignal = 0,
   onFiltersChange,
@@ -79,14 +74,12 @@ export const NoteList: React.FC<NoteListProps> = ({
   hasMore = false,
   loadingMore = false,
   onLoadMore,
-  creating = false,
 }) => {
   const [filter, setFilter] = useState('');
   const [activeProjectId, setActiveProjectId] = useState('');
   const [activeContentType, setActiveContentType] = useState<ContentType | ''>('');
   const [activeTagId, setActiveTagId] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [overflowOpen, setOverflowOpen] = useState(false);
 
   const [sortKey, setSortKey] = usePersistedChoice<SortKey>(
     'kh_notes_sort',
@@ -251,7 +244,7 @@ export const NoteList: React.FC<NoteListProps> = ({
           ref={searchRef}
           labelText="Search"
           hideLabel
-          placeholder="Searchâ€¦"
+          placeholder="Search…"
           value={filter}
           onChange={(e) => { setFilter(e.target.value); }}
           size="sm"
@@ -267,51 +260,6 @@ export const NoteList: React.FC<NoteListProps> = ({
             <Close size={16} aria-hidden="true" />
           </button>
         )}
-        </div>
-        <button
-          type="button"
-          className="notes-list-search__action"
-          title="New note"
-          disabled={creating}
-          aria-label="New note"
-          onClick={onCreate}
-        >
-          <Add size={16} />
-        </button>
-        <div className="notes-list-search__overflow">
-          <button
-            type="button"
-            className="notes-list-search__action"
-            title="More actions"
-            aria-label="More actions"
-            aria-expanded={overflowOpen}
-            aria-haspopup="menu"
-            onClick={() => { setOverflowOpen((open) => !open); }}
-          >
-            <ChevronDown size={16} />
-          </button>
-          {overflowOpen && (
-            <>
-              {/* Click-away layer: a menu that only closes on re-click of its
-                  own trigger strands itself open the moment focus moves. */}
-              <div
-                className="notes-list-menu__scrim"
-                role="presentation"
-                onClick={() => { setOverflowOpen(false); }}
-              />
-              <div className="notes-list-menu" role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="notes-list-menu__item"
-                  onClick={() => { setOverflowOpen(false); onImport(); }}
-                >
-                  <DocumentImport size={16} />
-                  <span>Importâ€¦</span>
-                </button>
-              </div>
-            </>
-          )}
         </div>
       </div>
 
@@ -359,7 +307,7 @@ export const NoteList: React.FC<NoteListProps> = ({
               size={16}
               className={`notes-list-filters__chevron${filtersExpanded ? ' notes-list-filters__chevron--expanded' : ''}`}
             />
-            <span>Filters{activeFilterCount > 0 ? ` Â· ${activeFilterCount} active` : ''}</span>
+            <span>Filters{activeFilterCount > 0 ? ` · ${activeFilterCount} active` : ''}</span>
             <span className="notes-list-filters__result-count">
               {filteredNotes.length} of {total ?? notes.length}
             </span>
@@ -419,7 +367,7 @@ export const NoteList: React.FC<NoteListProps> = ({
               <option value="">All tags</option>
               {flatTags.map((tag) => (
                 <option key={tag.id} value={tag.id}>
-                  {tag.depth === 1 ? `â€” ${tag.name}` : tag.name}
+                  {tag.depth === 1 ? `— ${tag.name}` : tag.name}
                 </option>
               ))}
             </select>
@@ -523,7 +471,7 @@ const NoteCard: React.FC<{
       data-ctx-type="hub_ref"
       data-ctx-ref-id={note.id}
       data-ctx-ref-type="note"
-      data-ctx-source={`Note Â· ${note.contentType}`}
+      data-ctx-source={`Note · ${note.contentType}`}
       {...(tagEntries.length > 0 ? { 'data-ctx-tags': tagEntries.join(',') } : {})}
       role="button" tabIndex={0}
     >

@@ -3607,9 +3607,7 @@ input, textarea {
   overflow: hidden;
 }
 
-// Search row doubles as the list's action bar: the create and overflow
-// buttons live here rather than in a bottom bar, which cost a full row of
-// permanent height to hold two actions used a few times a day.
+// Search row at the top of the notes list; note creation and import live in the page header.
 .notes-list-search {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--cds-border-subtle-00);
@@ -3621,27 +3619,6 @@ input, textarea {
   .cds--text-input-wrapper {
     flex: 1;
     min-width: 0;
-  }
-}
-
-.notes-list-search__action {
-  flex-shrink: 0;
-  width: 2rem;
-  height: 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid var(--cds-border-subtle-00);
-  border-radius: 2px;
-  color: var(--cds-text-secondary);
-  cursor: pointer;
-  transition: background 120ms, color 120ms, border-color 120ms;
-
-  &:hover {
-    background: var(--kh-accent-bg);
-    border-color: var(--kh-accent-border);
-    color: var(--kh-accent);
   }
 }
 
@@ -3669,49 +3646,6 @@ input, textarea {
 
   &:hover { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); }
   &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
-}
-
-.notes-list-search__overflow {
-  position: relative;
-  flex-shrink: 0;
-}
-
-// Full-viewport catcher behind the menu. Sits below the menu in z-order so
-// the menu's own items stay clickable.
-.notes-list-menu__scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-}
-
-.notes-list-menu {
-  position: absolute;
-  top: calc(100% + 0.25rem);
-  right: 0;
-  z-index: 41;
-  min-width: 10rem;
-  padding: 0.25rem;
-  background: var(--cds-layer-02);
-  border: 1px solid var(--cds-border-subtle-01);
-  border-radius: 2px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-.notes-list-menu__item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.625rem;
-  background: transparent;
-  border: 0;
-  border-radius: 2px;
-  color: var(--cds-text-primary);
-  font-size: 0.8125rem;
-  text-align: left;
-  cursor: pointer;
-
-  &:hover { background: var(--cds-layer-hover-02, rgba(255, 255, 255, 0.08)); }
 }
 
 // Sort and display toggles. Deliberately quiet — these are set-once
@@ -13104,7 +13038,6 @@ $interactive:      #0f62fe;
   &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
   &:disabled { cursor: not-allowed; color: var(--cds-text-disabled); }
 }
-.notes-list-search__action:disabled,
 .notes-list-item__delete:disabled {
   cursor: not-allowed;
   color: var(--cds-text-disabled);

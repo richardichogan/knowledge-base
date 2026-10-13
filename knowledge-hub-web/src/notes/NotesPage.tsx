@@ -65,7 +65,6 @@ export const NotesPage: React.FC = () => {
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
   const deletingNoteRef = useRef<string | null>(null);
   const creatingNoteRef = useRef(false);
-  const [creatingNote, setCreatingNote] = useState(false);
   const [importModalOpen,  setImportModalOpen]  = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [importHasOpened, setImportHasOpened] = useState(false);
@@ -183,7 +182,6 @@ export const NotesPage: React.FC = () => {
   async function handleCreateNote(): Promise<void> {
     if (creatingNoteRef.current) return;
     creatingNoteRef.current = true;
-    setCreatingNote(true);
     try {
       const doc = await createNote({ title: 'Untitled', contentType: 'note', contentJson: '[]' });
       if (doc !== null) {
@@ -196,7 +194,6 @@ export const NotesPage: React.FC = () => {
       await alertDialog(err instanceof Error ? err.message : 'Could not create the note.', { title: 'Could not create note', tone: 'danger' });
     } finally {
       creatingNoteRef.current = false;
-      setCreatingNote(false);
     }
   }
 
@@ -560,12 +557,9 @@ export const NotesPage: React.FC = () => {
               selectedId={selectedId}
               onSelect={(id) => { void handleSelectNote(id); }}
               onDelete={(id) => { void handleDeleteNote(id); }}
-              onCreate={() => { void handleCreateNote(); }}
-              onImport={() => { setImportModalOpen(true); }}
               deletingId={deletingNoteId}
               focusSearchSignal={focusSearchSignal}
               onFiltersChange={onListFilters}
-              creating={creatingNote}
               total={noteTotal}
               loading={isLoading}
               unavailable={isError}

@@ -519,7 +519,7 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
       return success({ id: 'created-note', content: request.content, createdAt: now, updatedAt: now,
         tags: [], linkedItems: [], status: 'active', revision: 1 });
     };
-    const newNoteButton = element<HTMLButtonElement>('[aria-label="New note"]');
+    const newNoteButton = element<HTMLButtonElement>('.notes-header__new');
     newNoteButton.click();
     newNoteButton.click();
     await waitFor(() => document.querySelector('dialog[open]')?.textContent?.includes('Could not create note') === true,
