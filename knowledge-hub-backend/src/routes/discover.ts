@@ -177,14 +177,15 @@ discoverRouter.post('/:id/blog-draft', (req: Request, res: Response, next: NextF
   })();
 });
 
-interface BlogPublishBody { postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
+interface BlogPublishBody { status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
 
 function parsePublishBody(body: unknown): BlogPublishBody {
   const o = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
   const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.trim()) : [];
   const text = (v: unknown): string => typeof v === 'string' ? v.trim() : '';
   const postType = POST_TYPES.find(t => t === o['postType']) ?? 'article';
-  const parsed = { postType, title: text(o['title']), content: text(o['content']), summary: text(o['summary']),
+  const status: BlogPublishBody['status'] = o['status'] === 'published' ? 'published' : 'draft';
+  const parsed = { status, postType, title: text(o['title']), content: text(o['content']), summary: text(o['summary']),
     keyTakeaways: list(o['keyTakeaways']), categories: list(o['categories']), tags: list(o['tags']) };
   if (parsed.title.length > 200 || parsed.summary.length > 1000 || parsed.keyTakeaways.length > 10 || parsed.keyTakeaways.some(t => t.length > 300)) {
     throw new ValidationError('Title (200), summary (1,000) and takeaways (10 max, 300 characters each) exceed the blog limits.');
@@ -209,19 +210,22 @@ discoverRouter.post('/:id/blog-publish', (req: Request, res: Response, next: Nex
       const response = await fetch(env.BLOG_POSTS_URL, {
         method: 'POST',
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...post, status: 'draft' }),
+        body: JSON.stringify(post),
       });
-      const result = await response.json().catch(() => ({})) as { error?: string; details?: string[]; editUrl?: string };
+      const result = await response.json().catch(() => ({})) as { error?: string; details?: string[]; editUrl?: string; url?: string };
       if (response.status === HTTP_STATUS.CONFLICT) {
         res.status(HTTP_STATUS.CONFLICT).json({ success: false, error: { code: 'BLOG_DUPLICATE', message: 'A post with this title already exists on the blog this month. It may already have been created: check the blog admin, or change the title.' } });
         return;
       }
       if (!response.ok) {
-        res.status(HTTP_STATUS.BAD_GATEWAY).json({ success: false, error: { code: 'BLOG_REJECTED',
+        res.status(response.status === HTTP_STATUS.FORBIDDEN ? HTTP_STATUS.FORBIDDEN : HTTP_STATUS.BAD_GATEWAY).json({ success: false, error: { code: 'BLOG_REJECTED',
           message: `The blog rejected the post: ${response.status} ${result.error ?? ''} ${(result.details ?? []).join('; ')}`.trim() } });
         return;
       }
-      res.json({ success: true, data: { editUrl: result.editUrl ?? null } });
+      if (post.status === 'published') {
+        await getDb().query(`UPDATE content_items SET workflow_state='published' WHERE id=$1 AND source='discovered-article'`, [id]);
+      }
+      res.json({ success: true, data: { editUrl: result.editUrl ?? null, url: result.url ?? null, status: post.status } });
     } catch (err) { next(err); }
   })();
 });

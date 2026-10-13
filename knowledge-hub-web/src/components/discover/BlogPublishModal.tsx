@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Launch, Renew, Upload } from '@carbon/icons-react';
 import { api, type BlogDraft } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
@@ -11,10 +11,11 @@ const lines = (value: string): string[] => value.split('\n').map(v => v.trim()).
 const commas = (value: string): string[] => value.split(',').map(v => v.trim()).filter(Boolean);
 
 export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose: () => void }> = ({ itemId, title, onClose }) => {
+  const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Edits>({});
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ editUrl: string | null } | null>(null);
+  const [result, setResult] = useState<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' } | null>(null);
   const draft = useQuery({
     queryKey: ['discover-blog-draft', itemId],
     queryFn: async () => {
@@ -39,17 +40,26 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
     setEdits(c => ({ ...c, [key]: next }));
   };
 
-  async function publish(): Promise<void> {
+  async function publish(status: 'draft' | 'published'): Promise<void> {
+    if (status === 'published') {
+      const warning = value.postType === 'newsletter' ? ' This is a newsletter, so subscribers will be emailed.' : '';
+      if (!window.confirm(`Publish "${value.title.trim()}" live on themicrosoftcloudblog.com now?${warning}`)) return;
+    }
     setPublishing(true);
     setError(null);
     try {
       const r = await api.publishBlogPost(itemId, {
+        status,
         postType: value.postType,
         title: value.title.trim(), summary: value.summary.trim(), content: value.content.trim(),
         keyTakeaways: lines(value.takeaways), categories: commas(value.categories), tags: commas(value.tags),
       });
       if (!r.success) throw new Error(r.error?.message ?? 'Could not publish the post.');
       setResult(r.data);
+      if (status === 'published') {
+        void queryClient.invalidateQueries({ queryKey: ['discover'] });
+        void queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
+      }
     } catch (e) {
       setError(describeApiError(e));
     }
@@ -65,9 +75,13 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
           onClick={() => { setEdits({}); void draft.refetch(); }}>
           <Renew size={16} /> {draft.isFetching ? 'Writing...' : 'Generate again'}
         </button>
+        <button type="button" className="kh-dialog__button"
+          disabled={!ready || draft.isFetching || draft.isError || publishing} onClick={() => { void publish('draft'); }}>
+          <Upload size={16} /> {publishing ? 'Sending...' : 'Save as draft'}
+        </button>
         <button type="button" className="kh-dialog__button kh-dialog__button--primary"
-          disabled={!ready || draft.isFetching || draft.isError || publishing} onClick={() => { void publish(); }}>
-          <Upload size={16} /> {publishing ? 'Sending...' : 'Send as blog draft'}
+          disabled={!ready || draft.isFetching || draft.isError || publishing} onClick={() => { void publish('published'); }}>
+          <Launch size={16} /> Publish live
         </button>
       </>}
     </>}>
@@ -93,12 +107,13 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
       <input id="blog-categories" className="dc-linkedin__url" value={value.categories} onChange={set('categories')} />
       <label className="dc-linkedin__label" htmlFor="blog-tags">Tags (comma separated)</label>
       <input id="blog-tags" className="dc-linkedin__url" value={value.tags} onChange={set('tags')} />
-      <p className="dc-linkedin__status">This creates a draft on themicrosoftcloudblog.com for you to review; it is not published live.</p>
+      <p className="dc-linkedin__status">Save as draft to review it in the blog admin first, or Publish live to post it straight away.</p>
     </>}
     {error && <p className="dc-linkedin__error" role="alert">{error}</p>}
     {result && <p className="dc-linkedin__status" role="status">
-      Draft created on the blog.{' '}
-      {result.editUrl && <a href={result.editUrl} target="_blank" rel="noreferrer"><Launch size={16} /> Open draft to edit</a>}
+      {result.status === 'published' ? 'Published live.' : 'Draft created on the blog.'}{' '}
+      {result.status === 'published' && result.url && <a href={result.url} target="_blank" rel="noreferrer"><Launch size={16} /> View post</a>}{' '}
+      {result.editUrl && <a href={result.editUrl} target="_blank" rel="noreferrer"><Launch size={16} /> Open in blog admin</a>}
     </p>}
   </AppDialog>;
 };
