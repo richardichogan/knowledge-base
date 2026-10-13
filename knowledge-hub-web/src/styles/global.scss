@@ -10463,9 +10463,8 @@ $project-colour-map: (
   flex-direction: column;
   gap: 32px;
   padding: 24px;
-  max-width: 800px;
   width: 100%;
-  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .notes-editor-area--sparks { overflow-y: auto; }
