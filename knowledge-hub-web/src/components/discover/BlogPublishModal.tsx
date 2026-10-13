@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { InlineLoading } from '@carbon/react';
+import { alertDialog, confirmDialog } from '../../services/appDialogs';
 import { Launch, Renew, Upload } from '@carbon/icons-react';
 import { api, type BlogDraft } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
 
-interface Edits { postType?: BlogDraft['postType']; title?: string; summary?: string; content?: string; takeaways?: string; categories?: string; tags?: string }
+interface Edits { excerpt?: string; postType?: BlogDraft['postType']; title?: string; summary?: string; content?: string; takeaways?: string; categories?: string; tags?: string }
 
 const lines = (value: string): string[] => value.split('\n').map(v => v.trim()).filter(Boolean);
 const commas = (value: string): string[] => value.split(',').map(v => v.trim()).filter(Boolean);
@@ -13,13 +15,14 @@ const commas = (value: string): string[] => value.split(',').map(v => v.trim()).
 export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose: () => void }> = ({ itemId, title, onClose }) => {
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Edits>({});
+  const [length, setLength] = useState<'short' | 'long'>('short');
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' } | null>(null);
   const draft = useQuery({
-    queryKey: ['discover-blog-draft', itemId],
+    queryKey: ['discover-blog-draft', itemId, length],
     queryFn: async () => {
-      const r = await api.createBlogDraft(itemId);
+      const r = await api.createBlogDraft(itemId, length);
       if (!r.success) throw new Error(r.error?.message ?? 'Could not generate the blog draft.');
       return r.data;
     },
@@ -29,6 +32,7 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
   const value = {
     postType: edits.postType ?? d?.postType ?? 'article',
     title: edits.title ?? d?.title ?? '',
+    excerpt: edits.excerpt ?? d?.excerpt ?? '',
     summary: edits.summary ?? d?.summary ?? '',
     content: edits.content ?? d?.content ?? '',
     takeaways: edits.takeaways ?? d?.keyTakeaways.join('\n') ?? '',
@@ -43,7 +47,9 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
   async function publish(status: 'draft' | 'published'): Promise<void> {
     if (status === 'published') {
       const warning = value.postType === 'newsletter' ? ' This is a newsletter, so subscribers will be emailed.' : '';
-      if (!window.confirm(`Publish "${value.title.trim()}" live on themicrosoftcloudblog.com now?${warning}`)) return;
+      const ok = await confirmDialog(`Publish "${value.title.trim()}" live on themicrosoftcloudblog.com now?${warning}`,
+        { title: 'Publish live', confirmLabel: 'Publish live' });
+      if (!ok) return;
     }
     setPublishing(true);
     setError(null);
@@ -51,17 +57,22 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
       const r = await api.publishBlogPost(itemId, {
         status,
         postType: value.postType,
-        title: value.title.trim(), summary: value.summary.trim(), content: value.content.trim(),
+        title: value.title.trim(), excerpt: value.excerpt.trim(), summary: value.summary.trim(), content: value.content.trim(),
         keyTakeaways: lines(value.takeaways), categories: commas(value.categories), tags: commas(value.tags),
       });
       if (!r.success) throw new Error(r.error?.message ?? 'Could not publish the post.');
       setResult(r.data);
+      void alertDialog(status === 'published'
+        ? `"${value.title.trim()}" is now live on The Microsoft Cloud Blog.`
+        : `"${value.title.trim()}" was saved as a draft on the blog. Open it in the blog admin to review and publish.`,
+      { title: status === 'published' ? 'Post published' : 'Draft saved', tone: 'success' });
       if (status === 'published') {
         void queryClient.invalidateQueries({ queryKey: ['discover'] });
         void queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
       }
     } catch (e) {
       setError(describeApiError(e));
+      void alertDialog(describeApiError(e), { title: 'Blog post not sent', tone: 'danger' });
     }
     setPublishing(false);
   }
@@ -86,7 +97,12 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
       </>}
     </>}>
     <p className="dc-linkedin__source-title">{title}</p>
-    {draft.isFetching && <p className="dc-linkedin__status" role="status">Athena is writing a draft post...</p>}
+    {!result && <div className="dc-linkedin__formats" role="group" aria-label="Post length">
+      <button type="button" disabled={publishing || draft.isFetching} aria-pressed={length === 'short'} onClick={() => { setLength('short'); setEdits({}); }}>Short post</button>
+      <button type="button" disabled={publishing || draft.isFetching} aria-pressed={length === 'long'} onClick={() => { setLength('long'); setEdits({}); }}>Long post</button>
+    </div>}
+    {draft.isFetching && <div className="dc-loading" role="status"><InlineLoading description={`Athena is writing a ${length} post in the blog house style...`} /></div>}
+    {publishing && <div className="dc-loading" role="status"><InlineLoading description="Sending to The Microsoft Cloud Blog..." /></div>}
     {draft.isError && <p className="dc-linkedin__error" role="alert">{describeApiError(draft.error)}</p>}
     {d && !draft.isFetching && !draft.isError && !result && <>
       <label className="dc-linkedin__label" htmlFor="blog-type">Post type</label>
@@ -97,6 +113,8 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
       </select>
       <label className="dc-linkedin__label" htmlFor="blog-title">Title</label>
       <input id="blog-title" className="dc-linkedin__url" value={value.title} onChange={set('title')} />
+      <label className="dc-linkedin__label" htmlFor="blog-excerpt">Excerpt (search and preview text)</label>
+      <textarea id="blog-excerpt" className="dc-linkedin__copy" rows={2} value={value.excerpt} onChange={set('excerpt')} />
       <label className="dc-linkedin__label" htmlFor="blog-summary">Summary</label>
       <textarea id="blog-summary" className="dc-linkedin__copy" rows={2} value={value.summary} onChange={set('summary')} />
       <label className="dc-linkedin__label" htmlFor="blog-content">Post (HTML)</label>

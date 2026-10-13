@@ -75,3 +75,8 @@ export const BLOG_PACKAGE_RULES = [
     'the tone is grounded, direct, and free of hype.',
   '',
 ].join('\n');
+
+/** The universal writing rules only, without the CMS field contract. */
+export const BLOG_WRITING_RULES = BLOG_PACKAGE_RULES.split('### CMS output package')[0] ?? '';
+
+export const BLOG_CATEGORIES = ['AI & Copilot', 'Azure', 'Microsoft 365', 'Power Platform', 'Dynamics 365', 'Governance & Security', 'Architecture', 'Identity', 'Productivity'] as const;

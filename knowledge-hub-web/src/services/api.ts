@@ -481,7 +481,7 @@ export interface DiscoveryFeed {
 }
 
 export interface BlogDraft {
-  title: string; summary: string; content: string; keyTakeaways: string[]; categories: string[]; tags: string[];
+  title: string; excerpt: string; summary: string; content: string; keyTakeaways: string[]; categories: string[]; tags: string[];
   postType: 'article' | 'weekly' | 'newsletter' | 'podcast'; sourceUrl: string | null;
 }
 
@@ -1443,8 +1443,8 @@ export class KnowledgeHubApi {
     )).data;
   }
 
-  async createBlogDraft(id: string): Promise<ApiResponse<BlogDraft>> {
-    return (await this.client.post<ApiResponse<BlogDraft>>(`/api/discover/${id}/blog-draft`, {}, { timeout: CHAT_TIMEOUT_MS })).data;
+  async createBlogDraft(id: string, length: 'short' | 'long' = 'short'): Promise<ApiResponse<BlogDraft>> {
+    return (await this.client.post<ApiResponse<BlogDraft>>(`/api/discover/${id}/blog-draft`, { length }, { timeout: CHAT_TIMEOUT_MS })).data;
   }
 
   async publishBlogPost(id: string, post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published' }): Promise<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>> {
