@@ -212,10 +212,9 @@ The cockpit has a **Review packets** panel (`/api/projects/:id/packets`, migrati
 
 ## Remaining roadmap
 
-Implemented: recovery, knowledge health (migration 067), project cockpit and register (migration 068), review packets (migration 069). Still to do, in order:
+Implemented: recovery, knowledge health (migration 067), project cockpit and register (migration 068), review packets (migration 069), operational documentation ([docs/operations.md](docs/operations.md): release identity, migration compatibility, smoke checks, rollback limits, backup/restore, environment isolation). Cloud backup/restore and isolation verification are separate, permissioned work and are not claimed as verified. Still to do:
 
-1. **Operational documentation.** Per-release identity, migration compatibility, smoke checks and rollback limits; backup/restore verification and environment-isolation runbooks rehearsed offline against disposable data. Cloud backup/probe verification and a real restore rehearsal are separate, permissioned work and are not claimed as verified from repository code.
-2. **Build trial run.** Exercise the Build feature end to end against a scratch repository.
+1. **Build trial run.** Exercise the Build feature end to end against a scratch repository.
 
 Next free migration number: 070.
 
