@@ -480,6 +480,12 @@ export interface DiscoveryFeed {
   articlesFound: number;
 }
 
+export type NoteExtractionAction = 'spark' | 'task' | 'canvas' | 'note' | 'athena';
+export interface NoteExtraction {
+  id: string; quote: string; action: NoteExtractionAction;
+  targetType: string | null; targetId: string | null; targetLabel: string; createdAt: string;
+}
+
 export interface BlogDraft {
   title: string; excerpt: string; summary: string; content: string; keyTakeaways: string[]; categories: string[]; tags: string[];
   postType: 'article' | 'weekly' | 'newsletter' | 'podcast'; sourceUrl: string | null;
@@ -1441,6 +1447,18 @@ export class KnowledgeHubApi {
       { format },
       { timeout: CHAT_TIMEOUT_MS },
     )).data;
+  }
+
+  async listNoteExtractions(noteId: string): Promise<ApiResponse<NoteExtraction[]>> {
+    return (await this.client.get<ApiResponse<NoteExtraction[]>>(`/api/notes/${noteId}/extractions`)).data;
+  }
+
+  async addNoteExtraction(noteId: string, input: Pick<NoteExtraction, 'quote' | 'action'> & Partial<Pick<NoteExtraction, 'targetType' | 'targetId' | 'targetLabel'>>): Promise<ApiResponse<NoteExtraction>> {
+    return (await this.client.post<ApiResponse<NoteExtraction>>(`/api/notes/${noteId}/extractions`, input)).data;
+  }
+
+  async deleteNoteExtraction(noteId: string, extractionId: string): Promise<ApiResponse<void>> {
+    return (await this.client.delete<ApiResponse<void>>(`/api/notes/${noteId}/extractions/${extractionId}`)).data;
   }
 
   async createBlogDraft(id: string, length: 'short' | 'long' = 'short'): Promise<ApiResponse<BlogDraft>> {

@@ -48,9 +48,9 @@ const App: React.FC = () => {
     <SignInGate>
       <Theme theme="g100" as="div" style={{ minHeight: '100vh' }}>
         <AppDialogHost />
-        <GlobalContextMenuProvider>
-          <AthenaContextProvider>
+        <AthenaContextProvider>
           <BrowserRouter>
+            <GlobalContextMenuProvider>
             <Routes>
               <Route path="/autocue/*" element={<AutocueApp />} />
               {/* Standalone full-screen chat, no sidebar/nav — for use as a
@@ -80,9 +80,9 @@ const App: React.FC = () => {
                 <Route path="*" element={<NotFoundPage />} />
               </Route>
             </Routes>
+            </GlobalContextMenuProvider>
           </BrowserRouter>
-          </AthenaContextProvider>
-        </GlobalContextMenuProvider>
+        </AthenaContextProvider>
       </Theme>
     </SignInGate>
   );

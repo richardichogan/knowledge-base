@@ -19,7 +19,11 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Checkmark, Diagram, Link, Copy, TaskAdd, Idea } from '@carbon/icons-react';
+import { useNavigate } from 'react-router-dom';
+import { Checkmark, Diagram, Link, Copy, TaskAdd, Idea, DocumentAdd, ChatBot, ArrowRight } from '@carbon/icons-react';
+import { useAthenaContext } from './AthenaContext';
+import { createNote } from '../notes/noteStorage';
+import type { NoteExtractionAction } from '../services/api';
 import { api } from '../services/api';
 import type { CanvasSummaryApi } from '../services/api';
 import { extractTasksWithAI } from '../utils/aiTaskExtraction';
@@ -37,6 +41,8 @@ export interface CtxItemData {
   refType?: string | undefined;
   tags?: string[] | undefined;
   taxonomyTagIds?: string[] | undefined;
+  /** True when `body` is text the user selected (as opposed to a card's summary). */
+  fromSelection?: boolean | undefined;
 }
 
 interface MenuState { x: number; y: number; item: CtxItemData; }
@@ -137,6 +143,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
           item: {
             title:   ctxTitle,
             ...(body                                  ? { body                                         } : {}),
+            ...(sel.length > 2                        ? { fromSelection: true                          } : {}),
             ...(el.getAttribute('data-ctx-source')   ? { source:  el.getAttribute('data-ctx-source')! } : {}),
             ...(el.getAttribute('data-ctx-url')      ? { url:     el.getAttribute('data-ctx-url')!    } : {}),
             ...(el.getAttribute('data-ctx-ref-id')   ? { refId:   el.getAttribute('data-ctx-ref-id')! } : {}),
@@ -205,6 +212,46 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
   const [actionError, setActionError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const qc  = useQueryClient();
+  const navigate = useNavigate();
+  const { openAthena } = useAthenaContext();
+  const [results, setResults] = useState<{ action: NoteExtractionAction; label: string; to?: string }[]>([]);
+
+  const noteId = item.fromSelection === true && item.refType === 'note' ? item.refId : undefined;
+  const quote = (item.body ?? '').trim();
+  const sourceNote = item.refType === 'note' ? item.title : null;
+
+  // Records what was done with the selection so the note can mark it.
+  const record = (action: NoteExtractionAction, label: string, to?: string, target?: { type: string; id: string }) => {
+    setResults((r) => [...r, { action, label, ...(to ? { to } : {}) }]);
+    if (!noteId || quote === '') return;
+    void api.addNoteExtraction(noteId, {
+      quote: quote.slice(0, 4000), action, targetLabel: label,
+      ...(target ? { targetType: target.type, targetId: target.id } : {}),
+    }).then(() => qc.invalidateQueries({ queryKey: ['note-extractions', noteId] }));
+  };
+
+  const { mutate: extractNote, isPending: extractingNote } = useMutation({
+    mutationFn: async () => {
+      setActionError(null);
+      const { markdownToNoteBlocks } = await import('../notes/markdownToBlocks');
+      const title = quote.split('\n')[0]!.slice(0, 60).trim() || 'Extracted note';
+      const doc = await createNote({ title, contentType: 'note', contentJson: JSON.stringify(markdownToNoteBlocks(quote)) });
+      if (!doc) throw new Error('Could not create note.');
+      return { id: doc.id, title };
+    },
+    onSuccess: ({ id, title }) => {
+      void qc.invalidateQueries({ queryKey: ['notes'] });
+      record('note', title, `/think?noteId=${id}`, { type: 'note', id });
+    },
+    onError: (err) => { setActionError(err instanceof Error ? err.message : 'Could not create note.'); },
+  });
+
+  const discuss = () => {
+    openAthena(`Let's discuss this passage:\n\n"${quote.slice(0, 1500)}"\n\nWhat are the key points, and what should I do with it?`,
+      { type: 'note', title: item.title, ...(item.refId ? { id: item.refId } : {}) });
+    record('athena', 'Discussed with Athena');
+    onClose();
+  };
 
   // Reposition if near screen edge — runs after every render so dimensions are known
   useEffect(() => {
@@ -247,8 +294,9 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
       if (!result.success) throw new Error(result.error.message);
       return result.data;
     },
-    onSuccess: () => {
+    onSuccess: (spark) => {
       clearActiveBlockNoteSelectionSnapshot();
+      record('spark', 'Spark', '/think?view=sparks', { type: 'spark', id: spark.id });
       void qc.invalidateQueries({ queryKey: ['sparks'] });
       void qc.invalidateQueries({ queryKey: ['connections'] });
     },
@@ -274,10 +322,12 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
     },
     onSuccess: (_res, canvasId) => {
       setSent(true);
+      const name = canvases.find((c) => c.id === canvasId)?.title ?? 'Canvas';
+      record('canvas', name, `/think?mapId=${canvasId}`, { type: 'canvas', id: canvasId });
       void qc.invalidateQueries({ queryKey: ['canvases-list'] });
       void qc.invalidateQueries({ queryKey: ['canvas', canvasId] });
       void qc.invalidateQueries({ queryKey: ['connections'] });
-      setTimeout(onClose, 1400);
+      setPanel('menu');
     },
     onError: (err) => {
       console.error('[GlobalContextMenu] add to map failed:', err);
@@ -305,10 +355,10 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
       })));
       return parsed.length;
     },
-    onSuccess: () => {
+    onSuccess: (count) => {
       clearActiveBlockNoteSelectionSnapshot();
+      record('task', count > 1 ? `${count} tasks` : 'Task', '/plan');
       void qc.invalidateQueries({ queryKey: ['tasks'] });
-      setTimeout(onClose, 1400);
     },
     onError: (err) => {
       console.error('[GlobalContextMenu] createTask failed:', err);
@@ -317,19 +367,25 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
 
   const posStyle: React.CSSProperties = { left: x, top: y };
 
+  const hasQuote = quote !== '';
+  const showSource = sourceNote !== null && sourceNote !== quote;
   if (panel === 'menu') return (
     <div ref={ref} className="gctx" style={posStyle}>
       <div className="gctx__preview">
-        {item.source && <span className="gctx__source">{item.source}</span>}
-        <span className="gctx__title">{item.title}</span>
+        {hasQuote && item.fromSelection === true
+          ? <blockquote className="gctx__quote">{quote}</blockquote>
+          : <span className="gctx__title">{item.title}</span>}
+        {showSource && item.fromSelection === true
+          ? <span className="gctx__source">From note: {sourceNote}</span>
+          : item.source && item.fromSelection !== true && <span className="gctx__source">{item.source}</span>}
       </div>
       <div className="gctx__divider" />
       <button className="gctx__item" onClick={() => setPanel('picker')}>
-        <Diagram size={15} /> {savedSpark ? 'Send Spark to Canvas…' : 'Send to Canvas…'}
+        <Diagram size={15} /> {savedSpark ? 'Send Spark to Canvas…' : 'Add to linked canvas…'}
       </button>
       {item.refType !== 'spark' && (
         <button className="gctx__item" disabled={creatingSpark || savedSpark !== undefined} onClick={() => { createSpark(); }}>
-          {savedSpark ? <><Checkmark size={15} /> Spark saved{savedSpark.sourceType === 'note' ? ' · linked to note' : ''}</>
+          {savedSpark ? <><Checkmark size={15} /> Spark saved</>
             : <><Idea size={15} /> {creatingSpark ? 'Saving Spark…' : 'Create Spark'}</>}
         </button>
       )}
@@ -342,6 +398,17 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
           ? <><Checkmark size={15} /> {taskCount > 1 ? `${taskCount} tasks created` : 'Task created'}</>
           : <><TaskAdd size={15} /> {creatingTasks ? 'Thinking…' : 'Create Task'}</>}
       </button>
+      {item.fromSelection === true && (
+        <>
+          <button className="gctx__item" disabled={extractingNote} onClick={() => { extractNote(); }}>
+            <DocumentAdd size={15} /> {extractingNote ? 'Creating note…' : 'Extract to new note'}
+          </button>
+          <button className="gctx__item" onClick={discuss}>
+            <ChatBot size={15} /> Discuss with Athena
+          </button>
+        </>
+      )}
+      {(item.url || hasQuote) && <div className="gctx__divider" />}
       {item.url && (
         <button className="gctx__item" onClick={() => { void copyUrl(); }}>
           <Link size={15} /> Copy URL
@@ -350,6 +417,17 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
       <button className="gctx__item" onClick={() => { void copyText(); }}>
         <Copy size={15} /> Copy text
       </button>
+      {results.length > 0 && (
+        <div className="gctx__results">
+          {results.map((r, i) => (
+            <div key={i} className="gctx__result">
+              <Checkmark size={14} />
+              <span>{r.label}</span>
+              {r.to && <button type="button" onClick={() => { navigate(r.to!); onClose(); }}>Open <ArrowRight size={12} /></button>}
+            </div>
+          ))}
+        </div>
+      )}
       {actionError && <p className="gctx__error" role="alert">{actionError}</p>}
     </div>
   );
@@ -358,7 +436,7 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
     <div ref={ref} className="gctx gctx--picker" style={posStyle}>
       <div className="gctx__picker-header">
         <button className="gctx__picker-back" onClick={() => setPanel('menu')}>←</button>
-        <span>Send to Canvas</span>
+        <span>Add to linked canvas</span>
       </div>
       <div className="gctx__picker-preview">
         {canvasItem.source && <div className="gctx__picker-source">{canvasItem.source}</div>}

@@ -110,7 +110,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   historyRefresh,
   prepareDemoBrief,
 }) => {
-  const { pageContext, registerAthenaLauncher } = useAthenaContext();
+  const { pageContext, registerAthenaLauncher, request: athenaRequest } = useAthenaContext();
   const qc = useQueryClient();
   const [retagging, setRetagging] = useState(false);
   const showAthena = useMediaQuery(THINK_ATHENA_RAIL_QUERY);
@@ -129,6 +129,16 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
       window.requestAnimationFrame(() => { panelRef.current?.querySelector<HTMLTextAreaElement>('.think-athena-panel textarea')?.focus(); });
     });
   }, [showAthena, registerAthenaLauncher, setTab, setCollapsed]);
+
+  // A prompt sent from elsewhere (e.g. "Discuss with Athena" on selected text) opens the Athena tab.
+  const lastRequest = React.useRef(athenaRequest?.sequence ?? 0);
+  useEffect(() => {
+    if (athenaRequest === null || athenaRequest.sequence === lastRequest.current) return;
+    lastRequest.current = athenaRequest.sequence;
+    if (!showAthena) return;
+    setTab('athena');
+    setCollapsed(false);
+  }, [athenaRequest, showAthena, setTab, setCollapsed]);
 
   // ⌘J / Ctrl+J toggles the side panel.
   useEffect(() => {
@@ -214,7 +224,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
             className="notes-meta-tabpanel notes-meta-tabpanel--athena"
             hidden={tab !== 'athena'}
           >
-            <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy}
+            <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy} promptRequest={athenaRequest ?? undefined}
               prepareDemoBrief={contentType === 'use-case' ? prepareDemoBrief : undefined} />
           </div>
         )}

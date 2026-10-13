@@ -38,6 +38,7 @@ import { imagineDemoBriefPrompt } from './imagineDemoBrief';
 import { noteDraftIdentity } from '../services/auth';
 import { captureNoteDraft, removeNoteDraftIfUnchanged, storeNoteDraft, type NoteDraft } from './noteDraftStorage';
 import { NoteDraftReview } from './NoteDraftReview';
+import { ExtractionMarks } from './ExtractionMarks';
 
 interface NoteEditorProps {
   doc: NoteDocument;
@@ -939,6 +940,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             />
           </div>
         </div>
+        <ExtractionMarks noteId={doc.id} scrollRef={editorScrollRef} />
 
         {/* Bottom toolbar */}
         <div className="notes-bottom-toolbar">

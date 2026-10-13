@@ -723,6 +723,60 @@ export async function appendBlocksToNoteRecord(
   return note;
 }
 
+// ── Extractions: what was done with a passage of a note ──────────────────────
+
+const EXTRACTION_ACTIONS = ['spark', 'task', 'canvas', 'note', 'athena'] as const;
+const EXTRACTION_QUOTE_MAX = 4000;
+const EXTRACTION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface ExtractionRow { id: string; quote: string; action: string; target_type: string | null; target_id: string | null; target_label: string; created_at: string }
+
+function extractionView(row: ExtractionRow): Record<string, unknown> {
+  return { id: row.id, quote: row.quote, action: row.action, targetType: row.target_type, targetId: row.target_id,
+    targetLabel: row.target_label, createdAt: row.created_at };
+}
+
+router.get('/:id/extractions', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    const id = String(req.params['id']);
+    if (!EXTRACTION_UUID.test(id)) throw new ValidationError('Invalid note ID', {});
+    const { rows } = await getDb().query<ExtractionRow>(
+      `SELECT id, quote, action, target_type, target_id, target_label, created_at
+         FROM note_extractions WHERE note_id = $1 ORDER BY created_at`, [id]);
+    res.json({ success: true, data: rows.map(extractionView) });
+  })().catch(next);
+});
+
+router.post('/:id/extractions', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    const id = String(req.params['id']);
+    if (!EXTRACTION_UUID.test(id)) throw new ValidationError('Invalid note ID', {});
+    const body = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    const quote = typeof body['quote'] === 'string' ? body['quote'].trim().slice(0, EXTRACTION_QUOTE_MAX) : '';
+    const action = EXTRACTION_ACTIONS.find(a => a === body['action']);
+    const text = (v: unknown, max: number): string | null => typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, max) : null;
+    if (!quote || !action) throw new ValidationError('A quote and a valid action are required', {});
+    const { rows } = await getDb().query<ExtractionRow>(
+      `INSERT INTO note_extractions (note_id, quote, action, target_type, target_id, target_label)
+       SELECT n.id, $2, $3, $4, $5, $6 FROM notes n WHERE n.id = $1
+       RETURNING id, quote, action, target_type, target_id, target_label, created_at`,
+      [id, quote, action, text(body['targetType'], 40), text(body['targetId'], 200), text(body['targetLabel'], 300) ?? '']);
+    const row = rows[0];
+    if (!row) throw new NotFoundError(`Note ${id} not found`);
+    res.status(HTTP_STATUS.CREATED).json({ success: true, data: extractionView(row) });
+  })().catch(next);
+});
+
+router.delete('/:id/extractions/:extractionId', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    const id = String(req.params['id']);
+    const extractionId = String(req.params['extractionId']);
+    if (!EXTRACTION_UUID.test(id) || !EXTRACTION_UUID.test(extractionId)) throw new ValidationError('Invalid ID', {});
+    await getDb().query('DELETE FROM note_extractions WHERE id = $1 AND note_id = $2', [extractionId, id]);
+    res.json({ success: true, data: undefined });
+  })().catch(next);
+});
+
 // ── DELETE /api/notes/:id (soft archive) ──────────────────────────────────────
 
 router.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {
