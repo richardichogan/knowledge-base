@@ -4350,7 +4350,9 @@ input, textarea {
 }
 
 ::highlight(kh-extracted) {
-  background-color: rgba(61, 219, 217, 0.12);
+  background-color: rgba(61, 219, 217, 0.3);
+  text-decoration: underline solid rgba(61, 219, 217, 0.9) 1px;
+  text-underline-offset: 4px;
 }
 
 .extraction-pop {
