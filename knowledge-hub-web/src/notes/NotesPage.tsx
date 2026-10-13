@@ -659,7 +659,7 @@ export const NotesPage: React.FC = () => {
 
         {/* ── Right: editor area ── */}
         {mode === 'sparks' ? (
-          <div className="notes-editor-area"><SparkPanel /></div>
+          <div className="notes-editor-area notes-editor-area--sparks"><SparkPanel /></div>
         ) : mode === 'canvas' ? (
           <div className="notes-editor-area notes-editor-area--map">
             {selectedCanvasId !== null ? (

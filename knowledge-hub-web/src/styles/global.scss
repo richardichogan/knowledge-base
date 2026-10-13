@@ -10465,9 +10465,10 @@ $project-colour-map: (
   padding: 24px;
   max-width: 800px;
   width: 100%;
-  min-height: 0;
-  overflow-y: auto;
+  margin: 0 auto;
 }
+
+.notes-editor-area--sparks { overflow-y: auto; }
 
 .spark-panel__section {
   display: flex;
