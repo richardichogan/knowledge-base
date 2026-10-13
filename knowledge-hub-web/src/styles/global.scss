@@ -6161,59 +6161,12 @@ body.kh-pane-resizing {
   overflow-wrap: anywhere;
 }
 
-// Collapsible project details
-.proj-card-details {
-  border: 1px solid var(--cds-border-subtle-00);
-  border-radius: 4px;
-  background: var(--cds-layer-02);
-  overflow: hidden;
-
-  summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 0.75rem;
-    color: var(--cds-text-secondary);
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-    user-select: none;
-    transition: color 120ms ease, background-color 120ms ease;
-
-    &:hover {
-      color: var(--cds-text-primary);
-      background: var(--cds-layer-hover-02);
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--kh-accent);
-      outline-offset: -1px;
-    }
-  }
-
-  &[open] {
-    summary {
-      border-bottom: 1px solid var(--cds-border-subtle-01);
-      color: var(--kh-accent);
-
-      .proj-details-chevron {
-        transform: rotate(180deg);
-      }
-    }
-  }
-
-  .proj-details-chevron {
-    transition: transform 150ms ease;
-    color: var(--cds-icon-secondary);
-  }
-
-  &__body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    font-size: 0.8125rem;
-  }
+// Project details (always visible)
+.proj-card-details__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .proj-detail-section {

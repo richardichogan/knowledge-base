@@ -8,7 +8,7 @@ import {
   Button, TextInput, TextArea, Modal,
   Select, SelectItem, InlineNotification, ComboBox, Tag, Checkbox,
 } from '@carbon/react';
-import { Add, Dashboard, Edit, TrashCan, LogoGithub, Launch, ChevronDown, ChevronUp, Search } from '@carbon/icons-react';
+import { Add, Dashboard, Edit, TrashCan, LogoGithub, Launch, Search } from '@carbon/icons-react';
 import {
   useProjects,
   type ProjectRecord,
@@ -713,21 +713,9 @@ export const ProjectsPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Summary / description */}
-                  {(project.goal || project.description) && (
-                    <p className="proj-card-summary">
-                      {project.goal || project.description}
-                    </p>
-                  )}
-
-                  {/* Expandable Project Details */}
+                  {/* Project details */}
                   {hasDetails && (
-                    <details className="proj-card-details">
-                      <summary>
-                        <span>Project details{project.expectedOutputs.length > 0 ? ` · ${project.expectedOutputs.length} outputs` : ''}</span>
-                        <ChevronDown size={14} className="proj-details-chevron" />
-                      </summary>
-                      <div className="proj-card-details__body">
+                    <div className="proj-card-details__body">
                         {project.goal && (
                           <div className="proj-detail-section">
                             <h3 className="proj-detail-heading">Goal</h3>
@@ -773,7 +761,6 @@ export const ProjectsPage: React.FC = () => {
                           </div>
                         )}
                       </div>
-                    </details>
                   )}
 
                   {/* Footer with Repos, Links & Tags */}
