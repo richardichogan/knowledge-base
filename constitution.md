@@ -84,8 +84,8 @@ never ALTER the existing ones. Name them `NNN_description.sql` using the next nu
 | `task_tags` | Junction: `task_id, tag_id` |
 | `notes` | Think-page notes. `content` column stores **JSON-serialised payload** `{title, contentType, contentJson, githubPath}` — never treat it as plain text. Use `fetchNotes()` from `notes/noteStorage.ts` to get parsed titles. |
 | `tasks` | Planner tasks. Synced from Microsoft Graph. |
-| `sparks` | Quick-capture thoughts. Columns: `id, source_id, source_type, body, tags[], cluster_id, created_at` |
-| `spark_clusters` | AI-clustered spark groups. Columns: `id, theme, spark_count, surfaced, surfaced_at, dismissed, created_at, updated_at` |
+| `sparks` | Quick-capture thoughts. Columns: `id, source_id, source_type, body, tags[], cluster_id, created_at, used_at, used_type, used_ref, used_title` |
+| `spark_clusters` | Spark themes (living groups that grow and graduate). Columns: `id, theme, spark_count, status (active/developed/dismissed), surfaced, surfaced_at, dismissed, output_type, output_ref, output_title, output_url, developed_at, last_grown_at, created_at, updated_at` |
 | `ai_chat_sessions` | Athena chat session records with rolling summaries |
 | `ai_chat_messages` | Per-session message history |
 | `nodes` / `edges` | Knowledge graph (exists, not yet populated — wiring pending Gap 5 work) |
@@ -208,7 +208,10 @@ Exception: palette constants `#ffb784` (amber), `#fa4d56` (red), `#00a37f` (teal
 **Reusable components to use, not rebuild:**
 - `components/TagPicker.tsx` — taxonomy tag selector, portal-rendered, props: `{ selectedIds, onChange, trigger }`
 - `components/sparks/QuickSparkModal.tsx` — spark capture modal, props: `{ open, onClose }`
-- `components/sparks/ClusterCard.tsx` / `features/sparks/SparkClusterCard.tsx` — cluster display with Draft/Dismiss actions
+- `features/sparks/SparkPanel.tsx` — Sparks incubator page (composer, search, themes by status, loose sparks), props: `{ onDevelop(prompt) }`
+- `features/sparks/SparkThemeCard.tsx` — theme card: Develop with Athena, Turn into (note/blog/canvas/project), rename/merge/dismiss/reopen
+- `features/sparks/SparkItem.tsx` — one spark: source link, Used in badge, edit/move/map/delete
+- `features/sparks/SparksAthenaPanel.tsx` / `RelatedSparks.tsx` — Athena panel with sparks context; sparks in a note's Connections tab
 - `components/discover/DiscoverActions.tsx` — Save/Blog/Archive action buttons for discover items
 - `components/CollapsibleSection.tsx` — collapsible section header
 

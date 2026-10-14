@@ -9,8 +9,8 @@ import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync
 import { readFeed } from '../integrations/discovery/feedReader.js';
 import { SOURCE_AUTHORITY_WEIGHTS, ARTICLE_TYPE_WEIGHTS } from '../integrations/cms/articleScoringPrompt.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
-import { generateBlogDraft, POST_TYPES, type PostType } from '../ai/blogDraft.js';
-import { env } from '../config/env.js';
+import { generateBlogDraft } from '../ai/blogDraft.js';
+import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 
 /**
@@ -178,55 +178,19 @@ discoverRouter.post('/:id/blog-draft', (req: Request, res: Response, next: NextF
   })();
 });
 
-interface BlogPublishBody { excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
-
-function parsePublishBody(body: unknown): BlogPublishBody {
-  const o = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
-  const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.trim()) : [];
-  const text = (v: unknown): string => typeof v === 'string' ? v.trim() : '';
-  const postType = POST_TYPES.find(t => t === o['postType']) ?? 'article';
-  const status: BlogPublishBody['status'] = o['status'] === 'published' ? 'published' : 'draft';
-  const parsed = { excerpt: text(o['excerpt']).slice(0, 300), status, postType, title: text(o['title']), content: text(o['content']), summary: text(o['summary']),
-    keyTakeaways: list(o['keyTakeaways']), categories: list(o['categories']), tags: list(o['tags']) };
-  if (parsed.title.length > 200 || parsed.summary.length > 1000 || parsed.keyTakeaways.length > 10 || parsed.keyTakeaways.some(t => t.length > 300)) {
-    throw new ValidationError('Title (200), summary (1,000) and takeaways (10 max, 300 characters each) exceed the blog limits.');
-  }
-  if (!parsed.title || !parsed.content || !parsed.summary) throw new ValidationError('Title, summary and content are required to publish.');
-  return parsed;
-}
-
 discoverRouter.post('/:id/blog-publish', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const id = req.params['id'];
       if (!id || !UUID.test(id)) throw new ValidationError('Invalid Discover item ID');
       const post = parsePublishBody(req.body);
-      const key = env.BLOG_POSTS_API_KEY;
-      if (!key) {
-        res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({ success: false, error: { code: 'NOT_CONFIGURED', message: 'Blog publishing is not configured (BLOG_POSTS_API_KEY).' } });
-        return;
-      }
       const item = await getDb().query(`SELECT id FROM content_items WHERE id=$1 AND source IN ('email','discovered-article')`, [id]);
       if (item.rows.length === 0) throw new NotFoundError('Discover item');
-      const response = await fetch(env.BLOG_POSTS_URL, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...post, excerpt: post.excerpt || undefined }),
-      });
-      const result = await response.json().catch(() => ({})) as { error?: string; details?: string[]; editUrl?: string; url?: string };
-      if (response.status === HTTP_STATUS.CONFLICT) {
-        res.status(HTTP_STATUS.CONFLICT).json({ success: false, error: { code: 'BLOG_DUPLICATE', message: 'A post with this title already exists on the blog this month. It may already have been created: check the blog admin, or change the title.' } });
-        return;
-      }
-      if (!response.ok) {
-        res.status(response.status === HTTP_STATUS.FORBIDDEN ? HTTP_STATUS.FORBIDDEN : HTTP_STATUS.BAD_GATEWAY).json({ success: false, error: { code: 'BLOG_REJECTED',
-          message: `The blog rejected the post: ${response.status} ${result.error ?? ''} ${(result.details ?? []).join('; ')}`.trim() } });
-        return;
-      }
-      if (post.status === 'published') {
+      const sent = await sendToBlog(post);
+      if (sent.payload.success && post.status === 'published') {
         await getDb().query(`UPDATE content_items SET workflow_state='published' WHERE id=$1 AND source='discovered-article'`, [id]);
       }
-      res.json({ success: true, data: { editUrl: result.editUrl ?? null, url: result.url ?? null, status: post.status } });
+      res.status(sent.httpStatus).json(sent.payload);
     } catch (err) { next(err); }
   })();
 });

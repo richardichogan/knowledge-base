@@ -353,18 +353,47 @@ export interface Spark {
   tags: string[];
   clusterId: string | null;
   createdAt: string;
+  /** Title of the note / article the spark was captured from, when known. */
+  sourceTitle: string | null;
+  usedAt: string | null;
+  usedType: SparkOutputType | null;
+  usedRef: string | null;
+  usedTitle: string | null;
 }
 
+export type SparkOutputType = 'note' | 'blog' | 'canvas' | 'project';
+export type SparkThemeStatus = 'active' | 'developed' | 'dismissed';
+
+/** What a theme (or spark) became. */
+export interface SparkOutput {
+  type: SparkOutputType;
+  ref: string;
+  title: string;
+  url?: string | null;
+}
+
+/** A Spark theme: a living cluster of related sparks that can grow and graduate. */
 export interface SparkCluster {
   id: string;
   theme: string;
+  status: SparkThemeStatus;
   sparkCount: number;
+  /** True once the user has seen the theme on the Sparks page. */
   surfaced: boolean;
-  surfacedAt: string | null;
   dismissed: boolean;
+  outputType: SparkOutputType | null;
+  outputRef: string | null;
+  outputTitle: string | null;
+  outputUrl: string | null;
+  developedAt: string | null;
+  lastGrownAt: string | null;
   createdAt: string;
   updatedAt: string;
+  newSinceDeveloped: number;
+  sparks: Spark[];
 }
+
+export { MIN_THEME_SIZE } from './sparkConstants';
 
 export interface ConnectionEdge {
   edgeId: string;
@@ -1572,11 +1601,23 @@ export class KnowledgeHubApi {
     source_type?: string;
     cluster_id?: string;
     attached?: boolean;
+    clustered?: boolean;
+    q?: string;
     limit?: number;
     offset?: number;
   }): Promise<ApiResponse<Spark[]>> {
     const r = await this.client.get<ApiResponse<Spark[]>>('/api/sparks', { params });
     return r.data;
+  }
+
+  /** Edits a spark: body text, theme (null = loose), or what it was used in (null = clear). */
+  async updateSpark(id: string, patch: { body?: string; cluster_id?: string | null; used?: SparkOutput | null }): Promise<ApiResponse<Spark>> {
+    return (await this.client.patch<ApiResponse<Spark>>(`/api/sparks/${id}`, patch)).data;
+  }
+
+  /** Sparks captured from, or connected to, a note / article. */
+  async listRelatedSparks(refId: string, refType: string): Promise<ApiResponse<Array<Spark & { relation: 'captured' | 'connected' }>>> {
+    return (await this.client.get<ApiResponse<Array<Spark & { relation: 'captured' | 'connected' }>>>('/api/sparks/related', { params: { ref_id: refId, ref_type: refType } })).data;
   }
 
   async deleteSpark(id: string): Promise<ApiResponse<unknown>> {
@@ -1586,7 +1627,9 @@ export class KnowledgeHubApi {
 
   // ─── Spark clusters ───────────────────────────────────────────────────────
 
+  /** Lists themes with their sparks. `status` is comma separated (active,developed,dismissed). */
   async listSparkClusters(params?: {
+    status?: string;
     surfaced?: boolean;
     dismissed?: boolean;
   }): Promise<ApiResponse<SparkCluster[]>> {
@@ -1595,14 +1638,39 @@ export class KnowledgeHubApi {
   }
 
   async updateSparkCluster(id: string, patch: {
+    theme?: string;
+    status?: SparkThemeStatus;
     dismissed?: boolean;
     surfaced?: boolean;
-  }): Promise<ApiResponse<unknown>> {
-    const r = await this.client.patch<ApiResponse<unknown>>(`/api/spark-clusters/${id}`, patch);
+    output?: SparkOutput | null;
+    markSparksUsed?: boolean;
+  }): Promise<ApiResponse<SparkCluster>> {
+    const r = await this.client.patch<ApiResponse<SparkCluster>>(`/api/spark-clusters/${id}`, patch);
     return r.data;
   }
 
-  /** Returns count of clusters with spark_count >= 4 that haven't been surfaced yet. */
+  async createSparkTheme(theme: string, sparkIds: string[]): Promise<ApiResponse<SparkCluster>> {
+    return (await this.client.post<ApiResponse<SparkCluster>>('/api/spark-clusters', { theme, sparkIds })).data;
+  }
+
+  async mergeSparkThemes(fromId: string, intoId: string): Promise<ApiResponse<SparkCluster>> {
+    return (await this.client.post<ApiResponse<SparkCluster>>(`/api/spark-clusters/${fromId}/merge`, { intoId })).data;
+  }
+
+  /** Turns a theme into a structured note, a canvas or a project and records what it became. */
+  async graduateSparkTheme(id: string, target: 'note' | 'canvas' | 'project'): Promise<ApiResponse<{ theme: SparkCluster; output: SparkOutput }>> {
+    return (await this.client.post<ApiResponse<{ theme: SparkCluster; output: SparkOutput }>>(`/api/spark-clusters/${id}/graduate`, { target }, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+
+  async createSparkThemeBlogDraft(id: string, length: 'short' | 'long' = 'short'): Promise<ApiResponse<BlogDraft>> {
+    return (await this.client.post<ApiResponse<BlogDraft>>(`/api/spark-clusters/${id}/blog-draft`, { length }, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+
+  async publishSparkThemeBlogPost(id: string, post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published' }): Promise<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>> {
+    return (await this.client.post<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>>(`/api/spark-clusters/${id}/blog-publish`, post, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+
+  /** Returns count of themes (3+ sparks) the user hasn't seen yet. */
   async getUnsurfacedClusterCount(): Promise<ApiResponse<{ count: number }>> {
     const r = await this.client.get<ApiResponse<{ count: number }>>('/api/spark-clusters/unsurfaced-count');
     return r.data;

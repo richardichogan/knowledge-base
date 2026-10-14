@@ -1,4 +1,5 @@
 import type { CanvasSummaryApi, DiscoverItem, Project, SourceStatus, SparkCluster } from './api';
+import { MIN_THEME_SIZE } from './sparkConstants';
 import type { ChatDecision, ChatOutputSummary, ChatSessionSummary } from '../types/ai';
 import type { ContentItemSummary } from '../types/contentItem';
 import type { NoteListItem } from '../notes/types';
@@ -285,11 +286,13 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
       score: item.compositeScore ?? item.relevanceScore ?? 0, source: item.sourceTitle, discoverId: item.id,
     });
   }
-  for (const cluster of data.clusters.filter((c) => !c.dismissed && !c.surfaced && c.sparkCount >= 4)) exploration.push({
-    id: `cluster:${cluster.id}`, title: cluster.theme, type: 'Spark cluster',
-    reason: `${cluster.sparkCount} captured thoughts share this theme. Develop them into an outline.`,
-    tone: 'normal', date: cluster.updatedAt, href: '/think', action: 'Develop in Think',
-    score: Math.min(cluster.sparkCount, 10), source: 'Sparks', clusterId: cluster.id,
+  for (const cluster of data.clusters.filter((c) => c.status === 'active' && c.sparkCount >= MIN_THEME_SIZE)) exploration.push({
+    id: `cluster:${cluster.id}`, title: cluster.theme, type: 'Spark theme',
+    reason: cluster.surfaced
+      ? `${cluster.sparkCount} related sparks are ready to develop into a note, blog post, canvas or project.`
+      : `${cluster.sparkCount} related sparks — ${cluster.lastGrownAt ? 'this theme has grown' : 'a new theme'} since you last looked.`,
+    tone: 'normal', date: cluster.lastGrownAt ?? cluster.updatedAt, href: '/think?view=sparks', action: 'Open in Sparks',
+    score: Math.min(cluster.sparkCount, 10) + (cluster.surfaced ? 0 : 5), source: 'Sparks', clusterId: cluster.id,
   });
   const attentionIds = new Set(attention.map((i) => i.id));
   const decisionChats = new Set(attention.filter((i) => i.type === 'Decision').map((i) => i.href));

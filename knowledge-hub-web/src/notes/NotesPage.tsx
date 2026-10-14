@@ -15,10 +15,9 @@ import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText
 import type { NoteContentBlock, NoteListPage, NoteListFilters } from './noteStorage';
 import type { NoteDocument, NoteListItem } from './types';
 import { SideTabsPanel } from '../components/SideTabsPanel';
-import { ThinkAthenaPanel } from './ThinkAthenaPanel';
-import type { AthenaPageContext } from '../context/AthenaContext';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { SparkPanel } from '../features/sparks/SparkPanel';
+import { SparksAthenaPanel } from '../features/sparks/SparksAthenaPanel';
 import { deferredView } from '../utils/deferredView';
 import { api } from '../services/api';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
@@ -35,12 +34,6 @@ const ImportNoteModal = deferredView('Note import', async () => ({ default: (awa
 const NoteRecoveryCentre = deferredView('Think recovery', async () => ({ default: (await import('./NoteRecoveryCentre')).NoteRecoveryCentre }));
 
 const SPARKS_SIDE_WIDTH: PaneWidthOptions = { compact: 380, wide: 460, min: 300, max: (viewport) => Math.round(viewport * 0.45) };
-const sparksAthenaContext: AthenaPageContext = {
-  type: 'spark',
-  title: 'Sparks',
-  id: 'sparks',
-  detail: 'The Sparks page: captured thoughts, clusters of related sparks, and the full list of sparks.',
-};
 
 type ViewMode = 'notes' | 'sparks' | 'canvas';
 
@@ -71,6 +64,7 @@ export const NotesPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [sparksAthenaBusy, setSparksAthenaBusy] = useState(false);
+  const [sparksPrompt, setSparksPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
   const [selectedId,       setSelectedId]       = useState<string | null>(null);
   const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
   const [mode,             setMode]             = useState<ViewMode>('notes');
@@ -673,15 +667,18 @@ export const NotesPage: React.FC = () => {
         {/* ── Right: editor area ── */}
         {mode === 'sparks' ? (
           <>
-            <div className="notes-editor-area notes-editor-area--sparks"><SparkPanel /></div>
+            <div className="notes-editor-area notes-editor-area--sparks">
+              <SparkPanel onDevelop={(prompt) => { setSparksPrompt((prev) => ({ prompt, sequence: (prev?.sequence ?? 0) + 1 })); }} />
+            </div>
             <SideTabsPanel
               storageKey="sparks-side"
               label="Sparks side panel"
               defaultTab="athena"
               width={SPARKS_SIDE_WIDTH}
+              selectTab={sparksPrompt ? { id: 'athena', seq: sparksPrompt.sequence } : undefined}
               tabs={[{
                 id: 'athena', label: 'Athena', dot: sparksAthenaBusy ? 'busy' : 'idle', keepMounted: true, fill: true,
-                content: <ThinkAthenaPanel pageContext={sparksAthenaContext} onBusyChange={setSparksAthenaBusy} />,
+                content: <SparksAthenaPanel onBusyChange={setSparksAthenaBusy} promptRequest={sparksPrompt} />,
               }]}
             />
           </>

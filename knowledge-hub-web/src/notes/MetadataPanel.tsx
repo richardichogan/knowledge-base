@@ -13,6 +13,7 @@ import { TagPicker } from '../components/TagPicker';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { NoteMaps } from '../features/canvas/NoteMaps';
+import { RelatedSparks } from '../features/sparks/RelatedSparks';
 import type { Project } from '../services/api';
 import { api } from '../services/api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -349,6 +350,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
         {tab === 'connections' && (
           <div role="tabpanel" id="think-side-panel-connections" aria-labelledby="think-side-tab-connections" className="notes-meta-tabpanel">
             <ConnectionsPanel refId={doc.id} refType="note" headerless />
+            <RelatedSparks refId={doc.id} refType="note" />
             {onOpenMap !== undefined && <NoteMaps noteId={doc.id} onOpenMap={onOpenMap} {...(onMapNote !== undefined && { onMapNote })} />}
           </div>
         )}

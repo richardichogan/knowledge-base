@@ -245,7 +245,8 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
     void api.addNoteExtraction(noteId, {
       quote: quote.slice(0, 4000), action, targetLabel: label,
       ...(target ? { targetType: target.type, targetId: target.id } : {}),
-    }).then(() => qc.invalidateQueries({ queryKey: ['note-extractions', noteId] }));
+    }).then(() => qc.invalidateQueries({ queryKey: ['note-extractions', noteId] }))
+      .catch((err: unknown) => { console.warn('[GlobalContextMenu] could not record extraction marker:', err); });
   };
 
   const { mutate: extractNote, isPending: extractingNote } = useMutation({

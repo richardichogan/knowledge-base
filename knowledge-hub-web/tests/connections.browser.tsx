@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConnectionsPanel } from '../src/components/connections/ConnectionsPanel';
 import { api, type ConnectionEdge } from '../src/services/api';
 import { GlobalContextMenuProvider } from '../src/context/GlobalContextMenu';
-import { SparkList } from '../src/features/sparks/SparkList';
+import { SparkItem } from '../src/features/sparks/SparkItem';
 import '../src/styles/global.scss';
 
 let fail = true;
@@ -15,7 +15,8 @@ let failSpark = true;
 let failMap = true;
 let mapWrites = 0;
 const selectedText = 'Private networking needs a control loop that detects changes in intent and verifies that the corrective action actually works.';
-const spark = { id: 'spark-id', body: selectedText, sourceId: 'original-note', sourceType: 'note', tags: [], clusterId: null, createdAt: new Date().toISOString() };
+const spark = { id: 'spark-id', body: selectedText, sourceId: 'original-note', sourceType: 'note', tags: [], clusterId: null, createdAt: new Date().toISOString(),
+  sourceTitle: 'Original note title', usedAt: null, usedType: null, usedRef: null, usedTitle: null };
 const canvas = { id: 'canvas-id', title: 'Architecture ideas', description: null, canvasType: 'brainstorm' as const,
   project: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), linkedNotes: [], nodeCount: 1 };
 api.listSparks = async () => ({ success: true, data: [spark] });
@@ -58,7 +59,7 @@ createRoot(document.getElementById('root')!).render(
       <ConnectionsPanel refId="source" refType="note" headerless /><Location />
       <div data-ctx-title="Original note title" data-ctx-ref-id="original-note" data-ctx-ref-type="note">
         <p id="selection-text">{selectedText}</p>
-      </div><SparkList />
+      </div><SparkItem spark={spark} themes={[]} />
     </div></GlobalContextMenuProvider></MemoryRouter>
   </QueryClientProvider>,
 );
@@ -67,7 +68,7 @@ async function waitFor(check: () => boolean): Promise<void> {
     if (check()) return;
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  throw new Error('Connections fixture timed out');
+  throw new Error(`Connections fixture timed out: ${check.toString()}`);
 }
 function check(value: boolean, message: string): void { if (!value) throw new Error(message); }
 async function runConnectionsChecks(): Promise<string[]> {
@@ -120,16 +121,16 @@ async function runConnectionsChecks(): Promise<string[]> {
   await waitFor(() => document.querySelector('.gctx__error')?.textContent === 'Mapping unavailable');
   failMap = false;
   clickMenu('Add to Canvas');
-  await waitFor(() => document.querySelector('.gctx__picker-send')?.textContent?.trim() === 'Added!');
+  await waitFor(() => [...document.querySelectorAll('.gctx__result')].some(result => result.textContent!.includes('Architecture ideas')));
   check(mapWrites === 2, 'Mapping failure can be retried without creating another Spark');
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   await waitFor(() => document.querySelector('.gctx') === null);
   selection.removeAllRanges();
-  document.querySelector<HTMLButtonElement>('.spark-row__source--link')!.click();
+  document.querySelector<HTMLButtonElement>('.spark-item__link')!.click();
   await waitFor(() => document.querySelector('#location')!.textContent === '?noteId=original-note');
-  document.querySelector<HTMLButtonElement>('.spark-row__map')!.click();
+  document.querySelector<HTMLButtonElement>('.spark-item [aria-label="Map spark"]')!.click();
   await waitFor(() => document.querySelector('.gctx') !== null);
-  clickMenu('Send to Canvas…');
+  clickMenu('Add to linked canvas…');
   await waitFor(() => document.querySelector('.gctx__picker-canvas') !== null);
   document.querySelector<HTMLButtonElement>('.gctx__picker-canvas')!.click();
   await waitFor(() => document.querySelector<HTMLButtonElement>('.gctx__picker-send')?.disabled === false);

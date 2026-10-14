@@ -303,8 +303,8 @@ Use the existing right-click menu on selected Think note text to **Create Spark*
 The Spark retains the selection and its source-note reference. After saving,
 its graph node and source connection are committed together (if the source is
 not yet indexed, the existing scheduled sync resolves the connection).
-**Send Spark to Canvas** adds a card referencing that Spark; existing Spark rows
-also expose **Original note** and **Map Spark** actions. Canvas cards can then be
+**Send Spark to Canvas** adds a card referencing that Spark; existing Spark items
+also expose a **From: <source>** link and a **Map spark** action. Canvas cards can then be
 connected to new ideas using the existing connection controls. Sparks remain a
 Think subview, not a separate main navigation destination; diagram canvases are
 not offered in this card-based mapping flow.
@@ -358,6 +358,17 @@ source links and dialog behaviour.
 ## Capturing Sparks with Athena
 
 Ask Athena to "save that as a spark" or "create a spark: …" to capture a brief thought in **Think > Sparks**, without creating a note or task. Sparks are standalone by default, support optional tag names, and can be attached to a known source when requested. They use the existing Spark clustering pipeline. Athena does not save Sparks unsolicited, and read-only "Ask another model" replies cannot create them.
+
+## Sparks: the idea incubator
+
+**Think > Sparks** works as Capture → Connect → Mature → Ship:
+
+- **Capture** — the composer, the right-click menu, Discover and Athena all save sparks with their source.
+- **Connect** — the clustering job groups related sparks into **themes** (three or more). Themes are living: new related sparks join existing themes first, and a theme that grows is flagged *Grew* on the Sparks page and suggested again on Today. Users can also curate by hand: start a theme from any spark ("Add to theme… → New theme…"), move sparks between themes or back to *Loose*, rename themes (double-click the name), merge, dismiss and restore.
+- **Mature** — **Develop with Athena** opens the Athena side panel with a prompt containing every spark in the theme and its source. Athena always has the user's themes and loose sparks as page context.
+- **Ship** — **Turn into** creates a structured note outline (AI, with a plain-list fallback), a canvas of spark cards, a project, or a blog post (the same draft/review/publish modal as Discover). The theme becomes *Developed*, shows a link to what it became and how many sparks arrived since, and its sparks are marked *Used in…*. Developed themes can be reopened.
+
+Themes are filtered by Growing / Developed / Dismissed; search covers theme names, spark text and source titles. A note's **Connections** side tab lists sparks captured from, or connected to, that note. Today's "Worth exploring" suggests growing themes of three or more sparks; **Create outline note** uses the same graduation as the Sparks page.
 
 ## Think canvases
 
@@ -603,7 +614,7 @@ have visible limits and pre-save validation that preserves the entered text.
 
 ## Today
 
-Today prioritises overdue, blocked, urgent and near-due Plan tasks, failed connections/automation, and open Athena decisions. Recent Think notes, canvases, in-progress tasks and saved Outputs form a separate continuation list; routine activity is grouped rather than shown as a feed. Discover suggestions require a stored relevance explanation, and Spark clusters need at least four Sparks.
+Today prioritises overdue, blocked, urgent and near-due Plan tasks, failed connections/automation, and open Athena decisions. Recent Think notes, canvases, in-progress tasks and saved Outputs form a separate continuation list; routine activity is grouped rather than shown as a feed. Discover suggestions require a stored relevance explanation, and Spark themes must be growing (not developed or dismissed) with at least three Sparks.
 
 The page initially shows at most five attention items, four continuations, three change summaries and three exploration suggestions. Each desktop column stacks independently, so Worth exploring follows Continue working without a gap caused by the attention list. Mobile keeps the attention, continuation, changes and exploration order. Source failures are local to each section and can be retried independently. Changes cover at least the last 24 hours (or since the last browser visit when older), so reopening Today does not immediately clear the list. They include saved Think notes, Plan updates/completions, Athena Outputs and the latest 100 activity entries ordered by source update time, excluding future events. Outputs and decisions cover the four most recent non-briefing Athena chats, not all historical chats. Today has no standalone Athena prompt box or suggested-prompt strip; use the toolbar instead. Item-specific Ask Athena actions retain their visible context and project handoff, leaving the prompt editable before sending. Capture thoughts through Athena or Think > Sparks; access the full morning briefing through Athena, not the home page.
 

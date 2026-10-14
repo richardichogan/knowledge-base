@@ -30,6 +30,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({ sourceId, sourceTy
     onSuccess: () => {
       setBody('');
       void queryClient.invalidateQueries({ queryKey: ['sparks'] });
+      void queryClient.invalidateQueries({ queryKey: ['spark-clusters'] });
       void queryClient.invalidateQueries({ queryKey: ['unsurfaced-count'] });
     },
   });

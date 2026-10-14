@@ -6,7 +6,6 @@ import { api } from '../services/api';
 import { useTodayBrief, requireTodayData } from '../services/useTodayBrief';
 import { TODAY_LIMITS, relativeTime, todayContext, type TodayItem } from '../services/todayViewModel';
 import { useAthenaContext } from '../context/AthenaContext';
-import { createNote } from '../notes/noteStorage';
 
 type SectionQueries = Array<{ name: string; query: {
   isPending: boolean; isError: boolean; error: unknown; refetch: () => Promise<unknown>;
@@ -46,7 +45,7 @@ function WorkItem({ item, ask, compact = false }: {
   const navigate = useNavigate();
   const [snooze, setSnooze] = useState('');
   const [error, setError] = useState('');
-  const draftId = useRef<string | null>(null);
+  const draftUrl = useRef<string | null>(null);
   const mutation = useMutation({
     mutationFn: async (action: 'done' | 'snooze' | 'save' | 'shelve' | 'draft' | 'dismiss') => {
       if (item.taskId && (action === 'done' || action === 'snooze')) {
@@ -56,21 +55,13 @@ function WorkItem({ item, ask, compact = false }: {
       } else if (item.clusterId && action === 'dismiss') {
         requireTodayData(await api.updateSparkCluster(item.clusterId, { dismissed: true }));
       } else if (item.clusterId && action === 'draft') {
-        if (draftId.current === null) {
-          const sparks = requireTodayData(await api.listSparks({ cluster_id: item.clusterId, limit: 100 }));
-          if (sparks.length === 0) throw new Error('No Sparks could be found for this cluster. Refresh before trying again.');
-          const note = await createNote({
-            title: item.title, contentType: 'note',
-            contentJson: JSON.stringify(sparks.map((spark) => ({
-              type: 'bulletListItem', content: [{ type: 'text', text: spark.body }],
-            }))),
-          });
-          if (note === null) throw new Error('Think could not save the outline');
-          draftId.current = note.id;
+        if (draftUrl.current === null) {
+          const { output } = requireTodayData(await api.graduateSparkTheme(item.clusterId, 'note'));
+          draftUrl.current = output.url ?? `/think?noteId=${encodeURIComponent(output.ref)}`;
           void qc.invalidateQueries({ queryKey: ['notes-list'] });
+          void qc.invalidateQueries({ queryKey: ['spark-clusters'] });
         }
-        requireTodayData(await api.updateSparkCluster(item.clusterId, { surfaced: true }));
-        navigate(`/think?noteId=${encodeURIComponent(draftId.current)}`);
+        navigate(draftUrl.current);
       } else throw new Error('This action is not available for this item');
     },
     onMutate: () => { setError(''); },
@@ -83,7 +74,7 @@ function WorkItem({ item, ask, compact = false }: {
         qc.invalidateQueries({ queryKey: ['notes-list'] }),
       ]);
     },
-    onError: (e) => { setError(`${draftId.current ? 'Your draft is saved in Think, but the cluster could not be updated. Retry will reuse that draft. ' : ''}${e instanceof Error ? e.message : 'The action could not be saved. Please try again.'}`); },
+    onError: (e) => { setError(`${e instanceof Error ? e.message : 'The action could not be saved. Please try again.'}`); },
   });
   return (
     <article className={`today-brief__item${compact ? ' today-brief__item--compact' : ''}`} aria-busy={mutation.isPending}>
@@ -98,7 +89,7 @@ function WorkItem({ item, ask, compact = false }: {
         : relativeTime(item.date)}` : ''}</p>
       <div className="today-brief__actions">
         {item.clusterId
-          ? <button type="button" className="today-brief__primary" disabled={mutation.isPending} onClick={() => { mutation.mutate('draft'); }}>{mutation.isPending ? 'Saving...' : 'Develop in Think'}</button>
+          ? <button type="button" className="today-brief__primary" disabled={mutation.isPending} onClick={() => { mutation.mutate('draft'); }}>{mutation.isPending ? 'Creating...' : 'Create outline note'}</button>
           : <ItemLink item={item}>{item.action} <ArrowRight size={16} /></ItemLink>}
         <button type="button" className="today-brief__quiet" aria-label={`Ask Athena about ${item.title}`} onClick={() => { ask(item); }}>Ask Athena</button>
         {(item.taskId || item.discoverId || item.clusterId) && <details className="today-brief__more">

@@ -4,6 +4,7 @@ import { InlineLoading } from '@carbon/react';
 import { alertDialog, confirmDialog } from '../../services/appDialogs';
 import { Launch, Renew, Upload } from '@carbon/icons-react';
 import { api, type BlogDraft } from '../../services/api';
+import type { ApiResponse } from '../../types';
 import { describeApiError } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
 
@@ -12,17 +13,32 @@ interface Edits { excerpt?: string; postType?: BlogDraft['postType']; title?: st
 const lines = (value: string): string[] => value.split('\n').map(v => v.trim()).filter(Boolean);
 const commas = (value: string): string[] => value.split(',').map(v => v.trim()).filter(Boolean);
 
-export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose: () => void }> = ({ itemId, title, onClose }) => {
+type PublishResult = { editUrl: string | null; url: string | null; status: 'draft' | 'published' };
+
+/** Where the draft comes from and where the post is sent; defaults to a Discover item. */
+export interface BlogPublishSource {
+  key: string;
+  draft: (length: 'short' | 'long') => Promise<ApiResponse<BlogDraft>>;
+  publish: (post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published' }) => Promise<ApiResponse<PublishResult>>;
+  onSent?: (result: PublishResult) => void;
+}
+
+export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishSource; title: string; onClose: () => void }> = ({ itemId, source, title, onClose }) => {
+  const target: BlogPublishSource = source ?? {
+    key: `discover:${itemId ?? ''}`,
+    draft: (len) => api.createBlogDraft(itemId ?? '', len),
+    publish: (post) => api.publishBlogPost(itemId ?? '', post),
+  };
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Edits>({});
   const [length, setLength] = useState<'short' | 'long'>('short');
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' } | null>(null);
+  const [result, setResult] = useState<PublishResult | null>(null);
   const draft = useQuery({
-    queryKey: ['discover-blog-draft', itemId, length],
+    queryKey: ['blog-draft', target.key, length],
     queryFn: async () => {
-      const r = await api.createBlogDraft(itemId, length);
+      const r = await target.draft(length);
       if (!r.success) throw new Error(r.error?.message ?? 'Could not generate the blog draft.');
       return r.data;
     },
@@ -54,7 +70,7 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
     setPublishing(true);
     setError(null);
     try {
-      const r = await api.publishBlogPost(itemId, {
+      const r = await target.publish({
         status,
         postType: value.postType,
         title: value.title.trim(), excerpt: value.excerpt.trim(), summary: value.summary.trim(), content: value.content.trim(),
@@ -62,6 +78,7 @@ export const BlogPublishModal: React.FC<{ itemId: string; title: string; onClose
       });
       if (!r.success) throw new Error(r.error?.message ?? 'Could not publish the post.');
       setResult(r.data);
+      target.onSent?.(r.data);
       void alertDialog(status === 'published'
         ? `"${value.title.trim()}" is now live on The Microsoft Cloud Blog.`
         : `"${value.title.trim()}" was saved as a draft on the blog. Open it in the blog admin to review and publish.`,

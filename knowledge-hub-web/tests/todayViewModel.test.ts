@@ -141,17 +141,20 @@ test('open decisions suppress the same chat in continuation; saved outputs remai
   assert.match(model.changes[0]!.title, /1 Athena output saved/);
 });
 
-test('exploration needs a real explanation; only unsurfaced clusters of four or more Sparks qualify', () => {
-  const cluster = (id: string, sparkCount: number, surfaced = false, dismissed = false) => ({
-    id, theme: id, sparkCount, surfaced, dismissed, surfacedAt: null, createdAt: since, updatedAt: now.toISOString(),
+test('exploration suggests growing Spark themes of three or more, never developed or dismissed ones', () => {
+  const theme = (id: string, sparkCount: number, status: 'active' | 'developed' | 'dismissed' = 'active', surfaced = false) => ({
+    id, theme: id, status, sparkCount, surfaced, dismissed: status === 'dismissed', outputType: null, outputRef: null, outputTitle: null,
+    outputUrl: null, developedAt: null, lastGrownAt: null, createdAt: since, updatedAt: now.toISOString(), newSinceDeveloped: 0, sparks: [],
   });
   const model = buildTodayModel(inputs({ clusters: [
-    cluster('small', 3), cluster('ready', 4), cluster('shown', 10, true), cluster('dismissed', 10, false, true),
-    ...Array.from({ length: 5 }, (_, i) => cluster(`big${i}`, 8)),
+    theme('small', 2), theme('seen', 3, 'active', true), theme('developed', 10, 'developed'), theme('dismissed', 10, 'dismissed'),
+    ...Array.from({ length: 5 }, (_, i) => theme(`big${i}`, 8)),
   ] }), now, since);
   assert.equal(model.exploration.length, TODAY_LIMITS.explore);
-  assert.ok(model.exploration.every((i) => !['cluster:small', 'cluster:shown', 'cluster:dismissed'].includes(i.id)));
-  assert.ok(model.exploration.every((i) => i.reason.includes('captured thoughts')));
+  assert.ok(model.exploration.every((i) => !['cluster:small', 'cluster:developed', 'cluster:dismissed'].includes(i.id)));
+  assert.ok(model.exploration.every((i) => i.reason.includes('related sparks') && i.href === '/think?view=sparks'));
+  const seen = buildTodayModel(inputs({ clusters: [theme('seen', 3, 'active', true)] }), now, since);
+  assert.equal(seen.exploration[0]?.id, 'cluster:seen');
 });
 
 test('source errors are user-facing and empty or missing inputs produce honest empty sections', () => {

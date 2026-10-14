@@ -64,7 +64,7 @@ export const QuickSparkModal: React.FC<QuickSparkModalProps> = ({ open, onClose 
       // Resolve tag names from IDs via the taxonomy data
       return api.createSpark({
         body: body.trim(),
-        tags: [],          // We store tag names — resolved in SparksPanel
+        tags: [],          // Tag names, not ids
         source_id:   attachId   !== '' ? attachId   : null,
         source_type: attachType !== '' ? attachType : null,
       });

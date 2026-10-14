@@ -1,95 +1,113 @@
 /**
  * features/sparks/SparkPanel.tsx
- * Top-level sparks panel rendered in the Think page under the SPARKS toggle.
- * Sections: composer → clusters → all sparks list.
+ * The Sparks page: an idea incubator.
+ * Capture (composer) → Connect (themes that grow as related sparks arrive) → Mature (develop with Athena)
+ * → Ship (turn a theme into a note, blog post, canvas or project). Loose sparks sit below the themes.
  */
-import React, { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Search } from '@carbon/icons-react';
+import { api, type SparkCluster, type SparkThemeStatus } from '../../services/api';
 import { SparkComposer } from './SparkComposer';
-import { SparkClusterCard } from './SparkClusterCard';
-import { SparkList } from './SparkList';
-import { api } from '../../services/api';
-import type { SparkCluster, Spark } from '../../services/api';
+import { SparkThemeCard } from './SparkThemeCard';
+import { SparkItem } from './SparkItem';
+import { useLooseSparks, useSparkThemes } from './sparkQueries';
 
-/**
- * Picks the three most recent spark bodies for a given cluster id
- * from the full sparks array (already fetched by the panel).
- */
-function recentBodiesForCluster(sparks: Spark[], clusterId: string): string[] {
-  return sparks
-    .filter((s) => s.clusterId === clusterId)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 3)
-    .map((s) => s.body);
+const FILTERS: Array<{ id: SparkThemeStatus; label: string }> = [
+  { id: 'active', label: 'Growing' },
+  { id: 'developed', label: 'Developed' },
+  { id: 'dismissed', label: 'Dismissed' },
+];
+
+function matches(theme: SparkCluster, needle: string): boolean {
+  if (!needle) return true;
+  return theme.theme.toLowerCase().includes(needle) ||
+    theme.sparks.some((s) => s.body.toLowerCase().includes(needle) || (s.sourceTitle ?? '').toLowerCase().includes(needle));
 }
 
-/**
- * SparkPanel renders the full three-section sparks view.
- * On mount it marks all unsurfaced qualifying clusters as surfaced
- * so the Think nav dot clears.
- */
-export const SparkPanel: React.FC = () => {
+export const SparkPanel: React.FC<{ onDevelop: (prompt: string) => void }> = ({ onDevelop }) => {
   const queryClient = useQueryClient();
-
-  const { data: clusterData } = useQuery({
-    queryKey: ['spark-clusters'],
-    queryFn: () => api.listSparkClusters({ dismissed: false }),
-    staleTime: 30_000,
-  });
-
-  const { data: sparkData } = useQuery({
-    queryKey: ['sparks', 'all', 1],
-    queryFn: () => api.listSparks({ limit: 100, offset: 0 }),
-    staleTime: 30_000,
-  });
-
-  const surfaceMutation = useMutation({
-    mutationFn: (id: string) => api.updateSparkCluster(id, { surfaced: true }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['unsurfaced-count'] });
-    },
-  });
-
-  // On mount: surface all qualifying unsurfaced clusters to clear the nav dot
+  const [filter, setFilter] = useState<SparkThemeStatus>('active');
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
   useEffect(() => {
-    if (!clusterData?.success) return;
-    const toSurface = clusterData.data.filter(
-      (c: SparkCluster) => c.sparkCount >= 4 && !c.surfaced && !c.dismissed,
-    );
-    toSurface.forEach((c: SparkCluster) => { surfaceMutation.mutate(c.id); });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clusterData]);
+    const t = setTimeout(() => { setDebounced(search.trim()); }, 300);
+    return () => { clearTimeout(t); };
+  }, [search]);
 
-  const clusters: SparkCluster[] = clusterData?.success ? clusterData.data : [];
-  const sparks: Spark[] = sparkData?.success ? sparkData.data : [];
-  const activeClusters = clusters.filter((c) => !c.dismissed);
+  const { themes, isLoading } = useSparkThemes();
+  const { sparks: loose, isLoading: looseLoading } = useLooseSparks(debounced);
+
+  // Themes that were new (or grew) when the page opened keep their badge for this visit; mark them seen.
+  const newIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (isLoading || newIds.current !== null) return;
+    const unseen = themes.filter((t) => !t.surfaced && t.status !== 'dismissed');
+    newIds.current = new Set(unseen.map((t) => t.id));
+    if (unseen.length === 0) return;
+    void Promise.all(unseen.map((t) => api.updateSparkCluster(t.id, { surfaced: true })))
+      .then(() => { void queryClient.invalidateQueries({ queryKey: ['unsurfaced-count'] }); });
+  }, [themes, isLoading, queryClient]);
+
+  const needle = debounced.toLowerCase();
+  const counts = useMemo(() => {
+    const c: Record<SparkThemeStatus, number> = { active: 0, developed: 0, dismissed: 0 };
+    for (const t of themes) if (t.sparks.length > 0) c[t.status] += 1;
+    return c;
+  }, [themes]);
+  const visible = themes.filter((t) => t.status === filter && t.sparks.length > 0 && matches(t, needle));
 
   return (
     <div className="spark-panel">
-      {/* Section 1: composer */}
       <section className="spark-panel__section">
-        <h2 className="spark-panel__heading">New Spark</h2>
+        <h2 className="spark-panel__heading">Capture a spark</h2>
         <SparkComposer />
       </section>
 
-      {/* Section 2: clusters */}
-      {activeClusters.length > 0 && (
-        <section className="spark-panel__section">
-          <h2 className="spark-panel__heading">Clusters</h2>
-          {activeClusters.map((cluster) => (
-            <SparkClusterCard
-              key={cluster.id}
-              cluster={cluster}
-              recentBodies={recentBodiesForCluster(sparks, cluster.id)}
-            />
-          ))}
-        </section>
-      )}
+      <div className="spark-panel__search">
+        <Search size={16} className="spark-panel__search-icon" />
+        <input className="spark-panel__search-input" type="search" placeholder="Search sparks and themes"
+          aria-label="Search sparks and themes" value={search} onChange={(e) => { setSearch(e.target.value); }} />
+      </div>
 
-      {/* Section 3: all sparks */}
-      <section className="spark-panel__section">
-        <h2 className="spark-panel__heading">All Sparks</h2>
-        <SparkList />
+      <section className="spark-panel__section" aria-label="Themes">
+        <div className="spark-panel__section-head">
+          <h2 className="spark-panel__heading">Themes</h2>
+          <div className="spark-panel__filters" role="tablist" aria-label="Theme status">
+            {FILTERS.map((f) => (
+              <button key={f.id} type="button" role="tab" aria-selected={filter === f.id}
+                className={`spark-chip${filter === f.id ? ' spark-chip--active' : ''}`}
+                onClick={() => { setFilter(f.id); }}>
+                {f.label}<span className="spark-chip__count">{counts[f.id]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {isLoading ? <p className="spark-panel__empty">Loading themes…</p>
+          : visible.length === 0 ? (
+            <p className="spark-panel__empty">
+              {needle ? 'No themes match your search.'
+                : filter === 'active' ? 'No growing themes yet. When three or more related sparks come together, Athena groups them into a theme here. You can also start one from any spark with “Add to theme…”.'
+                : filter === 'developed' ? 'Nothing developed yet. Turn a theme into a note, blog post, canvas or project and it moves here.'
+                : 'No dismissed themes.'}
+            </p>
+          ) : (
+            <div className="spark-panel__themes">
+              {visible.map((t) => (
+                <SparkThemeCard key={t.id} theme={t} themes={themes} isNew={newIds.current?.has(t.id) ?? false} onDevelop={onDevelop} />
+              ))}
+            </div>
+          )}
+      </section>
+
+      <section className="spark-panel__section" aria-label="Loose sparks">
+        <div className="spark-panel__section-head">
+          <h2 className="spark-panel__heading">Loose sparks</h2>
+          <span className="spark-panel__hint">Not in a theme yet</span>
+        </div>
+        {looseLoading ? <p className="spark-panel__empty">Loading sparks…</p>
+          : loose.length === 0 ? <p className="spark-panel__empty">{needle ? 'No loose sparks match your search.' : 'No loose sparks.'}</p>
+          : <div className="spark-panel__loose">{loose.map((s) => <SparkItem key={s.id} spark={s} themes={themes} />)}</div>}
       </section>
     </div>
   );

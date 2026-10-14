@@ -3,18 +3,42 @@
  * REST API for sparks and spark clusters.
  *
  * POST   /api/sparks              — create a spark
- * GET    /api/sparks              — list sparks (query: source_id, source_type, cluster_id, attached, limit, offset)
+ * GET    /api/sparks              — list sparks (query: source_id, source_type, cluster_id, attached, clustered, q, limit, offset)
+ * GET    /api/sparks/related      — sparks captured from / connected to an item (query: ref_id, ref_type)
+ * PATCH  /api/sparks/:id          — edit body, move theme (cluster_id, null = loose), mark used (used, null = clear)
  * DELETE /api/sparks/:id          — delete a spark
- * GET    /api/spark-clusters      — list clusters (query: surfaced, dismissed)
- * PATCH  /api/spark-clusters/:id  — update cluster (body: { dismissed?, surfaced? })
+ * GET    /api/spark-clusters      — list themes with their sparks (query: status=active,developed | surfaced | dismissed)
+ * GET    /api/spark-clusters/unsurfaced-count — themes not yet seen (Think nav dot)
+ * POST   /api/spark-clusters      — create a theme from sparks (body: { theme, sparkIds })
+ * PATCH  /api/spark-clusters/:id  — rename, status, surfaced, output (what it became), markSparksUsed
+ * POST   /api/spark-clusters/:id/merge — merge this theme into body.intoId
+ * POST   /api/spark-clusters/:id/graduate — turn the theme into a note | canvas | project (body.target), recording the output
+ * POST   /api/spark-clusters/:id/blog-draft — AI blog draft from the theme's sparks (body.length short|long)
+ * POST   /api/spark-clusters/:id/blog-publish — send to the blog; records the output on success
  */
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError } from '../types/errors.js';
-import { createSpark, listSparks, deleteSpark } from '../services/sparkService.js';
+import { createSpark, listSparks, deleteSpark, updateSpark, relatedSparks, listThemes, updateTheme, mergeThemes, createTheme } from '../services/sparkService.js';
+import { MIN_THEME_SIZE } from '../jobs/clusteringJob.js';
+import { graduateTheme, getTheme, type GraduationTarget } from '../services/sparkGraduation.js';
+import { generateIdeasBlogDraft } from '../ai/blogDraft.js';
+import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
-import type { Spark } from '../services/sparkService.js';
+import type { Spark, SparkOutput, ThemeStatus, UpdateSparkInput, UpdateThemeInput } from '../services/sparkService.js';
+
+const OUTPUT_TYPES = ['note', 'blog', 'canvas', 'project'];
+
+function parseOutput(v: unknown): SparkOutput | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o['type'] !== 'string' || !OUTPUT_TYPES.includes(o['type']) || typeof o['ref'] !== 'string' || typeof o['title'] !== 'string') {
+    throw new ValidationError('output needs type (note|blog|canvas|project), ref and title');
+  }
+  return { type: o['type'] as SparkOutput['type'], ref: o['ref'], title: o['title'], url: typeof o['url'] === 'string' ? o['url'] : null };
+}
 
 export const sparkRouter = Router();
 export const sparkClusterRouter = Router();
@@ -56,11 +80,44 @@ sparkRouter.get('/', (req: Request, res: Response, next: NextFunction): void => 
       if (q['source_id'])   params['sourceId']   = q['source_id'];
       if (q['source_type']) params['sourceType'] = q['source_type'];
       if (q['cluster_id'])  params['clusterId']  = q['cluster_id'];
+      if (q['clustered'] === 'true')  params['clustered'] = true;
+      if (q['clustered'] === 'false') params['clustered'] = false;
+      if (q['q']) params['search'] = q['q'];
       if (q['limit']  !== undefined) params['limit']  = parseInt(q['limit'],  10);
       if (q['offset'] !== undefined) params['offset'] = parseInt(q['offset'], 10);
       const sparks = await listSparks(db, params as Parameters<typeof listSparks>[1]);
       const out: ApiSuccess<Spark[]> = { success: true, data: sparks };
       res.status(HTTP_STATUS.OK).json(out);
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── GET /api/sparks/related ───────────────────────────────────────────────────
+
+sparkRouter.get('/related', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const q = req.query as Record<string, string | undefined>;
+      if (!q['ref_id'] || !q['ref_type']) throw new ValidationError('ref_id and ref_type are required');
+      const data = await relatedSparks(getDb(), q['ref_id'], q['ref_type']);
+      res.status(HTTP_STATUS.OK).json({ success: true, data });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── PATCH /api/sparks/:id ─────────────────────────────────────────────────────
+
+sparkRouter.patch('/:id', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const b = req.body as { body?: string; cluster_id?: string | null; used?: unknown };
+      const input: UpdateSparkInput = {};
+      if (b.body !== undefined) input.body = b.body;
+      if (b.cluster_id !== undefined) input.clusterId = b.cluster_id;
+      const used = parseOutput(b.used);
+      if (used !== undefined) input.used = used;
+      const spark = await updateSpark(getDb(), req.params['id']!, input);
+      res.status(HTTP_STATUS.OK).json({ success: true, data: spark });
     } catch (err) { next(err); }
   })();
 });
@@ -82,10 +139,10 @@ sparkRouter.delete('/:id', (req: Request, res: Response, next: NextFunction): vo
 sparkClusterRouter.get('/unsurfaced-count', (_req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const db = getDb();
-      const row = await db.query<{ count: string }>(
+      const row = await getDb().query<{ count: string }>(
         `SELECT COUNT(*) AS count FROM spark_clusters
-         WHERE spark_count >= 4 AND surfaced = false AND dismissed = false`,
+         WHERE spark_count >= $1 AND surfaced = false AND status IN ('active', 'developed')`,
+        [MIN_THEME_SIZE],
       );
       const count = parseInt(row.rows[0]?.count ?? '0', 10);
       res.status(HTTP_STATUS.OK).json({ success: true, data: { count } });
@@ -99,25 +156,26 @@ sparkClusterRouter.get('/', (req: Request, res: Response, next: NextFunction): v
   void (async (): Promise<void> => {
     try {
       const q = req.query as Record<string, string | undefined>;
-      const conditions: string[] = [];
-      const values: unknown[] = [];
-      let idx = 1;
-      if (q['surfaced']  !== undefined) { conditions.push(`surfaced = $${idx++}`);  values.push(q['surfaced']  === 'true'); }
-      if (q['dismissed'] !== undefined) { conditions.push(`dismissed = $${idx++}`); values.push(q['dismissed'] === 'true'); }
-      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-      const db = getDb();
-      const rows = await db.query<{
-        id: string; theme: string; spark_count: number;
-        surfaced: boolean; surfaced_at: string | null;
-        dismissed: boolean; created_at: string; updated_at: string;
-      }>(`SELECT id, theme, spark_count, surfaced, surfaced_at, dismissed, created_at, updated_at
-          FROM spark_clusters ${where} ORDER BY updated_at DESC`, values);
-      const data = rows.rows.map((r) => ({
-        id: r.id, theme: r.theme, sparkCount: r.spark_count,
-        surfaced: r.surfaced, surfacedAt: r.surfaced_at,
-        dismissed: r.dismissed, createdAt: r.created_at, updatedAt: r.updated_at,
-      }));
+      let statuses: ThemeStatus[] | undefined;
+      if (q['status']) statuses = q['status'].split(',').filter((s): s is ThemeStatus => ['active', 'developed', 'dismissed'].includes(s));
+      else if (q['dismissed'] === 'false') statuses = ['active', 'developed'];
+      else if (q['dismissed'] === 'true') statuses = ['dismissed'];
+      let data = await listThemes(getDb(), statuses);
+      if (q['surfaced'] !== undefined) data = data.filter((t) => t.surfaced === (q['surfaced'] === 'true'));
       res.status(HTTP_STATUS.OK).json({ success: true, data });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── POST /api/spark-clusters ──────────────────────────────────────────────────
+
+sparkClusterRouter.post('/', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { theme, sparkIds } = req.body as { theme?: string; sparkIds?: string[] };
+      if (typeof theme !== 'string' || !Array.isArray(sparkIds)) throw new ValidationError('theme and sparkIds are required');
+      const data = await createTheme(getDb(), theme, sparkIds);
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data });
     } catch (err) { next(err); }
   })();
 });
@@ -127,21 +185,75 @@ sparkClusterRouter.get('/', (req: Request, res: Response, next: NextFunction): v
 sparkClusterRouter.patch('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const { dismissed, surfaced } = req.body as { dismissed?: boolean; surfaced?: boolean };
-      const sets: string[] = ['updated_at = now()'];
-      const values: unknown[] = [];
-      let idx = 1;
-      if (dismissed !== undefined) { sets.push(`dismissed = $${idx++}`); values.push(dismissed); }
-      if (surfaced  !== undefined) { sets.push(`surfaced = $${idx++}`);  values.push(surfaced); }
-      if (sets.length === 1) throw new ValidationError('No fields to update');
-      values.push(req.params['id']);
+      const b = req.body as { theme?: string; status?: ThemeStatus; dismissed?: boolean; surfaced?: boolean; output?: unknown; markSparksUsed?: boolean };
+      const input: UpdateThemeInput = {};
+      if (b.theme !== undefined) input.theme = b.theme;
+      if (b.status !== undefined) input.status = b.status;
+      else if (b.dismissed !== undefined) input.status = b.dismissed ? 'dismissed' : 'active';
+      if (b.surfaced !== undefined) input.surfaced = b.surfaced;
+      const output = parseOutput(b.output);
+      if (output !== undefined) input.output = output;
+      if (b.markSparksUsed !== undefined) input.markSparksUsed = b.markSparksUsed;
+      const data = await updateTheme(getDb(), req.params['id']!, input);
+      res.status(HTTP_STATUS.OK).json({ success: true, data });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── POST /api/spark-clusters/:id/merge ───────────────────────────────────────
+
+sparkClusterRouter.post('/:id/merge', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { intoId } = req.body as { intoId?: string };
+      if (typeof intoId !== 'string') throw new ValidationError('intoId is required');
+      const data = await mergeThemes(getDb(), req.params['id']!, intoId);
+      res.status(HTTP_STATUS.OK).json({ success: true, data });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── POST /api/spark-clusters/:id/graduate ────────────────────────────────────
+
+sparkClusterRouter.post('/:id/graduate', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const target = (req.body as { target?: unknown }).target;
+      if (target !== 'note' && target !== 'canvas' && target !== 'project') throw new ValidationError('target must be note, canvas or project');
+      const data = await graduateTheme(getDb(), req.params['id']!, target as GraduationTarget);
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── POST /api/spark-clusters/:id/blog-draft ──────────────────────────────────
+
+sparkClusterRouter.post('/:id/blog-draft', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const theme = await getTheme(getDb(), req.params['id']!);
+      if (theme.sparks.length === 0) throw new ValidationError('This theme has no sparks to draft from.');
+      const length = (req.body as { length?: unknown } | undefined)?.length === 'long' ? 'long' : 'short';
+      res.json({ success: true, data: await generateIdeasBlogDraft(theme.theme, theme.sparks, length) });
+    } catch (err) { next(err); }
+  })();
+});
+
+// ── POST /api/spark-clusters/:id/blog-publish ────────────────────────────────
+
+sparkClusterRouter.post('/:id/blog-publish', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
       const db = getDb();
-      const result = await db.query(
-        `UPDATE spark_clusters SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id`,
-        values,
-      );
-      if (result.rowCount === 0) { res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: { message: 'Not found' } }); return; }
-      res.status(HTTP_STATUS.OK).json({ success: true, data: { id: req.params['id'] } });
+      const id = req.params['id']!;
+      await getTheme(db, id);
+      const post = parsePublishBody(req.body);
+      const sent = await sendToBlog(post);
+      if (sent.payload.success) {
+        const url = sent.payload.data.url ?? sent.payload.data.editUrl;
+        await updateTheme(db, id, { output: { type: 'blog', ref: url ?? post.title, title: post.title, url }, markSparksUsed: true });
+      }
+      res.status(sent.httpStatus).json(sent.payload);
     } catch (err) { next(err); }
   })();
 });
