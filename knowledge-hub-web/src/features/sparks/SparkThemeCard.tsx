@@ -4,7 +4,7 @@
  * and lets the user develop it with Athena, turn it into a note / blog post / canvas / project,
  * or curate it (rename, merge, dismiss, reopen).
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ChevronDown, OverflowMenuHorizontal } from '@carbon/icons-react';
@@ -30,7 +30,9 @@ export const SparkThemeCard: React.FC<{
   themes: SparkCluster[];
   isNew: boolean;
   onDevelop: (prompt: string) => void;
-}> = ({ theme, themes, isNew, onDevelop }) => {
+  canDrop?: boolean;
+  onDropSpark?: (event: React.DragEvent) => void;
+}> = ({ theme, themes, isNew, onDevelop, canDrop = false, onDropSpark }) => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
@@ -39,6 +41,8 @@ export const SparkThemeCard: React.FC<{
   const [merging, setMerging] = useState(false);
   const [blogOpen, setBlogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  useEffect(() => { if (!canDrop) setDragOver(false); }, [canDrop]);
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['sparks'] });
@@ -73,7 +77,12 @@ export const SparkThemeCard: React.FC<{
   }
 
   return (
-    <article className={`spark-theme spark-theme--${theme.status}`} aria-label={`Theme: ${theme.theme}`}>
+    <article className={`spark-theme spark-theme--${theme.status}${canDrop ? ' spark-theme--drop-ready' : ''}${canDrop && dragOver ? ' spark-theme--drag-over' : ''}`}
+      aria-label={`Theme: ${theme.theme}`}
+      onDragOver={event => { if (canDrop) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOver(true); } }}
+      onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDragOver(false); }}
+      onDrop={event => { setDragOver(false); if (canDrop) onDropSpark?.(event); }}>
+      {canDrop && <p className="spark-theme__drop-hint">Drop here to add to {theme.theme}</p>}
       <header className="spark-theme__header">
         {renaming ? (
           <input className="spark-input spark-theme__name-input" value={name} autoFocus aria-label="Theme name"

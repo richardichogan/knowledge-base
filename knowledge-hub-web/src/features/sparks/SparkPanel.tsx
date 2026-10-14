@@ -5,13 +5,16 @@
  * → Ship (turn a theme into a note, blog post, canvas or project). Loose sparks sit below the themes.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search } from '@carbon/icons-react';
 import { api, type SparkCluster, type SparkThemeStatus } from '../../services/api';
 import { SparkComposer } from './SparkComposer';
 import { SparkThemeCard } from './SparkThemeCard';
 import { SparkItem } from './SparkItem';
 import { useLooseSparks, useSparkThemes } from './sparkQueries';
+import { describeApiError, requireApiSuccess } from '../../services/apiError';
+
+const SPARK_DRAG_TYPE = 'application/x-athena-loose-spark';
 
 const FILTERS: Array<{ id: SparkThemeStatus; label: string }> = [
   { id: 'active', label: 'Growing' },
@@ -37,6 +40,46 @@ export const SparkPanel: React.FC<{ onDevelop: (prompt: string) => void }> = ({ 
 
   const { themes, isLoading } = useSparkThemes();
   const { sparks: loose, isLoading: looseLoading } = useLooseSparks(debounced);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const dragId = useRef<string | null>(null);
+  const moveInFlight = useRef(false);
+  const [moveMessage, setMoveMessage] = useState('');
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const move = useMutation({
+    mutationFn: async ({ sparkId, theme }: { sparkId: string; theme: SparkCluster }) =>
+      requireApiSuccess(await api.updateSpark(sparkId, { cluster_id: theme.id })),
+    onSuccess: async (_response, { theme }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['sparks'] }),
+        queryClient.invalidateQueries({ queryKey: ['spark-clusters'] }),
+        queryClient.invalidateQueries({ queryKey: ['unsurfaced-count'] }),
+      ]);
+      setMoveMessage(`Spark added to ${theme.theme}.`);
+    },
+    onError: (error) => { setMoveMessage(''); setMoveError(`Could not move spark: ${describeApiError(error)}. It is still shown below; drag it again or use Add to theme.`); },
+    onSettled: () => { moveInFlight.current = false; },
+  });
+
+  function endDrag(): void { dragId.current = null; setDraggedId(null); }
+  function startDrag(event: React.DragEvent, id: string): void {
+    if (moveInFlight.current || !loose.some(s => s.id === id)) { event.preventDefault(); return; }
+    event.dataTransfer.setData(SPARK_DRAG_TYPE, id);
+    event.dataTransfer.effectAllowed = 'move';
+    dragId.current = id;
+    setDraggedId(id);
+    setMoveMessage('');
+    setMoveError(null);
+  }
+  function dropSpark(event: React.DragEvent, theme: SparkCluster): void {
+    event.preventDefault();
+    const id = dragId.current;
+    if (!id || moveInFlight.current || theme.status === 'dismissed' ||
+      event.dataTransfer.getData(SPARK_DRAG_TYPE) !== id || !loose.some(s => s.id === id)) return;
+    moveInFlight.current = true;
+    endDrag();
+    setMoveMessage(`Adding spark to ${theme.theme}...`);
+    move.mutate({ sparkId: id, theme });
+  }
 
   // Themes that were new (or grew) when the page opened keep their badge for this visit; mark them seen.
   const newIds = useRef<Set<string> | null>(null);
@@ -70,6 +113,9 @@ export const SparkPanel: React.FC<{ onDevelop: (prompt: string) => void }> = ({ 
           aria-label="Search sparks and themes" value={search} onChange={(e) => { setSearch(e.target.value); }} />
       </div>
 
+      <p className="spark-panel__move-status" role="status" aria-live="polite">{moveMessage}</p>
+      {moveError && <p className="spark-item__error" role="alert">{moveError}</p>}
+
       <section className="spark-panel__section" aria-label="Themes">
         <div className="spark-panel__section-head">
           <h2 className="spark-panel__heading">Themes</h2>
@@ -94,7 +140,8 @@ export const SparkPanel: React.FC<{ onDevelop: (prompt: string) => void }> = ({ 
           ) : (
             <div className="spark-panel__themes">
               {visible.map((t) => (
-                <SparkThemeCard key={t.id} theme={t} themes={themes} isNew={newIds.current?.has(t.id) ?? false} onDevelop={onDevelop} />
+                <SparkThemeCard key={t.id} theme={t} themes={themes} isNew={newIds.current?.has(t.id) ?? false} onDevelop={onDevelop}
+                  canDrop={draggedId !== null && !move.isPending && t.status !== 'dismissed'} onDropSpark={event => { dropSpark(event, t); }} />
               ))}
             </div>
           )}
@@ -103,11 +150,12 @@ export const SparkPanel: React.FC<{ onDevelop: (prompt: string) => void }> = ({ 
       <section className="spark-panel__section" aria-label="Loose sparks">
         <div className="spark-panel__section-head">
           <h2 className="spark-panel__heading">Loose sparks</h2>
-          <span className="spark-panel__hint">Not in a theme yet</span>
+          <span className="spark-panel__hint">Drag the grip into a theme, or use Add to theme</span>
         </div>
         {looseLoading ? <p className="spark-panel__empty">Loading sparks…</p>
           : loose.length === 0 ? <p className="spark-panel__empty">{needle ? 'No loose sparks match your search.' : 'No loose sparks.'}</p>
-          : <div className="spark-panel__loose">{loose.map((s) => <SparkItem key={s.id} spark={s} themes={themes} />)}</div>}
+          : <div className="spark-panel__loose">{loose.map((s) => <SparkItem key={s.id} spark={s} themes={themes}
+              drag={{ disabled: move.isPending, active: draggedId === s.id, onStart: event => { startDrag(event, s.id); }, onEnd: endDrag }} />)}</div>}
       </section>
     </div>
   );

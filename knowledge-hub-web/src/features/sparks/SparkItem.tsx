@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Diagram, OverflowMenuHorizontal, CheckmarkOutline } from '@carbon/icons-react';
+import { Diagram, OverflowMenuHorizontal, CheckmarkOutline, Draggable } from '@carbon/icons-react';
 import { useGlobalContextMenu } from '../../context/GlobalContextMenu';
 import { api, type Spark, type SparkCluster } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
@@ -18,7 +18,10 @@ const LOOSE = '__loose';
 const NEW_THEME = '__new';
 const LONG_SPARK = 240;
 
-export const SparkItem: React.FC<{ spark: Spark; themes: SparkCluster[] }> = ({ spark, themes }) => {
+export const SparkItem: React.FC<{
+  spark: Spark; themes: SparkCluster[];
+  drag?: { disabled: boolean; active: boolean; onStart: (event: React.DragEvent) => void; onEnd: () => void };
+}> = ({ spark, themes, drag }) => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { openMenu } = useGlobalContextMenu();
@@ -58,7 +61,7 @@ export const SparkItem: React.FC<{ spark: Spark; themes: SparkCluster[] }> = ({ 
   }
 
   return (
-    <div className={`spark-item${spark.usedAt ? ' spark-item--used' : ''}`}
+    <div className={`spark-item${spark.usedAt ? ' spark-item--used' : ''}${drag?.active ? ' spark-item--dragging' : ''}`}
       data-ctx-title={preview} data-ctx-body={spark.body} data-ctx-type="hub_ref"
       data-ctx-ref-id={spark.id} data-ctx-ref-type="spark" data-ctx-source={spark.sourceType ? `Spark · ${spark.sourceType}` : 'Spark'}>
       {editing ? (
@@ -126,6 +129,14 @@ export const SparkItem: React.FC<{ spark: Spark; themes: SparkCluster[] }> = ({ 
       {error && <p className="spark-item__error" role="alert">{error}</p>}
 
       <div className="spark-item__actions">
+        {drag && !editing && (
+          <button type="button" className="spark-icon-btn spark-item__drag" draggable={!drag.disabled && !mutation.isPending}
+            disabled={drag.disabled || mutation.isPending} aria-label="Drag spark to a theme, or click to choose"
+            title="Drag into a theme, or click to choose" onDragStart={drag.onStart} onDragEnd={drag.onEnd}
+            onClick={() => { setMoving(true); }}>
+            <Draggable size={16} />
+          </button>
+        )}
         <button type="button" className="spark-icon-btn" title="Add to a canvas or connect" aria-label="Map spark"
           onClick={(event) => { openMenu(event, { title: preview, body: spark.body, source: 'Spark', refId: spark.id, refType: 'spark', nodeType: 'hub_ref' }); }}>
           <Diagram size={16} />

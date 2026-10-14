@@ -2,6 +2,27 @@
 
 ---
 
+## Article-grounded Sparks and drag-to-theme
+
+Discover's one-click Spark now reads the source article and saves a synopsis of
+its argument, rather than reusing a title/feed description or relevance score.
+Unreadable, blocked and thin sources produce an explicit retryable error.
+Full source text up to 60,000 characters is considered; longer sources include
+opening, middle and conclusion excerpts. Reading provenance is cached with the
+article. Automatic grouping uses source arguments and fuller Spark/theme context,
+and no longer groups solely by shared tags or 220-character openings. Existing
+loose article Sparks are read when considered for grouping; unreadable ones stay
+loose. Think-note sources supply their writing, not just the note title.
+Chat's page-reading tool shares the bounded reader, preserves later reasoning
+and conclusions, and explicitly labels partial coverage. Daily deep dives no
+longer discard everything after the first 8,000 characters.
+
+Loose Sparks have a drag grip: drop into a Growing or Developed theme to move
+them. Targets highlight, saving and result messages are explicit, and failures
+leave the Spark available for retry. Clicking the grip or using Add to theme
+retains a keyboard/touch alternative. Theme membership and counts refresh after
+the server confirms the move.
+
 ## Think note pop-out — 2026-10-14
 
 Pop out opens the selected note in a separate content-only, read-only window,

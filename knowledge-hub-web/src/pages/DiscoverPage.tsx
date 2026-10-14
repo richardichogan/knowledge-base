@@ -429,8 +429,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           >
             <Diagram size={14} /> {sentToCanvas ? 'Copied!' : 'Canvas'}
           </button>
-          <SparkCaptureButton sourceId={item.id} sourceType="discover_item"
-            title={item.title} synopsis={item.relevanceExplanation?.trim() || item.description}
+          <SparkCaptureButton sourceId={item.id}
             initialTags={taxonomyTags.map((tag) => tag.name)} />
           <button
             className={`dc-action dc-action--icon${connectionsOpen ? ' dc-action--connections-active' : ''}`}

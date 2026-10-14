@@ -10,24 +10,16 @@ import { requireApiData } from '../../services/apiError';
 
 interface SparkCaptureButtonProps {
   sourceId: string;
-  sourceType: string;
-  title: string;
-  synopsis: string | null;
   initialTags?: string[];
 }
 
 export const SparkCaptureButton: React.FC<SparkCaptureButtonProps> = ({
-  sourceId, sourceType, title, synopsis, initialTags = [],
+  sourceId, initialTags = [],
 }) => {
   const qc = useQueryClient();
   const saving = useRef(false);
   const mutation = useMutation({
-    mutationFn: async () => requireApiData(await api.createSpark({
-      body: [title.trim(), synopsis?.trim()].filter(Boolean).join('\n\n'),
-      tags: initialTags,
-      source_id: sourceId,
-      source_type: sourceType,
-    })),
+    mutationFn: async () => requireApiData(await api.createArticleSpark(sourceId, initialTags)),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['sparks'] });
       void qc.invalidateQueries({ queryKey: ['spark-clusters'] });
@@ -42,7 +34,7 @@ export const SparkCaptureButton: React.FC<SparkCaptureButtonProps> = ({
       <button
         type="button"
         className={`dc-action dc-action--spark${mutation.isSuccess ? ' dc-action--spark-active' : ''}`}
-        title={mutation.isSuccess ? 'Spark saved from this article' : 'Create a spark from the article synopsis'}
+        title={mutation.isSuccess ? 'Spark saved from this article' : 'Read the article and create a spark from its argument'}
         disabled={mutation.isPending || mutation.isSuccess}
         aria-busy={mutation.isPending}
         onClick={(event) => {
@@ -53,7 +45,7 @@ export const SparkCaptureButton: React.FC<SparkCaptureButtonProps> = ({
         }}
       >
         {mutation.isSuccess ? <Checkmark size={14} /> : <Flash size={14} />}
-        {mutation.isPending ? 'Saving...' : mutation.isSuccess ? 'Spark saved' : 'Spark'}
+        {mutation.isPending ? 'Reading article...' : mutation.isSuccess ? 'Spark saved' : 'Spark'}
       </button>
       {mutation.isError && (
         <span className="dc-spark-error" role="alert">

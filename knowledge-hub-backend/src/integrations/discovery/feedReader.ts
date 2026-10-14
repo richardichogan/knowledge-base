@@ -139,7 +139,7 @@ async function assertPublicUrl(raw: string): Promise<URL> {
 const MAX_REDIRECTS = 5;
 
 /** fetch that follows redirects itself, checking every hop is a public address. */
-async function fetchPublic(raw: string, init: { headers: Record<string, string>; timeoutMs: number }): Promise<Response> {
+export async function fetchPublic(raw: string, init: { headers: Record<string, string>; timeoutMs: number }): Promise<Response> {
   let url = await assertPublicUrl(raw);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const response = await fetch(url, { headers: init.headers, redirect: 'manual', signal: AbortSignal.timeout(init.timeoutMs) });

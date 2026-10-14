@@ -47,6 +47,7 @@ import { loadCurrentProjectContext } from './projectContext.js';
 import { getDiscoverSources, inspectDiscoverFeed } from './discoveryContext.js';
 import { getAssetToolDefinitions, isAssetTool, executeAssetTool } from './assetTools.js';
 import { searchKnowledgeGraph as searchGraph } from './graphInference.js';
+import { readPublicPage, readingExcerpt } from '../utils/articleReading.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -1735,132 +1736,23 @@ async function linkNoteToDiscoveredArticles(db: Pool, noteId: string, projectId:
 
 // ── fetch_web_page ──────────────────────────────────────────────────────────
 
-/** Cap on how much extracted page text we hand to the model. */
-const WEB_PAGE_MAX_CHARS = 8_000;
-/** Cap on raw bytes read from the response before we give up (avoids huge downloads). */
-const WEB_PAGE_MAX_BYTES = 2_000_000;
-const WEB_FETCH_TIMEOUT_MS = 10_000;
-
-/**
- * Blocks SSRF-risky targets: non-http(s) schemes, loopback/private/link-local
- * ranges, and other non-routable addresses. Resolves the hostname first so
- * a public DNS name that points at an internal IP is also caught, not just
- * literal IPs in the URL.
- */
-async function assertSafeExternalUrl(rawUrl: string): Promise<URL> {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new Error('Not a valid URL');
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('Only http/https URLs are allowed');
-  }
-
-  const { lookup } = await import('node:dns/promises');
-  const { isIPv4, isIPv6 } = await import('node:net');
-
-  let address: string;
-  try {
-    const result = await lookup(parsed.hostname);
-    address = result.address;
-  } catch {
-    throw new Error('Could not resolve host');
-  }
-
-  if (isIPv4(address)) {
-    const [a, b] = address.split('.').map(Number);
-    const isPrivate =
-      a === 10 ||
-      a === 127 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b !== undefined && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      a === 0;
-    if (isPrivate) throw new Error('Refusing to fetch a private/internal address');
-  } else if (isIPv6(address)) {
-    const normalised = address.toLowerCase();
-    if (normalised === '::1' || normalised.startsWith('fc') || normalised.startsWith('fd') || normalised.startsWith('fe80')) {
-      throw new Error('Refusing to fetch a private/internal address');
-    }
-  }
-
-  return parsed;
-}
-
-/** Strips scripts/styles/tags from HTML and collapses whitespace into plain readable text. */
-function htmlToPlainText(html: string): { title: string | undefined; text: string } {
-  const titleMatch = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
-  const title = titleMatch?.[1]?.trim();
-
-  const withoutNoise = html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ');
-  const text = withoutNoise
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n\s*\n+/g, '\n\n')
-    .trim();
-
-  return { title, text };
-}
-
 export async function fetchWebPage(args: Record<string, unknown>): Promise<unknown> {
   const rawUrl = typeof args['url'] === 'string' ? args['url'].trim() : '';
   if (rawUrl === '') return { error: 'url is required' };
 
-  let url: URL;
   try {
-    url = await assertSafeExternalUrl(rawUrl);
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Invalid or disallowed URL' };
-  }
-
-  try {
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'KnowledgeHubBot/1.0 (+athena assistant)' },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(WEB_FETCH_TIMEOUT_MS),
-    });
-
-    if (!response.ok) {
-      return { error: `Fetch failed: ${response.status} ${response.statusText}`, url: url.toString() };
-    }
-
-    const contentType = response.headers.get('content-type') ?? '';
-    if (!/text\/html|text\/plain|application\/json|application\/xml|text\/xml/i.test(contentType)) {
-      return { error: `Unsupported content type: ${contentType || 'unknown'}`, url: url.toString() };
-    }
-
-    // Cap how much we read — some servers ignore range requests, so bound
-    // the buffered text instead of trusting content-length.
-    const buf = await response.arrayBuffer();
-    const bytes = buf.byteLength > WEB_PAGE_MAX_BYTES ? buf.slice(0, WEB_PAGE_MAX_BYTES) : buf;
-    const raw = Buffer.from(bytes).toString('utf-8');
-
-    const isHtml = /text\/html/i.test(contentType);
-    const { title, text } = isHtml ? htmlToPlainText(raw) : { title: undefined, text: raw.trim() };
-
-    const truncated = text.length > WEB_PAGE_MAX_CHARS;
+    const { title, text } = await readPublicPage(rawUrl);
+    const excerpt = readingExcerpt(text);
     return {
       success: true,
-      url: url.toString(),
-      title: title ?? url.hostname,
-      content: truncated ? `${text.slice(0, WEB_PAGE_MAX_CHARS)}…` : text,
-      truncated,
+      url: rawUrl,
+      title,
+      content: excerpt.text,
+      truncated: excerpt.truncated,
+      coverage: excerpt.truncated ? 'Opening, middle and conclusion excerpts; not the full article' : 'Complete extracted page text',
     };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Fetch failed', url: url.toString() };
+    return { error: err instanceof Error ? err.message : 'Fetch failed', url: rawUrl };
   }
 }
 

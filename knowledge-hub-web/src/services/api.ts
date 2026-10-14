@@ -1630,6 +1630,11 @@ export class KnowledgeHubApi {
 
   // ─── Sparks ──────────────────────────────────────────────────────────────
 
+  async createArticleSpark(sourceId: string, tags: string[] = []): Promise<ApiResponse<Spark>> {
+    return (await this.client.post<ApiResponse<Spark>>('/api/sparks/from-article',
+      { source_id: sourceId, tags }, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+
   async createSpark(input: {
     body: string;
     tags?: string[];

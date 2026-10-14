@@ -332,6 +332,11 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- `fetch_web_page`: reads a specific URL. Whenever the user includes an http(s) URL, call this before ' +
     'commenting on what the page says. Treat the page itself as primary evidence; do not answer from the URL ' +
     'slug, prior assumptions, or a guessed continuation of the conversation.',
+  '- When judging or grouping an article the user shares, read its source text (fetch its URL or read the full Think note), ' +
+    'including enough of the reasoning and conclusion to identify the actual argument. A title, feed description, ' +
+    'search snippet or old relevance score is not evidence of what the article argues. For long sources read further ' +
+    'or extract the text as needed. If blocked or incomplete, say exactly what you could read and withhold the judgement; ' +
+    'do not pretend to have read it or infer the missing argument.',
   'After calling a tool, always confirm in plain language what you did (include the task/note title, and ' +
     'ID if useful) — never claim to have done something without actually calling the tool.',
   'Do not call create_task, update_task, create_note_draft, or create_spark again for something you already created or ' +

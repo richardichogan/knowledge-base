@@ -28,6 +28,7 @@ const tests = frontend ? [
   'scripts/plan-review.test.ts',
   'scripts/plan-nudges.test.ts',
   'scripts/blog-quick-take.test.ts',
+  'scripts/spark-grounding.test.ts',
 ];
 // Do not inherit local integration credentials or let dotenv load application settings.
 const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'COMSPEC', 'PATHEXT']);

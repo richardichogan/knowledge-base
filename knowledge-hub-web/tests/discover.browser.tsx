@@ -70,17 +70,14 @@ api.updateDiscoverWorkflow = async (id, state) => {
   if (failWorkflow) throw new Error('Workflow unavailable');
   return success({});
 };
-api.createSpark = async (input) => {
+api.createArticleSpark = async (sourceId, tags) => {
   sparkWrites++;
-  check(input.body === 'A public cloud management announcement\n\nA useful enterprise IT update.',
-    'Spark contains the article title and synopsis without requiring writing');
-  check(input.source_id === articleId && input.source_type === 'discover_item',
-    'Spark stays linked to its original Discover article');
+  check(sourceId === articleId, 'Spark asks the server to read its original article, not an old feed synopsis');
   await new Promise(resolve => setTimeout(resolve, 50));
   if (failSpark) return failure();
   return success({
     id: 'fixture-spark', sourceId: articleId, sourceType: 'discover_item', sourceTitle: 'A public cloud management announcement',
-    body: input.body, tags: input.tags ?? [], clusterId: null, createdAt: now,
+    body: 'A public cloud management announcement\n\nThe argument from the full article.', tags: tags ?? [], clusterId: null, createdAt: now,
     usedAt: null, usedType: null, usedRef: null, usedTitle: null,
   });
 };

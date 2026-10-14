@@ -3,6 +3,7 @@
  * REST API for sparks and spark clusters.
  *
  * POST   /api/sparks              — create a spark
+ * POST   /api/sparks/from-article — read a Discover article and capture its argument
  * GET    /api/sparks              — list sparks (query: source_id, source_type, cluster_id, attached, clustered, q, limit, offset)
  * GET    /api/sparks/related      — sparks captured from / connected to an item (query: ref_id, ref_type)
  * PATCH  /api/sparks/:id          — edit body, move theme (cluster_id, null = loose), mark used (used, null = clear)
@@ -27,6 +28,7 @@ import { findEarlierPosts, generateIdeasBlogDraft } from '../ai/blogDraft.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { Spark, SparkOutput, ThemeStatus, UpdateSparkInput, UpdateThemeInput } from '../services/sparkService.js';
+import { readDiscoverArgument } from '../services/sparkSourceReading.js';
 
 const OUTPUT_TYPES = ['note', 'blog', 'canvas', 'project', 'tasks'];
 
@@ -42,6 +44,28 @@ function parseOutput(v: unknown): SparkOutput | null | undefined {
 
 export const sparkRouter = Router();
 export const sparkClusterRouter = Router();
+
+sparkRouter.post('/from-article', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { source_id, tags } = req.body as { source_id?: unknown; tags?: unknown };
+      if (typeof source_id !== 'string' || !source_id.trim()) throw new ValidationError('source_id is required');
+      const tagNames: string[] = [];
+      if (tags !== undefined) {
+        if (!Array.isArray(tags)) throw new ValidationError('tags must be an array of names');
+        for (const tag of tags) {
+          if (typeof tag !== 'string') throw new ValidationError('tags must be an array of names');
+          tagNames.push(tag);
+        }
+      }
+      const db = getDb();
+      const source = await readDiscoverArgument(db, source_id);
+      const spark = await createSpark(db, { body: `${source.title}\n\n${source.argument}`,
+        sourceId: source_id, sourceType: 'discover_item', tags: tagNames });
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: spark });
+    } catch (error) { next(error); }
+  })();
+});
 
 // ── POST /api/sparks ──────────────────────────────────────────────────────────
 

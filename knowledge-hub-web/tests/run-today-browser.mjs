@@ -9,6 +9,7 @@ assert.ok(browserPath, 'Set TODAY_BROWSER_PATH to an installed Chromium browser 
 const fixtureUrl = process.env.TODAY_FIXTURE_URL ?? 'http://localhost:5142/tests/today.html';
 const navigationChecks = process.env.ATHENA_BROWSER_CHECKS === 'navigation';
 const discoverChecks = process.env.ATHENA_BROWSER_CHECKS === 'discover';
+const sparkChecks = process.env.ATHENA_BROWSER_CHECKS === 'sparks';
 const thinkSearchChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-search';
 const connectionsChecks = process.env.ATHENA_BROWSER_CHECKS === 'connections';
 const authSessionChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-session';
@@ -113,6 +114,7 @@ try {
         : imagineBriefChecks ? 'typeof window.runImagineBriefChecks === "function" && document.querySelector("#compact-skill .ai-demo-brief-skill") !== null'
         : markdownExportChecks ? 'typeof window.runMarkdownExportChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
         : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
+        : sparkChecks ? 'typeof window.runSparkChecks === "function" && document.querySelector(".spark-item__drag") !== null'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
         : notePopoutChecks ? 'typeof window.runNotePopoutChecks === "function" && document.querySelector(".notes-popout-btn") !== null'
@@ -215,8 +217,22 @@ try {
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;
     }
-    if (thinkSaveChecks || thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks || noteHistoryChecks || notePopoutChecks || authCallbackChecks || imagineBriefChecks || markdownExportChecks) {
-      const results = await evaluate(notePopoutChecks ? 'window.runNotePopoutChecks()' : thinkSaveChecks ? 'window.runThinkSaveChecks()' : markdownExportChecks ? 'window.runMarkdownExportChecks()' : imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
+    if (sparkChecks || thinkSaveChecks || thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks || noteHistoryChecks || notePopoutChecks || authCallbackChecks || imagineBriefChecks || markdownExportChecks) {
+      if (sparkChecks && process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        await evaluate('window.prepareSparkDrag()');
+        await command('Page.bringToFront');
+        const image = await command('Page.captureScreenshot', { format: 'png' });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `sparks-drag-${width}.png`), Buffer.from(image.data, 'base64'));
+        await evaluate('window.cancelSparkDrag()');
+      }
+      const results = await evaluate(sparkChecks ? 'window.runSparkChecks()' : notePopoutChecks ? 'window.runNotePopoutChecks()' : thinkSaveChecks ? 'window.runThinkSaveChecks()' : markdownExportChecks ? 'window.runMarkdownExportChecks()' : imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
+      if (sparkChecks && process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        await command('Page.bringToFront');
+        const image = await command('Page.captureScreenshot', { format: 'png' });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `sparks-${width}.png`), Buffer.from(image.data, 'base64'));
+      }
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       if (notePopoutChecks && process.env.TODAY_ARTIFACT_DIR) {
         await command('Page.navigate', { url: `${fixtureUrl}?reader=1` });
