@@ -1,11 +1,17 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Shape drill-down diagrams and pending Think save-status / Canvas
-Properties overflow fixes. Existing ACA, ACR and production SWA.
+**Deployment:** Automatic diagram line jumps. Frontend-only production SWA
+content update; existing backend v194 remains unchanged.
 
 ## 1. Scope
+
+Approved 2026-10-14 at 19:19 BST: deploy application `947d57b` to the existing
+production Static Web App. Automatic curved bridges on connector and standalone
+line crossings, matching SVG/PNG rendering and native draw.io arc configuration.
+No backend, migration, infrastructure, environment, role or secret changes.
+Rollback frontend: source `cdca5cb`, bundle `index-DyU2VQXo.js`.
 
 Approved 2026-10-14 at 16:56 BST: deploy application `c00598e` with pending
 fixes `2390775` and `3a32810`. Backend v193 advances to v194 after ACR build
@@ -233,6 +239,27 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-14 following the 19:19 BST deployment request:
+
+- `git fetch origin` / `git merge origin/main`: already up to date at application
+  source `947d57b`; only unrelated `.impeccable/` remains untracked.
+- Both applications: `npx tsc --noEmit` and `npm run build` passed after sync.
+- Implementation regressions: 11 shared bridge/theme tests, 31 geometry tests
+  and 5 draw.io tests passed. Browser checks passed at 1440 and 390, including
+  native pointer selection, movement/undo and transparent/white export pixel gaps.
+- Frontend lint non-regression passed with 25 existing violations; fixture typing
+  retains only the five documented unrelated baseline errors.
+- Azure CLI 2.77.0 authenticated against established production subscription
+  `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28` (Enabled). Azure MCP lists no subscriptions;
+  CLI resource reads succeeded. SWA `kh-prod-web` is the established Free tier
+  resource in West Europe.
+- Backend remains `kh-prod-api:v194`, revision `kh-prod-api-vnet--0000191`,
+  Healthy / RunningAtMaxScale, identity None. No backend build deployment needed.
+- No IaC, policy, RBAC, Docker or registry changes: template compilation,
+  what-if, provisioning, role propagation and ACR build are not applicable to
+  this frontend-content-only release. Existing hosting/registry credentials retained.
+- No deployment credentials printed or persisted.
 
 Deployed 2026-10-14 at 17:04 BST:
 
