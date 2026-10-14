@@ -2864,10 +2864,10 @@ input, textarea {
 
 .kb-card__title {
   flex: 1;
-  font-size: 0.875rem;
-  font-weight: 400;
+  font-size: 1.125rem;
+  font-weight: 500;
   color: var(--cds-text-primary);
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 // Notes snippet — 2 lines max
@@ -15785,8 +15785,8 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
   padding: 0;
   text-align: left;
   font: inherit;
-  font-size: 0.875rem;
-  line-height: 1.4;
+  font-size: 1.125rem;
+  line-height: 1.35;
   color: var(--cds-text-primary);
   cursor: pointer;
 
@@ -16012,8 +16012,8 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
 }
 
 .kb-focus-row__title {
-  font-size: 0.875rem;
-  line-height: 1.4;
+  font-size: 1.125rem;
+  line-height: 1.35;
   color: var(--cds-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
