@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { DiagramEditor } from '../src/features/diagram/DiagramEditor';
 import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types';
-import type { DiagramDocument, DiagramNode, DiagramSnapshot } from '../src/features/diagram/diagramTypes';
+import { emptyDiagram, type DiagramDocument, type DiagramNode, type DiagramSnapshot } from '../src/features/diagram/diagramTypes';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
 import { footnoteBlock } from '../src/features/diagram/diagramAnnotations';
 import { diagramBounds, documentWaveDepth, edgeEndpoints, lineGeometry, linePoints, portPoint } from '../src/features/diagram/diagramGeometry';
@@ -50,23 +50,53 @@ const doc: DiagramDocument = {
 let snapshot: DiagramSnapshot = { revision: 0, document: structuredClone(doc) };
 let saves = 0;
 let conflict = false;
+const children = new Map<string, DiagramSnapshot>();
+const drilldownLinks = new Map<string, { nodeId: string; canvasId: string; title: string }>();
+let failDrilldown = false;
+let failChildSave = false;
+let drilldownRequests = 0;
 let missingDiagram = false;
 const noteId = crypto.randomUUID();
 let linkedNotes: Array<{ id: string; title: string }> = [];
 let openedNote: string | null = null;
-api.getDiagram = async () => {
+api.getDiagram = async (id) => {
+  if (id !== canvasId) return success(structuredClone(children.get(id)!));
   if (missingDiagram) throw Object.assign(new Error('Diagram not found'), { isAxiosError: true, response: { status: 404 } });
   return success(structuredClone(snapshot));
 };
-api.getCanvas = async () => success({
-  id: canvasId, title: 'Enterprise architecture / process flow', canvasType: 'diagram',
+api.getCanvas = async (id) => success({
+  id, title: id === canvasId ? 'Enterprise architecture / process flow' : 'Runtime internals', canvasType: 'diagram',
   description: null, project: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   linkedNotes, nodeCount: snapshot.document.nodes.length, nodes: [], edges: [], viewport: snapshot.document.viewport,
 });
 api.saveDiagram = async (_id, revision, document) => {
+  if (_id !== canvasId) {
+    if (failChildSave) throw new Error('Child save unavailable');
+    const current = children.get(_id)!;
+    if (current.revision !== revision) throw new Error('Child revision mismatch');
+    const saved = { revision: revision + 1, document: structuredClone(document) };
+    children.set(_id, saved);
+    return success(structuredClone(saved));
+  }
   if (conflict || revision !== snapshot.revision) throw Object.assign(new Error('Another session updated this diagram'), { isAxiosError: true, response: { status: 409 } });
   snapshot = { revision: revision + 1, document: structuredClone(document) }; saves++;
   return success(structuredClone(snapshot));
+};
+api.listDiagramDrilldowns = async id => success([...drilldownLinks.entries()]
+  .filter(([key]) => key.startsWith(`${id}:`)).map(([, link]) => link));
+api.openDiagramDrilldown = async (id, nodeId, revision) => {
+  drilldownRequests++;
+  if (failDrilldown) throw new Error('Drill-down unavailable');
+  const current = id === canvasId ? snapshot : children.get(id)!;
+  check(current.revision === revision, 'Drill-down opens against the saved revision');
+  check(current.document.nodes.some(node => node.id === nodeId), 'New shape saves before creating its drill-down');
+  const key = `${id}:${nodeId}`;
+  if (!drilldownLinks.has(key)) {
+    const childId = crypto.randomUUID();
+    children.set(childId, { revision: 0, document: emptyDiagram() });
+    drilldownLinks.set(key, { nodeId, canvasId: childId, title: 'Runtime internals' });
+  }
+  return success(drilldownLinks.get(key)!);
 };
 api.getDiagramAsset = async (_id, id) => {
   const blob = assets.get(id);
@@ -164,6 +194,86 @@ async function runDiagramPropertiesChecks(): Promise<string[]> {
   properties.scrollTop = 0;
   return ['Properties controls fit without horizontal scrolling, including long project names',
     'Vertical scrolling remains available when Properties content exceeds the panel height'];
+}
+async function runDiagramDrilldownChecks(): Promise<string[]> {
+      await waitFor(() => window.document.querySelector('.dg-editor') !== null);
+      const parent = window.document.querySelector<HTMLElement>('.dg-editor')!;
+      const selectShape = (root: Element, id: string): void => {
+        root.querySelector(`g.dg-node[data-id="${id}"]`)!.dispatchEvent(new PointerEvent('pointerdown', {
+          bubbles: true, button: 0, pointerId: 1,
+        }));
+        root.querySelector('svg.dg-canvas')!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+      };
+      const findButton = (root: Element, label: string): HTMLButtonElement =>
+        [...root.querySelectorAll<HTMLButtonElement>('button')].find(button =>
+          button.textContent?.trim() === label || button.getAttribute('aria-label') === label)!;
+      const activeDialog = (): HTMLDialogElement => [...window.document.querySelectorAll<HTMLDialogElement>('dialog.dg-drilldown[open]')].at(-1)!;
+      const clickDrilldown = async (root: Element, label: string): Promise<void> => {
+        await waitFor(() => findButton(root, label)?.disabled === false);
+        findButton(root, label).click();
+      };
+      selectShape(parent, workforce.id);
+      await waitFor(() => findButton(parent, 'Add drill-down diagram')?.disabled === false);
+      await waitFor(() => parent.querySelector('.dg-status--saved') !== null);
+      const beforeParent = structuredClone(snapshot);
+      failDrilldown = true;
+      await clickDrilldown(parent, 'Add drill-down diagram');
+      await waitFor(() => parent.textContent?.includes('Drill-down unavailable') === true);
+      check(window.document.querySelector('dialog.dg-drilldown') === null, 'Failed creation never opens an empty success popup');
+      failDrilldown = false;
+      const requestCount = drilldownRequests;
+      const add = findButton(parent, 'Add drill-down diagram');
+      add.click(); add.click();
+      await waitFor(() => window.document.querySelector('dialog.dg-drilldown[open] .dg-canvas') !== null);
+      check(drilldownRequests === requestCount + 1, 'Double click creates only one detail diagram');
+      const first = activeDialog();
+      await waitFor(() => first.querySelector('.dg-status--saved') !== null);
+      check(first.querySelector('h2')?.textContent === 'Workforce agents', 'Popup identifies the parent shape');
+      check(first.querySelector('.dg-drilldown__context p')?.textContent?.includes('Enterprise architecture') === true, 'Parent context remains visible');
+      check(first.scrollWidth <= first.clientWidth && window.document.documentElement.scrollWidth <= innerWidth + 1, 'Drill-down fits desktop and narrow screens');
+      check(first.contains(window.document.activeElement), 'Focus enters the modal');
+      findButton(first, 'Add Process').click();
+      await waitFor(() => first.querySelectorAll('g.dg-node').length === 1);
+      const childId = drilldownLinks.get(`${canvasId}:${workforce.id}`)!.canvasId;
+      const childShape = first.querySelector<SVGGElement>('g.dg-node')!.dataset.id!;
+      failChildSave = true;
+      findButton(first, 'Close drill-down').click();
+      await waitFor(() => first.querySelector('.dg-drilldown__error') !== null);
+      check(first.open && first.querySelectorAll('g.dg-node').length === 1, 'Failed close-save retains the open detail and its writing');
+      failChildSave = false;
+      findButton(first, 'Retry').click();
+      await waitFor(() => first.querySelector('.dg-status--saved') !== null);
+      await clickDrilldown(first, 'Add drill-down diagram');
+      await waitFor(() => window.document.querySelectorAll('dialog.dg-drilldown[open]').length === 2);
+      const second = activeDialog();
+      await waitFor(() => second.querySelector('svg.dg-canvas') !== null);
+      findButton(second, 'Add Process').click();
+      await waitFor(() => second.querySelectorAll('g.dg-node').length === 1);
+      findButton(second, 'Close drill-down').click();
+      await waitFor(() => window.document.querySelectorAll('dialog.dg-drilldown[open]').length === 1);
+      check(children.get(drilldownLinks.get(`${childId}:${childShape}`)!.canvasId)?.document.nodes.length === 1,
+        'Nested drill-down saves before returning one level');
+      check(first.open && first.querySelectorAll('g.dg-node').length === 1, 'Returning leaves the immediate parent intact');
+      const childRoot = first.querySelector<HTMLElement>('.dg-editor')!;
+      childRoot.focus();
+      childRoot.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+      await waitFor(() => first.querySelectorAll('g.dg-node').length === 0);
+      check(snapshot.document.nodes.length === beforeParent.document.nodes.length, 'Child keyboard deletion never affects the outer diagram');
+      childRoot.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+      await waitFor(() => first.querySelectorAll('g.dg-node').length === 1);
+      first.dispatchEvent(new Event('cancel', { cancelable: true }));
+      await waitFor(() => window.document.querySelector('dialog.dg-drilldown') === null);
+      check(children.get(childId)?.document.nodes.length === 1, 'Escape saves the detail diagram before closing');
+      check(JSON.stringify(snapshot) === JSON.stringify(beforeParent), 'Parent document, selection and viewport are untouched');
+      check(parent.querySelector(`g.dg-node[data-id="${workforce.id}"]`)?.classList.contains('dg-node--selected') === true, 'Parent selection survives drill-down');
+      await waitFor(() => parent.querySelector('.dg-drilldown-marker') !== null);
+      const marker = parent.querySelector<SVGGElement>('.dg-drilldown-marker')!;
+      marker.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await waitFor(() => window.document.querySelector('dialog.dg-drilldown[open] g.dg-node') !== null);
+      check(children.size === 2 && activeDialog().querySelectorAll('g.dg-node').length === 1, 'Marker reopens saved detail without creating another canvas');
+      return ['Creation errors are explicit; duplicate opens are guarded', 'Editable nested diagrams persist and reopen from a shape marker',
+        'Save failure blocks closing without losing changes; retry succeeds', 'Nested navigation, Escape, focus and keyboard editing are isolated',
+        'Parent selection, document and viewport remain intact', 'Popup fits desktop and mobile'];
 }
 async function runDiagramChecks(): Promise<string[]> {
   check(getComputedStyle(window.document.querySelector('.dg-sheet')!).backgroundColor === 'rgb(22, 22, 22)', 'Diagram sheet must match the dark Athena theme');
@@ -731,7 +841,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Bundled Microsoft icon picker loads and embeds an official icon', 'Save and reopen retain labels and icons',
     'Missing diagram displays an explicit load error', 'No horizontal page overflow'];
 }
-Object.assign(window, { runDiagramChecks, runDiagramPropertiesChecks, diagramFixture: {
+Object.assign(window, { runDiagramChecks, runDiagramPropertiesChecks, runDiagramDrilldownChecks, diagramFixture: {
   snapshot: () => structuredClone(snapshot), saves: () => saves, conflict: (value: boolean) => { conflict = value; },
   waitFor, clickButton,
 } });

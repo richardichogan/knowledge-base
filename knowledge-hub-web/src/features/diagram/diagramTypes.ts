@@ -74,6 +74,7 @@ export interface DiagramLegend {
   entries: DiagramLegendEntry[];
 }
 export interface DiagramSnapshot { revision: number; document: DiagramDocument }
+export interface DiagramDrilldownLink { nodeId: string; canvasId: string; title: string }
 export interface DiagramAsset { id: string; name: string; contentType: string }
 
 export const emptyDiagram = (): DiagramDocument => ({

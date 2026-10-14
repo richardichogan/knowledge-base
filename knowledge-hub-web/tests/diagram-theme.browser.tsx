@@ -17,6 +17,7 @@ document.nodes = kinds.map((kind, i) => ({
 document.edges = [{ id: 'edge', sourceId: 'process', targetId: 'decision', sourcePort: 'right', targetPort: 'left',
   route: 'straight', waypoints: [], label: 'Connector', stroke: '#525252', dashed: false, arrows: 'end' }];
 api.getDiagram = async () => ({ success: true, data: { revision: 0, document } });
+api.listDiagramDrilldowns = async () => ({ success: true, data: [] });
 api.getCanvas = async () => ({ success: true, data: {
   id: 'theme', title: 'Dark diagram', description: null, canvasType: 'diagram', project: null,
   createdAt: '', updatedAt: '', linkedNotes: [], nodeCount: document.nodes.length,

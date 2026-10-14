@@ -36,7 +36,7 @@ import type {
 import { getApiToken } from './auth';
 import { normaliseTask } from '../types/task';
 import type { TaskPriority, AtRiskTask, DayCheckin, CheckinAction } from '../types/task';
-import type { DiagramAsset, DiagramDocument, DiagramSnapshot } from '../features/diagram/diagramTypes';
+import type { DiagramAsset, DiagramDocument, DiagramDrilldownLink, DiagramSnapshot } from '../features/diagram/diagramTypes';
 import type { GitHubPublication, GitHubPushPayload } from '../notes/types';
 
 export type ProjectRegisterKind = 'question' | 'risk' | 'issue';
@@ -1808,6 +1808,15 @@ export class KnowledgeHubApi {
 
   async getDiagram(id: string): Promise<ApiResponse<DiagramSnapshot>> {
     return (await this.client.get<ApiResponse<DiagramSnapshot>>(`/api/canvases/${id}/diagram`)).data;
+  }
+
+  async listDiagramDrilldowns(id: string): Promise<ApiResponse<DiagramDrilldownLink[]>> {
+    return (await this.client.get<ApiResponse<DiagramDrilldownLink[]>>(`/api/canvases/${id}/drilldowns`)).data;
+  }
+
+  async openDiagramDrilldown(id: string, nodeId: string, revision: number): Promise<ApiResponse<DiagramDrilldownLink>> {
+    return (await this.client.post<ApiResponse<DiagramDrilldownLink>>(
+      `/api/canvases/${id}/elements/${nodeId}/drilldown`, { revision })).data;
   }
 
   async saveDiagram(id: string, revision: number, document: DiagramDocument): Promise<ApiResponse<DiagramSnapshot>> {

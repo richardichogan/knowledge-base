@@ -25,6 +25,7 @@ import {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const KEEP_REVISIONS = 50;
+const DRILLDOWN_TITLE_MAX = 200;
 
 export function canvasTypeMismatch(actual: CanvasType): ConflictError {
   return new ConflictError(
@@ -82,6 +83,63 @@ export async function getDiagram(canvasId: string): Promise<DiagramSnapshot> {
   const initialized = await read();
   if (initialized === null) throw new NotFoundError('Diagram');
   return initialized;
+}
+
+export interface DiagramDrilldown { nodeId: string; canvasId: string; title: string }
+
+export async function listDrilldowns(canvasId: string): Promise<DiagramDrilldown[]> {
+  const db = getDb();
+  await requireCanvasType(canvasId, 'diagram', db);
+  const r = await db.query<DiagramDrilldown>(
+    `SELECT d.node_id AS "nodeId", c.id AS "canvasId", c.title
+     FROM diagram_drilldowns d JOIN canvases c ON c.id = d.child_canvas_id
+     WHERE d.canvas_id = $1`, [canvasId]);
+  return r.rows;
+}
+
+/** Creation and association are atomic; the parent lock also prevents duplicate children. */
+export async function openDrilldown(canvasId: string, nodeId: string, body: unknown): Promise<DiagramDrilldown> {
+  if (!UUID_RE.test(nodeId)) throw new ValidationError('nodeId must be a UUID', { nodeId: 'invalid' });
+  if (typeof body !== 'object' || body === null || Array.isArray(body)
+    || Object.keys(body).some(key => key !== 'revision')) {
+    throw new ValidationError('Body must be { revision }', { body: 'invalid' });
+  }
+  const revision = validateRevision((body as { revision?: unknown }).revision);
+  const client = await getDb().connect();
+  try {
+    await client.query('BEGIN');
+    await requireCanvasType(canvasId, 'diagram', client, true);
+    const current = await client.query<{ revision: number; document: DiagramDocument; project: string | null }>(
+      `SELECT d.revision, d.document, c.project FROM canvas_diagrams d
+       JOIN canvases c ON c.id = d.canvas_id WHERE d.canvas_id = $1`, [canvasId]);
+    const parent = current.rows[0];
+    if (parent === undefined) throw new NotFoundError('Diagram');
+    if (parent.revision !== revision) {
+      throw new ConflictError('The parent diagram changed. Reload before opening a drill-down.',
+        'DIAGRAM_REVISION_CONFLICT', { revision: String(parent.revision) });
+    }
+    const node = parent.document.nodes.find(item => item.id === nodeId);
+    if (node === undefined) throw new NotFoundError('Diagram shape');
+    const existing = await client.query<DiagramDrilldown>(
+      `SELECT d.node_id AS "nodeId", c.id AS "canvasId", c.title FROM diagram_drilldowns d
+       JOIN canvases c ON c.id = d.child_canvas_id WHERE d.canvas_id = $1 AND d.node_id = $2`, [canvasId, nodeId]);
+    let result = existing.rows[0];
+    if (result === undefined) {
+      const title = `${node.label.trim() || 'Untitled shape'} - detail`.slice(0, DRILLDOWN_TITLE_MAX);
+      const child = await client.query<{ id: string }>(
+        `INSERT INTO canvases (title, project, canvas_type) VALUES ($1, $2, 'diagram') RETURNING id`, [title, parent.project]);
+      const childId = child.rows[0]!.id;
+      await initDiagram(client, childId);
+      await client.query(
+        `INSERT INTO diagram_drilldowns (canvas_id, node_id, child_canvas_id) VALUES ($1, $2, $3)`, [canvasId, nodeId, childId]);
+      result = { nodeId, canvasId: childId, title };
+    }
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally { client.release(); }
 }
 
 /**

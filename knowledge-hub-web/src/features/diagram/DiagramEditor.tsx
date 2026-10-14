@@ -45,6 +45,7 @@ import {
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { DiagramMetadata } from './DiagramMetadata';
+import { DiagramDrilldown } from './DiagramDrilldown';
 import { exportDiagram, type DiagramExportFormat } from './diagramExport';
 import {
   addFootnote, collapseView, fixTextIssues, footnoteAnchor, footnoteBlock, footnoteHref, footnotesOf, presentationSteps, pruneFootnotes, setLegend,
@@ -188,6 +189,7 @@ export interface DiagramEditorProps {
   openTab?: string | undefined;
   /** Footnote number to show when the diagram opens (from a /think?mapId=…&footnote=n link). */
   initialFootnote?: number | undefined;
+  onSaveReady?: ((save: (() => Promise<boolean>) | null) => void) | undefined;
 }
 
 type LoadState =
@@ -204,7 +206,7 @@ function notesBlockOf(d: DiagramDocument, hidden: boolean): FootnoteBlock | null
   return footnoteBlock(d, diagramBounds({ nodes: shown.nodes, edges: shown.edges }, 0), d.notesPanel ?? 'bottom', EMPTY_NOTE);
 }
 
-export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote, initialFootnote }) => {
+export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote, initialFootnote, onSaveReady }) => {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -242,7 +244,7 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDelete
       </div>
     );
   }
-  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} initialFootnote={initialFootnote} />;
+  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} initialFootnote={initialFootnote} onSaveReady={onSaveReady} />;
 };
 
 // ── Surface ───────────────────────────────────────────────────────────────────
@@ -285,11 +287,12 @@ interface SurfaceProps {
   onDeleted?: (() => void) | undefined;
   onOpenNote?: ((id: string) => void) | undefined;
   initialFootnote?: number | undefined;
+  onSaveReady?: DiagramEditorProps['onSaveReady'];
 }
 
 const LABEL_OFFSET_MAX = 10000;
 
-const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote, initialFootnote }) => {
+const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote, initialFootnote, onSaveReady }) => {
   const queryClient = useQueryClient();
   const markerBase = `dg${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
@@ -312,6 +315,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [exportBg, setExportBg] = useState<'white' | 'transparent'>('white');
   const [exportGrid, setExportGrid] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
+  const [drilldown, setDrilldown] = useState<{ canvasId: string; shapeTitle: string } | null>(null);
+  const [openingDrilldown, setOpeningDrilldown] = useState(false);
+  const openingDrilldownRef = useRef(false);
   const [athenaOpen, setAthenaOpen] = useState(false);
   const [athenaMounted, setAthenaMounted] = useState(false);
   const [athenaPrompt, setAthenaPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
@@ -366,6 +372,16 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     retry: false,
   });
   const savedTitle = canvas?.title ?? 'Untitled diagram';
+  const drilldowns = useQuery({
+    queryKey: ['diagram-drilldowns', canvasId],
+    queryFn: async () => {
+      const response = await api.listDiagramDrilldowns(canvasId);
+      if (!response.success) throw new Error(response.error.message);
+      return response.data;
+    },
+    retry: false,
+  });
+  const drilldownIds = new Set(drilldowns.data?.map(item => item.nodeId) ?? []);
   const [title, setTitle] = useState(savedTitle);
   useEffect(() => { setTitle(savedTitle); }, [savedTitle]);
 
@@ -462,6 +478,33 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     }
     return s.seq === s.savedSeq && s.blocked === null;
   }, [flush]);
+
+  useEffect(() => {
+    onSaveReady?.(saveNow);
+    return () => { onSaveReady?.(null); };
+  }, [onSaveReady, saveNow]);
+
+  async function openShapeDrilldown(node: DiagramNode): Promise<void> {
+    if (openingDrilldownRef.current) return;
+    openingDrilldownRef.current = true;
+    setOpeningDrilldown(true);
+    try {
+      if (!await saveNow()) throw new Error('Save the parent diagram first. Resolve the save error or conflict above the diagram.');
+      const response = await api.openDiagramDrilldown(canvasId, node.id, save.current.rev);
+      if (!response.success) throw new Error(response.error.message);
+      pointerOverCanvasRef.current = false;
+      spaceRef.current = false;
+      setSpaceDown(false);
+      setDrilldown({ canvasId: response.data.canvasId, shapeTitle: node.label.trim() || 'Untitled shape' });
+      void queryClient.invalidateQueries({ queryKey: ['diagram-drilldowns', canvasId] });
+      void queryClient.invalidateQueries({ queryKey: ['canvases'] });
+    } catch (cause) {
+      notify('error', `Could not open drill-down: ${describeError(cause).message}`, { key: 'drilldown' });
+    } finally {
+      openingDrilldownRef.current = false;
+      setOpeningDrilldown(false);
+    }
+  }
 
   const beforeElementLink = useCallback(async (): Promise<boolean> => {
     const ok = await saveNow();
@@ -1544,7 +1587,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const reset = (): void => { spaceRef.current = false; setSpaceDown(false); };
     const keyDown = (event: KeyboardEvent): void => {
       if (event.code !== 'Space' || event.ctrlKey || event.metaKey || event.altKey
-        || !pointerOverCanvasRef.current || isTypingTarget(event.target)) return;
+        || !pointerOverCanvasRef.current || isTypingTarget(event.target)
+        || !(event.target instanceof Element) || event.target.closest('.dg-editor') !== rootRef.current) return;
       event.preventDefault();
       event.stopPropagation();
       spaceRef.current = true;
@@ -1955,6 +1999,23 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {ordered.map((n) => (
                 <NodeShape key={n.id} node={n} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id}
                   dimmed={n.kind !== 'line' && keyDim(n.stroke)} hiddenCount={display.hiddenCount.get(n.id) ?? 0} />
+              ))}
+              {ordered.filter(node => drilldownIds.has(node.id)).map(node => (
+                <g key={`drilldown-${node.id}`} className="dg-drilldown-marker" role="button" tabIndex={0}
+                  aria-label={`Open drill-down for ${node.label.trim() || 'Untitled shape'}`}
+                  transform={`translate(${node.x + node.width - 16} ${node.y + 16})`}
+                  onPointerDown={event => { event.stopPropagation(); }}
+                  onDoubleClick={event => { event.stopPropagation(); }}
+                  onClick={event => { event.stopPropagation(); void openShapeDrilldown(node); }}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault(); event.stopPropagation(); void openShapeDrilldown(node);
+                    }
+                  }}>
+                  <title>Explore internal components</title>
+                  <circle r={11} />
+                  <path d="M-4,-3 L0,-5 L4,-3 L0,-1 Z M-4,0 L0,2 L4,0 M-4,3 L0,5 L4,3" />
+                </g>
               ))}
               {display.edges.map((edge) => {
                 const route = routes.get(edge.id);
@@ -2373,6 +2434,18 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         />}
         {singleFootnote !== undefined && <DiagramFootnoteControls canvasId={canvasId} doc={doc} footnoteId={singleFootnote.id}
           onChange={changeAnnotations} onCopied={(message) => { notify('info', message, { key: 'footnote-copy' }); }} />}
+        {singleNode !== undefined && <div className="dg-drilldown-control">
+          <button type="button" className="dg-text-btn dg-text-btn--block" disabled={openingDrilldown || drilldowns.isPending || drilldowns.isError}
+            onClick={() => { void openShapeDrilldown(singleNode); }}>
+            <Layers size={16} /> {openingDrilldown ? 'Opening…' : drilldowns.isPending ? 'Loading drill-down…'
+              : drilldownIds.has(singleNode.id) ? 'Open drill-down' : 'Add drill-down diagram'}
+          </button>
+          <p>Explore this shape's internal components in a separate diagram.</p>
+        </div>}
+        {drilldowns.error !== null && <div className="dg-metadata__error" role="alert">
+          Could not load drill-downs: {drilldowns.error.message}
+          <button type="button" className="dg-text-btn" onClick={() => { void drilldowns.refetch(); }}>Retry drill-downs</button>
+        </div>}
         {singleId !== undefined && <div className="dg-properties__actions">
           {singleFootnote === undefined && <button type="button" className="dg-text-btn" onClick={() => { addFootnoteFor(singleId); }}>
             <ListNumbered size={16} /> Add footnote
@@ -2395,6 +2468,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           uploadFiles(files, viewCenter());
         }}
       />
+      {drilldown !== null && <DiagramDrilldown canvasId={drilldown.canvasId} shapeTitle={drilldown.shapeTitle}
+        parentTitle={savedTitle} onOpenNote={onOpenNote} onClose={() => {
+          setDrilldown(null);
+          void queryClient.invalidateQueries({ queryKey: ['diagram-drilldowns', canvasId] });
+          rootRef.current?.focus({ preventScroll: true });
+        }} />}
     </div>
   );
 };

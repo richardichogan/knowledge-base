@@ -191,6 +191,16 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Diagram fixture did not mount: ${errors.join('\n') || await evaluate('document.body.innerText')}`);
+    if (process.env.ATHENA_BROWSER_CHECKS === 'diagram-drilldown') {
+      console.log(JSON.stringify({ width, checks: await evaluate('window.runDiagramDrilldownChecks()') }, null, 2));
+      if (process.env.DIAGRAM_ARTIFACT_DIR) {
+        await command('Page.bringToFront');
+        await mkdir(process.env.DIAGRAM_ARTIFACT_DIR, { recursive: true });
+        const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.DIAGRAM_ARTIFACT_DIR, `drilldown-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+      continue;
+    }
     if (process.env.ATHENA_BROWSER_CHECKS === 'diagram-properties') {
       console.log(JSON.stringify({ width, checks: await evaluate('window.runDiagramPropertiesChecks()') }, null, 2));
       continue;

@@ -38,6 +38,7 @@ import { CANVAS_TYPES, type CanvasType } from '../types/diagram.js';
 import {
   getDiagram, saveDiagram, uploadAsset, getAsset, requireCanvasType,
   listVersions, createVersion, getVersion, deleteVersion,
+  listDrilldowns, openDrilldown,
 } from '../services/diagramService.js';
 import {
   createCanvas, listCanvases, getCanvas, updateCanvas, deleteCanvas,
@@ -221,6 +222,20 @@ canvasRouter.get('/:id/markdown', (req: Request, res: Response, next: NextFuncti
 });
 
 // ─── Diagram canvases ─────────────────────────────────────────────────────────
+
+canvasRouter.get('/:id/drilldowns', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try { res.json({ success: true, data: await listDrilldowns(param(req, 'id')) }); }
+    catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.post('/:id/elements/:elementId/drilldown', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try { res.json({ success: true, data: await openDrilldown(param(req, 'id'), param(req, 'elementId'), req.body) }); }
+    catch (err) { next(err); }
+  })();
+});
 
 canvasRouter.get('/:id/diagram', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {

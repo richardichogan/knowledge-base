@@ -2,6 +2,21 @@
 
 ---
 
+## Shape drill-down diagrams
+
+Select any diagram shape and choose **Add drill-down diagram** in Properties.
+Its internal components live in an editable detail diagram, opened in a focused
+popup with the shape title, parent context and **Back to parent** control. Shapes
+with details show a clickable, keyboard-accessible layers marker. Double-click
+still edits the shape label.
+
+Detail diagrams support further drill-downs, inherit the parent's project, and
+remain available as ordinary canvases. Closing or pressing Escape saves pending
+diagram changes first; save failures keep the popup and edits open. The parent
+retains its selection and viewport. Removing a shape does not delete its detail
+diagram; undo or restoring the shape reconnects it. Named versions and exports
+remain snapshots of the individual diagram, not its linked detail canvases.
+
 ## Canvas Properties scrollbar correction
 
 The Project dropdown now includes its padding and border within the available
