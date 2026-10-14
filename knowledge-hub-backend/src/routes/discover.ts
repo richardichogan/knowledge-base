@@ -9,7 +9,7 @@ import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync
 import { readFeed } from '../integrations/discovery/feedReader.js';
 import { SOURCE_AUTHORITY_WEIGHTS, ARTICLE_TYPE_WEIGHTS } from '../integrations/cms/articleScoringPrompt.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
-import { generateBlogDraft } from '../ai/blogDraft.js';
+import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 
@@ -173,7 +173,8 @@ discoverRouter.post('/:id/blog-draft', (req: Request, res: Response, next: NextF
       if (!source) throw new NotFoundError('Discover item');
       if (!source.body.trim()) throw new ValidationError('This source has no content to draft from.');
       const length = (req.body as { length?: unknown } | undefined)?.length === 'long' ? 'long' : 'short';
-      res.json({ success: true, data: await generateBlogDraft(source, sourceUrl(source.url), length) });
+      const earlier = length === 'short' ? await findEarlierPosts(getDb(), `${source.title} ${source.body.slice(0, 2000)}`) : [];
+      res.json({ success: true, data: await generateBlogDraft(source, sourceUrl(source.url), length, earlier) });
     } catch (err) { next(err); }
   })();
 });

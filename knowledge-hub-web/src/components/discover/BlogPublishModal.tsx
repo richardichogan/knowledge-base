@@ -115,28 +115,28 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
     </>}>
     <p className="dc-linkedin__source-title">{title}</p>
     {!result && <div className="dc-linkedin__formats" role="group" aria-label="Post length">
-      <button type="button" disabled={publishing || draft.isFetching} aria-pressed={length === 'short'} onClick={() => { setLength('short'); setEdits({}); }}>Short post</button>
-      <button type="button" disabled={publishing || draft.isFetching} aria-pressed={length === 'long'} onClick={() => { setLength('long'); setEdits({}); }}>Long post</button>
+      <button type="button" disabled={publishing || draft.isFetching} aria-pressed={length === 'short'} onClick={() => { setLength('short'); setEdits({}); }}>Quick take</button>
+      <button type="button" disabled={publishing || draft.isFetching} aria-pressed={length === 'long'} onClick={() => { setLength('long'); setEdits({}); }}>Article</button>
     </div>}
-    {draft.isFetching && <div className="dc-loading" role="status"><InlineLoading description={`Athena is writing a ${length} post in the blog house style...`} /></div>}
+    {draft.isFetching && <div className="dc-loading" role="status"><InlineLoading description={`Athena is writing ${length === 'short' ? 'a quick take' : 'an article'} in the blog house style...`} /></div>}
     {publishing && <div className="dc-loading" role="status"><InlineLoading description="Sending to The Microsoft Cloud Blog..." /></div>}
     {draft.isError && <p className="dc-linkedin__error" role="alert">{describeApiError(draft.error)}</p>}
     {d && !draft.isFetching && !draft.isError && !result && <>
       <label className="dc-linkedin__label" htmlFor="blog-type">Post type</label>
       <select id="blog-type" className="dc-filter-select" value={value.postType}
         onChange={(e) => { const next = e.target.value as BlogDraft['postType']; setEdits(c => ({ ...c, postType: next })); }}>
-        <option value="article">Article</option><option value="weekly">Weekly</option>
+        <option value="article">Article</option><option value="quick">Quick take</option><option value="weekly">Weekly</option>
         <option value="newsletter">Newsletter</option><option value="podcast">Podcast</option>
       </select>
       <label className="dc-linkedin__label" htmlFor="blog-title">Title</label>
       <input id="blog-title" className="dc-linkedin__url" value={value.title} onChange={set('title')} />
       <label className="dc-linkedin__label" htmlFor="blog-excerpt">Excerpt (search and preview text)</label>
       <textarea id="blog-excerpt" className="dc-linkedin__copy" rows={2} value={value.excerpt} onChange={set('excerpt')} />
-      <label className="dc-linkedin__label" htmlFor="blog-summary">Summary</label>
+      <label className="dc-linkedin__label" htmlFor="blog-summary">{value.postType === 'quick' ? 'Summary (search and AI only, not shown on quick takes)' : 'Summary'}</label>
       <textarea id="blog-summary" className="dc-linkedin__copy" rows={2} value={value.summary} onChange={set('summary')} />
       <label className="dc-linkedin__label" htmlFor="blog-content">Post (HTML)</label>
       <textarea id="blog-content" className="dc-linkedin__copy" rows={14} value={value.content} onChange={set('content')} />
-      <label className="dc-linkedin__label" htmlFor="blog-takeaways">Key takeaways (one per line)</label>
+      <label className="dc-linkedin__label" htmlFor="blog-takeaways">{value.postType === 'quick' ? 'Key takeaways (optional, not shown on quick takes)' : 'Key takeaways (one per line)'}</label>
       <textarea id="blog-takeaways" className="dc-linkedin__copy" rows={4} value={value.takeaways} onChange={set('takeaways')} />
       <label className="dc-linkedin__label" htmlFor="blog-categories">Categories (comma separated)</label>
       <input id="blog-categories" className="dc-linkedin__url" value={value.categories} onChange={set('categories')} />

@@ -532,7 +532,7 @@ export interface NoteExtraction {
 
 export interface BlogDraft {
   title: string; excerpt: string; summary: string; content: string; keyTakeaways: string[]; categories: string[]; tags: string[];
-  postType: 'article' | 'weekly' | 'newsletter' | 'podcast'; sourceUrl: string | null;
+  postType: 'article' | 'weekly' | 'newsletter' | 'podcast' | 'quick'; sourceUrl: string | null;
 }
 
 export class KnowledgeHubApi {
