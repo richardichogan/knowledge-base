@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Automatic diagram line jumps. Frontend-only production SWA
 content update; existing backend v194 remains unchanged.
@@ -239,6 +239,20 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-14 following the 19:19 BST request:
+
+- Application `947d57b` and validation record `b87dce8` pushed to feature branch
+  and main. Existing production subscription confirmed by the user.
+- SWA CLI production deployment succeeded to `kh-prod-web`.
+- Both production `/think` hosts return HTTP 200 and serve
+  `/assets/index-CFjIrh7X.js`, SHA-256
+  `01f04a5b9b3bf1a2848ce981a08b1562c647c3c1b7449d165f38793530fd8acf`,
+  exactly matching the synced local production build.
+- Backend v194 remains unchanged: revision `kh-prod-api-vnet--0000191` is
+  active, Healthy / RunningAtMaxScale. SWA Free tier and absent managed identity
+  retained; no RBAC, infrastructure, configuration or credential changes.
+- Live application: https://athena.themicrosoftcloudblog.com/think
 
 Validated 2026-10-14 following the 19:19 BST deployment request:
 
