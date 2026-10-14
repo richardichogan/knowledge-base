@@ -35,7 +35,7 @@ import type {
 } from '../types';
 import { getApiToken } from './auth';
 import { normaliseTask } from '../types/task';
-import type { TaskPriority } from '../types/task';
+import type { TaskPriority, AtRiskTask, DayCheckin, CheckinAction } from '../types/task';
 import type { DiagramAsset, DiagramDocument, DiagramSnapshot } from '../features/diagram/diagramTypes';
 import type { GitHubPublication, GitHubPushPayload } from '../notes/types';
 
@@ -1251,12 +1251,27 @@ export class KnowledgeHubApi {
     return r.data.success && r.data.data ? { ...r.data, data: normaliseTask(r.data.data) } : r.data;
   }
 
-  /** Removes a task from Plan without deleting it (used to dismiss Inbox suggestions). */
   async reviewPlan(today: string): Promise<ApiResponse<PlanReview>> {
-    const r = await this.client.post<ApiResponse<PlanReview>>('/api/tasks/review', { today });
+    const r = await this.client.post<ApiResponse<PlanReview>>('/api/tasks/review', { today }, { timeout: CHAT_TIMEOUT_MS });
     return r.data;
   }
 
+  async getAtRiskTasks(): Promise<ApiResponse<AtRiskTask[]>> {
+    const r = await this.client.get<ApiResponse<AtRiskTask[]>>('/api/tasks/at-risk');
+    return r.data;
+  }
+
+  async getDayCheckin(): Promise<ApiResponse<DayCheckin>> {
+    const r = await this.client.get<ApiResponse<DayCheckin>>('/api/tasks/checkin');
+    return r.data;
+  }
+
+  async saveDayCheckin(today: string, status: 'completed' | 'skipped', settled: Array<{ taskId: string; action: CheckinAction }> = []): Promise<ApiResponse<{ day: string; status: string }>> {
+    const r = await this.client.post<ApiResponse<{ day: string; status: string }>>('/api/tasks/checkin', { today, status, settled });
+    return r.data;
+  }
+
+  /** Removes a task from Plan without deleting it (used to dismiss Inbox suggestions). */
   async archiveTask(id: string): Promise<ApiResponse<unknown>> {
     const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${id}/archive`);
     return r.data;

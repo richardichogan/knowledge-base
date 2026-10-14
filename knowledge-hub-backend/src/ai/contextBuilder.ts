@@ -15,6 +15,8 @@ import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
 import { loadCurrentProjectContext, formatCurrentProjectContext, type CurrentProjectContext } from './projectContext.js';
 import { embedBatch, cosineSimilarity, isEmbeddingConfigured } from './embeddings.js';
+import { atRiskTasks } from '../services/planNudges.js';
+import { ukClock } from '../sync/ukClock.js';
 import type { AiContext, ConversationMessage, ChatPageContext } from '../types/aiContext.js';
 
 const STATIC_CONTEXT_BLOB = 'config/static-context.md';
@@ -989,7 +991,7 @@ export async function buildAiContext(
       discoverContext = '## Discover configuration read failed\nThe current subscriptions could not be loaded. Retry get_discover_sources; if unavailable, report that failure and do not claim recommendations are non-duplicates.';
     }
   }
-  const projectContext = [activeProjectContext, catalogContext, storedProjectContext, discoverContext, formatGraphConnections(graphConnections)].filter((block) => block !== '').join('\n\n');
+  const projectContext = [activeProjectContext, catalogContext, storedProjectContext, discoverContext, formatGraphConnections(graphConnections), await atRiskContext(db, history, persona)].filter((block) => block !== '').join('\n\n');
 
   return {
     staticContext,
@@ -1000,6 +1002,28 @@ export async function buildAiContext(
     ragQuery,
     memoryItems,
   };
+}
+
+/**
+ * First turn only: the Plan items he is most likely forgetting, so Athena can raise them once.
+ * Later turns skip it so she never nags.
+ */
+async function atRiskContext(db: Pool, history: ConversationMessage[], persona?: string): Promise<string> {
+  if (history.length > 0 || (persona !== undefined && persona !== 'general')) return '';
+  try {
+    const items = await atRiskTasks(db, ukClock().day);
+    if (items.length === 0) return '';
+    return [
+      '## Plan items at risk of being forgotten',
+      ...items.map((t) => `- "${t.title}" (task id: ${t.id}) — ${t.reason}`),
+      'If it fits naturally, end your first reply with ONE short line pointing out these items and offering to ' +
+        'reschedule, split or close them. Do not raise them again in this conversation unless he asks. ' +
+        'If his message is urgent or unrelated work, keep the line to a single brief sentence.',
+    ].join('\n');
+  } catch (error) {
+    console.error('[Athena] At-risk tasks failed:', error);
+    return '';
+  }
 }
 
 async function loadActiveSessionProject(

@@ -15,8 +15,10 @@ import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import type { PoolClient } from 'pg';
 import { normaliseTaskStatus, type TaskStatus } from '../services/taskStatus.js';
 import { reviewPlan } from '../services/planReview.js';
+import { atRiskTasks, getCheckin, isLaterDueDate, saveCheckin, workDay } from '../services/planNudges.js';
 
 const ISO_DATE_LENGTH = 10;
+const MAX_SETTLED = 50;
 const router = Router();
 
 export interface Task {
@@ -37,6 +39,8 @@ export interface Task {
   linkedTagId: string | null;
   taxonomyTagIds: string[];
   recurringCadence: 'daily' | 'weekly' | 'fortnightly' | 'monthly' | null;
+  /** How many times the due date has been pushed later. */
+  rescheduleCount: number;
   archived: boolean;
   /** First linked item (chat/note) — where the task came from. Only set by the list endpoint. */
   origin: { type: string; id: string; title: string; url: string } | null;
@@ -67,6 +71,7 @@ export function rowToTask(row: Record<string, unknown>): Task {
     linkedTagId: row['linked_tag_id'] as string | null ?? null,
     taxonomyTagIds: ((row['taxonomy_tag_ids'] as string[] | null) ?? []).filter(Boolean),
     recurringCadence: (row['recurring_cadence'] as Task['recurringCadence']) ?? null,
+    rescheduleCount: Number(row['reschedule_count'] ?? 0),
     archived: Boolean(row['archived']),
     origin: typeof row['origin_type'] === 'string'
       ? { type: row['origin_type'], id: String(row['origin_id'] ?? ''), title: String(row['origin_title'] ?? ''), url: String(row['origin_url'] ?? '') }
@@ -137,7 +142,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       const result = await db.query<Record<string, unknown>>(
         `SELECT t.id, t.title, t.body, t.status, t.project_id, t.tags, t.priority,
                 t.due_date, t.start_date, t.end_date, t.external_url, t.linked_tag_id,
-                t.recurring_cadence, t.task_type, t.waiting_on, t.archived, t.created_at, t.updated_at,
+                t.recurring_cadence, t.task_type, t.waiting_on, t.reschedule_count, t.archived, t.created_at, t.updated_at,
                 ARRAY_REMOVE(ARRAY_AGG(tt.tag_id), NULL) AS taxonomy_tag_ids,
                 o.target_type AS origin_type, o.target_id AS origin_id, o.target_title AS origin_title, o.target_url AS origin_url
          FROM tasks t
@@ -222,8 +227,9 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       client = db;
       await db.query('BEGIN');
       const { id } = req.params;
-      const previous = await db.query<{ status: Task['status'] }>('SELECT status FROM tasks WHERE id = $1 FOR UPDATE', [id]);
+      const previous = await db.query<{ status: Task['status']; due_date: string | null }>(`SELECT status, to_char(due_date, 'YYYY-MM-DD') AS due_date FROM tasks WHERE id = $1 FOR UPDATE`, [id]);
       const previousStatus = previous.rows[0]?.status;
+      const previousDue = previous.rows[0]?.due_date ?? null;
       if (previousStatus === undefined) throw new NotFoundError(`Task ${id} not found`);
       const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null; waitingOn: string | null }>;
       if (input.task_type !== undefined && !['standard', 'cert_session', 'cert_review'].includes(input.task_type)) throw new ValidationError('Invalid task type');
@@ -242,7 +248,11 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (input.tags !== undefined) add('tags', input.tags);
       if (input.priority !== undefined) add('priority', input.priority);
       if (input.task_type !== undefined) add('task_type', input.task_type);
-      if ('dueDate' in input) add('due_date', input.dueDate ?? null);
+      if ('dueDate' in input) {
+        add('due_date', input.dueDate ?? null);
+        // A due date pushed later is a slip; Athena uses the count to spot tasks he keeps putting off.
+        if (isLaterDueDate(previousDue, input.dueDate ?? null)) fields.push('reschedule_count = reschedule_count + 1');
+      }
       if ('startDate' in input) add('start_date', input.startDate ?? null);
       if ('endDate' in input) add('end_date', input.endDate ?? null);
       if ('linkedTagId' in input) add('linked_tag_id', input.linkedTagId ?? null);
@@ -581,6 +591,40 @@ router.post('/review', (req: Request, res: Response, next: NextFunction): void =
       const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, ISO_DATE_LENGTH);
       const data = await reviewPlan(getDb(), day);
       res.status(HTTP_STATUS.OK).json({ success: true, data });
+    } catch (err) { next(err); }
+  })();
+});
+
+/** GET /api/tasks/at-risk?today=YYYY-MM-DD — the 1–2 open tasks most likely being forgotten. */
+router.get('/at-risk', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const data = await atRiskTasks(getDb(), workDay(req.query['today']));
+      res.status(HTTP_STATUS.OK).json({ success: true, data });
+    } catch (err) { next(err); }
+  })();
+});
+
+/** GET /api/tasks/checkin?today=YYYY-MM-DD — end-of-day check-in state and today's open items. */
+router.get('/checkin', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const data = await getCheckin(getDb(), workDay(req.query['today']));
+      res.status(HTTP_STATUS.OK).json({ success: true, data });
+    } catch (err) { next(err); }
+  })();
+});
+
+/** POST /api/tasks/checkin  Body: { today?, status: 'completed' | 'skipped', settled?: [{ taskId, action }] } */
+router.post('/checkin', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const body = req.body as { today?: unknown; status?: unknown; settled?: unknown };
+      if (body.status !== 'completed' && body.status !== 'skipped') throw new ValidationError('status must be completed or skipped', { status: 'invalid' });
+      const settled = Array.isArray(body.settled) ? body.settled.slice(0, MAX_SETTLED) : [];
+      const day = workDay(body.today);
+      await saveCheckin(getDb(), day, body.status, settled);
+      res.status(HTTP_STATUS.OK).json({ success: true, data: { day, status: body.status } });
     } catch (err) { next(err); }
   })();
 });

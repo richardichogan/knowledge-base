@@ -30,6 +30,7 @@ import { ReplyAlternates } from '../components/athena/ReplyAlternates';
 import { CompareWithPanel } from '../components/athena/CompareWithPanel';
 import { MoveToThink } from '../components/athena/MoveToThink';
 import { UsedLine } from '../components/athena/UsedLine';
+import { AtRiskChatCard } from '../features/plan/AtRiskChatCard';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { useChatDraft } from '../hooks/useChatDraft';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
@@ -2050,6 +2051,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               ) : (
                 <p className="ai-empty__subtitle">Notes, tasks, commits, articles, sparks — ask anything.</p>
               )}
+              <AtRiskChatCard />
               <div className="ai-starters">
                 {STARTER_PROMPTS.map((prompt) => (
                   <button

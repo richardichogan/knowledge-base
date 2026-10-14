@@ -42,7 +42,7 @@ test('isolated task routes round-trip types and dates, create one successor, and
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text, title TEXT NOT NULL, body TEXT DEFAULT '',
     status TEXT DEFAULT 'backlog', project_id TEXT DEFAULT 'personal', tags TEXT[] DEFAULT '{}',
     priority TEXT DEFAULT 'normal', due_date DATE, start_date DATE, end_date DATE, external_url TEXT,
-    linked_tag_id UUID, recurring_cadence TEXT, archived BOOLEAN DEFAULT false, waiting_on TEXT,
+    linked_tag_id UUID, recurring_cadence TEXT, archived BOOLEAN DEFAULT false, waiting_on TEXT, reschedule_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now());
     CREATE TABLE tags (id UUID PRIMARY KEY);
     CREATE TABLE task_links (
@@ -118,7 +118,11 @@ test('isolated task routes round-trip types and dates, create one successor, and
     await write(url, 'PATCH', { status: 'completed', task_type: 'cert_session' });
     assert.equal((await db.query('SELECT id FROM tasks WHERE recurring_parent_id = $1', [task.id])).rows.length, 1);
     assert.equal((await db.query('SELECT task_type FROM tasks WHERE id = $1', [task.id])).rows[0]?.task_type, 'cert_session');
-    assert.ok(queries.some((sql) => /SELECT status .*FOR UPDATE/.test(sql)));
+    assert.ok(queries.some((sql) => /SELECT status.*FOR UPDATE/.test(sql)));
+    await write(url, 'PATCH', { dueDate: '2026-10-28' });
+    await write(url, 'PATCH', { dueDate: '2026-10-27' });
+    await write(url, 'PATCH', { dueDate: '2026-10-30' });
+    assert.equal((await db.query('SELECT reschedule_count FROM tasks WHERE id = $1', [task.id])).rows[0]?.reschedule_count, 2);
     const nextFixture = await write(base, 'POST', {
       title: 'Rollback recurrence', startDate: '2026-10-24', recurringCadence: 'daily',
       taxonomyTagIds: ['11111111-1111-4111-8111-111111111111'],

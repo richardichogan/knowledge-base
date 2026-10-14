@@ -37,6 +37,8 @@ export interface PlanTask {
   linkedTagId: string | null;
   taxonomyTagIds: string[];
   recurringCadence: RecurringCadence | null;
+  /** How many times the due date has been pushed later. */
+  rescheduleCount?: number;
   archived: boolean;
   /** First linked chat/note — where the task came from (list endpoint only). */
   origin?: TaskOrigin | null;
@@ -45,6 +47,30 @@ export interface PlanTask {
 }
 
 export interface TaskOrigin { type: string; id: string; title: string; url: string }
+
+/** A slim task used by the end-of-day check-in and Athena's at-risk nudge. */
+export interface NudgeTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  projectId: string;
+  dueDate: string | null;
+  rescheduleCount: number;
+}
+
+export interface AtRiskTask extends NudgeTask { score: number; reason: string }
+
+export interface DayCheckin {
+  day: string;
+  /** Current UK hour, so the banner timing doesn't depend on the browser clock. */
+  hour: number;
+  status: 'completed' | 'skipped' | null;
+  items: NudgeTask[];
+  completedToday: Array<{ id: string; title: string }>;
+}
+
+export type CheckinAction = 'done' | 'tomorrow' | 'date' | 'drop';
 
 export interface CreateTaskInput {
   title: string;
