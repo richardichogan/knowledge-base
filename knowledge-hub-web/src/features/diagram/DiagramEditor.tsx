@@ -42,6 +42,7 @@ import {
   cloneSelection, removeSelection, normalizeDocument, screenToWorld, worldToScreen, clampZoom, zoomAt, fitViewport,
   wrapText, edgeLabelLayout, edgeLabelCenter, fitSize, documentShapePath, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
 } from './diagramGeometry';
+import { diagramLineJumpGeometry } from './diagramLineJumps';
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { DiagramMetadata } from './DiagramMetadata';
@@ -1710,6 +1711,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const singleEdge = selectedNodes.length === 0 && selectedEdges.length === 1 ? selectedEdges[0] : undefined;
   const topSelected = topLevelSelection(doc.nodes, sel.nodes);
   const routes = useMemo(() => new Map(display.edges.map((x) => [x.id, edgeRoute(x, byId)] as const)), [display.edges, byId]);
+  const lineJumps = useMemo(() => diagramLineJumpGeometry(display, routes), [display, routes]);
+  const jumpBounds = useMemo(() => diagramBounds(display, 24), [display]);
   const footnotes = footnotesOf(doc);
   const notesPosition = doc.notesPanel ?? 'bottom';
   const showNotes = footnotes.length > 0 && !notesHidden;
@@ -1991,6 +1994,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   <path d="M0,1 L10,5 L0,9 z" fill={diagramEditorInk(colour)} />
                 </marker>
               ))}
+              {[...lineJumps.masks].map(([id, masks]) => (
+                <mask key={id} id={`${markerBase}-jump-${id}`} maskUnits="userSpaceOnUse"
+                  x={jumpBounds.x} y={jumpBounds.y} width={jumpBounds.width} height={jumpBounds.height}>
+                  <rect {...jumpBounds} fill="white" />
+                  {masks.map((mask, index) => <path key={index} d={mask.d} fill="none" stroke="black" strokeWidth={mask.width} />)}
+                </mask>
+              ))}
             </defs>
             {doc.grid && <rect className="dg-canvas__grid" x={0} y={0} width="100%" height="100%" fill={`url(#${markerBase}-grid)`} />}
             <g transform={`translate(${view.x} ${view.y}) scale(${z})`}>
@@ -1998,7 +2008,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 x2={drag.current.x} y2={drag.current.y} />}
               {ordered.map((n) => (
                 <NodeShape key={n.id} node={n} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id}
-                  dimmed={n.kind !== 'line' && keyDim(n.stroke)} hiddenCount={display.hiddenCount.get(n.id) ?? 0} />
+                  dimmed={n.kind !== 'line' && keyDim(n.stroke)} hiddenCount={display.hiddenCount.get(n.id) ?? 0}
+                  lineJumpPath={lineJumps.paths.get(n.id)} lineMask={lineJumps.masks.has(n.id) ? `url(#${markerBase}-jump-${n.id})` : undefined} />
               ))}
               {ordered.filter(node => drilldownIds.has(node.id)).map(node => (
                 <g key={`drilldown-${node.id}`} className="dg-drilldown-marker" role="button" tabIndex={0}
@@ -2020,7 +2031,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {display.edges.map((edge) => {
                 const route = routes.get(edge.id);
                 if (route === undefined || route === null) return null;
-                const d = pathD(route);
+                const d = lineJumps.paths.get(edge.id) ?? pathD(route);
                 const marker = `url(#${markerIds.get(edge.stroke) ?? ''})`;
                 const mid = edgeLabelCenter(route, edge);
                 const { lines: labelLines, width: labelW, height: labelH, fontSize: labelFont, lineHeight } = edgeLabelLayout(edge);
@@ -2037,6 +2048,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                       strokeDasharray={edge.dashed ? '6 4' : undefined}
                       markerEnd={edge.arrows === 'none' || edge.arrows === 'start' ? undefined : marker}
                       markerStart={edge.arrows === 'both' || edge.arrows === 'start' ? marker : undefined}
+                      mask={lineJumps.masks.has(edge.id) ? `url(#${markerBase}-jump-${edge.id})` : undefined}
                     />
                     {lines.length > 0 && (
                       <g className="dg-edge__label" data-dg={remapped ? undefined : 'edge-label'} data-id={edge.id}>
@@ -2597,9 +2609,9 @@ function TextLines({ lines, cx, cy, fontSize, color, anchorX, anchor = 'middle',
   );
 }
 
-interface NodeShapeProps { node: DiagramNode; asset: AssetState | undefined; selected: boolean; editing: boolean; dimmed?: boolean; hiddenCount?: number }
+interface NodeShapeProps { node: DiagramNode; asset: AssetState | undefined; selected: boolean; editing: boolean; dimmed?: boolean; hiddenCount?: number; lineJumpPath?: string | undefined; lineMask?: string | undefined }
 
-const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, editing, dimmed = false, hiddenCount = 0 }: NodeShapeProps): React.ReactElement {
+const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, editing, dimmed = false, hiddenCount = 0, lineJumpPath, lineMask }: NodeShapeProps): React.ReactElement {
   const { x, y, width: w, height: h, fontSize: fs } = n;
   const { fill, stroke, textColor: color } = diagramEditorNodeColours(n);
   const cx = x + w / 2;
@@ -2613,9 +2625,12 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
   switch (n.kind) {
     case 'line': {
       const [start, end] = linePoints(n);
-      body = <>
+      body = lineJumpPath !== undefined ? <>
+        <path className="dg-line__hit" d={lineJumpPath} />
+        <path {...common} fill="none" d={lineJumpPath} mask={lineMask} />
+      </> : <>
         <line className="dg-line__hit" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
-        <line {...common} fill="none" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
+        <line {...common} fill="none" x1={start.x} y1={start.y} x2={end.x} y2={end.y} mask={lineMask} />
       </>;
       break;
     }

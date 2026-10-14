@@ -93,7 +93,7 @@ function edgeStyle(e: DiagramEdge): string {
   const [tx, ty] = PORT[e.targetPort];
   const arrow = { endArrow: e.arrows === 'none' || e.arrows === 'start' ? 'none' : 'block', endFill: 1, startArrow: e.arrows === 'both' || e.arrows === 'start' ? 'block' : 'none', startFill: 1 };
   return style({
-    edgeStyle: e.route === 'orthogonal' ? 'orthogonalEdgeStyle' : 'none', rounded: 0, html: 1,
+    edgeStyle: e.route === 'orthogonal' ? 'orthogonalEdgeStyle' : 'none', rounded: 0, html: 1, jumpStyle: 'arc', jumpSize: 6,
     strokeColor: colour(e.stroke, '#161616'), strokeWidth: e.strokeWidth ?? 1.5, ...(e.dashed ? { dashed: 1 } : {}), ...arrow,
     fontSize: e.fontSize ?? 11, fontColor: colour(e.stroke, '#161616'), labelBackgroundColor: '#ffffff',
     exitX: sx, exitY: sy, exitDx: 0, exitDy: 0, exitPerimeter: 0,
@@ -118,7 +118,7 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     const oy = parent?.y ?? 0;
     if (n.kind === 'line') {
       const [a, b] = linePoints(n);
-      const lineStyle = style({ endArrow: 'none', startArrow: 'none', html: 1, rounded: 0, strokeColor: colour(n.stroke, '#161616'), strokeWidth: n.strokeWidth ?? 1.5, ...borderStyle(n) });
+      const lineStyle = style({ endArrow: 'none', startArrow: 'none', html: 1, rounded: 0, jumpStyle: 'arc', jumpSize: 6, strokeColor: colour(n.stroke, '#161616'), strokeWidth: n.strokeWidth ?? 1.5, ...borderStyle(n) });
       cells.push({ id: n.id, xml: `<mxCell id="${xml(n.id)}" value="" style="${xml(lineStyle)}" edge="1" parent="${xml(parentId)}"><mxGeometry relative="1" as="geometry"><mxPoint x="${a.x - ox}" y="${a.y - oy}" as="sourcePoint"/><mxPoint x="${b.x - ox}" y="${b.y - oy}" as="targetPoint"/></mxGeometry></mxCell>` });
       continue;
     }

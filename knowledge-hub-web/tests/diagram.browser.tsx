@@ -160,6 +160,88 @@ function clickButton(text: string): void {
   if (!button) throw new Error(`Missing diagram control: ${text}`);
   button.click();
 }
+async function runDiagramLineJumpChecks(): Promise<string[]> {
+  root.render(null);
+  await delay(100);
+  queryClient.clear();
+  const left = node('Source', 'process', 20, 160, 60, 40);
+  const right = node('Target', 'process', 460, 160, 60, 40);
+  const top = node('Top', 'process', 240, 20, 60, 40);
+  const bottom = node('Bottom', 'process', 240, 300, 60, 40);
+  const under = { ...node('', 'line', 0, 0, 24, 24), ...lineGeometry({ x: 100, y: 240 }, { x: 420, y: 240 }) };
+  const over = { ...node('', 'line', 0, 0, 24, 24), ...lineGeometry({ x: 160, y: 120 }, { x: 160, y: 300 }),
+    stroke: '#0f62fe', strokeStyle: 'dotted' as const, strokeWidth: 4 };
+  const crossing = { ...emptyDiagram(), nodes: [left, right, top, bottom, under, over], edges: [
+    { ...doc.edges[0]!, id: crypto.randomUUID(), sourceId: left.id, targetId: right.id, arrows: 'end' as const, label: '' },
+    { ...doc.edges[0]!, id: crypto.randomUUID(), sourceId: top.id, targetId: bottom.id,
+      sourcePort: 'bottom' as const, targetPort: 'top' as const, stroke: '#0f62fe', dashed: true, arrows: 'both' as const, label: '' },
+  ] };
+  snapshot = { revision: 0, document: structuredClone(crossing) };
+  mountEditor();
+  await waitFor(() => window.document.querySelectorAll('.dg-edge__line').length === 2);
+  clickButton('Fit diagram to view');
+  const standalone = (): SVGPathElement | null =>
+    window.document.querySelector(`g.dg-node[data-id="${over.id}"] path.dg-node__body`);
+  const edge = (): SVGPathElement => window.document.querySelector(`g.dg-edge[data-id="${crossing.edges[1]!.id}"] .dg-edge__line`)!;
+  await waitFor(() => standalone() !== null && edge().getAttribute('d')!.includes(' A'));
+  const arcCount = (d: string): number => (d.match(/ A/g) ?? []).length;
+  check(arcCount(standalone()!.getAttribute('d')!) === 1, 'Standalone lines form a single curved bridge');
+  check(arcCount(edge().getAttribute('d')!) === 2, 'Connector bridges both standalone and connector crossings');
+  check(standalone()!.getAttribute('stroke-dasharray') !== null, 'Dotted strokes survive bridging');
+  check(edge().getAttribute('stroke-dasharray') === '6 4' && edge().hasAttribute('marker-start') && edge().hasAttribute('marker-end'),
+    'Connector dashes and both arrowheads survive bridging');
+  check(window.document.querySelector(`g.dg-node[data-id="${under.id}"] line.dg-node__body`) !== null,
+    'Earlier painted line remains straight');
+  for (const background of ['white', 'transparent'] as const) {
+    const xml = new DOMParser().parseFromString(await diagramSvg(crossing, new Map(), background), 'image/svg+xml');
+    check(xml.querySelector('parsererror') === null, 'Bridge export is valid SVG');
+    check([...xml.querySelectorAll('path')].some(path => path.getAttribute('d') === standalone()!.getAttribute('d')),
+      'Standalone bridge is identical in canvas and export');
+    check([...xml.querySelectorAll('path')].some(path => path.getAttribute('d') === edge().getAttribute('d')),
+      'Connector bridge is identical in canvas and export');
+  }
+  check(window.document.querySelector(`g.dg-node[data-id="${over.id}"] .dg-line__hit`)!.getAttribute('d') === standalone()!.getAttribute('d'),
+    'Standalone bridge hit target follows the visible arch');
+  const group = edge().closest('g.dg-edge')!;
+  check(group.querySelector('.dg-edge__hit')!.getAttribute('d') === edge().getAttribute('d')
+    && group.querySelector('.dg-edge__halo')!.getAttribute('d') === edge().getAttribute('d'),
+  'Connector hit target and selection halo follow the bridge');
+  check(window.document.querySelector(`g.dg-node[data-id="${under.id}"] .dg-node__body`)!.hasAttribute('mask'),
+    'Earlier strokes are masked beneath the arch without covering the grid or shapes');
+  const rasterDocument = { ...emptyDiagram(), nodes: [
+    { ...under, stroke: '#161616', ...lineGeometry({ x: 0, y: 50 }, { x: 100, y: 50 }), strokeWidth: 1.5 },
+    { ...over, strokeStyle: 'solid' as const, ...lineGeometry({ x: 50, y: 0 }, { x: 50, y: 100 }), strokeWidth: 1.5 },
+  ] };
+  for (const background of ['white', 'transparent'] as const) {
+    const svg = await diagramSvg(rasterDocument, new Map(), background);
+    const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;
+    const [vx, vy, width, height] = parsed.getAttribute('viewBox')!.split(' ').map(Number);
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    try {
+      const image = new Image();
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error('Bridge SVG rasterization failed'));
+        image.src = url;
+      });
+      const raster = window.document.createElement('canvas');
+      raster.width = width!; raster.height = height!;
+      const context = raster.getContext('2d')!;
+      context.drawImage(image, 0, 0);
+      const gap = context.getImageData(57 - vx!, 50 - vy!, 1, 1).data;
+      check(background === 'transparent' ? gap[3] === 0 : gap[0] === 255 && gap[1] === 255 && gap[2] === 255,
+        'PNG rasterization leaves a true transparent/white gap beneath the bridge, not a joined crossing');
+      const ink = context.getImageData(56 - vx!, 50 - vy!, 1, 1).data;
+      check(ink[2]! > ink[0]! && ink[3]! > 0, 'PNG rasterization retains the blue overpassing arc');
+    } finally { URL.revokeObjectURL(url); }
+  }
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
+  check(window.document.documentElement.scrollWidth <= window.innerWidth, 'Crossing diagrams do not overflow the page');
+  return ['Automatic hops distinguish connector and standalone-line crossings',
+    'SVG/PNG-source paths match the editor on white and transparent backgrounds',
+    'Bridge hit targets and transparent knockout masks follow the visible arches',
+    'Dotted/dashed strokes, arrowheads and responsive layout are preserved'];
+}
 async function runDiagramPropertiesChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector('select[aria-label="Diagram project"]') !== null);
   const properties = window.document.querySelector<HTMLElement>('.dg-properties')!;
@@ -841,7 +923,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Bundled Microsoft icon picker loads and embeds an official icon', 'Save and reopen retain labels and icons',
     'Missing diagram displays an explicit load error', 'No horizontal page overflow'];
 }
-Object.assign(window, { runDiagramChecks, runDiagramPropertiesChecks, runDiagramDrilldownChecks, diagramFixture: {
+Object.assign(window, { runDiagramChecks, runDiagramPropertiesChecks, runDiagramDrilldownChecks, runDiagramLineJumpChecks, diagramFixture: {
   snapshot: () => structuredClone(snapshot), saves: () => saves, conflict: (value: boolean) => { conflict = value; },
   waitFor, clickButton,
 } });

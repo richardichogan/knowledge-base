@@ -61,6 +61,38 @@ async function mouseDrag(from, to) {
   }
   await command('Input.dispatchMouseEvent', { type: 'mouseReleased', ...to, button: 'left', clickCount: 1 });
 }
+async function lineJumpPointerChecks() {
+  const original = await evaluate('window.diagramFixture.snapshot().document');
+  const over = original.nodes.find(node => node.kind === 'line' && node.stroke === '#0f62fe');
+  const group = `g.dg-node[data-id="${over.id}"]`;
+  const path = `${group} path.dg-node__body`;
+  const edge = `g.dg-edge[data-id="${original.edges[1].id}"]`;
+  async function worldPoint(x, y) {
+    return evaluate(`(() => {
+      const p = new DOMPoint(${x}, ${y}).matrixTransform(document.querySelector('${path}').getScreenCTM());
+      return { x: p.x, y: p.y };
+    })()`);
+  }
+  const before = await evaluate(`document.querySelector('${path}').getAttribute('d')`);
+  await command('Page.bringToFront');
+  const start = await worldPoint(166, 240);
+  assert.equal(await evaluate(`document.elementFromPoint(${start.x}, ${start.y})?.closest('g.dg-node')?.getAttribute('data-id')`), over.id,
+    `Bridge pointer target must match the rendered standalone line at ${JSON.stringify(start)}`);
+  await mouseClick(start);
+  await evaluate(`window.diagramFixture.waitFor(() => document.querySelector('${group}').classList.contains('dg-node--selected'))`);
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', modifiers: 8, windowsVirtualKeyCode: 39 });
+  await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', modifiers: 8, windowsVirtualKeyCode: 39 });
+  await evaluate(`window.diagramFixture.waitFor(() => document.querySelector('${path}').getAttribute('d') !== ${JSON.stringify(before)})`);
+  await evaluate('window.diagramFixture.clickButton("Undo (Ctrl+Z)")');
+  await evaluate(`window.diagramFixture.waitFor(() => document.querySelector('${path}').getAttribute('d') === ${JSON.stringify(before)})`);
+  await mouseClick(await worldPoint(276, 180));
+  await evaluate(`window.diagramFixture.waitFor(() => document.querySelector('${edge}').classList.contains('dg-edge--selected'))`);
+  await evaluate('window.diagramFixture.waitFor(() => document.querySelector(".dg-status--saved") !== null)');
+  assert.deepEqual(await evaluate('window.diagramFixture.snapshot().document.edges'), original.edges,
+    'Bridge movement and undo never change the stored connector routes');
+  await mouseClick(await worldPoint(400, 100));
+  return ['Native pointer clicks select standalone and connector arches; keyboard movement recalculates bridges and undo restores them'];
+}
 async function pointerChecks() {
   await evaluate('window.diagramFixture.clickButton("Fit diagram to view")');
   await evaluate('window.diagramFixture.waitFor(() => document.querySelector(".dg-status--saved") !== null)');
@@ -191,6 +223,17 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Diagram fixture did not mount: ${errors.join('\n') || await evaluate('document.body.innerText')}`);
+    if (process.env.ATHENA_BROWSER_CHECKS === 'diagram-line-jumps') {
+      const checks = await evaluate('window.runDiagramLineJumpChecks()');
+      console.log(JSON.stringify({ width, checks: [...checks, ...await lineJumpPointerChecks()] }, null, 2));
+      if (process.env.DIAGRAM_ARTIFACT_DIR) {
+        await command('Page.bringToFront');
+        await mkdir(process.env.DIAGRAM_ARTIFACT_DIR, { recursive: true });
+        const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.DIAGRAM_ARTIFACT_DIR, `line-jumps-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+      continue;
+    }
     if (process.env.ATHENA_BROWSER_CHECKS === 'diagram-drilldown') {
       console.log(JSON.stringify({ width, checks: await evaluate('window.runDiagramDrilldownChecks()') }, null, 2));
       if (process.env.DIAGRAM_ARTIFACT_DIR) {

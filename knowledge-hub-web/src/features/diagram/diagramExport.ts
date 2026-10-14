@@ -4,6 +4,7 @@ import { diagramTextLayout } from './diagramText';
 import { calloutLayout } from './diagramCallouts';
 import { diagramDrawioXml } from './diagramDrawio';
 import { diagramBorderDash } from './diagramStroke';
+import { diagramLineJumpGeometry } from './diagramLineJumps';
 import { boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
 
 const escapeXml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
@@ -62,6 +63,7 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
   const view = collapseView(source);
   const document: DiagramDocument = { ...source, nodes: view.nodes, edges: view.edges };
   const byId = nodeMap(document.nodes);
+  const lineJumps = diagramLineJumpGeometry(document);
   const content = diagramBounds(document, 0);
   const fns = (options.footnotes ?? true) ? footnotesOf(source) : [];
   const rows = (options.legend ?? source.legend?.visible === true) ? legendRows(source).filter((r) => !r.hidden) : [];
@@ -90,6 +92,10 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
   const bounds = { x: all.x - 24, y: all.y - 24, width: all.width + 48, height: all.height + 48 };
   const width = Math.max(1, Math.ceil(bounds.width));
   const height = Math.max(1, Math.ceil(bounds.height));
+  const maskIds = new Map([...lineJumps.masks.keys()].map((id, index) => [id, `jump-${index}`]));
+  const maskFor = (id: string): string => maskIds.has(id) ? ` mask="url(#${maskIds.get(id)})"` : '';
+  const maskDefinitions = [...lineJumps.masks].map(([id, masks]) =>
+    `<mask id="${maskIds.get(id)}" maskUnits="userSpaceOnUse" x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}"><rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="white"/>${masks.map(mask => `<path d="${mask.d}" fill="none" stroke="black" stroke-width="${mask.width}"/>`).join('')}</mask>`);
   const embedded = new Map<string, string>();
   for (const node of document.nodes) {
     if (node.assetId !== null && !embedded.has(node.assetId)) {
@@ -109,7 +115,8 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     let shape = '';
     if (node.kind === 'line') {
       const [start, end] = linePoints(node);
-      shape = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" fill="none" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}/>`;
+      const jump = lineJumps.paths.get(node.id);
+      shape = `<${jump === undefined ? `line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}"` : `path d="${jump}"`} fill="none" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}${maskFor(node.id)}/>`;
     } else if (node.kind === 'document') {
       shape = `<path d="${documentShapePath(node)}" ${colour}/>`;
     } else if (node.kind === 'decision') {
@@ -130,13 +137,14 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     }
     return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node)}${calloutHeader(node)}</g>`;
   });
-  const definitions: string[] = [];
+  const definitions: string[] = [...maskDefinitions];
   const edges = document.edges.map((edge, i) => {
     const points = edgeRoute(edge, byId) ?? [];
     if (points.length < 2) throw new Error(`Connector "${edge.label}" is not attached to two shapes`);
     definitions.push(`<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${20 / 3}" markerHeight="${20 / 3}" markerUnits="strokeWidth" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${escapeXml(edge.stroke)}"/></marker>`);
     const middle = edgeLabelCenter(points, edge);
-    const path = `<polyline points="${points.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="${escapeXml(edge.stroke)}" stroke-width="${edge.strokeWidth ?? 1.5}"${edge.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.arrows === 'end' || edge.arrows === 'both' ? ` marker-end="url(#arrow-${i})"` : ''}${edge.arrows === 'both' || edge.arrows === 'start' ? ` marker-start="url(#arrow-${i})"` : ''}/>`;
+    const jump = lineJumps.paths.get(edge.id);
+    const path = `<${jump === undefined ? `polyline points="${points.map((p) => `${p.x},${p.y}`).join(' ')}"` : `path d="${jump}"`} fill="none" stroke="${escapeXml(edge.stroke)}" stroke-width="${edge.strokeWidth ?? 1.5}"${edge.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.arrows === 'end' || edge.arrows === 'both' ? ` marker-end="url(#arrow-${i})"` : ''}${edge.arrows === 'both' || edge.arrows === 'start' ? ` marker-start="url(#arrow-${i})"` : ''}${maskFor(edge.id)}/>`;
     const { lines, width: labelW, height: labelH, fontSize, lineHeight } = edgeLabelLayout(edge);
     const label = edge.label.trim() ? `<rect x="${middle.x - labelW / 2}" y="${middle.y - labelH / 2}" width="${labelW}" height="${labelH}" rx="3" fill="white" fill-opacity="0.92"/><text x="${middle.x}" y="${middle.y - labelH / 2 + 3 + fontSize}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" text-anchor="middle" fill="${edge.stroke === 'none' ? '#161616' : escapeXml(edge.stroke)}">${lines.map((line, j) => `<tspan x="${middle.x}" dy="${j === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>` : '';
     return `${path}${label}`;

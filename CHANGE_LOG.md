@@ -2,6 +2,17 @@
 
 ---
 
+## Automatic diagram line jumps
+
+Connectors and standalone lines now form a small curved bridge where they cross
+another line. The later-painted line hops over the earlier one; shared endpoints,
+junctions and overlapping parallel lines remain unchanged. Nearby crossings share
+a tidy bridge, and hops recalculate as shapes or routes move.
+
+Line jumps are visual only: connections, waypoints, labels and arrowheads stay
+intact. SVG and PNG exports use the same geometry, including transparent exports;
+editable draw.io exports enable its native arc-style line jumps.
+
 ## Shape drill-down diagrams
 
 Select any diagram shape and choose **Add drill-down diagram** in Properties.
