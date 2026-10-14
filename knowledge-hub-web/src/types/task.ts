@@ -4,7 +4,17 @@
 
 export type TaskDestination = 'todo' | 'github-issue';
 
-export type TaskStatus = 'backlog' | 'in-progress' | 'blocked' | 'awaiting-feedback' | 'completed';
+/** `inbox` holds Athena-created tasks awaiting review; `waiting` replaced blocked / awaiting-feedback. */
+export type TaskStatus = 'inbox' | 'backlog' | 'in-progress' | 'waiting' | 'completed';
+
+const LEGACY_STATUS: Record<string, TaskStatus> = { blocked: 'waiting', 'awaiting-feedback': 'waiting' };
+
+/** Maps statuses from before the triage migration onto the current set. */
+export function normaliseTask<T extends { status: string; waitingOn?: string | null }>(task: T): T & { status: TaskStatus } {
+  const legacy = LEGACY_STATUS[task.status];
+  if (legacy === undefined) return task as T & { status: TaskStatus };
+  return { ...task, status: legacy, waitingOn: task.waitingOn ?? (task.status === 'blocked' ? 'Blocked' : 'Feedback') };
+}
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type TaskType = 'standard' | 'cert_session' | 'cert_review';
 export type RecurringCadence = 'daily' | 'weekly' | 'fortnightly' | 'monthly';
@@ -14,6 +24,8 @@ export interface PlanTask {
   title: string;
   body: string;
   status: TaskStatus;
+  /** Who/what a Waiting task is waiting on. */
+  waitingOn?: string | null;
   projectId: string;
   tags: string[];
   priority: TaskPriority;
@@ -41,6 +53,7 @@ export interface CreateTaskInput {
   projectContext?: string;
   projectId?: string;
   status?: TaskStatus;
+  waitingOn?: string | null;
   priority?: TaskPriority;
   tags?: string[];
   taxonomyTagIds?: string[];

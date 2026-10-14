@@ -350,21 +350,21 @@ export async function runNavigationChecks(): Promise<string[]> {
       class: element.className, width: element.clientWidth, scroll: element.scrollWidth,
       min: getComputedStyle(element).minWidth, flex: getComputedStyle(element).flex,
     })))}`);
-  const listButton = [...document.querySelectorAll<HTMLButtonElement>('.plan-view-toggle button')]
-    .find((button) => button.textContent?.trim() === 'List')!;
-  listButton.click();
-  await waitFor(() => listButton.getAttribute('aria-pressed') === 'true');
-  await waitFor(() => document.querySelector('.tl-list')?.textContent?.includes('Native task scheduled today') === true);
-  check(!selector('.tl-list').textContent?.includes('Completed fixture must be hidden'), 'Completed native tasks are hidden');
+  const focusButton = [...document.querySelectorAll<HTMLButtonElement>('.plan-view-toggle button')]
+    .find((button) => button.textContent?.trim() === 'Focus')!;
+  focusButton.click();
+  await waitFor(() => focusButton.getAttribute('aria-pressed') === 'true');
+  await waitFor(() => document.querySelector('.kb-focus__group--week')?.textContent?.includes('Native task scheduled today') === true);
+  check(!selector('.kb-focus').textContent?.includes('Completed fixture must be hidden'), 'Completed native tasks are hidden');
   check(document.querySelector('#plan-filter-project') !== null && document.querySelector('#plan-filter-tag') !== null,
     'Project and tag scope stays available across Plan modes');
   results.push('Plan without Calendar, date-only native tasks, completed exclusion and responsive shared Plan scope');
 
-  const sharedPlan = { version: 1, kind: 'plan', view: 'list', project: 'unavailable-project', tag: 'unavailable-tag' };
+  const sharedPlan = { version: 1, kind: 'plan', view: 'focus', project: 'unavailable-project', tag: 'unavailable-tag' };
   await go(`/plan?view=${encodeURIComponent(JSON.stringify(sharedPlan))}`);
   await waitFor(() => selector<HTMLSelectElement>('#plan-filter-project').value === 'unavailable-project'
     && selector<HTMLSelectElement>('#plan-filter-tag').value === 'unavailable-tag');
-  check(selector('.plan-view-btn--active').textContent?.trim() === 'List',
+  check(selector('.plan-view-btn--active').textContent?.trim() === 'Focus',
     'Shared Plan view preserves exact mode and unavailable scopes');
   const savedViews = selector<HTMLDetailsElement>('.kh-saved-views');
   savedViews.open = true;
@@ -381,7 +381,7 @@ export async function runNavigationChecks(): Promise<string[]> {
   await new Promise(resolve => setTimeout(resolve, 30));
   savedPicker.selectedIndex = savedPicker.options.length - 1;
   savedPicker.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'List');
+  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'Focus');
   check(selector<HTMLSelectElement>('#plan-filter-project').value === 'unavailable-project'
     && selector<HTMLSelectElement>('#plan-filter-tag').value === 'unavailable-tag', 'Named Plan view cannot widen scope across modes');
   await go('/plan?view=%7B');

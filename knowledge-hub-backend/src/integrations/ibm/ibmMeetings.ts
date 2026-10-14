@@ -168,7 +168,7 @@ export async function importMeetingList(db: Pool, text: string, date = workToday
         tasksAlreadyThere.push(title);
       } else {
         await db.query(
-          `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date) VALUES ($1, $2, 'backlog', $3, $4, 'normal', $5)`,
+          `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date) VALUES ($1, $2, 'inbox', $3, $4, 'normal', $5)`,
           [title, `Copilot recommends preparing for this meeting.\n${item.summary}`, item.projectContext, [], date],
         );
         tasksCreated.push(title);

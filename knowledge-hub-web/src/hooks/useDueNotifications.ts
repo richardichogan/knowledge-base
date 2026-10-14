@@ -13,7 +13,7 @@ import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../services/api';
 
-type TaskStatus   = 'backlog' | 'in-progress' | 'blocked' | 'awaiting-feedback' | 'completed';
+type TaskStatus   = 'inbox' | 'backlog' | 'in-progress' | 'waiting' | 'completed';
 type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 
 interface Task {

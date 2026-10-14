@@ -1,19 +1,18 @@
 /**
  * PlanPage — task planning hub.
  *
- * Combines Board and List views into a single page with a view switcher.
- * Each sub-view retains its own data-fetching; only the shared page header
- * and view tabs live here. The inner .page-header of each sub-page is hidden
+ * Board and Focus views of the same tasks behind a view switcher (both render
+ * TasksPage, so the Inbox tray, editor and mutations are shared). Only the
+ * shared page header and view tabs live here. The inner .page-header of each sub-page is hidden
  * via the .plan-inner wrapper. Athena opens as the floating window (so the
  * board keeps the full width), primed with the visible tasks.
  */
 
 import React, { useEffect, useState } from 'react';
 import type { CarbonIconType } from '@carbon/icons-react';
-import { Dashboard, Upload, List } from '@carbon/icons-react';
+import { CenterCircle, Dashboard, Upload } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
 import { TasksPage } from './TasksPage';
-import { TaskListView } from './TaskListView';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useDueNotifications } from '../hooks/useDueNotifications';
 import { useProjects } from '../hooks/useProjects';
@@ -30,7 +29,7 @@ interface ViewTab {
 
 const VIEW_TABS: ViewTab[] = [
   { key: 'board',    label: 'Board',     Icon: Dashboard },
-  { key: 'list',     label: 'List',      Icon: List },
+  { key: 'focus',    label: 'Focus',     Icon: CenterCircle },
 ];
 
 export const PlanPage: React.FC = () => {
@@ -115,16 +114,14 @@ export const PlanPage: React.FC = () => {
       }} />
 
       <div className="plan-inner">
-        {view === 'list'     && <TaskListView filterProject={filterProject} filterTag={filterTag} />}
-        {view === 'board'    && (
-          <TasksPage
-            importOpen={importOpen}
-            onImportClose={() => setImportOpen(false)}
-            filterProject={filterProject}
-            filterTag={filterTag}
-            onAskAthena={askAthena}
-          />
-        )}
+        <TasksPage
+          importOpen={importOpen}
+          onImportClose={() => setImportOpen(false)}
+          filterProject={filterProject}
+          filterTag={filterTag}
+          view={view}
+          onAskAthena={askAthena}
+        />
       </div>
     </div>
   );

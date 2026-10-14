@@ -1,6 +1,8 @@
 /**
- * TasksPage — Kanban board.
- * Columns: Backlog | In Progress | Blocked | Awaiting Feedback | Completed
+ * TasksPage — the Plan's task views.
+ * Board columns: Backlog | In Progress | Waiting | Completed. Athena-created
+ * tasks wait in the Inbox tray above until accepted or dismissed. The Focus
+ * view regroups the same open tasks by what needs attention next.
  */
 
 import React, { useRef, useState, useEffect } from 'react';
@@ -10,14 +12,14 @@ import {
   InlineLoading, InlineNotification,
   Modal, TextInput, TextArea, Select, SelectItem,
 } from '@carbon/react';
-import { Add, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
+import { Add, ChatLaunch, Checkmark, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { useProjects, type ProjectRecord } from '../services/useProjects';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { TagPicker } from '../components/TagPicker';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import type { PlanTask as Task, TaskStatus, TaskPriority } from '../types/task';
-import { isRecentlyCompleted, originHref, originLabel, taskAthenaPrompt, taskHealth, RECENT_COMPLETED_DAYS } from '../features/plan/taskInsights';
+import { FOCUS_GROUPS, focusDate, groupForFocus, isRecentlyCompleted, originHref, originLabel, taskAthenaPrompt, taskHealth, RECENT_COMPLETED_DAYS, type FocusGroupId } from '../features/plan/taskInsights';
 import { dateOnlyToLocal, localDateKey } from '../utils/dateOnly';
 import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
@@ -27,12 +29,13 @@ import type { ApiSuccess, PaginatedList } from '../types/apiResponse';
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const COLUMNS: { id: TaskStatus; label: string }[] = [
-  { id: 'backlog',           label: 'Backlog' },
-  { id: 'in-progress',       label: 'In Progress' },
-  { id: 'blocked',           label: 'Blocked' },
-  { id: 'awaiting-feedback', label: 'Awaiting Feedback' },
-  { id: 'completed',         label: 'Completed' },
+  { id: 'backlog',     label: 'Backlog' },
+  { id: 'in-progress', label: 'In Progress' },
+  { id: 'waiting',     label: 'Waiting' },
+  { id: 'completed',   label: 'Completed' },
 ];
+
+export type TasksView = 'board' | 'focus';
 
 // Left-border colour per priority (like Linear)
 const PRIORITY_BORDER: Record<TaskPriority, string> = {
@@ -184,6 +187,12 @@ const TaskCard: React.FC<{
 
     {task.body !== '' && <p className="kb-card__body">{task.body}</p>}
 
+    {task.status === 'waiting' && (
+      <p className={`kb-card__waiting${task.waitingOn ? '' : ' kb-card__waiting--unset'}`}>
+        {task.waitingOn ? <>Waiting on <strong>{task.waitingOn}</strong></> : 'Waiting on: not set'}
+      </p>
+    )}
+
     {(resolvedTags.length > 0 || priorityLabel !== '') && (
       <div className="kb-card__tags">
         <span className={`kb-card__priority-pill kb-card__priority-pill--${task.priority}`}>
@@ -238,6 +247,154 @@ const TaskCard: React.FC<{
       </div>
     </div>
     </article>
+  );
+};
+
+// ── Inbox tray ────────────────────────────────────────────────────────────────
+
+const InboxTray: React.FC<{
+  tasks: Task[];
+  busyIds: Set<string>;
+  projects: ProjectRecord[];
+  onAccept: (task: Task) => void;
+  onEdit: (task: Task) => void;
+  onDismiss: (task: Task) => void;
+}> = ({ tasks, busyIds, projects, onAccept, onEdit, onDismiss }) => {
+  const [collapsed, setCollapsed] = useState(false);
+  if (tasks.length === 0) return null;
+  return (
+    <section className="kb-inbox" aria-label="Plan inbox">
+      <header className="kb-inbox__head">
+        <span className="kb-inbox__title">Inbox</span>
+        <span className="kb-inbox__count">{tasks.length}</span>
+        <span className="kb-inbox__hint">Suggested by Athena and meeting prep. Accept to add to your backlog, or dismiss.</span>
+        <button type="button" className="kb-inbox__toggle" aria-expanded={!collapsed} onClick={() => { setCollapsed((v) => !v); }}>
+          {collapsed ? 'Show' : 'Hide'}
+        </button>
+      </header>
+      {!collapsed && (
+        <ul className="kb-inbox__list">
+          {tasks.map((task) => {
+            const busy = busyIds.has(task.id);
+            const origin = task.origin ?? null;
+            const originTo = origin ? originHref(origin) : null;
+            return (
+              <li key={task.id} className="kb-inbox-card" aria-busy={busy} style={{ borderLeftColor: PRIORITY_BORDER[task.priority] }}>
+                <button type="button" className="kb-inbox-card__title" disabled={busy} onClick={() => { onEdit(task); }}>{task.title}</button>
+                {task.body !== '' && <p className="kb-inbox-card__body">{task.body}</p>}
+                <p className="kb-inbox-card__meta">
+                  <span>{getProjectName(task.projectId, projects)}</span>
+                  {task.dueDate != null && (
+                    <span className={isDueOverdue(task.dueDate) ? 'kb-inbox-card__due--late' : undefined}>Due {formatDue(task.dueDate)}</span>
+                  )}
+                  {origin && originTo && (
+                    <Link className="kb-inbox-card__origin" to={originTo} title={`Created from ${originLabel(origin)}`}>{originLabel(origin)}</Link>
+                  )}
+                </p>
+                <div className="kb-inbox-card__actions">
+                  <button type="button" className="kb-inbox-card__btn kb-inbox-card__btn--primary" disabled={busy} onClick={() => { onAccept(task); }}>
+                    <Checkmark size={16} /> Accept
+                  </button>
+                  <button type="button" className="kb-inbox-card__btn" disabled={busy} onClick={() => { onEdit(task); }}>
+                    <Edit size={16} /> Edit
+                  </button>
+                  <button type="button" className="kb-inbox-card__btn" disabled={busy} title="Remove from Plan (archived, not deleted)" onClick={() => { onDismiss(task); }}>
+                    <Close size={16} /> Dismiss
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+};
+
+// ── Focus view ────────────────────────────────────────────────────────────────
+
+const FOCUS_COLUMNS: FocusGroupId[][] = [['overdue', 'week', 'next'], ['waiting', 'someday']];
+
+const FocusRow: React.FC<{
+  task: Task;
+  busy: boolean;
+  projects: ProjectRecord[];
+  onComplete: (task: Task) => void;
+  onEdit: (task: Task) => void;
+  onAskAthena?: ((task: Task) => void) | undefined;
+}> = ({ task, busy, projects, onComplete, onEdit, onAskAthena }) => {
+  const date = focusDate(task);
+  const health = taskHealth(task);
+  return (
+    <li className="kb-focus-row" aria-busy={busy}>
+      <span className={`kb-focus-row__bar kb-focus-row__bar--${task.priority}`} aria-hidden="true" />
+      <button type="button" className="kb-focus-row__check" disabled={busy} title="Mark complete" aria-label={`Complete ${task.title}`}
+        onClick={() => { onComplete(task); }}>
+        <Checkmark size={16} />
+      </button>
+      <button type="button" className="kb-focus-row__main" disabled={busy} onClick={() => { onEdit(task); }}>
+        <span className="kb-focus-row__title">{task.title}</span>
+        <span className="kb-focus-row__meta">
+          <span>{getProjectName(task.projectId, projects)}</span>
+          {task.status === 'in-progress' && <span className="kb-focus-row__tag">In progress</span>}
+          {task.priority === 'urgent' || task.priority === 'high'
+            ? <span className={`kb-focus-row__tag kb-focus-row__tag--${task.priority}`}>{PRIORITY_LABEL[task.priority]}</span> : null}
+          {date !== null && (
+            <span className={isDueOverdue(date) ? 'kb-focus-row__due--late' : undefined}>
+              {task.recurringCadence != null ? 'Next' : 'Due'} {formatDue(date)}
+            </span>
+          )}
+          {task.status === 'waiting' && <span>Waiting on {task.waitingOn || 'not set'}</span>}
+          {health && <span className={`kb-card__health kb-card__health--${health.kind}`} title={health.title}>{health.label}</span>}
+        </span>
+      </button>
+      {onAskAthena && (
+        <button type="button" className="kb-focus-row__athena" disabled={busy} title="Ask Athena about this task" aria-label={`Ask Athena about ${task.title}`}
+          onClick={() => { onAskAthena(task); }}>
+          <ChatLaunch size={16} />
+        </button>
+      )}
+    </li>
+  );
+};
+
+const FocusView: React.FC<{
+  tasks: Task[];
+  busyIds: Set<string>;
+  projects: ProjectRecord[];
+  onComplete: (task: Task) => void;
+  onEdit: (task: Task) => void;
+  onAskAthena?: ((task: Task) => void) | undefined;
+}> = ({ tasks, busyIds, projects, onComplete, onEdit, onAskAthena }) => {
+  const groups = groupForFocus(tasks, localDateKey(new Date()));
+  return (
+    <div className="kb-focus">
+      {FOCUS_COLUMNS.map((column, index) => {
+        const sections = FOCUS_GROUPS.filter((g) => column.includes(g.id) && groups[g.id].length > 0);
+        return (
+          <div key={column.join('-')} className="kb-focus__col">
+            {sections.length === 0 && (
+              <p className="kb-focus__empty">{index === 0 ? 'Nothing due or in flight. Pick something from Someday.' : 'Nothing waiting and no backlog.'}</p>
+            )}
+            {sections.map((group) => (
+              <section key={group.id} className={`kb-focus__group kb-focus__group--${group.id}`} aria-label={group.label}>
+                <header className="kb-focus__head">
+                  <span className="kb-focus__name">{group.label}</span>
+                  <span className="kb-focus__count">{groups[group.id].length}</span>
+                  <span className="kb-focus__hint">{group.hint}</span>
+                </header>
+                <ul className="kb-focus__list">
+                  {groups[group.id].map((task) => (
+                    <FocusRow key={task.id} task={task} busy={busyIds.has(task.id)} projects={projects}
+                      onComplete={onComplete} onEdit={onEdit} onAskAthena={onAskAthena} />
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        );
+      })}
+    </div>
   );
 };
 
@@ -627,7 +784,9 @@ const TaskModal: React.FC<{
   const [dueDate,     setDueDate]     = useState('');
   const [linkedTagIds, setLinkedTagIds] = useState<string[]>([]);
   const [recurringCadence, setRecurringCadence] = useState<string>('none');
+  const [waitingOn, setWaitingOn] = useState('');
   const flatTags = useFlatTags();
+  const statusOptions = initial?.status === 'inbox' ? [{ id: 'inbox' as const, label: 'Inbox' }, ...COLUMNS] : COLUMNS;
 
   React.useEffect(() => {
     setTitle(initial?.title ?? '');
@@ -640,6 +799,7 @@ const TaskModal: React.FC<{
     setDueDate(initial?.dueDate ?? '');
     setLinkedTagIds(initial?.taxonomyTagIds?.length ? initial.taxonomyTagIds : initial?.linkedTagId ? [initial.linkedTagId] : []);
     setRecurringCadence(initial?.recurringCadence ?? 'none');
+    setWaitingOn(initial?.waitingOn ?? '');
   }, [initial, open, defaultStatus]);
 
   return (
@@ -655,6 +815,7 @@ const TaskModal: React.FC<{
           title: title.trim(),
           body: body.trim(),
           status,
+          ...(status === 'waiting' || initial?.waitingOn ? { waitingOn: status === 'waiting' ? waitingOn.trim() || null : null } : {}),
           projectId,
           priority,
           task_type: initial?.task_type ?? 'standard',
@@ -686,9 +847,14 @@ const TaskModal: React.FC<{
             {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
           </Select>
           <Select id="t-status" labelText="Status" value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
-            {COLUMNS.map((c) => <SelectItem key={c.id} value={c.id} text={c.label} />)}
+            {statusOptions.map((c) => <SelectItem key={c.id} value={c.id} text={c.label} />)}
           </Select>
         </div>
+
+        {status === 'waiting' && (
+          <TextInput id="t-waiting-on" labelText="Waiting on" placeholder="Who or what, e.g. Feedback from Sarah"
+            value={waitingOn} onChange={(e) => setWaitingOn(e.target.value)} />
+        )}
 
         {/* Priority + Repeats — side by side */}
         <div className="kb-modal-form__row">
@@ -757,8 +923,9 @@ export const TasksPage: React.FC<{
   onImportClose: () => void;
   filterProject: string;
   filterTag: string;
+  view?: TasksView;
   onAskAthena?: (prompt: string) => void;
-}> = ({ importOpen, onImportClose, filterProject, filterTag, onAskAthena }) => {
+}> = ({ importOpen, onImportClose, filterProject, filterTag, view = 'board', onAskAthena }) => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [modalOpen,      setModalOpen]      = useState(false);
@@ -776,6 +943,8 @@ export const TasksPage: React.FC<{
   });
 
   const tasks: Task[] = data?.success === true ? data.data.items : [];
+  const scopedTasks = filterTag ? tasks.filter((t) => t.taxonomyTagIds?.includes(filterTag)) : tasks;
+  const inboxTasks = scopedTasks.filter((t) => t.status === 'inbox');
 
   // Deep-link support: a chat reply's "View task" link points at
   // /plan?taskId=<id> — open that task's edit modal directly once it's
@@ -861,6 +1030,19 @@ export const TasksPage: React.FC<{
     },
   });
 
+  const dismissMutation = useMutation({
+    mutationFn: async (id: string) => requireApiData(await api.archiveTask(id)),
+    onSuccess: () => { setSaveError(null); void queryClient.invalidateQueries({ queryKey: ['tasks'] }); },
+    onError: (error) => { setSaveError(describeApiError(error)); },
+    onSettled: (_data, _error, id) => { finishTaskAction(id); },
+  });
+
+  const moveTask = (id: string, status: TaskStatus): void => { if (beginTaskAction(id)) moveTaskMutation.mutate({ id, status }); };
+  const openEditor = (task: Task): void => { setEditTask(task); setModalOpen(true); };
+  const askAthenaAbout = onAskAthena
+    ? (task: Task): void => { onAskAthena(taskAthenaPrompt(task, getProjectName(task.projectId, projects))); }
+    : undefined;
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => requireApiData(await api.deleteTask(id)),
     onSuccess: () => { setSaveError(null); void queryClient.invalidateQueries({ queryKey: ['tasks'] }); },
@@ -875,12 +1057,29 @@ export const TasksPage: React.FC<{
       {isError && <DataNotice title="Tasks are unavailable" error={loadError} onRetry={() => { void refetch(); }} />}
       {saveError !== null && !modalOpen && <DataNotice title="Task change was not saved" error={saveError} />}
 
-      <div className="kb-board">
+      <InboxTray
+        tasks={inboxTasks}
+        busyIds={busyTaskIds}
+        projects={projects}
+        onAccept={(task) => { moveTask(task.id, 'backlog'); }}
+        onEdit={openEditor}
+        onDismiss={(task) => { if (beginTaskAction(task.id)) dismissMutation.mutate(task.id); }}
+      />
+
+      {view === 'focus' && (
+        <FocusView
+          tasks={scopedTasks}
+          busyIds={busyTaskIds}
+          projects={projects}
+          onComplete={(task) => { moveTask(task.id, 'completed'); }}
+          onEdit={openEditor}
+          onAskAthena={askAthenaAbout}
+        />
+      )}
+
+      {view === 'board' && <div className="kb-board">
         {COLUMNS.map((col) => {
-          const allColTasks = tasks.filter((t) =>
-            t.status === col.id &&
-            (!filterTag  || t.taxonomyTagIds?.includes(filterTag))
-          );
+          const allColTasks = scopedTasks.filter((t) => t.status === col.id);
           // Completed tasks auto-archive after 14 days; only this week's (and any still saving) stay visible by default.
           const isRecentDone = (t: Task): boolean => busyTaskIds.has(t.id) || isRecentlyCompleted(t);
           const olderDone = col.id === 'completed' ? allColTasks.filter((t) => !isRecentDone(t)).length : 0;
@@ -913,10 +1112,10 @@ export const TasksPage: React.FC<{
                     task={task}
                     busy={busyTaskIds.has(task.id)}
                     projects={projects}
-                    onMove={(id, s) => { if (beginTaskAction(id)) moveTaskMutation.mutate({ id, status: s }); }}
+                    onMove={moveTask}
                     onDelete={(id) => { if (beginTaskAction(id)) deleteMutation.mutate(id); }}
-                    onEdit={(t) => { setEditTask(t); setModalOpen(true); }}
-                    onAskAthena={onAskAthena ? (t) => { onAskAthena(taskAthenaPrompt(t, getProjectName(t.projectId, projects))); } : undefined}
+                    onEdit={openEditor}
+                    onAskAthena={askAthenaAbout}
                   />
                 ))}
                 {col.id === 'completed' && colTasks.length === 0 && olderDone > 0 && (
@@ -940,7 +1139,7 @@ export const TasksPage: React.FC<{
             </div>
           );
         })}
-      </div>
+      </div>}
 
       <PodcastImportModal
         open={importOpen}

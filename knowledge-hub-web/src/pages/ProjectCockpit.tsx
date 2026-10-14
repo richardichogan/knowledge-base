@@ -202,7 +202,7 @@ export const ProjectCockpitModal: React.FC<{ projectId: string | null; projectNa
             </section>
 
             <h2 className="pcp-step">Actionable work</h2>
-            <LinkList title="Blockers" section={data.blockers} empty="No blocked tasks." />
+            <LinkList title="Waiting" section={data.blockers} empty="Nothing waiting on others." />
             <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this project." />
             <Register projectId={projectId} />
             <ReviewPackets projectId={projectId} />

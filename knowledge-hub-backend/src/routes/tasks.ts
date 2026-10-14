@@ -13,6 +13,7 @@ import { env } from '../config/env.js';
 import { upsertContentItem } from '../db/queries.js';
 import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import type { PoolClient } from 'pg';
+import { normaliseTaskStatus, type TaskStatus } from '../services/taskStatus.js';
 
 const router = Router();
 
@@ -20,7 +21,9 @@ export interface Task {
   id: string;
   title: string;
   body: string;
-  status: 'backlog' | 'in-progress' | 'blocked' | 'awaiting-feedback' | 'completed';
+  status: TaskStatus;
+  /** Who/what a Waiting task is waiting on. */
+  waitingOn: string | null;
   projectId: string;
   tags: string[];
   priority: 'low' | 'normal' | 'high' | 'urgent';
@@ -49,7 +52,8 @@ export function rowToTask(row: Record<string, unknown>): Task {
     id: row['id'] as string,
     title: row['title'] as string,
     body: row['body'] as string,
-    status: row['status'] as Task['status'],
+    status: normaliseTaskStatus(row['status']) ?? 'backlog',
+    waitingOn: (row['waiting_on'] as string | null | undefined) ?? null,
     projectId: row['project_id'] as string,
     tags: row['tags'] as string[],
     priority: row['priority'] as Task['priority'],
@@ -125,13 +129,13 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       const { status, projectId } = req.query as Record<string, string | undefined>;
       const conditions: string[] = ['t.archived = false'];
       const params: unknown[] = [];
-      if (status) { params.push(status); conditions.push(`status = $${params.length}`); }
+      if (status) { params.push(normaliseTaskStatus(status) ?? status); conditions.push(`status = $${params.length}`); }
       if (projectId) { params.push(projectId); conditions.push(`project_id = $${params.length}`); }
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       const result = await db.query<Record<string, unknown>>(
         `SELECT t.id, t.title, t.body, t.status, t.project_id, t.tags, t.priority,
                 t.due_date, t.start_date, t.end_date, t.external_url, t.linked_tag_id,
-                t.recurring_cadence, t.task_type, t.archived, t.created_at, t.updated_at,
+                t.recurring_cadence, t.task_type, t.waiting_on, t.archived, t.created_at, t.updated_at,
                 ARRAY_REMOVE(ARRAY_AGG(tt.tag_id), NULL) AS taxonomy_tag_ids,
                 o.target_type AS origin_type, o.target_id AS origin_id, o.target_title AS origin_title, o.target_url AS origin_url
          FROM tasks t
@@ -143,7 +147,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
          ${where ? where.replace(/status/g, 't.status').replace(/project_id/g, 't.project_id') : ''}
          GROUP BY t.id, o.target_type, o.target_id, o.target_title, o.target_url
          ORDER BY
-           CASE t.status WHEN 'in-progress' THEN 1 WHEN 'blocked' THEN 2 WHEN 'awaiting-feedback' THEN 3 WHEN 'backlog' THEN 4 WHEN 'completed' THEN 5 END,
+           CASE t.status WHEN 'inbox' THEN 0 WHEN 'in-progress' THEN 1 WHEN 'waiting' THEN 2 WHEN 'backlog' THEN 4 WHEN 'completed' THEN 5 END,
            CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 WHEN 'low' THEN 4 END,
            t.created_at DESC`,
         params,
@@ -161,13 +165,15 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const db = await getDb().connect();
       client = db;
-      const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string; startDate: string; endDate: string; pushToTodo: boolean; pushToGithub: boolean; githubRepo: string; taxonomyTagIds: string[]; recurringCadence: string }>;
+      const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string; startDate: string; endDate: string; pushToTodo: boolean; pushToGithub: boolean; githubRepo: string; taxonomyTagIds: string[]; recurringCadence: string; waitingOn: string }>;
       if (!input.title?.trim()) throw new ValidationError('title is required', { title: 'required' });
       if (input.task_type !== undefined && !['standard', 'cert_session', 'cert_review'].includes(input.task_type)) throw new ValidationError('Invalid task type');
+      const status = input.status === undefined ? 'backlog' : normaliseTaskStatus(input.status);
+      if (status === undefined) throw new ValidationError('Invalid task status', { status: 'invalid' });
       await db.query('BEGIN');
       const result = await db.query<Record<string, unknown>>(
-        `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date, start_date, end_date, recurring_cadence, task_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-        [input.title.trim(), input.body?.trim() ?? '', input.status ?? 'backlog', input.projectId ?? 'personal', input.tags ?? [], input.priority ?? 'normal', input.dueDate ?? null, input.startDate ?? null, input.endDate ?? null, input.recurringCadence ?? null, input.task_type ?? 'standard'],
+        `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date, start_date, end_date, recurring_cadence, task_type, waiting_on) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+        [input.title.trim(), input.body?.trim() ?? '', status, input.projectId ?? 'personal', input.tags ?? [], input.priority ?? 'normal', input.dueDate ?? null, input.startDate ?? null, input.endDate ?? null, input.recurringCadence ?? null, input.task_type ?? 'standard', status === 'waiting' ? input.waitingOn?.trim() || null : null],
       );
       const task = rowToTask(result.rows[0] as Record<string, unknown>);
 
@@ -217,14 +223,19 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       const previous = await db.query<{ status: Task['status'] }>('SELECT status FROM tasks WHERE id = $1 FOR UPDATE', [id]);
       const previousStatus = previous.rows[0]?.status;
       if (previousStatus === undefined) throw new NotFoundError(`Task ${id} not found`);
-      const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null }>;
+      const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null; waitingOn: string | null }>;
       if (input.task_type !== undefined && !['standard', 'cert_session', 'cert_review'].includes(input.task_type)) throw new ValidationError('Invalid task type');
       const fields: string[] = [];
       const params: unknown[] = [];
       const add = (col: string, val: unknown): void => { params.push(val); fields.push(`${col} = $${params.length}`); };
       if (input.title !== undefined) add('title', input.title.trim());
       if (input.body !== undefined) add('body', input.body);
-      if (input.status !== undefined) add('status', input.status);
+      if (input.status !== undefined) {
+        const status = normaliseTaskStatus(input.status);
+        if (status === undefined) throw new ValidationError('Invalid task status', { status: 'invalid' });
+        add('status', status);
+      }
+      if ('waitingOn' in input) add('waiting_on', input.waitingOn?.trim() || null);
       if (input.projectId !== undefined) add('project_id', input.projectId);
       if (input.tags !== undefined) add('tags', input.tags);
       if (input.priority !== undefined) add('priority', input.priority);

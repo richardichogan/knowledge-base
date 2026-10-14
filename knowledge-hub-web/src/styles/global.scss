@@ -2715,10 +2715,10 @@ input, textarea {
   color: var(--cds-text-primary);
 }
 
-// Five equal columns filling full height
+// Four equal columns filling full height
 .kb-board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1.5rem;
   flex: 1;
   min-height: 0;
@@ -2945,6 +2945,17 @@ input, textarea {
     border-color: rgba(#ff832b, 0.5);
     background: rgba(#ff832b, 0.08);
   }
+}
+
+// "Waiting on …" line on Waiting cards
+.kb-card__waiting {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #ff832b;
+
+  strong { font-weight: 600; }
+
+  &--unset { color: var(--cds-text-helper); font-style: italic; }
 }
 
 // Where the task came from (Athena chat / note)
@@ -15620,4 +15631,381 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
   line-height: 1.5;
   overflow-wrap: anywhere;
   &--error { color: var(--cds-support-error); }
+}
+
+// ── Plan inbox tray ──────────────────────────────────────────────────────────
+// Athena-created tasks waiting to be accepted into the backlog or dismissed.
+
+.kb-inbox {
+  flex-shrink: 0;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--cds-border-subtle-00);
+  border-left: 3px solid var(--cds-interactive, #4589ff);
+  background: var(--cds-layer-01);
+  padding: 0.875rem 1rem 1rem;
+}
+
+.kb-inbox__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.kb-inbox__title {
+  font-size: 11px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cds-text-primary);
+}
+
+.kb-inbox__count {
+  font-size: 11px;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--cds-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.kb-inbox__hint {
+  flex: 1;
+  min-width: 12rem;
+  font-size: 0.75rem;
+  color: var(--cds-text-helper);
+}
+
+.kb-inbox__toggle {
+  background: none;
+  border: none;
+  padding: 0.25rem 0;
+  font-size: 0.75rem;
+  color: var(--cds-link-primary);
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 1px; }
+}
+
+.kb-inbox__list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 0.75rem;
+  max-height: 15rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #525252 transparent;
+}
+
+.kb-inbox-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+  padding: 0.75rem;
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+  border-left-width: 3px;
+
+  &[aria-busy='true'] { opacity: 0.6; }
+}
+
+.kb-inbox-card__title {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--cds-text-primary);
+  cursor: pointer;
+
+  &:hover:not(:disabled) { color: var(--cds-link-primary); }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 1px; }
+}
+
+.kb-inbox-card__body {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--cds-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kb-inbox-card__meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.6875rem;
+  color: var(--cds-text-secondary);
+}
+
+.kb-inbox-card__due--late { color: var(--cds-support-error); }
+
+.kb-inbox-card__origin {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cds-link-primary);
+  text-decoration: none;
+
+  &:hover { text-decoration: underline; }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 1px; }
+}
+
+.kb-inbox-card__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.25rem;
+}
+
+.kb-inbox-card__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 2rem;
+  padding: 0 0.75rem;
+  background: transparent;
+  border: 1px solid var(--cds-border-strong-01);
+  color: var(--cds-text-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 80ms, border-color 80ms;
+
+  &:hover:not(:disabled) { background: var(--cds-layer-hover-02); }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 1px; }
+  &:disabled { opacity: 0.5; cursor: default; }
+
+  &--primary {
+    background: var(--cds-button-primary, #0f62fe);
+    border-color: var(--cds-button-primary, #0f62fe);
+    color: #fff;
+
+    &:hover:not(:disabled) { background: var(--cds-button-primary-hover, #0353e9); }
+  }
+}
+
+// ── Plan Focus view ──────────────────────────────────────────────────────────
+// Open tasks grouped by what needs attention: Now (left) and Later (right).
+
+.kb-focus {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 1.5rem;
+}
+
+.kb-focus__col {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding-bottom: 1.5rem;
+  scrollbar-width: thin;
+  scrollbar-color: #525252 transparent;
+}
+
+.kb-focus__empty {
+  margin: 0;
+  padding: 1rem;
+  border: 1px dashed var(--cds-border-subtle-01);
+  font-size: 0.8125rem;
+  color: var(--cds-text-helper);
+}
+
+.kb-focus__group {
+  background: var(--cds-layer-01);
+  border: 1px solid var(--cds-border-subtle-00);
+  border-top: 3px solid var(--kb-focus-accent, var(--cds-border-strong-01));
+
+  &--overdue { --kb-focus-accent: var(--cds-support-error, #fa4d56); }
+  &--week    { --kb-focus-accent: #f1c21b; }
+  &--next    { --kb-focus-accent: #4589ff; }
+  &--waiting { --kb-focus-accent: #ff832b; }
+  &--someday { --kb-focus-accent: #6f6f6f; }
+}
+
+.kb-focus__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--cds-border-subtle-00);
+}
+
+.kb-focus__name {
+  font-size: 11px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cds-text-primary);
+}
+
+.kb-focus__count {
+  font-size: 11px;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--cds-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.kb-focus__hint {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--cds-text-helper);
+  text-align: right;
+}
+
+.kb-focus__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kb-focus-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.5rem 0 0.75rem;
+  border-bottom: 1px solid var(--cds-border-subtle-00);
+  transition: background 80ms;
+
+  &:last-child { border-bottom: none; }
+  &:hover { background: var(--cds-layer-hover-01); }
+  &:hover .kb-focus-row__athena { opacity: 1; }
+  &[aria-busy='true'] { opacity: 0.6; }
+}
+
+.kb-focus-row__bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+
+  &--urgent { background: #fa4d56; }
+  &--high   { background: #f1c21b; }
+  &--normal { background: transparent; }
+  &--low    { background: transparent; }
+}
+
+.kb-focus-row__check {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 1px solid var(--cds-border-strong-01);
+  border-radius: 50%;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  transition: color 80ms, border-color 80ms, background 80ms;
+
+  svg { width: 12px; height: 12px; }
+
+  &:hover:not(:disabled) {
+    color: var(--cds-support-success, #24a148);
+    border-color: var(--cds-support-success, #24a148);
+  }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+}
+
+.kb-focus-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.625rem 0.25rem;
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+
+  &:hover:not(:disabled) .kb-focus-row__title { color: var(--cds-link-primary); }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: -2px; }
+}
+
+.kb-focus-row__title {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--cds-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-focus-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.6875rem;
+  color: var(--cds-text-secondary);
+}
+
+.kb-focus-row__due--late { color: var(--cds-support-error); }
+
+.kb-focus-row__tag {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #4589ff;
+
+  &--urgent { color: #fa4d56; }
+  &--high   { color: #f1c21b; }
+}
+
+.kb-focus-row__athena {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--cds-icon-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 80ms, color 80ms;
+
+  &:hover:not(:disabled) { color: var(--cds-link-primary); }
+  &:focus-visible { opacity: 1; outline: 2px solid var(--cds-focus); outline-offset: -2px; }
+}
+
+@media (hover: none) {
+  .kb-focus-row__athena { opacity: 1; }
+}
+
+@media (max-width: 900px) {
+  .kb-focus {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .kb-focus__col { overflow: visible; min-height: auto; }
+  .kb-focus__hint { display: none; }
 }

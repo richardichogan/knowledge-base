@@ -19,11 +19,12 @@ function task(id: string, patch: Partial<TodayTask> = {}): TodayTask {
 test('semantic priority outranks source order; no due date does not invent urgency', () => {
   const model = buildTodayModel(inputs({ tasks: [
     task('ordinary'), task('high', { priority: 'high' }), task('today', { dueDate: '2026-10-04' }),
-    task('blocked', { status: 'blocked' }), task('overdue', { dueDate: '2026-10-03' }),
-    task('urgent', { priority: 'urgent' }), task('feedback', { status: 'awaiting-feedback' }),
+    task('waiting', { status: 'waiting', waitingOn: 'Legal' }), task('overdue', { dueDate: '2026-10-03' }),
+    task('urgent', { priority: 'urgent' }), task('feedback', { status: 'waiting' }),
     task('near', { dueDate: '2026-10-07' }), task('later', { dueDate: '2026-10-08' }),
   ] }), now, since);
-  assert.deepEqual(model.attention.map((i) => i.taskId), ['overdue', 'blocked', 'urgent', 'today', 'near', 'feedback', 'high']);
+  assert.deepEqual(model.attention.map((i) => i.taskId), ['overdue', 'urgent', 'today', 'near', 'feedback', 'waiting', 'high']);
+  assert.match(model.attention.find((i) => i.taskId === 'waiting')?.reason ?? '', /Waiting on Legal/);
   assert.equal(model.attention.find((i) => i.taskId === 'today')?.status, 'Due today');
   assert.equal(model.attention.find((i) => i.taskId === 'today')?.tone, 'warning');
   assert.equal(model.attention.find((i) => i.taskId === 'overdue')?.tone, 'danger');
@@ -72,7 +73,7 @@ test('recently updated old PRs use source update time; future calendar events ar
 test('completed and archived tasks disappear; stale work requires attention without duplicating continuation', () => {
   const model = buildTodayModel(inputs({ tasks: [
     task('done', { status: 'completed', priority: 'urgent' }),
-    task('archived', { archived: true, status: 'blocked' }),
+    task('archived', { archived: true, status: 'waiting' }),
     task('stale', { status: 'in-progress', updatedAt: '2026-09-20' }),
     task('active', { status: 'in-progress' }),
   ] }), now, since);

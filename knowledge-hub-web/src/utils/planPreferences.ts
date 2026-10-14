@@ -1,4 +1,4 @@
-export type PlanView = 'board' | 'list';
+export type PlanView = 'board' | 'focus';
 export interface PlanPreferences {
   version: 1;
   view: PlanView;
@@ -13,11 +13,11 @@ export function parsePlanPreferences(raw: string | null): PlanPreferences {
   const parsed: unknown = JSON.parse(raw);
   if (typeof parsed !== 'object' || parsed === null) throw new Error('Invalid Plan preferences.');
   const value = parsed as Record<string, unknown>;
-  // The Calendar view was removed; saved records that used it fall back to the board.
-  const view = value['view'] === 'calendar' ? 'board' : value['view'];
+  // Calendar was removed (falls back to the board) and List became Focus.
+  const view = value['view'] === 'calendar' ? 'board' : value['view'] === 'list' ? 'focus' : value['view'];
   const validScope = (scope: unknown): scope is string =>
     typeof scope === 'string' && scope.length <= 256 && [...scope].every(character => character.charCodeAt(0) >= 32);
-  if (value['version'] !== 1 || (view !== 'board' && view !== 'list')
+  if (value['version'] !== 1 || (view !== 'board' && view !== 'focus')
     || !validScope(value['project']) || !validScope(value['tag'])) throw new Error('Invalid Plan preferences.');
   return { version: 1, view, project: value['project'], tag: value['tag'] };
 }

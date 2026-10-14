@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { DEFAULT_PLAN_PREFERENCES, parsePlanPreferences } from '../src/utils/planPreferences';
 
 test('Plan preferences preserve the mode and exact project/tag scopes in a versioned device-local record', () => {
-  const preferences = { version: 1, view: 'list', project: 'project-fixture', tag: 'tag-fixture' };
+  const preferences = { version: 1, view: 'focus', project: 'project-fixture', tag: 'tag-fixture' };
   assert.deepEqual(parsePlanPreferences(JSON.stringify(preferences)), preferences);
   assert.deepEqual(parsePlanPreferences(null), DEFAULT_PLAN_PREFERENCES);
 });
@@ -11,6 +11,11 @@ test('Plan preferences preserve the mode and exact project/tag scopes in a versi
 test('Plan preferences saved with the removed Calendar view fall back to the board', () => {
   const legacy = { version: 1, view: 'calendar', project: 'project-fixture', tag: '' };
   assert.deepEqual(parsePlanPreferences(JSON.stringify(legacy)), { ...legacy, view: 'board' });
+});
+
+test('Plan preferences saved with the old List view open Focus', () => {
+  const legacy = { version: 1, view: 'list', project: '', tag: 'tag-fixture' };
+  assert.deepEqual(parsePlanPreferences(JSON.stringify(legacy)), { ...legacy, view: 'focus' });
 });
 
 test('Plan preferences reject malformed, obsolete and unbounded records instead of applying broken scopes', () => {

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { DEFAULT_DISCOVER_VIEW, parseSavedViews, parseSharedView, parseWorkspaceView, sharedViewUrl } from '../src/utils/savedViews';
 
 test('versioned Plan/Discover views round-trip exact scopes, sorts and shareable links', () => {
-  const plan = { version: 1 as const, kind: 'plan' as const, view: 'list' as const, project: 'unavailable-project', tag: 'unavailable-tag' };
+  const plan = { version: 1 as const, kind: 'plan' as const, view: 'focus' as const, project: 'unavailable-project', tag: 'unavailable-tag' };
   const discover = { ...DEFAULT_DISCOVER_VIEW, source: 'IBM & Microsoft', title: '50%_literal', sort: 'editorial' as const };
   for (const view of [plan, discover]) {
     assert.deepEqual(parseWorkspaceView(view), view);
@@ -24,7 +24,7 @@ test('unknown, malformed, duplicate and oversized views/links fail explicitly wi
     { ...DEFAULT_DISCOVER_VIEW, tab: 'all' }, { ...DEFAULT_DISCOVER_VIEW, cfpState: 'invalid' },
     { ...DEFAULT_DISCOVER_VIEW, source: ['nested'] }, { ...DEFAULT_DISCOVER_VIEW, title: 'x'.repeat(257) },
     { ...DEFAULT_DISCOVER_VIEW, title: '\n' }, { ...DEFAULT_DISCOVER_VIEW, unknown: 'ignored' },
-    { version: 1, kind: 'plan', view: 'list', project: 42, tag: '' }]) {
+    { version: 1, kind: 'plan', view: 'focus', project: 42, tag: '' }]) {
     assert.throws(() => parseWorkspaceView(value));
   }
   for (const raw of ['{', JSON.stringify({ version: 2, items: [] }),

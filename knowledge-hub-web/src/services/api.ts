@@ -34,6 +34,7 @@ import type {
   MemoryScopeType,
 } from '../types';
 import { getApiToken } from './auth';
+import { normaliseTask } from '../types/task';
 import type { DiagramAsset, DiagramDocument, DiagramSnapshot } from '../features/diagram/diagramTypes';
 import type { GitHubPublication, GitHubPushPayload } from '../notes/types';
 
@@ -1220,6 +1221,9 @@ export class KnowledgeHubApi {
 
   async getTasks(params?: { status?: string; projectId?: string }): Promise<ApiResponse<PaginatedList<PlanTask>>> {
     const r = await this.client.get<ApiResponse<PaginatedList<PlanTask>>>('/api/tasks', { params });
+    if (r.data.success && Array.isArray(r.data.data?.items)) {
+      return { ...r.data, data: { ...r.data.data, items: r.data.data.items.map(normaliseTask) } };
+    }
     return r.data;
   }
 
@@ -1230,6 +1234,12 @@ export class KnowledgeHubApi {
 
   async updateTask(id: string, input: Record<string, unknown>): Promise<ApiResponse<PlanTask>> {
     const r = await this.client.patch<ApiResponse<PlanTask>>(`/api/tasks/${id}`, input);
+    return r.data.success && r.data.data ? { ...r.data, data: normaliseTask(r.data.data) } : r.data;
+  }
+
+  /** Removes a task from Plan without deleting it (used to dismiss Inbox suggestions). */
+  async archiveTask(id: string): Promise<ApiResponse<unknown>> {
+    const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${id}/archive`);
     return r.data;
   }
 

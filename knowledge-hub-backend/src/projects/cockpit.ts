@@ -116,8 +116,8 @@ export async function getProjectCockpit(db: Pool, projectId: string, now = new D
         targetEndDate: project['target_end_date'] == null ? null : (iso(project['target_end_date']) ?? '').slice(0, DATE_LENGTH),
       },
     })),
-    taskSection(`status <> 'completed' AND status <> 'blocked'`),
-    taskSection(`status = 'blocked'`),
+    taskSection(`status NOT IN ('completed', 'waiting', 'inbox')`),
+    taskSection(`status = 'waiting'`),
     section(async () => {
       const r = await db.query(`SELECT kind, status, COUNT(*)::int AS n FROM project_register_items WHERE project_id = $1 GROUP BY kind, status`, [projectId]);
       const openByKind: Record<RegisterKind, number> = { question: 0, risk: 0, issue: 0 };

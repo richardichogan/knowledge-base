@@ -3,6 +3,7 @@ import { MIN_THEME_SIZE } from './sparkConstants';
 import type { ChatDecision, ChatOutputSummary, ChatSessionSummary } from '../types/ai';
 import type { ContentItemSummary } from '../types/contentItem';
 import type { NoteListItem } from '../notes/types';
+import { normaliseTask } from '../types/task';
 
 export const TODAY_LIMITS = { attention: 5, continue: 4, explore: 3, changes: 3 } as const;
 const DAY_MS = 86_400_000;
@@ -24,6 +25,7 @@ export interface TodayTask {
   dueDate: string | null;
   updatedAt: string;
   archived: boolean;
+  waitingOn?: string | null;
 }
 
 export interface TodayItem {
@@ -107,12 +109,14 @@ export function readTodayTasks(value: unknown): TodayTask[] {
       return typeof value === 'string' ? value : '';
     };
     const due: unknown = Reflect.get(row, 'dueDate');
-    return {
+    const waitingOn: unknown = Reflect.get(row, 'waitingOn');
+    return normaliseTask({
       id: required('id'), title: required('title'), status: required('status'),
+      waitingOn: typeof waitingOn === 'string' ? waitingOn : null,
       priority: required('priority'), body: optional('body'), projectId: optional('projectId'),
       updatedAt: optional('updatedAt'), dueDate: typeof due === 'string' ? due.slice(0, 10) : null,
       archived: Reflect.get(row, 'archived') === true,
-    };
+    });
   });
 }
 
@@ -149,31 +153,31 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
     const days = task.dueDate === null ? null : Math.round((new Date(`${task.dueDate}T00:00:00Z`).getTime() - day) / DAY_MS);
     const overdue = days !== null && days < 0;
     const approaching = days !== null && days <= 3;
-    const blocked = task.status === 'blocked';
-    const feedback = task.status === 'awaiting-feedback';
+    const waiting = task.status === 'waiting';
+    const inbox = task.status === 'inbox';
     const high = task.priority === 'high' || task.priority === 'urgent';
     const age = (now.getTime() - new Date(task.updatedAt).getTime()) / DAY_MS;
     const stale = task.status === 'in-progress' && age >= 7;
-    const status = overdue ? 'Overdue' : blocked ? 'Blocked' : feedback ? 'Awaiting feedback'
+    const status = overdue ? 'Overdue' : waiting ? 'Waiting'
       : approaching ? days === 0 ? 'Due today' : 'Due soon' : stale ? 'Needs a check-in' : 'High priority';
     const reason = [
       overdue ? `The due date has passed by ${Math.abs(days ?? 0)} day${days === -1 ? '' : 's'}.`
         : approaching ? days === 0 ? 'Due today.' : `Due in ${days} days.` : '',
-      blocked ? 'Blocked in Plan; review what is needed to move it forward.' : '',
-      feedback ? 'Waiting for feedback; check whether a follow-up is needed.' : '',
+      waiting ? `Waiting${task.waitingOn ? ` on ${task.waitingOn}` : ''}; check whether a follow-up is needed.` : '',
+      inbox ? 'New in the Plan inbox; accept or dismiss it.' : '',
       stale ? 'In progress with no task update for at least a week.' : '',
       high ? `${task.priority === 'urgent' ? 'Urgent' : 'High priority'} in Plan.` : '',
     ].filter(Boolean).join(' ');
     const item: TodayItem = {
       id: `task:${task.id}`, title: task.title, type: 'Task', ...project(task.projectId),
       reason: reason || 'In progress in Plan. Resume the next step.',
-      tone: overdue ? 'danger' : blocked || approaching ? 'warning' : 'normal',
+      tone: overdue ? 'danger' : approaching ? 'warning' : 'normal',
       ...(task.dueDate ? { date: task.dueDate } : {}),
-      href: `/plan?taskId=${encodeURIComponent(task.id)}`, action: blocked ? 'Unblock in Plan' : feedback ? 'Review feedback' : 'Review task',
-      score: overdue ? 100 + Math.min(Math.abs(days ?? 0), 30) : blocked ? 90 : task.priority === 'urgent' ? 85 : approaching ? 80 - (days ?? 0) : feedback ? 70 : high ? 60 : 50,
+      href: `/plan?taskId=${encodeURIComponent(task.id)}`, action: waiting ? 'Follow up' : inbox ? 'Triage in Plan' : 'Review task',
+      score: overdue ? 100 + Math.min(Math.abs(days ?? 0), 30) : task.priority === 'urgent' ? 85 : approaching ? 80 - (days ?? 0) : waiting ? 70 : high ? 60 : 50,
       source: 'Plan', taskId: task.id,
     };
-    if (overdue || approaching || blocked || feedback || high || stale) attention.push({ ...item, status });
+    if (overdue || approaching || waiting || high || stale) attention.push({ ...item, status });
     else if (task.status === 'in-progress') continuing.push({ ...item, action: 'Continue', score: 25 + recentScore(task.updatedAt), date: task.updatedAt });
   }
   for (const source of data.sources.filter((s) => s.status === 'error')) {

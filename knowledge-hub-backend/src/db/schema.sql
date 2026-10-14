@@ -261,7 +261,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   title        TEXT NOT NULL,
   body         TEXT NOT NULL DEFAULT '',
   status       TEXT NOT NULL DEFAULT 'backlog'
-               CHECK (status IN ('backlog','in-progress','blocked','awaiting-feedback','completed')),
+               CHECK (status IN ('inbox','backlog','in-progress','waiting','completed')),
   project_id   TEXT REFERENCES projects(id) ON DELETE SET NULL,
   tags         TEXT[] NOT NULL DEFAULT '{}',
   priority     TEXT NOT NULL DEFAULT 'normal'

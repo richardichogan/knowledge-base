@@ -28,6 +28,7 @@ import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js
 import { canonicalContentSql } from '../db/contentVisibility.js';
 import { createNoteRecord } from '../routes/notes.js';
 import { rowToTask, type Task } from '../routes/tasks.js';
+import { TASK_STATUSES, normaliseTaskStatus } from '../services/taskStatus.js';
 import { CONTENT_STORE } from '../routes/documents.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
 import { env } from '../config/env.js';
@@ -49,7 +50,6 @@ import { searchKnowledgeGraph as searchGraph } from './graphInference.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
-const TASK_STATUSES = ['backlog', 'in-progress', 'blocked', 'awaiting-feedback', 'completed'] as const;
 const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 const NOTE_CONTENT_TYPES = [
   'blog', 'podcast', 'podcast-show-notes', 'newsletter', 'project', 'note', 'script', 'architecture', 'meeting', 'research', 'spec', 'use-case',
@@ -310,13 +310,14 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'create_task',
-        description: "Creates a new task on the user's Plan board (Kanban).",
+        description: "Creates a new task on the user's Plan board (Kanban). New tasks land in the Plan Inbox for the user to accept or dismiss; only set another status when the user explicitly asks (e.g. \"I'm working on it now\").",
         parameters: {
           type: 'object',
           properties: {
             title: { type: 'string', description: 'Short imperative task title.' },
             body: { type: 'string', description: 'Optional longer description / notes for the task.' },
-            status: { type: 'string', enum: [...TASK_STATUSES], description: 'Defaults to "backlog".' },
+            status: { type: 'string', enum: [...TASK_STATUSES], description: 'Defaults to "inbox" (awaiting the user\'s review). Use "waiting" (with waitingOn) for work blocked on someone or something.' },
+            waitingOn: { type: 'string', description: 'Who or what a "waiting" task is waiting on, e.g. "Feedback from Sarah".' },
             priority: { type: 'string', enum: [...TASK_PRIORITIES], description: 'Defaults to "normal".' },
             projectId: { type: 'string', description: 'Project id to file this under (e.g. "personal", "ibm-msft-practice"). Defaults to "personal" if unsure.' },
             dueDate: { type: 'string', description: 'ISO date YYYY-MM-DD, optional.' },
@@ -346,7 +347,8 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             matchTitle: { type: 'string', description: 'Partial, case-insensitive title to find the task by, if taskId is not known.' },
             title: { type: 'string', description: 'New title.' },
             body: { type: 'string', description: 'New body/description.' },
-            status: { type: 'string', enum: [...TASK_STATUSES] },
+            status: { type: 'string', enum: [...TASK_STATUSES], description: '"waiting" replaces the old blocked / awaiting-feedback states — set waitingOn too.' },
+            waitingOn: { type: 'string', description: 'Who or what the task is waiting on (for status "waiting"); empty string clears it.' },
             priority: { type: 'string', enum: [...TASK_PRIORITIES] },
             dueDate: { type: 'string', description: 'ISO date YYYY-MM-DD, or null to clear it.' },
             appendBody: { type: 'string', description: 'Text to add to the end of the description (keeps what is there).' },
@@ -962,8 +964,9 @@ async function listTasks(db: Pool, args: Record<string, unknown>): Promise<unkno
   const includeCompleted = args['includeCompleted'] === true;
   const overdueOnly = args['overdueOnly'] === true;
 
-  if (TASK_STATUSES.includes(args['status'] as typeof TASK_STATUSES[number])) {
-    params.push(args['status']);
+  const statusFilter = normaliseTaskStatus(args['status']);
+  if (statusFilter !== undefined) {
+    params.push(statusFilter);
     conditions.push(`status = $${params.length}`);
   } else if (!includeCompleted) {
     conditions.push(`status != 'completed'`);
@@ -1266,6 +1269,7 @@ function summariseTask(task: Task): Record<string, unknown> {
     id: task.id,
     title: task.title,
     status: task.status,
+    ...(task.waitingOn !== null && { waitingOn: task.waitingOn }),
     priority: task.priority,
     projectId: task.projectId,
     dueDate: task.dueDate,
@@ -1279,7 +1283,10 @@ async function createTask(db: Pool, args: Record<string, unknown>, sessionId: st
   const title = typeof args['title'] === 'string' ? args['title'].trim() : '';
   if (title === '') return { error: 'title is required' };
 
-  const status = TASK_STATUSES.includes(args['status'] as typeof TASK_STATUSES[number]) ? args['status'] as string : 'backlog';
+  // Athena's tasks go to the Inbox for review unless he asked for a specific working state.
+  const requestedStatus = normaliseTaskStatus(args['status']);
+  const status = requestedStatus === undefined || requestedStatus === 'backlog' ? 'inbox' : requestedStatus;
+  const waitingOn = status === 'waiting' && typeof args['waitingOn'] === 'string' && args['waitingOn'].trim() !== '' ? args['waitingOn'].trim() : null;
   const priority = TASK_PRIORITIES.includes(args['priority'] as typeof TASK_PRIORITIES[number]) ? args['priority'] as string : 'normal';
   const projectId = typeof args['projectId'] === 'string' && args['projectId'].trim() !== '' ? args['projectId'].trim() : 'personal';
   const body = typeof args['body'] === 'string' ? args['body'] : '';
@@ -1336,9 +1343,9 @@ async function createTask(db: Pool, args: Record<string, unknown>, sessionId: st
   }
 
   const result = await db.query<Record<string, unknown>>(
-    `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [title, body, status, projectId, [], priority, dueDate],
+    `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date, waiting_on)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [title, body, status, projectId, [], priority, dueDate, waitingOn],
   );
   const row = result.rows[0];
   if (row === undefined) return { error: 'Insert returned no rows' };
@@ -1476,7 +1483,9 @@ async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: st
 
   if (typeof args['title'] === 'string' && args['title'].trim() !== '') add('title', args['title'].trim());
   if (typeof args['body'] === 'string') add('body', args['body']);
-  if (TASK_STATUSES.includes(args['status'] as typeof TASK_STATUSES[number])) add('status', args['status']);
+  const nextStatus = normaliseTaskStatus(args['status']);
+  if (nextStatus !== undefined) add('status', nextStatus);
+  if (typeof args['waitingOn'] === 'string') add('waiting_on', args['waitingOn'].trim() || null);
   if (TASK_PRIORITIES.includes(args['priority'] as typeof TASK_PRIORITIES[number])) add('priority', args['priority']);
   if ('dueDate' in args) add('due_date', args['dueDate'] === null ? null : (typeof args['dueDate'] === 'string' ? args['dueDate'] : null));
 
