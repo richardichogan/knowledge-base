@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Shape drill-down diagrams and pending Think save-status / Canvas
 Properties overflow fixes. Existing ACA, ACR and production SWA.
@@ -233,6 +233,25 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-14 at 17:04 BST:
+
+- Source `bb73487` (application `c00598e`, save confirmation `2390775`,
+  Properties overflow `3a32810`) pushed to main and feature branch.
+- ACR run `ca64` succeeded: `kh-prod-api:v194`, digest
+  `sha256:5c546a8a0d27a6e1c7fcd1276e6e2058ccb9c70c738f5d6f25e5918d7bc0fcae`.
+- ACA revision `kh-prod-api-vnet--0000191`: Healthy / RunningAtMaxScale /
+  Provisioned, latest ready revision with 100% traffic.
+- Startup logs explicitly confirm `apply 075_diagram_drilldowns.sql`,
+  migration completion, database pre-warm and scheduler startup.
+- Production SWA deployment succeeded. Both production hosts return HTTP 200
+  for `/think`, serving `/assets/index-DyU2VQXo.js` with SHA-256
+  `1e2bee7ec7b11d565c587c6fc44a07f8c70c7e9c7c00c2c1e01a008b5177df40`,
+  matching the local production bundle.
+- Existing registry authentication and identity None retained. No role,
+  infrastructure, environment or secret changes; managed-identity provisioning
+  and role propagation checks are not applicable.
+- Live application: https://athena.themicrosoftcloudblog.com/think
 
 Validated 2026-10-14 at 16:58 BST for application `c00598e`:
 
