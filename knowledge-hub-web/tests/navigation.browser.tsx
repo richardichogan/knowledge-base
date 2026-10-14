@@ -72,6 +72,7 @@ api.listCanvases = async () => success([
     description: null, project: null, createdAt: '2026-10-14T12:00:00Z', updatedAt: '2026-10-14T12:00:00Z',
     linkedNotes: [], nodeCount: 62 },
 ]);
+api.listDeletedCanvases = async () => success([]);
 api.listSparkClusters = async () => success([]);
 api.listSparks = async () => success([]);
 api.getTimeline = async () => success(paginated([]));
@@ -525,6 +526,8 @@ export async function runNavigationChecks(): Promise<string[]> {
       check(rows[1]!.getAttribute('aria-label')!.includes('under Imagine Agentic Build & Run Model'),
         'Parent relationship is accessible');
       check(rows[1]!.scrollWidth <= rows[1]!.clientWidth, 'Nested row fits the narrow canvas list');
+      const recycle = document.querySelector<HTMLButtonElement>('.notes-recycle-launch')!;
+      check(recycle !== null && (mobile ? recycle.textContent?.trim() === 'Recycle bin' : true), 'Canvas recycle bin launcher is available');
     }
     if (mobile) {
       await openMenu();

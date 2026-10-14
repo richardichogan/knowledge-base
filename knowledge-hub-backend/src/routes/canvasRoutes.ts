@@ -6,7 +6,10 @@
  * POST   /api/canvases                             create { title?, rootLabel?, noteId?, project?, canvasType? }
  * GET    /api/canvases/:id                         full map (ideas, cross-links, linked notes)
  * PATCH  /api/canvases/:id                         update title / description / project / viewport
- * DELETE /api/canvases/:id                         delete map
+ * DELETE /api/canvases/:id                         move map to recycle bin
+ * GET    /api/canvases/recycle-bin                 list recycled canvases
+ * POST   /api/canvases/:id/restore                 restore a recycled canvas
+ * DELETE /api/canvases/:id/permanent               permanently delete a recycled canvas
  * POST   /api/canvases/:id/ops                     apply changes { ops: MapOp[] } → full map
  * POST   /api/canvases/:id/notes                   link a note { noteId }
  * DELETE /api/canvases/:id/notes/:noteId           unlink a note
@@ -41,7 +44,7 @@ import {
   listDrilldowns, openDrilldown,
 } from '../services/diagramService.js';
 import {
-  createCanvas, listCanvases, getCanvas, updateCanvas, deleteCanvas,
+  createCanvas, listCanvases, listDeletedCanvases, getCanvas, updateCanvas, deleteCanvas, restoreCanvas, permanentlyDeleteCanvas,
   applyOps, assertBrainstorm, linkNote, unlinkNote, linkElementNote, unlinkElementNote, cardSummaryBlocks, mapMarkdown, MapOpError,
   type MapOp, type CreateMapInput,
 } from '../services/canvasService.js';
@@ -76,6 +79,13 @@ canvasRouter.get('/', (req: Request, res: Response, next: NextFunction): void =>
       const noteId = typeof req.query['noteId'] === 'string' && req.query['noteId'] !== '' ? req.query['noteId'] : undefined;
       res.json({ success: true, data: await listCanvases(noteId) });
     } catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.get('/recycle-bin', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try { res.json({ success: true, data: await listDeletedCanvases() }); }
+    catch (err) { next(err); }
   })();
 });
 
@@ -121,6 +131,25 @@ canvasRouter.delete('/:id', (req: Request, res: Response, next: NextFunction): v
   void (async (): Promise<void> => {
     try { await deleteCanvas(param(req, 'id')); res.status(HTTP_STATUS.NO_CONTENT).send(); }
     catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.post('/:id/restore', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const restored = await restoreCanvas(param(req, 'id'));
+      if (restored === null) throw new NotFoundError('Recycled canvas not found');
+      res.json({ success: true, data: restored });
+    } catch (err) { next(err); }
+  })();
+});
+
+canvasRouter.delete('/:id/permanent', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      if (!await permanentlyDeleteCanvas(param(req, 'id'))) throw new NotFoundError('Recycled canvas not found');
+      res.status(HTTP_STATUS.NO_CONTENT).send();
+    } catch (err) { next(err); }
   })();
 });
 

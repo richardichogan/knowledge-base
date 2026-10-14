@@ -45,6 +45,7 @@ export interface ProjectRegisterItem {
   status: 'open' | 'resolved'; resolution: string; owner: string; dueDate: string | null; taskId: string | null;
   sourceType: 'manual' | 'chat_decision'; sourceId: string | null; createdAt: string; updatedAt: string; resolvedAt: string | null;
 }
+
 export interface ProjectRegisterPage { items: ProjectRegisterItem[]; total: number; limit: number; offset: number }
 
 export type PacketSourceType = 'note' | 'output' | 'decision';
@@ -1796,6 +1797,10 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async listDeletedCanvases(): Promise<ApiResponse<CanvasSummaryApi[]>> {
+    return (await this.client.get<ApiResponse<CanvasSummaryApi[]>>('/api/canvases/recycle-bin')).data;
+  }
+
   async createCanvas(input: { title?: string; rootLabel?: string; noteId?: string; project?: string; canvasType?: 'brainstorm' | 'diagram' } = {}): Promise<ApiResponse<CanvasFullApi>> {
     const r = await this.client.post<ApiResponse<CanvasFullApi>>('/api/canvases', input);
     return r.data;
@@ -1840,6 +1845,14 @@ export class KnowledgeHubApi {
 
   async deleteCanvas(id: string): Promise<void> {
     await this.client.delete(`/api/canvases/${id}`);
+  }
+
+  async restoreCanvas(id: string): Promise<ApiResponse<{ canvas: CanvasSummaryApi; restored: boolean }>> {
+    return (await this.client.post<ApiResponse<{ canvas: CanvasSummaryApi; restored: boolean }>>(`/api/canvases/${id}/restore`)).data;
+  }
+
+  async permanentlyDeleteCanvas(id: string): Promise<void> {
+    await this.client.delete(`/api/canvases/${id}/permanent`);
   }
 
   /** Applies changes to a map (all-or-nothing); returns the updated map. */
@@ -2104,6 +2117,7 @@ export interface CanvasSummaryApi {
   canvasType: 'brainstorm' | 'diagram';
   parentCanvasId?: string | null;
   parentShapeLabel?: string | null;
+  deletedAt?: string | null;
   project: string | null; createdAt: string; updatedAt: string;
   linkedNotes: Array<{ id: string; title: string }>;
   nodeCount: number;

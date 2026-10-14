@@ -11342,6 +11342,17 @@ $project-colour-map: (
       border: 1px solid var(--cds-border-strong-01); color: var(--cds-text-primary); background: var(--cds-field-01);
       &:focus-visible { outline: 2px solid var(--cds-focus); } &:disabled { opacity: 0.5; } } }
   &__invalid { margin: 12px 0; code { display: block; overflow-wrap: anywhere; margin: 8px 0; } }
+  &__canvas-list { display: grid; gap: 8px; margin: 12px 0; }
+  &__canvas-entry {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center;
+    padding: 12px; border: 1px solid var(--cds-border-subtle-01); background: var(--cds-layer-01);
+    min-width: 0;
+    strong, span { display: block; overflow-wrap: anywhere; }
+    strong { color: var(--cds-text-primary); }
+    span { color: var(--cds-text-secondary); margin-top: 4px; }
+  }
+  &__canvas-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  &__danger { color: var(--cds-support-error) !important; border-color: var(--cds-support-error) !important; }
   &__comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
   &--comparison { padding: 0; }
 }
@@ -11350,12 +11361,15 @@ $project-colour-map: (
   .kh-dialog__header, .kh-dialog__actions { flex-shrink: 0; }
   .kh-dialog__body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
 }
-.notes-recovery-launch { &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; } }
+.notes-recovery-launch, .notes-recycle-launch { &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; } }
 @media (max-width: 600px) {
   .note-recovery { padding-inline: 8px; summary, button, &__search input { min-height: 44px; } textarea, input { font-size: 1rem; } }
   .note-recovery__comparison { grid-template-columns: minmax(0, 1fr); }
+  .note-recovery__canvas-entry { grid-template-columns: minmax(0, 1fr); }
+  .note-recovery__canvas-actions { justify-content: stretch; button { flex: 1 1 10rem; } }
   .notes-header .page-title-group { align-self: flex-start; }
-  .notes-recovery-launch { min-height: 44px; box-sizing: border-box; }
+  .notes-recovery-launch, .notes-recycle-launch { min-height: 44px; box-sizing: border-box; }
+  .notes-recycle-launch span { display: none; }
 }
 
 .kh-saved-views, .dc-review {

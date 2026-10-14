@@ -558,7 +558,9 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   }
 
   async function deleteCanvas(): Promise<void> {
-    if (!await confirmDialog(`Delete the canvas “${map.title}”? This cannot be undone.`, { title: 'Delete canvas', confirmLabel: 'Delete', tone: 'danger' })) return;
+    if (!await confirmDialog(`Move the canvas “${map.title}” to the recycle bin? Its cards, connections and linked notes will remain available for restoration.`, {
+      title: 'Move canvas to recycle bin', confirmLabel: 'Move to recycle bin', tone: 'danger',
+    })) return;
     await api.deleteCanvas(canvasId);
     void queryClient.invalidateQueries({ queryKey: ['canvases'] });
     onDeleted();

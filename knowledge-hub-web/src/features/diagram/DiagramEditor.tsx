@@ -402,7 +402,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   }
 
   async function deleteDiagram(): Promise<void> {
-    if (!await confirmDialog(`Delete the diagram “${savedTitle}”? This cannot be undone.`, { title: 'Delete diagram', confirmLabel: 'Delete', tone: 'danger' })) return;
+    if (!await confirmDialog(`Move the diagram “${savedTitle}” to the recycle bin? Its shapes, assets, links and saved revisions will remain available for restoration.`, {
+      title: 'Move diagram to recycle bin', confirmLabel: 'Move to recycle bin', tone: 'danger',
+    })) return;
     try {
       await api.deleteCanvas(canvasId);
       save.current.discard = true;

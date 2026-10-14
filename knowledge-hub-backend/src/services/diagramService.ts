@@ -40,7 +40,7 @@ export function canvasTypeMismatch(actual: CanvasType): ConflictError {
 async function lockCanvasType(db: Pool | PoolClient, id: string, forUpdate: boolean): Promise<CanvasType | null> {
   if (!UUID_RE.test(id)) return null;
   const r = await db.query<{ canvas_type: CanvasType }>(
-    `SELECT canvas_type FROM canvases WHERE id = $1${forUpdate ? ' FOR UPDATE' : ''}`, [id]);
+    `SELECT canvas_type FROM canvases WHERE id = $1 AND deleted_at IS NULL${forUpdate ? ' FOR UPDATE' : ''}`, [id]);
   return r.rows[0]?.canvas_type ?? null;
 }
 
@@ -93,7 +93,7 @@ export async function listDrilldowns(canvasId: string): Promise<DiagramDrilldown
   const r = await db.query<DiagramDrilldown>(
     `SELECT d.node_id AS "nodeId", c.id AS "canvasId", c.title
      FROM diagram_drilldowns d JOIN canvases c ON c.id = d.child_canvas_id
-     WHERE d.canvas_id = $1`, [canvasId]);
+     WHERE d.canvas_id = $1 AND c.deleted_at IS NULL`, [canvasId]);
   return r.rows;
 }
 
@@ -111,7 +111,7 @@ export async function openDrilldown(canvasId: string, nodeId: string, body: unkn
     await requireCanvasType(canvasId, 'diagram', client, true);
     const current = await client.query<{ revision: number; document: DiagramDocument; project: string | null }>(
       `SELECT d.revision, d.document, c.project FROM canvas_diagrams d
-       JOIN canvases c ON c.id = d.canvas_id WHERE d.canvas_id = $1`, [canvasId]);
+       JOIN canvases c ON c.id = d.canvas_id WHERE d.canvas_id = $1 AND c.deleted_at IS NULL`, [canvasId]);
     const parent = current.rows[0];
     if (parent === undefined) throw new NotFoundError('Diagram');
     if (parent.revision !== revision) {
@@ -122,7 +122,8 @@ export async function openDrilldown(canvasId: string, nodeId: string, body: unkn
     if (node === undefined) throw new NotFoundError('Diagram shape');
     const existing = await client.query<DiagramDrilldown>(
       `SELECT d.node_id AS "nodeId", c.id AS "canvasId", c.title FROM diagram_drilldowns d
-       JOIN canvases c ON c.id = d.child_canvas_id WHERE d.canvas_id = $1 AND d.node_id = $2`, [canvasId, nodeId]);
+       JOIN canvases c ON c.id = d.child_canvas_id
+       WHERE d.canvas_id = $1 AND d.node_id = $2 AND c.deleted_at IS NULL`, [canvasId, nodeId]);
     let result = existing.rows[0];
     if (result === undefined) {
       const title = `${node.label.trim() || 'Untitled shape'} - detail`.slice(0, DRILLDOWN_TITLE_MAX);

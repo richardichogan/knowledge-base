@@ -13,6 +13,7 @@ import { captureNoteDraft, clearAllNoteDrafts, listNoteDrafts, storeNoteDraft } 
 import { getActiveBlockNoteEditor } from '../src/utils/activeBlockNoteEditor';
 import type { Note } from '../src/types/contentItem';
 import type { NoteVersion } from '../src/services/api';
+import type { CanvasSummaryApi } from '../src/services/api';
 import '../src/styles/global.scss';
 
 const owner = 'fixture-recovery-owner';
@@ -30,6 +31,26 @@ const localWriting = {
       { type: 'link', href: 'https://example.invalid/local-source', content: [{ type: 'text', text: ' Source link', styles: {} }] }] },
     { type: 'table', content: { type: 'tableContent', rows: [{ cells: ['Left', 'Right'] }, { cells: ['One', 'Two'] }] } },
   ]),
+};
+api.listDeletedCanvases = async () => ({ success: true, data: structuredClone(recycled) });
+api.restoreCanvas = async id => {
+  restoreCanvasCount++;
+  const index = recycled.findIndex(canvas => canvas.id === id);
+  if (index < 0) {
+    const existing = restoredCanvases.get(id);
+    if (!existing) throw new Error('Recycled canvas not found');
+    return { success: true, data: { canvas: structuredClone(existing), restored: false } };
+  }
+  const [canvas] = recycled.splice(index, 1);
+  const active = { ...canvas!, deletedAt: null };
+  restoredCanvases.set(id, active);
+  if (loseCanvasRestoreResponse) throw new Error('Canvas response lost after restore committed');
+  return { success: true, data: { canvas: structuredClone(active), restored: true } };
+};
+api.permanentlyDeleteCanvas = async id => {
+  const index = recycled.findIndex(canvas => canvas.id === id);
+  if (index < 0) throw new Error('Recycled canvas not found');
+  recycled.splice(index, 1);
 };
 const phase = sessionStorage.getItem('recovery-fixture-phase');
 const reloading = phase === 'reload-pending';
@@ -56,6 +77,15 @@ let recoveryCount = 0;
 let failArchivePreview = true;
 let loseArchiveResponse = true;
 let archiveCount = 0;
+const recycled: CanvasSummaryApi[] = [
+  { id: '55555555-5555-4555-8555-555555555555', title: 'Agentic SDLC', description: null, canvasType: 'diagram',
+    project: null, createdAt: now, updatedAt: now, deletedAt: now, linkedNotes: [], nodeCount: 15 },
+  { id: '66666666-6666-4666-8666-666666666666', title: 'Old brainstorm', description: null, canvasType: 'brainstorm',
+    project: null, createdAt: now, updatedAt: now, deletedAt: now, linkedNotes: [], nodeCount: 4 },
+];
+const restoredCanvases = new Map<string, CanvasSummaryApi>();
+let loseCanvasRestoreResponse = true;
+let restoreCanvasCount = 0;
 const archived = Array.from({ length: 27 }, (_, index): Note => ({
   ...persisted, id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, status: 'archived',
   content: JSON.stringify({ ...localWriting, title: `Archived ${index}`, githubPath: 'archived.md' }), revision: 7,
@@ -220,7 +250,8 @@ async function runNoteRecoveryChecks(): Promise<string[]> {
   sessionStorage.setItem('recovery-fixture-phase', 'reload-pending');
   return ['identity/note isolation', 'read-only rich comparison', 'explicit server conflict', 'failed/lost restore response retains writing',
     'stale retry refused', 'live editor replacement', 'exact rich JSON', 'metadata and history preserved', 'unsaved replacement retained separately',
-    'stale autosave blocked', 'newer typing survives late acknowledgement', 'failed save prepared for real page reload'];
+    'stale autosave blocked', 'newer typing survives late acknowledgement', 'canvas recycle restore and permanent-delete safeguards',
+    'failed save prepared for real page reload'];
 }
 async function runNoteRecoveryReloadChecks(): Promise<string[]> {
   await waitFor(() => getActiveBlockNoteEditor() !== null);
@@ -253,6 +284,23 @@ async function runNoteRecoveryReloadChecks(): Promise<string[]> {
   await waitFor(() => document.querySelector('dialog[open]')?.textContent?.includes('25 of 27') === true);
   const centre = document.querySelector<HTMLDialogElement>('dialog[open]')!;
   check(getActiveBlockNoteEditor() === editor && centre.contains(document.activeElement), 'Recovery opens modally without unmounting editor');
+  await waitFor(() => centre.textContent?.includes('Agentic SDLC') === true);
+  const agentic = [...centre.querySelectorAll<HTMLElement>('.note-recovery__canvas-entry')]
+    .find(entry => entry.textContent?.includes('Agentic SDLC'))!;
+  check(agentic.textContent?.includes('Diagram · 15 items') === true, 'Recycle bin shows canvas type, item count and deletion time');
+  click('Restore', agentic); await confirm('Restore canvas');
+  await waitFor(() => centre.textContent?.includes('Canvas response lost after restore committed') === true);
+  loseCanvasRestoreResponse = false;
+  click('Restore', agentic); await confirm('Restore canvas');
+  await waitFor(() => centre.textContent?.includes('already restored') === true);
+  check(restoreCanvasCount === 2 && restoredCanvases.has('55555555-5555-4555-8555-555555555555'),
+    'Lost restore acknowledgement retries as a truthful no-op');
+  const old = [...centre.querySelectorAll<HTMLElement>('.note-recovery__canvas-entry')]
+    .find(entry => entry.textContent?.includes('Old brainstorm'))!;
+  click('Delete permanently', old); await confirm('Delete permanently');
+  await waitFor(() => centre.textContent?.includes('permanently deleted') === true);
+  check(recycled.length === 0 && ![...centre.querySelectorAll('.note-recovery__canvas-entry')]
+    .some(entry => entry.textContent?.includes('Old brainstorm')), 'Permanent deletion requires confirmation and removes only recycled data');
   click('Load more archived notes', centre);
   await waitFor(() => centre.textContent?.includes('27 of 27') === true);
   const first = centre.querySelector<HTMLButtonElement>('.note-recovery__entries button')!;

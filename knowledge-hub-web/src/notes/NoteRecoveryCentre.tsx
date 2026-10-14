@@ -9,6 +9,7 @@ import { noteDraftIdentity } from '../services/auth';
 import { fromApiNote } from './noteStorage';
 import { listNoteDrafts, noteDraftKey, parseNoteDraft, removeNoteDraftIfUnchanged, type NoteDraft } from './noteDraftStorage';
 import { NoteRecoveryPreview } from './NoteRecoveryPreview';
+import type { CanvasSummaryApi } from '../services/api';
 
 export const NoteRecoveryCentre: React.FC<{ onClose: () => void; onOpenNote: (id: string) => void }> = ({ onClose, onOpenNote }) => {
   useSyncExternalStore(noteDraftIdentity.subscribe, noteDraftIdentity.snapshot);
@@ -29,6 +30,11 @@ export const NoteRecoveryCentre: React.FC<{ onClose: () => void; onOpenNote: (id
     queryKey: ['notes-archive', search],
     queryFn: async ({ pageParam }) => requireApiData(await api.getNoteSummaries(pageParam, 25, { status: 'archived', q: search, sort: 'modified' })),
     initialPageParam: 1, getNextPageParam: page => page.hasMore ? page.page + 1 : undefined,
+    retry: false,
+  });
+  const recycledCanvases = useQuery<CanvasSummaryApi[]>({
+    queryKey: ['canvas-recycle-bin'],
+    queryFn: async () => requireApiData(await api.listDeletedCanvases()),
     retry: false,
   });
   const preview = useQuery({
@@ -83,10 +89,39 @@ export const NoteRecoveryCentre: React.FC<{ onClose: () => void; onOpenNote: (id
     } catch (failure) { setError(failure); }
     finally { pending.current = false; setBusy(false); }
   }
+  async function restoreCanvas(canvas: CanvasSummaryApi): Promise<void> {
+    if (pending.current) return;
+    pending.current = true; setBusy(true); setError(null); setNotice('');
+    try {
+      if (!await confirmDialog(`Restore “${canvas.title}” to the Canvas list? Its content, links, assets and saved revisions will be available again.`, {
+        title: 'Restore canvas', confirmLabel: 'Restore canvas',
+      })) return;
+      const result = requireApiData(await api.restoreCanvas(canvas.id));
+      setNotice(result.restored ? `“${result.canvas.title}” restored to Canvas.` : `“${result.canvas.title}” was already restored.`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['canvases'] }),
+        recycledCanvases.refetch({ throwOnError: true }),
+      ]);
+    } catch (failure) { setError(failure); }
+    finally { pending.current = false; setBusy(false); }
+  }
+  async function permanentlyDeleteCanvas(canvas: CanvasSummaryApi): Promise<void> {
+    if (pending.current) return;
+    pending.current = true; setBusy(true); setError(null); setNotice('');
+    try {
+      if (!await confirmDialog(`Permanently delete “${canvas.title}”? This removes all content, links, uploaded assets and saved revisions. Azure database backups are not an in-app recovery method.`, {
+        title: 'Permanently delete canvas', confirmLabel: 'Delete permanently', tone: 'danger',
+      })) return;
+      await api.permanentlyDeleteCanvas(canvas.id);
+      setNotice(`“${canvas.title}” permanently deleted.`);
+      await recycledCanvases.refetch({ throwOnError: true });
+    } catch (failure) { setError(failure); }
+    finally { pending.current = false; setBusy(false); }
+  }
   const owned = identity !== null && noteDraftIdentity.get() === identity;
   const seen = new Set<string>();
   const rows = archives.data?.pages.flatMap(page => page.items).filter(row => !seen.has(row.id) && Boolean(seen.add(row.id))) ?? [];
-  return <AppDialog title="Think recovery" wide onClose={() => { if (!pending.current) onClose(); }}
+  return <AppDialog title="Think recovery & recycle bin" wide onClose={() => { if (!pending.current) onClose(); }}
     actions={<button type="button" className="kh-dialog__button" disabled={busy} onClick={onClose}>Close recovery</button>}>
     <div className="note-recovery note-recovery--centre">
       <p>Recovery is separate from backups. Opening this centre keeps your current editor mounted.</p>
@@ -112,6 +147,30 @@ export const NoteRecoveryCentre: React.FC<{ onClose: () => void; onOpenNote: (id
           <NoteRecoveryPreview key={`${selectedId}:${previewGeneration}`} writing={preview.data} onFailure={() => setPreviewFailed(true)} />
           <button type="button" disabled={busy || previewFailed || preview.isFetching} onClick={() => { void restoreArchive(); }}>Restore archived note</button>
         </>}
+      </section>
+      <section aria-label="Canvas recycle bin">
+        <h3>Canvas recycle bin</h3>
+        <p>Deleted brainstorms and diagrams remain here with their links, assets and saved revisions until you restore or permanently delete them.</p>
+        <button type="button" disabled={busy || recycledCanvases.isFetching}
+          onClick={() => { void recycledCanvases.refetch(); }}>Refresh recycle bin</button>
+        {recycledCanvases.isPending && <p role="status">Loading recycled canvases...</p>}
+        {recycledCanvases.isError && <DataNotice title="Canvas recycle bin is unavailable" error={recycledCanvases.error}
+          onRetry={() => { void recycledCanvases.refetch(); }} />}
+        {recycledCanvases.data?.length === 0 && <p>The canvas recycle bin is empty.</p>}
+        <div className="note-recovery__canvas-list">
+          {recycledCanvases.data?.map(canvas => <article className="note-recovery__canvas-entry" key={canvas.id}>
+            <div>
+              <strong>{canvas.title}</strong>
+              <span>{canvas.canvasType === 'diagram' ? 'Diagram' : 'Brainstorm'} · {canvas.nodeCount} {canvas.nodeCount === 1 ? 'item' : 'items'}
+                {canvas.deletedAt ? ` · Deleted ${new Date(canvas.deletedAt).toLocaleString('en-GB')}` : ''}</span>
+            </div>
+            <div className="note-recovery__canvas-actions">
+              <button type="button" disabled={busy} onClick={() => { void restoreCanvas(canvas); }}>Restore</button>
+              <button type="button" className="note-recovery__danger" disabled={busy}
+                onClick={() => { void permanentlyDeleteCanvas(canvas); }}>Delete permanently</button>
+            </div>
+          </article>)}
+        </div>
       </section>
       <section aria-label="Device-local writing copies">
         <h3>Device-local writing copies</h3>

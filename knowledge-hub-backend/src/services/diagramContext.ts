@@ -102,7 +102,7 @@ export async function findDiagramContext(db: Pool, args: {
       COALESCE((SELECT json_agg(json_build_object('id', a.id::text, 'name', a.name))
         FROM canvas_diagram_assets a WHERE a.canvas_id = c.id), '[]'::json) AS assets
     FROM canvases c JOIN canvas_diagrams d ON d.canvas_id = c.id
-    WHERE c.canvas_type = 'diagram'
+    WHERE c.canvas_type = 'diagram' AND c.deleted_at IS NULL
       AND ($1::text IS NULL OR c.id::text = $1)
       AND NOT (c.id::text = ANY($5::text[]))
       AND ($2::text IS NULL OR c.project = $2 OR EXISTS (

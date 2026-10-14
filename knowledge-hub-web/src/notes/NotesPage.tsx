@@ -267,7 +267,9 @@ export const NotesPage: React.FC = () => {
   }
 
   async function handleDeleteCanvas(id: string, title: string): Promise<void> {
-    if (!await confirmDialog(`Delete the canvas “${title}”? This cannot be undone.`, { title: 'Delete canvas', confirmLabel: 'Delete', tone: 'danger' })) return;
+    if (!await confirmDialog(`Move the canvas “${title}” to the recycle bin? Its content, links, assets and saved diagram revisions will be retained until you permanently delete it.`, {
+      title: 'Move canvas to recycle bin', confirmLabel: 'Move to recycle bin', tone: 'danger',
+    })) return;
     setCanvasError(null);
     try {
       await api.deleteCanvas(id);
@@ -453,6 +455,8 @@ export const NotesPage: React.FC = () => {
         </div>
         <div className="plan-header__right">
           {mode === 'notes' && <div className="notes-doc-actions-slot" ref={setDocActionsSlot} />}
+          {mode === 'canvas' && <button type="button" className="kb-import-btn notes-recycle-launch" aria-haspopup="dialog"
+            title="Open canvas recycle bin" onClick={() => { setRecoveryOpen(true); }}><TrashCan size={16} /><span>Recycle bin</span></button>}
           {mode === 'notes' && openDoc === null && (
             <div className="notes-export-anchor notes-more-anchor" ref={moreMenuRef}>
               <button type="button" className="kb-import-btn notes-more-btn" aria-haspopup="menu" aria-expanded={moreMenuOpen}
@@ -470,7 +474,7 @@ export const NotesPage: React.FC = () => {
                   <li role="menuitem">
                     <button type="button" className="kb-menu__item notes-recovery-launch" aria-haspopup="dialog"
                       onClick={() => { moreMenuRef.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')?.focus(); setMoreMenuOpen(false); setRecoveryOpen(true); }}>
-                      <Renew size={16} /> Recovery
+                      <Renew size={16} /> Recovery & recycle bin
                     </button>
                   </li>
                 </ul>

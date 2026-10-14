@@ -2,6 +2,17 @@
 
 ---
 
+## Canvas recycle bin
+
+Deleting a brainstorm or diagram now moves it to **Think recovery & recycle
+bin** instead of destroying it. The complete canvas remains intact, including
+diagram assets, linked notes, drill-down relationships and saved revisions.
+
+The recycle bin shows deletion time, canvas type and item count. A canvas can be
+restored to the active Canvas list, with response-loss retries handled safely.
+Permanent deletion is a separate, explicit confirmation and only applies to
+items already in the recycle bin.
+
 ## Nested diagram navigation
 
 The Think canvas list now shows detail diagrams immediately below their parent,

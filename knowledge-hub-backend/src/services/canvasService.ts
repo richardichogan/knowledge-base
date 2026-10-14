@@ -47,6 +47,7 @@ export interface CanvasSummary {
   canvasType: CanvasType;
   parentCanvasId?: string | null;
   parentShapeLabel?: string | null;
+  deletedAt?: string | null;
   /** Only when listing canvases for a note: diagram elements that note is linked to. */
   linkedElements?: LinkedElement[];
 }
@@ -134,6 +135,7 @@ function rowToSummary(r: Record<string, unknown>): CanvasSummary {
     canvasType:  r['canvas_type'] === 'diagram' ? 'diagram' : 'brainstorm',
     parentCanvasId: (r['parent_canvas_id'] as string | null) ?? null,
     parentShapeLabel: (r['parent_shape_label'] as string | null) ?? null,
+    deletedAt: (r['deleted_at'] as string | null) ?? null,
   };
 }
 
@@ -173,7 +175,7 @@ function rowToEdge(r: Record<string, unknown>): CanvasEdge {
 }
 
 const SUMMARY_SQL = `
-  SELECT c.id, c.title, c.description, c.project, c.created_at, c.updated_at, c.canvas_type,
+  SELECT c.id, c.title, c.description, c.project, c.created_at, c.updated_at, c.canvas_type, c.deleted_at,
          (SELECT dd.canvas_id FROM diagram_drilldowns dd WHERE dd.child_canvas_id = c.id) AS parent_canvas_id,
          (SELECT element->>'label'
             FROM diagram_drilldowns dd JOIN canvas_diagrams d ON d.canvas_id = dd.canvas_id
@@ -219,13 +221,14 @@ export function assertBrainstorm(map: Pick<CanvasSummary, 'canvasType'>): void {
 export async function listCanvases(noteId?: string): Promise<CanvasSummary[]> {
   const db = getDb();
   if (noteId === undefined) {
-    const res = await db.query<Record<string, unknown>>(`${SUMMARY_SQL} ORDER BY c.updated_at DESC`);
+    const res = await db.query<Record<string, unknown>>(`${SUMMARY_SQL} WHERE c.deleted_at IS NULL ORDER BY c.updated_at DESC`);
     return res.rows.map(rowToSummary);
   }
   const [res, elements] = await Promise.all([
     db.query<Record<string, unknown>>(
-      `${SUMMARY_SQL} WHERE EXISTS (SELECT 1 FROM canvas_notes l WHERE l.canvas_id = c.id AND l.note_id = $1)
-          OR EXISTS (SELECT 1 FROM diagram_element_notes e WHERE e.canvas_id = c.id AND e.note_id = $1)
+      `${SUMMARY_SQL} WHERE c.deleted_at IS NULL AND (
+          EXISTS (SELECT 1 FROM canvas_notes l WHERE l.canvas_id = c.id AND l.note_id = $1)
+          OR EXISTS (SELECT 1 FROM diagram_element_notes e WHERE e.canvas_id = c.id AND e.note_id = $1))
         ORDER BY c.updated_at DESC`,
       [noteId]),
     db.query<{ canvas_id: string; element_id: string; document: DiagramDocument | null }>(
@@ -244,6 +247,12 @@ export async function listCanvases(noteId?: string): Promise<CanvasSummary[]> {
     const linkedElements = byCanvas.get(c.id);
     return linkedElements === undefined ? c : { ...c, linkedElements };
   });
+}
+
+export async function listDeletedCanvases(): Promise<CanvasSummary[]> {
+  const res = await getDb().query<Record<string, unknown>>(
+    `${SUMMARY_SQL} WHERE c.deleted_at IS NOT NULL ORDER BY c.deleted_at DESC, c.id`);
+  return res.rows.map(rowToSummary);
 }
 
 /** Label and footnote number for a node, edge or footnote id in a diagram document. */
@@ -312,13 +321,14 @@ export async function getCanvas(id: string): Promise<CanvasFull | null> {
   if (!UUID_RE.test(id)) return null;
   const db = getDb();
   const [canvasRes, nodesRes, edgesRes] = await Promise.all([
-    db.query<Record<string, unknown>>(`${SUMMARY_SQL} WHERE c.id = $1`, [id]),
+    db.query<Record<string, unknown>>(`${SUMMARY_SQL} WHERE c.id = $1 AND c.deleted_at IS NULL`, [id]),
     db.query<Record<string, unknown>>(`SELECT * FROM canvas_nodes WHERE canvas_id = $1 ORDER BY created_at, id`, [id]),
     db.query<Record<string, unknown>>(`SELECT * FROM canvas_edges WHERE canvas_id = $1 ORDER BY created_at, id`, [id]),
   ]);
   const row = canvasRes.rows[0];
   if (row === undefined) return null;
-  const vp = await db.query<{ viewport: { x: number; y: number; zoom: number } | null }>(`SELECT viewport FROM canvases WHERE id = $1`, [id]);
+  const vp = await db.query<{ viewport: { x: number; y: number; zoom: number } | null }>(
+    `SELECT viewport FROM canvases WHERE id = $1 AND deleted_at IS NULL`, [id]);
   return {
     ...rowToSummary(row),
     viewport: vp.rows[0]?.viewport ?? { x: 0, y: 0, zoom: 1 },
@@ -341,7 +351,8 @@ export async function updateCanvas(
   if (patch.project     !== undefined) { sets.push(`project = $${i++}`);     vals.push(patch.project); }
   if (patch.viewport    !== undefined) { sets.push(`viewport = $${i++}`);    vals.push(JSON.stringify(patch.viewport)); }
   vals.push(id);
-  const res = await db.query<{ id: string }>(`UPDATE canvases SET ${sets.join(', ')} WHERE id = $${i} RETURNING id`, vals);
+  const res = await db.query<{ id: string }>(
+    `UPDATE canvases SET ${sets.join(', ')} WHERE id = $${i} AND deleted_at IS NULL RETURNING id`, vals);
   if (res.rows[0] === undefined) return null;
   if (patch.title !== undefined) scheduleGraphSync(id);
   const summary = await db.query<Record<string, unknown>>(`${SUMMARY_SQL} WHERE c.id = $1`, [id]);
@@ -349,9 +360,48 @@ export async function updateCanvas(
 }
 
 export async function deleteCanvas(id: string): Promise<void> {
+  const client = await getDb().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`UPDATE canvases SET deleted_at = COALESCE(deleted_at, NOW()) WHERE id = $1`, [id]);
+    await client.query(`DELETE FROM nodes WHERE ref_id = $1 AND ref_type = 'canvas'`, [id]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
+}
+
+export async function restoreCanvas(id: string): Promise<{ canvas: CanvasSummary; restored: boolean } | null> {
   const db = getDb();
-  await db.query(`DELETE FROM canvases WHERE id = $1`, [id]);
-  await db.query(`DELETE FROM nodes WHERE ref_id = $1 AND ref_type = 'canvas'`, [id]);
+  const restored = await db.query<{ id: string }>(
+    `UPDATE canvases SET deleted_at = NULL, updated_at = NOW()
+      WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id`, [id]);
+  const summary = await db.query<Record<string, unknown>>(
+    `${SUMMARY_SQL} WHERE c.id = $1 AND c.deleted_at IS NULL`, [id]);
+  if (summary.rows[0] === undefined) return null;
+  const didRestore = restored.rows[0] !== undefined;
+  if (didRestore) scheduleGraphSync(id);
+  return { canvas: rowToSummary(summary.rows[0]), restored: didRestore };
+}
+
+export async function permanentlyDeleteCanvas(id: string): Promise<boolean> {
+  const client = await getDb().connect();
+  try {
+    await client.query('BEGIN');
+    const removed = await client.query<{ id: string }>(
+      `DELETE FROM canvases WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id`, [id]);
+    if (removed.rows[0] === undefined) {
+      await client.query('ROLLBACK');
+      return false;
+    }
+    await client.query(`DELETE FROM nodes WHERE ref_id = $1 AND ref_type = 'canvas'`, [id]);
+    await client.query('COMMIT');
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
 }
 
 // ─── Pinned notes ─────────────────────────────────────────────────────────────
@@ -499,7 +549,8 @@ export async function applyOps(canvasId: string, ops: MapOp[]): Promise<CanvasFu
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    const exists = await client.query<{ canvas_type: CanvasType }>(`SELECT canvas_type FROM canvases WHERE id = $1 FOR UPDATE`, [canvasId]);
+    const exists = await client.query<{ canvas_type: CanvasType }>(
+      `SELECT canvas_type FROM canvases WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [canvasId]);
     if (exists.rowCount === 0) throw new MapOpError('Canvas not found');
     if (exists.rows[0]!.canvas_type === 'diagram') throw canvasTypeMismatch('diagram');
     for (const op of ops) await applyOne(client, canvasId, op);

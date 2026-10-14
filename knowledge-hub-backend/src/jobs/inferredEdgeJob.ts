@@ -228,7 +228,7 @@ async function getNodeSummary(db: Pool, node: NodeRow): Promise<string> {
         `SELECT concat_ws(E'\\n', c.description,
            (SELECT string_agg(concat_ws(' ', label, body), E'\\n' ORDER BY created_at)
             FROM canvas_nodes WHERE canvas_id = c.id)) AS body
-         FROM canvases c WHERE c.id = $1::uuid`, [node.ref_id],
+         FROM canvases c WHERE c.id = $1::uuid AND c.deleted_at IS NULL`, [node.ref_id],
       );
       return `${node.title}\n${r.rows[0]?.body ?? ''}`.slice(0, SUMMARY_MAX_CHARS);
     }
