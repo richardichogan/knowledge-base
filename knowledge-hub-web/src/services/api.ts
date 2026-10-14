@@ -2102,6 +2102,8 @@ export type MapRefType = typeof MAP_REF_TYPES[number];
 export interface CanvasSummaryApi {
   id: string; title: string; description: string | null;
   canvasType: 'brainstorm' | 'diagram';
+  parentCanvasId?: string | null;
+  parentShapeLabel?: string | null;
   project: string | null; createdAt: string; updatedAt: string;
   linkedNotes: Array<{ id: string; title: string }>;
   nodeCount: number;

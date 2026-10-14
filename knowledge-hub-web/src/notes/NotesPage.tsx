@@ -26,6 +26,7 @@ import { usePersistedBoolean } from '../hooks/usePersistedState';
 import type { CanvasFullApi, CanvasSummaryApi } from '../services/api';
 import '../features/diagram/diagramIntegration.scss';
 import { DataNotice } from '../components/DataNotice';
+import { canvasHierarchy } from '../features/canvas/canvasHierarchy';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -610,10 +611,12 @@ export const NotesPage: React.FC = () => {
               ) : (
                 <div className="notes-list">
                   {canvasListError && <p className="mm-canvas-error" role="alert">Could not load canvases. <button type="button" onClick={() => { void queryClient.invalidateQueries({ queryKey: ['canvases'] }); }}>Retry</button></p>}
-                  {canvases.map((c) => (
+                  {canvasHierarchy(canvases).map(({ canvas: c, depth, parentTitle }) => (
                     <div
                       key={c.id}
-                      className={`notes-list-item${selectedCanvasId === c.id ? ' notes-list-item--active' : ''}`}
+                      className={`notes-list-item${depth > 0 ? ' notes-list-item--nested' : ''}${selectedCanvasId === c.id ? ' notes-list-item--active' : ''}`}
+                      style={{ '--canvas-depth': Math.min(depth, 4) } as React.CSSProperties}
+                      aria-label={parentTitle === null ? c.title : `${c.title}, detail diagram under ${parentTitle}`}
                       role="button"
                       tabIndex={0}
                       data-ctx-title={c.title}
@@ -629,6 +632,9 @@ export const NotesPage: React.FC = () => {
                         <TrashCan size={14} />
                       </button>
                       <p className="notes-list-item-title">{c.title}</p>
+                      {parentTitle !== null && <p className="notes-list-item-preview mm-list-parent" title={parentTitle}>
+                        Detail of {c.parentShapeLabel?.trim() || parentTitle}
+                      </p>}
                       {c.linkedNotes.length > 0 && (
                         <p className="notes-list-item-preview mm-list-notes">↳ {c.linkedNotes.map((n) => n.title).join(', ')}</p>
                       )}

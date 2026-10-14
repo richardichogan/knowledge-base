@@ -2,6 +2,13 @@
 
 ---
 
+## Nested diagram navigation
+
+The Think canvas list now shows detail diagrams immediately below their parent,
+indented with the owning shape's label. This uses existing drill-down links, so
+Observability appears beneath Imagine Agentic Build & Run Model without copying
+or recreating its content. Further nesting remains navigable.
+
 ## Automatic diagram line jumps
 
 Connectors and standalone lines now form a small curved bridge where they cross

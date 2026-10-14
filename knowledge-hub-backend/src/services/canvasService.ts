@@ -45,6 +45,8 @@ export interface CanvasSummary {
   /** Brainstorm cards, or diagram nodes for a diagram canvas. */
   nodeCount: number;
   canvasType: CanvasType;
+  parentCanvasId?: string | null;
+  parentShapeLabel?: string | null;
   /** Only when listing canvases for a note: diagram elements that note is linked to. */
   linkedElements?: LinkedElement[];
 }
@@ -130,6 +132,8 @@ function rowToSummary(r: Record<string, unknown>): CanvasSummary {
     linkedNotes: (r['linked_notes'] as LinkedNote[] | null) ?? [],
     nodeCount:   Number(r['node_count'] ?? 0),
     canvasType:  r['canvas_type'] === 'diagram' ? 'diagram' : 'brainstorm',
+    parentCanvasId: (r['parent_canvas_id'] as string | null) ?? null,
+    parentShapeLabel: (r['parent_shape_label'] as string | null) ?? null,
   };
 }
 
@@ -170,6 +174,12 @@ function rowToEdge(r: Record<string, unknown>): CanvasEdge {
 
 const SUMMARY_SQL = `
   SELECT c.id, c.title, c.description, c.project, c.created_at, c.updated_at, c.canvas_type,
+         (SELECT dd.canvas_id FROM diagram_drilldowns dd WHERE dd.child_canvas_id = c.id) AS parent_canvas_id,
+         (SELECT element->>'label'
+            FROM diagram_drilldowns dd JOIN canvas_diagrams d ON d.canvas_id = dd.canvas_id
+            CROSS JOIN LATERAL jsonb_array_elements(d.document->'nodes') element
+           WHERE dd.child_canvas_id = c.id AND element->>'id' = dd.node_id::text
+           LIMIT 1) AS parent_shape_label,
          CASE WHEN c.canvas_type = 'diagram'
               THEN COALESCE((SELECT jsonb_array_length(d.document->'nodes') FROM canvas_diagrams d WHERE d.canvas_id = c.id), 0)
               ELSE (SELECT COUNT(*) FROM canvas_nodes x WHERE x.canvas_id = c.id)

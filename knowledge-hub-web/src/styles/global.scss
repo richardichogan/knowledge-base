@@ -14499,6 +14499,13 @@ fieldset.proj-modal-body {
 }
 
 .mm-list-notes { color: var(--kh-accent); opacity: 0.85; }
+.notes-list-item--nested {
+  padding-left: calc(1rem + var(--canvas-depth, 1) * 0.875rem);
+}
+.mm-list-parent {
+  color: var(--cds-text-secondary);
+  font-size: 0.75rem;
+}
 
 // "New map" choice (pin to the open note, or blank)
 .mm-newmap-anchor { position: relative; }

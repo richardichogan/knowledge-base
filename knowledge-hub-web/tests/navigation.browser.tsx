@@ -64,7 +64,14 @@ api.listChatScreens = async () => success([]);
 api.getChatDecisions = async () => success({ tracking: { enabled: false, explicit: null, personaDefault: false }, decisions: [] });
 api.summarizeNote = async () => success({ summary: 'Fixture context' });
 api.getNoteSummaries = async () => success(paginated([]));
-api.listCanvases = async () => success([]);
+api.listCanvases = async () => success([
+  { id: 'detail-canvas', title: 'Observability - detail', canvasType: 'diagram' as const,
+    description: null, project: null, createdAt: '2026-10-14T12:00:00Z', updatedAt: '2026-10-14T12:00:00Z',
+    linkedNotes: [], nodeCount: 1, parentCanvasId: 'parent-canvas', parentShapeLabel: 'Observability' },
+  { id: 'parent-canvas', title: 'Imagine Agentic Build & Run Model', canvasType: 'diagram' as const,
+    description: null, project: null, createdAt: '2026-10-14T12:00:00Z', updatedAt: '2026-10-14T12:00:00Z',
+    linkedNotes: [], nodeCount: 62 },
+]);
 api.listSparkClusters = async () => success([]);
 api.listSparks = async () => success([]);
 api.getTimeline = async () => success(paginated([]));
@@ -505,6 +512,20 @@ export async function runNavigationChecks(): Promise<string[]> {
     check(modeButton !== undefined, `Existing Think ${mode} switch`);
     modeButton!.click();
     await waitFor(() => modeButton!.getAttribute('aria-selected') === 'true');
+    if (mode === 'Canvas') {
+      await waitFor(() => document.querySelectorAll('.notes-list-item').length === 2);
+      const rows = [...document.querySelectorAll<HTMLElement>('.notes-list-item')];
+      check(rows[0]!.textContent!.includes('Imagine Agentic Build & Run Model')
+        && rows[1]!.textContent!.includes('Observability - detail'), 'Parent precedes recently edited detail diagram');
+      check(rows[1]!.classList.contains('notes-list-item--nested')
+        && parseFloat(getComputedStyle(rows[1]!).paddingLeft) > parseFloat(getComputedStyle(rows[0]!).paddingLeft),
+      'Detail diagram is visually indented beneath its parent');
+      check(rows[1]!.querySelector('.mm-list-parent')!.textContent!.includes('Observability'),
+        'Detail row identifies its owning shape');
+      check(rows[1]!.getAttribute('aria-label')!.includes('under Imagine Agentic Build & Run Model'),
+        'Parent relationship is accessible');
+      check(rows[1]!.scrollWidth <= rows[1]!.clientWidth, 'Nested row fits the narrow canvas list');
+    }
     if (mobile) {
       await openMenu();
       check(menuItem('Think').getAttribute('aria-current') === 'page', `Think selected in ${mode}`);
