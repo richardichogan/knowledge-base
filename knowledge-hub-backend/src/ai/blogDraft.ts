@@ -10,6 +10,12 @@ const MAX_TAKEAWAYS = 10;
 const MAX_TAKEAWAY_CHARS = 300;
 const MAX_SUMMARY_CHARS = 1000;
 const MAX_TAGS = 8;
+const DEFAULT_ITEM_CHARS = 100;
+const DEFAULT_EARLIER_POSTS = 5;
+const MAX_SEARCH_WORDS = 40;
+const MAX_TITLE_CHARS = 200;
+const MAX_EXCERPT_CHARS = 300;
+const MAX_IDEA_CHARS = 1000;
 const FORMAT_CATEGORIES = new Set(['article', 'weekly', 'newsletter', 'podcast', 'quick', 'quick take']);
 
 export const POST_TYPES = ['article', 'weekly', 'newsletter', 'podcast', 'quick'] as const;
@@ -29,7 +35,7 @@ export interface BlogDraft {
   sourceUrl: string | null;
 }
 
-function strings(value: unknown, limit: number, maxChars = 100): string[] {
+function strings(value: unknown, limit: number, maxChars = DEFAULT_ITEM_CHARS): string[] {
   return Array.isArray(value)
     ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '').map(v => v.trim().slice(0, maxChars)).slice(0, limit)
     : [];
@@ -69,8 +75,8 @@ export function keepAllowedLinks(content: string, allowed: Array<string | null>)
 }
 
 /** Up to `limit` of the author's published blog posts most related to the text (title and tag overlap). */
-export async function findEarlierPosts(db: Pool, text: string, limit = 5): Promise<EarlierPost[]> {
-  const words = [...new Set(text.toLowerCase().match(/[a-z0-9]{4,}/g) ?? [])].slice(0, 40);
+export async function findEarlierPosts(db: Pool, text: string, limit = DEFAULT_EARLIER_POSTS): Promise<EarlierPost[]> {
+  const words = [...new Set(text.toLowerCase().match(/[a-z0-9]{4,}/g) ?? [])].slice(0, MAX_SEARCH_WORDS);
   if (words.length === 0) return [];
   const { rows } = await db.query<EarlierPost>(
     `SELECT title, url FROM (
@@ -87,7 +93,7 @@ export async function findEarlierPosts(db: Pool, text: string, limit = 5): Promi
 async function draftWithLimits(
   client: Pick<FoundryClient, 'chat'>, system: string, user: string, quick: boolean, sourceUrl: string | null,
 ): Promise<BlogDraft> {
-  const ask = (extra: string) => client.chat('standard', [
+  const ask = (extra: string): ReturnType<typeof client.chat> => client.chat('standard', [
     { role: 'system', content: system + extra },
     { role: 'user', content: user },
   ], DRAFT_MAX_TOKENS);
@@ -105,8 +111,8 @@ export function parseBlogDraft(raw: string, sourceUrl: string | null): BlogDraft
   try { value = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
   catch { throw new AiError('Athena returned an invalid blog draft. Please generate it again.'); }
   const o = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
-  const title = typeof o['title'] === 'string' ? o['title'].trim().slice(0, 200) : '';
-  const excerpt = typeof o['excerpt'] === 'string' ? o['excerpt'].trim().slice(0, 300) : '';
+  const title = typeof o['title'] === 'string' ? o['title'].trim()  .slice(0, MAX_TITLE_CHARS) : '';
+    const excerpt = typeof o['excerpt'] === 'string' ? o['excerpt'].trim().slice(0, MAX_EXCERPT_CHARS) : '';
   const summary = typeof o['summary'] === 'string' ? o['summary'].trim().slice(0, MAX_SUMMARY_CHARS) : '';
   const content = typeof o['content'] === 'string' ? o['content'].trim() : '';
   if (!title || !summary || !content) throw new AiError('Athena returned an incomplete blog draft. Please generate it again.');
@@ -182,7 +188,7 @@ export async function generateIdeasBlogDraft(
     BLOG_WRITING_RULES,
   ].join('\n');
   const user = JSON.stringify({
-    theme, ideas: ideas.map(i => ({ idea: i.body.slice(0, 1000), from: i.sourceTitle })),
+    theme, ideas: ideas.map(i => ({ idea: i.body.slice(0, MAX_IDEA_CHARS), from: i.sourceTitle })),
     ...(quick ? { earlierPosts } : {}),
   });
   const draft = await draftWithLimits(client, system, user, quick, null);

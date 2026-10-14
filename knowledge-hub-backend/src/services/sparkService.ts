@@ -16,6 +16,9 @@ import { runClusteringJob, recountThemes, createThemeForSparks } from '../jobs/c
 import { upsertNode } from './nodeService.js';
 import { upsertEdge } from './edgeService.js';
 
+const RELATED_DEFAULT_LIMIT = 10;
+const MERGE_THEME_COUNT = 2;
+
 /** Public shape of a spark returned to API callers. */
 export interface Spark {
   id: string;
@@ -234,7 +237,7 @@ export async function updateSpark(db: Pool, id: string, input: UpdateSparkInput)
 }
 
 /** Sparks captured from the given item, or connected to it in the graph. */
-export async function relatedSparks(db: Pool, refId: string, refType: string, limit = 10): Promise<Array<Spark & { relation: 'captured' | 'connected' }>> {
+export async function relatedSparks(db: Pool, refId: string, refType: string, limit = RELATED_DEFAULT_LIMIT): Promise<Array<Spark & { relation: 'captured' | 'connected' }>> {
   const { rows } = await db.query<SparkRow & { relation: 'captured' | 'connected' }>(
     `WITH item AS (SELECT id FROM nodes WHERE ref_id = $1 AND ref_type = $2),
      connected AS (
@@ -344,7 +347,7 @@ export async function mergeThemes(db: Pool, fromId: string, intoId: string): Pro
   try {
     await client.query('BEGIN');
     const found = await client.query(`SELECT id FROM spark_clusters WHERE id = ANY($1::uuid[])`, [[fromId, intoId]]);
-    if (found.rows.length !== 2) throw new NotFoundError('Theme not found');
+    if (found.rows.length !== MERGE_THEME_COUNT) throw new NotFoundError('Theme not found');
     await client.query(`UPDATE sparks SET cluster_id = $1 WHERE cluster_id = $2`, [intoId, fromId]);
     await client.query(`DELETE FROM spark_clusters WHERE id = $1`, [fromId]);
     await client.query(`UPDATE spark_clusters SET last_grown_at = now() WHERE id = $1`, [intoId]);

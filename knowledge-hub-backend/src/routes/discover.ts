@@ -82,6 +82,7 @@ const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived',
 const DISCOVER_PAGE_SIZE_DEFAULT = 50;
 const DISCOVER_PAGE_SIZE_MAX = 100;
 const DISCOVER_ENUM_MAX_LENGTH = 32;
+const BLOG_RELATED_SOURCE_CHARS = 2000;
 const DISCOVER_FILTER_MAX_LENGTH = 256;
 const FEEDBACK_EXPLANATION_MAX_LENGTH = 2000;
 const ASCII_SPACE = 32;
@@ -173,7 +174,7 @@ discoverRouter.post('/:id/blog-draft', (req: Request, res: Response, next: NextF
       if (!source) throw new NotFoundError('Discover item');
       if (!source.body.trim()) throw new ValidationError('This source has no content to draft from.');
       const length = (req.body as { length?: unknown } | undefined)?.length === 'long' ? 'long' : 'short';
-      const earlier = length === 'short' ? await findEarlierPosts(getDb(), `${source.title} ${source.body.slice(0, 2000)}`) : [];
+      const earlier = length === 'short' ? await findEarlierPosts(getDb(), `${source.title} ${source.body.slice(0, BLOG_RELATED_SOURCE_CHARS)}`) : [];
       res.json({ success: true, data: await generateBlogDraft(source, sourceUrl(source.url), length, earlier) });
     } catch (err) { next(err); }
   })();

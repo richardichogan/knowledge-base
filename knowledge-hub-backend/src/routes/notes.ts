@@ -747,6 +747,10 @@ router.get('/:id/extractions', (req: Request, res: Response, next: NextFunction)
   })().catch(next);
 });
 
+const EXTRACTION_TARGET_TYPE_MAX = 40;
+const EXTRACTION_TARGET_ID_MAX = 200;
+const EXTRACTION_TARGET_LABEL_MAX = 300;
+
 router.post('/:id/extractions', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     const id = String(req.params['id']);
@@ -760,7 +764,8 @@ router.post('/:id/extractions', (req: Request, res: Response, next: NextFunction
       `INSERT INTO note_extractions (note_id, quote, action, target_type, target_id, target_label)
        SELECT n.id, $2, $3, $4, $5, $6 FROM notes n WHERE n.id = $1
        RETURNING id, quote, action, target_type, target_id, target_label, created_at`,
-      [id, quote, action, text(body['targetType'], 40), text(body['targetId'], 200), text(body['targetLabel'], 300) ?? '']);
+      [id, quote, action, text(body['targetType'], EXTRACTION_TARGET_TYPE_MAX),
+       text(body['targetId'], EXTRACTION_TARGET_ID_MAX), text(body['targetLabel'], EXTRACTION_TARGET_LABEL_MAX) ?? '']);
     const row = rows[0];
     if (!row) throw new NotFoundError(`Note ${id} not found`);
     res.status(HTTP_STATUS.CREATED).json({ success: true, data: extractionView(row) });

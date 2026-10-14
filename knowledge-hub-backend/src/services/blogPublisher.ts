@@ -15,15 +15,21 @@ export interface BlogSendResult {
     | { success: false; error: { code: string; message: string } };
 }
 
+const MAX_EXCERPT = 300;
+const MAX_TITLE = 200;
+const MAX_SUMMARY = 1000;
+const MAX_TAKEAWAYS = 10;
+const MAX_TAKEAWAY_CHARS = 300;
+
 export function parsePublishBody(body: unknown): BlogPublishBody {
   const o = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
   const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.trim()) : [];
   const text = (v: unknown): string => typeof v === 'string' ? v.trim() : '';
   const postType = POST_TYPES.find(t => t === o['postType']) ?? 'article';
   const status: BlogPublishBody['status'] = o['status'] === 'published' ? 'published' : 'draft';
-  const parsed = { excerpt: text(o['excerpt']).slice(0, 300), status, postType, title: text(o['title']), content: text(o['content']), summary: text(o['summary']),
+  const parsed = { excerpt: text(o['excerpt']).slice(0, MAX_EXCERPT), status, postType, title: text(o['title']), content: text(o['content']), summary: text(o['summary']),
     keyTakeaways: list(o['keyTakeaways']), categories: list(o['categories']), tags: list(o['tags']) };
-  if (parsed.title.length > 200 || parsed.summary.length > 1000 || parsed.keyTakeaways.length > 10 || parsed.keyTakeaways.some(t => t.length > 300)) {
+  if (parsed.title.length > MAX_TITLE || parsed.summary.length > MAX_SUMMARY || parsed.keyTakeaways.length > MAX_TAKEAWAYS || parsed.keyTakeaways.some(t => t.length > MAX_TAKEAWAY_CHARS)) {
     throw new ValidationError('Title (200), summary (1,000) and takeaways (10 max, 300 characters each) exceed the blog limits.');
   }
   if (!parsed.title || !parsed.content || !parsed.summary) throw new ValidationError('Title, summary and content are required to publish.');

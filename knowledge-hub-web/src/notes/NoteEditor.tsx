@@ -826,7 +826,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             {exportMenuOpen && (
               <ul className="kb-menu" role="menu">
                 <li role="menuitem">
-                  <button type="button" className="kb-menu__item" disabled={copying} title="Copy the whole note, including unsaved changes"
+                  <button type="button" className="kb-menu__item notes-copy-btn" disabled={copying} title="Copy the whole note, including unsaved changes"
                     onClick={() => { setExportMenuOpen(false); void handleCopyNote(); }}>
                     <Copy size={16} /> {copying ? 'Copying...' : 'Copy note'}
                   </button>
@@ -883,7 +883,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                 {onRecovery && (
                   <li role="menuitem">
                     <button type="button" className="kb-menu__item notes-recovery-launch" aria-haspopup="dialog"
-                      onClick={() => { setExportMenuOpen(false); onRecovery(); }}>
+                      onClick={() => { exportMenuRef.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')?.focus(); setExportMenuOpen(false); onRecovery(); }}>
                       <Renew size={16} /> Recovery
                     </button>
                   </li>

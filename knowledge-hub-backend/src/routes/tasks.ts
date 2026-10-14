@@ -16,6 +16,7 @@ import type { PoolClient } from 'pg';
 import { normaliseTaskStatus, type TaskStatus } from '../services/taskStatus.js';
 import { reviewPlan } from '../services/planReview.js';
 
+const ISO_DATE_LENGTH = 10;
 const router = Router();
 
 export interface Task {
@@ -574,10 +575,10 @@ interface ImportedTaskSuggestion {
  * Athena's weekly review — returns proposals only; the client applies the ones the user accepts.
  */
 router.post('/review', (req: Request, res: Response, next: NextFunction): void => {
-  void (async () => {
+  void (async (): Promise<void> => {
     try {
       const today = (req.body as { today?: unknown }).today;
-      const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, 10);
+      const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, ISO_DATE_LENGTH);
       const data = await reviewPlan(getDb(), day);
       res.status(HTTP_STATUS.OK).json({ success: true, data });
     } catch (err) { next(err); }

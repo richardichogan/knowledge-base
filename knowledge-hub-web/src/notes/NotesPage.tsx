@@ -468,7 +468,7 @@ export const NotesPage: React.FC = () => {
                   </li>
                   <li role="menuitem">
                     <button type="button" className="kb-menu__item notes-recovery-launch" aria-haspopup="dialog"
-                      onClick={() => { setMoreMenuOpen(false); setRecoveryOpen(true); }}>
+                      onClick={() => { moreMenuRef.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')?.focus(); setMoreMenuOpen(false); setRecoveryOpen(true); }}>
                       <Renew size={16} /> Recovery
                     </button>
                   </li>

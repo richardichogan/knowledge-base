@@ -28,7 +28,7 @@ async function fixtureDb(): Promise<PGlite> {
     CREATE TABLE chat_output_versions (output_id UUID, version INT);
     INSERT INTO projects (id, name, goal) VALUES ('p1', 'One', 'Ship it'), ('p2', 'Two', '');
     INSERT INTO ai_chat_sessions VALUES ('${SESSION_A}', 'p1'), ('${SESSION_B}', 'p2');
-    INSERT INTO tasks (id, title, status, project_id) VALUES ('t1','Do','in-progress','p1'),('t2','Stuck','blocked','p1'),('t3','Other','blocked','p2');
+    INSERT INTO tasks (id, title, status, project_id) VALUES ('t1','Do','in-progress','p1'),('t2','Stuck','waiting','p1'),('t3','Other','waiting','p2');
     INSERT INTO notes (content, project_id) VALUES ('p1 note','p1'),('p2 note','p2'),('unassigned',NULL);
     INSERT INTO chat_decisions (id, session_id, status, text) VALUES
       ('00000000-0000-4000-8000-0000000000d1','${SESSION_A}','open','Which vendor?'),

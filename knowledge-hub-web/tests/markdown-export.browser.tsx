@@ -39,6 +39,8 @@ async function runMarkdownExportChecks(): Promise<string[]> {
   check(all.some(block => block.type === 'checkListItem' && block.props.checked === true), 'Checkbox state retained');
   check(all.some(block => block.type === 'quote'), 'Quote retained');
   check(document.querySelector('.bn-editor a[href="https://example.test/policy"]') !== null, 'Policy link retained');
+  document.querySelector<HTMLButtonElement>('.notes-export-anchor > button')!.click();
+  for (let i = 0; i < 150 && document.querySelector('.notes-copy-btn') === null; i++) await new Promise(resolve => setTimeout(resolve, 20));
   document.querySelector<HTMLButtonElement>('.notes-copy-btn')!.click();
   for (let i = 0; i < 150 && copied === ''; i++) await new Promise(resolve => setTimeout(resolve, 20));
   check(copied.includes('# IMAGINE: Client Report Assurance'), 'Markdown copy has real heading');

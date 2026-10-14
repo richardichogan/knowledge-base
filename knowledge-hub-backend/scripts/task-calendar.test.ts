@@ -42,9 +42,12 @@ test('isolated task routes round-trip types and dates, create one successor, and
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text, title TEXT NOT NULL, body TEXT DEFAULT '',
     status TEXT DEFAULT 'backlog', project_id TEXT DEFAULT 'personal', tags TEXT[] DEFAULT '{}',
     priority TEXT DEFAULT 'normal', due_date DATE, start_date DATE, end_date DATE, external_url TEXT,
-    linked_tag_id UUID, recurring_cadence TEXT, archived BOOLEAN DEFAULT false,
+    linked_tag_id UUID, recurring_cadence TEXT, archived BOOLEAN DEFAULT false, waiting_on TEXT,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now());
     CREATE TABLE tags (id UUID PRIMARY KEY);
+    CREATE TABLE task_links (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), task_id TEXT REFERENCES tasks(id), target_type TEXT, target_id TEXT,
+      target_title TEXT, target_url TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT now());
     CREATE TABLE task_tags (
       task_id TEXT REFERENCES tasks(id), tag_id UUID REFERENCES tags(id), source TEXT DEFAULT 'manual',
       PRIMARY KEY (task_id, tag_id));

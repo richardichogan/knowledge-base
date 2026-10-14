@@ -105,17 +105,17 @@ try {
       ready = await evaluate(navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
         : diagramThemeChecks ? 'typeof window.runDiagramThemeChecks === "function" && document.querySelector(".dg-node__body") !== null'
-        : noteGitHubChecks ? 'typeof window.runNoteGitHubChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
+        : noteGitHubChecks ? 'typeof window.runNoteGitHubChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
         : thinkSaveChecks ? 'typeof window.runThinkSaveChecks === "function" && document.querySelector(".ai-move__button") !== null'
         : authLiveChecks ? 'document.querySelector(".pw-gate") !== null'
         : authCallbackChecks ? 'typeof window.runAuthCallbackChecks === "function"'
         : imagineBriefChecks ? 'typeof window.runImagineBriefChecks === "function" && document.querySelector("#compact-skill .ai-demo-brief-skill") !== null'
-        : markdownExportChecks ? 'typeof window.runMarkdownExportChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
+        : markdownExportChecks ? 'typeof window.runMarkdownExportChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
         : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
-        : noteHistoryChecks ? 'typeof window.runNoteHistoryChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
-        : noteRecoveryChecks ? 'typeof window.runNoteRecoveryChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
+        : noteHistoryChecks ? 'typeof window.runNoteHistoryChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
+        : noteRecoveryChecks ? 'typeof window.runNoteRecoveryChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
         : noteCopyChecks ? 'typeof window.runNoteCopyChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
         : thinkSearchChecks ? 'typeof window.runThinkSearchChecks === "function" && document.querySelector("#notes-search") !== null'
         : 'typeof window.runTodayChecks === "function" && document.querySelectorAll(".today-brief__attention article").length === 5');
@@ -136,7 +136,7 @@ try {
       await command('Page.reload', { ignoreCache: true });
       let reloaded = false;
       for (let attempt = 0; attempt < 600; attempt++) {
-        reloaded = await evaluate('window.recoveryReloadMarker !== true && typeof window.runNoteRecoveryReloadChecks === "function" && document.querySelector(".notes-copy-btn") !== null');
+        reloaded = await evaluate('window.recoveryReloadMarker !== true && typeof window.runNoteRecoveryReloadChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null');
         if (reloaded) break;
         await delay(100);
       }
@@ -148,7 +148,7 @@ try {
         await command('Page.reload', { ignoreCache: true });
         let captureReady = false;
         for (let attempt = 0; attempt < 600; attempt++) {
-          captureReady = await evaluate('window.recoveryReloadMarker !== true && typeof window.prepareNoteRecoveryCentre === "function" && document.querySelector(".notes-copy-btn") !== null');
+          captureReady = await evaluate('window.recoveryReloadMarker !== true && typeof window.prepareNoteRecoveryCentre === "function" && document.querySelector(".notes-export-anchor > button") !== null');
           if (captureReady) break;
           await delay(100);
         }
