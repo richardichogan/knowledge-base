@@ -10582,12 +10582,17 @@ $project-colour-map: (
 
 .spark-panel__themes {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
   gap: 16px;
   align-items: start;
 }
 
-.spark-panel__loose { display: flex; flex-direction: column; gap: 8px; }
+.spark-panel__loose {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 8px;
+  align-items: start;
+}
 
 .spark-panel__empty {
   margin: 0;
@@ -10796,7 +10801,12 @@ $project-colour-map: (
   &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
 }
 
-.spark-theme__sparks { display: flex; flex-direction: column; gap: 6px; }
+.spark-theme__sparks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 6px;
+  align-items: start;
+}
 
 .spark-theme__toggle {
   align-self: flex-start;
