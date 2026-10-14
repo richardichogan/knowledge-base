@@ -31,6 +31,24 @@ function saveHint(username: string): void {
   try { window.localStorage.setItem(HINT_KEY, username); } catch { /* storage unavailable */ }
 }
 
+// Entra ends a single-page app's refresh tokens 24 hours after the last
+// interactive sign-in, however often they are used. Renewing a little earlier
+// than that, from a user gesture so the browser allows the popup, keeps the
+// session from ever reaching the expired state.
+const LAST_SIGNIN_KEY = 'kh_last_interactive_signin';
+const RENEW_AFTER_MS = 20 * 3_600_000;
+
+function readSignInAge(): number | null {
+  try {
+    const stamp = Number(window.localStorage.getItem(LAST_SIGNIN_KEY));
+    return Number.isFinite(stamp) && stamp > 0 ? Date.now() - stamp : null;
+  } catch { return null; }
+}
+
+function stampSignIn(): void {
+  try { window.localStorage.setItem(LAST_SIGNIN_KEY, String(Date.now())); } catch { /* storage unavailable */ }
+}
+
 const API_SCOPES = [`api://${CLIENT_ID}/access_as_user`];
 
 const msal = AUTH_ENABLED
@@ -59,8 +77,36 @@ export async function initAuth(): Promise<AccountInfo | null> {
   if (account !== null) {
     msal.setActiveAccount(account);
     saveHint(account.username);
+    if (result !== null) stampSignIn();
   }
+  armGestureRenewal();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') armGestureRenewal();
+  });
+  authSession.subscribe(armGestureRenewal);
   return account;
+}
+
+let gestureArmed = false;
+
+/**
+ * When the session has lapsed or is about to, renews it on the user's next
+ * click or keypress (the only moment a browser lets a popup open). With a live
+ * Microsoft session the popup closes itself; a failure leaves the dialog.
+ */
+function armGestureRenewal(): void {
+  if (msal === null || gestureArmed || signingOut) return;
+  const age = readSignInAge();
+  if (!authSession.isExpired() && (age === null || age < RENEW_AFTER_MS)) return;
+  gestureArmed = true;
+  const run = (): void => {
+    window.removeEventListener('pointerdown', run, true);
+    window.removeEventListener('keydown', run, true);
+    gestureArmed = false;
+    reauthenticate().catch((err: unknown) => { console.warn('[auth] Automatic renewal failed.', err); });
+  };
+  window.addEventListener('pointerdown', run, true);
+  window.addEventListener('keydown', run, true);
 }
 
 export function signIn(): Promise<void> {
@@ -126,6 +172,7 @@ async function authenticateInPopup(): Promise<void> {
   signingOut = false;
   window.dispatchEvent(new Event(DRAFT_IDENTITY_EVENT));
   saveHint(result.account.username);
+  stampSignIn();
   authSession.setExpired(false);
 }
 

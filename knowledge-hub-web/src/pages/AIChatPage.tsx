@@ -15,6 +15,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Export, Copy, View, OverflowMenuHorizontal, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
 import { useProjects } from '../hooks/useProjects';
@@ -637,6 +638,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     refreshSessionList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A history load that failed because the sign-in lapsed retries itself once the user is signed in again.
+  useEffect(() => {
+    if (historyError === null || sessionId === null) return;
+    return authSession.subscribe(() => {
+      if (!authSession.isExpired()) handleSelectSession(sessionId, true);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyError, sessionId]);
 
   function reportHistoryError(error: unknown): void {
     setIsRestoringHistory(false);
