@@ -338,29 +338,11 @@ export async function runNavigationChecks(): Promise<string[]> {
       plannedTask, { ...plannedTask, id: 'completed-native', title: 'Completed fixture must be hidden', status: 'completed' },
     ],
   ));
-  let calendarPages = 0;
-  api.getTimeline = async (query) => {
-    if (!query?.rangeStart) return success(paginated([]));
-    calendarPages++;
-    const items = Array.from({ length: 101 }, (_, i) => ({
-      id: `range-${i}`, sourceId: `range-${i}`, source: 'graph-calendar' as const,
-      title: `Scheduled event ${i}`, summary: '',
-      publishedAt: new Date(`${scheduledDate}T12:00:00`).toISOString(),
-    }));
-    const page = query.page ?? 1;
-    return success({ items: items.slice((page - 1) * 100, page * 100), total: 101, page, pageSize: 100, hasMore: page === 1 });
-  };
   await go('/plan');
-  await waitFor(() => document.querySelector('.plan-view-toggle') !== null);
-  const calendarButton = [...document.querySelectorAll<HTMLButtonElement>('.plan-view-toggle button')]
-    .find((button) => button.textContent?.trim() === 'Calendar')!;
-  calendarButton.click();
-  await waitFor(() => document.querySelectorAll('.c7-card--blue').length === 101);
-  check(calendarPages === 2, 'Calendar loads more than 100 range items');
-  check(selector('.c7-day-col--today').textContent?.includes('Native task scheduled today') === true,
-    'Native tasks appear on their due date, not indexing date');
-  check(!selector('.c7-grid').textContent?.includes('Completed fixture must be hidden'), 'Completed native tasks are hidden');
-  check(calendarButton.getAttribute('aria-pressed') === 'true', 'Selected Plan view is exposed');
+  await waitFor(() => document.querySelector('.plan-view-toggle') !== null
+    && document.body.textContent?.includes('Native task scheduled today') === true);
+  check(![...document.querySelectorAll('.plan-view-toggle button')].some((button) => button.textContent?.trim() === 'Calendar'),
+    'Plan no longer offers a Calendar view');
   check(selector('#plan-filter-project').getAttribute('aria-label') === 'Filter by project'
     || document.querySelector('label[for="plan-filter-project"]')?.textContent === 'Filter by project', 'Project filter is named');
   check(selector('.plan-header').scrollWidth <= selector('.plan-header').clientWidth + 1,
@@ -371,21 +353,23 @@ export async function runNavigationChecks(): Promise<string[]> {
   const listButton = [...document.querySelectorAll<HTMLButtonElement>('.plan-view-toggle button')]
     .find((button) => button.textContent?.trim() === 'List')!;
   listButton.click();
+  await waitFor(() => listButton.getAttribute('aria-pressed') === 'true');
   await waitFor(() => document.querySelector('.tl-list')?.textContent?.includes('Native task scheduled today') === true);
+  check(!selector('.tl-list').textContent?.includes('Completed fixture must be hidden'), 'Completed native tasks are hidden');
   check(document.querySelector('#plan-filter-project') !== null && document.querySelector('#plan-filter-tag') !== null,
     'Project and tag scope stays available across Plan modes');
-  results.push('Calendar range beyond 100, date-only native tasks, completed exclusion and responsive shared Plan scope');
+  results.push('Plan without Calendar, date-only native tasks, completed exclusion and responsive shared Plan scope');
 
-  const sharedPlan = { version: 1, kind: 'plan', view: 'calendar', project: 'unavailable-project', tag: 'unavailable-tag' };
+  const sharedPlan = { version: 1, kind: 'plan', view: 'list', project: 'unavailable-project', tag: 'unavailable-tag' };
   await go(`/plan?view=${encodeURIComponent(JSON.stringify(sharedPlan))}`);
   await waitFor(() => selector<HTMLSelectElement>('#plan-filter-project').value === 'unavailable-project'
     && selector<HTMLSelectElement>('#plan-filter-tag').value === 'unavailable-tag');
-  check(selector('.plan-view-btn--active').textContent?.trim() === 'Calendar',
+  check(selector('.plan-view-btn--active').textContent?.trim() === 'List',
     'Shared Plan view preserves exact mode and unavailable scopes');
   const savedViews = selector<HTMLDetailsElement>('.kh-saved-views');
   savedViews.open = true;
   const savedName = savedViews.querySelector<HTMLInputElement>('input')!;
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(savedName, 'Project calendar scope');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(savedName, 'Project list scope');
   savedName.dispatchEvent(new Event('input', { bubbles: true }));
   await new Promise(resolve => setTimeout(resolve, 30));
   savedViews.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
@@ -397,14 +381,14 @@ export async function runNavigationChecks(): Promise<string[]> {
   await new Promise(resolve => setTimeout(resolve, 30));
   savedPicker.selectedIndex = savedPicker.options.length - 1;
   savedPicker.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'Calendar');
+  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'List');
   check(selector<HTMLSelectElement>('#plan-filter-project').value === 'unavailable-project'
     && selector<HTMLSelectElement>('#plan-filter-tag').value === 'unavailable-tag', 'Named Plan view cannot widen scope across modes');
   await go('/plan?view=%7B');
   await waitFor(() => document.body.textContent?.includes('Shared view link is invalid; current filters were retained') === true);
   check(selector<HTMLSelectElement>('#plan-filter-project').value === 'unavailable-project', 'Malformed link retains current scope visibly');
-  await go(`/plan?view=${encodeURIComponent(JSON.stringify({ ...sharedPlan, view: 'list', project: '', tag: '' }))}`);
-  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'List'
+  await go(`/plan?view=${encodeURIComponent(JSON.stringify({ ...sharedPlan, view: 'board', project: '', tag: '' }))}`);
+  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'Board'
     && selector<HTMLSelectElement>('#plan-filter-project').value === '');
   check(document.body.textContent?.includes('Shared view link is invalid') !== true, 'Valid shared link clears its previous error');
   results.push('Named and shared Plan views retain unavailable project/tag scopes, switch modes and reject malformed links visibly');
@@ -429,8 +413,8 @@ export async function runNavigationChecks(): Promise<string[]> {
   check(document.activeElement === searchTrigger, 'Palette restores the launching control focus');
   await go('/library');
   await go('/plan');
-  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'List');
-  check(JSON.parse(localStorage.getItem(PLAN_PREFERENCES_KEY)!).view === 'list', 'Plan preference survives a workspace round trip');
+  await waitFor(() => document.querySelector('.plan-view-btn--active')?.textContent?.trim() === 'Board');
+  check(JSON.parse(localStorage.getItem(PLAN_PREFERENCES_KEY)!).view === 'board', 'Plan preference survives a workspace round trip');
   await go('/_deferred-fixture');
   await waitFor(() => document.body.textContent?.includes('Fixture heavy view could not open') === true);
   const draftOutsideView = selector<HTMLInputElement>('#deferred-draft');

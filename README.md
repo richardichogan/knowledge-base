@@ -118,11 +118,9 @@ JavaScript-error gate. Artifact captures use the active emulated browser page.
 The fixture server uses a separate reusable Vite dependency cache, so running
 checks cannot invalidate the normal development server's prebundled modules.
 
-Plan's Calendar requests the displayed half-open time range and loads all pages,
-rather than using the latest timeline snapshot. Native tasks use their due date
-(or the start date of a recurring occurrence); external To Do tasks use source
-due-date metadata. Completed tasks are excluded. Project/tag filters apply across
-Board, Calendar and List, and date-only task values remain local calendar dates.
+Plan has Board and List views (the Calendar view was removed; saved views that
+used it open on the Board). Project/tag filters apply across both views, and
+date-only task values remain local calendar dates.
 Recurring completion, successor creation and tag writes commit together; migration
 `063_task_recurrence_identity.sql` prevents repeated completion from creating
 multiple successors. External integration/indexing work runs only after commit.
@@ -689,7 +687,7 @@ cp .env.example .env
 npm run dev   # Starts Vite dev server on http://localhost:5173
 ```
 
-Pages: **Timeline · Search · Notes · AI Chat · Tasks · Calendar**
+Pages: **Timeline · Search · Notes · AI Chat · Tasks**
 
 ### 3. Backend
 

@@ -1,7 +1,7 @@
 /**
- * PlanPage — calendar-first planning hub.
+ * PlanPage — task planning hub.
  *
- * Combines Calendar, Board and List views into a single page with a view switcher.
+ * Combines Board and List views into a single page with a view switcher.
  * Each sub-view retains its own data-fetching; only the shared page header
  * and view tabs live here. The inner .page-header of each sub-page is hidden
  * via the .plan-inner wrapper.
@@ -9,9 +9,8 @@
 
 import React, { useEffect, useState } from 'react';
 import type { CarbonIconType } from '@carbon/icons-react';
-import { Calendar, Dashboard, Upload, List } from '@carbon/icons-react';
+import { Dashboard, Upload, List } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
-import { CalendarPage } from './CalendarPage';
 import { TasksPage } from './TasksPage';
 import { TaskListView } from './TaskListView';
 import { useFlatTags } from '../hooks/useTaxonomy';
@@ -28,7 +27,6 @@ interface ViewTab {
 }
 
 const VIEW_TABS: ViewTab[] = [
-  { key: 'calendar', label: 'Calendar',  Icon: Calendar },
   { key: 'board',    label: 'Board',     Icon: Dashboard },
   { key: 'list',     label: 'List',      Icon: List },
 ];
@@ -115,7 +113,6 @@ export const PlanPage: React.FC = () => {
 
       {/* Sub-page — .page-header inside is hidden via CSS */}
       <div className="plan-inner">
-        {view === 'calendar' && <CalendarPage filterProject={filterProject} filterTag={filterTag} />}
         {view === 'list'     && <TaskListView filterProject={filterProject} filterTag={filterTag} />}
         {view === 'board'    && (
           <TasksPage

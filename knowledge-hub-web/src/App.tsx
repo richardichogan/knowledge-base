@@ -3,7 +3,7 @@
  *
  * Nav structure:
  *   /discover  → DiscoverPage (inbound AI-curated feed)
- *   /plan      → PlanPage     (Calendar + Tasks)
+ *   /plan      → PlanPage     (task board + list)
  *   /my-work   → MyWorkPage   (output feed)
  *   /think     → ThinkPage    (Notes)
  *   /library   → DocumentsPage
