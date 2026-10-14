@@ -1,10 +1,22 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { Bookmark } from '@carbon/icons-react';
 import { useLocation } from 'react-router-dom';
 import { DataNotice } from './DataNotice';
 import { confirmDialog } from '../services/appDialogs';
 import { parseSavedViews, parseSharedView, parseWorkspaceView, SAVED_VIEWS_KEY, sharedViewUrl, type SavedView, type WorkspaceView } from '../utils/savedViews';
 
-export const SavedViews: React.FC<{ current: WorkspaceView; onApply: (view: WorkspaceView) => void }> = ({ current, onApply }) => {
+/** `menu` renders a compact header button with a dropdown panel instead of an inline disclosure. */
+export const SavedViews: React.FC<{ current: WorkspaceView; onApply: (view: WorkspaceView) => void; variant?: 'inline' | 'menu' }> = ({ current, onApply, variant = 'inline' }) => {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (variant !== 'menu') return undefined;
+    const close = (event: MouseEvent): void => {
+      const el = detailsRef.current;
+      if (el?.open && !el.contains(event.target as Node)) el.open = false;
+    };
+    document.addEventListener('mousedown', close);
+    return () => { document.removeEventListener('mousedown', close); };
+  }, [variant]);
   const id = useId();
   const location = useLocation();
   const apply = useRef(onApply);
@@ -55,8 +67,9 @@ export const SavedViews: React.FC<{ current: WorkspaceView; onApply: (view: Work
     <>
       {linkError != null && <DataNotice title="Shared view link is invalid; current filters were retained" error={linkError} />}
       {error != null && <DataNotice title="View could not be loaded or saved" error={error} />}
-      <details className="kh-saved-views">
-      <summary>Saved views</summary>
+      <details ref={detailsRef} className={`kh-saved-views${variant === 'menu' ? ' kh-saved-views--menu' : ''}`}
+        onKeyDown={event => { if (variant === 'menu' && event.key === 'Escape' && detailsRef.current) { detailsRef.current.open = false; detailsRef.current.querySelector('summary')?.focus(); } }}>
+      <summary title="Saved views">{variant === 'menu' ? <><Bookmark size={16} aria-hidden="true" /> Views</> : 'Saved views'}</summary>
       <div className="kh-saved-views__body">
         <p>Filters and view mode only. Saved on this device; up to 20 views.</p>
         {loaded.error != null && error != null && <button type="button" onClick={() => {

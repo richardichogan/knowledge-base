@@ -23,7 +23,7 @@ type Action =
   | { kind: 'rename'; name: string }
   | { kind: 'status'; status: SparkThemeStatus }
   | { kind: 'merge'; intoId: string }
-  | { kind: 'graduate'; target: 'note' | 'canvas' | 'project' };
+  | { kind: 'graduate'; target: 'note' | 'canvas' | 'project' | 'tasks' };
 
 export const SparkThemeCard: React.FC<{
   theme: SparkCluster;
@@ -137,6 +137,7 @@ export const SparkThemeCard: React.FC<{
               { label: 'Note outline', disabled: mutation.isPending, onSelect: () => { mutation.mutate({ kind: 'graduate', target: 'note' }); } },
               { label: 'Blog post…', disabled: mutation.isPending, onSelect: () => { setBlogOpen(true); } },
               { label: 'Canvas', disabled: mutation.isPending, onSelect: () => { mutation.mutate({ kind: 'graduate', target: 'canvas' }); } },
+              { label: 'Tasks (Plan inbox)', disabled: mutation.isPending, onSelect: () => { mutation.mutate({ kind: 'graduate', target: 'tasks' }); } },
               { label: 'Project', disabled: mutation.isPending, onSelect: () => {
                 void confirmDialog(`Create a new project called "${theme.theme}" from this theme?`, { title: 'Create project', confirmLabel: 'Create project' })
                   .then((ok) => { if (ok) mutation.mutate({ kind: 'graduate', target: 'project' }); });

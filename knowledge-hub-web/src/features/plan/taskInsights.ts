@@ -38,11 +38,12 @@ export function isRecentlyCompleted(task: Pick<PlanTask, 'status' | 'updatedAt'>
 export function originHref(origin: TaskOrigin): string | null {
   if (origin.type === 'chat') return origin.url !== '' ? origin.url : `/chat?session=${encodeURIComponent(origin.id)}`;
   if (origin.type === 'note') return `/think?noteId=${encodeURIComponent(origin.id)}`;
+  if (origin.type === 'spark') return '/think?view=sparks';
   return origin.url !== '' ? origin.url : null;
 }
 
 export function originLabel(origin: TaskOrigin): string {
-  const kind = origin.type === 'chat' ? 'Athena chat' : origin.type === 'note' ? 'Note' : 'Link';
+  const kind = origin.type === 'chat' ? 'Athena chat' : origin.type === 'note' ? 'Note' : origin.type === 'spark' ? 'Spark theme' : 'Link';
   return origin.title !== '' ? `${kind}: ${origin.title}` : kind;
 }
 

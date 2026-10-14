@@ -14,6 +14,7 @@ import { upsertContentItem } from '../db/queries.js';
 import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import type { PoolClient } from 'pg';
 import { normaliseTaskStatus, type TaskStatus } from '../services/taskStatus.js';
+import { reviewPlan } from '../services/planReview.js';
 
 const router = Router();
 
@@ -567,6 +568,21 @@ interface ImportedTaskSuggestion {
   status: Task['status'];
   projectId: string;
 }
+
+/**
+ * POST /api/tasks/review   Body: { today?: 'YYYY-MM-DD' }
+ * Athena's weekly review — returns proposals only; the client applies the ones the user accepts.
+ */
+router.post('/review', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const today = (req.body as { today?: unknown }).today;
+      const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, 10);
+      const data = await reviewPlan(getDb(), day);
+      res.status(HTTP_STATUS.OK).json({ success: true, data });
+    } catch (err) { next(err); }
+  })();
+});
 
 router.post('/import', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {

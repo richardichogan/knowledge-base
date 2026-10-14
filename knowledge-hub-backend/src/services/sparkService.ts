@@ -35,7 +35,7 @@ export interface Spark {
 
 /** What a theme or spark became. */
 export interface SparkOutput {
-  type: 'note' | 'blog' | 'canvas' | 'project';
+  type: 'note' | 'blog' | 'canvas' | 'project' | 'tasks';
   ref: string;
   title: string;
   url?: string | null;

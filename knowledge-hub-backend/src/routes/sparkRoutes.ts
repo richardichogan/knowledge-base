@@ -12,7 +12,7 @@
  * POST   /api/spark-clusters      — create a theme from sparks (body: { theme, sparkIds })
  * PATCH  /api/spark-clusters/:id  — rename, status, surfaced, output (what it became), markSparksUsed
  * POST   /api/spark-clusters/:id/merge — merge this theme into body.intoId
- * POST   /api/spark-clusters/:id/graduate — turn the theme into a note | canvas | project (body.target), recording the output
+ * POST   /api/spark-clusters/:id/graduate — turn the theme into a note | canvas | project | tasks (body.target), recording the output
  * POST   /api/spark-clusters/:id/blog-draft — AI blog draft from the theme's sparks (body.length short|long)
  * POST   /api/spark-clusters/:id/blog-publish — send to the blog; records the output on success
  */
@@ -28,7 +28,7 @@ import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { Spark, SparkOutput, ThemeStatus, UpdateSparkInput, UpdateThemeInput } from '../services/sparkService.js';
 
-const OUTPUT_TYPES = ['note', 'blog', 'canvas', 'project'];
+const OUTPUT_TYPES = ['note', 'blog', 'canvas', 'project', 'tasks'];
 
 function parseOutput(v: unknown): SparkOutput | null | undefined {
   if (v === undefined) return undefined;
@@ -219,7 +219,7 @@ sparkClusterRouter.post('/:id/graduate', (req: Request, res: Response, next: Nex
   void (async (): Promise<void> => {
     try {
       const target = (req.body as { target?: unknown }).target;
-      if (target !== 'note' && target !== 'canvas' && target !== 'project') throw new ValidationError('target must be note, canvas or project');
+      if (target !== 'note' && target !== 'canvas' && target !== 'project' && target !== 'tasks') throw new ValidationError('target must be note, canvas, project or tasks');
       const data = await graduateTheme(getDb(), req.params['id']!, target as GraduationTarget);
       res.status(HTTP_STATUS.CREATED).json({ success: true, data });
     } catch (err) { next(err); }

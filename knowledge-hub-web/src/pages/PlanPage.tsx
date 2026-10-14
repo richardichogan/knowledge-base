@@ -10,7 +10,7 @@
 
 import React, { useEffect, useState } from 'react';
 import type { CarbonIconType } from '@carbon/icons-react';
-import { CenterCircle, Dashboard, Upload } from '@carbon/icons-react';
+import { CenterCircle, Dashboard, TaskView, Upload } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
 import { TasksPage } from './TasksPage';
 import { useFlatTags } from '../hooks/useTaxonomy';
@@ -20,6 +20,7 @@ import { DEFAULT_PLAN_PREFERENCES, PLAN_PREFERENCES_KEY, parsePlanPreferences, t
 import { SavedViews } from '../components/SavedViews';
 import { DataNotice } from '../components/DataNotice';
 import { usePlanAthena } from '../features/plan/usePlanAthena';
+import { PlanReviewModal } from '../features/plan/PlanReviewModal';
 
 interface ViewTab {
   key: PlanView;
@@ -53,6 +54,7 @@ export const PlanPage: React.FC = () => {
     });
   };
   const [importOpen, setImportOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const askAthena = usePlanAthena(filterProject, filterTag);
   const flatTags = useFlatTags();
   const { data: projects = [] } = useProjects();
@@ -92,6 +94,13 @@ export const PlanPage: React.FC = () => {
               </button>}
             </>
           )}
+          <button type="button" className="kb-import-btn" onClick={() => setReviewOpen(true)}
+            title="Athena reviews your open tasks and suggests what to reschedule, close or split">
+            <TaskView size={16} /> Weekly review
+          </button>
+          <SavedViews variant="menu" current={{ ...preferences, kind: 'plan' }} onApply={next => {
+            if (next.kind === 'plan') updatePreferences({ view: next.view, project: next.project, tag: next.tag });
+          }} />
           <div className="plan-view-toggle">
             {VIEW_TABS.map(({ key, label, Icon }) => (
               <button
@@ -109,9 +118,8 @@ export const PlanPage: React.FC = () => {
       </div>
 
       {preferenceError != null && <DataNotice title="Plan view could not be remembered or restored" error={preferenceError} />}
-      <SavedViews current={{ ...preferences, kind: 'plan' }} onApply={next => {
-        if (next.kind === 'plan') updatePreferences({ view: next.view, project: next.project, tag: next.tag });
-      }} />
+
+      <PlanReviewModal open={reviewOpen} onClose={() => setReviewOpen(false)} />
 
       <div className="plan-inner">
         <TasksPage

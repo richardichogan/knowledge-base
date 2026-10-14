@@ -357,32 +357,48 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
   const copyUrl  = async () => { if (item.url) await navigator.clipboard.writeText(item.url); onClose(); };
   const copyText = async () => { await navigator.clipboard.writeText(item.body ?? item.title); onClose(); };
 
-  const { mutate: createTasks, isPending: creatingTasks, data: taskCount } = useMutation({
+  const { mutate: createTasks, isPending: creatingTasks, data: createdTaskIds } = useMutation({
     mutationFn: async () => {
       const sourceText = item.body ?? item.title;
       const tags = (item.tags ?? []).map((t) => t.split('|')[0] ?? t);
       const taxonomyTagIds = item.taxonomyTagIds ?? [];
       const parsed = await extractTasksWithAI(sourceText);
       const dueDate = toISODateString(addWorkingDays(new Date(), 2));
-      await Promise.all(parsed.map((draft) => api.createTask({
-        title: draft.title,
-        body: draft.body,
-        status: 'backlog',
-        dueDate,
-        ...(tags.length > 0 ? { tags } : {}),
-        ...(taxonomyTagIds.length > 0 ? { taxonomyTagIds } : {}),
-      })));
-      return parsed.length;
+      const sourceNoteId = item.refType === 'note' ? item.refId : undefined;
+      const created = await Promise.all(parsed.map(async (draft) => {
+        const res = await api.createTask({
+          title: draft.title,
+          body: draft.body,
+          status: 'backlog',
+          dueDate,
+          ...(tags.length > 0 ? { tags } : {}),
+          ...(taxonomyTagIds.length > 0 ? { taxonomyTagIds } : {}),
+        });
+        const id = res.success ? res.data.id : undefined;
+        // Link back to the note so the task card can open where it came from.
+        if (id && sourceNoteId) {
+          await api.addTaskLink(id, {
+            targetType: 'note', targetId: sourceNoteId, targetTitle: item.title,
+            targetUrl: `/think?noteId=${encodeURIComponent(sourceNoteId)}`,
+          }).catch((err: unknown) => { console.warn('[GlobalContextMenu] could not link task to note:', err); });
+        }
+        return id;
+      }));
+      return created.filter((id): id is string => typeof id === 'string');
     },
-    onSuccess: (count) => {
+    onSuccess: (ids) => {
       clearActiveBlockNoteSelectionSnapshot();
-      record('task', count > 1 ? `${count} tasks` : 'Task', '/plan');
+      const first = ids[0];
+      record('task', ids.length > 1 ? `${ids.length} tasks` : 'Task',
+        ids.length === 1 && first ? `/plan?taskId=${first}` : '/plan',
+        first ? { type: 'task', id: first } : undefined);
       void qc.invalidateQueries({ queryKey: ['tasks'] });
     },
     onError: (err) => {
       console.error('[GlobalContextMenu] createTask failed:', err);
     },
   });
+  const taskCount = createdTaskIds?.length;
 
   const posStyle: React.CSSProperties = { left: x, top: y };
 

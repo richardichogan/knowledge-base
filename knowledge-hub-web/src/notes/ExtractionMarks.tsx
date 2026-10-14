@@ -23,7 +23,7 @@ function targetPath(x: NoteExtraction): string | null {
     case 'spark': return '/think?view=sparks';
     case 'canvas': return x.targetId ? `/think?mapId=${x.targetId}` : null;
     case 'note': return x.targetId ? `/think?noteId=${x.targetId}` : null;
-    case 'task': return '/plan';
+    case 'task': return x.targetId ? `/plan?taskId=${x.targetId}` : '/plan';
     default: return null;
   }
 }

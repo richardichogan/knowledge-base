@@ -5,7 +5,7 @@
 import type { Spark, SparkCluster, SparkOutputType } from '../../services/api';
 
 export const OUTPUT_LABELS: Record<SparkOutputType, string> = {
-  note: 'Note', blog: 'Blog post', canvas: 'Canvas', project: 'Project',
+  note: 'Note', blog: 'Blog post', canvas: 'Canvas', project: 'Project', tasks: 'Tasks',
 };
 
 export function formatSparkDate(iso: string): string {
@@ -32,6 +32,7 @@ export function themeOutputHref(theme: SparkCluster): string | null {
   if (theme.outputType === 'note') return `/think?noteId=${encodeURIComponent(theme.outputRef)}`;
   if (theme.outputType === 'canvas') return `/think?mapId=${encodeURIComponent(theme.outputRef)}`;
   if (theme.outputType === 'project') return '/projects';
+  if (theme.outputType === 'tasks') return '/plan';
   return null;
 }
 

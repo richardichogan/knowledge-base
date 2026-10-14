@@ -35,6 +35,7 @@ import type {
 } from '../types';
 import { getApiToken } from './auth';
 import { normaliseTask } from '../types/task';
+import type { TaskPriority } from '../types/task';
 import type { DiagramAsset, DiagramDocument, DiagramSnapshot } from '../features/diagram/diagramTypes';
 import type { GitHubPublication, GitHubPushPayload } from '../notes/types';
 
@@ -362,7 +363,20 @@ export interface Spark {
   usedTitle: string | null;
 }
 
-export type SparkOutputType = 'note' | 'blog' | 'canvas' | 'project';
+export type PlanReviewAction = 'reschedule' | 'complete' | 'archive' | 'split';
+export interface PlanReviewProposal {
+  taskId: string;
+  title: string;
+  projectId: string;
+  priority: TaskPriority;
+  action: PlanReviewAction;
+  reason: string;
+  dueDate?: string;
+  subtasks?: string[];
+}
+export interface PlanReview { proposals: PlanReviewProposal[]; source: 'athena' | 'rules'; reviewed: number }
+
+export type SparkOutputType = 'note' | 'blog' | 'canvas' | 'project' | 'tasks';
 export type SparkThemeStatus = 'active' | 'developed' | 'dismissed';
 
 /** What a theme (or spark) became. */
@@ -1238,6 +1252,11 @@ export class KnowledgeHubApi {
   }
 
   /** Removes a task from Plan without deleting it (used to dismiss Inbox suggestions). */
+  async reviewPlan(today: string): Promise<ApiResponse<PlanReview>> {
+    const r = await this.client.post<ApiResponse<PlanReview>>('/api/tasks/review', { today });
+    return r.data;
+  }
+
   async archiveTask(id: string): Promise<ApiResponse<unknown>> {
     const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${id}/archive`);
     return r.data;
@@ -1263,7 +1282,7 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async addTaskLink(taskId: string, link: { targetType: string; targetId: string; targetTitle: string }): Promise<ApiResponse<unknown>> {
+  async addTaskLink(taskId: string, link: { targetType: string; targetId: string; targetTitle: string; targetUrl?: string }): Promise<ApiResponse<unknown>> {
     const r = await this.client.post<ApiResponse<unknown>>(`/api/tasks/${taskId}/links`, link);
     return r.data;
   }
@@ -1668,7 +1687,7 @@ export class KnowledgeHubApi {
   }
 
   /** Turns a theme into a structured note, a canvas or a project and records what it became. */
-  async graduateSparkTheme(id: string, target: 'note' | 'canvas' | 'project'): Promise<ApiResponse<{ theme: SparkCluster; output: SparkOutput }>> {
+  async graduateSparkTheme(id: string, target: 'note' | 'canvas' | 'project' | 'tasks'): Promise<ApiResponse<{ theme: SparkCluster; output: SparkOutput }>> {
     return (await this.client.post<ApiResponse<{ theme: SparkCluster; output: SparkOutput }>>(`/api/spark-clusters/${id}/graduate`, { target }, { timeout: CHAT_TIMEOUT_MS })).data;
   }
 
