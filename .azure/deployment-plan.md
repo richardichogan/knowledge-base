@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Discover one-click synopsis sparks plus the committed Plan check-in,
 at-risk nudges and weekly-review timeout fix. Existing production ACA/ACR/SWA.
@@ -212,6 +212,19 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-14:
+
+- Application release `321e9f6` (including Plan commit `84508f2`) pushed to main
+  and `richardichogan-link-think-chat-projects`.
+- ACR run `ca62` succeeded; backend v192 revision `kh-prod-api-vnet--0000189`
+  reports Healthy / RunningAtMaxScale with 100% traffic.
+- Startup logs confirm `074_day_checkins.sql` applied and migration completed;
+  database pool initialized and scheduler started.
+- Production SWA deployment succeeded. Both the custom domain and default SWA
+  `/discover` serve `/assets/index-Du8j20Vu.js`, whose SHA-256 matches the local
+  production bundle.
+- Live URL: https://athena.themicrosoftcloudblog.com/discover
 
 Validated 2026-10-14 for the one-click Discover Spark / Plan release:
 
