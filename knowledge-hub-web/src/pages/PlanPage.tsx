@@ -4,7 +4,8 @@
  * Combines Board and List views into a single page with a view switcher.
  * Each sub-view retains its own data-fetching; only the shared page header
  * and view tabs live here. The inner .page-header of each sub-page is hidden
- * via the .plan-inner wrapper.
+ * via the .plan-inner wrapper. Athena opens as the floating window (so the
+ * board keeps the full width), primed with the visible tasks.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -19,6 +20,7 @@ import { useProjects } from '../hooks/useProjects';
 import { DEFAULT_PLAN_PREFERENCES, PLAN_PREFERENCES_KEY, parsePlanPreferences, type PlanPreferences, type PlanView } from '../utils/planPreferences';
 import { SavedViews } from '../components/SavedViews';
 import { DataNotice } from '../components/DataNotice';
+import { usePlanAthena } from '../features/plan/usePlanAthena';
 
 interface ViewTab {
   key: PlanView;
@@ -52,6 +54,7 @@ export const PlanPage: React.FC = () => {
     });
   };
   const [importOpen, setImportOpen] = useState(false);
+  const askAthena = usePlanAthena(filterProject, filterTag);
   const flatTags = useFlatTags();
   const { data: projects = [] } = useProjects();
 
@@ -111,16 +114,15 @@ export const PlanPage: React.FC = () => {
         if (next.kind === 'plan') updatePreferences({ view: next.view, project: next.project, tag: next.tag });
       }} />
 
-      {/* Sub-page — .page-header inside is hidden via CSS */}
       <div className="plan-inner">
         {view === 'list'     && <TaskListView filterProject={filterProject} filterTag={filterTag} />}
         {view === 'board'    && (
           <TasksPage
-            onImportOpen={() => setImportOpen(true)}
             importOpen={importOpen}
             onImportClose={() => setImportOpen(false)}
             filterProject={filterProject}
             filterTag={filterTag}
+            onAskAthena={askAthena}
           />
         )}
       </div>

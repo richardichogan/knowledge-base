@@ -26,9 +26,13 @@ export interface PlanTask {
   taxonomyTagIds: string[];
   recurringCadence: RecurringCadence | null;
   archived: boolean;
+  /** First linked chat/note — where the task came from (list endpoint only). */
+  origin?: TaskOrigin | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface TaskOrigin { type: string; id: string; title: string; url: string }
 
 export interface CreateTaskInput {
   title: string;

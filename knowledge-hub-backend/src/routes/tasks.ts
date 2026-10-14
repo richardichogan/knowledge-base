@@ -33,6 +33,8 @@ export interface Task {
   taxonomyTagIds: string[];
   recurringCadence: 'daily' | 'weekly' | 'fortnightly' | 'monthly' | null;
   archived: boolean;
+  /** First linked item (chat/note) — where the task came from. Only set by the list endpoint. */
+  origin: { type: string; id: string; title: string; url: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -60,6 +62,9 @@ export function rowToTask(row: Record<string, unknown>): Task {
     taxonomyTagIds: ((row['taxonomy_tag_ids'] as string[] | null) ?? []).filter(Boolean),
     recurringCadence: (row['recurring_cadence'] as Task['recurringCadence']) ?? null,
     archived: Boolean(row['archived']),
+    origin: typeof row['origin_type'] === 'string'
+      ? { type: row['origin_type'], id: String(row['origin_id'] ?? ''), title: String(row['origin_title'] ?? ''), url: String(row['origin_url'] ?? '') }
+      : null,
     createdAt: String(row['created_at']),
     updatedAt: String(row['updated_at']),
   };
@@ -127,11 +132,16 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         `SELECT t.id, t.title, t.body, t.status, t.project_id, t.tags, t.priority,
                 t.due_date, t.start_date, t.end_date, t.external_url, t.linked_tag_id,
                 t.recurring_cadence, t.task_type, t.archived, t.created_at, t.updated_at,
-                ARRAY_REMOVE(ARRAY_AGG(tt.tag_id), NULL) AS taxonomy_tag_ids
+                ARRAY_REMOVE(ARRAY_AGG(tt.tag_id), NULL) AS taxonomy_tag_ids,
+                o.target_type AS origin_type, o.target_id AS origin_id, o.target_title AS origin_title, o.target_url AS origin_url
          FROM tasks t
          LEFT JOIN task_tags tt ON tt.task_id = t.id
+         LEFT JOIN LATERAL (
+           SELECT target_type, target_id, target_title, target_url FROM task_links
+           WHERE task_id = t.id ORDER BY created_at ASC LIMIT 1
+         ) o ON true
          ${where ? where.replace(/status/g, 't.status').replace(/project_id/g, 't.project_id') : ''}
-         GROUP BY t.id
+         GROUP BY t.id, o.target_type, o.target_id, o.target_title, o.target_url
          ORDER BY
            CASE t.status WHEN 'in-progress' THEN 1 WHEN 'blocked' THEN 2 WHEN 'awaiting-feedback' THEN 3 WHEN 'backlog' THEN 4 WHEN 'completed' THEN 5 END,
            CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 WHEN 'low' THEN 4 END,

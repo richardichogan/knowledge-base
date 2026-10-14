@@ -4,9 +4,10 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';import {
-  Button, InlineLoading, InlineNotification,
+import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  InlineLoading, InlineNotification,
   Modal, TextInput, TextArea, Select, SelectItem,
 } from '@carbon/react';
 import { Add, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
@@ -15,7 +16,8 @@ import { useProjects, type ProjectRecord } from '../services/useProjects';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { TagPicker } from '../components/TagPicker';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
-import type { PlanTask as Task, TaskStatus, TaskPriority, TaskType } from '../types/task';
+import type { PlanTask as Task, TaskStatus, TaskPriority } from '../types/task';
+import { isRecentlyCompleted, originHref, originLabel, taskAthenaPrompt, taskHealth, RECENT_COMPLETED_DAYS } from '../features/plan/taskInsights';
 import { dateOnlyToLocal, localDateKey } from '../utils/dateOnly';
 import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
@@ -70,7 +72,8 @@ const CardMenu: React.FC<{
   onMove: (s: TaskStatus) => void;
   onEdit: () => void;
   onDelete: () => void;
-}> = ({ task, busy, onMove, onEdit, onDelete }) => {
+  onAskAthena?: (() => void) | undefined;
+}> = ({ task, busy, onMove, onEdit, onDelete, onAskAthena }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -104,6 +107,13 @@ const CardMenu: React.FC<{
               Edit
             </button>
           </li>
+          {onAskAthena && (
+            <li role="menuitem">
+              <button className="kb-menu__item" onClick={() => { onAskAthena(); setOpen(false); }}>
+                Ask Athena
+              </button>
+            </li>
+          )}
           {task.externalUrl != null && (
             <li role="menuitem">
               <a className="kb-menu__item" href={task.externalUrl} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
@@ -131,7 +141,8 @@ const TaskCard: React.FC<{
   onMove: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
   onEdit: (task: Task) => void;
-}> = ({ task, busy, projects, onMove, onDelete, onEdit }) => {
+  onAskAthena?: ((task: Task) => void) | undefined;
+}> = ({ task, busy, projects, onMove, onDelete, onEdit, onAskAthena }) => {
   const [dragging, setDragging] = useState(false);
   const flatTags = useFlatTags();
 
@@ -142,6 +153,9 @@ const TaskCard: React.FC<{
     .filter(Boolean) as { id: string; name: string; colour?: string }[];
 
   const priorityLabel = PRIORITY_LABEL[task.priority];
+  const health = taskHealth(task);
+  const origin = task.origin ?? null;
+  const originTo = origin ? originHref(origin) : null;
   return (
     <article
       className={`kb-card${dragging ? ' kb-card--dragging' : ''}`}
@@ -164,6 +178,7 @@ const TaskCard: React.FC<{
         onMove={(s) => onMove(task.id, s)}
         onEdit={() => onEdit(task)}
         onDelete={() => onDelete(task.id)}
+        onAskAthena={onAskAthena ? () => onAskAthena(task) : undefined}
       />
     </div>
 
@@ -174,6 +189,9 @@ const TaskCard: React.FC<{
         <span className={`kb-card__priority-pill kb-card__priority-pill--${task.priority}`}>
           {priorityLabel}
         </span>
+        {health && (
+          <span className={`kb-card__health kb-card__health--${health.kind}`} title={health.title}>{health.label}</span>
+        )}
         {resolvedTags.map((t) => (
           <span
             key={t.id}
@@ -185,6 +203,18 @@ const TaskCard: React.FC<{
           </span>
         ))}
       </div>
+    )}
+
+    {origin && originTo && (
+      <Link
+        className="kb-card__origin"
+        to={originTo}
+        title={`Created from ${originLabel(origin)}`}
+        onClick={(e) => { e.stopPropagation(); }}
+        draggable={false}
+      >
+        {originLabel(origin)}
+      </Link>
     )}
 
     <div className="kb-card__footer">
@@ -597,21 +627,7 @@ const TaskModal: React.FC<{
   const [dueDate,     setDueDate]     = useState('');
   const [linkedTagIds, setLinkedTagIds] = useState<string[]>([]);
   const [recurringCadence, setRecurringCadence] = useState<string>('none');
-  const [taskType, setTaskType] = useState<TaskType>('standard');
-
-  // cert score input state (only used for cert_review tasks)
-  const [scoreInput, setScoreInput] = useState('');
-  const [certCode, setCertCode] = useState('');
-  const [scorePosting, setScorePosting] = useState(false);
-
   const flatTags = useFlatTags();
-
-  const { data: scoreHistory, refetch: refetchScores } = useQuery({
-    queryKey: ['cert-scores', certCode],
-    queryFn: () => api.getCertScores(certCode),
-    enabled: taskType === 'cert_review' && !!certCode && initial != null,
-    select: (r) => (r.success ? r.data : []),
-  });
 
   React.useEffect(() => {
     setTitle(initial?.title ?? '');
@@ -624,13 +640,6 @@ const TaskModal: React.FC<{
     setDueDate(initial?.dueDate ?? '');
     setLinkedTagIds(initial?.taxonomyTagIds?.length ? initial.taxonomyTagIds : initial?.linkedTagId ? [initial.linkedTagId] : []);
     setRecurringCadence(initial?.recurringCadence ?? 'none');
-    const tt = initial?.task_type ?? 'standard';
-    setTaskType(tt);
-    if (tt === 'cert_review') {
-      // try to parse cert code from title e.g. "GH-900 practice run" → "GH-900"
-      const match = (initial?.title ?? '').match(/^([A-Z0-9]+-\d+)/i);
-      setCertCode(match ? (match[1] ?? '').toUpperCase() : '');
-    }
   }, [initial, open, defaultStatus]);
 
   return (
@@ -648,7 +657,7 @@ const TaskModal: React.FC<{
           status,
           projectId,
           priority,
-          task_type: taskType,
+          task_type: initial?.task_type ?? 'standard',
           startDate: startDate || null,
           endDate: endDate || null,
           dueDate: dueDate || null,
@@ -681,7 +690,7 @@ const TaskModal: React.FC<{
           </Select>
         </div>
 
-        {/* Priority + Type — side by side */}
+        {/* Priority + Repeats — side by side */}
         <div className="kb-modal-form__row">
           <Select id="t-pri" labelText="Priority" value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)}>
             <SelectItem value="urgent" text="Urgent" />
@@ -689,15 +698,6 @@ const TaskModal: React.FC<{
             <SelectItem value="normal" text="Normal" />
             <SelectItem value="low"    text="Low" />
           </Select>
-          <Select id="t-task-type" labelText="Task type" value={taskType} onChange={(e) => setTaskType(e.target.value as TaskType)}>
-            <SelectItem value="standard"     text="Standard" />
-            <SelectItem value="cert_session" text="Cert session" />
-            <SelectItem value="cert_review"  text="Cert review" />
-          </Select>
-        </div>
-
-        {/* Repeats */}
-        <div className="kb-modal-form__row kb-modal-form__row--half-left">
           <Select id="t-recur" labelText="Repeats" value={recurringCadence} onChange={(e) => setRecurringCadence(e.target.value)}>
             <SelectItem value="none"        text="Does not repeat" />
             <SelectItem value="daily"       text="Daily" />
@@ -737,54 +737,6 @@ const TaskModal: React.FC<{
           </div>
         </div>
 
-        {/* Cert score input — only for cert_review tasks when editing */}
-        {taskType === 'cert_review' && initial != null && (
-          <div className="kb-modal-form__field">
-            <p className="kb-modal-form__label">Practice Score</p>
-            <div className="kb-modal-form__row">
-              <TextInput
-                id="t-cert-code"
-                labelText="Cert code (e.g. AZ-900)"
-                value={certCode}
-                onChange={(e) => setCertCode(e.target.value.toUpperCase())}
-              />
-              <TextInput
-                id="t-cert-score"
-                labelText="Score (0–100)"
-                type="number"
-                value={scoreInput}
-                onChange={(e) => setScoreInput(e.target.value)}
-              />
-            </div>
-            <Button
-              kind="secondary"
-              size="sm"
-              disabled={scorePosting || !certCode || !scoreInput}
-              onClick={() => {
-                const score = parseInt(scoreInput, 10);
-                if (!certCode || isNaN(score)) return;
-                setScorePosting(true);
-                void api.postCertScore({ cert_code: certCode, score, task_id: initial.id })
-                  .then(() => { setScoreInput(''); void refetchScores(); })
-                  .finally(() => setScorePosting(false));
-              }}
-            >
-              {scorePosting ? 'Saving…' : 'Log score'}
-            </Button>
-            {scoreHistory && scoreHistory.length > 0 && (
-              <div className="kb-cert-scores">
-                {scoreHistory.map((row, i) => (
-                  <div key={i} className="kb-cert-scores__row">
-                    <span className="kb-cert-scores__score">{String(row['score'])}</span>
-                    <span className="kb-cert-scores__date">{new Date(String(row['taken_at'])).toLocaleDateString()}</span>
-                    {row['notes'] != null && <span className="kb-cert-scores__notes">{String(row['notes'])}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Activity log + linked items — only shown when editing an existing task */}
         {initial != null && (
           <TaskActivitySection taskId={initial.id} />
@@ -801,27 +753,18 @@ const TaskModal: React.FC<{
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export const TasksPage: React.FC<{
-  onImportOpen?: () => void;
-  importOpen?: boolean;
-  onImportClose?: () => void;
-  filterProject?: string;
-  filterTag?: string;
-}> = ({ onImportOpen, importOpen: importOpenProp, onImportClose, filterProject: filterProjectProp, filterTag: filterTagProp }) => {
+  importOpen: boolean;
+  onImportClose: () => void;
+  filterProject: string;
+  filterTag: string;
+  onAskAthena?: (prompt: string) => void;
+}> = ({ importOpen, onImportClose, filterProject, filterTag, onAskAthena }) => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [modalOpen,      setModalOpen]      = useState(false);
-  const [importOpenLocal, setImportOpenLocal] = useState(false);
-  const importOpen = importOpenProp ?? importOpenLocal;
-  const closeImport = (): void => { if (onImportClose) { onImportClose(); } else { setImportOpenLocal(false); } };
-  const openImport = (): void => { if (onImportOpen) { onImportOpen(); } else { setImportOpenLocal(true); } };
   const [editTask,      setEditTask]      = useState<Task | null>(null);
   const [addStatus,     setAddStatus]     = useState<TaskStatus>('backlog');
-  const [filterProjectLocal, setFilterProjectLocal] = useState('');
-  const [filterTagLocal,     setFilterTagLocal]     = useState('');
-  const [filterTypeLocal,    setFilterTypeLocal]    = useState<TaskType | ''>('');
-  const filterProject = filterProjectProp ?? filterProjectLocal;
-  const filterTag     = filterTagProp     ?? filterTagLocal;
-  const flatTags = useFlatTags();
+  const [showOlderDone, setShowOlderDone] = useState(false);
   const { projects } = useProjects();
 
   const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
@@ -899,7 +842,7 @@ export const TasksPage: React.FC<{
       const previous = queryClient.getQueryData<ApiSuccess<PaginatedList<Task>>>(queryKey)?.data.items.find((task) => task.id === id);
       queryClient.setQueryData<ApiSuccess<PaginatedList<Task>>>(queryKey, (current) => {
         if (current === undefined) return current;
-        return { ...current, data: { ...current.data, items: current.data.items.map((task) => task.id === id ? { ...task, status } : task) } };
+        return { ...current, data: { ...current.data, items: current.data.items.map((task) => task.id === id ? { ...task, status, updatedAt: new Date().toISOString() } : task) } };
       });
       return { previous, queryKey };
     },
@@ -928,68 +871,20 @@ export const TasksPage: React.FC<{
   return (
     <div className="kb-page">
 
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Tasks</h1>
-        </div>
-        <div className="page-controls">
-          <Select
-            id="kb-filter"
-            labelText=""
-            hideLabel
-            size="sm"
-            value={filterProject}
-            onChange={(e) => setFilterProjectLocal(e.target.value)}
-          >
-            <SelectItem value="" text="All projects" />
-            {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
-          </Select>
-          <Select
-            id="kb-filter-tag"
-            labelText=""
-            hideLabel
-            size="sm"
-            value={filterTag}
-            onChange={(e) => setFilterTagLocal(e.target.value)}
-          >
-            <SelectItem value="" text="All tags" />
-            {flatTags.map((t) => <SelectItem key={t.id} value={t.id} text={t.name} />)}
-          </Select>
-          <Select
-            id="kb-filter-type"
-            labelText=""
-            hideLabel
-            size="sm"
-            value={filterTypeLocal}
-            onChange={(e) => setFilterTypeLocal(e.target.value as TaskType | '')}
-          >
-            <SelectItem value=""             text="All types" />
-            <SelectItem value="standard"     text="Standard" />
-            <SelectItem value="cert_session" text="Cert Session" />
-            <SelectItem value="cert_review"  text="Cert Review" />
-          </Select>
-          <button
-            type="button"
-            className="kb-import-btn"
-            onClick={() => openImport()}
-            title="Import tasks from a podcast episode"
-          >
-            <Upload size={16} /> Import episode
-          </button>
-        </div>
-      </div>
-
       {isPending && <InlineLoading description="Loading…" />}
       {isError && <DataNotice title="Tasks are unavailable" error={loadError} onRetry={() => { void refetch(); }} />}
       {saveError !== null && !modalOpen && <DataNotice title="Task change was not saved" error={saveError} />}
 
       <div className="kb-board">
         {COLUMNS.map((col) => {
-          const colTasks = tasks.filter((t) =>
+          const allColTasks = tasks.filter((t) =>
             t.status === col.id &&
-            (!filterTag  || t.taxonomyTagIds?.includes(filterTag)) &&
-            (!filterTypeLocal || t.task_type === filterTypeLocal)
+            (!filterTag  || t.taxonomyTagIds?.includes(filterTag))
           );
+          // Completed tasks auto-archive after 14 days; only this week's (and any still saving) stay visible by default.
+          const isRecentDone = (t: Task): boolean => busyTaskIds.has(t.id) || isRecentlyCompleted(t);
+          const olderDone = col.id === 'completed' ? allColTasks.filter((t) => !isRecentDone(t)).length : 0;
+          const colTasks = col.id === 'completed' && !showOlderDone ? allColTasks.filter(isRecentDone) : allColTasks;
           return (
             <div
               key={col.id}
@@ -1006,8 +901,8 @@ export const TasksPage: React.FC<{
 
               <div className="kb-col__head">
                 <span className="kb-col__name">{col.label}</span>
-                {colTasks.length > 0 && (
-                  <span className="kb-col__count">{colTasks.length}</span>
+                {allColTasks.length > 0 && (
+                  <span className="kb-col__count">{allColTasks.length}</span>
                 )}
               </div>
 
@@ -1021,8 +916,17 @@ export const TasksPage: React.FC<{
                     onMove={(id, s) => { if (beginTaskAction(id)) moveTaskMutation.mutate({ id, status: s }); }}
                     onDelete={(id) => { if (beginTaskAction(id)) deleteMutation.mutate(id); }}
                     onEdit={(t) => { setEditTask(t); setModalOpen(true); }}
+                    onAskAthena={onAskAthena ? (t) => { onAskAthena(taskAthenaPrompt(t, getProjectName(t.projectId, projects))); } : undefined}
                   />
                 ))}
+                {col.id === 'completed' && colTasks.length === 0 && olderDone > 0 && (
+                  <p className="kb-col__empty">Nothing completed in the last {RECENT_COMPLETED_DAYS} days.</p>
+                )}
+                {olderDone > 0 && (
+                  <button type="button" className="kb-col__more" aria-expanded={showOlderDone} onClick={() => { setShowOlderDone((v) => !v); }}>
+                    {showOlderDone ? `Hide ${olderDone} older` : `Show ${olderDone} older`}
+                  </button>
+                )}
               </div>
 
               <button
@@ -1040,7 +944,7 @@ export const TasksPage: React.FC<{
 
       <PodcastImportModal
         open={importOpen}
-        onClose={closeImport}
+        onClose={onImportClose}
         onTasksCreated={() => void queryClient.invalidateQueries({ queryKey: ['tasks'] })}
       />
 
