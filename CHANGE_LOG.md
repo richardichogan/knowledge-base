@@ -2,6 +2,15 @@
 
 ---
 
+## Think note pop-out — 2026-10-14
+
+Pop out opens the selected note in a separate content-only, read-only window,
+suited to demo steps on another screen. It remains open when Think switches
+notes or closes. Saved writing refreshes every five seconds without resetting
+the scroll position; edits stay in Think. The launch requests a save of current
+writing, uses the existing sign-in gate and reports blocked pop-ups. Load and
+refresh failures are explicit, retaining the last loaded writing on refresh errors.
+
 ## Discover one-click sparks — 2026-10-14
 
 Discover's Spark action saves the article title and existing synopsis directly,

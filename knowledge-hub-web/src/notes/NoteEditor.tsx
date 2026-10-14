@@ -11,7 +11,7 @@ import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
-import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy } from '@carbon/icons-react';
+import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { noteFilename } from './noteFilename';
@@ -813,6 +813,23 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             provides a slot, otherwise inline above the editor. */}
         {portalInto(actionsSlot, (
         <div className={actionsSlot ? 'notes-doc-actions' : 'notes-top-bar'}>
+          <button type="button" className="notes-popout-btn" disabled={historyBusy}
+            title="Open this note in a content-only, read-only window"
+            onClick={() => {
+              const popup = window.open(`/think/notes/${encodeURIComponent(doc.id)}/popout`,
+                `athena-note-${doc.id}`, 'popup,width=960,height=800,resizable=yes,scrollbars=yes');
+              if (!popup) {
+                setNotification({ kind: 'error', msg: 'Pop-up blocked. Allow pop-ups for Athena, then try Pop out again.' });
+                return;
+              }
+              popup.opener = null;
+              popup.focus();
+              void doSave().then(saved => {
+                if (!saved) setNotification({ kind: 'error', msg: 'The pop-out shows saved writing only. Current edits could not be saved; resolve the save error in Think before relying on the pop-out.' });
+              });
+            }}>
+            <Launch size={16} /> Pop out
+          </button>
           <div className="notes-export-anchor" ref={exportMenuRef}>
             <button
               type="button"

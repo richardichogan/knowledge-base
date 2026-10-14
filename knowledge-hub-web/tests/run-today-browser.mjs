@@ -14,6 +14,7 @@ const connectionsChecks = process.env.ATHENA_BROWSER_CHECKS === 'connections';
 const authSessionChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-session';
 const noteCopyChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-copy';
 const noteHistoryChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-history';
+const notePopoutChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-popout';
 const noteRecoveryChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-recovery';
 const authCallbackChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-callback';
 const authLiveChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-live';
@@ -25,7 +26,7 @@ const diagramThemeChecks = process.env.ATHENA_BROWSER_CHECKS === 'diagram-theme'
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-  ...(authCallbackChecks || authLiveChecks ? ['--disable-popup-blocking'] : []),
+  ...(authCallbackChecks || authLiveChecks || notePopoutChecks ? ['--disable-popup-blocking'] : []),
   '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
 ], { stdio: 'ignore' });
 let socket;
@@ -114,6 +115,7 @@ try {
         : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
+        : notePopoutChecks ? 'typeof window.runNotePopoutChecks === "function" && document.querySelector(".notes-popout-btn") !== null'
         : noteHistoryChecks ? 'typeof window.runNoteHistoryChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
         : noteRecoveryChecks ? 'typeof window.runNoteRecoveryChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
         : noteCopyChecks ? 'typeof window.runNoteCopyChecks === "function" && document.querySelector(".notes-copy-btn") !== null'
@@ -213,9 +215,23 @@ try {
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;
     }
-    if (thinkSaveChecks || thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks || noteHistoryChecks || authCallbackChecks || imagineBriefChecks || markdownExportChecks) {
-      const results = await evaluate(thinkSaveChecks ? 'window.runThinkSaveChecks()' : markdownExportChecks ? 'window.runMarkdownExportChecks()' : imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
+    if (thinkSaveChecks || thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks || noteHistoryChecks || notePopoutChecks || authCallbackChecks || imagineBriefChecks || markdownExportChecks) {
+      const results = await evaluate(notePopoutChecks ? 'window.runNotePopoutChecks()' : thinkSaveChecks ? 'window.runThinkSaveChecks()' : markdownExportChecks ? 'window.runMarkdownExportChecks()' : imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      if (notePopoutChecks && process.env.TODAY_ARTIFACT_DIR) {
+        await command('Page.navigate', { url: `${fixtureUrl}?reader=1` });
+        let mounted = false;
+        for (let attempt = 0; attempt < 300; attempt++) {
+          mounted = await evaluate('document.querySelector(".note-popout .bn-editor") !== null');
+          if (mounted) break;
+          await delay(100);
+        }
+        assert.ok(mounted, 'Pop-out screenshot did not mount');
+        await command('Page.bringToFront');
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        const image = await command('Page.captureScreenshot', { format: 'png' });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `note-popout-${width}.png`), Buffer.from(image.data, 'base64'));
+      }
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;
     }

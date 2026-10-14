@@ -30,6 +30,7 @@ const DiscoverPage = deferredView('Discover', async () => ({ default: (await imp
 const PlanPage = deferredView('Plan', async () => ({ default: (await import('./pages/PlanPage')).PlanPage }));
 const TimelinePage = deferredView('Activity', async () => ({ default: (await import('./pages/TimelinePage')).TimelinePage }));
 const NotesPage = deferredView('Think', async () => ({ default: (await import('./notes/NotesPage')).NotesPage }));
+const NotePopout = deferredView('Note', async () => ({ default: (await import('./notes/NotePopout')).NotePopout }));
 const DocumentsPage = deferredView('Library', async () => ({ default: (await import('./pages/DocumentsPage')).DocumentsPage }));
 const MemoryPage = deferredView('Memory', async () => ({ default: (await import('./pages/MemoryPage')).MemoryPage }));
 const AutocueApp = deferredView('Autocue', async () => ({ default: (await import('./features/autocue/AutocueApp')).AutocueApp }));
@@ -56,6 +57,7 @@ const App: React.FC = () => {
               {/* Standalone full-screen chat, no sidebar/nav — for use as a
                   desktop PWA shortcut (Edge/Chrome "install as app"). */}
               <Route path="/chat" element={<AIChatPage standalone />} />
+              <Route path="/think/notes/:noteId/popout" element={<NotePopout />} />
               <Route path="/" element={<AppShell />}>
                 <Route index element={<HomePage />} />
                 <Route path="discover" element={<DiscoverPage />} />
