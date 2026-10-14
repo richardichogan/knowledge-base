@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Article-grounded Sparks, drag-to-theme and content-only Think note
 pop-out. Existing production ACA/ACR/SWA.
@@ -220,6 +220,25 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-14 at 12:20 BST:
+
+- Source `2863475` (application `fb996e8` and Think pop-out `dda9779`) pushed
+  to main and `richardichogan-link-think-chat-projects`.
+- ACR run `ca63` succeeded, producing `kh-prod-api:v193`, digest
+  `sha256:fa8767df7aa0913757ab385dd229407e6125e54140eaed85b46f4ef57e9010c8`.
+- Backend revision `kh-prod-api-vnet--0000190` reports Healthy /
+  RunningAtMaxScale, Provisioned, with 100% traffic. Startup logs confirm
+  migration completion, pre-warmed database pool and scheduler startup.
+- Existing registry credentials retained; Container App identity remains None.
+  No managed-identity/RBAC provisioning is required or changed.
+- Production SWA deployment succeeded. Both production hosts return HTTP 200
+  for `/think` and serve `/assets/index-CF2o6XrZ.js`; remote SHA-256 matches the
+  local production bundle:
+  `506282a9bd866f4dfd15c5f1a81d4eb15a696cec2c134960ee5a97b498a71619`.
+- Live application: https://athena.themicrosoftcloudblog.com/think
+- Authenticated user flows were covered by isolated fixtures before deployment;
+  production verification did not create or move user Sparks.
 
 Validated 2026-10-14 for `fb996e8` / `dda9779`:
 
