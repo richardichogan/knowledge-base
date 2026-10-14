@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Canvas recycle bin and nested diagram navigation. Existing ACA,
 ACR and production SWA.
@@ -248,6 +248,24 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-14 following the 20:15 BST request:
+
+- Application `2a1f9bc`, nested navigation `dbd3b11` and validation record
+  `7ce1f70` pushed to main and the feature branch.
+- ACR run `ca65` succeeded from Git source `7ce1f70`: image `kh-prod-api:v195`,
+  digest `sha256:9337237e219e13cd243556732b35c093439787b38e325ad9c530148c9139c0be`.
+- ACA revision `kh-prod-api-vnet--0000192` is active, Healthy /
+  RunningAtMaxScale / Provisioned and latest ready, receiving 100% traffic.
+- Startup logs confirm `apply 076_canvas_recycle_bin.sql`, migration completion
+  and database pool pre-warm (8/8). Initial revision check used an incorrect
+  CLI argument; revision listing confirmed the deployment was healthy.
+- Matching SWA production deployment succeeded. Both production `/think`
+  hosts return HTTP 200 and serve `/assets/index-CmEviuh1.js`, SHA-256
+  `3a49ebc0955290d1dd5b0701c785e9963c7c3f9d4984d99a6b8b9e11bfbb1141`,
+  exactly matching the synced local production bundle.
+- No infrastructure, role, environment, authentication or secret changes.
+- Live application: https://athena.themicrosoftcloudblog.com/think
 
 Validated 2026-10-14 following the 20:15 BST deployment request:
 
