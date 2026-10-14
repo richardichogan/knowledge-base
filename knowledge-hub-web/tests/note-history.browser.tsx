@@ -159,6 +159,25 @@ async function runNoteHistoryChecks(): Promise<string[]> {
   const savesAfterRestore = saveCount;
   await new Promise(resolve => setTimeout(resolve, 3200));
   check(saveCount === savesAfterRestore, 'Pre-restore debounce cannot overwrite restored writing');
+  await waitFor(() => document.querySelector('.notes-save-status--confirmation') === null);
+  editor.insertBlocks([{ type: 'paragraph', content: 'Save confirmation must not move the writing.' }], editor.document.at(-1)!, 'after');
+  await new Promise(resolve => requestAnimationFrame(() => { requestAnimationFrame(resolve); }));
+  const scroll = document.querySelector<HTMLElement>('.notes-editor-scroll')!;
+  const writing = document.querySelector<HTMLElement>('.notes-editor-inner')!;
+  const beforeSave = { top: scroll.getBoundingClientRect().top, height: scroll.getBoundingClientRect().height,
+    writingTop: writing.getBoundingClientRect().top, scrollTop: scroll.scrollTop };
+  function checkStableSaveLayout(): void {
+    check(scroll.getBoundingClientRect().top === beforeSave.top && scroll.getBoundingClientRect().height === beforeSave.height,
+      'Save confirmation does not move or resize the note canvas');
+    check(writing.getBoundingClientRect().top === beforeSave.writingTop && scroll.scrollTop === beforeSave.scrollTop,
+      'Save confirmation preserves writing position and scroll offset');
+  }
+  await waitFor(() => document.querySelector('.notes-save-status--confirmation')?.textContent === 'Saved');
+  checkStableSaveLayout();
+  check(getComputedStyle(document.querySelector('.notes-save-status--confirmation')!).pointerEvents === 'none',
+    'Save confirmation cannot block writing or controls');
+  await waitFor(() => document.querySelector('.notes-save-status--confirmation') === null);
+  checkStableSaveLayout();
   stale = true;
   editor.insertBlocks([{ type: 'paragraph', content: 'Conflicting local draft' }], editor.document.at(-1)!, 'after');
   await waitFor(() => document.querySelector('.notes-save-status[role="alert"]')?.textContent?.includes('Autosave paused') === true);
@@ -171,6 +190,7 @@ async function runNoteHistoryChecks(): Promise<string[]> {
   check(!actionRan && JSON.stringify(editor.document).includes('Conflicting local draft'), 'Conflict retains draft and blocks destructive action');
   check(document.documentElement.scrollWidth <= window.innerWidth, 'No page-level horizontal overflow');
   return ['unsaved rich pre-Athena recovery', 'failure blocks mutation', 'duplicate Apply blocked', 'read-only preview isolation',
-    'history retry', 'restore failure and retry', 'organisation preserved', 'stale debounce suppressed', 'conflict retains draft and stops retry'];
+    'history retry', 'restore failure and retry', 'organisation preserved', 'stale debounce suppressed',
+    'Save confirmation appears and clears without moving the canvas, writing or scroll position', 'conflict retains draft and stops retry'];
 }
 Object.assign(window, { runNoteHistoryChecks });

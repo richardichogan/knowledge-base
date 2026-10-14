@@ -928,7 +928,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         ))}
 
         {notification !== null && (
-          <span role={notification.kind === 'error' ? 'alert' : 'status'} className={`notes-save-status notes-save-status--${notification.kind}`}>
+          <span role={notification.kind === 'error' ? 'alert' : 'status'}
+            className={`notes-save-status notes-save-status--${notification.kind}${notification.kind === 'success' && notification.msg === 'Saved' ? ' notes-save-status--confirmation' : ''}`}>
             {notification.msg}
           </span>
         )}

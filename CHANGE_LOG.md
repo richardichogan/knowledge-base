@@ -2,6 +2,14 @@
 
 ---
 
+## Think save confirmation without layout shift
+
+The routine Saved message now sits at the lower-right of the editor, above the
+formatting toolbar, without taking space in the note layout. Appearing and
+disappearing no longer moves or resizes the writing canvas, and the message
+does not intercept clicks. Save failures, conflicts and recovery warnings remain
+prominent inline alerts.
+
 ## Spark card drag correction
 
 The full loose Spark card is now draggable, not just its small grip. Buttons,
