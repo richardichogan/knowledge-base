@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Frontend correction for full-card Spark dragging in the just-deployed
 release. Backend remains v193. Existing production SWA only.
@@ -226,6 +226,12 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-14: full-card drag correction `4a6b37d` pushed to main and
+feature branch. Production SWA deployment succeeded; both production hosts serve
+`/assets/index-BAfSNSiR.js`, SHA-256
+`a01796301226f24334b89a89a6e650dfd773952cda8e0b254b6ed0923691011d`,
+matching the local build. Backend remains unchanged at v193.
 
 Validated 2026-10-14 for the full-card drag correction:
 
