@@ -2837,8 +2837,8 @@ input, textarea {
 .kb-card {
   background: var(--cds-layer-02);
   border: 1px solid var(--cds-border-subtle-01);
-  // coloured top strip for priority — set via inline style on the element
-  border-top-width: 4px;
+  // priority stripe (urgent/high only) — colour set via inline style on the element
+  border-left-width: 3px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -2887,6 +2887,38 @@ input, textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem;
+}
+
+// Taxonomy tag — neutral chip, tag colour only on the dot so it never competes with status colours
+.kb-card__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 1px 6px;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: 2px;
+  font-size: 0.6875rem;
+  color: var(--cds-text-secondary);
+  white-space: nowrap;
+}
+
+.kb-card__tag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+// Completed cards recede so active work stands out
+.kb-card--done {
+  background: var(--cds-layer-01);
+
+  .kb-card__title { color: var(--cds-text-secondary); }
+  .kb-card__body,
+  .kb-card__tags,
+  .kb-card__origin { opacity: 0.7; }
+
+  &:hover { background: var(--cds-layer-hover-01); }
 }
 
 
@@ -2966,10 +2998,10 @@ input, textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.6875rem;
-  color: var(--cds-link-primary);
+  color: var(--cds-text-secondary);
   text-decoration: none;
 
-  &:hover { text-decoration: underline; color: var(--cds-link-primary-hover); }
+  &:hover { text-decoration: underline; color: var(--cds-link-primary); }
   &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 1px; }
 }
 
@@ -15964,6 +15996,8 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
 }
 
 .kb-focus-row__due--late { color: var(--cds-support-error); }
+
+.kb-focus-row__waiting { color: #ff832b; }
 
 .kb-focus-row__tag {
   font-size: 0.6rem;

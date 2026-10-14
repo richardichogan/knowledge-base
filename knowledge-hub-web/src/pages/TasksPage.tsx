@@ -37,15 +37,14 @@ const COLUMNS: { id: TaskStatus; label: string }[] = [
 
 export type TasksView = 'board' | 'focus';
 
-// Left-border colour per priority (like Linear)
+// Accent colour per priority — only urgent and high get one, so colour stays meaningful
 const PRIORITY_BORDER: Record<TaskPriority, string> = {
   urgent: '#fa4d56',
   high:   '#f1c21b',
-  normal: '#4589ff',
-  low:    '#525252',
+  normal: 'transparent',
+  low:    'transparent',
 };
 
-// Priority badge — shown for all priorities
 const PRIORITY_LABEL: Record<TaskPriority, string> = {
   urgent: 'Urgent',
   high:   'High',
@@ -65,6 +64,14 @@ function formatDue(iso: string): string {
 
 function isDueOverdue(iso: string): boolean {
   return iso < localDateKey(new Date());
+}
+
+/** Legacy Blocked / Awaiting-feedback tasks were migrated with placeholder "waiting on" values. */
+function waitingText(waitingOn: string | null | undefined): React.ReactNode {
+  if (!waitingOn) return 'Waiting on: not set';
+  if (waitingOn === 'Blocked') return 'Blocked';
+  if (waitingOn === 'Feedback') return 'Waiting on feedback';
+  return <>Waiting on <strong>{waitingOn}</strong></>;
 }
 
 // ── Card overflow menu ────────────────────────────────────────────────────────
@@ -155,14 +162,16 @@ const TaskCard: React.FC<{
     .map((id) => flatTags.find((t) => t.id === id))
     .filter(Boolean) as { id: string; name: string; colour?: string }[];
 
-  const priorityLabel = PRIORITY_LABEL[task.priority];
-  const health = taskHealth(task);
+  const done = task.status === 'completed';
+  const showPriority = !done && task.priority === 'urgent';
+  const health = done ? null : taskHealth(task);
   const origin = task.origin ?? null;
   const originTo = origin ? originHref(origin) : null;
   return (
     <article
-      className={`kb-card${dragging ? ' kb-card--dragging' : ''}`}
-      style={{ borderTopColor: PRIORITY_BORDER[task.priority] }}
+      className={`kb-card${dragging ? ' kb-card--dragging' : ''}${done ? ' kb-card--done' : ''}`}
+      style={{ borderLeftColor: done ? 'transparent' : PRIORITY_BORDER[task.priority] }}
+      title={!done && task.priority === 'high' ? 'High priority' : undefined}
       draggable={!busy}
       aria-busy={busy}
       onDragStart={(e) => {
@@ -189,25 +198,23 @@ const TaskCard: React.FC<{
 
     {task.status === 'waiting' && (
       <p className={`kb-card__waiting${task.waitingOn ? '' : ' kb-card__waiting--unset'}`}>
-        {task.waitingOn ? <>Waiting on <strong>{task.waitingOn}</strong></> : 'Waiting on: not set'}
+        {waitingText(task.waitingOn)}
       </p>
     )}
 
-    {(resolvedTags.length > 0 || priorityLabel !== '') && (
+    {(resolvedTags.length > 0 || showPriority || health) && (
       <div className="kb-card__tags">
-        <span className={`kb-card__priority-pill kb-card__priority-pill--${task.priority}`}>
-          {priorityLabel}
-        </span>
+        {showPriority && (
+          <span className={`kb-card__priority-pill kb-card__priority-pill--${task.priority}`}>
+            {PRIORITY_LABEL[task.priority]}
+          </span>
+        )}
         {health && (
           <span className={`kb-card__health kb-card__health--${health.kind}`} title={health.title}>{health.label}</span>
         )}
         {resolvedTags.map((t) => (
-          <span
-            key={t.id}
-            className="notes-list-tag-pill"
-            style={t.colour ? { background: t.colour } : undefined}
-          >
-            {t.colour && <span className="notes-list-tag-pill-swatch" />}
+          <span key={t.id} className="kb-card__tag">
+            {t.colour && <span className="kb-card__tag-dot" style={{ background: t.colour }} aria-hidden="true" />}
             {t.name}
           </span>
         ))}
@@ -235,12 +242,12 @@ const TaskCard: React.FC<{
           </span>
         )}
         {task.recurringCadence == null && task.dueDate != null && (
-          <span className={`kb-card__due${isDueOverdue(task.dueDate) ? ' kb-card__due--late' : ''}`}>
+          <span className={`kb-card__due${!done && isDueOverdue(task.dueDate) ? ' kb-card__due--late' : ''}`}>
             {formatDue(task.dueDate)}
           </span>
         )}
         {task.recurringCadence != null && task.startDate != null && (
-          <span className={`kb-card__due${isDueOverdue(task.startDate) ? ' kb-card__due--late' : ''}`}>
+          <span className={`kb-card__due${!done && isDueOverdue(task.startDate) ? ' kb-card__due--late' : ''}`}>
             {formatDue(task.startDate)}
           </span>
         )}
@@ -344,7 +351,7 @@ const FocusRow: React.FC<{
               {task.recurringCadence != null ? 'Next' : 'Due'} {formatDue(date)}
             </span>
           )}
-          {task.status === 'waiting' && <span>Waiting on {task.waitingOn || 'not set'}</span>}
+          {task.status === 'waiting' && <span className="kb-focus-row__waiting">{waitingText(task.waitingOn)}</span>}
           {health && <span className={`kb-card__health kb-card__health--${health.kind}`} title={health.title}>{health.label}</span>}
         </span>
       </button>
