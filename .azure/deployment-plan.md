@@ -1,11 +1,20 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Automatic diagram line jumps. Frontend-only production SWA
-content update; existing backend v194 remains unchanged.
+**Deployment:** Canvas recycle bin and nested diagram navigation. Existing ACA,
+ACR and production SWA.
 
 ## 1. Scope
+
+Approved 2026-10-14 at 20:15 BST: deploy nested diagram navigation `dbd3b11`
+and recoverable canvas deletion `2a1f9bc`. Backend v194 advances to v195 after
+ACR build success, then the matching frontend is published. Additive migration
+076 adds `canvases.deleted_at` and filtered indexes through the existing startup
+migration runner. Existing canvases remain active; future deletes become
+recoverable until an explicit permanent delete. No infrastructure, role, secret,
+environment or authentication changes. Rollback: backend v194 and frontend
+bundle `index-CFjIrh7X.js`; additive nullable column and indexes remain.
 
 Approved 2026-10-14 at 19:19 BST: deploy application `947d57b` to the existing
 production Static Web App. Automatic curved bridges on connector and standalone
@@ -239,6 +248,29 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-14 following the 20:15 BST deployment request:
+
+- `git fetch origin` / `git merge origin/main`: already up to date at application
+  source `2a1f9bc`; only unrelated `.impeccable/` remains untracked.
+- Both applications: `npx tsc --noEmit` and production builds passed after sync.
+- Frontend isolated suite: 53 passed. Backend isolated suite: 93 passed.
+  Recycle-specific backend tests prove active/deleted list separation, non-
+  destructive soft delete, retry-safe restore and recycled-only permanent delete.
+- Recovery browser checks passed at 1440 and 390, including lost restore
+  acknowledgement, explicit permanent-delete confirmation and responsive layout.
+  Navigation checks passed at 1440, 1024 and 390. Frontend/backend lint
+  non-regression passed (25/607 existing violations).
+- Azure CLI 2.77.0 authenticated; production subscription
+  `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28` is Enabled. Existing ACA revision
+  `kh-prod-api-vnet--0000191` is Healthy / RunningAtMaxScale; current image v194.
+- Backend lockfile exists. Dockerfile uses `npm ci` and copies all
+  `src/db/migrations/*.sql`, including additive migration 076, into the image.
+  ACR build must pass before the Container App image update.
+- No IaC, policy or RBAC changes: compilation, template validation, what-if,
+  provisioning and role propagation are not applicable. Existing registry
+  credentials and Container App identity None are retained.
+- No deployment credentials printed or persisted.
 
 Deployed 2026-10-14 following the 19:19 BST request:
 
