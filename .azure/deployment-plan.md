@@ -1,10 +1,20 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Frontend-only Discovery card alignment correction and slightly larger article titles. Existing backend v180 unchanged.
+**Deployment:** Discover one-click synopsis sparks plus the committed Plan check-in,
+at-risk nudges and weekly-review timeout fix. Existing production ACA/ACR/SWA.
 
 ## 1. Scope
+
+Approved 2026-10-14: merge, push and deploy the Discover Spark change and pending
+application commit `84508f2`. Spark uses the article title/synopsis, source and tags
+without a writing input. Include additive migration 074 (`day_checkins`,
+`tasks.reschedule_count`) via the existing startup migration runner. Backend
+advances from v191 to v192 after a successful ACR build; matching frontend follows.
+Existing subscription Alliance Tenant Reporting and existing resource locations
+are retained. No infrastructure, role, secret or environment changes.
+Rollback: backend v191 and frontend source `2f1af56`; additive migration remains.
 
 Approved 2026-10-12 at 11:53 BST: deploy application `9e29ec9`.
 Separate rank from metadata/title flow; keep mobile titles full-width and
@@ -202,6 +212,25 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-14 for the one-click Discover Spark / Plan release:
+
+- `git fetch origin` / `git merge origin/main`: already current.
+- Both application `npx tsc --noEmit` and `npm run build` passed.
+- Both lint baseline checks passed; no baseline changes.
+- Isolated frontend 43/43 and backend 74/74 tests passed.
+- Discover browser checks passed at 1440px and 390px: synopsis/source payload,
+  no writing box, same-tick duplicate prevention, failure/retry/saved states,
+  unchanged article workflow and existing social/publication interactions.
+- Fixture typecheck has no Discover errors; five existing errors remain in
+  unrelated data-reliability/Today fixture mocks (not production application code).
+- Azure CLI target reads confirm subscription `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`,
+  Container App v191 / ready revision `kh-prod-api-vnet--0000188`, existing SWA
+  `kh-prod-web` and registry `cad79107555facr` in Succeeded state.
+- Dockerfile/lockfile build context verified; Dockerfile copies migrations from
+  `src/db/migrations` to the runtime image. ACR build must pass before updating ACA.
+- No IaC, provisioning or RBAC changes; compilation/what-if/policy changes N/A.
+- `git diff --check` passed. Rollback is recorded in scope above.
 
 Deployed 2026-10-12 following the 11:53 BST request:
 

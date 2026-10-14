@@ -24,6 +24,8 @@ let failWorkflow = true;
 let fail = false;
 let denied = false;
 let clipboard = '';
+let sparkWrites = 0;
+let failSpark = true;
 localStorage.removeItem(DISCOVER_PREFERENCES_KEY);
 localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify({ version: 1, items: [{
   id: '11111111-1111-4111-8111-111111111111', name: 'Unavailable source scope',
@@ -67,6 +69,20 @@ api.updateDiscoverWorkflow = async (id, state) => {
   workflowWrites++;
   if (failWorkflow) throw new Error('Workflow unavailable');
   return success({});
+};
+api.createSpark = async (input) => {
+  sparkWrites++;
+  check(input.body === 'A public cloud management announcement\n\nA useful enterprise IT update.',
+    'Spark contains the article title and synopsis without requiring writing');
+  check(input.source_id === articleId && input.source_type === 'discover_item',
+    'Spark stays linked to its original Discover article');
+  await new Promise(resolve => setTimeout(resolve, 50));
+  if (failSpark) return failure();
+  return success({
+    id: 'fixture-spark', sourceId: articleId, sourceType: 'discover_item', sourceTitle: 'A public cloud management announcement',
+    body: input.body, tags: input.tags ?? [], clusterId: null, createdAt: now,
+    usedAt: null, usedType: null, usedRef: null, usedTitle: null,
+  });
 };
 
 createRoot(document.getElementById('root')!).render(
@@ -131,6 +147,17 @@ export async function runDiscoverChecks(): Promise<string[]> {
   }
   check(document.documentElement.scrollWidth <= window.innerWidth, 'Visible actions do not cause horizontal page overflow');
   checks.push('All article actions visible before hover/focus on desktop and touch layouts');
+  const sparkButton = card.querySelector<HTMLButtonElement>('.dc-action--spark')!;
+  sparkButton.click(); sparkButton.click();
+  await waitFor(() => card.querySelector('.dc-spark-error') !== null && !sparkButton.disabled);
+  check(sparkWrites === 1 && card.querySelector('.isc-input') === null,
+    'One click saves the synopsis; same-tick clicks do not duplicate requests or open a writing box');
+  failSpark = false;
+  sparkButton.click();
+  await waitFor(() => sparkButton.textContent?.includes('Spark saved') === true);
+  check(sparkWrites === 2 && sparkButton.disabled && card.querySelector('.dc-spark-error') === null && workflowWrites === 0,
+    'Failed saves can be retried; success is confirmed and prevents repeated capture without changing article workflow');
+  checks.push('One-click synopsis sparks preserve source, report errors, retry and prevent double clicks');
   const setInput = (input: HTMLInputElement | HTMLTextAreaElement, value: string) => {
     const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(input, value);

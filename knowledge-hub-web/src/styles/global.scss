@@ -9841,6 +9841,18 @@ $project-colour-map: (
   &:hover:not(:disabled) { background: rgba(61, 219, 217, 0.15); border-color: var(--cds-teal-40, #3ddbd9); }
 }
 .dc-action--spark-active { background: rgba(61, 219, 217, 0.18); border-color: var(--cds-teal-40, #3ddbd9); }
+.dc-action--spark {
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  &:disabled { cursor: default; opacity: 0.65; }
+  &.dc-action--spark-active:disabled { opacity: 1; }
+}
+.dc-spark-error {
+  flex-basis: 100%;
+  color: var(--cds-text-error);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .dc-action--connections {
   color: var(--cds-purple-40, #be95ff);
   background: rgba(190, 149, 255, 0.08);

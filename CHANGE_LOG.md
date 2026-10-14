@@ -2,6 +2,14 @@
 
 ---
 
+## Discover one-click sparks — 2026-10-14
+
+Discover's Spark action saves the article title and existing synopsis directly,
+preserving source linkage and taxonomy tags. No writing box is required. The
+article description is used when no synopsis is available; title-only articles
+remain capturable. Pending/saved states prevent repeated clicks, and failed
+saves show an error with a retry. Manual spark composition elsewhere is unchanged.
+
 ## Same-tab Microsoft reauthentication — 2026-10-10
 
 When silent renewal needs user interaction, reauthenticate through MSAL's
