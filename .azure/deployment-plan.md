@@ -1,11 +1,18 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Frontend correction for full-card Spark dragging in the just-deployed
-release. Backend remains v193. Existing production SWA only.
+**Deployment:** Shape drill-down diagrams and pending Think save-status / Canvas
+Properties overflow fixes. Existing ACA, ACR and production SWA.
 
 ## 1. Scope
+
+Approved 2026-10-14 at 16:56 BST: deploy application `c00598e` with pending
+fixes `2390775` and `3a32810`. Backend v193 advances to v194 after ACR build
+success, then matching frontend. Additive migration 075 creates drill-down
+associations through the existing startup runner; Dockerfile explicitly copies
+all source migrations into dist. No infrastructure, role, secret or environment
+changes. Rollback: backend v193 and frontend source `f527559`; migration remains.
 
 Correction 2026-10-14 following the user's report that dragging Sparks did not
 work: make the whole loose card draggable, not just the grip. Preserve control
@@ -226,6 +233,28 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-14 at 16:58 BST for application `c00598e`:
+
+- `git fetch origin` / `git merge origin/main`: already up to date.
+- Both applications: `npx tsc --noEmit` and `npm run build` passed after sync.
+- Backend isolated suite: 89 passed, zero failed; atomic creation/reopen,
+  rollback, stale revision and removed-shape cases covered.
+- Drill-down browser checks passed at 1440 and 390: nesting, saving before
+  close, error retention/retry, parent selection/view preservation and reopen.
+  Properties and diagram-theme regression checks also passed.
+- Frontend/backend lint non-regression passed (25/607 existing violations).
+  Browser fixture typecheck has only the five documented pre-existing errors
+  in unrelated data-reliability/today fixtures; no new fixture errors.
+- Azure CLI 2.77.0 authenticated; production subscription
+  `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28` is Enabled. ACA current image v193,
+  ready revision 0000190. Existing ACR and SWA resource reads succeeded.
+- Dockerfile `npm ci` lockfile exists and copies `src/db/migrations/*.sql`,
+  including additive 075, into `dist/db/migrations`. Local npm build runs tsc;
+  migration copy is the Docker packaging step. ACR build must pass before update.
+- No IaC/policy/RBAC changes: compilation, what-if and provisioning are N/A.
+  Existing registry credentials remain; Container App identity is None.
+- `git diff --check` passed. No credentials printed or persisted.
 
 Deployed 2026-10-14: full-card drag correction `4a6b37d` pushed to main and
 feature branch. Production SWA deployment succeeded; both production hosts serve
