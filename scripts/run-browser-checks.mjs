@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { createServer } from 'node:net';
 
 const web = resolve(import.meta.dirname, '../knowledge-hub-web');
-const allowedModes = ['navigation', 'discover', 'sparks', 'today', 'auth-session', 'auth-callback', 'note-history', 'note-recovery', 'note-popout', 'markdown-export', 'diagram-theme'];
+const allowedModes = ['navigation', 'discover', 'sparks', 'today', 'auth-session', 'auth-callback', 'note-history', 'note-recovery', 'note-popout', 'markdown-export', 'diagram-theme', 'diagram', 'diagram-properties'];
 const selection = process.argv.find(argument => argument.startsWith('--modes='));
 const modes = selection === undefined ? ['navigation', 'discover', 'today'] : selection.slice('--modes='.length).split(',');
 if (modes.length === 0 || modes.some(mode => !allowedModes.includes(mode))) throw new Error('Select only supported isolated browser fixture modes.');
@@ -26,9 +26,11 @@ try {
   }
   if (!started) throw new Error('Fixture server did not become ready');
   for (const mode of modes) {
-    const child = spawn(process.execPath, [resolve(web, 'tests/run-today-browser.mjs')], {
+    const diagram = mode === 'diagram' || mode === 'diagram-properties';
+    const child = spawn(process.execPath, [resolve(web, diagram ? 'tests/run-diagram-browser.mjs' : 'tests/run-today-browser.mjs')], {
       cwd: web, stdio: 'inherit',
-      env: { ...process.env, ATHENA_BROWSER_CHECKS: mode, TODAY_FIXTURE_URL: `http://127.0.0.1:5197/tests/${mode}.html` },
+      env: { ...process.env, ATHENA_BROWSER_CHECKS: mode, TODAY_FIXTURE_URL: `http://127.0.0.1:5197/tests/${mode}.html`,
+        DIAGRAM_FIXTURE_URL: 'http://127.0.0.1:5197/tests/diagram.html' },
     });
     const [code] = await once(child, 'exit');
     if (code !== 0) throw new Error(`${mode} browser checks failed (${code})`);

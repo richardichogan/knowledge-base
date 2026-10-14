@@ -2,6 +2,12 @@
 
 ---
 
+## Canvas Properties scrollbar correction
+
+The Project dropdown now includes its padding and border within the available
+panel width, removing the unnecessary horizontal scrollbar in Canvas Properties.
+Long project names remain contained, and vertical scrolling is preserved.
+
 ## Think save confirmation without layout shift
 
 The routine Saved message now sits at the lower-right of the editor, above the

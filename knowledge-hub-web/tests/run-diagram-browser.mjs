@@ -191,6 +191,10 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Diagram fixture did not mount: ${errors.join('\n') || await evaluate('document.body.innerText')}`);
+    if (process.env.ATHENA_BROWSER_CHECKS === 'diagram-properties') {
+      console.log(JSON.stringify({ width, checks: await evaluate('window.runDiagramPropertiesChecks()') }, null, 2));
+      continue;
+    }
     if (process.env.DIAGRAM_ARTIFACT_DIR) {
       await evaluate(`document.querySelector('g.dg-edge').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }))`);
       await evaluate('window.diagramFixture.waitFor(() => document.querySelector(".dg-properties__kind")?.textContent === "Connector")');

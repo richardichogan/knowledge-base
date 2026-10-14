@@ -130,6 +130,41 @@ function clickButton(text: string): void {
   if (!button) throw new Error(`Missing diagram control: ${text}`);
   button.click();
 }
+async function runDiagramPropertiesChecks(): Promise<string[]> {
+  await waitFor(() => window.document.querySelector('select[aria-label="Diagram project"]') !== null);
+  const properties = window.document.querySelector<HTMLElement>('.dg-properties')!;
+  const projectSelect = properties.querySelector<HTMLSelectElement>('select[aria-label="Diagram project"]')!;
+  function checkPropertiesFit(): void {
+    const overflow = [...properties.querySelectorAll<HTMLElement>('input, textarea, select')]
+      .map(control => `${control.getAttribute('aria-label')}: ${Math.round(control.getBoundingClientRect().width)}px (${getComputedStyle(control).boxSizing})`)
+      .join(', ');
+    check(properties.scrollWidth <= properties.clientWidth,
+      `Properties panel must not scroll horizontally (${properties.scrollWidth}/${properties.clientWidth}; ${overflow})`);
+    for (const control of properties.querySelectorAll<HTMLElement>('input, textarea, select')) {
+      check(control.getBoundingClientRect().right <= properties.getBoundingClientRect().right,
+        `${control.getAttribute('aria-label')} fits inside Properties`);
+    }
+  }
+  checkPropertiesFit();
+  const longProject = new Option('IMAGINE - Agentic Enterprise Architecture and Implementation Programme', 'long-project');
+  projectSelect.add(longProject);
+  longProject.selected = true;
+  await delay(50);
+  checkPropertiesFit();
+  longProject.remove();
+  const originalHeight = properties.style.maxHeight;
+  properties.style.maxHeight = '120px';
+  await delay(50);
+  checkPropertiesFit();
+  check(properties.scrollHeight > properties.clientHeight && getComputedStyle(properties).overflowY === 'auto',
+    'Overflowing Properties content retains vertical scrolling');
+  properties.scrollTop = properties.scrollHeight;
+  check(properties.scrollTop > 0, 'Properties can still be scrolled vertically');
+  properties.style.maxHeight = originalHeight;
+  properties.scrollTop = 0;
+  return ['Properties controls fit without horizontal scrolling, including long project names',
+    'Vertical scrolling remains available when Properties content exceeds the panel height'];
+}
 async function runDiagramChecks(): Promise<string[]> {
   check(getComputedStyle(window.document.querySelector('.dg-sheet')!).backgroundColor === 'rgb(22, 22, 22)', 'Diagram sheet must match the dark Athena theme');
   check(window.document.querySelector('.dg-edge__line')?.getAttribute('stroke') === '#c6c6c6', 'Existing dark connectors remain visible on the dark sheet');
@@ -174,6 +209,7 @@ async function runDiagramChecks(): Promise<string[]> {
   await waitFor(() => !composer!.disabled);
   clickButton('Close Athena');
   await waitFor(() => window.document.querySelector('.dg-properties') !== null);
+  await runDiagramPropertiesChecks();
   check(window.document.querySelector('.dg-athena')?.hasAttribute('hidden') === true,
     'Closing Athena preserves the mounted chat so ongoing turns and drafts are retained');
   const sheet = window.document.querySelector<SVGSVGElement>('svg.dg-canvas')!;
@@ -695,7 +731,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Bundled Microsoft icon picker loads and embeds an official icon', 'Save and reopen retain labels and icons',
     'Missing diagram displays an explicit load error', 'No horizontal page overflow'];
 }
-Object.assign(window, { runDiagramChecks, diagramFixture: {
+Object.assign(window, { runDiagramChecks, runDiagramPropertiesChecks, diagramFixture: {
   snapshot: () => structuredClone(snapshot), saves: () => saves, conflict: (value: boolean) => { conflict = value; },
   waitFor, clickButton,
 } });
