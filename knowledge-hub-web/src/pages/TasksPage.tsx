@@ -37,12 +37,12 @@ const COLUMNS: { id: TaskStatus; label: string }[] = [
 
 export type TasksView = 'board' | 'focus';
 
-// Accent colour per priority — only urgent and high get one, so colour stays meaningful
+// Left-stripe colour per priority
 const PRIORITY_BORDER: Record<TaskPriority, string> = {
   urgent: '#fa4d56',
   high:   '#f1c21b',
-  normal: 'transparent',
-  low:    'transparent',
+  normal: '#4589ff',
+  low:    '#6f6f6f',
 };
 
 const PRIORITY_LABEL: Record<TaskPriority, string> = {
@@ -171,7 +171,7 @@ const TaskCard: React.FC<{
     <article
       className={`kb-card${dragging ? ' kb-card--dragging' : ''}${done ? ' kb-card--done' : ''}`}
       style={{ borderLeftColor: done ? 'transparent' : PRIORITY_BORDER[task.priority] }}
-      title={!done && task.priority === 'high' ? 'High priority' : undefined}
+      title={done ? undefined : `${PRIORITY_LABEL[task.priority]} priority`}
       draggable={!busy}
       aria-busy={busy}
       onDragStart={(e) => {

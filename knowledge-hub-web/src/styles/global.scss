@@ -2837,7 +2837,7 @@ input, textarea {
 .kb-card {
   background: var(--cds-layer-02);
   border: 1px solid var(--cds-border-subtle-01);
-  // priority stripe (urgent/high only) — colour set via inline style on the element
+  // priority stripe — colour set via inline style on the element
   border-left-width: 3px;
   cursor: pointer;
   display: flex;
@@ -15931,8 +15931,8 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
 
   &--urgent { background: #fa4d56; }
   &--high   { background: #f1c21b; }
-  &--normal { background: transparent; }
-  &--low    { background: transparent; }
+  &--normal { background: #4589ff; }
+  &--low    { background: #6f6f6f; }
 }
 
 .kb-focus-row__check {
