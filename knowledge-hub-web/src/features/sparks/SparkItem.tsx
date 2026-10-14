@@ -59,9 +59,21 @@ export const SparkItem: React.FC<{
     if (value === NEW_THEME) { setNewTheme(''); return; }
     mutation.mutate({ kind: 'move', value: value === LOOSE ? null : value });
   }
+  const draggable = drag !== undefined && !drag.disabled && !mutation.isPending && !editing && !moving;
 
   return (
-    <div className={`spark-item${spark.usedAt ? ' spark-item--used' : ''}${drag?.active ? ' spark-item--dragging' : ''}`}
+    <div className={`spark-item${spark.usedAt ? ' spark-item--used' : ''}${draggable ? ' spark-item--draggable' : ''}${drag?.active ? ' spark-item--dragging' : ''}`}
+      draggable={draggable}
+      onDragStart={event => {
+        const element = event.target instanceof Element ? event.target : null;
+        const control = element?.closest('button, a, input, textarea, select, [contenteditable="true"]');
+        if (!draggable || (control && !control.classList.contains('spark-item__drag'))) {
+          event.preventDefault();
+          return;
+        }
+        drag?.onStart(event);
+      }}
+      onDragEnd={() => { drag?.onEnd(); }}
       data-ctx-title={preview} data-ctx-body={spark.body} data-ctx-type="hub_ref"
       data-ctx-ref-id={spark.id} data-ctx-ref-type="spark" data-ctx-source={spark.sourceType ? `Spark · ${spark.sourceType}` : 'Spark'}>
       {editing ? (
@@ -130,9 +142,9 @@ export const SparkItem: React.FC<{
 
       <div className="spark-item__actions">
         {drag && !editing && (
-          <button type="button" className="spark-icon-btn spark-item__drag" draggable={!drag.disabled && !mutation.isPending}
+          <button type="button" className="spark-icon-btn spark-item__drag" draggable={draggable}
             disabled={drag.disabled || mutation.isPending} aria-label="Drag spark to a theme, or click to choose"
-            title="Drag into a theme, or click to choose" onDragStart={drag.onStart} onDragEnd={drag.onEnd}
+            title="Drag this Spark into a theme, or click to choose"
             onClick={() => { setMoving(true); }}>
             <Draggable size={16} />
           </button>

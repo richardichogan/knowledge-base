@@ -150,7 +150,7 @@ export const SparkPanel: React.FC<{ onDevelop: (prompt: string) => void }> = ({ 
       <section className="spark-panel__section" aria-label="Loose sparks">
         <div className="spark-panel__section-head">
           <h2 className="spark-panel__heading">Loose sparks</h2>
-          <span className="spark-panel__hint">Drag the grip into a theme, or use Add to theme</span>
+          <span className="spark-panel__hint">Drag a Spark into a theme, or use Add to theme</span>
         </div>
         {looseLoading ? <p className="spark-panel__empty">Loading sparks…</p>
           : loose.length === 0 ? <p className="spark-panel__empty">{needle ? 'No loose sparks match your search.' : 'No loose sparks.'}</p>

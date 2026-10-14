@@ -1,11 +1,17 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Article-grounded Sparks, drag-to-theme and content-only Think note
-pop-out. Existing production ACA/ACR/SWA.
+**Deployment:** Frontend correction for full-card Spark dragging in the just-deployed
+release. Backend remains v193. Existing production SWA only.
 
 ## 1. Scope
+
+Correction 2026-10-14 following the user's report that dragging Sparks did not
+work: make the whole loose card draggable, not just the grip. Preserve control
+clicks, editing and the accessible chooser. Publish the corrected frontend as
+remediation of the 12:13 deployment. No backend, infrastructure, migrations,
+configuration, secrets or role changes. Rollback frontend source `18905c5`.
 
 Approved 2026-10-14 at 12:13 BST: deploy application `fb996e8` including
 pending Think pop-out `dda9779`. Read article arguments before Spark creation
@@ -220,6 +226,20 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-14 for the full-card drag correction:
+
+- Reproduced failure with native browser mouse input: grip drag started, card
+  text drag did not. Corrected the source element, not the server move endpoint.
+- Browser fixture passes at 1440px and 390px. Desktop now starts native mouse
+  drags from both grip and card body, passes browser drag data to the actual
+  drop target and confirms saved membership/count refresh. Mobile retains the
+  chooser and DOM drop/error-state checks; no native touch drag claim.
+- Frontend `npx tsc --noEmit`, lint non-regression and `npm run build` pass;
+  unchanged backend `npx tsc --noEmit` passes.
+- `git fetch origin` / `git merge origin/main`: already up to date.
+- Azure CLI confirms the existing production subscription and SWA hostname;
+  no infrastructure/IaC/RBAC changes or Docker rebuild are applicable.
 
 Deployed 2026-10-14 at 12:20 BST:
 

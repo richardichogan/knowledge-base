@@ -10726,6 +10726,10 @@ $project-colour-map: (
   overflow-wrap: anywhere;
 }
 .spark-item--dragging { opacity: 0.55; border-style: dashed; }
+.spark-item--draggable {
+  cursor: grab;
+  &:active { cursor: grabbing; }
+}
 .spark-item__drag {
   cursor: grab;
   opacity: 1;

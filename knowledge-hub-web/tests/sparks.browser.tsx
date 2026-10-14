@@ -34,8 +34,9 @@ api.updateSpark = async (id, input) => {
   grouped = [...grouped, moved];
   return { success: true, data: moved };
 };
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 createRoot(document.getElementById('root')!).render(
-  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  <QueryClientProvider client={queryClient}>
     <MemoryRouter><SparkPanel onDevelop={() => {}} /></MemoryRouter>
   </QueryClientProvider>,
 );
@@ -72,6 +73,7 @@ async function runSparkChecks(): Promise<string[]> {
     'Keyboard/touch grip click exposes the existing accessible theme chooser');
   const cancel = Array.from(document.querySelectorAll<HTMLButtonElement>('.spark-item__move button')).find(b => b.textContent === 'Cancel')!;
   cancel.click();
+  await waitFor(() => document.querySelector('.spark-item__move') === null && handle().draggable);
 
   let data = begin();
   await waitFor(() => document.querySelector('.spark-theme--drop-ready') !== null);
@@ -116,4 +118,18 @@ Object.assign(window, {
     await waitFor(() => document.querySelector('.spark-theme--drag-over') !== null);
   },
   cancelSparkDrag: () => { handle().dispatchEvent(new DragEvent('dragend', { bubbles: true })); },
+  resetNativeSparkDrag: async () => {
+    fail = false;
+    loose = [spark];
+    grouped = [member];
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['sparks'] }),
+      queryClient.invalidateQueries({ queryKey: ['spark-clusters'] }),
+    ]);
+    await waitFor(() => handle() !== null);
+  },
+  verifyNativeSparkDrag: async () => {
+    await waitFor(() => document.querySelectorAll('.spark-panel__loose .spark-item').length === 0);
+    check(target().querySelectorAll('.spark-item').length === 2, 'Native mouse drag persists theme membership');
+  },
 });

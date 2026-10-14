@@ -2,6 +2,14 @@
 
 ---
 
+## Spark card drag correction
+
+The full loose Spark card is now draggable, not just its small grip. Buttons,
+links and editing controls retain their normal interactions; the grip still
+opens the theme chooser on click. Browser regression coverage now starts native
+mouse drags from both the grip and card text and confirms persisted theme
+membership, rather than relying only on scripted DOM drag events.
+
 ## Article-grounded Sparks and drag-to-theme
 
 Discover's one-click Spark now reads the source article and saves a synopsis of

@@ -36,6 +36,7 @@ const browserErrors = [];
 const loadDiagnostics = [];
 const resourceUrls = new Map();
 const pending = new Map();
+let interceptedDrag = null;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function command(method, params = {}) {
   const id = ++sequence;
@@ -73,6 +74,7 @@ try {
   await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once: true }); socket.addEventListener('error', reject, { once: true }); });
   socket.addEventListener('message', ({ data }) => {
     const message = JSON.parse(data);
+    if (message.method === 'Input.dragIntercepted') interceptedDrag = message.params.data;
     if (message.method === 'Runtime.exceptionThrown') {
       const description = message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text;
       if (!(navigationChecks && /^Error: Fixture deferred view unavailable(?:\n|$)/.test(description))) browserErrors.push(description);
@@ -227,6 +229,31 @@ try {
         await evaluate('window.cancelSparkDrag()');
       }
       const results = await evaluate(sparkChecks ? 'window.runSparkChecks()' : notePopoutChecks ? 'window.runNotePopoutChecks()' : thinkSaveChecks ? 'window.runThinkSaveChecks()' : markdownExportChecks ? 'window.runMarkdownExportChecks()' : imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
+      if (sparkChecks && width !== 390) {
+        for (const source of ['.spark-item__drag', '.spark-panel__loose .spark-item__body']) {
+          await evaluate('window.resetNativeSparkDrag()');
+          await evaluate(`document.querySelector(${JSON.stringify(source)}).scrollIntoView({block:"center"})`);
+          const start = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(source)}).getBoundingClientRect(); return { x:r.x+r.width/2,y:r.y+r.height/2 }; })()`);
+          interceptedDrag = null;
+          await command('Input.setInterceptDrags', { enabled: true });
+          await command('Input.dispatchMouseEvent', { type: 'mouseMoved', ...start });
+          await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
+          for (let step = 1; step <= 5; step++) {
+            await command('Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x + step * 3, y: start.y - step * 5, button: 'left', buttons: 1 });
+          }
+          for (let attempt = 0; attempt < 20 && !interceptedDrag; attempt++) await delay(50);
+          assert.ok(interceptedDrag, `Real mouse gesture did not start a Spark drag from ${source}`);
+          await evaluate('document.querySelector(".spark-theme").scrollIntoView({block:"center"})');
+          const end = await evaluate('(() => { const r = document.querySelector(".spark-theme__name").getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()');
+          for (const type of ['dragEnter', 'dragOver', 'drop']) {
+            await command('Input.dispatchDragEvent', { type, ...end, data: interceptedDrag });
+          }
+          await command('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', clickCount: 1 });
+          await command('Input.setInterceptDrags', { enabled: false });
+          await evaluate('window.verifyNativeSparkDrag()');
+          results.push(`Real browser mouse drag from ${source} persisted membership`);
+        }
+      }
       if (sparkChecks && process.env.TODAY_ARTIFACT_DIR) {
         await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
         await command('Page.bringToFront');
