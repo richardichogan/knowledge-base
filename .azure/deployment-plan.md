@@ -1,11 +1,19 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Discover one-click synopsis sparks plus the committed Plan check-in,
-at-risk nudges and weekly-review timeout fix. Existing production ACA/ACR/SWA.
+**Deployment:** Article-grounded Sparks, drag-to-theme and content-only Think note
+pop-out. Existing production ACA/ACR/SWA.
 
 ## 1. Scope
+
+Approved 2026-10-14 at 12:13 BST: deploy application `fb996e8` including
+pending Think pop-out `dda9779`. Read article arguments before Spark creation
+and grouping, preserve later reasoning in chat page reads, and enable loose
+Spark drag-to-theme. Existing production resources only; no new infrastructure,
+migrations, roles, secrets or environment changes. Backend v192 advances to
+v193 after ACR build success; matching frontend follows.
+Rollback: backend v192 and frontend source `321e9f6`.
 
 Approved 2026-10-14: merge, push and deploy the Discover Spark change and pending
 application commit `84508f2`. Spark uses the article title/synopsis, source and tags
@@ -212,6 +220,26 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-14 for `fb996e8` / `dda9779`:
+
+- `git fetch origin` and `git merge origin/main`: already up to date.
+- Both application `npx tsc --noEmit` and `npm run build` passed after sync.
+- Backend 83/83 and frontend 43/43 isolated tests passed; both lint
+  non-regression checks passed without rebaselining.
+- Discover and Spark drag/drop browser fixtures passed at 1440px and 390px;
+  pop-out fixture previously passed at both widths for `dda9779`.
+- Azure CLI authenticated target reads confirm Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`), ACA v192/revision 0000189,
+  registry `cad79107555facr` and SWA `kh-prod-web`.
+- Azure MCP subscription listing returned no subscriptions; established Azure
+  CLI account and resource reads succeeded.
+- Dockerfile and existing package lock verified; remote ACR Docker build is
+  the image validation gate before the production image update.
+- No infrastructure/IaC/RBAC/policy changes: compilation, what-if and role
+  provisioning validation are not applicable to this existing-resource release.
+- Browser test-project typecheck retains five pre-existing errors in unrelated
+  Today/data-reliability mocks; production application typechecks pass.
 
 Deployed 2026-10-14:
 
