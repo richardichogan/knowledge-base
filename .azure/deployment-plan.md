@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Deployment:** Podcast preparation timeout fix. Existing ACA and ACR; frontend
 unchanged.
@@ -254,6 +254,20 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-15 following the 10:39 BST request:
+
+- Fix `ed56adb` and validation record `292bf27` pushed to main and feature branch.
+- ACR run `ca67` succeeded: `kh-prod-api:v197`, digest
+  `sha256:d94895f4767f605b74a9c6a538e386f13a925491196c101f7bdacc752ef4b027`.
+- ACA revision `kh-prod-api-vnet--0000194` reports Healthy,
+  RunningAtMaxScale and 100% production traffic.
+- New-revision startup logs confirm migration completion, database pool
+  pre-warm 8/8 and scheduler startup without migration/configuration errors.
+- Frontend, infrastructure, registry credentials and roles remain unchanged.
+- Application: https://athena.themicrosoftcloudblog.com/
+- Successful brief generation has not yet been observed; this deployment
+  removes the confirmed 100-second timeout from the background brief call.
 
 Validated 2026-10-15 after the 10:39 BST request:
 
