@@ -1,11 +1,12 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Current deployment:** Microsoft-focused podcast preparation (`18fb98f`),
 approved 2026-10-15 at 13:41 BST. Backend-only update from v198 to v199 using
 the existing production subscription, ACR and Container App in UK South.
-Frontend, infrastructure, migrations, secrets and roles are unchanged.
+Backend v199 is live on healthy revision `kh-prod-api-vnet--0000196` with
+100% production traffic. Frontend, infrastructure, migrations, secrets and roles are unchanged.
 Rollback: `cad79107555facr.azurecr.io/kh-prod-api:v198`.
 
 **Deployment:** AI flow / governance diagram type (`d5e6ea0`) deployed
@@ -266,6 +267,19 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-15 for Microsoft-focused podcast preparation:
+
+- Application `18fb98f` and validation record `c0cb258` pushed to main and
+  the feature branch before the remote build.
+- ACR run `ca69` succeeded from main for `kh-prod-api:v199`, digest
+  `sha256:2dee8726c9cd89cc88e683fb771d3ad0557f9d24bbbe4b0c4aba6710eff1a805`.
+- ACA revision `kh-prod-api-vnet--0000196` is Healthy, RunningAtMaxScale,
+  the latest ready revision, and receives 100% of production traffic.
+- Startup logs confirm migration completion and database pool pre-warm (8/8).
+  No startup migration or configuration errors were reported.
+- Frontend unchanged at `https://athena.themicrosoftcloudblog.com/`.
+- Existing saved podcast briefs are unchanged; regeneration uses the new rules.
 
 Validated 2026-10-15 for Microsoft-focused podcast preparation `18fb98f`:
 
