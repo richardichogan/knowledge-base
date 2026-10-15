@@ -5,6 +5,27 @@
 @use './today';
 @use './navigation';
 
+.email-connections {
+  margin-bottom: 20px;
+  color: var(--cds-text-primary);
+  h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+  p { margin: 6px 0 0; font-size: 13px; line-height: 1.5; }
+  &__intro, &__provider { color: var(--cds-text-secondary); }
+  &__list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 12px; margin-top: 12px; }
+  &__account { padding: 14px; border: 1px solid var(--cds-border-subtle); border-radius: 6px; background: var(--cds-layer-01); min-width: 0; }
+  &__heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  &__address { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+  &__status { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #393939; color: #c6c6c6; }
+  &__status--configured { background: #123456; color: #a6c8ff; }
+  &__error { color: #ffb3b8; }
+  &__error button {
+    margin-left: 8px; padding: 4px 10px; border: 1px solid #78a9ff; border-radius: 4px;
+    font: inherit; color: #a6c8ff; background: transparent; cursor: pointer;
+    &:hover { background: #353535; }
+    &:focus-visible { outline: 2px solid #78a9ff; outline-offset: 2px; }
+  }
+}
+
 .kh-dialog {
   color: var(--cds-text-primary);
   background: var(--cds-layer-01);

@@ -196,6 +196,16 @@ cannot clear another turn's metadata. Live reconnect remains in-memory while the
 process survives. These safeguards assume the existing single-replica deployment;
 do not enable multiple replicas without lease/ownership recovery changes.
 
+## Email account connection list
+
+**Tools → Connections and sync** lists the Alliance, Hotmail, and Gmail
+mailboxes under **Email accounts**. The Alliance address uses the configured
+`ALLIANCE_ALLOWED_UPN`. Listing an address does not authorise mailbox access:
+Alliance OneDrive consent does not include mail, and personal Microsoft/Google
+accounts need separate authorisation. Existing IMAP configuration is labelled
+as configured, not verified/connected. The authenticated
+`GET /api/sources/email-accounts` endpoint never returns credentials.
+
 ## Thursday podcast preparation
 
 Athena prepares a shortlist at 07:00 Europe/London on the Thursday immediately

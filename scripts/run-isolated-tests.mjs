@@ -31,6 +31,7 @@ const tests = frontend ? [
   'scripts/plan-nudges.test.ts',
   'scripts/blog-quick-take.test.ts',
   'scripts/podcast-prep.test.ts',
+  'scripts/email-account-connections.test.ts',
   'scripts/spark-grounding.test.ts',
   'scripts/diagram-drilldown.test.ts',
   'scripts/canvas-recycle-bin.test.ts',

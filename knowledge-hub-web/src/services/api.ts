@@ -211,6 +211,14 @@ export interface SourceStatus {
   status: 'ok' | 'error' | 'never-synced';
 }
 
+export interface EmailAccountConnection {
+  id: string;
+  email: string;
+  provider: 'Microsoft 365' | 'Outlook.com' | 'Gmail';
+  status: 'configured' | 'not-connected';
+  detail: string;
+}
+
 export type DocType = 'blog-draft' | 'spec' | 'newsletter' | 'readme' | 'doc';
 
 export interface DocEntry {
@@ -576,6 +584,10 @@ export class KnowledgeHubApi {
   async getSources(): Promise<ApiResponse<SourceStatus[]>> {
     const r = await this.client.get<ApiResponse<SourceStatus[]>>('/api/sources');
     return r.data;
+  }
+
+  async getEmailAccountConnections(): Promise<ApiResponse<EmailAccountConnection[]>> {
+    return (await this.client.get<ApiResponse<EmailAccountConnection[]>>('/api/sources/email-accounts')).data;
   }
 
   async triggerSync(): Promise<ApiResponse<SyncRun>> {

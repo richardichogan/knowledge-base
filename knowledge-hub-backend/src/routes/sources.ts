@@ -8,8 +8,16 @@ import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { SYNC_CADENCE_MINUTES } from '../config/constants.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
+import { env } from '../config/env.js';
+import { emailAccountConnections } from '../integrations/email/accountConnections.js';
 
 const router = Router();
+
+router.get('/email-accounts', (_req: Request, res: Response, next: NextFunction): void => {
+  try {
+    res.json({ success: true, data: emailAccountConnections(env.ALLIANCE_ALLOWED_UPN, env.EMAIL_ACCOUNTS) });
+  } catch (error) { next(error); }
+});
 
 /**
  * GET /api/sources

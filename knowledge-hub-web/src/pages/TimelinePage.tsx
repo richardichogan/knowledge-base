@@ -19,6 +19,7 @@ import type { ContentItemSummary } from '../types';
 import { inferProjectId, PROJECT_MAP, type Project } from '../config/projects';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { EmailAccountConnections } from '../components/EmailAccountConnections';
 import { useLocation } from 'react-router-dom';
 import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
 import { pollSyncRun } from '../services/syncPolling';
@@ -415,6 +416,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
 
         {syncPanelOpen && (
           <div className="tl-sync-panel">
+            <EmailAccountConnections />
             {sourcesError !== null && <DataNotice title="Source status is unavailable" error={sourcesError} onRetry={() => { void retrySources(); }} />}
             {runError !== null && <DataNotice title="Sync run status is unavailable" error={runError} onRetry={() => { void retryRun(); }} />}
             {latestRun !== null && latestRun !== undefined && <section className="tl-sync-run" aria-label="Latest sync run">

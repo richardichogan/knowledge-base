@@ -49,6 +49,7 @@ api.getTaxonomy = async () => success([]);
 api.getRepoMappings = async () => success([]);
 api.getUnsurfacedClusterCount = async () => success({ count: 1 });
 api.getPodcastPrep = async () => success({ nextRecording: null, scheduleWarning: 'No recording date set.', run: null, latestBrief: null });
+api.getDayCheckin = async () => success({ day: '2026-10-15', hour: 8, status: null, items: [], completedToday: [] });
 api.getProjects = async () => success([]);
 api.getTags = async () => success([]);
 api.listBuildSpecs = async () => success([]);
@@ -82,6 +83,11 @@ api.getTaskNotes = async () => success([]);
 api.getTaskLinks = async () => success([]);
 api.getConnections = async () => success({});
 api.getSources = async () => success([]);
+api.getEmailAccountConnections = async () => success([
+  { id: 'alliance', email: 'Richard.i.Hogan@ibmalliance.onmicrosoft.com', provider: 'Microsoft 365', status: 'not-connected', detail: 'OneDrive sign-in does not grant mail access.' },
+  { id: 'hotmail', email: 'richard_hogan@hotmail.co.uk', provider: 'Outlook.com', status: 'not-connected', detail: 'Separate mailbox authorisation required.' },
+  { id: 'gmail', email: 'richardichogan@gmail.com', provider: 'Gmail', status: 'not-connected', detail: 'Google authorisation required.' },
+]);
 api.triggerSync = async () => { syncWrites++; return success({ id: 'sync-fixture', status: 'running',
   startedAt: '', finishedAt: null, results: [] }); };
 api.getLatestSyncRun = async () => success(null);
@@ -277,6 +283,12 @@ export async function runNavigationChecks(): Promise<string[]> {
   check(menuItem('Activity').getAttribute('aria-current') === 'page', 'Supporting current route selected');
   menuItem('Connections and sync').click();
   await waitFor(() => document.querySelector('.tl-sync-panel') !== null);
+  await waitFor(() => document.querySelectorAll('.email-connections__account').length === 3);
+  check(document.querySelector('.email-connections')?.textContent?.includes('Richard.i.Hogan@ibmalliance.onmicrosoft.com'), 'Verified Alliance address is listed');
+  check(document.querySelectorAll('.email-connections__status').length === 3
+    && [...document.querySelectorAll('.email-connections__status')].every((e) => e.textContent === 'Not connected'), 'Listed accounts do not falsely claim authorisation');
+  const emailConnections = document.querySelector<HTMLElement>('.email-connections')!;
+  check(emailConnections.scrollWidth <= emailConnections.clientWidth + 1, 'Email account cards fit narrow screens');
   check(syncWrites === 0, 'Opening sync status must not trigger a sync');
   check(selector('.kh-tools-location').textContent === 'Tools / Connections and sync', 'Supporting location label');
   results.push('Menu keyboard/focus, grouped subtitles, outside-click/selection closure and existing sync controls');
