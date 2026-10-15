@@ -11,6 +11,7 @@ interface GraphEvent {
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
   isAllDay: boolean;
+  isCancelled?: boolean;
   location?: { displayName: string };
   isOnlineMeeting: boolean;
   onlineMeetingUrl?: string;
@@ -42,7 +43,7 @@ export async function syncCalendarEvents(
       endDateTime: to,
       $top: '50',
       $select: [
-        'id', 'subject', 'bodyPreview', 'start', 'end', 'isAllDay',
+        'id', 'subject', 'bodyPreview', 'start', 'end', 'isAllDay', 'isCancelled',
         'location', 'isOnlineMeeting', 'onlineMeetingUrl',
         'organizer', 'attendees', 'createdDateTime', 'lastModifiedDateTime',
       ].join(','),
@@ -98,7 +99,7 @@ function eventToContentItem(event: GraphEvent): Omit<ContentItem, 'id' | 'indexe
     body: event.bodyPreview,
     publishedAt: startIso,
     projectContext: 'personal',
-    metadata: calEvent as unknown as Record<string, unknown>,
+    metadata: { ...calEvent, isCancelled: event.isCancelled === true },
     tags: [],
   };
 }

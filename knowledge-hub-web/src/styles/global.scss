@@ -16439,3 +16439,36 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
   color: var(--cds-text-secondary);
   font-size: 0.8125rem;
 }
+.podcast-prep, .podcast-prep-notification {
+  color: var(--cds-text-primary, #f4f4f4);
+  background: var(--cds-layer-01, #262626);
+  border: 1px solid var(--cds-border-subtle-01, #393939);
+  border-left: 3px solid #78a9ff;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.podcast-prep {
+  &__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  &__heading h2 { font-size: 16px; font-weight: 600; margin: 0; }
+  &__heading span { color: var(--cds-text-secondary, #c6c6c6); font-size: 12px; }
+  p { margin: 8px 0; }
+  &__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 10px; }
+  &__actions a, &__actions button, &__error button {
+    display: inline-flex; align-items: center; min-height: 32px; padding: 5px 10px;
+    font: inherit; border: 1px solid #525252; border-radius: 4px;
+    background: transparent; color: #a6c8ff; cursor: pointer; text-decoration: none;
+    &:hover { background: #353535; border-color: #78a9ff; }
+    &:focus-visible { outline: 2px solid #78a9ff; outline-offset: 2px; }
+    &:disabled { opacity: .5; cursor: not-allowed; }
+  }
+  &__error { color: #ffb3b8; }
+  &__warning { color: #f1c21b; }
+}
+.podcast-prep-notification {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 12px 24px 0;
+  .podcast-prep__actions { margin-top: 0; }
+}

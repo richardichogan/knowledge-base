@@ -196,6 +196,52 @@ cannot clear another turn's metadata. Live reconnect remains in-memory while the
 process survives. These safeguards assume the existing single-replica deployment;
 do not enable multiple replicas without lease/ownership recovery changes.
 
+## Thursday podcast preparation
+
+Athena prepares a shortlist at 07:00 Europe/London on the Thursday immediately
+before a scheduled Friday recording. The existing podcast schedule and "Podcast
+Record" calendar override remain authoritative; off-weeks do not generate a
+brief. If the schedule explicitly documents Friday recording with a following
+Monday release, a stored Monday release resolves to the preceding Friday,
+without rewriting the publishing schedule. Actual calendar recording events
+take precedence and are never reinterpreted as release dates.
+An otherwise non-Friday schedule is reported on Today and must be corrected with
+Athena rather than silently assuming a recording date. Explicitly cancelled
+calendar events are skipped. Calendar information is only as current as its
+last successful sync.
+
+The brief ranks up to six candidates and recommends three discussions in
+decreasing depth: an enterprise-focused lead, a shorter second, and a lighter
+third. Richard's focus is enterprise consequences, particularly AI; security
+and pure architecture remain Cyrus's and David's territory. Available recent
+episode transcripts/show notes are read in bounded chunks, alongside recent
+own posts, Discover, and fresh web research when available. Previously covered
+subjects qualify only when material new outside news changes the discussion.
+Sources are linked and dated. Missing transcripts, inaccessible sources,
+limited research coverage, and insufficient candidates are disclosed, never
+filled with invented material.
+
+Results are versioned Outputs in a Podcast Prep chat. Today provides
+**Prepare now**, **Refresh brief**, and an exact brief link. A persistent global
+notification appears once the output is saved; dismissing it is server-backed
+and does not remove the Today link. Opening the brief uses a separate tab and
+does not replace the current conversation. Email, browser push, and OS
+notifications are not enabled.
+
+Authenticated endpoints: `GET /api/today/podcast-prep`,
+`POST /api/today/podcast-prep` (202, asynchronous generation), and
+`POST /api/today/podcast-prep/acknowledge` (recording date and generation time).
+Database leases deduplicate manual/scheduled triggers, expire after 30 minutes,
+and allow up to three automatic attempts with a 15-minute retry delay during
+Thursday daytime catch-up (before 18:00 UK). Failed runs stay visible and can
+be retried manually. Refreshing preserves chat history and uses the latest
+output/user edits as context.
+
+Isolated regression: `scripts/podcast-prep.test.ts` in the backend. Browser
+fixture: `tests/podcast-prep.html` in the frontend. With `TODAY_BROWSER_PATH`
+pointing to Chromium, run
+`node scripts/run-browser-checks.mjs --modes=podcast-prep`.
+
 ## Knowledge health
 
 **Tools → Knowledge health** (`/health`, `GET /api/health/knowledge`) is a read-only view of AI usage, recent sync runs and index freshness, filtered by UTC date range (inclusive, up to 90 days; default last 7), environment, feature, persona and deployment. Every query is bounded and each section fails independently. Token totals count only calls where the provider reported usage (`ai_usage_log.usage_known`, added by migration 067); earlier rows and calls without usage show as "Not measured" rather than zero. No monetary estimate is shown because no pricing is configured, and prompts, content, session ids and error text are never returned.

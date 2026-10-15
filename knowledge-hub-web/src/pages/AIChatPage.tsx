@@ -392,8 +392,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const turnRunRef = useRef(0);
   // Outputs / Decisions side panel: refresh after replies, open on a changed output.
   const [panelRefresh, setPanelRefresh] = useState(0);
-  const [outputFocus, setOutputFocus] = useState<{ id: string; seq: number } | undefined>(undefined);
-  const [panelTab, setPanelTab] = useState<{ id: string; seq: number } | undefined>(undefined);
+  const [outputFocus, setOutputFocus] = useState<{ id: string; seq: number } | undefined>(() => {
+    const output = standalone ? new URLSearchParams(window.location.search).get('output') : null;
+    return output ? { id: output, seq: 1 } : undefined;
+  });
+  const [panelTab, setPanelTab] = useState<{ id: string; seq: number } | undefined>(() =>
+    standalone && new URLSearchParams(window.location.search).get('output') ? { id: 'outputs', seq: 1 } : undefined);
   // Second opinions: other models' answers per reply, and the "Compare with…" box.
   const [alternatesByMessage, setAlternatesByMessage] = useState<Record<string, ChatAlternate[]>>({});
   const [modelChoices, setModelChoices] = useState<ModelChoiceApi[]>([]);

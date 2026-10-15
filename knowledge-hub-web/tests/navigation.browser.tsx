@@ -48,6 +48,7 @@ api.getPendingTags = async () => success([]);
 api.getTaxonomy = async () => success([]);
 api.getRepoMappings = async () => success([]);
 api.getUnsurfacedClusterCount = async () => success({ count: 1 });
+api.getPodcastPrep = async () => success({ nextRecording: null, scheduleWarning: 'No recording date set.', run: null, latestBrief: null });
 api.getProjects = async () => success([]);
 api.getTags = async () => success([]);
 api.listBuildSpecs = async () => success([]);

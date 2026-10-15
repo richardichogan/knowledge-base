@@ -10,6 +10,7 @@ const fixtureUrl = process.env.TODAY_FIXTURE_URL ?? 'http://localhost:5142/tests
 const navigationChecks = process.env.ATHENA_BROWSER_CHECKS === 'navigation';
 const discoverChecks = process.env.ATHENA_BROWSER_CHECKS === 'discover';
 const sparkChecks = process.env.ATHENA_BROWSER_CHECKS === 'sparks';
+const podcastPrepChecks = process.env.ATHENA_BROWSER_CHECKS === 'podcast-prep';
 const thinkSearchChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-search';
 const connectionsChecks = process.env.ATHENA_BROWSER_CHECKS === 'connections';
 const authSessionChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-session';
@@ -117,6 +118,7 @@ try {
         : markdownExportChecks ? 'typeof window.runMarkdownExportChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
         : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
         : sparkChecks ? 'typeof window.runSparkChecks === "function" && document.querySelector(".spark-item__drag") !== null'
+        : podcastPrepChecks ? 'typeof window.runPodcastPrepChecks === "function" && document.querySelector(".podcast-prep-notification") !== null'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
         : notePopoutChecks ? 'typeof window.runNotePopoutChecks === "function" && document.querySelector(".notes-popout-btn") !== null'
@@ -215,6 +217,12 @@ try {
         draft.remove();
         return ['deployed popup callback relays success/error', 'popup closes', 'original page remains mounted'];
       })()`);
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      console.log(JSON.stringify({ width, checks: results }, null, 2));
+      continue;
+    }
+    if (podcastPrepChecks) {
+      const results = await evaluate('window.runPodcastPrepChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;

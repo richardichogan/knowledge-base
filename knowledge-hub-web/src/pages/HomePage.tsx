@@ -6,6 +6,7 @@ import { api } from '../services/api';
 import { useTodayBrief, requireTodayData } from '../services/useTodayBrief';
 import { TODAY_LIMITS, relativeTime, todayContext, type TodayItem } from '../services/todayViewModel';
 import { useAthenaContext } from '../context/AthenaContext';
+import { PodcastPrepCard } from '../components/today/PodcastPrepCard';
 
 type SectionQueries = Array<{ name: string; query: {
   isPending: boolean; isError: boolean; error: unknown; refetch: () => Promise<unknown>;
@@ -159,6 +160,7 @@ export const HomePage: React.FC = () => {
       <div className="today-brief__briefing-meta">
         <span>Changes since {new Date(brief.since).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
       </div>
+      <PodcastPrepCard />
       {brief.storageError && <p className="today-brief__error" role="status">Your browser cannot save the Today visit time. Changes use the last 24 hours.</p>}
       {brief.projects.isError && <p className="today-brief__error" role="alert">Project names are unavailable. <button type="button" onClick={() => { void brief.projects.refetch(); }}>Retry projects</button></p>}
       <div className="today-brief__grid">

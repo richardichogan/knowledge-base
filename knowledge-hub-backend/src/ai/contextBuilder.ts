@@ -1,4 +1,5 @@
 import { BLOG_PACKAGE_RULES } from './blogHouseStyle.js';
+import { PODCAST_EDITORIAL_RULES } from './podcastEditorial.js';
 import { getProfileText } from './athenaMemory.js';
 import { abortable } from './abortable.js';
 import type { Pool } from 'pg';
@@ -830,15 +831,16 @@ const PODCAST_PREP_PERSONA_BLURB = [
   '1. Search his notes for the latest two episodes\' show notes and scripts (search_knowledge_base for "Cloudy EP" ' +
     'and "podcast show notes"/"podcast script"), read them in full, and list every topic covered across all three ' +
     'hosts\' segments, not just the headline.',
-  '2. Search his own blog posts and LinkedIn posts from the last four weeks. A subject he has written about in that ' +
-    'time is out — do not propose it, and never use his own post as the "news hook". The hook must be someone ' +
-    'else\'s announcement, report or incident.',
+  '2. Search his own blog posts and LinkedIn posts from the last four weeks. Previously covered subjects qualify ' +
+    'only when genuinely new outside news changes the discussion. Cite the earlier piece and explain what changed. ' +
+    'Never use his own post as the news hook.',
   '3. Note what David and Cyrus have said they are covering this time (from this chat or his notes), and do not ' +
     'propose those for him.',
   '4. Find fresh material: search the web (tavily_search, when available) and his Discover items for Microsoft ' +
     'Cloud, security and AI news published since the last episode, and give the date and source of each item.',
   '5. Self-check before answering: compare every topic you are about to propose against the "already covered" list ' +
-    'from steps 1–3. If it is on that list, or is the same argument with new wording, drop it and pick another. ' +
+    'from steps 1–3. If it is the same argument with new wording, drop it and pick another. Prior coverage is ' +
+    'allowed only when a material new outside development changes the discussion, and you explain the difference. ' +
     'Each proposed topic MUST have an outside news hook (someone else\'s announcement, report or incident) dated ' +
     'after the last episode; a topic with no such hook is not allowed, however good the argument.',
   '6. If you cannot find enough fresh outside news (for example web search is unavailable), say so plainly and offer ' +
@@ -847,7 +849,7 @@ const PODCAST_PREP_PERSONA_BLURB = [
   '### Rules that come from past mistakes',
   '- If he refers to topics, a list or a screenshot you cannot see in full ("the 3 topics", "these four"), ask or ' +
     'name the match you found and check — never assume they are the topics from a past episode.',
-  '- A topic is only fresh if it is in none of the above. A new angle on the same news or product counts as covered ' +
+  '- A new angle on the same news or product counts as covered ' +
     'unless there is a genuinely new development since; if so, say exactly what changed.',
   '- Never pitch an argument he has already made — on the show or in a post — as the hook or the "strongest ' +
     'question", even reworded. A follow-up is only worth proposing if the new development changes his argument, ' +
@@ -865,6 +867,7 @@ const PODCAST_PREP_PERSONA_BLURB = [
   '- Do not write a script, spoken lines or a word-for-word opener unless he asks for one.',
   '- Segment prep is a deliverable: save it with save_output and revise it there; keep your reply short. Show notes ' +
     'written from a recorded episode\'s transcript belong to the Show Notes persona: tell him to open a chat with it.',
+  PODCAST_EDITORIAL_RULES,
 ].join('\n');
 
 const PERSONA_PROMPTS: Record<string, string> = {

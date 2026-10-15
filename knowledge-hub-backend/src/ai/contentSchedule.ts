@@ -17,6 +17,8 @@ export interface ScheduleEntry {
   daysAway: number;
   intervalDays: number;
   note: string | null;
+  dateSource?: 'calendar' | 'schedule';
+  cancelledDates?: string[];
 }
 
 const DAY_MS = 86_400_000;
@@ -31,26 +33,34 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / DAY_MS);
 }
 
-export async function getSchedule(db: Pool, now = new Date()): Promise<Record<ScheduledFormat, ScheduleEntry>> {
+export async function getSchedule(db: Pool, now = new Date(), persist = true): Promise<Record<ScheduledFormat, ScheduleEntry>> {
   const today = workToday(now);
-  const { rows } = await db.query<{ format: ScheduledFormat; next_date: Date; interval_days: number; note: string | null }>(
+  const { rows } = await db.query<{ format: ScheduledFormat; next_date: string; interval_days: number; note: string | null }>(
     `SELECT format, to_char(next_date, 'YYYY-MM-DD') AS next_date, interval_days, note FROM content_schedule`,
   );
   const result = {} as Record<ScheduledFormat, ScheduleEntry>;
   for (const r of rows) {
-    let next = r.next_date as unknown as string;
+    let next = r.next_date;
     const interval = Math.max(1, r.interval_days);
+    let dateSource: 'calendar' | 'schedule' = 'schedule';
+    let cancelledDates: string[] = [];
 
     if (r.format === 'podcast') {
+      while (next < today) next = addDays(next, interval);
       // A "Podcast Record" calendar event in the next two weeks is the truth.
-      const ev = await db.query<{ d: string }>(
-        `SELECT to_char(published_at AT TIME ZONE 'Europe/London', 'YYYY-MM-DD') AS d FROM content_items
+      const ev = await db.query<{ d: string; cancelled: boolean }>(
+        `SELECT to_char(published_at AT TIME ZONE 'Europe/London', 'YYYY-MM-DD') AS d,
+                COALESCE(metadata->>'isCancelled', 'false') = 'true' AS cancelled FROM content_items
           WHERE source = 'graph-calendar' AND title ILIKE '%podcast record%'
             AND published_at >= $1::date AND published_at < $1::date + 15
-          ORDER BY published_at LIMIT 1`,
+          ORDER BY published_at LIMIT 20`,
         [today],
-      ).catch(() => ({ rows: [] as Array<{ d: string }> }));
-      if (ev.rows[0] !== undefined) next = ev.rows[0].d;
+      );
+      const active = ev.rows.find((event) => !event.cancelled);
+      if (active !== undefined) { next = active.d; dateSource = 'calendar'; }
+      const cancelled = new Set(ev.rows.filter((event) => event.cancelled).map((event) => event.d));
+      cancelledDates = [...cancelled];
+      while (cancelled.has(next)) next = addDays(next, interval);
     } else {
       // A newsletter published within a few days of its due date means that issue is done.
       const pub = await db.query<{ d: string }>(
@@ -62,10 +72,10 @@ export async function getSchedule(db: Pool, now = new Date()): Promise<Record<Sc
     }
 
     while (next < today) next = addDays(next, interval);
-    if (next !== (r.next_date as unknown as string)) {
+    if (persist && next !== r.next_date) {
       await db.query(`UPDATE content_schedule SET next_date = $2::date, updated_at = NOW() WHERE format = $1`, [r.format, next]).catch(() => undefined);
     }
-    result[r.format] = { format: r.format, next, daysAway: daysBetween(today, next), intervalDays: interval, note: r.note };
+    result[r.format] = { format: r.format, next, daysAway: daysBetween(today, next), intervalDays: interval, note: r.note, dateSource, cancelledDates };
   }
   return result;
 }

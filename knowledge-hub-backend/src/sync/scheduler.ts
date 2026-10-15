@@ -13,6 +13,7 @@ import { archiveCompletedTasks } from '../services/taskArchiveService.js';
 import { isConnectionCheckInProgress } from './connectionWork.js';
 import { runClaimedJob } from './runStore.js';
 import { ukClock } from './ukClock.js';
+import { generatePodcastPrep } from '../ai/podcastPrep.js';
 
 /**
  * Scheduler for sync jobs.
@@ -41,6 +42,7 @@ let lastArchiveDay = ''; // Date string of the last completed-task archive sweep
 let lastMemoryReviewWeek = ''; // Week key of the last weekly memory review
 let briefingRunning = false;
 let weeklyDigestRunning = false;
+let podcastPrepRunning = false;
 /** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
 const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
@@ -72,6 +74,14 @@ export function startSyncScheduler(): void {
   console.warn('[Scheduler] Starting sync scheduler (08:00, 14:00, 20:00 — no overnight)...');
 
   const db = getDb();
+  function preparePodcastIfDue(): void {
+    const clock = ukClock();
+    if (clock.weekday !== 'Thu' || clock.hour < 7 || clock.hour >= 18 || podcastPrepRunning) return;
+    podcastPrepRunning = true;
+    void generatePodcastPrep(db).catch((error: unknown) => {
+      console.error('[Scheduler] Podcast preparation failed:', error);
+    }).finally(() => { podcastPrepRunning = false; });
+  }
 
   // Rebuild any note bodies still stored as raw BlockNote JSON in
   // content_items. Idempotent and a no-op once every note is plain text, so
@@ -87,6 +97,7 @@ export function startSyncScheduler(): void {
   initialTimer = setTimeout(() => {
     initialTimer = undefined;
     if (!started) return;
+    preparePodcastIfDue();
     if (isWithinWorkingHours()) {
       console.warn('[Scheduler] Running initial sync on startup...');
       const clock = ukClock();
@@ -103,6 +114,7 @@ export function startSyncScheduler(): void {
   timers.push(
     setInterval(() => {
       if (!started) return;
+      preparePodcastIfDue();
       if (shouldRunSync() && !isConnectionCheckInProgress()) {
         const clock = ukClock();
         const hour = clock.hour;

@@ -1,0 +1,6 @@
+export const PODCAST_EDITORIAL_RULES = [
+  'Richard owns the enterprise perspective, primarily AI: adoption, value, operating models, procurement, cost, governance, and organisational readiness. Cyrus owns security; David owns pure architecture. Crossovers belong as handoff questions, not Richard\'s main topic.',
+  'Use genuinely dated outside news, not Richard\'s own writing as the hook. Compare against all hosts\' recent episode coverage and Richard\'s recent posts. A previously covered subject qualifies only if a material new development changes the discussion: cite the prior coverage and explain what changed.',
+  'Recommend three distinct discussions in decreasing depth: a substantial lead with five to seven evidence-backed points, a shorter second with three or four, and a lighter third with two or three. Include a synopsis, enterprise angle, conclusion, and a question for the co-hosts.',
+  'Provide preparation notes, never a spoken script unless explicitly requested. No hype or invented facts, dates, quotes, or URLs. Explain concrete audience relevance, never use "resonates". Clearly disclose missing transcripts, uncertain coverage, or insufficient fresh news.',
+].join('\n');

@@ -38,6 +38,7 @@ import { normaliseTask } from '../types/task';
 import type { TaskPriority, AtRiskTask, DayCheckin, CheckinAction } from '../types/task';
 import type { DiagramAsset, DiagramDocument, DiagramDrilldownLink, DiagramSnapshot } from '../features/diagram/diagramTypes';
 import type { GitHubPublication, GitHubPushPayload } from '../notes/types';
+import type { PodcastPrepStatus } from '../types/podcastPrep';
 
 export type ProjectRegisterKind = 'question' | 'risk' | 'issue';
 export interface ProjectRegisterItem {
@@ -1777,6 +1778,18 @@ export class KnowledgeHubApi {
   }
 
   // ── Morning briefing ────────────────────────────────────────────────────────
+
+  async getPodcastPrep(): Promise<ApiResponse<PodcastPrepStatus>> {
+    return (await this.client.get<ApiResponse<PodcastPrepStatus>>('/api/today/podcast-prep')).data;
+  }
+
+  async generatePodcastPrep(): Promise<ApiResponse<PodcastPrepStatus>> {
+    return (await this.client.post<ApiResponse<PodcastPrepStatus>>('/api/today/podcast-prep')).data;
+  }
+
+  async acknowledgePodcastPrep(recordingDate: string, generatedAt: string): Promise<ApiResponse<null>> {
+    return (await this.client.post<ApiResponse<null>>('/api/today/podcast-prep/acknowledge', { recordingDate, generatedAt })).data;
+  }
 
   /** Today's morning briefing (null before 09:00 UK time, or if not made yet). */
   async getMorningBriefing(): Promise<ApiResponse<MorningBriefingApi | null>> {

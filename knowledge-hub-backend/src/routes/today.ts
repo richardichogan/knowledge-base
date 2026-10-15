@@ -4,8 +4,25 @@ import { getDb } from '../db/db.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { getTodaysBriefing, generateMorningBriefing, type Briefing } from '../ai/morningBriefing.js';
 import { generateWeeklyMicrosoftDigest, type WeeklyDigest } from '../ai/weeklyMicrosoftDigest.js';
+import { getPodcastPrepStatus, generatePodcastPrep, acknowledgePodcastPrep } from '../ai/podcastPrep.js';
+import { ValidationError } from '../types/errors.js';
 
 export const todayRouter = Router();
+
+todayRouter.get('/podcast-prep', (_req, res, next) => {
+  void getPodcastPrepStatus(getDb()).then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+todayRouter.post('/podcast-prep', (_req, res, next) => {
+  void generatePodcastPrep(getDb(), true, new Date(), true).then((data) => { res.status(202).json({ success: true, data }); }).catch(next);
+});
+todayRouter.post('/podcast-prep/acknowledge', (req, res, next) => {
+  const body = req.body as { recordingDate?: unknown; generatedAt?: unknown };
+  if (typeof body?.recordingDate !== 'string' || typeof body.generatedAt !== 'string') {
+    next(new ValidationError('Recording date and brief generation time are required')); return;
+  }
+  void acknowledgePodcastPrep(getDb(), body.recordingDate, body.generatedAt)
+    .then(() => { res.json({ success: true, data: null }); }).catch(next);
+});
 
 /** Raw mapped GitHub activity row returned by the Today activity SQL query. */
 export interface GitHubActivityRow {

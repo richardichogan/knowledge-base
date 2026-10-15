@@ -3,7 +3,7 @@
  * named documents with versions. Athena saves them with the save_output
  * tool; the user can edit them (a new version Athena then builds on).
  */
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { getFoundryClient } from './foundryClient.js';
 import { validateImagineDemoBrief } from './imagineDemoBriefSkill.js';
 
@@ -76,13 +76,14 @@ export async function saveOutputVersion(
   db: Pool,
   sessionId: string,
   input: { outputId?: string | undefined; title?: string | undefined; kind?: string | undefined; format?: string | undefined; content: string; author: 'athena' | 'user'; note?: string | undefined },
+  transactionClient?: PoolClient,
 ): Promise<{ id: string; version: number; title: string }> {
   let content = input.content.trim();
   if (content === '') throw new Error('content is empty');
   if (input.author === 'athena') validateImagineDemoBrief(content);
-  const client = await db.connect();
+  const client = transactionClient ?? await db.connect();
   try {
-    await client.query('BEGIN');
+    if (!transactionClient) await client.query('BEGIN');
     let id = input.outputId;
     let title = input.title?.trim() ?? '';
     if (id !== undefined && id !== '') {
@@ -112,13 +113,13 @@ export async function saveOutputVersion(
        RETURNING version`,
       [id, content, input.author, input.note?.trim() || null],
     );
-    await client.query('COMMIT');
+    if (!transactionClient) await client.query('COMMIT');
     return { id, version: next.rows[0]!.version, title };
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (!transactionClient) await client.query('ROLLBACK');
     throw err;
   } finally {
-    client.release();
+    if (!transactionClient) client.release();
   }
 }
 

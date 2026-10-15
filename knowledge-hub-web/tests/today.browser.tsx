@@ -43,6 +43,7 @@ api.getTimeline = async (query) => {
 }))));
 };
 api.getSources = async () => success([]);
+api.getPodcastPrep = async () => success({ nextRecording: null, scheduleWarning: 'No recording date set.', run: null, latestBrief: null });
 api.getDiscoverFeed = async () => success(paginated([]));
 api.listSparkClusters = async () => success([]);
 api.listCanvases = async () => success([]);
@@ -109,7 +110,8 @@ export async function runTodayChecks(): Promise<string[]> {
   await waitFor(() => document.querySelectorAll('.today-brief__attention article').length === 5);
   check(document.querySelectorAll('.today-brief__continue article').length === 4, 'Continuation cap');
   check(document.querySelector('.today-brief .page-subtitle')!.textContent!.includes('5 things need'), 'Greeting count');
-  check(document.querySelectorAll('h1').length === 1 && document.querySelectorAll('h2').length === 4, 'Heading hierarchy');
+  check(document.querySelectorAll('h1').length === 1 && document.querySelectorAll('h2').length === 5
+    && document.querySelector('#podcast-prep-title')?.textContent === 'Podcast preparation', 'Heading hierarchy includes the podcast preparation card');
   check(document.querySelector('.today-brief__prompt') === null && document.querySelector('.today-brief__suggestions') === null, 'Redundant Today launcher and prompts removed');
   check(document.querySelector('.ai-float-button') === null, 'No floating Athena control');
   check(document.querySelector('.today-brief__capture') === null && document.querySelector('#today-capture') === null, 'Redundant Spark capture removed');
@@ -194,7 +196,7 @@ export async function runTodayChecks(): Promise<string[]> {
   await queryClient.invalidateQueries({ queryKey: ['today', 'tasks'] });
   await waitFor(() => document.querySelector('.today-brief__attention [role="alert"]') !== null);
   check(document.querySelector('.today-brief__attention')!.textContent!.includes('available sources'), 'Partial-data wording');
-  check(document.querySelectorAll('section').length === 4, 'Other sections survive');
+  check(document.querySelectorAll('.today-brief__grid section').length === 4, 'Other sections survive');
   results.push('Local failure, retry control and honest partial-data state');
 
   let finish: ((data: ApiResponse<unknown>) => void) | undefined;

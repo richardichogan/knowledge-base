@@ -1,0 +1,184 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { test } from 'node:test';
+import type { Pool } from 'pg';
+import { PGlite } from '@electric-sql/pglite';
+import { getSchedule } from '../src/ai/contentSchedule.js';
+import { acknowledgePodcastPrep, claimPodcastPrep, generatePodcastPrep, getPodcastPrepStatus, podcastPrepDue, podcastRecordingDate } from '../src/ai/podcastPrep.js';
+import { isFreshEvidence, parsePodcastProposal, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic } from '../src/ai/podcastPrepResearch.js';
+
+const now = new Date('2026-10-15T06:00:00Z');
+const recording = '2026-10-16';
+const evidence: PodcastEvidence[] = Array.from({ length: 6 }, (_, i) => ({
+  id: `source-${i + 1}`, title: `Announcement ${i + 1}`, date: '2026-10-14', text: 'Verified source text',
+  url: `https://example.com/news/${i + 1}`,
+}));
+const topics: PodcastTopic[] = evidence.map((e, i) => ({
+  title: `Enterprise topic ${i + 1}`, synopsis: 'What happened.', angle: 'An enterprise decision.',
+  relevance: ['Changes procurement.', 'Changes adoption.'], sourceIds: [e.id],
+  points: Array.from({ length: i === 0 ? 6 : i === 1 ? 4 : 2 }, () => ({ text: 'Evidence-backed point.', evidenceIds: [e.id] })),
+  priorCoverage: 'EP44: earlier discussion.', change: 'A new dated announcement changes the earlier conclusion.',
+  handoff: 'Ask David about architectural consequences.', conclusion: 'Check the operational model.', question: 'Who owns the decision?',
+}));
+const prepared = { proposal: { topics, warnings: [] }, evidence, warnings: [] };
+
+async function fixture(): Promise<{ memory: PGlite; db: Pool }> {
+  const memory = new PGlite();
+  await memory.exec(`
+    CREATE TABLE content_schedule(format text PRIMARY KEY,next_date date,interval_days int,note text,updated_at timestamptz DEFAULT NOW());
+    INSERT INTO content_schedule VALUES('podcast','2026-10-16',14,NULL,NOW());
+    CREATE TABLE content_items(id uuid,title text,body text,source text,metadata jsonb,published_at timestamptz,indexed_at timestamptz);
+    CREATE TABLE ai_chat_sessions(id uuid PRIMARY KEY,title text,persona text,pinned boolean,updated_at timestamptz DEFAULT NOW());
+    CREATE TABLE ai_chat_messages(id serial PRIMARY KEY,session_id uuid,role text,content text,persona text,sources text[],context_used jsonb,next_steps text[],created_at timestamptz DEFAULT NOW());
+    CREATE TABLE chat_outputs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),session_id uuid,title text,kind text,format text,updated_at timestamptz DEFAULT NOW());
+    CREATE TABLE chat_output_versions(output_id uuid,version int,content text,author text,note text,created_at timestamptz DEFAULT NOW(),PRIMARY KEY(output_id,version));`);
+  await memory.exec(await readFile(new URL('../src/db/migrations/077_podcast_prep.sql', import.meta.url), 'utf8'));
+  const query = (sql: string, values?: unknown[]) => memory.query(sql, values);
+  const client = { query, release: () => undefined };
+  const db = { query, connect: async () => client } as unknown as Pool;
+  return { memory, db };
+}
+
+test('Thursday preparation is recording-aware and DST-safe, with bounded daytime catch-up', () => {
+  assert.equal(podcastPrepDue(recording, now), true);
+  assert.equal(podcastPrepDue(recording, new Date('2026-10-15T05:59:00Z')), false);
+  assert.equal(podcastPrepDue('2026-10-23', now), false);
+  assert.equal(podcastPrepDue('2026-10-19', now), false);
+  assert.equal(podcastPrepDue(recording, new Date('2026-10-15T17:00:00Z')), false);
+  assert.equal(podcastPrepDue('2026-10-30', new Date('2026-10-29T07:00:00Z')), true);
+  assert.equal(podcastPrepDue('2026-10-30', new Date('2026-10-29T06:59:00Z')), false);
+  assert.equal(podcastPrepDue(recording, new Date('2026-10-16T06:00:00Z')), false);
+});
+
+test('an explicitly documented Monday release resolves to Friday without rewriting the schedule; calendar recording dates take precedence', () => {
+  const entry = { format: 'podcast' as const, next: '2026-10-19', daysAway: 4, intervalDays: 14,
+    note: 'Recorded on Fridays, released the following Monday; alternates weeks with the newsletter' };
+  assert.equal(podcastRecordingDate(entry, now), recording);
+  assert.equal(podcastRecordingDate({ ...entry, note: null }, now), '2026-10-19');
+  assert.equal(podcastRecordingDate({ ...entry, dateSource: 'calendar' }, now), '2026-10-19');
+  assert.equal(podcastRecordingDate(entry, new Date('2026-10-17T06:00Z')), '2026-10-30');
+  assert.equal(podcastRecordingDate({ ...entry, cancelledDates: [recording] }, now), '2026-10-30');
+  assert.equal(entry.next, '2026-10-19');
+});
+
+test('six ranked topics have progressively lighter depth, dated links, reserves, and prior coverage', () => {
+  const parsed = parsePodcastProposal(JSON.stringify({ topics, warnings: [] }), evidence);
+  assert.equal(parsed.topics.length, 6);
+  assert.deepEqual(parsed.topics.slice(0, 3).map((t) => t.points.length), [6, 4, 2]);
+  const markdown = renderPodcastBrief(recording, { ...prepared, proposal: parsed }, now);
+  assert.match(markdown, /Recommended running order/);
+  assert.match(markdown, /https:\/\/example.com\/news\/1/);
+  assert.match(markdown, /EP44/);
+  assert.match(markdown, /\(reserve\)/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], sourceIds: ['invented'] }], warnings: [] }), evidence), /unknown news source/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [topics[0], topics[0]], warnings: [] }), evidence), /distinct/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], points: [] }], warnings: [] }), evidence), /depth/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], points: [{ text: 'Invented point', evidenceIds: [] }] }], warnings: [] }), evidence), /lacks/);
+  assert.match(parsePodcastProposal(JSON.stringify({ topics: [], warnings: [] }), []).warnings[0]!, /incomplete/);
+  assert.equal(isFreshEvidence('2026-10-14', new Date('2026-10-06'), now), true);
+  assert.equal(isFreshEvidence('2026-10-01', new Date('2026-10-06'), now), false);
+  assert.equal(isFreshEvidence('unknown', new Date('2026-10-06'), now), false);
+  assert.equal(isFreshEvidence('2026-10-17', new Date('2026-10-06'), now), false);
+});
+
+test('episode selection groups transcript/show notes, keeps complete bodies, and does not let a recently edited older episode displace newer ones', () => {
+  const rows = ['Cloudy: EP42', 'Cloudy: Episode 44: Show Notes', 'Cloudy: Episode 44 | Transcript', 'CLOUDY: EP43 | Discussion'].map((title, i) => ({
+    id: String(i), title, body: 'x'.repeat(42_853), date: '2026-10-06', url: null, metadata: {},
+  }));
+  const selected = selectEpisodeDocuments(rows);
+  assert.deepEqual([...selected.keys()], ['44', '43']);
+  assert.equal(selected.get('44')?.length, 2);
+  assert.equal(selected.get('44')?.[1]?.body?.length, 42_853);
+});
+
+test('schedule reads are non-mutating, calendar overrides win, and explicit cancellations do not prepare the cancelled recording', async () => {
+  const { memory, db } = await fixture();
+  try {
+    await memory.exec("UPDATE content_schedule SET next_date='2026-10-02'");
+    const schedule = await getSchedule(db, now, false);
+    assert.equal(schedule.podcast.next, recording);
+    assert.equal((await memory.query<{ date: string }>("SELECT to_char(next_date,'YYYY-MM-DD') AS date FROM content_schedule")).rows[0]?.date, '2026-10-02');
+    await memory.exec(`INSERT INTO content_items VALUES(gen_random_uuid(),'Podcast Record',NULL,'graph-calendar','{"isCancelled":true}','2026-10-16T09:00Z',NOW())`);
+    assert.equal((await getSchedule(db, now, false)).podcast.next, '2026-10-30');
+    await memory.exec(`INSERT INTO content_items VALUES(gen_random_uuid(),'Podcast Record',NULL,'graph-calendar','{}','2026-10-23T09:00Z',NOW())`);
+    assert.equal((await getSchedule(db, now, false)).podcast.next, '2026-10-23');
+  } finally { await memory.close(); }
+});
+
+test('leases prevent duplicate jobs, honour retry cooldown, recover interruption, and stop after three automatic attempts', async () => {
+  const { memory, db } = await fixture();
+  try {
+    assert.ok(await claimPodcastPrep(db, recording, false));
+    assert.equal(await claimPodcastPrep(db, recording, false), null);
+    assert.equal(await claimPodcastPrep(db, recording, true), null);
+    await memory.exec("UPDATE podcast_prep_runs SET status='failed',retry_at=NOW()+interval '15 minutes'");
+    assert.equal(await claimPodcastPrep(db, recording, false), null);
+    await memory.exec("UPDATE podcast_prep_runs SET retry_at=NOW()-interval '1 minute'");
+    assert.ok(await claimPodcastPrep(db, recording, false));
+    await memory.exec("UPDATE podcast_prep_runs SET started_at=NOW()-interval '31 minutes'");
+    assert.equal((await getPodcastPrepStatus(db, now)).run?.status, 'failed');
+    assert.ok(await claimPodcastPrep(db, recording, false));
+    await memory.exec("UPDATE podcast_prep_runs SET started_at=NOW()-interval '31 minutes'");
+    assert.equal(await claimPodcastPrep(db, recording, false), null);
+    assert.equal((await getPodcastPrepStatus(db, now)).run?.status, 'failed');
+    assert.ok(await claimPodcastPrep(db, recording, true));
+  } finally { await memory.close(); }
+});
+
+test('generation saves an output before ready, acknowledgement is version-specific, refresh preserves conversation and user edits', async () => {
+  const { memory, db } = await fixture();
+  try {
+    const status = await generatePodcastPrep(db, true, now, false, async () => prepared);
+    assert.equal(status.run?.status, 'ready');
+    const run = status.run!;
+    assert.ok(run.outputId && run.generatedAt);
+    assert.equal((await memory.query('SELECT * FROM chat_output_versions')).rows.length, 1);
+    await acknowledgePodcastPrep(db, recording, run.generatedAt!);
+    assert.ok((await getPodcastPrepStatus(db, now)).run?.acknowledgedAt);
+    await assert.rejects(acknowledgePodcastPrep(db, recording, '2000-01-01'), /not found/);
+    await memory.query(`INSERT INTO ai_chat_messages(session_id,role,content) VALUES($1,'user','Prefer commercial implications')`, [run.sessionId]);
+    await memory.query(`UPDATE chat_output_versions SET content='My edited brief' WHERE output_id=$1`, [run.outputId]);
+    let received = '';
+    const refreshed = await generatePodcastPrep(db, true, now, false, async (_db, _date, previous) => { received = previous; return prepared; });
+    assert.match(received, /My edited brief/);
+    assert.match(received, /Prefer commercial implications/);
+    assert.equal(refreshed.run?.outputId, run.outputId);
+    assert.equal(refreshed.run?.acknowledgedAt, null);
+    assert.equal((await memory.query('SELECT * FROM chat_output_versions')).rows.length, 2);
+    assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='user'")).rows.length, 1);
+    assert.equal((await memory.query('SELECT persona FROM ai_chat_sessions')).rows[0]?.persona, 'podcast_prep');
+    await generatePodcastPrep(db, false, now, false, async () => { throw new Error('Already prepared: must not rerun'); });
+    await assert.rejects(generatePodcastPrep(db, true, now, false, async () => {
+      await memory.query(`INSERT INTO chat_output_versions(output_id,version,content,author)
+        VALUES($1,3,'Edit made during research','user')`, [run.outputId]);
+      return prepared;
+    }), /edited during research/);
+    assert.equal((await memory.query('SELECT content FROM chat_output_versions ORDER BY version DESC LIMIT 1')).rows[0]?.content, 'Edit made during research');
+    await memory.query('DELETE FROM chat_outputs WHERE id=$1', [run.outputId]);
+    const replaced = await generatePodcastPrep(db, true, now, false, async () => prepared);
+    assert.ok(replaced.run?.outputId && replaced.run.outputId !== run.outputId);
+    assert.equal(replaced.run?.sessionId, run.sessionId);
+  } finally { await memory.close(); }
+});
+
+test('failed research is visible and rescheduled recordings cannot publish into the wrong brief', async () => {
+  const { memory, db } = await fixture();
+  try {
+    await assert.rejects(generatePodcastPrep(db, true, now, false, async () => { throw new Error('Research unavailable'); }), /Research unavailable/);
+    assert.equal((await getPodcastPrepStatus(db, now)).run?.status, 'failed');
+    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    await assert.rejects(generatePodcastPrep(db, true, now, false, async () => {
+      await memory.exec("UPDATE content_schedule SET next_date='2026-10-23'");
+      return prepared;
+    }), /date changed/);
+    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    await memory.exec("UPDATE content_schedule SET next_date='2026-10-16'");
+    await assert.rejects(generatePodcastPrep(db, true, now, false, async () => {
+      await memory.exec("UPDATE podcast_prep_runs SET started_at=NOW()-interval '31 minutes'");
+      return prepared;
+    }), /lease expired/);
+    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    await memory.exec("UPDATE content_schedule SET next_date='2026-10-19'");
+    assert.match((await getPodcastPrepStatus(db, now)).scheduleWarning!, /not a Friday/);
+  } finally { await memory.close(); }
+});

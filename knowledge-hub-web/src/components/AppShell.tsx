@@ -10,6 +10,7 @@ import { ProjectsModal } from './ProjectsModal';
 import { QuickSparkModal } from './sparks/QuickSparkModal';
 import { NavigationMenu } from './NavigationMenu';
 import { DayCheckinBanner } from '../features/plan/DayCheckin';
+import { PodcastPrepNotification } from './today/PodcastPrepCard';
 import { PRIMARY_DESTINATIONS, TOOL_GROUPS, matchesDestination, selectedTool, type NavigationDestination } from '../navigation/destinations';
 import { usePendingTags } from '../hooks/useTaxonomy';
 import { useGlobalShortcuts } from '../hooks/useGlobalShortcuts';
@@ -111,6 +112,7 @@ export const AppShell: React.FC = () => {
         <div className={`kh-content kh-content--shell${tool ? ' kh-content--tools' : ''}`}>
           {tool && <p className="kh-tools-location">Tools / {tool.label}</p>}
           <DayCheckinBanner />
+          <PodcastPrepNotification />
           <div className="kh-shell__page"><Outlet /></div>
         </div>
       </div>
