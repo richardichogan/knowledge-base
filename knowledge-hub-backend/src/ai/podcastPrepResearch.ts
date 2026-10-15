@@ -27,6 +27,30 @@ export function selectEpisodeDocuments(rows: ContextRow[]): Map<string, ContextR
   return new Map([...groups].sort(([a], [b]) => Number(b) - Number(a)).slice(0, 2));
 }
 
+const MICROSOFT_TERMS = 'microsoft|msft|azure|copilot|m365|office 365|github|dynamics 365|power platform|power bi|microsoft fabric|entra|purview|intune|sentinel|sharepoint|nadella';
+const MICROSOFT_PATTERN = new RegExp(`\\b(?:${MICROSOFT_TERMS})\\b`, 'i');
+const MICROSOFT_SQL_PATTERN = `\\y(${MICROSOFT_TERMS})\\y`;
+
+/** The podcast is Microsoft-focused, so research prioritises Microsoft-related evidence. */
+export function isMicrosoftRelevant(candidate: { title: string; url: string; text?: string }): boolean {
+  try {
+    if (/(?:^|\.)(?:microsoft|azure|github|office)\.com$/i.test(new URL(candidate.url).hostname)) return true;
+  } catch { /* fall through to text checks */ }
+  return MICROSOFT_PATTERN.test(candidate.title) || MICROSOFT_PATTERN.test((candidate.text ?? '').slice(0, 2000));
+}
+
+export const PODCAST_WEB_QUERIES = [
+  'Microsoft Copilot Microsoft 365 agents enterprise adoption pricing licensing',
+  'Microsoft Azure AI Foundry announcement enterprise',
+  'Microsoft AI governance sovereignty partner business news',
+  'GitHub Copilot Microsoft developer agents announcement',
+];
+
+export function rankPodcastCandidates<T extends { title: string; url: string; date: string; text?: string }>(candidates: T[]): T[] {
+  return [...candidates].sort((a, b) => Number(isMicrosoftRelevant(b)) - Number(isMicrosoftRelevant(a))
+    || Date.parse(b.date) - Date.parse(a.date));
+}
+
 export function isFreshEvidence(date: string, since: Date, now: Date): boolean {
   const instant = Date.parse(date);
   return Number.isFinite(instant) && instant > since.getTime() && instant <= now.getTime();
@@ -128,14 +152,15 @@ Promise<{ proposal: PodcastProposal; evidence: PodcastEvidence[]; warnings: stri
   }
   const news = await db.query<ContextRow>(`SELECT id::text,title,body,url,metadata,COALESCE(published_at,indexed_at)::text AS date
     FROM content_items WHERE source='discovered-article' AND published_at > $1 AND published_at <= $2
-    AND url IS NOT NULL ORDER BY (metadata->>'compositeScore')::numeric DESC NULLS LAST,
-    published_at DESC LIMIT 35`, [since, now]);
+    AND url IS NOT NULL ORDER BY (title ~* $3 OR url ~* '(microsoft|azure|github)\\.com' OR LEFT(COALESCE(body,''),2000) ~* $3) DESC,
+    (metadata->>'compositeScore')::numeric DESC NULLS LAST, published_at DESC LIMIT 50`,
+  [since, now, MICROSOFT_SQL_PATTERN]);
   const candidates = news.rows.map((r) => ({ title: r.title, url: r.url!, date: r.date, text: r.body ?? '' }));
   if (isTavilyEnabled()) {
     try {
       const tool = (await getTavilyMcpTools()).find((t) => t.function.name === 'tavily_search');
       const props = (tool?.function.parameters as { properties?: Record<string, unknown> } | undefined)?.properties ?? {};
-      for (const query of ['enterprise AI Copilot agents adoption pricing governance', 'Microsoft enterprise cloud AI sovereignty business operating model']) {
+      for (const query of PODCAST_WEB_QUERIES) {
         const args: Record<string, unknown> = { query: `${query} news ${since.toISOString().slice(0, 10)} to ${now.toISOString().slice(0, 10)}` };
         if ('max_results' in props) args['max_results'] = 10;
         if ('topic' in props) args['topic'] = 'news';
@@ -153,7 +178,8 @@ Promise<{ proposal: PodcastProposal; evidence: PodcastEvidence[]; warnings: stri
   const seen = new Set<string>();
   let reads = 0;
   // Dedupe before bounded source reading. Failed page reads are disclosed and not replaced with invented content.
-  for (const candidate of candidates.sort((a, b) => Date.parse(b.date) - Date.parse(a.date))) {
+  if (!candidates.some(isMicrosoftRelevant)) warnings.push('No fresh Microsoft-related news was found; topics may lack a Microsoft hook.');
+  for (const candidate of rankPodcastCandidates(candidates)) {
     const key = normaliseDigestUrl(candidate.url);
     if (seen.has(key) || !isFreshEvidence(candidate.date, since, now)) continue;
     seen.add(key);

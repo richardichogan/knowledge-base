@@ -5,7 +5,7 @@ import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
 import { getSchedule } from '../src/ai/contentSchedule.js';
 import { acknowledgePodcastPrep, claimPodcastPrep, generatePodcastPrep, getPodcastPrepStatus, podcastPrepDue, podcastRecordingDate } from '../src/ai/podcastPrep.js';
-import { isFreshEvidence, parsePodcastProposal, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic } from '../src/ai/podcastPrepResearch.js';
+import { isFreshEvidence, isMicrosoftRelevant, parsePodcastProposal, rankPodcastCandidates, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic } from '../src/ai/podcastPrepResearch.js';
 
 const now = new Date('2026-10-15T06:00:00Z');
 const recording = '2026-10-16';
@@ -181,4 +181,14 @@ test('failed research is visible and rescheduled recordings cannot publish into 
     await memory.exec("UPDATE content_schedule SET next_date='2026-10-19'");
     assert.match((await getPodcastPrepStatus(db, now)).scheduleWarning!, /not a Friday/);
   } finally { await memory.close(); }
+});
+
+test('podcast research prioritises Microsoft-related news over newer generic news', () => {
+  const generic = { title: 'Startup raises funding for AI agents', url: 'https://example.com/a', date: '2026-10-14T10:00:00Z', text: 'General industry news' };
+  const msText = { title: 'New enterprise agent pricing', url: 'https://example.com/b', date: '2026-10-12T10:00:00Z', text: 'Microsoft 365 Copilot licensing changes' };
+  const msHost = { title: 'Announcing new capabilities', url: 'https://azure.microsoft.com/blog/x', date: '2026-10-11T10:00:00Z', text: '' };
+  assert.equal(isMicrosoftRelevant(generic), false);
+  assert.equal(isMicrosoftRelevant(msText), true);
+  assert.equal(isMicrosoftRelevant(msHost), true);
+  assert.deepEqual(rankPodcastCandidates([generic, msHost, msText]).map((c) => c.url), [msText.url, msHost.url, generic.url]);
 });
