@@ -223,6 +223,14 @@ test('Tech Community reads the requested full article from page data, never rela
   assert.throws(() => articleProse(html, 'https://techcommunity.microsoft.com/blog/entra/missing/123'), /requested article body/);
 });
 
+test('Tech Community pages without embedded article data fail instead of extracting generic page text', () => {
+  const html = `<html><body><main><article>${'<p>Related Microsoft article teaser and navigation text.</p>'.repeat(40)}</article></main></body></html>`;
+  assert.throws(() => articleProse(html, 'https://techcommunity.microsoft.com/blog/entra/example/4556460'), /__NEXT_DATA__/);
+  assert.throws(() => articleProse(html, 'https://techcommunity.microsoft.com/blog/entra/no-id'), /__NEXT_DATA__/);
+  const data = `<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"apolloState":{}}}}</script>`;
+  assert.throws(() => articleProse(data, 'https://techcommunity.microsoft.com/blog/entra/no-id'), /article ID/);
+});
+
 test('research workers preserve order, run at most three requests and propagate source failures', async () => {
   let active = 0;
   let peak = 0;

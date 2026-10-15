@@ -11,18 +11,18 @@ const MIN_REGION_CHARS = 800;
 export function articleProse(html: string, url?: string): string {
   if (url && new URL(url).hostname === 'techcommunity.microsoft.com') {
     const pageData = /<script\b[^>]*\bid=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i.exec(html);
-    if (pageData) {
-      const data: unknown = JSON.parse(pageData[1]!);
-      const object = (value: unknown): Record<string, unknown> =>
-        value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-      const state = object(object(object(object(data).props).pageProps).apolloState);
-      const id = /\/(\d+)\/?$/.exec(new URL(url).pathname)?.[1];
-      const article = id ? object(state[`BlogTopicMessage:message:${id}`]) : {};
-      if (typeof article.body !== 'string' || !article.body.trim()) {
-        throw new Error('Tech Community page data does not contain the requested article body');
-      }
-      return articleProse(article.body);
+    if (!pageData) throw new Error('Tech Community page does not contain __NEXT_DATA__ article data');
+    const data: unknown = JSON.parse(pageData[1]!);
+    const object = (value: unknown): Record<string, unknown> =>
+      value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    const state = object(object(object(object(data).props).pageProps).apolloState);
+    const id = /\/(\d+)\/?$/.exec(new URL(url).pathname)?.[1];
+    if (!id) throw new Error('Tech Community URL does not contain an article ID');
+    const article = object(state[`BlogTopicMessage:message:${id}`]);
+    if (typeof article.body !== 'string' || !article.body.trim()) {
+      throw new Error('Tech Community page data does not contain the requested article body');
     }
+    return articleProse(article.body);
   }
   const cleaned = html.replace(/<(script|style|nav|header|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ');
