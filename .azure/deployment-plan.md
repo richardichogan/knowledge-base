@@ -1,11 +1,17 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Deployment:** Canvas recycle bin and nested diagram navigation. Existing ACA,
-ACR and production SWA.
+**Deployment:** Podcast preparation timeout fix. Existing ACA and ACR; frontend
+unchanged.
 
 ## 1. Scope
+
+Approved 2026-10-15 at 10:39 BST: deploy podcast timeout fix `ed56adb`.
+Only the background final brief request gets a six-minute timeout; interactive
+requests retain their existing limits. Existing backend v196 advances to v197
+after a successful ACR build. No frontend, migration, infrastructure, role,
+secret, environment or authentication changes. Rollback: backend v196.
 
 Approved 2026-10-14 at 20:15 BST: deploy nested diagram navigation `dbd3b11`
 and recoverable canvas deletion `2a1f9bc`. Backend v194 advances to v195 after
@@ -248,6 +254,22 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-15 after the 10:39 BST request:
+
+- `git fetch origin` and `git merge origin/main`: already up to date; timeout
+  fix `ed56adb` is present. Unrelated `.impeccable/` remains untouched.
+- Both applications: `npx tsc --noEmit` passed. Backend `npm run build` passed.
+- `node scripts\run-isolated-tests.mjs` passed with exit code 0.
+- Azure authentication confirms Alliance Tenant Reporting,
+  `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`; existing target remains UK South.
+- Live ACA configuration is Succeeded on v196, revision 0000193, with latest
+  revision receiving 100% traffic. Existing ACR secret-based authentication is
+  unchanged; no managed identity or new RBAC propagation gate applies.
+- Dockerfile and package-lock.json verified. ACR has v196/v195/v194; v197 is
+  the next release. ACR remote build must succeed before the image update.
+- Existing-resource backend image update only: IaC/template/policy changes and
+  frontend publication are not applicable.
 
 Deployed 2026-10-14 following the 20:15 BST request:
 
