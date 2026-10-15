@@ -194,6 +194,7 @@ Promise<{ proposal: PodcastProposal; evidence: PodcastEvidence[]; warnings: stri
   const evidence: PodcastEvidence[] = [];
   const seen = new Set<string>();
   let reads = 0;
+  let unreadable = 0;
   // Dedupe before bounded source reading. Failed page reads are disclosed and not replaced with invented content.
   if (!candidates.some(isMicrosoftRelevant)) warnings.push('No fresh Microsoft-related news was found; topics may lack a Microsoft hook.');
   for (const candidate of rankPodcastCandidates(candidates)) {
@@ -214,12 +215,12 @@ Promise<{ proposal: PodcastProposal; evidence: PodcastEvidence[]; warnings: stri
       const excerpt = readingExcerpt(body, 8_000);
       evidence.push({ id: `source-${evidence.length + 1}`, title: candidate.title, url: candidate.url,
         date: candidate.date, text: excerpt.text });
-      if (excerpt.truncated) warnings.push(`Source read in excerpts: ${candidate.title}.`);
     } catch (error) {
       console.warn(`[PodcastPrep] Cannot verify ${candidate.url}:`, error);
-      warnings.push(`Could not read source: ${candidate.title}; excluded from candidates.`);
+      unreadable++;
     }
   }
+  if (unreadable) console.warn(`[PodcastPrep] ${unreadable} candidate sources were unreadable and skipped.`);
   if (!evidence.length) return { proposal: { topics: [], warnings: ['No fresh, readable outside sources were found.'] }, evidence, warnings };
   const facts = JSON.stringify({ recording, researchCutoff: now.toISOString(), episodeCoverage: covered.text,
     recentOwnPosts: own.rows.map((r) => ({ title: r.title, date: r.date, url: r.url, text: readingExcerpt(r.body ?? '', 3000).text })),
