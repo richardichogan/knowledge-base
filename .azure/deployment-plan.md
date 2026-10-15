@@ -1,13 +1,12 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
-**Deployment:** AI flow / governance diagram type (`d5e6ea0`).
-User explicitly requested deployment on 2026-10-15. Deploy the backend as
-`kh-prod-api:v198` and publish the matching frontend to the existing production
-Static Web App. No infrastructure, database schema, migration, subscription,
-region, secret or role changes. Rollback: backend v197 and the prior production
-frontend bundle.
+**Deployment:** AI flow / governance diagram type (`d5e6ea0`) deployed
+2026-10-15. Backend `kh-prod-api:v198` and matching frontend are live on the
+existing production resources. No infrastructure, database schema, migration,
+subscription, region, secret or role changes. Rollback: backend v197 and the
+prior production frontend bundle.
 
 **Deployment:** Podcast preparation timeout fix. Existing ACA and ACR; frontend
 unchanged.
@@ -261,6 +260,25 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Deployed 2026-10-15 following the user's request:
+
+- Release `d5e6ea0` and its validation record `e46de14` are on the feature
+  branch and `main`.
+- ACR run `ca68` succeeded from `main`: `kh-prod-api:v198`, digest
+  `sha256:86c996c3bd94b3ec8a318ed85a023b56b67d9e0e2d53ee27c61b400a424cabc4`.
+- ACA revision `kh-prod-api-vnet--0000195` is Healthy,
+  RunningAtMaxScale and receives 100% of production traffic. Startup logs
+  confirm migration completion and database pool pre-warm (8/8).
+- The startup sync also reported GitLab API 401 errors for commits, merge
+  requests, issues and pipelines. This did not affect readiness; investigate
+  the existing GitLab connection separately if those syncs are expected.
+- Static Web Apps CLI reported successful production deployment to
+  `https://nice-mud-0f780fb03.7.azurestaticapps.net`. The custom-domain Think
+  route loads the Athena sign-in page. Production asset
+  `DiagramEditor-CjKcy2HK.js` returns HTTP 200 and has SHA-256
+  `604d397d68dfd9499966b63982eb50a5d87a7c7d2b06d0be31e8ab80688a924a`,
+  matching the local production build exactly.
 
 Validated 2026-10-15 for AI flow / governance diagram release `d5e6ea0`:
 
