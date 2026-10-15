@@ -135,6 +135,13 @@ export const AI_REQUEST_TIMEOUT_MS = 60_000;
  */
 export const AI_REASONING_MODEL_REQUEST_TIMEOUT_MS = 100_000;
 /**
+ * Background podcast brief generation sends ~16 source excerpts plus episode
+ * coverage and asks for a large structured brief; production calls exceeded
+ * the interactive 100s limit. Two attempts at this limit stay well inside the
+ * 30-minute podcast_prep_runs lease, and no user request waits on it.
+ */
+export const AI_PODCAST_PREP_REQUEST_TIMEOUT_MS = 360_000;
+/**
  * Overall wall-clock budget for a full conversation turn, covering every
  * tool-calling round trip (see AI_MAX_TOOL_ITERATIONS). A reasoning-model
  * turn that also calls tools (e.g. Tavily search) can otherwise exceed the

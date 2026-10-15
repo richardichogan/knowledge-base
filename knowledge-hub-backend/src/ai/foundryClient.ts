@@ -119,8 +119,9 @@ export class FoundryClient {
     model: AiModel,
     messages: ConversationMessage[],
     maxTokens = AI_DEFAULT_MAX_TOKENS,
+    timeoutMs?: number,
   ): Promise<string> {
-    const data = await this.request(model, messages, undefined, maxTokens);
+    const data = await this.request(model, messages, undefined, maxTokens, 'auto', timeoutMs);
     const content = data.choices[0]?.message.content;
 
     if (!content) {
