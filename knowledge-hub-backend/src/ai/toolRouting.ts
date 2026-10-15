@@ -35,7 +35,9 @@ function findToolName(tools: LlmToolDefinition[], predicate: (name: string) => b
  * the first model call; after the tool result is present, the normal automatic
  * tool loop resumes so the model can synthesize or perform another lookup.
  */
-const DIAGRAM_CREATE_PATTERN = /\b(?:create|draw|make|build|sketch|generate)\s+(?:me\s+)?(?:a|an|the|new|another)?\s*(?:new\s+)?(?:architecture\s+|flow\s+|process\s+)?diagram\b/i;
+const DIAGRAM_CREATE_PATTERN = /\b(?:create|draw|make|build|sketch|generate)\s+(?:me\s+)?(?:a|an|the|new|another)?\s*(?:new\s+)?(?:(?:architecture|flow|process|swim\s*-?lane|ai[\s-]+flow|(?:ai\s+)?governance|agentic(?:\s+process)?)\s+)?diagram\b/i;
+/** An AI flow / governance (agentic process) diagram, even without the word "diagram". */
+const AI_FLOW_CREATE_PATTERN = /\b(?:create|draw|make|build|sketch|generate|map\s+out|map)\s+(?:me\s+)?(?:a|an|the|new|another)?\s*(?:new\s+)?(?:ai[\s-]+flow|ai\s+governance\s+flow|agentic\s+(?:process|flow|workflow)|swim\s*-?lane\s+(?:flow|process|view))\b/i;
 
 export function selectRequiredToolChoice(
   userMessage: string,
@@ -88,7 +90,7 @@ export function selectRequiredToolChoice(
   }
 
   // Asked to draw a new diagram: create it rather than searching existing ones.
-  if (DIAGRAM_CREATE_PATTERN.test(userMessage)) {
+  if (DIAGRAM_CREATE_PATTERN.test(userMessage) || AI_FLOW_CREATE_PATTERN.test(userMessage)) {
     const createTool = findToolName(tools, name => name === 'create_diagram');
     if (createTool !== undefined) return { type: 'function', function: { name: createTool } };
   }

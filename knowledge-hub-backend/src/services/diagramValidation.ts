@@ -9,8 +9,12 @@
  */
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { ValidationError } from '../types/errors.js';
-import { DIAGRAM_CALLOUT_TYPES } from '../types/diagram.js';
+import {
+  AI_AGENT_MODES, AI_ASSERTION_LEVELS, AI_FLOW_EDGE_TYPES, AI_FLOW_INTERACTIONS, AI_FLOW_STATES, AI_FLOW_STEP_KINDS, AI_FLOW_STEP_TYPES,
+  AI_FLOW_VOLUMES, AI_MEMORY_SCOPES, DATA_SENSITIVITIES, DIAGRAM_CALLOUT_TYPES, DIAGRAM_TYPES,
+} from '../types/diagram.js';
 import type {
+  AiFlowAgent, AiFlowControls, AiFlowEdge, AiFlowLane, AiFlowOperations, AiFlowStep,
   DiagramDocument, DiagramEdge, DiagramFootnote, DiagramKind, DiagramLegend, DiagramLegendEntry, DiagramNode, DiagramPoint, DiagramPort,
 } from '../types/diagram.js';
 
@@ -29,6 +33,12 @@ export const DIAGRAM_LIMITS = {
   maxLegendEntries: 50,
   maxLegendLabelChars: 120,
   maxLabelOffset: 10_000,
+  /** AI-flow free-text fields (actor, role, payload, SLA ...). */
+  maxFlowTextChars: 500,
+  /** AI-flow lists (tools, systems, guardrails ...). */
+  maxFlowListItems: 30,
+  maxFlowListItemChars: 200,
+  maxLaneOrder: 10_000,
   minFontSize: 6,
   maxFontSize: 200,
   /** |x|, |y| of the viewport pan. */
@@ -63,7 +73,7 @@ const ROUTES: readonly DiagramEdge['route'][] = ['straight', 'orthogonal'];
 const ARROWS: readonly DiagramEdge['arrows'][] = ['none', 'start', 'end', 'both'];
 
 const DOC_KEYS = ['version', 'nodes', 'edges', 'grid', 'viewport'] as const;
-const DOC_OPTIONAL_KEYS = ['footnotes', 'legend', 'notesPanel'] as const;
+const DOC_OPTIONAL_KEYS = ['footnotes', 'legend', 'notesPanel', 'diagramType'] as const;
 const FOOTNOTE_KEYS = ['id', 'targetId', 'source'] as const;
 const LEGEND_KEYS = ['visible', 'position', 'entries'] as const;
 const LEGEND_ENTRY_KEYS = ['colour', 'label'] as const;
@@ -72,6 +82,16 @@ const VIEWPORT_KEYS = ['x', 'y', 'zoom'] as const;
 const POINT_KEYS = ['x', 'y'] as const;
 const NODE_KEYS = ['id', 'kind', 'label', 'x', 'y', 'width', 'height', 'parentId', 'fill', 'stroke', 'textColor', 'fontSize', 'assetId'] as const;
 const EDGE_KEYS = ['id', 'sourceId', 'targetId', 'sourcePort', 'targetPort', 'route', 'waypoints', 'label', 'stroke', 'dashed', 'arrows'] as const;
+const FLOW_STEP_KEYS = ['stepType'] as const;
+const FLOW_STEP_OPTIONAL_KEYS = ['state', 'actor', 'systems', 'dataIn', 'dataOut', 'agent', 'controls', 'operations'] as const;
+const FLOW_AGENT_KEYS = ['role', 'mode', 'assertion', 'orchestrator', 'tools', 'knowledge', 'guardrails', 'escalationPath', 'decisionBoundary', 'confidenceThreshold', 'memory', 'model', 'promptVersion'] as const;
+const FLOW_CONTROL_KEYS = ['sensitivity', 'authRequired', 'authModel', 'auditLogging', 'humanApproval', 'regulatoryTags'] as const;
+const FLOW_OPERATION_KEYS = ['volume', 'sla', 'failureHandling', 'monitoring'] as const;
+const FLOW_LANE_KEYS = ['order'] as const;
+const FLOW_LANE_OPTIONAL_KEYS = ['owner', 'description'] as const;
+const FLOW_EDGE_KEYS = ['edgeType'] as const;
+const FLOW_EDGE_OPTIONAL_KEYS = ['interaction', 'payload', 'sensitivity', 'auth', 'condition'] as const;
+const FLOW_STEP_KIND_SET: ReadonlySet<DiagramKind> = new Set<DiagramKind>(AI_FLOW_STEP_KINDS);
 
 // ─── Document ───────────────────────────────────────────────────────────────
 
@@ -152,7 +172,7 @@ function validatePoint(v: unknown, path: string): DiagramPoint {
 }
 
 function validateNode(v: unknown, path: string): DiagramNode {
-  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd', 'collapsed', 'calloutType']);
+  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd', 'collapsed', 'calloutType', 'flow', 'lane']);
   const c = DIAGRAM_LIMITS.maxCoordinate;
   const kind = oneOf(o['kind'], KINDS, `${path}.kind`);
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
@@ -185,7 +205,99 @@ function validateNode(v: unknown, path: string): DiagramNode {
     ...(o['textVerticalAlign'] !== undefined ? { textVerticalAlign: oneOf(o['textVerticalAlign'], ['top', 'middle', 'bottom'] as const, `${path}.textVerticalAlign`) } : {}),
     ...(o['collapsed'] !== undefined ? { collapsed: collapsedFlag(o['collapsed'], kind, `${path}.collapsed`) } : {}),
     ...(o['calloutType'] !== undefined ? { calloutType: oneOf(o['calloutType'], DIAGRAM_CALLOUT_TYPES, `${path}.calloutType`) } : {}),
+    ...(o['flow'] !== undefined ? { flow: validateFlowStep(o['flow'], kind, `${path}.flow`) } : {}),
+    ...(o['lane'] !== undefined ? { lane: validateFlowLane(o['lane'], kind, `${path}.lane`) } : {}),
     assetId,
+  };
+}
+
+// ─── AI flow metadata ───────────────────────────────────────────────────────
+
+/** Spreads `{ [key]: parsed }` only when the key is present. */
+function opt<K extends string, T>(o: Record<string, unknown>, key: K, path: string, parse: (v: unknown, at: string) => T): { [P in K]?: T } {
+  return (o[key] === undefined ? {} : { [key]: parse(o[key], `${path}.${key}`) }) as { [P in K]?: T };
+}
+
+const flowText = (v: unknown, path: string): string => str(v, path, DIAGRAM_LIMITS.maxFlowTextChars);
+const flowList = (v: unknown, path: string): string[] =>
+  array(v, path, DIAGRAM_LIMITS.maxFlowListItems).map((s, i) => str(s, `${path}[${i}]`, DIAGRAM_LIMITS.maxFlowListItemChars));
+
+function validateFlowAgent(v: unknown, path: string): AiFlowAgent {
+  const o = exactObject(v, [], path, FLOW_AGENT_KEYS);
+  return {
+    ...opt(o, 'role', path, flowText),
+    ...opt(o, 'mode', path, (x, at) => oneOf(x, AI_AGENT_MODES, at)),
+    ...opt(o, 'assertion', path, (x, at) => oneOf(x, AI_ASSERTION_LEVELS, at)),
+    ...opt(o, 'orchestrator', path, flowText),
+    ...opt(o, 'tools', path, flowList),
+    ...opt(o, 'knowledge', path, flowList),
+    ...opt(o, 'guardrails', path, flowList),
+    ...opt(o, 'escalationPath', path, flowText),
+    ...opt(o, 'decisionBoundary', path, flowText),
+    ...opt(o, 'confidenceThreshold', path, (x, at) => num(x, at, 0, 1)),
+    ...opt(o, 'memory', path, (x, at) => oneOf(x, AI_MEMORY_SCOPES, at)),
+    ...opt(o, 'model', path, flowText),
+    ...opt(o, 'promptVersion', path, flowText),
+  };
+}
+
+function validateFlowControls(v: unknown, path: string): AiFlowControls {
+  const o = exactObject(v, [], path, FLOW_CONTROL_KEYS);
+  return {
+    ...opt(o, 'sensitivity', path, (x, at) => oneOf(x, DATA_SENSITIVITIES, at)),
+    ...opt(o, 'authRequired', path, bool),
+    ...opt(o, 'authModel', path, flowText),
+    ...opt(o, 'auditLogging', path, bool),
+    ...opt(o, 'humanApproval', path, bool),
+    ...opt(o, 'regulatoryTags', path, flowList),
+  };
+}
+
+function validateFlowOperations(v: unknown, path: string): AiFlowOperations {
+  const o = exactObject(v, [], path, FLOW_OPERATION_KEYS);
+  return {
+    ...opt(o, 'volume', path, (x, at) => oneOf(x, AI_FLOW_VOLUMES, at)),
+    ...opt(o, 'sla', path, flowText),
+    ...opt(o, 'failureHandling', path, flowText),
+    ...opt(o, 'monitoring', path, flowText),
+  };
+}
+
+function validateFlowStep(v: unknown, kind: DiagramKind, path: string): AiFlowStep {
+  if (!FLOW_STEP_KIND_SET.has(kind)) fail(path, `is only allowed on ${AI_FLOW_STEP_KINDS.join(', ')} shapes`);
+  const o = exactObject(v, FLOW_STEP_KEYS, path, FLOW_STEP_OPTIONAL_KEYS);
+  return {
+    stepType: oneOf(o['stepType'], AI_FLOW_STEP_TYPES, `${path}.stepType`),
+    ...opt(o, 'state', path, (x, at) => oneOf(x, AI_FLOW_STATES, at)),
+    ...opt(o, 'actor', path, flowText),
+    ...opt(o, 'systems', path, flowList),
+    ...opt(o, 'dataIn', path, flowList),
+    ...opt(o, 'dataOut', path, flowList),
+    ...opt(o, 'agent', path, validateFlowAgent),
+    ...opt(o, 'controls', path, validateFlowControls),
+    ...opt(o, 'operations', path, validateFlowOperations),
+  };
+}
+
+function validateFlowLane(v: unknown, kind: DiagramKind, path: string): AiFlowLane {
+  if (kind !== 'swimlane') fail(path, 'is only allowed on swimlanes');
+  const o = exactObject(v, FLOW_LANE_KEYS, path, FLOW_LANE_OPTIONAL_KEYS);
+  return {
+    order: num(o['order'], `${path}.order`, -DIAGRAM_LIMITS.maxLaneOrder, DIAGRAM_LIMITS.maxLaneOrder),
+    ...opt(o, 'owner', path, flowText),
+    ...opt(o, 'description', path, (x, at) => str(x, at, DIAGRAM_LIMITS.maxDescriptionChars)),
+  };
+}
+
+function validateFlowEdge(v: unknown, path: string): AiFlowEdge {
+  const o = exactObject(v, FLOW_EDGE_KEYS, path, FLOW_EDGE_OPTIONAL_KEYS);
+  return {
+    edgeType: oneOf(o['edgeType'], AI_FLOW_EDGE_TYPES, `${path}.edgeType`),
+    ...opt(o, 'interaction', path, (x, at) => oneOf(x, AI_FLOW_INTERACTIONS, at)),
+    ...opt(o, 'payload', path, flowText),
+    ...opt(o, 'sensitivity', path, (x, at) => oneOf(x, DATA_SENSITIVITIES, at)),
+    ...opt(o, 'auth', path, flowText),
+    ...opt(o, 'condition', path, flowText),
   };
 }
 
@@ -224,7 +336,7 @@ function validateLegend(v: unknown, path: string): DiagramLegend {
 }
 
 function validateEdge(v: unknown, path: string): DiagramEdge {
-  const o = exactObject(v, EDGE_KEYS, path, ['description', 'strokeWidth', 'fontSize', 'labelOffset']);
+  const o = exactObject(v, EDGE_KEYS, path, ['description', 'strokeWidth', 'fontSize', 'labelOffset', 'flow']);
   const waypoints = array(o['waypoints'], `${path}.waypoints`, DIAGRAM_LIMITS.maxWaypointsPerEdge)
     .map((p, i) => validatePoint(p, `${path}.waypoints[${i}]`));
   return {
@@ -243,6 +355,7 @@ function validateEdge(v: unknown, path: string): DiagramEdge {
     ...(o['strokeWidth'] !== undefined ? { strokeWidth: num(o['strokeWidth'], `${path}.strokeWidth`, 0.5, 6) } : {}),
     dashed: bool(o['dashed'], `${path}.dashed`),
     arrows: oneOf(o['arrows'], ARROWS, `${path}.arrows`),
+    ...(o['flow'] !== undefined ? { flow: validateFlowEdge(o['flow'], `${path}.flow`) } : {}),
   };
 }
 
@@ -268,6 +381,7 @@ export function validateDiagramDocument(input: unknown, knownAssetIds: ReadonlyS
     : array(o['footnotes'], 'document.footnotes', DIAGRAM_LIMITS.maxFootnotes).map((f, i) => validateFootnote(f, `document.footnotes[${i}]`));
   const legend = o['legend'] === undefined ? undefined : validateLegend(o['legend'], 'document.legend');
   const notesPanel = o['notesPanel'] === undefined ? undefined : oneOf(o['notesPanel'], ['bottom', 'right'] as const, 'document.notesPanel');
+  const diagramType = o['diagramType'] === undefined ? undefined : oneOf(o['diagramType'], DIAGRAM_TYPES, 'document.diagramType');
 
   // Ids are unique across nodes and edges (case-insensitively); references match exactly.
   const seen = new Set<string>();
@@ -325,7 +439,9 @@ export function validateDiagramDocument(input: unknown, knownAssetIds: ReadonlyS
   }
 
   return {
-    version: 1, nodes, edges, grid, viewport,
+    version: 1,
+    ...(diagramType !== undefined ? { diagramType } : {}),
+    nodes, edges, grid, viewport,
     ...(footnotes !== undefined ? { footnotes } : {}),
     ...(legend !== undefined ? { legend } : {}),
     ...(notesPanel !== undefined ? { notesPanel } : {}),

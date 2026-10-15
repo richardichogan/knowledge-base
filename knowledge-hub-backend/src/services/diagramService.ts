@@ -55,9 +55,9 @@ export async function requireCanvasType(id: string, expected: CanvasType, db: Po
   if (actual !== expected) throw canvasTypeMismatch(actual);
 }
 
-/** Creates the revision-0 empty document for a new diagram canvas (inside the caller's transaction). */
-export async function initDiagram(client: PoolClient, canvasId: string): Promise<void> {
-  const doc = JSON.stringify(emptyDiagram());
+/** Creates the revision-0 document for a new diagram canvas (inside the caller's transaction); empty unless `initial` is given. */
+export async function initDiagram(client: PoolClient, canvasId: string, initial: DiagramDocument = emptyDiagram()): Promise<void> {
+  const doc = JSON.stringify(initial);
   await client.query(
     `INSERT INTO canvas_diagrams (canvas_id, revision, document) VALUES ($1, 0, $2) ON CONFLICT (canvas_id) DO NOTHING`,
     [canvasId, doc]);
@@ -130,7 +130,8 @@ export async function openDrilldown(canvasId: string, nodeId: string, body: unkn
       const child = await client.query<{ id: string }>(
         `INSERT INTO canvases (title, project, canvas_type) VALUES ($1, $2, 'diagram') RETURNING id`, [title, parent.project]);
       const childId = child.rows[0]!.id;
-      await initDiagram(client, childId);
+      // A drill-down keeps its parent's diagram type, so AI flow detail stays an AI flow.
+      await initDiagram(client, childId, parent.document.diagramType === 'ai-flow' ? { ...emptyDiagram(), diagramType: 'ai-flow' } : emptyDiagram());
       await client.query(
         `INSERT INTO diagram_drilldowns (canvas_id, node_id, child_canvas_id) VALUES ($1, $2, $3)`, [canvasId, nodeId, childId]);
       result = { nodeId, canvasId: childId, title };

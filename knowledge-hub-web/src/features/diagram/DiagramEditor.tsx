@@ -24,6 +24,7 @@ import {
   AlignHorizontalRight, AlignVerticalTop, AlignVerticalCenter, AlignVerticalBottom, DistributeHorizontalCenter,
   DistributeVerticalCenter, Layers, Group, Renew, Reset, CheckmarkFilled, ErrorFilled, WarningAlt, InProgress,
   ChevronDown, ChevronRight, ChevronLeft, PresentationFile, RecentlyViewed, SpellCheck, ListNumbered, Chat, Legend,
+  Bot, Policy, ArrangeVertical, Help,
 } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
@@ -59,6 +60,13 @@ import { DiagramTextCheck } from './DiagramTextCheck';
 import { DiagramElementNotes } from './DiagramElementNotes';
 import { diagramEditorFill, diagramEditorInk, diagramEditorNodeColours } from './diagramTheme';
 import { diagramBorderDash } from './diagramStroke';
+import { checkAiFlow, layoutAiFlow, nextLaneOrder, EDGE_STYLES, STEP_STYLES, STEP_TYPE_LABELS, type AiFlowSeverity } from './aiFlow';
+import { AI_FLOW_STEP_TYPES, type AiFlowStepType, type DiagramType } from './diagramTypes';
+import {
+  aiEdgeChip, aiEdgeFindingAnchor, aiFindingAnchor, aiLaneOwnerLayout, aiStepChips, findingsByTarget, AI_CHIP_COLOURS, AI_CHIP_FONT,
+  AI_FINDING_RADIUS, AI_SEVERITY_COLOURS, STEP_TYPE_SHORT, type AiChip,
+} from './diagramAiFlowBadges';
+import { AiFlowProperties, AiFlowGovernance, AiFlowKey } from './DiagramAiFlowPanels';
 import './diagram.scss';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -140,6 +148,21 @@ function makeEdge(sourceId: string, sourcePort: DiagramPort, targetId: string, t
     id: newId(), sourceId, targetId, sourcePort, targetPort, route: 'orthogonal', waypoints: [], label: '',
     stroke: DEFAULT_EDGE_STROKE, dashed: false, arrows: 'end',
   };
+}
+
+/** Shape kind and stored (light) colours for a new AI flow step; the editor maps them for the dark sheet when drawing. */
+function aiStepNode(type: AiFlowStepType): { kind: DiagramKind; extra: Partial<DiagramNode> } {
+  const s = STEP_STYLES[type];
+  return {
+    kind: s.kind,
+    extra: { label: STEP_TYPE_LABELS[type], width: s.width, height: s.height, fill: s.fill, stroke: s.stroke, textColor: '#161616', fontSize: 14, flow: { stepType: type } },
+  };
+}
+
+/** New connectors in an AI flow start as primary flow. */
+function aiEdgeExtra(doc: DiagramDocument): Partial<DiagramEdge> {
+  if (doc.diagramType !== 'ai-flow') return {};
+  return { flow: { edgeType: 'primary_flow' }, stroke: EDGE_STYLES.primary_flow.stroke, dashed: EDGE_STYLES.primary_flow.dashed };
 }
 
 function isTypingTarget(t: EventTarget | null): boolean {
@@ -277,7 +300,7 @@ type Drag =
   | { kind: 'bend'; pointerId: number; edgeId: string; index: number; before: DiagramDocument }
   | { kind: 'label'; pointerId: number; edgeId: string; startScreen: P; start: P; origin: P; before: DiagramDocument; moved: boolean };
 
-type Menu = 'style' | 'arrange' | 'edge-colour' | 'export' | 'image' | 'versions' | 'text-check' | null;
+type Menu = 'style' | 'arrange' | 'edge-colour' | 'export' | 'image' | 'versions' | 'text-check' | 'ai-step' | 'governance' | 'ai-key' | null;
 
 interface EditingLabel { kind: 'node' | 'edge'; id: string; value: string }
 
@@ -785,8 +808,33 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   function addShape(kind: DiagramKind, center: P = viewCenter()): void {
     if (kind === 'image') { setMenu('image'); return; }
-    addNodes([placeNode(kind, center)]);
+    const cur = docRef.current;
+    const extra: Partial<DiagramNode> = kind === 'swimlane' && cur.diagramType === 'ai-flow' ? { lane: { order: nextLaneOrder(cur) } } : {};
+    addNodes([placeNode(kind, center, extra)]);
     rootRef.current?.focus({ preventScroll: true });
+  }
+
+  function addAiStep(type: AiFlowStepType, center: P = viewCenter()): void {
+    const { kind, extra } = aiStepNode(type);
+    addNodes([placeNode(kind, center, extra)]);
+    setMenu(null);
+    rootRef.current?.focus({ preventScroll: true });
+  }
+
+  function setDiagramType(type: DiagramType): void {
+    const cur = docRef.current;
+    if ((cur.diagramType ?? 'general') === type) return;
+    const next: DiagramDocument = { ...cur, diagramType: type };
+    if (type === 'general') delete next.diagramType;
+    commit(next);
+    if (type === 'general') setMenu(null);
+  }
+
+  function arrangeLanes(): void {
+    const cur = docRef.current;
+    const next = layoutAiFlow(cur);
+    if (next === cur) { notify('info', 'Add a swimlane and put steps in it, then arrange the lanes.', { key: 'ai-arrange' }); return; }
+    commit(next);
   }
 
   const updateNodes = useCallback((ids: readonly string[], patch: (n: DiagramNode) => DiagramNode) => {
@@ -979,6 +1027,17 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const cur = docRef.current;
     if (cur.nodes.some((n) => n.id === targetId)) setSel({ nodes: [targetId], edges: [] });
     else if (cur.edges.some((x) => x.id === targetId)) setSel({ nodes: [], edges: [targetId] });
+  }
+
+  function selectAndRevealTarget(targetId: string): void {
+    selectFootnoteTarget(targetId);
+    const shown = collapseView(docRef.current);
+    const map = nodeMap(shown.nodes);
+    const node = map.get(shown.hiddenBy.get(targetId) ?? targetId);
+    const edge = node === undefined ? shown.edges.find((x) => x.id === targetId) : undefined;
+    const route = edge === undefined ? null : edgeRoute(edge, map);
+    const target = node !== undefined ? nodeRect(node) : route === null ? null : boundsOf(route.map((p) => ({ x: p.x, y: p.y, width: 0, height: 0 })));
+    if (target !== null) revealRect(target);
   }
 
   function focusTarget(targetId: string | null, persist: boolean): void {
@@ -1218,14 +1277,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         e.preventDefault();
         const fn = footnotesOf(cur).find((f) => f.id === id);
         if (fn === undefined) return;
-        selectFootnoteTarget(fn.targetId);
-        const shown = collapseView(cur);
-        const map = nodeMap(shown.nodes);
-        const node = map.get(shown.hiddenBy.get(fn.targetId) ?? fn.targetId);
-        const edge = node === undefined ? shown.edges.find((x) => x.id === fn.targetId) : undefined;
-        const route = edge === undefined ? null : edgeRoute(edge, map);
-        const target = node !== undefined ? nodeRect(node) : route === null ? null : boundsOf(route.map((p) => ({ x: p.x, y: p.y, width: 0, height: 0 })));
-        if (target !== null) revealRect(target);
+        selectAndRevealTarget(fn.targetId);
         return;
       }
       case 'collapse': {
@@ -1447,17 +1499,18 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         const source = byId.get(d.sourceId);
         if (source === undefined) return;
         if (d.targetId !== null && d.targetPort !== null) {
-          const edge = makeEdge(d.sourceId, d.sourcePort, d.targetId, d.targetPort);
+          const edge = { ...makeEdge(d.sourceId, d.sourcePort, d.targetId, d.targetPort), ...aiEdgeExtra(cur) };
           commit({ ...cur, edges: [...cur.edges, edge] });
           setSel({ nodes: [], edges: [edge.id] });
           return;
         }
         const from = portPoint(nodeRect(source), d.sourcePort, source.kind);
         if (distance(from, world) < 40) return;
-        // Dropped on empty sheet: create a connected shape there.
+        // Dropped on empty sheet: create a connected shape there (in an AI flow, another step of the same type).
         const kind: DiagramKind = source.kind === 'decision' || source.kind === 'terminator' ? 'process' : (isContainerKind(source.kind) || source.kind === 'image' || source.kind === 'text') ? 'process' : source.kind;
-        const node = placeNode(kind, world);
-        const edge = makeEdge(d.sourceId, d.sourcePort, node.id, nearestPort(nodeRect(node), from, node.kind));
+        const step = cur.diagramType === 'ai-flow' && source.flow !== undefined ? aiStepNode(source.flow.stepType) : null;
+        const node = step !== null ? placeNode(step.kind, world, step.extra) : placeNode(kind, world);
+        const edge = { ...makeEdge(d.sourceId, d.sourcePort, node.id, nearestPort(nodeRect(node), from, node.kind)), ...aiEdgeExtra(cur) };
         addNodes([node], [edge]);
         return;
       }
@@ -1687,6 +1740,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const at = toWorld(e.clientX, e.clientY);
     const kind = e.dataTransfer.getData(SHAPE_MIME);
     if (kind !== '') {
+      if (kind.startsWith('ai:')) {
+        const type = kind.slice(3);
+        if ((AI_FLOW_STEP_TYPES as readonly string[]).includes(type)) addAiStep(type as AiFlowStepType, at);
+        return;
+      }
       if ((PALETTE as readonly string[]).includes(kind)) addShape(kind as DiagramKind, at);
       return;
     }
@@ -1713,6 +1771,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const singleEdge = selectedNodes.length === 0 && selectedEdges.length === 1 ? selectedEdges[0] : undefined;
   const topSelected = topLevelSelection(doc.nodes, sel.nodes);
   const routes = useMemo(() => new Map(display.edges.map((x) => [x.id, edgeRoute(x, byId)] as const)), [display.edges, byId]);
+  const isAiFlow = doc.diagramType === 'ai-flow';
+  const aiFindings = useMemo(() => (doc.diagramType === 'ai-flow' ? checkAiFlow(doc) : []), [doc]);
+  const aiFindingMap = useMemo(() => findingsByTarget(aiFindings), [aiFindings]);
   const lineJumps = useMemo(() => diagramLineJumpGeometry(display, routes), [display, routes]);
   const jumpBounds = useMemo(() => diagramBounds(display, 24), [display]);
   const footnotes = footnotesOf(doc);
@@ -1827,7 +1888,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           onBlur={() => { void renameDiagram(); }}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setTitle(savedTitle); e.currentTarget.blur(); } }}
         />
-        <span className="dg-header__type">Diagram</span>
+        <div className="dg-header__type-switch">
+          <Segmented compact label="Diagram type" value={doc.diagramType ?? 'general'} onChange={setDiagramType}
+            options={[{ value: 'general', label: 'General' }, { value: 'ai-flow', label: 'AI flow' }]} />
+        </div>
         <SaveIndicator status={saveStatus} uploading={uploading} />
         <div className="dg-header__actions">
           <IconBtn label="Undo (Ctrl+Z)" disabled={!canUndo} onClick={() => { stepHistory('undo'); }}><Undo size={16} /></IconBtn>
@@ -1842,6 +1906,34 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             pressed={showNotes} disabled={footnotes.length === 0} onClick={() => { setNotesHidden(showNotes); }}>
             <ListNumbered size={16} />
           </IconBtn>
+          {isAiFlow && <>
+            <span className="dg-divider" aria-hidden="true" />
+            <IconBtn label="Arrange lanes — stack lanes by order and line steps up in flow order" onClick={arrangeLanes}><ArrangeVertical size={16} /></IconBtn>
+            <div className="dg-anchor">
+              <button type="button" className={`dg-ai-gov-btn${menu === 'governance' ? ' dg-ai-gov-btn--active' : ''}${aiFindings.length === 0 ? ' dg-ai-gov-btn--clear' : ` dg-ai-gov-btn--${aiFindings[0]?.severity ?? 'info'}`}`}
+                aria-expanded={menu === 'governance'} aria-haspopup="dialog"
+                title={aiFindings.length === 0 ? 'Governance — no findings' : `Governance — ${aiFindings.length} finding${aiFindings.length === 1 ? '' : 's'}`}
+                onClick={() => { setMenu(menu === 'governance' ? null : 'governance'); }}>
+                <Policy size={16} /> <span className="dg-ai-gov-btn__label">Governance</span>
+                <span className="dg-ai-gov-btn__count" aria-label={`${aiFindings.length} findings`}>{aiFindings.length}</span>
+              </button>
+              {menu === 'governance' && (
+                <div className="dg-popover dg-popover--end dg-popover--wide" role="dialog" aria-label="Governance findings">
+                  <AiFlowGovernance findings={aiFindings}
+                    onSelect={(targetId) => { selectAndRevealTarget(targetId); setAthenaOpen(false); setPropertiesOpen(true); }} />
+                </div>
+              )}
+            </div>
+            <div className="dg-anchor">
+              <IconBtn label="AI flow key" pressed={menu === 'ai-key'} onClick={() => { setMenu(menu === 'ai-key' ? null : 'ai-key'); }}><Help size={16} /></IconBtn>
+              {menu === 'ai-key' && (
+                <div className="dg-popover dg-popover--end dg-popover--wide" role="dialog" aria-label="AI flow key">
+                  <AiFlowKey />
+                </div>
+              )}
+            </div>
+            <span className="dg-divider" aria-hidden="true" />
+          </>}
           <div className="dg-anchor">
             <IconBtn label="Check text" pressed={menu === 'text-check'} onClick={() => { setMenu(menu === 'text-check' ? null : 'text-check'); }}><SpellCheck size={16} /></IconBtn>
             {menu === 'text-check' && (
@@ -1974,6 +2066,37 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             onClick={() => { setLineTool(!lineTool); setMenu(null); }}>
             <ShapeGlyph kind="line" />
           </button>
+          {isAiFlow && (
+            <div className="dg-anchor">
+              <button
+                type="button" className={`dg-palette__item dg-palette__item--ai${menu === 'ai-step' ? ' dg-palette__item--active' : ''}`}
+                title="AI flow step" aria-label="Add AI flow step" aria-expanded={menu === 'ai-step'} aria-haspopup="dialog"
+                onClick={() => { setMenu(menu === 'ai-step' ? null : 'ai-step'); }}
+              >
+                <Bot size={20} />
+              </button>
+              {menu === 'ai-step' && (
+                <div className="dg-popover dg-popover--side dg-ai-steps" role="dialog" aria-label="Add AI flow step">
+                  <h3 className="dg-popover__heading">Add a step</h3>
+                  <div className="dg-ai-steps__list">
+                    {AI_FLOW_STEP_TYPES.map((t) => {
+                      const s = STEP_STYLES[t];
+                      return (
+                        <button key={t} type="button" className="dg-ai-steps__item" draggable
+                          title={`${STEP_TYPE_LABELS[t]} — click to add, or drag onto the sheet`}
+                          onClick={() => { addAiStep(t); }}
+                          onDragStart={(e) => { e.dataTransfer.setData(SHAPE_MIME, `ai:${t}`); e.dataTransfer.effectAllowed = 'copy'; }}>
+                          <span className="dg-ai-steps__swatch" style={{ background: diagramEditorFill(s.fill), borderColor: diagramEditorInk(s.stroke) }} aria-hidden="true">{STEP_TYPE_SHORT[t].code}</span>
+                          <span className="dg-ai-steps__name">{STEP_TYPE_LABELS[t]}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="dg-popover__hint">Drop a step inside a lane to give it an owner. Swimlanes added now are numbered for Arrange lanes.</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="dg-stage">
@@ -2011,7 +2134,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {ordered.map((n) => (
                 <NodeShape key={n.id} node={n} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id}
                   dimmed={n.kind !== 'line' && keyDim(n.stroke)} hiddenCount={display.hiddenCount.get(n.id) ?? 0}
-                  lineJumpPath={lineJumps.paths.get(n.id)} lineMask={lineJumps.masks.has(n.id) ? `url(#${markerBase}-jump-${n.id})` : undefined} />
+                  lineJumpPath={lineJumps.paths.get(n.id)} lineMask={lineJumps.masks.has(n.id) ? `url(#${markerBase}-jump-${n.id})` : undefined} aiFlow={isAiFlow} />
               ))}
               {ordered.filter(node => drilldownIds.has(node.id)).map(node => (
                 <g key={`drilldown-${node.id}`} className="dg-drilldown-marker" role="button" tabIndex={0}
@@ -2064,6 +2187,34 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   </g>
                 );
               })}
+              {isAiFlow && (
+                <g className="dg-ai-overlay" pointerEvents="none">
+                  {ordered.map((n) => {
+                    const finding = aiFindingMap.get(n.id);
+                    const chips = aiStepChips(n, finding !== undefined);
+                    if (chips.length === 0 && finding === undefined) return null;
+                    return (
+                      <g key={n.id} data-ai-node={n.id} className={n.kind !== 'line' && keyDim(n.stroke) ? 'dg-ai-overlay--dimmed' : undefined}>
+                        {chips.map((c) => <AiChipShape key={c.key} chip={c} />)}
+                        {finding !== undefined && <AiFindingMark at={aiFindingAnchor(n)} severity={finding.severity} title={finding.findings.map((f) => f.message).join('\n')} />}
+                      </g>
+                    );
+                  })}
+                  {display.edges.map((edge) => {
+                    const route = routes.get(edge.id);
+                    if (route === undefined || route === null) return null;
+                    const chip = aiEdgeChip(edge, route);
+                    const finding = aiFindingMap.get(edge.id);
+                    if (chip === null && finding === undefined) return null;
+                    return (
+                      <g key={edge.id} data-ai-edge={edge.id}>
+                        {chip !== null && <AiChipShape chip={chip} />}
+                        {finding !== undefined && <AiFindingMark at={aiEdgeFindingAnchor(route)} severity={finding.severity} title={finding.findings.map((f) => f.message).join('\n')} />}
+                      </g>
+                    );
+                  })}
+                </g>
+              )}
               {footnotes.map((fn, i) => {
                 if (display.hiddenBy.has(fn.targetId)) return null;
                 const at = footnoteAnchor(display, fn.targetId, byId);
@@ -2442,6 +2593,21 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             else { setDoc(next); markDirty(SAVE_DELAY_MS); }
           }}
         /> : <p className="dg-properties__empty">{sel.nodes.length + sel.edges.length > 1 ? 'Select one shape or connector to edit its properties.' : 'Select a shape or connector to edit its title and description.'}</p>}
+        {isAiFlow && singleId !== undefined && <AiFlowProperties
+          key={`ai-${singleId}`} node={singleNode} edge={singleEdge} nextLaneOrder={nextLaneOrder(doc)}
+          onNodeChange={(next, first) => {
+            const current = docRef.current;
+            const updated = { ...current, nodes: current.nodes.map((n) => n.id === next.id ? next : n) };
+            if (first) commit(updated);
+            else { setDoc(updated); markDirty(SAVE_DELAY_MS); }
+          }}
+          onEdgeChange={(next, first) => {
+            const current = docRef.current;
+            const updated = { ...current, edges: current.edges.map((x) => x.id === next.id ? next : x) };
+            if (first) commit(updated);
+            else { setDoc(updated); markDirty(SAVE_DELAY_MS); }
+          }}
+        />}
         {singleId !== undefined && <DiagramElementNotes
           key={`notes-${singleId}`} canvasId={canvasId} elementId={singleId} title="Notes linked to this shape"
           notes={elementNotes.filter((l) => l.elementId === singleId)} onOpenNote={onOpenNote} beforeChange={beforeElementLink}
@@ -2611,9 +2777,9 @@ function TextLines({ lines, cx, cy, fontSize, color, anchorX, anchor = 'middle',
   );
 }
 
-interface NodeShapeProps { node: DiagramNode; asset: AssetState | undefined; selected: boolean; editing: boolean; dimmed?: boolean; hiddenCount?: number; lineJumpPath?: string | undefined; lineMask?: string | undefined }
+interface NodeShapeProps { node: DiagramNode; asset: AssetState | undefined; selected: boolean; editing: boolean; dimmed?: boolean; hiddenCount?: number; lineJumpPath?: string | undefined; lineMask?: string | undefined; aiFlow?: boolean }
 
-const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, editing, dimmed = false, hiddenCount = 0, lineJumpPath, lineMask }: NodeShapeProps): React.ReactElement {
+const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, editing, dimmed = false, hiddenCount = 0, lineJumpPath, lineMask, aiFlow = false }: NodeShapeProps): React.ReactElement {
   const { x, y, width: w, height: h, fontSize: fs } = n;
   const { fill, stroke, textColor: color } = diagramEditorNodeColours(n);
   const cx = x + w / 2;
@@ -2685,12 +2851,17 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       );
       break;
     case 'swimlane': {
-      const bandX = x + SWIMLANE_HEADER / 2;
+      const owner = aiFlow ? aiLaneOwnerLayout(n) : null;
+      const bandX = x + SWIMLANE_HEADER / 2 + (owner?.titleShift ?? 0);
       const lines = wrapText(label, h - 16, fs, 1);
       body = (
         <>
           <rect {...common} x={x} y={y} width={w} height={h} />
           <rect className="dg-node__band" x={x} y={y} width={SWIMLANE_HEADER} height={h} fill={stroke === 'none' ? '#e0e0e0' : stroke} fillOpacity={0.1} stroke={stroke} strokeWidth={n.strokeWidth ?? 1.5} {...border} pointerEvents="none" />
+          {owner !== null && (
+            <text className="dg-node__label dg-node__lane-owner" data-ai-lane-owner="true" x={owner.x} y={owner.y} fontSize={owner.fontSize} fill={color}
+              textAnchor="middle" dominantBaseline="central" transform={owner.rotation}>{owner.text}</text>
+          )}
         </>
       );
       text = lines.length === 0 ? null : (
@@ -2775,6 +2946,28 @@ function LineGlyph({ kind }: { kind: 'straight' | 'orthogonal' | 'none' | 'start
     case 'dashed': shape = <path d="M1 8h3M6.5 8h3M12 8h3" />; break;
   }
   return <svg className="dg-glyph" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">{shape}</svg>;
+}
+
+function AiChipShape({ chip }: { chip: AiChip }): React.ReactElement {
+  const c = AI_CHIP_COLOURS[chip.tone];
+  return (
+    <g className="dg-ai-chip" data-ai-chip={chip.key}>
+      <title>{chip.title}</title>
+      <rect x={chip.x} y={chip.y} width={chip.width} height={chip.height} rx={chip.height / 2} fill={c.fill} stroke={c.stroke} strokeWidth={1} strokeDasharray={c.dashed === true ? '3 2' : undefined} />
+      <text x={chip.x + chip.width / 2} y={chip.y + chip.height / 2} fontSize={AI_CHIP_FONT} fontWeight={600} fill={c.text} textAnchor="middle" dominantBaseline="central">{chip.text}</text>
+    </g>
+  );
+}
+
+function AiFindingMark({ at, severity, title }: { at: P; severity: AiFlowSeverity; title: string }): React.ReactElement {
+  const c = AI_SEVERITY_COLOURS[severity];
+  return (
+    <g className="dg-ai-finding" data-ai-finding={severity}>
+      <title>{title}</title>
+      <circle cx={at.x} cy={at.y} r={AI_FINDING_RADIUS} fill={c.fill} stroke="#161616" strokeWidth={1.5} />
+      <text x={at.x} y={at.y} fontSize={10} fontWeight={700} fill={c.text} textAnchor="middle" dominantBaseline="central">!</text>
+    </g>
+  );
 }
 
 function IconBtn({ label, onClick, disabled, pressed, danger, children }: {

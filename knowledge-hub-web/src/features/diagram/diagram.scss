@@ -51,12 +51,7 @@ $dg-ink: #f4f4f4;
     &:hover { border-color: var(--cds-border-subtle-01); }
     &:focus { outline: none; border-color: var(--kh-accent); }
   }
-  &__type {
-    color: var(--cds-text-secondary);
-    font-size: 0.75rem;
-    padding: 2px 6px;
-    border: 1px solid var(--cds-border-subtle-01);
-  }
+  &__type-switch { display: inline-flex; flex-shrink: 0; }
   &__actions { margin-left: auto; display: flex; align-items: center; gap: 0.25rem; }
 }
 
@@ -945,4 +940,279 @@ $dg-ink: #f4f4f4;
 
 @media (max-width: 700px) {
   .dg-present { flex-direction: column; align-items: stretch; }
+}
+
+// ── AI flow / governance diagrams ───────────────────────────────────────────
+// Severity colours match AI_SEVERITY_COLOURS in diagramAiFlowBadges.ts.
+$dg-ai-high: #da1e28;
+$dg-ai-warning: #f1c21b;
+$dg-ai-info: #0f62fe;
+
+.dg-ai-gov-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  background: transparent;
+  border: 1px solid var(--cds-border-subtle-01);
+  color: var(--cds-text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) { background: var(--cds-layer-hover-01); }
+  &:active:not(:disabled) { background: var(--cds-layer-active-01, var(--cds-layer-hover-01)); }
+  &:focus-visible { @include dg-focus; }
+  &:disabled { color: var(--cds-text-disabled); cursor: not-allowed; }
+  &--active { background: var(--kh-accent-bg, var(--cds-layer-selected-01)); border-color: var(--kh-accent-border, var(--kh-accent)); }
+
+  &__count {
+    min-width: 1.25rem;
+    padding: 0 0.3125rem;
+    border-radius: 0.625rem;
+    background: $dg-ai-info;
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  &--high &__count { background: $dg-ai-high; }
+  &--warning &__count { background: $dg-ai-warning; color: #161616; }
+  &--clear &__count { background: rgba(66, 190, 101, 0.25); color: #6fdc8c; }
+}
+
+.dg-palette__item--ai { color: #3ddbd9; }
+.dg-palette__item--ai.dg-palette__item--active { color: var(--kh-accent); }
+
+.dg-ai-steps {
+  width: 17rem;
+  &__list { display: flex; flex-direction: column; gap: 0.125rem; }
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-height: 2.25rem;
+    padding: 0.25rem 0.375rem;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--cds-text-primary);
+    font: inherit;
+    font-size: 0.8125rem;
+    text-align: left;
+    cursor: pointer;
+    &:hover { background: var(--cds-layer-hover-02); }
+    &:active { background: var(--cds-layer-active-02, var(--cds-layer-hover-02)); cursor: grabbing; }
+    &:focus-visible { @include dg-focus; }
+    &:disabled { color: var(--cds-text-disabled); cursor: not-allowed; }
+  }
+  &__swatch {
+    flex: 0 0 2.25rem;
+    height: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid;
+    border-radius: 3px;
+    color: $dg-ink;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  &__name { min-width: 0; overflow-wrap: anywhere; }
+}
+
+// Chips and finding markers drawn over the sheet
+.dg-ai-overlay--dimmed { opacity: 0.2; }
+.dg-ai-chip text, .dg-ai-finding text { font-family: 'IBM Plex Sans', system-ui, sans-serif; user-select: none; }
+.dg-node__lane-owner { font-style: italic; }
+
+// Properties panel sections
+.dg-ai-props {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem 0 0.5rem;
+  border-top: 1px solid var(--cds-border-subtle-01);
+  font-size: 0.8125rem;
+
+  &__heading { margin: 0; font-size: 0.8125rem; font-weight: 600; }
+  &__note { margin: 0; color: var(--cds-text-secondary); font-size: 0.75rem; line-height: 1.5; }
+  &__field { display: flex; flex-direction: column; gap: 0.375rem; min-width: 0; }
+  &__label { color: var(--cds-text-secondary); font-size: 0.75rem; }
+  &__hint { color: var(--cds-text-secondary); font-size: 0.75rem; line-height: 1.4; }
+  &__error { color: var(--cds-support-error); font-size: 0.75rem; line-height: 1.4; }
+  &__input, &__select {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 2.25rem;
+    padding: 0.375rem 0.5rem;
+    background: var(--cds-field-01);
+    color: var(--cds-text-primary);
+    border: 1px solid var(--cds-border-subtle-01);
+    font: inherit;
+    line-height: 1.4;
+    &::placeholder { color: var(--cds-text-placeholder, #6f6f6f); }
+    &:hover:not(:disabled) { border-color: var(--cds-text-secondary); }
+    &:focus { @include dg-focus; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+  &__select { cursor: pointer; &:active:not(:disabled) { background: var(--cds-layer-active-01); } }
+  &__input--multiline { resize: vertical; min-height: 3.25rem; }
+  &__input--invalid, &__input--invalid:hover { border-color: var(--cds-support-error); }
+  &__chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  &__chip {
+    max-width: 100%;
+    padding: 0 0.5rem;
+    border: 1px solid var(--cds-border-subtle-01);
+    border-radius: 0.75rem;
+    background: var(--cds-layer-02);
+    font-size: 0.6875rem;
+    line-height: 1.25rem;
+    overflow-wrap: anywhere;
+  }
+  &__check { margin-top: 0; }
+  &__apply { margin-top: -0.25rem; }
+
+  &__group { border-top: 1px solid var(--cds-border-subtle-00); }
+  &__summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    font-weight: 600;
+    cursor: pointer;
+    &:hover { color: var(--kh-accent); }
+    &:focus-visible { @include dg-focus; }
+  }
+  &__count {
+    padding: 0 0.375rem;
+    border-radius: 0.5rem;
+    background: var(--cds-layer-02);
+    color: var(--cds-text-secondary);
+    font-size: 0.6875rem;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+  }
+  &__fields { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.25rem 0 0.75rem; }
+}
+
+// Governance findings popover
+.dg-ai-gov {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  font-size: 0.8125rem;
+
+  &__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    h3 { margin: 0; font-size: 0.8125rem; font-weight: 600; }
+  }
+  &__counts { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  &__count, &__sev {
+    flex: 0 0 auto;
+    padding: 0 0.375rem;
+    border-radius: 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.125rem;
+    white-space: nowrap;
+  }
+  &__count--high, &__sev--high { background: rgba(218, 30, 40, 0.3); color: #ffb3b8; }
+  &__count--warning, &__sev--warning { background: rgba(241, 194, 27, 0.25); color: #fddc69; }
+  &__count--info, &__sev--info { background: rgba(15, 98, 254, 0.3); color: #a6c8ff; }
+  &__count--zero { background: var(--cds-layer-01); color: var(--cds-text-secondary); font-weight: 400; }
+  &__empty { margin: 0; padding: 0.5rem 0; color: var(--cds-text-secondary); line-height: 1.5; }
+  &__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  &__row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.375rem 0;
+    border-bottom: 1px solid var(--cds-border-subtle-00);
+    .dg-ai-gov__sev { margin-top: 0.1875rem; }
+  }
+  &__msg {
+    flex: 1;
+    min-width: 0;
+    padding: 0.125rem 0.25rem;
+    background: none;
+    border: 0;
+    color: var(--cds-text-primary);
+    font: inherit;
+    line-height: 1.4;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+    &:hover { background: var(--cds-layer-hover-02); color: var(--kh-accent); }
+    &:active { background: var(--cds-layer-active-02, var(--cds-layer-hover-02)); }
+    &:focus-visible { @include dg-focus; }
+    &:disabled { color: var(--cds-text-disabled); cursor: not-allowed; }
+  }
+}
+
+// AI flow key popover
+.dg-ai-key {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  &__section { display: flex; flex-direction: column; gap: 0.375rem; }
+  &__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  &__row { display: flex; align-items: center; gap: 0.5rem; min-height: 1.25rem; > span:last-child { min-width: 0; overflow-wrap: anywhere; } }
+  &__swatch {
+    flex: 0 0 2.25rem;
+    height: 1.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid;
+    border-radius: 3px;
+    color: $dg-ink;
+    font-size: 0.625rem;
+    font-weight: 600;
+  }
+  &__chip {
+    flex: 0 0 auto;
+    min-width: 2.25rem;
+    box-sizing: border-box;
+    padding: 0 0.375rem;
+    border: 1px solid;
+    border-radius: 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    line-height: 0.875rem;
+    text-align: center;
+    &--dashed { border-style: dashed; }
+  }
+  &__line { flex: 0 0 2.25rem; }
+  &__finding {
+    flex: 0 0 auto;
+    width: 0.875rem;
+    height: 0.875rem;
+    margin: 0 0.6875rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 0.625rem;
+    font-weight: 700;
+  }
+}
+
+@media (max-width: 700px) {
+  .dg-header__type-switch { order: 1; }
+  .dg-ai-gov-btn__label { display: none; }
+  .dg-ai-gov-btn { padding: 0 0.375rem; }
+  .dg-popover--side.dg-ai-steps { width: min(17rem, calc(100vw - 4.5rem)); max-height: 60vh; overflow-y: auto; }
+  .dg-ai-props__fields { gap: 0.5rem; }
 }

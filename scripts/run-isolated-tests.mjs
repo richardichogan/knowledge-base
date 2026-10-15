@@ -11,6 +11,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/apiError.test.ts',
   '../knowledge-hub-web/tests/diagramTheme.test.ts',
   '../knowledge-hub-web/tests/diagramLineJumps.test.ts',
+  '../knowledge-hub-web/tests/diagramAiFlow.test.ts',
   '../knowledge-hub-web/tests/canvasHierarchy.test.ts',
   '../knowledge-hub-web/tests/note-filename.test.ts',
   '../knowledge-hub-web/tests/planInsights.test.ts',
@@ -36,6 +37,7 @@ const tests = frontend ? [
   'scripts/spark-grounding.test.ts',
   'scripts/diagram-drilldown.test.ts',
   'scripts/canvas-recycle-bin.test.ts',
+  'scripts/ai-flow.test.ts',
 ];
 // Do not inherit local integration credentials or let dotenv load application settings.
 const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'COMSPEC', 'PATHEXT']);

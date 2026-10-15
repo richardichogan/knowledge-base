@@ -12,6 +12,8 @@ import { diagramBounds, documentWaveDepth, edgeEndpoints, lineGeometry, linePoin
 import { DIAGRAM_CALLOUT_TYPES } from '../src/features/diagram/diagramTypes';
 import { calloutLayout, DIAGRAM_CALLOUTS } from '../src/features/diagram/diagramCallouts';
 import { NoteMaps } from '../src/features/canvas/NoteMaps';
+import { EDGE_STYLES, layoutAiFlow, STEP_STYLES } from '../src/features/diagram/aiFlow';
+import type { AiFlowStep, AiFlowStepType } from '../src/features/diagram/diagramTypes';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -276,6 +278,125 @@ async function runDiagramPropertiesChecks(): Promise<string[]> {
   properties.scrollTop = 0;
   return ['Properties controls fit without horizontal scrolling, including long project names',
     'Vertical scrolling remains available when Properties content exceeds the panel height'];
+}
+async function runDiagramAiFlowChecks(): Promise<string[]> {
+  root.render(null);
+  await delay(100);
+  queryClient.clear();
+  const lane = node('Customer service', 'swimlane', 40, 40, 900, 200);
+  snapshot = { revision: 0, document: { ...emptyDiagram(), viewport: { x: 20, y: 20, zoom: 1 }, nodes: [lane] } };
+  mountEditor();
+  const editor = (): HTMLElement => window.document.querySelector<HTMLElement>('.dg-editor')!;
+  await waitFor(() => window.document.querySelector('[role="radiogroup"][aria-label="Diagram type"]') !== null);
+  check(window.document.querySelector('.dg-ai-gov-btn') === null, 'General diagrams hide the governance tools');
+  window.document.querySelector<HTMLButtonElement>('[aria-label="Diagram type"] button[aria-label="AI flow"]')!.click();
+  await waitFor(() => window.document.querySelector('.dg-ai-gov-btn') !== null);
+  await waitFor(() => snapshot.document.diagramType === 'ai-flow');
+  check(window.document.querySelector('[aria-label="Diagram type"] button[aria-label="AI flow"]')!.getAttribute('aria-checked') === 'true',
+    'Diagram type switch shows AI flow as selected');
+  const findingCount = (): number => Number(window.document.querySelector('.dg-ai-gov-btn__count')?.textContent ?? '-1');
+  check(findingCount() >= 1, 'An ownerless lane is reported as a governance finding');
+  clickButton('Add AI flow step');
+  await waitFor(() => window.document.querySelector('.dg-ai-steps__item') !== null);
+  const before = snapshot.document.nodes.length;
+  [...window.document.querySelectorAll<HTMLButtonElement>('.dg-ai-steps__item')].find(b => b.textContent?.includes('AI agent task'))!.click();
+  await waitFor(() => snapshot.document.nodes.length === before + 1);
+  const step = snapshot.document.nodes.at(-1)!;
+  check(step.flow?.stepType === 'ai_agent_task' && step.kind === STEP_STYLES.ai_agent_task.kind, 'AI step is created with its step type and default shape');
+  await waitFor(() => window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-finding]`) !== null);
+  check(window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-chip="autonomy"]`) === null, 'No autonomy badge before a mode is set');
+  window.document.querySelector(`g.dg-node[data-id="${step.id}"]`)!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }));
+  window.document.querySelector('svg.dg-canvas')!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+  await waitFor(() => editor().querySelector('.dg-ai-props[aria-label="AI flow step"]') !== null);
+  const select = (label: string): HTMLSelectElement => [...editor().querySelectorAll<HTMLLabelElement>('.dg-ai-props__field')]
+    .find(f => f.querySelector('.dg-ai-props__label')?.textContent === label)!.querySelector('select')!;
+  const setSelect = (field: HTMLSelectElement, value: string): void => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(field, value);
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  setSelect(select('Autonomy'), 'supervised_autonomous');
+  await waitFor(() => window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-chip="autonomy"]`) !== null);
+  check(window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-chip="autonomy"]`)!.textContent!.includes('A3'),
+    'Autonomy badge shows the A3 code');
+  check(window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-finding]`) !== null, 'Remaining guardrail finding is marked on the step');
+  setSelect(select('Data sensitivity'), 'pii');
+  await waitFor(() => window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-chip="sensitivity"]`) !== null);
+  await waitFor(() => snapshot.document.nodes.find(n => n.id === step.id)?.flow?.agent?.mode === 'supervised_autonomous');
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-chip="sensitivity"]`) === null);
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-chip="sensitivity"]`) !== null);
+  window.document.querySelector<HTMLButtonElement>('.dg-ai-gov-btn')!.click();
+  await waitFor(() => window.document.querySelector('[role="dialog"][aria-label="Governance findings"]') !== null);
+  const items = window.document.querySelectorAll<HTMLButtonElement>('[aria-label="Governance findings"] .dg-ai-gov__msg');
+  check(items.length === findingCount(), 'Governance list shows every finding');
+  check(![...items].some(b => b.textContent?.includes('no autonomy level')) && [...items].some(b => b.textContent?.includes('no guardrails')),
+    'Setting autonomy clears its finding while the guardrail finding remains');
+  [...items].find(b => b.textContent?.toLowerCase().includes('owner'))!.click();
+  await waitFor(() => window.document.querySelector(`g.dg-node[data-id="${lane.id}"]`)?.classList.contains('dg-node--selected') === true);
+  await waitFor(() => editor().querySelector('.dg-ai-props[aria-label="AI flow lane"]') !== null);
+  if (window.document.querySelector('[role="dialog"][aria-label="Governance findings"]') !== null) window.document.querySelector<HTMLButtonElement>('.dg-ai-gov-btn')!.click();
+  window.document.querySelector<HTMLButtonElement>('[aria-label="Diagram type"] button[aria-label="General"]')!.click();
+  await waitFor(() => window.document.querySelector('.dg-ai-gov-btn') === null);
+  check(window.document.querySelector('[data-ai-chip]') === null, 'General view hides AI badges');
+  await waitFor(() => snapshot.document.diagramType === undefined);
+  check(snapshot.document.nodes.find(n => n.id === step.id)?.flow?.agent?.mode === 'supervised_autonomous', 'Switching to general keeps the AI metadata');
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-chip="autonomy"]`) !== null);
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
+  await showAiFlowShowcase();
+  return ['Diagram type switch turns on AI flow tools and is undoable, keeping AI metadata when switched back to general',
+    'AI step palette creates a typed step; autonomy and sensitivity badges follow property edits with undo/redo',
+    'Governance findings mark affected shapes and the Governance list matches the count'];
+}
+async function showAiFlowShowcase(): Promise<void> {
+  root.render(null);
+  await delay(100);
+  queryClient.clear();
+  const laneNode = (label: string, order: number, owner: string): DiagramNode => ({
+    ...node(label, 'swimlane', 0, 0, 900, 160), fill: '#ffffff', stroke: '#525252', textColor: '#161616', fontSize: 18, lane: { order, owner },
+  });
+  const lanes = [
+    laneNode('Customer', 0, 'End user (web / app)'),
+    laneNode('Digital assistant', 1, 'Agent platform team'),
+    laneNode('Operations', 2, 'Case handler'),
+  ];
+  const step = (label: string, type: AiFlowStepType, laneIndex: number, flow: Omit<AiFlowStep, 'stepType'> = {}): DiagramNode => {
+    const s = STEP_STYLES[type];
+    return { ...node(label, s.kind, 0, 0, s.width, s.height, lanes[laneIndex]!.id), fill: s.fill, stroke: s.stroke, textColor: '#161616', flow: { stepType: type, ...flow } };
+  };
+  const steps = [
+    step('Submit request', 'channel_interaction', 0, { controls: { authRequired: true } }),
+    step('Triage request', 'ai_agent_task', 1, { agent: { mode: 'supervised_autonomous', assertion: 'advisory', tools: ['Case lookup', 'Policy search'], guardrails: ['PII redaction'] }, controls: { sensitivity: 'pii', auditLogging: true, authRequired: true } }),
+    step('Route by rules', 'decision_rules', 1, { state: 'future' }),
+    step('Review and approve', 'human_task', 2, { controls: { humanApproval: true } }),
+    step('Draft reply', 'ai_agent_task', 1, { agent: { mode: 'autonomous', assertion: 'authoritative' }, controls: { sensitivity: 'confidential' } }),
+  ];
+  const edge = (from: DiagramNode, to: DiagramNode, edgeType: NonNullable<DiagramDocument['edges'][number]['flow']>['edgeType'], extra: Partial<DiagramDocument['edges'][number]> = {}): DiagramDocument['edges'][number] => ({
+    id: crypto.randomUUID(), sourceId: from.id, targetId: to.id, sourcePort: 'right', targetPort: 'left', route: 'orthogonal', waypoints: [], label: '',
+    stroke: EDGE_STYLES[edgeType].stroke, dashed: EDGE_STYLES[edgeType].dashed, arrows: 'end', flow: { edgeType }, ...extra,
+  });
+  const document: DiagramDocument = layoutAiFlow({
+    ...emptyDiagram(), diagramType: 'ai-flow', viewport: { x: 20, y: 20, zoom: 0.8 }, nodes: [...lanes, ...steps],
+    edges: [
+      edge(steps[0]!, steps[1]!, 'primary_flow', { flow: { edgeType: 'primary_flow', interaction: 'sync' } }),
+      edge(steps[1]!, steps[2]!, 'primary_flow'),
+      edge(steps[2]!, steps[3]!, 'conditional_flow', { label: 'Complex', flow: { edgeType: 'conditional_flow', interaction: 'human_handoff', condition: 'Complex' } }),
+      edge(steps[2]!, steps[4]!, 'primary_flow', { flow: { edgeType: 'primary_flow', interaction: 'agent_handoff' } }),
+      edge(steps[3]!, steps[1]!, 'control', { label: 'Approves' }),
+    ],
+  });
+  snapshot = { revision: 0, document };
+  mountEditor();
+  await waitFor(() => window.document.querySelectorAll('[data-ai-chip]').length > 0);
+  clickButton('Fit diagram to view');
+  const triage = steps[1]!;
+  window.document.querySelector(`g.dg-node[data-id="${triage.id}"]`)!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }));
+  window.document.querySelector('svg.dg-canvas')!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+  await waitFor(() => window.document.querySelector('.dg-ai-props[aria-label="AI flow step"]') !== null);
+  check(window.document.querySelectorAll('[data-ai-lane-owner]').length === lanes.length, 'Every lane header shows its owner');
+  window.document.querySelector('.dg-ai-props[aria-label="AI flow step"]')!.scrollIntoView({ block: 'start' });
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
 }
 async function runDiagramDrilldownChecks(): Promise<string[]> {
       await waitFor(() => window.document.querySelector('.dg-editor') !== null);
@@ -923,7 +1044,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Bundled Microsoft icon picker loads and embeds an official icon', 'Save and reopen retain labels and icons',
     'Missing diagram displays an explicit load error', 'No horizontal page overflow'];
 }
-Object.assign(window, { runDiagramChecks, runDiagramPropertiesChecks, runDiagramDrilldownChecks, runDiagramLineJumpChecks, diagramFixture: {
+Object.assign(window, { runDiagramChecks, runDiagramPropertiesChecks, runDiagramAiFlowChecks, runDiagramDrilldownChecks, runDiagramLineJumpChecks, diagramFixture: {
   snapshot: () => structuredClone(snapshot), saves: () => saves, conflict: (value: boolean) => { conflict = value; },
   waitFor, clickButton,
 } });

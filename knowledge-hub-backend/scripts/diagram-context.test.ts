@@ -69,7 +69,7 @@ test('Athena sees callout categories as annotations rather than task or approval
 test('SQL retrieves saved structure across diagrams, matches metadata and notes, enforces project scope, and never writes', async () => {
   const pg = new PGlite();
   try {
-    await pg.exec(`CREATE TABLE canvases (id text, title text, description text, project text, canvas_type text, updated_at timestamptz);
+    await pg.exec(`CREATE TABLE canvases (id text, title text, description text, project text, canvas_type text, updated_at timestamptz, deleted_at timestamptz);
       CREATE TABLE canvas_diagrams (canvas_id text, revision integer, document jsonb, updated_at timestamptz);
       CREATE TABLE canvas_notes (canvas_id text, note_id text, created_at timestamptz);
       CREATE TABLE diagram_element_notes (canvas_id text, element_id text, note_id text, created_at timestamptz);
@@ -143,6 +143,10 @@ test('diagram tools honour optional filters rather than forced scope, route comp
   assert.deepEqual(selectRequiredToolChoice('Find the claims diagram', tools),
     { type: 'function', function: { name: 'search_diagrams' } });
   assert.equal(selectRequiredToolChoice('Explain this diagram', tools, [], null, false, false, true), undefined);
+  const createTools = [...tools, { type: 'function' as const, function: { name: 'create_diagram', description: 'Create', parameters: {} } }];
+  for (const ask of ['Draw an AI flow for claims triage', 'Create an AI governance diagram for onboarding', 'map out the agentic process for FNOL', 'Build a swimlane diagram of complaints']) {
+    assert.deepEqual(selectRequiredToolChoice(ask, createTools), { type: 'function', function: { name: 'create_diagram' } }, ask);
+  }
   const result = { results: [{ id: a, title: 'Claims flow', url: `/think?mapId=${a}` }], resultCount: 1 };
   const used = emptyContextUsed();
   recordToolSources(used, 'search_diagrams', result);
@@ -206,4 +210,26 @@ test('actual chat prompt reads the saved diagram afresh and never exposes brains
     await db.end();
     await closeDb();
   }
+});
+
+test('AI flow evidence carries lanes, step metadata, connector types and governance findings', () => {
+  const base = emptyDiagram();
+  const node = (over: Partial<DiagramNode>): DiagramNode => ({ id: 'x', kind: 'process', label: '', x: 0, y: 0, width: 100, height: 60, parentId: null,
+    fill: '#fff', stroke: '#000', textColor: '#000', fontSize: 14, assetId: null, ...over });
+  const doc: DiagramDocument = { ...base, diagramType: 'ai-flow', nodes: [
+    node({ id: 'lane', kind: 'swimlane', label: 'Agents', width: 600, height: 200, lane: { order: 1, owner: 'AI team' } }),
+    node({ id: 'step', label: 'Triage', parentId: 'lane', flow: { stepType: 'ai_agent_task', agent: { mode: 'autonomous', tools: ['CRM'] }, controls: { sensitivity: 'pii' } } }),
+    node({ id: 'other', label: 'Review', parentId: 'lane', flow: { stepType: 'human_task' } }),
+  ], edges: [{ id: 'e', sourceId: 'step', targetId: 'other', sourcePort: 'right', targetPort: 'left', route: 'orthogonal', waypoints: [],
+    label: '', stroke: '#000', dashed: false, arrows: 'end', flow: { edgeType: 'primary_flow', interaction: 'human_handoff' } }] };
+  const evidence = JSON.parse(diagramEvidence(doc)) as Record<string, unknown> & { shapes: Array<Record<string, unknown>>; connectors: Array<Record<string, unknown>>; governanceFindings: Array<{ code: string; severity: string; targetId: string }> };
+  assert.equal(evidence['diagramType'], 'ai-flow');
+  assert.deepEqual(evidence.shapes[0]!['lane'], { order: 1, owner: 'AI team' });
+  assert.deepEqual((evidence.shapes[1]!['flow'] as { agent: unknown }).agent, { mode: 'autonomous', tools: ['CRM'] });
+  assert.deepEqual(evidence.connectors[0]!['flow'], { edgeType: 'primary_flow', interaction: 'human_handoff' });
+  assert.ok(evidence.governanceFindings.some((f) => f.code === 'sensitive-no-audit' && f.severity === 'high' && f.targetId === 'step'));
+  assert.equal(evidence['omittedGovernanceFindings'], 0);
+  assert.match(DIAGRAM_READING_GUIDANCE, /governanceFindings are automatic advisory checks/);
+  const general = JSON.parse(diagramEvidence(emptyDiagram())) as Record<string, unknown>;
+  assert.ok(!('diagramType' in general) && !('governanceFindings' in general));
 });

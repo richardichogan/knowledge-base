@@ -321,7 +321,7 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'set_discover_item_state (restore/shelve/save Discover articles), update_spark, create_project / ' +
     'update_project, update_note (any saved note by id — append, replace, rename, move project; use ' +
     'propose_note_edit for the note open beside the chat), create_diagram / update_diagram (shapes, connectors, ' +
-    'colours, footnotes, legend), create_mind_map, and create_weekly_microsoft_digest (the Monday blog draft and ' +
+    'colours, footnotes, legend, and AI flow / governance swimlane diagrams with lanes, agents, tools and controls), create_mind_map, and create_weekly_microsoft_digest (the Monday blog draft and ' +
     'Slack summary of all Microsoft/GitHub updates). When asked to do one of these, just do it. Report ' +
     'something as added, verified or changed only when the tool result says success; if a feed fails to read, ' +
     'say so and do not add it.',

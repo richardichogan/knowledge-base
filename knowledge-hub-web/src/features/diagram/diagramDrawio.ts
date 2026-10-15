@@ -4,12 +4,15 @@
  * Shapes, groups, lanes, connectors (with ports, bends, arrows and label offsets), lines, icons and
  * descriptions (as draw.io tooltips) map one-to-one. Footnote badges, the notes and the colour key
  * become ordinary draw.io shapes and text, placed where the PNG/SVG export puts them. Collapsed
- * groups are exported expanded so nothing is lost.
+ * groups are exported expanded so nothing is lost. AI flow step, lane and connector details become
+ * draw.io custom properties (ai*) plus a tooltip summary; lane owners appear under the lane title.
  */
 import type { DiagramDocument, DiagramEdge, DiagramNode, DiagramPort } from './diagramTypes';
 import { footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
 import { boundsOf, containerHeader, diagramBounds, linePoints, nodeMap, renderOrder, SWIMLANE_HEADER, type Rect } from './diagramGeometry';
 import { calloutLayout } from './diagramCallouts';
+import { AGENT_MODE_BADGES, AGENT_MODE_LABELS, ASSERTION_LABELS, EDGE_TYPE_LABELS, INTERACTION_LABELS, SENSITIVITY_LABELS, STATE_LABELS, STEP_TYPE_LABELS, controlCount } from './aiFlow';
+import { aiStepSummary } from './diagramAiFlowBadges';
 
 export interface DrawioOptions {
   footnotes?: boolean | undefined;
@@ -80,13 +83,56 @@ export function drawioImage(dataUrl: string): string {
 
 interface Cell { id: string; xml: string }
 
-function vertexCell(id: string, value: string, styleText: string, parent: string, r: Rect, tooltip?: string): Cell {
+function vertexCell(id: string, value: string, styleText: string, parent: string, r: Rect, tooltip?: string, data: Record<string, string> = {}): Cell {
   const geometry = `<mxGeometry x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" as="geometry"/>`;
-  if (tooltip !== undefined && tooltip.trim() !== '') {
-    return { id, xml: `<UserObject label="${xml(value)}" tooltip="${xml(tooltip)}" id="${xml(id)}"><mxCell style="${xml(styleText)}" vertex="1" parent="${xml(parent)}">${geometry}</mxCell></UserObject>` };
+  const hasTooltip = tooltip !== undefined && tooltip.trim() !== '';
+  if (hasTooltip || Object.keys(data).length > 0) {
+    return { id, xml: `<UserObject label="${xml(value)}"${hasTooltip ? ` tooltip="${xml(tooltip)}"` : ''}${dataAttrs(data)} id="${xml(id)}"><mxCell style="${xml(styleText)}" vertex="1" parent="${xml(parent)}">${geometry}</mxCell></UserObject>` };
   }
   return { id, xml: `<mxCell id="${xml(id)}" value="${xml(value)}" style="${xml(styleText)}" vertex="1" parent="${xml(parent)}">${geometry}</mxCell>` };
 }
+
+const dataAttrs = (data: Record<string, string>): string => Object.entries(data).map(([k, v]) => ` ${k}="${xml(v)}"`).join('');
+
+const joinTooltip = (...parts: (string | undefined)[]): string => parts.filter((p): p is string => p !== undefined && p.trim() !== '').join('\n\n');
+
+/** AI flow step and lane details as draw.io custom properties (Edit Data shows them). */
+function aiNodeData(n: DiagramNode): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (n.lane !== undefined) {
+    out.aiLaneOrder = String(n.lane.order);
+    if ((n.lane.owner ?? '').trim() !== '') out.aiLaneOwner = n.lane.owner!.trim();
+    if ((n.lane.description ?? '').trim() !== '') out.aiLaneDescription = n.lane.description!.trim();
+  }
+  const flow = n.flow;
+  if (flow === undefined) return out;
+  out.aiStepType = STEP_TYPE_LABELS[flow.stepType];
+  if (flow.state !== undefined) out.aiState = STATE_LABELS[flow.state];
+  if (flow.actor !== undefined && flow.actor.trim() !== '') out.aiActor = flow.actor.trim();
+  const agent = flow.agent;
+  if (agent?.mode !== undefined) out.aiAutonomy = `${AGENT_MODE_BADGES[agent.mode]} ${AGENT_MODE_LABELS[agent.mode]}`;
+  if (agent?.assertion !== undefined) out.aiAssertion = ASSERTION_LABELS[agent.assertion];
+  if ((agent?.tools ?? []).length > 0) out.aiTools = agent!.tools!.join(', ');
+  if ((agent?.guardrails ?? []).length > 0) out.aiGuardrails = agent!.guardrails!.join(', ');
+  if (flow.controls?.sensitivity !== undefined) out.aiSensitivity = SENSITIVITY_LABELS[flow.controls.sensitivity];
+  out.aiControls = String(controlCount(flow));
+  return out;
+}
+
+function aiEdgeData(e: DiagramEdge): Record<string, string> {
+  const flow = e.flow;
+  if (flow === undefined) return {};
+  const out: Record<string, string> = { aiEdgeType: EDGE_TYPE_LABELS[flow.edgeType] };
+  if (flow.interaction !== undefined) out.aiInteraction = INTERACTION_LABELS[flow.interaction];
+  if (flow.sensitivity !== undefined) out.aiSensitivity = SENSITIVITY_LABELS[flow.sensitivity];
+  if ((flow.payload ?? '').trim() !== '') out.aiPayload = flow.payload!.trim();
+  if ((flow.condition ?? '').trim() !== '') out.aiCondition = flow.condition!.trim();
+  if ((flow.auth ?? '').trim() !== '') out.aiAuth = flow.auth!.trim();
+  return out;
+}
+
+const dataSummary = (data: Record<string, string>): string => Object.entries(data)
+  .map(([k, v]) => `${k.replace(/^ai/, '').replace(/([a-z])([A-Z])/g, '$1 $2')}: ${v}`).join('\n');
 
 function edgeStyle(e: DiagramEdge): string {
   const [sx, sy] = PORT[e.sourcePort];
@@ -110,6 +156,7 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
   const parentIds = new Set(doc.nodes.flatMap((n) => (n.parentId !== null && byId.has(n.parentId) ? [n.parentId] : [])));
   const cells: Cell[] = [];
   const parentOf = (n: DiagramNode): DiagramNode | undefined => (n.parentId !== null ? byId.get(n.parentId) : undefined);
+  const aiFlow = doc.diagramType === 'ai-flow';
 
   for (const n of renderOrder(doc.nodes)) {
     const parent = parentOf(n);
@@ -122,8 +169,11 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
       cells.push({ id: n.id, xml: `<mxCell id="${xml(n.id)}" value="" style="${xml(lineStyle)}" edge="1" parent="${xml(parentId)}"><mxGeometry relative="1" as="geometry"><mxPoint x="${a.x - ox}" y="${a.y - oy}" as="sourcePoint"/><mxPoint x="${b.x - ox}" y="${b.y - oy}" as="targetPoint"/></mxGeometry></mxCell>` });
       continue;
     }
-    cells.push(vertexCell(n.id, htmlLabel(n.label), shapeStyle(n, parentIds.has(n.id)), parentId,
-      { x: n.x - ox, y: n.y - oy, width: n.width, height: n.height }, n.description));
+    const aiData = aiFlow ? aiNodeData(n) : {};
+    const owner = aiFlow && n.kind === 'swimlane' ? (n.lane?.owner ?? '').trim() : '';
+    const label = owner === '' ? htmlLabel(n.label) : `${htmlLabel(n.label)}<br><span style="font-size:10px;font-weight:normal">${htmlLabel(owner)}</span>`;
+    cells.push(vertexCell(n.id, label, shapeStyle(n, parentIds.has(n.id)), parentId,
+      { x: n.x - ox, y: n.y - oy, width: n.width, height: n.height }, joinTooltip(n.description, n.flow !== undefined && aiFlow ? aiStepSummary(n) : undefined), aiData));
     const callout = calloutLayout(n);
     if (callout !== null) {
       const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="${callout.path}" fill="none" stroke="${xml(colour(n.textColor, '#161616'))}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -148,8 +198,10 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     const offset = e.labelOffset !== undefined ? `<mxPoint x="${e.labelOffset.x}" y="${e.labelOffset.y}" as="offset"/>` : '';
     const geometry = `<mxGeometry relative="1" as="geometry">${points}${offset}</mxGeometry>`;
     const attrs = `style="${xml(edgeStyle(e))}" edge="1" parent="1" source="${xml(e.sourceId)}" target="${xml(e.targetId)}"`;
-    cells.push(e.description !== undefined && e.description.trim() !== ''
-      ? { id: e.id, xml: `<UserObject label="${xml(htmlLabel(e.label))}" tooltip="${xml(e.description)}" id="${xml(e.id)}"><mxCell ${attrs}>${geometry}</mxCell></UserObject>` }
+    const edgeData = aiFlow ? aiEdgeData(e) : {};
+    const tooltip = joinTooltip(e.description, dataSummary(edgeData));
+    cells.push(tooltip !== '' || Object.keys(edgeData).length > 0
+      ? { id: e.id, xml: `<UserObject label="${xml(htmlLabel(e.label))}"${tooltip !== '' ? ` tooltip="${xml(tooltip)}"` : ''}${dataAttrs(edgeData)} id="${xml(e.id)}"><mxCell ${attrs}>${geometry}</mxCell></UserObject>` }
       : { id: e.id, xml: `<mxCell id="${xml(e.id)}" value="${xml(htmlLabel(e.label))}" ${attrs}>${geometry}</mxCell>` });
   }
 

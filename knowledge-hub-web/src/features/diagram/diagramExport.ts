@@ -6,6 +6,11 @@ import { diagramDrawioXml } from './diagramDrawio';
 import { diagramBorderDash } from './diagramStroke';
 import { diagramLineJumpGeometry } from './diagramLineJumps';
 import { boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
+import { checkAiFlow } from './aiFlow';
+import {
+  AI_CHIP_COLOURS, AI_CHIP_FONT, AI_FINDING_RADIUS, AI_SEVERITY_COLOURS, aiEdgeChip, aiEdgeFindingAnchor, aiFindingAnchor, aiLaneOwnerLayout,
+  aiStepChips, findingsByTarget, isAiFlowDoc, type AiChip, type AiTargetFindings,
+} from './diagramAiFlowBadges';
 
 const escapeXml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
   '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;',
@@ -28,10 +33,21 @@ function textLines(lines: string[], x: number, y: number, fontSize: number, colo
   return `<text font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" fill="${escapeXml(colour)}" text-anchor="${anchor}" dominant-baseline="central" font-weight="${weight}">${lines.map((line, i) => `<tspan x="${x}" y="${top + i * fontSize * 1.25}">${escapeXml(line)}</tspan>`).join('')}</text>`;
 }
 
-function nodeText(node: DiagramNode): string {
+function nodeText(node: DiagramNode, titleShift = 0): string {
   const layout = diagramTextLayout(node);
   const text = textLines(layout.lines, layout.x, layout.y, node.fontSize, node.textColor, layout.anchor, layout.weight);
-  return layout.rotation ? `<g transform="${layout.rotation}">${text}</g>` : text;
+  const rotated = layout.rotation ? `<g transform="${layout.rotation}">${text}</g>` : text;
+  return titleShift !== 0 && layout.rotation ? `<g transform="translate(${titleShift} 0)">${rotated}</g>` : rotated;
+}
+
+function chipSvg(chip: AiChip): string {
+  const c = AI_CHIP_COLOURS[chip.tone];
+  return `<g data-ai-chip="${chip.key}"><title>${escapeXml(chip.title)}</title><rect x="${chip.x}" y="${chip.y}" width="${chip.width}" height="${chip.height}" rx="${chip.height / 2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1"${c.dashed === true ? ' stroke-dasharray="3 2"' : ''}/><text x="${chip.x + chip.width / 2}" y="${chip.y + chip.height / 2}" ${FONT} font-size="${AI_CHIP_FONT}" font-weight="600" fill="${c.text}" text-anchor="middle" dominant-baseline="central">${escapeXml(chip.text)}</text></g>`;
+}
+
+function findingSvg(at: { x: number; y: number }, target: AiTargetFindings): string {
+  const c = AI_SEVERITY_COLOURS[target.severity];
+  return `<g data-ai-finding="${target.severity}"><title>${escapeXml(target.findings.map((f) => f.message).join('\n'))}</title><circle cx="${at.x}" cy="${at.y}" r="${AI_FINDING_RADIUS}" fill="${c.fill}" stroke="white" stroke-width="1.5"/><text x="${at.x}" y="${at.y}" ${FONT} font-size="10" font-weight="700" fill="${c.text}" text-anchor="middle" dominant-baseline="central">!</text></g>`;
 }
 
 function calloutHeader(node: DiagramNode): string {
@@ -49,6 +65,8 @@ export interface DiagramExportOptions {
   tolerateMissingAssets?: boolean;
   /** Diagram title, used for the file name and the draw.io page name. */
   name?: string | undefined;
+  /** Governance finding markers on AI flow diagrams (default true). */
+  aiFindings?: boolean;
 }
 
 const FONT = `font-family="'IBM Plex Sans', system-ui, sans-serif"`;
@@ -97,6 +115,8 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
   const maskDefinitions = [...lineJumps.masks].map(([id, masks]) =>
     `<mask id="${maskIds.get(id)}" maskUnits="userSpaceOnUse" x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}"><rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="white"/>${masks.map(mask => `<path d="${mask.d}" fill="none" stroke="black" stroke-width="${mask.width}"/>`).join('')}</mask>`);
   const embedded = new Map<string, string>();
+  const aiFlow = isAiFlowDoc(source);
+  const aiFindings = aiFlow && options.aiFindings !== false ? findingsByTarget(checkAiFlow(source)) : new Map<string, AiTargetFindings>();
   for (const node of document.nodes) {
     if (node.assetId !== null && !embedded.has(node.assetId)) {
       const asset = assets.get(node.assetId);
@@ -135,7 +155,13 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
       const header = Math.min(node.height, node.kind === 'swimlane' ? node.height : containerHeader(node).height);
       shape += `<text x="${node.x + node.width - 10}" y="${node.y + header / 2}" ${FONT} font-size="11" fill="${escapeXml(node.textColor)}" text-anchor="end" dominant-baseline="central">+${view.hiddenCount.get(node.id)}</text>`;
     }
-    return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node)}${calloutHeader(node)}</g>`;
+    const owner = aiFlow ? aiLaneOwnerLayout(node) : null;
+    const shifted = owner !== null && node.textAlign === undefined && node.textVerticalAlign === undefined ? owner.titleShift : 0;
+    const ownerSvg = owner === null ? '' : `<g data-ai-lane-owner="true" transform="${owner.rotation}">${textLines([owner.text], owner.x, owner.y, owner.fontSize, node.textColor, 'middle', 400)}</g>`;
+    const finding = aiFindings.get(node.id);
+    const chips = aiFlow ? aiStepChips(node, finding !== undefined).map(chipSvg).join('') : '';
+    const findingMark = finding === undefined ? '' : findingSvg(aiFindingAnchor(node), finding);
+    return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node, shifted)}${ownerSvg}${calloutHeader(node)}${chips}${findingMark}</g>`;
   });
   const definitions: string[] = [...maskDefinitions];
   const edges = document.edges.map((edge, i) => {
@@ -147,7 +173,10 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     const path = `<${jump === undefined ? `polyline points="${points.map((p) => `${p.x},${p.y}`).join(' ')}"` : `path d="${jump}"`} fill="none" stroke="${escapeXml(edge.stroke)}" stroke-width="${edge.strokeWidth ?? 1.5}"${edge.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.arrows === 'end' || edge.arrows === 'both' ? ` marker-end="url(#arrow-${i})"` : ''}${edge.arrows === 'both' || edge.arrows === 'start' ? ` marker-start="url(#arrow-${i})"` : ''}${maskFor(edge.id)}/>`;
     const { lines, width: labelW, height: labelH, fontSize, lineHeight } = edgeLabelLayout(edge);
     const label = edge.label.trim() ? `<rect x="${middle.x - labelW / 2}" y="${middle.y - labelH / 2}" width="${labelW}" height="${labelH}" rx="3" fill="white" fill-opacity="0.92"/><text x="${middle.x}" y="${middle.y - labelH / 2 + 3 + fontSize}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" text-anchor="middle" fill="${edge.stroke === 'none' ? '#161616' : escapeXml(edge.stroke)}">${lines.map((line, j) => `<tspan x="${middle.x}" dy="${j === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>` : '';
-    return `${path}${label}`;
+    const edgeChip = aiFlow ? aiEdgeChip(edge, points) : null;
+    const edgeFinding = aiFindings.get(edge.id);
+    const aiMarks = `${edgeChip === null ? '' : chipSvg(edgeChip)}${edgeFinding === undefined ? '' : findingSvg(aiEdgeFindingAnchor(points), edgeFinding)}`;
+    return `${path}${label}${aiMarks}`;
   });
   const markers = fns.flatMap((fn, i) => {
     const target = view.hiddenBy.get(fn.targetId) ?? fn.targetId;

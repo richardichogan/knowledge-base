@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { DiagramDocument } from '../types/diagram.js';
+import { checkAiFlow } from './aiFlow.js';
 import { renderNoteAsText } from './noteTextService.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 
@@ -11,6 +12,7 @@ export const DIAGRAM_READING_GUIDANCE = [
   'Compare diagrams using search_diagrams and read_diagram. Cite diagram titles and shape labels; distinguish explicit connections from inferred similarities or gaps.',
   'Footnotes are numbered annotations on a shape or connector (targetId); their text explains that element. The key maps border (stroke) colours to meanings; a shape\'s keyLabel is that meaning. Collapsed containers still contain their child shapes.',
   'elementNotes are Think notes linked to one specific shape, connector or footnote (elementId).',
+  'diagramType ai-flow is an AI flow / governance diagram: swimlanes are lanes (lane.order top to bottom, lane.owner is the owning team or persona) and a step\'s lane is its parentId. flow.stepType says whether a step is a human task, AI agent task, AI orchestration, decision rules, integration, data operation, channel interaction or external party; flow.agent holds autonomy mode, assertion level, tools, knowledge, guardrails and escalation; flow.controls holds data sensitivity, auth, audit logging, human approval and regulatory tags. Connector flow.edgeType distinguishes primary, supporting, conditional, dependency and control flows. governanceFindings are automatic advisory checks of missing controls, not confirmed incidents; an absent field means not recorded, not that the control does not exist.',
   'Linked notes are supporting context, not diagram shapes. Asset names identify uploaded icons only: their pixels have not been analysed.',
   'Truncated content is incomplete: do not claim an omitted shape, connector or detail is absent.',
   'To change a diagram (add shapes, connectors, footnotes or key entries), call update_diagram with its id; to draw a new one, call create_diagram.',
@@ -65,6 +67,8 @@ export function diagramEvidence(document: DiagramDocument, budget = 24_000, sele
       assetId: node.assetId, ...(node.id === selectedId ? { selected: true } : {}),
       ...(keyLabels.has(node.stroke.toLowerCase()) ? { keyLabel: keyLabels.get(node.stroke.toLowerCase()) } : {}),
       ...(node.collapsed === true ? { collapsed: true } : {}),
+      ...(node.lane !== undefined ? { lane: node.lane } : {}),
+      ...(node.flow !== undefined ? { flow: node.flow } : {}),
       ...(node.kind === 'line' ? { lineStart: node.lineStart ?? { x: 0, y: 0.5 }, lineEnd: node.lineEnd ?? { x: 1, y: 0.5 } } : {}),
     });
     if (record !== null) shapes.push(record);
@@ -74,10 +78,17 @@ export function diagramEvidence(document: DiagramDocument, budget = 24_000, sele
     if (edge.label.length > 800 || (edge.description?.length ?? 0) > 1500) shortened = true;
     const record = take({ id: edge.id, sourceId: edge.sourceId, targetId: edge.targetId,
       arrows: edge.arrows, label: clipped(edge.label, 800), description: clipped(edge.description ?? '', 1500),
+      ...(edge.flow !== undefined ? { flow: edge.flow } : {}),
       ...(edge.id === selectedId ? { selected: true } : {}) });
     if (record !== null) connectors.push(record);
   }
-  return JSON.stringify({ version: document.version, totalShapes: document.nodes.length,
+  const aiFlow = document.diagramType === 'ai-flow' ? checkAiFlow(document) : undefined;
+  return JSON.stringify({ version: document.version, ...(document.diagramType !== undefined ? { diagramType: document.diagramType } : {}),
+    ...(aiFlow !== undefined ? {
+      governanceFindings: aiFlow.slice(0, 25).map(f => ({ severity: f.severity, code: f.code, targetId: f.targetId, message: f.message })),
+      omittedGovernanceFindings: Math.max(0, aiFlow.length - 25),
+    } : {}),
+    totalShapes: document.nodes.length,
     totalConnectors: document.edges.length, omittedShapes: document.nodes.length - shapes.length,
     omittedConnectors: document.edges.length - connectors.length, truncatedDetails: shortened,
     shapes, connectors, ...(annotations.length <= Math.floor(budget / 4)
@@ -110,9 +121,10 @@ export async function findDiagramContext(db: Pool, args: {
         WHERE cn.canvas_id = c.id AND n.status = 'active' AND n.project_id = $2))
       AND ($3::text = '' OR strpos(lower(c.title || ' ' || COALESCE(c.description, '')), lower($3)) > 0
         OR EXISTS (SELECT 1 FROM jsonb_array_elements(d.document->'nodes') item
-          WHERE strpos(lower(COALESCE(item->>'label', '') || ' ' || COALESCE(item->>'description', '') || ' ' || COALESCE(item->>'calloutType', '')), lower($3)) > 0)
+          WHERE strpos(lower(COALESCE(item->>'label', '') || ' ' || COALESCE(item->>'description', '') || ' ' || COALESCE(item->>'calloutType', '')
+            || ' ' || COALESCE(item->>'flow', '') || ' ' || COALESCE(item->>'lane', '')), lower($3)) > 0)
         OR EXISTS (SELECT 1 FROM jsonb_array_elements(d.document->'edges') item
-          WHERE strpos(lower(COALESCE(item->>'label', '') || ' ' || COALESCE(item->>'description', '')), lower($3)) > 0)
+          WHERE strpos(lower(COALESCE(item->>'label', '') || ' ' || COALESCE(item->>'description', '') || ' ' || COALESCE(item->>'flow', '')), lower($3)) > 0)
         OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(d.document->'footnotes', '[]'::jsonb)) item
           WHERE strpos(lower(COALESCE(item->>'text', '')), lower($3)) > 0)
         OR EXISTS (SELECT 1 FROM canvas_notes cn JOIN notes n ON n.id::text = cn.note_id

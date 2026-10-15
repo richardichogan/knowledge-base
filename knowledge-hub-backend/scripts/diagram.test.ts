@@ -72,6 +72,60 @@ test('connector font size is optional for legacy diagrams and validated when pre
   }
 });
 
+test('AI flow documents round-trip lane, step and connector governance metadata', () => {
+  const lane = node({ kind: 'swimlane', label: 'Claims agent', width: 900, height: 200, lane: { order: 1, owner: 'Claims operations', description: 'Agentic triage' } });
+  const step = node({
+    parentId: lane.id, label: 'Triage claim',
+    flow: {
+      stepType: 'ai_agent_task', state: 'future', actor: 'Triage agent', systems: ['Claims core'], dataIn: ['FNOL'], dataOut: ['Triage score'],
+      agent: {
+        role: 'Classifier', mode: 'supervised_autonomous', assertion: 'advisory', orchestrator: 'Claims orchestrator', tools: ['policy_lookup'],
+        knowledge: ['Policy wording'], guardrails: ['No payment decisions'], escalationPath: 'Claims handler', decisionBoundary: 'Recommend only',
+        confidenceThreshold: 0.85, memory: 'case', model: 'gpt-4o', promptVersion: 'v3',
+      },
+      controls: { sensitivity: 'pii', authRequired: true, authModel: 'Managed identity', auditLogging: true, humanApproval: true, regulatoryTags: ['GDPR'] },
+      operations: { volume: 'high', sla: '< 5 min', failureHandling: 'Route to human queue', monitoring: 'App Insights' },
+    },
+  });
+  const human = node({ parentId: lane.id, kind: 'decision', label: 'Approve?', flow: { stepType: 'human_task' } });
+  const link = edge(step.id, human.id, { flow: { edgeType: 'control', interaction: 'human_handoff', payload: 'Recommendation', sensitivity: 'pii', auth: 'OAuth', condition: 'score < 0.85' } });
+  const input: DiagramDocument = { ...doc([lane, step, human], [link]), diagramType: 'ai-flow' };
+  assert.deepEqual(validateDiagramDocument(JSON.parse(JSON.stringify(input)), NONE), input);
+  assert.equal(validateDiagramDocument(doc([{ ...step, parentId: null }]), NONE).diagramType, undefined, 'diagram type stays optional for legacy documents');
+  assert.equal(validateDiagramDocument({ ...doc([]), diagramType: 'general' }, NONE).diagramType, 'general');
+});
+
+test('AI flow metadata rejects unknown values, wrong shapes and unbounded input', () => {
+  const lane = node({ kind: 'swimlane' });
+  const step = node({ flow: { stepType: 'human_task' } });
+  const withFlow = (flow: unknown): unknown => ({ ...doc([]), nodes: [{ ...step, flow }] });
+  rejects(() => validateDiagramDocument({ ...doc([]), diagramType: 'bpmn' }, NONE), /document\.diagramType/);
+  rejects(() => validateDiagramDocument(withFlow({}), NONE), /flow\.stepType/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'robot' }), NONE), /flow\.stepType/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', owner: 'x' }), NONE), /flow\.owner/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { mode: 'rogue' } }), NONE), /flow\.agent\.mode/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { confidenceThreshold: 1.5 } }), NONE), /agent\.confidenceThreshold/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { tools: 'search' } }), NONE), /agent\.tools/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { tools: Array(DIAGRAM_LIMITS.maxFlowListItems + 1).fill('t') } }), NONE), /agent\.tools/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { tools: ['x'.repeat(DIAGRAM_LIMITS.maxFlowListItemChars + 1)] } }), NONE), /agent\.tools\[0\]/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', actor: 'x'.repeat(DIAGRAM_LIMITS.maxFlowTextChars + 1) }), NONE), /flow\.actor/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', controls: { sensitivity: 'secret' } }), NONE), /controls\.sensitivity/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', controls: { humanApproval: 'yes' } }), NONE), /controls\.humanApproval/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', operations: { volume: 'huge' } }), NONE), /operations\.volume/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', state: 'past' }), NONE), /flow\.state/);
+  for (const kind of ['swimlane', 'container', 'text', 'line', 'image'] as const) {
+    rejects(() => validateDiagramDocument({ ...doc([]), nodes: [{ ...step, kind, assetId: null }] }, NONE), /nodes\[0\]\.flow/);
+  }
+  rejects(() => validateDiagramDocument(doc([node({ lane: { order: 1 } })]), NONE), /nodes\[0\]\.lane/);
+  rejects(() => validateDiagramDocument({ ...doc([]), nodes: [{ ...lane, lane: {} }] }, NONE), /lane\.order/);
+  rejects(() => validateDiagramDocument({ ...doc([]), nodes: [{ ...lane, lane: { order: 1, persona: 'x' } }] }, NONE), /lane\.persona/);
+  const a = node();
+  const b = node();
+  const e = edge(a.id, b.id);
+  rejects(() => validateDiagramDocument({ ...doc([a, b]), edges: [{ ...e, flow: {} }] }, NONE), /edges\[0\]\.flow\.edgeType/);
+  rejects(() => validateDiagramDocument({ ...doc([a, b]), edges: [{ ...e, flow: { edgeType: 'primary_flow', interaction: 'carrier_pigeon' } }] }, NONE), /flow\.interaction/);
+});
+
 test('accepts a valid document and returns a clean copy', () => {
   const lane = node({ kind: 'swimlane', width: 800, height: 400 });
   const box = node({ kind: 'container', parentId: lane.id });

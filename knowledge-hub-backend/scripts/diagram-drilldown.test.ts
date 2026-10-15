@@ -11,7 +11,7 @@ const nodeId = randomUUID();
 const childId = randomUUID();
 const document = { ...emptyDiagram(), nodes: [{ id: nodeId, label: 'Runtime' }] };
 
-function stub(options: { revision?: number; existing?: boolean; missingShape?: boolean; failInit?: boolean; type?: string } = {}) {
+function stub(options: { revision?: number; existing?: boolean; missingShape?: boolean; failInit?: boolean; type?: string; aiFlow?: boolean } = {}) {
   const calls: Array<{ sql: string; values: unknown[] }> = [];
   let released = false;
   const connection = mock.method(Pool.prototype, 'connect', async () => ({
@@ -20,7 +20,9 @@ function stub(options: { revision?: number; existing?: boolean; missingShape?: b
       calls.push({ sql, values });
       if (sql.startsWith('SELECT canvas_type')) return { rows: [{ canvas_type: options.type ?? 'diagram' }] };
       if (sql.startsWith('SELECT d.revision')) return { rows: [{
-        revision: options.revision ?? 4, document: options.missingShape ? emptyDiagram() : document, project: 'imagine',
+        revision: options.revision ?? 4,
+        document: options.missingShape ? emptyDiagram() : { ...document, ...(options.aiFlow ? { diagramType: 'ai-flow' } : {}) },
+        project: 'imagine',
       }] };
       if (sql.startsWith('SELECT d.node_id')) return { rows: options.existing ? [{ nodeId, canvasId: childId, title: 'Existing detail' }] : [] };
       if (sql.startsWith('INSERT INTO canvases')) return { rows: [{ id: childId }] };
@@ -42,6 +44,16 @@ test('creates and associates a child in one transaction, inheriting the project 
     assert.deepEqual(state.calls.find(call => call.sql.startsWith('INSERT INTO diagram_drilldowns'))?.values, [parentId, nodeId, childId]);
     assert.equal(state.calls.at(-1)?.sql, 'COMMIT');
     assert.equal(state.released(), true);
+  } finally { state.restore(); }
+});
+
+test('a drill-down from an AI flow starts as an empty AI flow', async () => {
+  const state = stub({ aiFlow: true });
+  try {
+    await openDrilldown(parentId, nodeId, { revision: 4 });
+    const inserts = state.calls.filter(call => call.sql.startsWith('INSERT INTO canvas_diagram'));
+    assert.equal(inserts.length, 2, 'document and revision 0');
+    for (const insert of inserts) assert.deepEqual(JSON.parse(String(insert.values[1])), { ...emptyDiagram(), diagramType: 'ai-flow' });
   } finally { state.restore(); }
 });
 

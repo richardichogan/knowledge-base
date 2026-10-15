@@ -24,6 +24,7 @@ import { confirmDialog, alertDialog } from '../services/appDialogs';
 import { useAthenaContext } from '../context/AthenaContext';
 import { usePersistedBoolean } from '../hooks/usePersistedState';
 import type { CanvasFullApi, CanvasSummaryApi } from '../services/api';
+import type { DiagramType } from '../features/diagram/diagramTypes';
 import '../features/diagram/diagramIntegration.scss';
 import { DataNotice } from '../components/DataNotice';
 import { canvasHierarchy } from '../features/canvas/canvasHierarchy';
@@ -250,16 +251,27 @@ export const NotesPage: React.FC = () => {
     }
   }
 
-  async function handleCreateCanvas(canvasType: 'brainstorm' | 'diagram' = 'brainstorm', noteId?: string): Promise<boolean> {
+  async function handleCreateCanvas(canvasType: 'brainstorm' | 'diagram' = 'brainstorm', noteId?: string, diagramType: DiagramType = 'general'): Promise<boolean> {
     setNewMapMenu(null);
     setCanvasError(null);
     try {
+      const diagramTitle = diagramType === 'ai-flow' ? 'Untitled AI flow' : 'Untitled diagram';
       const r = await api.createCanvas({
-        title: canvasType === 'diagram' ? (noteId !== undefined && openDoc?.id === noteId ? `${openDoc.title} diagram` : 'Untitled diagram') : 'Untitled brainstorm', canvasType,
+        title: canvasType === 'diagram' ? (noteId !== undefined && openDoc?.id === noteId ? `${openDoc.title} diagram` : diagramTitle) : 'Untitled brainstorm', canvasType,
         ...(canvasType === 'brainstorm' ? { rootLabel: 'New idea' } : {}),
         ...(canvasType === 'diagram' && noteId !== undefined ? { noteId } : {}),
       });
       if (!r.success) throw new Error(r.error.message);
+      if (canvasType === 'diagram' && diagramType === 'ai-flow') {
+        try {
+          const snap = await api.getDiagram(r.data.id);
+          if (!snap.success) throw new Error(snap.error.message);
+          const saved = await api.saveDiagram(r.data.id, snap.data.revision, { ...snap.data.document, diagramType: 'ai-flow' });
+          if (!saved.success) throw new Error(saved.error.message);
+        } catch (err) {
+          setCanvasError(`Created the diagram, but could not make it an AI flow diagram (${err instanceof Error ? err.message : 'Unknown error'}). Use the AI flow switch in the diagram header.`);
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: ['canvases'] });
       openMap(r.data.id);
       return true;
@@ -518,6 +530,7 @@ export const NotesPage: React.FC = () => {
                 onPin={() => { if (openDoc !== null) void createPinnedMap(openDoc.id); }}
                 onBlank={() => { setNewMapMenu(null); void handleCreateCanvas(); }}
                 onDiagram={() => { void handleCreateCanvas('diagram'); }}
+                onAiFlow={() => { void handleCreateCanvas('diagram', undefined, 'ai-flow'); }}
                 onClose={() => { setNewMapMenu(null); }}
               />
             )}
@@ -664,6 +677,7 @@ export const NotesPage: React.FC = () => {
                       onPin={() => { if (openDoc !== null) void createPinnedMap(openDoc.id); }}
                       onBlank={() => { setNewMapMenu(null); void handleCreateCanvas(); }}
                       onDiagram={() => { void handleCreateCanvas('diagram'); }}
+                      onAiFlow={() => { void handleCreateCanvas('diagram', undefined, 'ai-flow'); }}
                       onClose={() => { setNewMapMenu(null); }}
                     />
                   )}
@@ -748,7 +762,7 @@ const ThinkCanvas: React.FC<React.ComponentProps<typeof CanvasEditor> & { initia
 };
 
 /** The choice offered by "New map" when a note is open. */
-const NewMapMenu: React.FC<{ noteTitle: string | undefined; onPin: () => void; onBlank: () => void; onDiagram: () => void; onClose: () => void }> = ({ noteTitle, onPin, onBlank, onDiagram, onClose }) => {
+const NewMapMenu: React.FC<{ noteTitle: string | undefined; onPin: () => void; onBlank: () => void; onDiagram: () => void; onAiFlow: () => void; onClose: () => void }> = ({ noteTitle, onPin, onBlank, onDiagram, onAiFlow, onClose }) => {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: MouseEvent): void => { if (ref.current !== null && !ref.current.contains(e.target as Node)) onClose(); };
@@ -770,6 +784,10 @@ const NewMapMenu: React.FC<{ noteTitle: string | undefined; onPin: () => void; o
       <button type="button" role="menuitem" className="mm-newmap-menu__item" onClick={onDiagram}>
         <span className="mm-newmap-menu__title">Diagram</span>
         <span className="mm-newmap-menu__desc">Architecture diagrams and process flows with shapes, containers, arrows and PNG/SVG icons.</span>
+      </button>
+      <button type="button" role="menuitem" className="mm-newmap-menu__item" onClick={onAiFlow}>
+        <span className="mm-newmap-menu__title">AI flow / governance diagram</span>
+        <span className="mm-newmap-menu__desc">Swimlane process flow mapped to agents, tools and governance controls, with built-in governance checks.</span>
       </button>
     </div>
   );

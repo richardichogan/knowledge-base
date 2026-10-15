@@ -6,7 +6,9 @@ import { PGlite } from '@electric-sql/pglite';
 import type { DiagramDocument } from '../src/types/diagram.js';
 
 process.env['DATABASE_URL'] ??= 'postgresql://isolated.invalid/offline';
-const { addToDiagram, executeAssetTool, getAssetToolDefinitions, isAssetTool, layoutColumns, ASSET_WRITE_TOOLS } = await import('../src/ai/assetTools.js');
+const { addToDiagram, applyDiagramUpdate, executeAssetTool, getAssetToolDefinitions, isAssetTool, layoutColumns, ASSET_WRITE_TOOLS } = await import('../src/ai/assetTools.js');
+const { validateDiagramDocument } = await import('../src/services/diagramValidation.js');
+const { emptyDiagram } = await import('../src/types/diagram.js');
 
 const EMPTY: DiagramDocument = { schemaVersion: 1, nodes: [], edges: [] } as unknown as DiagramDocument;
 
@@ -90,6 +92,69 @@ test('projects, Discover sources, articles and Sparks can be changed', async () 
   assert.deepEqual(sparked['spark'], { id: spark.id, body: 'old idea', tags: ['imagine'] });
 });
 
+test('an AI flow gets lanes, steps placed in them, sanitised metadata and a valid document', () => {
+  const { doc, problems } = applyDiagramUpdate(emptyDiagram(), {
+    diagramType: 'ai-flow',
+    addLanes: [{ key: 'cust', label: 'Customer', owner: 'Policyholder' }, { key: 'ai', label: 'AI agents', owner: 'Claims AI team' }, { label: 'Handlers' }],
+    addNodes: [
+      { key: 'fnol', label: 'Report claim', lane: 'cust', stepType: 'channel_interaction' },
+      { key: 'triage', label: 'Triage claim', lane: 'ai', stepType: 'ai_agent_task', colour: 'red',
+        agent: { mode: 'semi_autonomous', assertion: 'bogus', tools: ['Policy API', '', 'x'.repeat(400)], confidenceThreshold: 85, role: 'r'.repeat(900) },
+        controls: { sensitivity: 'pii', authRequired: true, auditLogging: 'yes' } },
+      { key: 'review', label: 'Review', lane: 'handlers', stepType: 'human_task' },
+      { key: 'orphan', label: 'Lost', lane: 'Nowhere', stepType: 'integration' },
+    ],
+    addEdges: [{ from: 'fnol', to: 'triage' }, { from: 'triage', to: 'review', edgeType: 'control', interaction: 'human_handoff' }],
+  });
+  assert.deepEqual(problems, ['Lane "Nowhere" not found; "Lost" is outside the lanes.']);
+  assert.equal(doc.diagramType, 'ai-flow');
+  const lanes = doc.nodes.filter((n) => n.kind === 'swimlane');
+  assert.deepEqual(lanes.map((l) => [l.label, l.lane?.order, l.lane?.owner]), [['Customer', 1, 'Policyholder'], ['AI agents', 2, 'Claims AI team'], ['Handlers', 3, undefined]]);
+  const byLabel = (label: string) => doc.nodes.find((n) => n.label === label)!;
+  assert.equal(byLabel('Report claim').parentId, lanes[0]!.id);
+  assert.equal(byLabel('Review').parentId, lanes[2]!.id, 'lanes resolve by label as well as key');
+  assert.equal(byLabel('Lost').parentId, null);
+  assert.equal(byLabel('Report claim').kind, 'terminator', 'step type sets the default shape');
+  const triage = byLabel('Triage claim');
+  assert.equal(triage.stroke, '#da1e28', 'an explicit colour wins over the step style');
+  assert.deepEqual(triage.flow?.agent, { role: 'r'.repeat(500), mode: 'semi_autonomous', tools: ['Policy API', 'x'.repeat(200)], confidenceThreshold: 0.85 });
+  assert.deepEqual(triage.flow?.controls, { sensitivity: 'pii', authRequired: true });
+  for (const step of doc.nodes.filter((n) => n.parentId !== null)) {
+    const lane = doc.nodes.find((n) => n.id === step.parentId)!;
+    assert.ok(step.y >= lane.y && step.y + step.height <= lane.y + lane.height && step.x >= lane.x, `${step.label} sits inside its lane`);
+  }
+  assert.deepEqual(doc.edges.map((e) => [e.flow?.edgeType, e.dashed]), [['primary_flow', false], ['control', true]]);
+  assert.doesNotThrow(() => validateDiagramDocument(JSON.parse(JSON.stringify(doc)), new Set()));
+
+  const next = applyDiagramUpdate(doc, {
+    updateNodes: [
+      { node: 'Triage claim', controls: { auditLogging: true, regulatoryTags: 'GDPR' }, agent: { escalationPath: 'Senior handler' } },
+      { node: 'Handlers', owner: 'Claims operations', order: 0 },
+      { node: 'Report claim', lane: 'AI agents' },
+      { node: 'Lost', agent: { mode: 'autonomous' } },
+    ],
+    updateEdges: [{ from: 'fnol', to: 'Triage claim', edgeType: 'conditional_flow', condition: 'Claim over £10k' }],
+  });
+  assert.deepEqual(next.problems, ['Shape "fnol" not found.'], 'keys only live for one call');
+  const after = (label: string) => next.doc.nodes.find((n) => n.label === label)!;
+  assert.deepEqual(after('Triage claim').flow?.controls, { sensitivity: 'pii', authRequired: true, auditLogging: true, regulatoryTags: ['GDPR'] });
+  assert.equal(after('Triage claim').flow?.agent?.mode, 'semi_autonomous', 'merging keeps earlier agent details');
+  assert.equal(after('Triage claim').flow?.agent?.escalationPath, 'Senior handler');
+  assert.equal(after('Handlers').lane?.owner, 'Claims operations');
+  assert.ok(after('Handlers').y < after('Customer').y, 'reordered lanes are laid out again');
+  assert.equal(after('Report claim').parentId, after('AI agents').id);
+  assert.doesNotThrow(() => validateDiagramDocument(JSON.parse(JSON.stringify(next.doc)), new Set()));
+
+  const edge = applyDiagramUpdate(next.doc, { updateEdges: [{ from: 'Report claim', to: 'Triage claim', edgeType: 'conditional_flow', condition: 'Claim over £10k' }] });
+  assert.deepEqual(edge.problems, []);
+  assert.deepEqual(edge.doc.edges[0]!.flow, { edgeType: 'conditional_flow', condition: 'Claim over £10k' });
+  assert.equal(edge.doc.edges[0]!.stroke, '#b28600');
+  assert.equal(doc.nodes.find((n) => n.label === 'Triage claim')!.flow?.controls?.auditLogging, undefined, 'the input document is not mutated');
+
+  const general = applyDiagramUpdate(emptyDiagram(), { addNodes: [{ label: 'A' }], relayout: true });
+  assert.equal(general.doc.diagramType, undefined);
+  assert.deepEqual(general.problems, ['relayout only applies to AI flow diagrams.']);
+});
 test('the note open beside the chat must go through a reviewed edit', async () => {
   const db = await database();
   const result = await executeAssetTool(db, 'update_note', { noteId: 'n1', content: 'x' }, 'n1') as Record<string, unknown>;

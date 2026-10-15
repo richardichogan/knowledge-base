@@ -11,7 +11,14 @@ import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import type { LlmToolDefinition } from './foundryClient.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
-import type { DiagramDocument, DiagramEdge, DiagramNode, DiagramKind } from '../types/diagram.js';
+import {
+  AI_AGENT_MODES, AI_ASSERTION_LEVELS, AI_FLOW_EDGE_TYPES, AI_FLOW_INTERACTIONS, AI_FLOW_STATES, AI_FLOW_STEP_TYPES, AI_FLOW_VOLUMES,
+  AI_MEMORY_SCOPES, DATA_SENSITIVITIES,
+  type AiFlowAgent, type AiFlowControls, type AiFlowEdge, type AiFlowOperations, type AiFlowStep,
+  type DiagramDocument, type DiagramEdge, type DiagramNode, type DiagramKind,
+} from '../types/diagram.js';
+import { checkAiFlow, EDGE_STYLES, layoutAiFlow, nextLaneOrder, STEP_STYLES } from '../services/aiFlow.js';
+import { DIAGRAM_LIMITS } from '../services/diagramValidation.js';
 import { env } from '../config/env.js';
 
 export const ASSET_WRITE_TOOLS = [
@@ -56,6 +63,68 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[]): T | undefined =>
   typeof v === 'string' && (allowed as readonly string[]).includes(v) ? v as T : undefined;
 
+const textList = (description: string) => ({ type: 'array', items: { type: 'string' }, description });
+/** AI flow step metadata accepted on shapes; only record what the user stated or the sources show. */
+const aiFlowStepProperties = {
+  lane: { type: 'string', description: 'AI flow: key, label or id of the lane this step sits in.' },
+  stepType: {
+    type: 'string', enum: [...AI_FLOW_STEP_TYPES],
+    description: 'AI flow: channel_interaction (customer touchpoint), human_task, ai_agent_task, ai_orchestration (routes work between agents), decision_rules (deterministic rules), integration (system/API call), data_operation (read/write a store), external_party. Sets the default shape and colour.',
+  },
+  state: { type: 'string', enum: [...AI_FLOW_STATES], description: 'AI flow: part of the existing process, the future (target) process, or both.' },
+  actor: { type: 'string', description: 'AI flow: who or what performs the step.' },
+  systems: textList('AI flow: systems involved.'),
+  dataIn: textList('AI flow: data the step consumes.'),
+  dataOut: textList('AI flow: data the step produces.'),
+  agent: {
+    type: 'object',
+    description: 'AI flow: for ai_agent_task and ai_orchestration steps.',
+    properties: {
+      role: { type: 'string' },
+      mode: { type: 'string', enum: [...AI_AGENT_MODES], description: 'Autonomy: assistive (A1, human decides) to autonomous (A4, acts alone).' },
+      assertion: { type: 'string', enum: [...AI_ASSERTION_LEVELS], description: 'How binding its output is: signal, advisory or authoritative.' },
+      orchestrator: { type: 'string', description: 'The orchestrating agent, if any.' },
+      tools: textList('Tools/APIs the agent can call.'),
+      knowledge: textList('Knowledge sources it is grounded on.'),
+      guardrails: textList('Guardrails constraining it.'),
+      escalationPath: { type: 'string', description: 'Where it escalates when unsure or out of bounds.' },
+      decisionBoundary: { type: 'string', description: 'What it may and may not decide.' },
+      confidenceThreshold: { type: 'number', description: '0–1 confidence below which it escalates.' },
+      memory: { type: 'string', enum: [...AI_MEMORY_SCOPES] },
+      model: { type: 'string' },
+      promptVersion: { type: 'string' },
+    },
+  },
+  controls: {
+    type: 'object',
+    description: 'AI flow: governance controls on the step.',
+    properties: {
+      sensitivity: { type: 'string', enum: [...DATA_SENSITIVITIES], description: 'Most sensitive data the step handles.' },
+      authRequired: { type: 'boolean' }, authModel: { type: 'string' },
+      auditLogging: { type: 'boolean' }, humanApproval: { type: 'boolean' },
+      regulatoryTags: textList('e.g. GDPR, FCA Consumer Duty, EU AI Act.'),
+    },
+  },
+  operations: {
+    type: 'object',
+    description: 'AI flow: operational characteristics.',
+    properties: {
+      volume: { type: 'string', enum: [...AI_FLOW_VOLUMES] }, sla: { type: 'string' },
+      failureHandling: { type: 'string' }, monitoring: { type: 'string' },
+    },
+  },
+};
+const aiFlowEdgeProperties = {
+  edgeType: {
+    type: 'string', enum: [...AI_FLOW_EDGE_TYPES],
+    description: 'AI flow: primary_flow (main path), supporting_flow, conditional_flow (only when a condition holds), dependency, control (a governance check acting on a step). Defaults to primary_flow.',
+  },
+  interaction: { type: 'string', enum: [...AI_FLOW_INTERACTIONS], description: 'AI flow: sync, async, agent_handoff or human_handoff.' },
+  payload: { type: 'string', description: 'AI flow: what is passed along.' },
+  sensitivity: { type: 'string', enum: [...DATA_SENSITIVITIES] },
+  auth: { type: 'string', description: 'AI flow: how the hop is authenticated.' },
+  condition: { type: 'string', description: 'AI flow: when a conditional flow is taken.' },
+};
 const diagramNodeSchema = {
   type: 'object',
   properties: {
@@ -63,8 +132,9 @@ const diagramNodeSchema = {
     label: { type: 'string' },
     description: { type: 'string', description: 'Longer explanation; shown when a footnote marker is added.' },
     kind: { type: 'string', enum: [...NODE_KINDS] },
-    colour: { type: 'string', enum: COLOUR_NAMES, description: 'Border/fill colour. Use colours consistently by meaning and name them in the legend.' },
+    colour: { type: 'string', enum: COLOUR_NAMES, description: 'Border/fill colour. Use colours consistently by meaning and name them in the legend. In an AI flow, leave it out so the step type sets the colour.' },
     footnote: { type: 'boolean', description: 'Add a numbered footnote marker showing the description.' },
+    ...aiFlowStepProperties,
   },
   required: ['label'],
 };
@@ -75,8 +145,23 @@ const diagramEdgeSchema = {
     to: { type: 'string', description: 'Key, label or id of the target shape.' },
     label: { type: 'string' },
     dashed: { type: 'boolean' },
+    ...aiFlowEdgeProperties,
   },
   required: ['from', 'to'],
+};
+const laneSchema = {
+  type: 'array',
+  description: 'AI flow lanes, top to bottom: one per team, persona, channel, agent group or system that performs steps.',
+  items: {
+    type: 'object',
+    properties: {
+      key: { type: 'string', description: 'Short handle steps use in "lane" (defaults to the label).' },
+      label: { type: 'string' },
+      owner: { type: 'string', description: 'Owning team or persona, shown in the lane header.' },
+      description: { type: 'string' },
+    },
+    required: ['label'],
+  },
 };
 const legendSchema = {
   type: 'array',
@@ -136,18 +221,25 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         projectId: { type: 'string' },
       }, ['noteId']),
     fn('create_diagram',
-      'Creates a new diagram (Think → Diagrams) from shapes and connectors, laid out automatically left to right. Use for architectures, flows and processes. Colour shapes by meaning and add a legend for the colours.',
+      'Creates a new diagram (Think → Diagrams) from shapes and connectors, laid out automatically left to right. Use for architectures, flows and processes. Colour shapes by meaning and add a legend for the colours. ' +
+      'For an AI flow / governance diagram (an agentic or AI-assisted process mapped to agents, tools and controls) set diagramType "ai-flow", give lanes (one per team, persona, channel, agent group or system, with its owner) and give every step a lane and a stepType; ' +
+      'fill agent details on AI steps and controls where data is sensitive. Only record agents, tools and controls the user stated or the sources show — leave unknowns out so the governance findings in the result show the gaps. Lanes and steps are laid out as swimlanes.',
       {
         title: { type: 'string' }, description: { type: 'string' },
         projectId: { type: 'string', description: 'Project to file it under.' },
+        diagramType: { type: 'string', enum: ['general', 'ai-flow'], description: 'ai-flow for an AI flow / governance swimlane diagram. Defaults to general, or ai-flow when lanes are given.' },
+        lanes: laneSchema,
         nodes: { type: 'array', items: diagramNodeSchema },
         edges: { type: 'array', items: diagramEdgeSchema },
         legend: legendSchema,
       }, ['title', 'nodes']),
     fn('update_diagram',
-      'Changes a saved diagram (find it with search_diagrams/read_diagram): add shapes and connectors, relabel/recolour/describe shapes, remove shapes, set the legend or rename it. Earlier versions stay in its history.',
+      'Changes a saved diagram (find it with search_diagrams/read_diagram): add shapes and connectors, relabel/recolour/describe shapes, remove shapes, set the legend or rename it. Earlier versions stay in its history. ' +
+      'For AI flow diagrams it can also add lanes, move steps between lanes, set step, agent, control and connector metadata, and re-run the swimlane layout (it re-runs automatically when lanes or steps are added or moved).',
       {
         diagramId: { type: 'string' }, title: { type: 'string' },
+        diagramType: { type: 'string', enum: ['general', 'ai-flow'], description: 'Switch the diagram type.' },
+        addLanes: laneSchema,
         addNodes: { type: 'array', items: diagramNodeSchema },
         addEdges: { type: 'array', items: diagramEdgeSchema },
         updateNodes: {
@@ -157,11 +249,28 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
             properties: {
               node: { type: 'string', description: 'Id or current label.' }, label: { type: 'string' }, description: { type: 'string' },
               colour: { type: 'string', enum: COLOUR_NAMES }, footnote: { type: 'boolean' },
+              ...aiFlowStepProperties,
+              owner: { type: 'string', description: 'AI flow lanes only: owning team or persona.' },
+              order: { type: 'number', description: 'AI flow lanes only: position, lower is higher up.' },
             },
             required: ['node'],
           },
+          description: 'AI flow metadata given here is merged into what the shape already has.',
+        },
+        updateEdges: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              edge: { type: 'string', description: 'Connector id. Or give from and to instead.' },
+              from: { type: 'string' }, to: { type: 'string' },
+              label: { type: 'string' }, dashed: { type: 'boolean' },
+              ...aiFlowEdgeProperties,
+            },
+          },
         },
         removeNodes: { type: 'array', items: { type: 'string' }, description: 'Ids or labels; their connectors go too.' },
+        relayout: { type: 'boolean', description: 'AI flow only: re-run the swimlane layout.' },
         legend: legendSchema,
       }, ['diagramId']),
     fn('create_mind_map',
@@ -387,43 +496,188 @@ async function updateNote(db: Pool, args: Record<string, unknown>, openNoteId?: 
 
 // ── Diagrams ─────────────────────────────────────────────────────────────────
 
-interface NodeSpec { key: string; label: string; description?: string; kind: typeof NODE_KINDS[number]; colour: string; footnote: boolean }
-interface EdgeSpec { from: string; to: string; label: string; dashed: boolean }
+interface NodeSpec {
+  key: string; label: string; description?: string; kind: typeof NODE_KINDS[number]; colour: string; footnote: boolean;
+  /** AI flow: lane key, label or id. */
+  lane?: string;
+  flow?: AiFlowStep;
+  /** Colour from the step type rather than a named colour. */
+  stepStyle?: boolean;
+}
+interface EdgeSpec { from: string; to: string; label: string; dashed: boolean; flow?: AiFlowEdge }
+export interface LaneSpec { key: string; label: string; owner?: string; description?: string }
+
+// AI flow values are trimmed and clipped to the validator's limits so a long model answer never fails the save.
+const record = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : {});
+const flowText = (v: unknown): string | undefined => str(v)?.slice(0, DIAGRAM_LIMITS.maxFlowTextChars);
+const flowList = (v: unknown): string[] | undefined => {
+  const items = (Array.isArray(v) ? v : [v]).flatMap((x) => { const s = str(x); return s === undefined ? [] : [s.slice(0, DIAGRAM_LIMITS.maxFlowListItemChars)]; })
+    .slice(0, DIAGRAM_LIMITS.maxFlowListItems);
+  return items.length > 0 ? items : undefined;
+};
+const flag = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : undefined);
+/** 0–1; a percentage (e.g. 85) is converted. */
+const threshold = (v: unknown): number | undefined => {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return undefined;
+  const t = v > 1 && v <= 100 ? v / 100 : v;
+  return t <= 1 ? t : undefined;
+};
+/** Merges defined incoming values over existing ones; undefined when nothing is left. */
+function merged<T extends object>(existing: T | undefined, incoming: { [K in keyof T]?: T[K] | undefined }): T | undefined {
+  const out: Record<string, unknown> = { ...existing };
+  for (const [k, v] of Object.entries(incoming)) if (v !== undefined) out[k] = v;
+  return Object.keys(out).length > 0 ? out as T : undefined;
+}
+
+function flowStepFrom(n: Record<string, unknown>, existing?: AiFlowStep): AiFlowStep | undefined {
+  const stepType = oneOf(n['stepType'], AI_FLOW_STEP_TYPES) ?? existing?.stepType;
+  if (stepType === undefined) return undefined;
+  const a = record(n['agent']);
+  const c = record(n['controls']);
+  const o = record(n['operations']);
+  const agent = merged<AiFlowAgent>(existing?.agent, {
+    role: flowText(a['role']), mode: oneOf(a['mode'], AI_AGENT_MODES), assertion: oneOf(a['assertion'], AI_ASSERTION_LEVELS),
+    orchestrator: flowText(a['orchestrator']), tools: flowList(a['tools']), knowledge: flowList(a['knowledge']),
+    guardrails: flowList(a['guardrails']), escalationPath: flowText(a['escalationPath']), decisionBoundary: flowText(a['decisionBoundary']),
+    confidenceThreshold: threshold(a['confidenceThreshold']), memory: oneOf(a['memory'], AI_MEMORY_SCOPES),
+    model: flowText(a['model']), promptVersion: flowText(a['promptVersion']),
+  });
+  const controls = merged<AiFlowControls>(existing?.controls, {
+    sensitivity: oneOf(c['sensitivity'], DATA_SENSITIVITIES), authRequired: flag(c['authRequired']), authModel: flowText(c['authModel']),
+    auditLogging: flag(c['auditLogging']), humanApproval: flag(c['humanApproval']), regulatoryTags: flowList(c['regulatoryTags']),
+  });
+  const operations = merged<AiFlowOperations>(existing?.operations, {
+    volume: oneOf(o['volume'], AI_FLOW_VOLUMES), sla: flowText(o['sla']), failureHandling: flowText(o['failureHandling']), monitoring: flowText(o['monitoring']),
+  });
+  return merged<AiFlowStep>({ ...existing, stepType }, {
+    state: oneOf(n['state'], AI_FLOW_STATES), actor: flowText(n['actor']),
+    systems: flowList(n['systems']), dataIn: flowList(n['dataIn']), dataOut: flowList(n['dataOut']), agent, controls, operations,
+  });
+}
+
+/** Connector metadata; in an AI flow an untyped connector is the primary flow. */
+function flowEdgeFrom(e: Record<string, unknown>, aiFlow: boolean, existing?: AiFlowEdge): AiFlowEdge | undefined {
+  const rest = {
+    interaction: oneOf(e['interaction'], AI_FLOW_INTERACTIONS), payload: flowText(e['payload']),
+    sensitivity: oneOf(e['sensitivity'], DATA_SENSITIVITIES), auth: flowText(e['auth']), condition: flowText(e['condition']),
+  };
+  const edgeType = oneOf(e['edgeType'], AI_FLOW_EDGE_TYPES) ?? existing?.edgeType
+    ?? (aiFlow || Object.values(rest).some((v) => v !== undefined) ? 'primary_flow' : undefined);
+  return edgeType === undefined ? undefined : merged<AiFlowEdge>({ ...existing, edgeType }, rest);
+}
+
+function laneSpecs(v: unknown): LaneSpec[] {
+  return (Array.isArray(v) ? v as unknown[] : []).flatMap((raw) => {
+    const l = record(raw);
+    const label = str(l['label']);
+    if (label === undefined) return [];
+    const owner = flowText(l['owner']);
+    const description = str(l['description'])?.slice(0, 2000);
+    return [{ key: str(l['key']) ?? label, label, ...(owner !== undefined ? { owner } : {}), ...(description !== undefined ? { description } : {}) }];
+  });
+}
 
 function nodeSpecs(v: unknown): NodeSpec[] {
   return (Array.isArray(v) ? v as Array<Record<string, unknown>> : []).flatMap((n) => {
     const label = str(n['label']);
     if (label === undefined) return [];
     const description = str(n['description']);
+    const flow = flowStepFrom(n);
+    const colour = oneOf(n['colour'], COLOUR_NAMES);
+    const lane = str(n['lane']);
     return [{
       key: str(n['key']) ?? label, label, ...(description !== undefined ? { description } : {}),
-      kind: oneOf(n['kind'], NODE_KINDS) ?? 'process', colour: oneOf(n['colour'], COLOUR_NAMES) ?? 'grey', footnote: n['footnote'] === true,
+      kind: oneOf(n['kind'], NODE_KINDS) ?? (flow !== undefined ? STEP_STYLES[flow.stepType].kind : 'process'),
+      colour: colour ?? 'grey', footnote: n['footnote'] === true,
+      ...(lane !== undefined ? { lane } : {}),
+      ...(flow !== undefined ? { flow, ...(colour === undefined ? { stepStyle: true } : {}) } : {}),
     }];
   });
 }
 
-function edgeSpecs(v: unknown): EdgeSpec[] {
+function edgeSpecs(v: unknown, aiFlow = false): EdgeSpec[] {
   return (Array.isArray(v) ? v as Array<Record<string, unknown>> : []).flatMap((e) => {
     const from = str(e['from']);
     const to = str(e['to']);
-    return from === undefined || to === undefined ? [] : [{ from, to, label: str(e['label']) ?? '', dashed: e['dashed'] === true }];
+    if (from === undefined || to === undefined) return [];
+    const flow = flowEdgeFrom(e, aiFlow);
+    const dashed = typeof e['dashed'] === 'boolean' ? e['dashed'] : flow !== undefined && EDGE_STYLES[flow.edgeType].dashed;
+    return [{ from, to, label: str(e['label']) ?? '', dashed, ...(flow !== undefined ? { flow } : {}) }];
   });
 }
 
 function makeNode(spec: NodeSpec, x: number, y: number): DiagramNode {
-  const size = NODE_SIZE[spec.kind];
-  const colour = DIAGRAM_COLOURS[spec.colour] ?? DIAGRAM_COLOURS['grey']!;
+  const style = spec.flow !== undefined ? STEP_STYLES[spec.flow.stepType] : undefined;
+  const size = style !== undefined && style.kind === spec.kind ? style : NODE_SIZE[spec.kind];
+  const colour = style !== undefined && spec.stepStyle === true ? style : DIAGRAM_COLOURS[spec.colour] ?? DIAGRAM_COLOURS['grey']!;
   return {
     id: randomUUID(), kind: spec.kind as DiagramKind, label: spec.label, ...(spec.description !== undefined ? { description: spec.description } : {}),
     x, y, width: size.width, height: size.height, parentId: null, fill: colour.fill, stroke: colour.stroke,
-    textColor: '#161616', fontSize: 16, assetId: null,
+    textColor: '#161616', fontSize: 16, assetId: null, ...(spec.flow !== undefined ? { flow: spec.flow } : {}),
   };
 }
 
 function makeEdge(sourceId: string, targetId: string, spec: EdgeSpec): DiagramEdge {
   return {
     id: randomUUID(), sourceId, targetId, sourcePort: 'right', targetPort: 'left', route: 'orthogonal', waypoints: [],
-    label: spec.label, stroke: '#525252', dashed: spec.dashed, arrows: 'end',
+    label: spec.label, stroke: spec.flow !== undefined ? EDGE_STYLES[spec.flow.edgeType].stroke : '#525252', dashed: spec.dashed, arrows: 'end',
+    ...(spec.flow !== undefined ? { flow: spec.flow } : {}),
+  };
+}
+
+function makeLane(spec: LaneSpec, order: number): DiagramNode {
+  return {
+    id: randomUUID(), kind: 'swimlane', label: spec.label, x: 0, y: 0, width: 560, height: 180, parentId: null,
+    fill: '#ffffff', stroke: '#525252', textColor: '#161616', fontSize: 18, assetId: null,
+    lane: { order, ...(spec.owner !== undefined ? { owner: spec.owner } : {}), ...(spec.description !== undefined ? { description: spec.description } : {}) },
+  };
+}
+
+/** Finds a lane by key (this call), id or label (case-insensitive). */
+function findLane(doc: DiagramDocument, ref: string, keys: Map<string, string>): DiagramNode | undefined {
+  const id = keys.get(ref.toLowerCase()) ?? ref;
+  const lanes = doc.nodes.filter((n) => n.kind === 'swimlane');
+  return lanes.find((n) => n.id === id) ?? lanes.find((n) => n.label.trim().toLowerCase() === ref.trim().toLowerCase());
+}
+
+/**
+ * Adds lanes, steps (placed in their lanes) and connectors to an AI flow, then
+ * lays it out as swimlanes. Steps whose lane can't be found stay outside lanes.
+ */
+export function addToAiFlow(doc: DiagramDocument, lanes: LaneSpec[], nodes: NodeSpec[], edges: EdgeSpec[]): { doc: DiagramDocument; problems: string[] } {
+  const firstOrder = nextLaneOrder(doc);
+  const laneKeys = new Map<string, string>();
+  const newLanes = lanes.map((spec, i) => {
+    const lane = makeLane(spec, firstOrder + i);
+    laneKeys.set(spec.key.toLowerCase(), lane.id);
+    return lane;
+  });
+  const withLanes: DiagramDocument = { ...doc, diagramType: 'ai-flow', nodes: [...doc.nodes, ...newLanes] };
+  const added = addToDiagram(withLanes, nodes, edges);
+  const problems = [...added.problems];
+  const offset = added.doc.nodes.length - nodes.length;
+  nodes.forEach((spec, i) => {
+    const node = added.doc.nodes[offset + i]!;
+    if (spec.lane === undefined) {
+      if (newLanes.length > 0 || doc.nodes.some((n) => n.kind === 'swimlane')) problems.push(`Step "${spec.label}" has no lane.`);
+      return;
+    }
+    const lane = findLane(added.doc, spec.lane, laneKeys);
+    if (lane === undefined) problems.push(`Lane "${spec.lane}" not found; "${spec.label}" is outside the lanes.`);
+    else node.parentId = lane.id;
+  });
+  return { doc: layoutAiFlow(added.doc), problems };
+}
+
+/** Advisory governance gaps for the tool result. */
+function governanceSummary(doc: DiagramDocument): Record<string, unknown> {
+  const findings = checkAiFlow(doc);
+  const count = (s: string): number => findings.filter((f) => f.severity === s).length;
+  return {
+    high: count('high'), warnings: count('warning'), info: count('info'),
+    top: findings.slice(0, 10).map((f) => `${f.severity}: ${f.message}`),
+    ...(findings.length > 10 ? { more: findings.length - 10 } : {}),
+    note: 'Advisory checks for governance details not recorded on the diagram. Tell the user about the high ones and ask for the missing details; do not invent controls to clear them.',
   };
 }
 
@@ -504,7 +758,11 @@ async function createDiagram(db: Pool, args: Record<string, unknown>): Promise<u
   const { createCanvas, updateCanvas } = await import('../services/canvasService.js');
   const { getDiagram, saveDiagram } = await import('../services/diagramService.js');
   const { emptyDiagram } = await import('../types/diagram.js');
-  const { doc, problems } = addToDiagram(emptyDiagram(), nodes, edgeSpecs(args['edges']));
+  const lanes = laneSpecs(args['lanes']);
+  const aiFlow = args['diagramType'] === 'ai-flow' || (args['diagramType'] !== 'general' && lanes.length > 0);
+  if (lanes.length + nodes.length > MAX_DIAGRAM_NODES) return { error: `At most ${MAX_DIAGRAM_NODES.toString()} lanes and shapes per call.` };
+  const edges = edgeSpecs(args['edges'], aiFlow);
+  const { doc, problems } = aiFlow ? addToAiFlow(emptyDiagram(), lanes, nodes, edges) : addToDiagram(emptyDiagram(), nodes, edges);
   const legend = legendFrom(args['legend'], undefined);
   const canvas = await createCanvas({ title, canvasType: 'diagram', ...(project !== null ? { project } : {}) });
   const description = str(args['description']);
@@ -512,21 +770,36 @@ async function createDiagram(db: Pool, args: Record<string, unknown>): Promise<u
   const current = await getDiagram(canvas.id);
   await saveDiagram(canvas.id, { revision: current.revision, document: { ...doc, ...(legend !== undefined ? { legend } : {}) } });
   return {
-    success: true, diagram: { id: canvas.id, title, shapes: doc.nodes.length, connectors: doc.edges.length },
+    success: true, diagram: { id: canvas.id, title, shapes: doc.nodes.length, connectors: doc.edges.length, ...(aiFlow ? { type: 'ai-flow', lanes: lanes.length } : {}) },
     url: `${env.FRONTEND_BASE_URL}/think?mapId=${canvas.id}`,
-    ...(problems.length > 0 ? { skippedConnectors: problems } : {}),
+    ...(problems.length > 0 ? { [aiFlow ? 'problems' : 'skippedConnectors']: problems } : {}),
+    ...(aiFlow ? { governance: governanceSummary(doc) } : {}),
   };
 }
 
-async function updateDiagram(args: Record<string, unknown>): Promise<unknown> {
-  const id = str(args['diagramId']);
-  if (id === undefined) return { error: 'diagramId is required.' };
-  const { getDiagram, saveDiagram, getCanvasType } = await import('../services/diagramService.js');
-  if (await getCanvasType(id) !== 'diagram') return { error: 'Diagram not found.' };
-  const { updateCanvas } = await import('../services/canvasService.js');
-  const current = await getDiagram(id);
-  let doc: DiagramDocument = structuredClone(current.document);
+/** Finds a connector by id, or by its source and target shapes. */
+function findEdge(doc: DiagramDocument, u: Record<string, unknown>): DiagramEdge | string {
+  const id = str(u['edge']);
+  if (id !== undefined) return doc.edges.find((e) => e.id === id) ?? `Connector "${id}" not found.`;
+  const fromRef = str(u['from']);
+  const toRef = str(u['to']);
+  if (fromRef === undefined || toRef === undefined) return 'Each connector update needs edge, or from and to.';
+  const from = findNode(doc, fromRef);
+  const to = findNode(doc, toRef);
+  if (typeof from === 'string' || typeof to === 'string') return typeof from === 'string' ? from : to as string;
+  const matches = doc.edges.filter((e) => e.sourceId === from.id && e.targetId === to.id);
+  if (matches.length === 1) return matches[0]!;
+  return matches.length > 1 ? `More than one connector runs from "${fromRef}" to "${toRef}"; use its id.` : `No connector from "${fromRef}" to "${toRef}".`;
+}
+
+/** Applies update_diagram's changes to a copy of a document. */
+export function applyDiagramUpdate(current: DiagramDocument, args: Record<string, unknown>): { doc: DiagramDocument; problems: string[] } {
+  let doc: DiagramDocument = structuredClone(current);
   const problems: string[] = [];
+  const type = args['diagramType'];
+  if (type === 'ai-flow') doc.diagramType = 'ai-flow';
+  else if (type === 'general') delete doc.diagramType;
+  let relayout = args['relayout'] === true;
 
   for (const ref of Array.isArray(args['removeNodes']) ? args['removeNodes'] as unknown[] : []) {
     if (typeof ref !== 'string') continue;
@@ -553,12 +826,70 @@ async function updateDiagram(args: Record<string, unknown>): Promise<unknown> {
     if (u['footnote'] === true && !(doc.footnotes ?? []).some((f) => f.targetId === node.id)) {
       doc.footnotes = [...(doc.footnotes ?? []), { id: randomUUID(), targetId: node.id, source: 'description' }];
     }
+    if (node.kind === 'swimlane') {
+      const owner = flowText(u['owner']);
+      const order = typeof u['order'] === 'number' && Number.isFinite(u['order']) && Math.abs(u['order']) <= DIAGRAM_LIMITS.maxLaneOrder ? u['order'] : undefined;
+      if (owner !== undefined || order !== undefined || (doc.diagramType === 'ai-flow' && node.lane === undefined)) {
+        node.lane = { ...node.lane, order: order ?? node.lane?.order ?? nextLaneOrder(doc), ...(owner !== undefined ? { owner } : {}) };
+        relayout = true;
+      }
+      continue;
+    }
+    if ((NODE_KINDS as readonly string[]).includes(node.kind)) {
+      const flow = flowStepFrom(u, node.flow);
+      if (flow !== undefined) node.flow = flow;
+      else if (u['stepType'] !== undefined || u['agent'] !== undefined || u['controls'] !== undefined) problems.push(`"${node.label}" needs a stepType before AI flow details can be set.`);
+    }
+    const laneRef = str(u['lane']);
+    if (laneRef !== undefined) {
+      const lane = findLane(doc, laneRef, new Map());
+      if (lane === undefined) problems.push(`Lane "${laneRef}" not found.`);
+      else { node.parentId = lane.id; relayout = true; }
+    }
   }
-  const added = addToDiagram(doc, nodeSpecs(args['addNodes']), edgeSpecs(args['addEdges']));
-  doc = added.doc;
-  problems.push(...added.problems);
+  for (const u of Array.isArray(args['updateEdges']) ? args['updateEdges'] as Array<Record<string, unknown>> : []) {
+    const edge = findEdge(doc, u);
+    if (typeof edge === 'string') { problems.push(edge); continue; }
+    const label = str(u['label']);
+    if (label !== undefined) edge.label = label;
+    const flow = flowEdgeFrom(u, doc.diagramType === 'ai-flow', edge.flow);
+    if (flow !== undefined) {
+      const typeChanged = flow.edgeType !== edge.flow?.edgeType;
+      edge.flow = flow;
+      if (typeChanged) { edge.stroke = EDGE_STYLES[flow.edgeType].stroke; edge.dashed = EDGE_STYLES[flow.edgeType].dashed; }
+    }
+    if (typeof u['dashed'] === 'boolean') edge.dashed = u['dashed'];
+  }
+  const lanes = laneSpecs(args['addLanes']);
+  const nodes = nodeSpecs(args['addNodes']);
+  const edges = edgeSpecs(args['addEdges'], doc.diagramType === 'ai-flow' || lanes.length > 0);
+  if (lanes.length > 0 || (doc.diagramType === 'ai-flow' && (nodes.length > 0 || edges.length > 0))) {
+    const added = addToAiFlow(doc, lanes, nodes, edges);
+    doc = added.doc;
+    problems.push(...added.problems);
+    relayout = false;
+  } else if (nodes.length > 0 || edges.length > 0) {
+    const added = addToDiagram(doc, nodes, edges);
+    doc = added.doc;
+    problems.push(...added.problems);
+  }
+  if (relayout) {
+    if (doc.diagramType === 'ai-flow') doc = layoutAiFlow(doc);
+    else if (args['relayout'] === true) problems.push('relayout only applies to AI flow diagrams.');
+  }
   const legend = legendFrom(args['legend'], doc.legend);
   if (legend !== undefined) doc.legend = legend;
+  return { doc, problems };
+}
+
+async function updateDiagram(args: Record<string, unknown>): Promise<unknown> {
+  const id = str(args['diagramId']);
+  if (id === undefined) return { error: 'diagramId is required.' };
+  const { getDiagram, saveDiagram, getCanvasType } = await import('../services/diagramService.js');
+  if (await getCanvasType(id) !== 'diagram') return { error: 'Diagram not found.' };
+  const { updateCanvas } = await import('../services/canvasService.js');
+  const current = await getDiagram(id);
+  const { doc, problems } = applyDiagramUpdate(current.document, args);
   if (doc.nodes.length > MAX_DIAGRAM_NODES * 4) return { error: 'That would make the diagram too large.' };
 
   const saved = await saveDiagram(id, { revision: current.revision, document: doc });
@@ -569,6 +900,7 @@ async function updateDiagram(args: Record<string, unknown>): Promise<unknown> {
     url: `${env.FRONTEND_BASE_URL}/think?mapId=${id}`,
     note: 'Saved. If the diagram is open in the editor, tell the user to reopen it to see the changes.',
     ...(problems.length > 0 ? { problems } : {}),
+    ...(saved.document.diagramType === 'ai-flow' ? { governance: governanceSummary(saved.document) } : {}),
   };
 }
 

@@ -647,6 +647,7 @@ export function normalizeDocument(doc: DiagramDocument): DiagramDocument {
     ...(footnotes.length > 0 ? { footnotes } : {}),
     ...(doc.legend !== undefined ? { legend: doc.legend } : {}),
     ...(doc.notesPanel !== undefined ? { notesPanel: doc.notesPanel } : {}),
+    ...(doc.diagramType !== undefined ? { diagramType: doc.diagramType } : {}),
   };
 }
 
