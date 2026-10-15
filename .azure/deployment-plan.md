@@ -1,6 +1,12 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
+
+**Current deployment:** Microsoft-focused podcast preparation (`18fb98f`),
+approved 2026-10-15 at 13:41 BST. Backend-only update from v198 to v199 using
+the existing production subscription, ACR and Container App in UK South.
+Frontend, infrastructure, migrations, secrets and roles are unchanged.
+Rollback: `cad79107555facr.azurecr.io/kh-prod-api:v198`.
 
 **Deployment:** AI flow / governance diagram type (`d5e6ea0`) deployed
 2026-10-15. Backend `kh-prod-api:v198` and matching frontend are live on the
@@ -260,6 +266,21 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-15 for Microsoft-focused podcast preparation `18fb98f`:
+
+- `git fetch origin` and `git merge origin/main`: already up to date.
+- Backend `npx tsc --noEmit` and `npm run build`: passed.
+- Frontend `npx tsc --noEmit`: passed; no frontend deployment required.
+- Backend isolated suite passed 117/117 before this deployment.
+- Azure CLI authentication and existing Container App reads passed in
+  subscription `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`.
+- Current image v198, ready revision `kh-prod-api-vnet--0000195`; next tag v199.
+- Dockerfile and package lock verified. ACR remote build must succeed before
+  switching the production image. Registry uses existing secret-based
+  authentication, not managed identity; no AcrPull propagation change needed.
+- No IaC, policy, role, database or configuration changes; template compilation,
+  what-if and infrastructure provisioning are not applicable.
 
 Deployed 2026-10-15 following the user's request:
 
