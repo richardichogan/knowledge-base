@@ -46,6 +46,14 @@ export const PODCAST_WEB_QUERIES = [
   'GitHub Copilot Microsoft developer agents announcement',
 ];
 
+/** Use Tavily's news topic only when the server's schema still accepts it. */
+export function tavilyNewsTopic(schema: unknown): string | undefined {
+  if (!schema || typeof schema !== 'object') return undefined;
+  const allowed = (schema as { enum?: unknown }).enum;
+  if (!Array.isArray(allowed)) return undefined;
+  return allowed.includes('news') ? 'news' : undefined;
+}
+
 export function rankPodcastCandidates<T extends { title: string; url: string; date: string; text?: string }>(candidates: T[]): T[] {
   return [...candidates].sort((a, b) => Number(isMicrosoftRelevant(b)) - Number(isMicrosoftRelevant(a))
     || Date.parse(b.date) - Date.parse(a.date));
@@ -160,15 +168,24 @@ Promise<{ proposal: PodcastProposal; evidence: PodcastEvidence[]; warnings: stri
     try {
       const tool = (await getTavilyMcpTools()).find((t) => t.function.name === 'tavily_search');
       const props = (tool?.function.parameters as { properties?: Record<string, unknown> } | undefined)?.properties ?? {};
+      const topic = tavilyNewsTopic(props['topic']);
+      let failed = 0;
       for (const query of PODCAST_WEB_QUERIES) {
-        const args: Record<string, unknown> = { query: `${query} news ${since.toISOString().slice(0, 10)} to ${now.toISOString().slice(0, 10)}` };
-        if ('max_results' in props) args['max_results'] = 10;
-        if ('topic' in props) args['topic'] = 'news';
-        const raw = await callTavilyMcpTool('tavily_search', args);
-        if (raw && typeof raw === 'object' && 'error' in raw) throw new Error(String(raw.error));
-        candidates.push(...parseTavilySearch(raw).filter((h) => h.publishedAt !== null)
-          .map((h) => ({ title: h.title, url: h.url, date: h.publishedAt!, text: h.content })));
+        try {
+          const args: Record<string, unknown> = { query: `${query} news ${since.toISOString().slice(0, 10)} to ${now.toISOString().slice(0, 10)}` };
+          if ('max_results' in props) args['max_results'] = 10;
+          if (topic) args['topic'] = topic;
+          const raw = await callTavilyMcpTool('tavily_search', args);
+          if (raw && typeof raw === 'object' && 'error' in raw) throw new Error(String(raw.error));
+          candidates.push(...parseTavilySearch(raw).filter((h) => h.publishedAt !== null)
+            .map((h) => ({ title: h.title, url: h.url, date: h.publishedAt!, text: h.content })));
+        } catch (error) {
+          failed++;
+          console.error(`[PodcastPrep] Web search failed for "${query}":`, error);
+        }
       }
+      if (failed === PODCAST_WEB_QUERIES.length) warnings.push('Fresh web research failed; the available Discover evidence may miss overnight developments.');
+      else if (failed) warnings.push(`${failed} of ${PODCAST_WEB_QUERIES.length} web searches failed; some fresh news may be missing.`);
     } catch (error) {
       console.error('[PodcastPrep] Fresh web research failed:', error);
       warnings.push('Fresh web research failed; the available Discover evidence may miss overnight developments.');
@@ -186,9 +203,15 @@ Promise<{ proposal: PodcastProposal; evidence: PodcastEvidence[]; warnings: stri
     if (evidence.length >= 16 || reads >= 24) break;
     reads++;
     try {
-      const page = await readPublicPage(candidate.url);
-      if (page.text.length < 800 || /verify you are human|checking your browser/i.test(page.text)) throw new Error('Source text unavailable');
-      const excerpt = readingExcerpt(page.text, 8_000);
+      let body = '';
+      try {
+        const page = await readPublicPage(candidate.url);
+        if (page.text.length >= 800 && !/verify you are human|checking your browser/i.test(page.text)) body = page.text;
+      } catch (error) { console.warn(`[PodcastPrep] Live read failed for ${candidate.url}:`, error); }
+      // Script-rendered pages (e.g. Tech Community) return no prose; use the copy captured by Discover.
+      if (!body && candidate.text.trim().length >= 800) body = candidate.text.trim();
+      if (!body) throw new Error('Source text unavailable');
+      const excerpt = readingExcerpt(body, 8_000);
       evidence.push({ id: `source-${evidence.length + 1}`, title: candidate.title, url: candidate.url,
         date: candidate.date, text: excerpt.text });
       if (excerpt.truncated) warnings.push(`Source read in excerpts: ${candidate.title}.`);

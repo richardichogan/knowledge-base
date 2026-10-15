@@ -5,15 +5,18 @@ const PAGE_TIMEOUT_MS = 10_000;
 const MAX_READING_CHARS = 60_000;
 const EXCERPT_PARTS = 3;
 const HALF = 0.5;
+const MIN_REGION_CHARS = 800;
 
 /** Strip navigation before extracting prose; never mistake metadata for the article. */
 export function articleProse(html: string): string {
   const cleaned = html.replace(/<(script|style|nav|header|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ');
-  const article = /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(cleaned)?.[1]
-    ?? /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(cleaned)?.[1] ?? cleaned;
-  return decodeEntities(article.replace(/<\/(?:p|div|li|h[1-6]|tr)>|<br\s*\/?>/gi, '\n')
+  const prose = (fragment: string): string => decodeEntities(fragment.replace(/<\/(?:p|div|li|h[1-6]|tr)>|<br\s*\/?>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')).replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
+  // Pages often contain several <article>/<main> elements (headers, bylines, cards); use the longest body.
+  const regions = [...cleaned.matchAll(/<(article|main)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => prose(m[2] ?? ''));
+  const best = regions.reduce((a, b) => (b.length > a.length ? b : a), '');
+  return best.length >= MIN_REGION_CHARS ? best : prose(cleaned);
 }
 
 /** Include the middle and conclusion of long writing, not just its opening. */

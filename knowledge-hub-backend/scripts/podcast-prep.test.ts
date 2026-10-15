@@ -3,9 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
+import { articleProse } from '../src/utils/articleReading.js';
 import { getSchedule } from '../src/ai/contentSchedule.js';
 import { acknowledgePodcastPrep, claimPodcastPrep, generatePodcastPrep, getPodcastPrepStatus, podcastPrepDue, podcastRecordingDate } from '../src/ai/podcastPrep.js';
-import { isFreshEvidence, isMicrosoftRelevant, parsePodcastProposal, rankPodcastCandidates, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic } from '../src/ai/podcastPrepResearch.js';
+import { isFreshEvidence, isMicrosoftRelevant, parsePodcastProposal, rankPodcastCandidates, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic } from '../src/ai/podcastPrepResearch.js';
 
 const now = new Date('2026-10-15T06:00:00Z');
 const recording = '2026-10-16';
@@ -191,4 +192,18 @@ test('podcast research prioritises Microsoft-related news over newer generic new
   assert.equal(isMicrosoftRelevant(msText), true);
   assert.equal(isMicrosoftRelevant(msHost), true);
   assert.deepEqual(rankPodcastCandidates([generic, msHost, msText]).map((c) => c.url), [msText.url, msHost.url, generic.url]);
+});
+
+test('article reader uses the longest article region, not a byline card', () => {
+  const body = 'Microsoft announced new Copilot licensing. '.repeat(40);
+  const html = `<html><body><article><h1>Title</h1></article><main><article><p>${body}</p></article></main></body></html>`;
+  assert.ok(articleProse(html).length >= 800);
+  assert.ok(articleProse(html).includes('Copilot licensing'));
+});
+
+test('Tavily news topic is only sent when the schema accepts it', () => {
+  assert.equal(tavilyNewsTopic({ enum: ['general'] }), undefined);
+  assert.equal(tavilyNewsTopic({ enum: ['general', 'news'] }), 'news');
+  assert.equal(tavilyNewsTopic({ type: 'string' }), undefined);
+  assert.equal(tavilyNewsTopic(undefined), undefined);
 });
