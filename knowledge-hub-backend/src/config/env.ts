@@ -123,6 +123,11 @@ export const env = {
   /** If set, only this account may connect (guards the public sign-in route). */
   ALLIANCE_ALLOWED_UPN: optional('ALLIANCE_ALLOWED_UPN'),
   /**
+   * Requests delegated Mail.Read (user-consentable) at Alliance sign-in and
+   * syncs the inbox. Set to false to sign in with OneDrive scopes only.
+   */
+  ALLIANCE_MAIL_ENABLED: optionalWithDefault('ALLIANCE_MAIL_ENABLED', 'true').toLowerCase() !== 'false',
+  /**
    * App sign-in (Microsoft Entra, Alliance tenant). The web app signs in with
    * MSAL and sends an access token for this app registration's API
    * (api://<client id>/access_as_user). Defaults to the Alliance app above.

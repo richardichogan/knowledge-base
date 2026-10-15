@@ -15,6 +15,16 @@ import { getSyncState, upsertSyncState } from '../../db/queries.js';
 
 export const ALLIANCE_SCOPES = ['offline_access', 'openid', 'profile', 'User.Read', 'Files.Read.All'].join(' ');
 
+/** Scopes to request at sign-in; Mail.Read is delegated and user-consentable. */
+export function allianceScopes(mailEnabled: boolean = env.ALLIANCE_MAIL_ENABLED): string {
+  return mailEnabled ? `${ALLIANCE_SCOPES} Mail.Read` : ALLIANCE_SCOPES;
+}
+
+/** True when a granted-scope string from the token endpoint includes delegated Mail.Read. */
+export function scopesIncludeMailRead(granted: string | undefined): boolean {
+  return (granted ?? '').split(/\s+/).some((scope) => scope.replace(/^https:\/\/graph\.microsoft\.com\//i, '').toLowerCase() === 'mail.read');
+}
+
 const TOKEN_STATE_KEY = 'alliance-graph-auth';
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 const TOKEN_REFRESH_BUFFER_MS = 60_000;
@@ -23,6 +33,10 @@ interface StoredAuth {
   refreshToken: string;
   upn: string;
   connectedAt: string;
+  /** Scopes requested at sign-in; refreshes reuse them so a later config change cannot break the token. */
+  requestedScopes?: string;
+  /** Scopes the token endpoint last reported as granted. */
+  grantedScopes?: string;
 }
 
 let cachedAccess: { token: string; expiresAt: number } | null = null;
@@ -86,7 +100,7 @@ export function buildAllianceLoginUrl(state: string): string {
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('redirect_uri', env.ALLIANCE_GRAPH_REDIRECT_URI);
   url.searchParams.set('response_mode', 'query');
-  url.searchParams.set('scope', ALLIANCE_SCOPES);
+  url.searchParams.set('scope', allianceScopes());
   url.searchParams.set('state', state);
   url.searchParams.set('prompt', 'select_account');
   return url.toString();
@@ -96,16 +110,17 @@ interface TokenResponse {
   access_token: string;
   refresh_token?: string;
   expires_in: number;
+  scope?: string;
 }
 
-async function tokenRequest(params: Record<string, string>): Promise<TokenResponse> {
+async function tokenRequest(scope: string, params: Record<string, string>): Promise<TokenResponse> {
   const res = await fetch(`${authority()}/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: env.ALLIANCE_GRAPH_CLIENT_ID ?? '',
       client_secret: env.ALLIANCE_GRAPH_CLIENT_SECRET ?? '',
-      scope: ALLIANCE_SCOPES,
+      scope,
       ...params,
     }).toString(),
   });
@@ -118,7 +133,8 @@ async function tokenRequest(params: Record<string, string>): Promise<TokenRespon
  * UPN is configured), and stores the refresh token. Returns the account UPN.
  */
 export async function completeAllianceSignIn(db: Pool, code: string): Promise<string> {
-  const tokens = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: env.ALLIANCE_GRAPH_REDIRECT_URI });
+  const requestedScopes = allianceScopes();
+  const tokens = await tokenRequest(requestedScopes, { grant_type: 'authorization_code', code, redirect_uri: env.ALLIANCE_GRAPH_REDIRECT_URI });
   if (!tokens.refresh_token) throw new Error('No refresh token returned — offline_access was not granted.');
 
   const meRes = await fetch(`${GRAPH_BASE}/me?$select=userPrincipalName,mail`, {
@@ -133,7 +149,10 @@ export async function completeAllianceSignIn(db: Pool, code: string): Promise<st
     throw new Error(`Signed in as ${upn}, but only ${env.ALLIANCE_ALLOWED_UPN ?? ''} may connect OneDrive.`);
   }
 
-  await saveAuth(db, { refreshToken: tokens.refresh_token, upn, connectedAt: new Date().toISOString() });
+  await saveAuth(db, {
+    refreshToken: tokens.refresh_token, upn, connectedAt: new Date().toISOString(),
+    requestedScopes, grantedScopes: tokens.scope ?? requestedScopes,
+  });
   cachedAccess = { token: tokens.access_token, expiresAt: Date.now() + tokens.expires_in * 1000 };
   return upn;
 }
@@ -145,15 +164,16 @@ export async function getAllianceAccessToken(db: Pool): Promise<string> {
   if (auth === null) throw new Error('OneDrive (Alliance) is not connected.');
   let tokens: TokenResponse;
   try {
-    tokens = await tokenRequest({ grant_type: 'refresh_token', refresh_token: auth.refreshToken });
+    tokens = await tokenRequest(auth.requestedScopes ?? ALLIANCE_SCOPES, { grant_type: 'refresh_token', refresh_token: auth.refreshToken });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // invalid_grant = token revoked/expired (password change, CA policy, 90 days idle): needs a fresh sign-in.
     if (message.includes('invalid_grant')) await clearAllianceAuth(db, 'Sign-in expired — reconnect OneDrive.');
     throw err;
   }
-  if (tokens.refresh_token && tokens.refresh_token !== auth.refreshToken) {
-    await saveAuth(db, { ...auth, refreshToken: tokens.refresh_token });
+  const grantedScopes = tokens.scope ?? auth.grantedScopes;
+  if ((tokens.refresh_token && tokens.refresh_token !== auth.refreshToken) || grantedScopes !== auth.grantedScopes) {
+    await saveAuth(db, { ...auth, refreshToken: tokens.refresh_token ?? auth.refreshToken, ...(grantedScopes !== undefined && { grantedScopes }) });
   }
   cachedAccess = { token: tokens.access_token, expiresAt: Date.now() + tokens.expires_in * 1000 };
   return tokens.access_token;
@@ -184,12 +204,14 @@ export interface AllianceStatus {
   account: string | null;
   connectedAt: string | null;
   lastError: string | null;
+  /** True when the stored sign-in was granted delegated Mail.Read. */
+  mailAccess: boolean;
 }
 
 /** Connection status for the UI health indicator. */
 export async function getAllianceStatus(db: Pool): Promise<AllianceStatus> {
   if (!isAllianceConfigured()) {
-    return { configured: false, connected: false, account: null, connectedAt: null, lastError: null };
+    return { configured: false, connected: false, account: null, connectedAt: null, lastError: null, mailAccess: false };
   }
   const auth = await loadAuth(db);
   const row = await db.query<{ last_error: string | null }>(`SELECT last_error FROM sync_state WHERE source = $1`, [TOKEN_STATE_KEY]);
@@ -199,5 +221,6 @@ export async function getAllianceStatus(db: Pool): Promise<AllianceStatus> {
     account: auth?.upn ?? null,
     connectedAt: auth?.connectedAt ?? null,
     lastError: row.rows[0]?.last_error ?? null,
+    mailAccess: scopesIncludeMailRead(auth?.grantedScopes),
   };
 }

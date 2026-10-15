@@ -8,7 +8,7 @@ test('requested email accounts are listed without claiming mailbox access', () =
     'Richard.i.Hogan@ibmalliance.onmicrosoft.com', 'richard_hogan@hotmail.co.uk', 'richardichogan@gmail.com',
   ]);
   assert.ok(accounts.every((a) => a.status === 'not-connected'));
-  assert.match(accounts[0]!.detail, /OneDrive.*does not grant mail/);
+  assert.match(accounts[0]!.detail, /turned off.*does not grant mail/);
 });
 
 test('uses configured Alliance UPN and never returns IMAP credentials or other accounts', () => {
@@ -28,4 +28,15 @@ test('invalid configuration is reported, not silently shown as disconnected', ()
   assert.throws(() => emailAccountConnections(undefined, '{'), SyntaxError);
   assert.throws(() => emailAccountConnections(undefined, '{}'), /must be an array/);
   assert.throws(() => emailAccountConnections(undefined, '[null]'), /invalid account/);
+});
+
+test('Alliance mail status reflects the flag and the granted scope', () => {
+  const upn = 'Richard.i.Hogan@ibmalliance.onmicrosoft.com';
+  const enabledNoGrant = emailAccountConnections(upn, undefined, { enabled: true, mailAccess: false })[0]!;
+  assert.equal(enabledNoGrant.status, 'not-connected');
+  assert.match(enabledNoGrant.detail, /no Mail\.Read.*Reconnect Alliance/);
+  const granted = emailAccountConnections(upn, undefined, { enabled: true, mailAccess: true })[0]!;
+  assert.equal(granted.status, 'configured');
+  assert.match(granted.detail, /Mail\.Read is granted/);
+  assert.equal(emailAccountConnections(upn, undefined, { enabled: false, mailAccess: true })[0]!.status, 'not-connected');
 });

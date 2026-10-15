@@ -7,7 +7,23 @@ export interface EmailAccountConnection {
 }
 
 /** Configuration is not proof of a successful sign-in or mailbox sync. Never return credentials. */
-export function emailAccountConnections(allianceUpn: string | undefined, rawAccounts: string | undefined): EmailAccountConnection[] {
+export interface AllianceMailState {
+  enabled: boolean;
+  /** Stored Alliance sign-in is connected and was granted Mail.Read. */
+  mailAccess: boolean;
+}
+
+function allianceDetail(mail: AllianceMailState): string {
+  if (mail.enabled && mail.mailAccess) return 'Mail.Read is granted to the Alliance sign-in. See source sync results for imported mail.';
+  if (mail.enabled) return 'The current Alliance sign-in has no Mail.Read. Reconnect Alliance and accept the mail permission.';
+  return 'Alliance mail sync is turned off (ALLIANCE_MAIL_ENABLED=false). The OneDrive sign-in does not grant mail access.';
+}
+
+export function emailAccountConnections(
+  allianceUpn: string | undefined,
+  rawAccounts: string | undefined,
+  allianceMail: AllianceMailState = { enabled: false, mailAccess: false },
+): EmailAccountConnection[] {
   let accounts: unknown = [];
   if (rawAccounts) {
     accounts = JSON.parse(rawAccounts);
@@ -22,13 +38,15 @@ export function emailAccountConnections(allianceUpn: string | undefined, rawAcco
   }
   const requested = [
     { id: 'alliance', email: allianceUpn?.trim() || 'Richard.i.Hogan@ibmalliance.onmicrosoft.com', provider: 'Microsoft 365' as const,
-      detail: 'Mailbox authorisation is required for the IBM Alliance tenant. The existing Alliance OneDrive sign-in does not grant mail access.' },
+      detail: allianceDetail(allianceMail) },
     { id: 'hotmail', email: 'richard_hogan@hotmail.co.uk', provider: 'Outlook.com' as const,
       detail: 'This personal Microsoft account needs its own mailbox authorisation, separate from the blog Microsoft 365 account.' },
     { id: 'gmail', email: 'richardichogan@gmail.com', provider: 'Gmail' as const,
       detail: 'Google mailbox authorisation is required. Microsoft sign-in does not connect Gmail.' },
   ];
-  return requested.map((account) => ({
+  return requested.map((account) => account.id === 'alliance' && allianceMail.enabled && allianceMail.mailAccess ? {
+    ...account, status: 'configured' as const,
+  } : ({
     ...account,
     status: configured.has(account.email.toLowerCase()) ? 'configured' : 'not-connected',
     detail: configured.has(account.email.toLowerCase())

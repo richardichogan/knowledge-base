@@ -10,13 +10,18 @@ import { SYNC_CADENCE_MINUTES } from '../config/constants.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { env } from '../config/env.js';
 import { emailAccountConnections } from '../integrations/email/accountConnections.js';
+import { getAllianceStatus } from '../integrations/alliance/allianceGraph.js';
 
 const router = Router();
 
 router.get('/email-accounts', (_req: Request, res: Response, next: NextFunction): void => {
-  try {
-    res.json({ success: true, data: emailAccountConnections(env.ALLIANCE_ALLOWED_UPN, env.EMAIL_ACCOUNTS) });
-  } catch (error) { next(error); }
+  void (async (): Promise<void> => {
+    try {
+      const alliance = await getAllianceStatus(getDb());
+      const allianceMail = { enabled: env.ALLIANCE_MAIL_ENABLED, mailAccess: alliance.connected && alliance.mailAccess };
+      res.json({ success: true, data: emailAccountConnections(env.ALLIANCE_ALLOWED_UPN, env.EMAIL_ACCOUNTS, allianceMail) });
+    } catch (error) { next(error); }
+  })();
 });
 
 /**

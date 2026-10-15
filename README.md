@@ -200,9 +200,14 @@ do not enable multiple replicas without lease/ownership recovery changes.
 
 **Tools → Connections and sync** lists the Alliance, Hotmail, and Gmail
 mailboxes under **Email accounts**. The Alliance address uses the configured
-`ALLIANCE_ALLOWED_UPN`. Listing an address does not authorise mailbox access:
-Alliance OneDrive consent does not include mail, and personal Microsoft/Google
-accounts need separate authorisation. Existing IMAP configuration is labelled
+`ALLIANCE_ALLOWED_UPN`. Listing an address does not authorise mailbox access.
+Alliance sign-in requests delegated `Mail.Read` (user-consentable, no admin
+consent needed) unless `ALLIANCE_MAIL_ENABLED=false`. Existing OneDrive
+sign-ins keep refreshing with their original scopes, so reconnect at
+`/auth/alliance` and accept the mail permission to start the `alliance-mail`
+sync. It indexes important inbox mail from the last 30 days as `email` items
+tagged `alliance`. Personal Microsoft/Google accounts need separate
+authorisation. Existing IMAP configuration is labelled
 as configured, not verified/connected. The authenticated
 `GET /api/sources/email-accounts` endpoint never returns credentials.
 
