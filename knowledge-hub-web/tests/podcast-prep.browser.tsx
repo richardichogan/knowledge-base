@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PodcastPrepCard, PodcastPrepNotification } from '../src/components/today/PodcastPrepCard';
+import { DayCheckinBanner } from '../src/features/plan/DayCheckin';
 import { api } from '../src/services/api';
 import type { PodcastPrepStatus } from '../src/types/podcastPrep';
 import type { ApiResponse } from '../src/types/apiResponse';
@@ -18,6 +19,11 @@ let data: PodcastPrepStatus = {
 let failAcknowledgement = true;
 let generations = 0;
 api.getPodcastPrep = async () => success(structuredClone(data));
+api.getDayCheckin = async () => success({
+  day: '2026-10-15', hour: 17, status: null, completedToday: [],
+  items: [{ id: 'fixture-task', title: 'Settle the plan', status: 'backlog', priority: 'normal',
+    projectId: '', dueDate: '2026-10-15', rescheduleCount: 0 }],
+});
 api.acknowledgePodcastPrep = async (date, generatedAt) => {
   check(date === data.run?.recordingDate && generatedAt === data.run.generatedAt, 'Acknowledgement targets the exact brief version');
   if (failAcknowledgement) throw new Error('Fixture acknowledgement failed');
@@ -31,7 +37,7 @@ api.generatePodcastPrep = async () => {
 };
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={qc}><div style={{ padding: 12 }}>
-    <PodcastPrepNotification /><PodcastPrepCard />
+    <DayCheckinBanner /><PodcastPrepNotification /><PodcastPrepCard />
   </div></QueryClientProvider>,
 );
 function check(condition: unknown, label: string): asserts condition {
@@ -55,6 +61,18 @@ async function refresh(): Promise<void> {
 }
 declare global { interface Window { runPodcastPrepChecks: () => Promise<string[]> } }
 window.runPodcastPrepChecks = async () => {
+  await waitFor(() => document.querySelector('.day-checkin-banner') !== null
+    && document.querySelector('.podcast-prep-notification') !== null);
+  const checkin = document.querySelector<HTMLElement>('.day-checkin-banner')!;
+  const podcast = document.querySelector<HTMLElement>('.podcast-prep-notification')!;
+  const checkinBounds = checkin.getBoundingClientRect();
+  const podcastBounds = podcast.getBoundingClientRect();
+  check(Math.abs(checkinBounds.left - podcastBounds.left) < 1
+    && Math.abs(checkinBounds.right - podcastBounds.right) < 1,
+  'Shell banners share exact left and right edges on desktop and mobile');
+  check(getComputedStyle(checkin).paddingLeft === getComputedStyle(podcast).paddingLeft
+    && getComputedStyle(checkin).paddingRight === getComputedStyle(podcast).paddingRight,
+  'Shell banner text and action insets align');
   const link = document.querySelector<HTMLAnchorElement>('.podcast-prep-notification a')!;
   check(link.getAttribute('href') === '/chat?session=11111111-1111-4111-8111-111111111111&output=22222222-2222-4222-8222-222222222222', 'Opens the exact saved chat/output');
   check(link.target === '_blank', 'Does not steal the current conversation');

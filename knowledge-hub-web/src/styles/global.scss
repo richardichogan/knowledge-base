@@ -16224,15 +16224,12 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem 1rem;
-  margin: 0.75rem 3rem 0;
-  padding: 0.625rem 0.75rem 0.625rem 1rem;
   border: 1px solid var(--kh-accent-border);
   border-left: 3px solid var(--kh-accent);
   background: var(--kh-accent-bg);
   color: var(--cds-text-primary);
   font-size: 0.9375rem;
 
-  @media (max-width: 672px) { margin: 0.5rem 1rem 0; }
 }
 
 .day-checkin-banner__text { min-width: 0; line-height: 1.4; }
@@ -16490,6 +16487,12 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
 }
 .podcast-prep-notification {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
-  margin: 12px 24px 0;
   .podcast-prep__actions { margin-top: 0; }
+}
+.day-checkin-banner, .podcast-prep-notification {
+  flex-shrink: 0;
+  margin: 0.75rem 3rem 0;
+  padding: 0.625rem 0.75rem 0.625rem 1rem;
+
+  @media (max-width: 672px) { margin: 0.5rem 1rem 0; }
 }

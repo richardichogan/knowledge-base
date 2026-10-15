@@ -26,7 +26,7 @@ import { runDataReliabilityChecks, SummaryFixture } from './data-reliability.bro
 import { AppDialogHost } from '../src/components/AppDialog';
 import type { GraphResponse } from '../src/services/api';
 import { PLAN_PREFERENCES_KEY } from '../src/utils/planPreferences';
-import { deferredView } from '../src/utils/deferredView';
+import { deferredView, newerBuildEntry } from '../src/utils/deferredView';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -438,6 +438,12 @@ export async function runNavigationChecks(): Promise<string[]> {
   check(JSON.parse(localStorage.getItem(PLAN_PREFERENCES_KEY)!).view === 'board', 'Plan preference survives a workspace round trip');
   await go('/_deferred-fixture');
   await waitFor(() => document.body.textContent?.includes('Fixture heavy view could not open') === true);
+  check(document.querySelector('.kh-data-notice')?.textContent?.includes('Fixture deferred view unavailable') === true,
+    'Deferred view failure displays the underlying error instead of replacing it with generic retry advice');
+  const staleDoc = new DOMParser().parseFromString('<script type="module" src="/assets/index-OLD.js"></script>', 'text/html');
+  check(newerBuildEntry(staleDoc, '<script type="module" src="/assets/index-NEW.js"></script>') === '/assets/index-NEW.js'
+    && newerBuildEntry(staleDoc, '<script type="module" src="/assets/index-OLD.js"></script>') === null,
+    'A failed view import detects when a newer frontend build has replaced the running one');
   const draftOutsideView = selector<HTMLInputElement>('#deferred-draft');
   const shellBeforeRetry = document.querySelector('.kh-header');
   selector<HTMLButtonElement>('.kh-data-notice button').click();
