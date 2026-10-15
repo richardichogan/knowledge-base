@@ -1,6 +1,13 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
+
+**Deployment:** AI flow / governance diagram type (`d5e6ea0`).
+User explicitly requested deployment on 2026-10-15. Deploy the backend as
+`kh-prod-api:v198` and publish the matching frontend to the existing production
+Static Web App. No infrastructure, database schema, migration, subscription,
+region, secret or role changes. Rollback: backend v197 and the prior production
+frontend bundle.
 
 **Deployment:** Podcast preparation timeout fix. Existing ACA and ACR; frontend
 unchanged.
@@ -254,6 +261,27 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-15 for AI flow / governance diagram release `d5e6ea0`:
+
+- `git fetch origin` and `git merge origin/main`: up to date. Release commit
+  pushed to `richardichogan-link-think-chat-projects` and `main`.
+- Backend `npx tsc --noEmit` and `npm run build` passed; isolated suite passed
+  116/116.
+- Frontend `npx tsc --noEmit` and `npm run build` passed; isolated suite passed
+  63/63; lint non-regression passed (25 existing violations, baseline 41).
+- AI flow browser checks and diagram theme, properties, drill-down and line-jump
+  browser checks passed at 1440px and 390px.
+- No database migration or infrastructure change is included. Existing
+  Container App, ACR and Static Web App are reused.
+- Azure CLI confirms the existing `Alliance Tenant Reporting` subscription,
+  Container Apps in UK South, and Static Web Apps resource in West Europe.
+  Azure MCP subscription/resource-group reads were unavailable because the
+  MCP credential is authenticated to a different tenant; Azure CLI auth and
+  target reads succeeded.
+- Live backend image is v197 on revision `kh-prod-api-vnet--0000194`; v198 is
+  the next image tag. Build the backend from the pushed `main` branch and
+  update only after the ACR build succeeds.
 
 Deployed 2026-10-15 following the 10:39 BST request:
 
