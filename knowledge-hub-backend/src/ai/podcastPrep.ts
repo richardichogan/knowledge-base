@@ -18,6 +18,8 @@ interface RunRow {
   recording_date: string; status: PodcastPrepRun['status']; session_id: string; output_id: string | null;
   generated_at: Date | null; acknowledged_at: Date | null; warnings: string[]; error: string | null; attempts: number;
 }
+const PREP_TIMEOUT_MS = 480_000;
+const MINUTE_MS = 60_000;
 const SELECT = `SELECT to_char(recording_date,'YYYY-MM-DD') AS recording_date,
   CASE WHEN status='running' AND started_at < NOW()-interval '30 minutes' THEN 'failed' ELSE status END AS status,
   session_id::text,output_id::text,generated_at,acknowledged_at,warnings,
@@ -85,7 +87,7 @@ export async function claimPodcastPrep(db: Pool, recording: string, manual: bool
 }
 
 export async function generatePodcastPrep(db: Pool, manual = false, now = new Date(), background = false,
-  prepare = researchPodcast): Promise<PodcastPrepStatus> {
+  prepare = researchPodcast, prepareTimeoutMs = PREP_TIMEOUT_MS): Promise<PodcastPrepStatus> {
   const status = await getPodcastPrepStatus(db, now);
   const recording = status.nextRecording;
   if (!recording || status.scheduleWarning) {
@@ -103,7 +105,25 @@ export async function generatePodcastPrep(db: Pool, manual = false, now = new Da
       const existing = claim.outputId ? await getOutput(db, claim.outputId) : null;
       const history = await getSessionHistory(db, claim.sessionId);
       const previous = [existing?.versions.at(-1)?.content ?? '', ...history.slice(-8).map((m) => `${m.role}: ${m.content}`)].join('\n').slice(-30_000);
-      const result = await prepare(db, recording, previous, now);
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const result = await (async (): Promise<Awaited<ReturnType<typeof prepare>>> => {
+        try {
+          return await Promise.race([
+            prepare(db, recording, previous, now, controller.signal),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => {
+                const error = new Error(`Podcast preparation exceeded its ${prepareTimeoutMs / MINUTE_MS}-minute deadline; no new brief was saved.`);
+                controller.abort(error);
+                reject(error);
+              }, prepareTimeoutMs);
+            }),
+          ]);
+        } finally { clearTimeout(timer); }
+      })();
+      if (!result.evidence.length || !result.proposal.topics.length) {
+        throw new Error('Podcast research returned no evidenced topics; no new brief was saved.');
+      }
       const current = await getSchedule(db, now, false);
       if (podcastRecordingDate(current.podcast, now) !== recording) throw new Error('Recording date changed during preparation; retry for the new recording.');
       const markdown = renderPodcastBrief(recording, result, now);

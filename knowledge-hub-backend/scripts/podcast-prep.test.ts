@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
 import { articleProse } from '../src/utils/articleReading.js';
 import { getSchedule } from '../src/ai/contentSchedule.js';
 import { acknowledgePodcastPrep, claimPodcastPrep, generatePodcastPrep, getPodcastPrepStatus, podcastPrepDue, podcastRecordingDate } from '../src/ai/podcastPrep.js';
-import { isFreshEvidence, isMicrosoftRelevant, parsePodcastProposal, rankPodcastCandidates, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic } from '../src/ai/podcastPrepResearch.js';
+import { isFreshEvidence, isMicrosoftRelevant, mapPodcastResearch, parsePodcastProposal, rankPodcastCandidates, readPodcastSource, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic } from '../src/ai/podcastPrepResearch.js';
 
 const now = new Date('2026-10-15T06:00:00Z');
 const recording = '2026-10-16';
@@ -206,4 +206,71 @@ test('Tavily news topic is only sent when the schema accepts it', () => {
   assert.equal(tavilyNewsTopic({ enum: ['general', 'news'] }), 'news');
   assert.equal(tavilyNewsTopic({ type: 'string' }), undefined);
   assert.equal(tavilyNewsTopic(undefined), undefined);
+});
+
+test('Tech Community reads the requested full article from page data, never related articles or descriptions', () => {
+  const body = '<p>Microsoft Entra identity governance announcement.</p>'.repeat(30);
+  const data = { props: { pageProps: { apolloState: {
+    'BlogTopicMessage:message:4556460': { body },
+    'BlogTopicMessage:message:999': { body: '<p>Unrelated article</p>'.repeat(100) },
+  } } } };
+  const html = `<html><head><script type="application/ld+json">{"description":"Summary only"}</script></head><body>Loading...
+    <script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></body></html>`;
+  const result = articleProse(html, 'https://techcommunity.microsoft.com/blog/entra/example/4556460');
+  assert.ok(result.length > 800);
+  assert.match(result, /identity governance announcement/);
+  assert.doesNotMatch(result, /Unrelated|Loading|Summary only/);
+  assert.throws(() => articleProse(html, 'https://techcommunity.microsoft.com/blog/entra/missing/123'), /requested article body/);
+});
+
+test('research workers preserve order, run at most three requests and propagate source failures', async () => {
+  let active = 0;
+  let peak = 0;
+  const result = await mapPodcastResearch([30, 5, 10, 1, 2], async (delay) => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    active--;
+    return delay;
+  });
+  assert.deepEqual(result, [30, 5, 10, 1, 2]);
+  assert.equal(peak, 3);
+  await assert.rejects(mapPodcastResearch([1, 2], async () => { throw new Error('Source returned HTTP 403'); }), /HTTP 403/);
+  const controller = new AbortController();
+  let calls = 0;
+  await assert.rejects(mapPodcastResearch([1, 2, 3, 4], async () => {
+    calls++;
+    controller.abort(new Error('Preparation deadline'));
+    return 1;
+  }, controller.signal), /deadline/);
+  assert.equal(calls, 1);
+});
+
+test('preparation deadline fails the run and never saves a late result or an empty success', async () => {
+  const { memory, db } = await fixture();
+  try {
+    let finish!: (value: typeof prepared) => void;
+    const delayed = new Promise<typeof prepared>((resolve) => { finish = resolve; });
+    await assert.rejects(generatePodcastPrep(db, true, now, false, () => delayed, 20), /deadline/);
+    assert.equal((await getPodcastPrepStatus(db, now)).run?.status, 'failed');
+    finish(prepared);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    await assert.rejects(generatePodcastPrep(db, true, now, false, async () => ({
+      proposal: { topics: [], warnings: [] }, evidence: [], warnings: [],
+    })), /no evidenced topics/);
+    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+  } finally { await memory.close(); }
+});
+
+test('podcast source reads surface HTTP and extraction failures instead of returning summaries', async () => {
+  const fetch = mock.method(globalThis, 'fetch', async () => new Response('Forbidden', { status: 403 }));
+  try {
+    await assert.rejects(readPodcastSource('https://microsoft.com/article'), /https:\/\/microsoft.com\/article: Page returned HTTP 403/);
+    fetch.mock.mockImplementation(async () => new Response('<html><main>Just a title</main></html>', { headers: { 'content-type': 'text/html' } }));
+    await assert.rejects(readPodcastSource('https://microsoft.com/article'), /Article extraction returned 12 characters/);
+    const body = 'Microsoft Copilot enterprise governance. '.repeat(30);
+    fetch.mock.mockImplementation(async () => new Response(`<html><article><p>${body}</p></article></html>`, { headers: { 'content-type': 'text/html' } }));
+    assert.equal(await readPodcastSource('https://microsoft.com/article'), body.trim());
+  } finally { fetch.mock.restore(); }
 });

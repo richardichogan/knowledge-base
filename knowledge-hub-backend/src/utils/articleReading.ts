@@ -8,7 +8,22 @@ const HALF = 0.5;
 const MIN_REGION_CHARS = 800;
 
 /** Strip navigation before extracting prose; never mistake metadata for the article. */
-export function articleProse(html: string): string {
+export function articleProse(html: string, url?: string): string {
+  if (url && new URL(url).hostname === 'techcommunity.microsoft.com') {
+    const pageData = /<script\b[^>]*\bid=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i.exec(html);
+    if (pageData) {
+      const data: unknown = JSON.parse(pageData[1]!);
+      const object = (value: unknown): Record<string, unknown> =>
+        value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+      const state = object(object(object(object(data).props).pageProps).apolloState);
+      const id = /\/(\d+)\/?$/.exec(new URL(url).pathname)?.[1];
+      const article = id ? object(state[`BlogTopicMessage:message:${id}`]) : {};
+      if (typeof article.body !== 'string' || !article.body.trim()) {
+        throw new Error('Tech Community page data does not contain the requested article body');
+      }
+      return articleProse(article.body);
+    }
+  }
   const cleaned = html.replace(/<(script|style|nav|header|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ');
   const prose = (fragment: string): string => decodeEntities(fragment.replace(/<\/(?:p|div|li|h[1-6]|tr)>|<br\s*\/?>/gi, '\n')
@@ -54,5 +69,5 @@ export async function readPublicPage(url: string): Promise<{ title: string; text
   } finally { await reader.cancel(); }
   const html = /text\/html/i.test(type);
   return { title: html ? decodeEntities(/<title[^>]*>([^<]*)<\/title>/i.exec(raw)?.[1] ?? new URL(url).hostname) : new URL(url).hostname,
-    text: html ? articleProse(raw) : raw.trim() };
+    text: html ? articleProse(raw, response.url || url) : raw.trim() };
 }

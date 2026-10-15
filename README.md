@@ -225,16 +225,22 @@ Athena rather than silently assuming a recording date. Explicitly cancelled
 calendar events are skipped. Calendar information is only as current as its
 last successful sync.
 
-The brief ranks up to six candidates and recommends three discussions in
+The Microsoft-focused brief ranks up to six candidates and recommends three discussions in
 decreasing depth: an enterprise-focused lead, a shorter second, and a lighter
 third. Richard's focus is enterprise consequences, particularly AI; security
 and pure architecture remain Cyrus's and David's territory. Available recent
 episode transcripts/show notes are read in bounded chunks, alongside recent
-own posts, Discover, and fresh web research when available. Previously covered
+own posts, Discover, and required fresh web research. Previously covered
 subjects qualify only when material new outside news changes the discussion.
-Sources are linked and dated. Missing transcripts, inaccessible sources,
-limited research coverage, and insufficient candidates are disclosed, never
-filled with invented material.
+Sources are linked and dated. Tech Community articles are read from the publisher's
+full article body embedded in the requested page, not its loading shell or a
+search summary. Failed web searches or selected source reads fail preparation
+with the actual error; cached Discover text is never substituted and failed
+sources are not silently skipped. Missing transcripts, limited research coverage,
+and insufficient candidates are disclosed, never filled with invented material.
+Coverage summaries and source reads run at most three requests concurrently.
+Preparation has an eight-minute deadline: a timeout marks the run failed, preserves
+the previous brief, and prevents a late result from saving a new version.
 
 Results are versioned Outputs in a Podcast Prep chat. Today provides
 **Prepare now**, **Refresh brief**, and an exact brief link. A persistent global
