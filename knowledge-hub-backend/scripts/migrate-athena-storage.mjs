@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import {
-  BlobServiceClient, BlobSASPermissions, SASProtocol, StorageSharedKeyCredential,
+  BlobClient, BlobServiceClient, BlobSASPermissions, SASProtocol, StorageSharedKeyCredential,
 } from '@azure/storage-blob';
 import pg from 'pg';
 
@@ -189,6 +189,36 @@ async function updateSearch(db) {
   console.log(JSON.stringify({ searchCitationsUpdated: rows.length }));
 }
 
+async function verifyDestinationAccess(db) {
+  const { rows } = await db.query(`SELECT url FROM content_items WHERE source = 'user-upload' AND url LIKE $1
+    UNION SELECT blob_url AS url FROM kb_images WHERE blob_url LIKE $1`,
+  [`https://${DESTINATION}.blob.core.windows.net/%`]);
+  for (const row of rows) await new BlobClient(row.url).getProperties();
+  if (rows.length > 0) {
+    const anonymous = new URL(rows[0].url);
+    anonymous.search = '';
+    let denied = false;
+    try {
+      await new BlobClient(anonymous.href).getProperties();
+    } catch (error) {
+      if (![403, 404].includes(error.statusCode) && error.code !== 'PublicAccessNotPermitted') throw error;
+      denied = true;
+    }
+    if (!denied) throw new Error('Destination blob unexpectedly permits anonymous access');
+  }
+  const response = await fetch(`${process.env.FOUNDRY_IQ_SEARCH_ENDPOINT}/indexes/kh-content-items/docs/search?api-version=2024-07-01`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': process.env.FOUNDRY_IQ_SEARCH_ADMIN_KEY },
+    body: JSON.stringify({ search: '*', filter: "source eq 'user-upload'", select: 'id,url', top: 1000, count: true }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) throw new Error(`Search verification failed: HTTP ${response.status}`);
+  const result = await response.json();
+  if (result['@odata.count'] > 1000) throw new Error('More search citations than expected; pagination review required');
+  const old = result.value.filter(row => [...row.url.matchAll(athenaUrlPattern())].length > 0);
+  if (old.length > 0) throw new Error(`${old.length} old Athena search citations remain`);
+  console.log(JSON.stringify({ signedDownloadsVerified: rows.length, anonymousAccess: 'denied', oldSearchCitations: old.length }));
+}
+
 async function main() {
   const mode = process.argv[2];
   if (!['inventory', 'copy', 'rewrite', 'verify', 'search'].includes(mode)) throw new Error('Specify inventory, copy, rewrite, verify or search');
@@ -214,6 +244,7 @@ async function main() {
       } else {
         const remaining = await references(db);
         if (remaining.length > 0) throw new Error('Old Athena storage references remain');
+        await verifyDestinationAccess(db);
         console.log(JSON.stringify({ oldAthenaReferences: 0, cmsChanged: false }));
       }
     }

@@ -864,6 +864,20 @@ against the UUID-backed image table.
 | `CMS_BLOB_CONTAINER` | Blob container name (default: `blogcontent`) |
 | `CMS_POSTS_PREFIX` | Blob path prefix (default: `posts/`) |
 
+Athena files must never reuse the CMS account credentials. The storage cutover
+utility is `knowledge-hub-backend/scripts/migrate-athena-storage.mjs`, run with
+`node --import tsx/esm` from the backend directory. It requires explicitly supplied
+`SOURCE_ATHENA_STORAGE_ACCOUNT`, `SOURCE_ATHENA_STORAGE_KEY`,
+`DESTINATION_ATHENA_STORAGE_ACCOUNT`, `DESTINATION_ATHENA_STORAGE_KEY` and
+`DATABASE_URL` in the process environment, plus the existing Foundry Search
+endpoint/admin key when updating citations. Run `inventory`, then `copy`; deploy
+the dedicated Athena configuration, repeat `copy` to catch final writes, then
+run `rewrite` and `verify`. Copies are SHA-256 verified and existing destination
+blobs are never overwritten. Database replacements are restricted to verified
+Athena-container URLs in reviewed Athena tables; blog paths and CMS records
+are excluded. No source files are deleted and no source keys are rotated.
+Keep credentials and signed URLs out of logs and migration artifacts.
+
 ---
 
 ## Deployment (production)
