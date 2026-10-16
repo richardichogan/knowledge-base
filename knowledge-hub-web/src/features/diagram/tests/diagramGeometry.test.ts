@@ -89,6 +89,28 @@ test('edges re-attach when a node moves', () => {
   eq(after, [{ x: 100, y: 25 }, { x: 300, y: 125 }]);
 });
 
+test('double-headed arrows have opposing tips, centred labels and shaft ports', () => {
+  const horizontal = { x: 10, y: 20, width: 160, height: 80 };
+  const vertical = { x: 10, y: 20, width: 80, height: 160 };
+  const h = arrowShapePoints(horizontal, 'left-right');
+  const v = arrowShapePoints(vertical, 'up-down');
+  eq(h.length, 10);
+  eq([h[0], h[5]], [{ x: 10, y: 60 }, { x: 170, y: 60 }]);
+  eq([v[0], v[5]], [{ x: 50, y: 20 }, { x: 50, y: 180 }]);
+  eq(arrowShaftRect(horizontal, 'left-right'), { x: 70, y: 36, width: 40, height: 48 });
+  eq(arrowShaftRect(vertical, 'up-down'), { x: 26, y: 80, width: 48, height: 40 });
+  eq(portPoint(horizontal, 'top', 'arrow', 'left-right'), { x: 90, y: 36 });
+  eq(portPoint(vertical, 'left', 'arrow', 'up-down'), { x: 26, y: 100 });
+  for (const direction of ['left-right', 'up-down'] as const) {
+    for (const r of [horizontal, vertical, { x: 0, y: 0, width: 24, height: 24 }]) {
+      const shaft = arrowShaftRect(r, direction);
+      ok(shaft.width > 0 && shaft.height > 0, 'Resized arrows retain a positive shaft');
+      ok(arrowShapePoints(r, direction).every(p => p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height),
+        'Arrow stays within resized bounds');
+    }
+  }
+});
+
 test('edgeRoute returns null for dangling edges', () => {
   eq(edgeRoute(edge('e', 'a', 'missing'), nodeMap([node('a', 0, 0)])), null);
 });

@@ -6,7 +6,7 @@
 export interface DiagramPoint { x: number; y: number }
 export type DiagramPort = 'top' | 'right' | 'bottom' | 'left';
 export type DiagramKind = 'process' | 'decision' | 'terminator' | 'document' | 'arrow' | 'line' | 'text' | 'image' | 'container' | 'swimlane';
-export const DIAGRAM_ARROW_DIRECTIONS = ['right', 'left', 'up', 'down'] as const;
+export const DIAGRAM_ARROW_DIRECTIONS = ['right', 'left', 'up', 'down', 'left-right', 'up-down'] as const;
 export type DiagramArrowDirection = typeof DIAGRAM_ARROW_DIRECTIONS[number];
 export const DIAGRAM_CALLOUT_TYPES = ['question', 'risk', 'issue', 'assumption', 'decision', 'action'] as const;
 export type DiagramCalloutType = typeof DIAGRAM_CALLOUT_TYPES[number];

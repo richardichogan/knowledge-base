@@ -54,7 +54,7 @@ export function documentShapePath(r: Rect): string {
 export const ARROW_SHAFT = 0.6;
 
 export const arrowAxis = (direction: DiagramArrowDirection | undefined): 'horizontal' | 'vertical' =>
-  direction === 'up' || direction === 'down' ? 'vertical' : 'horizontal';
+  direction === 'up' || direction === 'down' || direction === 'up-down' ? 'vertical' : 'horizontal';
 
 /** Head length along the arrow's axis. */
 export function arrowHeadLength(r: Pick<Rect, 'width' | 'height'>, direction: DiagramArrowDirection | undefined): number {
@@ -66,11 +66,23 @@ export function arrowShapePoints(r: Rect, direction: DiagramArrowDirection = 'ri
   const { x, y, width: w, height: h } = r;
   if (arrowAxis(direction) === 'horizontal') {
     const top = y + h * (1 - ARROW_SHAFT) / 2; const bottom = y + h * (1 + ARROW_SHAFT) / 2; const cy = y + h / 2;
+    if (direction === 'left-right') {
+      return [{ x, y: cy }, { x: x + head, y }, { x: x + head, y: top },
+        { x: x + w - head, y: top }, { x: x + w - head, y }, { x: x + w, y: cy },
+        { x: x + w - head, y: y + h }, { x: x + w - head, y: bottom },
+        { x: x + head, y: bottom }, { x: x + head, y: y + h }];
+    }
     return direction === 'left'
       ? [{ x, y: cy }, { x: x + head, y }, { x: x + head, y: top }, { x: x + w, y: top }, { x: x + w, y: bottom }, { x: x + head, y: bottom }, { x: x + head, y: y + h }]
       : [{ x: x + w, y: cy }, { x: x + w - head, y: y + h }, { x: x + w - head, y: bottom }, { x, y: bottom }, { x, y: top }, { x: x + w - head, y: top }, { x: x + w - head, y }];
   }
   const left = x + w * (1 - ARROW_SHAFT) / 2; const right = x + w * (1 + ARROW_SHAFT) / 2; const cx = x + w / 2;
+  if (direction === 'up-down') {
+    return [{ x: cx, y }, { x: x + w, y: y + head }, { x: right, y: y + head },
+      { x: right, y: y + h - head }, { x: x + w, y: y + h - head }, { x: cx, y: y + h },
+      { x, y: y + h - head }, { x: left, y: y + h - head },
+      { x: left, y: y + head }, { x, y: y + head }];
+  }
   return direction === 'up'
     ? [{ x: cx, y }, { x: x + w, y: y + head }, { x: right, y: y + head }, { x: right, y: y + h }, { x: left, y: y + h }, { x: left, y: y + head }, { x, y: y + head }]
     : [{ x: cx, y: y + h }, { x, y: y + h - head }, { x: left, y: y + h - head }, { x: left, y }, { x: right, y }, { x: right, y: y + h - head }, { x: x + w, y: y + h - head }];
@@ -83,12 +95,13 @@ export function arrowShapePath(r: Rect, direction?: DiagramArrowDirection): stri
 /** The shaft rectangle, where an arrow's label sits. */
 export function arrowShaftRect(r: Rect, direction?: DiagramArrowDirection): Rect {
   const head = arrowHeadLength(r, direction);
+  const both = direction === 'left-right' || direction === 'up-down';
   if (arrowAxis(direction) === 'horizontal') {
     const height = r.height * ARROW_SHAFT;
-    return { x: direction === 'left' ? r.x + head : r.x, y: r.y + (r.height - height) / 2, width: r.width - head, height };
+    return { x: direction === 'left' || both ? r.x + head : r.x, y: r.y + (r.height - height) / 2, width: r.width - head * (both ? 2 : 1), height };
   }
   const width = r.width * ARROW_SHAFT;
-  return { x: r.x + (r.width - width) / 2, y: direction === 'up' ? r.y + head : r.y, width, height: r.height - head };
+  return { x: r.x + (r.width - width) / 2, y: direction === 'up' || both ? r.y + head : r.y, width, height: r.height - head * (both ? 2 : 1) };
 }
 
 // ── Rects ────────────────────────────────────────────────────────────────────

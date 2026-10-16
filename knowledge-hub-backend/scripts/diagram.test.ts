@@ -150,7 +150,7 @@ test('document artefacts round-trip with styling and attached connectors', () =>
 test('arrow shapes round-trip with a direction, which only arrows may carry', () => {
   const plain = node({ kind: 'arrow', label: 'Next' });
   const process = node({ x: 300 });
-  for (const arrowDirection of ['right', 'left', 'up', 'down'] as const) {
+  for (const arrowDirection of ['right', 'left', 'up', 'down', 'left-right', 'up-down'] as const) {
     const input = doc([{ ...plain, arrowDirection }, process], [edge(plain.id, process.id)]);
     assert.deepEqual(validateDiagramDocument(JSON.parse(JSON.stringify(input)), NONE), input);
   }

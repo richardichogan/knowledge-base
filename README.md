@@ -475,7 +475,8 @@ Markdown (`**bold**`, `*italic*`), not HTML. Footnotes, presentation description
 SVG/PNG/draw.io note exports retain emphasis; draw.io tooltips use plain text.
 The Document shape uses a wavy bottom edge to denote artefacts such as reports,
 specifications and deliverables, with the same styling and text controls.
-The Arrow shape supports right, left, up and down directions in Properties, with
+The Arrow shape supports right, left, up and down directions, plus double-headed
+horizontal and vertical options under **Properties > Direction**, with
 shaft-aligned labels and connector ports, and editable SVG/draw.io exports.
 New shape labels default to 16 px, with 18 px container and swimlane headings.
 Properties provides a 10-36 px Text size control; existing diagrams retain saved sizes.

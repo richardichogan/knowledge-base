@@ -82,6 +82,18 @@ test('connectors keep ports, bends, arrows, label offset and description', () =>
   ok(!xml.includes('id="missing"'), 'dangling connector skipped');
 });
 
+test('double-headed shapes remain editable double arrows in draw.io', () => {
+  const xml = diagramDrawioXml(doc([
+    node('horizontal', { kind: 'arrow', width: 160, height: 80, arrowDirection: 'left-right' }),
+    node('vertical', { kind: 'arrow', width: 80, height: 160, arrowDirection: 'up-down' }),
+  ]), new Map());
+  for (const id of ['horizontal', 'vertical']) {
+    const shape = cell(xml, id);
+    ok(shape.includes('shape=doubleArrow') && shape.includes('arrowWidth=0.6') && shape.includes('arrowSize=0.375'), shape);
+    ok(shape.includes(`direction=${id === 'horizontal' ? 'east' : 'north'}`), 'Orientation preserved');
+  }
+});
+
 test('lines, icons, footnotes and the colour key come across', () => {
   const xml = diagramDrawioXml(doc([
     node('l', { kind: 'line', x: 0, y: 400, width: 200, height: 0, stroke: '#da1e28' }),

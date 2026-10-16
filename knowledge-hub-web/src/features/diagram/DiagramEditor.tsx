@@ -2698,10 +2698,11 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
       </select>
       <span className="dg-properties__hint">Adds a type label and icon. The title remains your callout text.</span>
     </label>}
-    {'kind' in item && item.kind === 'arrow' && <div className="dg-properties__field">
+    {'kind' in item && item.kind === 'arrow' && <div className="dg-properties__field dg-properties__arrow-direction">
       <span>Direction</span>
       <Segmented label="Arrow direction" value={item.arrowDirection ?? 'right'}
-        options={[{ value: 'right', label: 'Right' }, { value: 'left', label: 'Left' }, { value: 'up', label: 'Up' }, { value: 'down', label: 'Down' }]}
+        options={[{ value: 'right', label: 'Right' }, { value: 'left', label: 'Left' }, { value: 'up', label: 'Up' }, { value: 'down', label: 'Down' },
+          { value: 'left-right', label: 'Double-headed horizontal' }, { value: 'up-down', label: 'Double-headed vertical' }]}
         onChange={onArrowDirectionChange} />
     </div>}
     <label className="dg-properties__field">Title

@@ -45,7 +45,7 @@ function borderStyle(n: Pick<DiagramNode, 'strokeStyle'>): Record<string, string
   return {};
 }
 
-const DRAWIO_DIRECTION = { right: 'east', left: 'west', up: 'north', down: 'south' } as const;
+const DRAWIO_DIRECTION = { right: 'east', left: 'west', up: 'north', down: 'south', 'left-right': 'east', 'up-down': 'north' } as const;
 
 function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
   const common = {
@@ -70,7 +70,7 @@ function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
     case 'arrow': {
       const direction = n.arrowDirection ?? 'right';
       const along = arrowAxis(direction) === 'horizontal' ? n.width : n.height;
-      return style({ shape: 'singleArrow', ...common, direction: DRAWIO_DIRECTION[direction], arrowWidth: ARROW_SHAFT,
+      return style({ shape: direction === 'left-right' || direction === 'up-down' ? 'doubleArrow' : 'singleArrow', ...common, direction: DRAWIO_DIRECTION[direction], arrowWidth: ARROW_SHAFT,
         arrowSize: Math.round(arrowHeadLength(n, direction) / along * 1000) / 1000, align, verticalAlign, ...children });
     }
     case 'terminator':

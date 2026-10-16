@@ -8,7 +8,7 @@ import type { ApiResponse } from '../src/types';
 import { emptyDiagram, type DiagramDocument, type DiagramNode, type DiagramSnapshot } from '../src/features/diagram/diagramTypes';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
 import { footnoteBlock } from '../src/features/diagram/diagramAnnotations';
-import { diagramBounds, documentWaveDepth, edgeEndpoints, lineGeometry, linePoints, portPoint } from '../src/features/diagram/diagramGeometry';
+import { arrowShapePath, diagramBounds, documentWaveDepth, edgeEndpoints, lineGeometry, linePoints, portPoint } from '../src/features/diagram/diagramGeometry';
 import { DIAGRAM_CALLOUT_TYPES } from '../src/features/diagram/diagramTypes';
 import { calloutLayout, DIAGRAM_CALLOUTS } from '../src/features/diagram/diagramCallouts';
 import { NoteMaps } from '../src/features/canvas/NoteMaps';
@@ -300,9 +300,40 @@ async function runDiagramAppearanceChecks(): Promise<string[]> {
   const properties = window.document.querySelector('.dg-properties')!;
   check(properties.scrollWidth <= properties.clientWidth, 'Selected shape properties have no horizontal scrollbar');
   window.document.querySelector('.dg-description')!.scrollIntoView({ block: 'center' });
+  clickButton('Add Arrow');
+  await waitFor(() => snapshot.document.nodes.some(n => n.kind === 'arrow'));
+  const arrow = snapshot.document.nodes.find(n => n.kind === 'arrow')!;
+  const currentArrow = (): DiagramNode => snapshot.document.nodes.find(n => n.id === arrow.id)!;
+  for (const direction of ['left-right', 'up-down'] as const) {
+    clickButton(direction === 'left-right' ? 'Double-headed horizontal' : 'Double-headed vertical');
+    await waitFor(() => currentArrow().arrowDirection === direction);
+    const current = currentArrow();
+    check(current.width === (direction === 'left-right' ? 160 : 80)
+      && current.height === (direction === 'left-right' ? 80 : 160), 'Changing axis rotates double-headed bounds');
+    const expected = arrowShapePath(current, direction);
+    check(window.document.querySelector(`g.dg-node[data-id="${arrow.id}"] .dg-node__body`)!.getAttribute('d') === expected,
+      'Canvas renders both arrowheads');
+    const svg = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+    check([...svg.querySelectorAll('path')].some(path => path.getAttribute('d') === expected),
+      'SVG and PNG source preserve both arrowheads');
+    const panel = window.document.querySelector('.dg-properties')!;
+    check(panel.scrollWidth <= panel.clientWidth, 'Double-headed controls fit the Properties panel');
+  }
+  clickButton('Undo (Ctrl+Z)');
+  await waitFor(() => currentArrow().arrowDirection === 'left-right');
+  clickButton('Redo (Ctrl+Shift+Z)');
+  await waitFor(() => currentArrow().arrowDirection === 'up-down');
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
+  root.render(null);
+  await delay(50);
+  queryClient.clear();
+  mountEditor();
+  await waitFor(() => window.document.querySelector(`g.dg-node[data-id="${arrow.id}"]`) !== null);
+  check(currentArrow().arrowDirection === 'up-down', 'Double-headed direction survives reopening');
   return ['Properties matches Athena width on desktop/mobile', 'IBM named fill saves, stays checked and reopens',
     'Bold button and italic shortcut update selected text with live preview', 'Footnotes and SVG preserve formatting',
-    'Descriptions survive save/reopen without horizontal overflow'];
+    'Descriptions survive save/reopen without horizontal overflow',
+    'Horizontal and vertical double-headed arrows render and export, rotate bounds, undo/redo and reopen'];
 }
 async function runDiagramPropertiesChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector('select[aria-label="Diagram project"]') !== null);
