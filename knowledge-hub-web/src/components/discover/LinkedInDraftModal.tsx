@@ -56,7 +56,7 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
       setBlueskyUrl(result.data.url);
       markPublished();
     } catch (error) {
-      setCopyError(`Not posted to Bluesky. ${describeApiError(error)}`);
+      setCopyError(`Bluesky: ${describeApiError(error)}`);
     } finally {
       setPosting(false);
     }

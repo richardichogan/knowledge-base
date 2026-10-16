@@ -12,7 +12,7 @@ import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type Linked
 import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
-import { blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
+import { BlueskyPostUnconfirmedError, blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
 
 export const discoverRouter = Router();
 
@@ -126,22 +126,60 @@ discoverRouter.post('/:id/bluesky-post', (req: Request, res: Response, next: Nex
       if (!id || !UUID.test(id)) throw new ValidationError('Invalid Discover item ID');
       const copy = (req.body as { post?: unknown } | undefined)?.post;
       if (typeof copy !== 'string' || copy.length > BLUESKY_REQUEST_MAX_CHARS) throw new ValidationError('Post text is required.');
-      const { rows } = await getDb().query<{ title: string; body: string; url: string | null; bluesky_post_url: string | null }>(
-        `SELECT title, body, url, metadata->'blueskyPost'->>'url' AS bluesky_post_url
-         FROM content_items WHERE id = $1 AND source = 'discovered-article'`, [id],
+      const db = getDb();
+      // Atomic claim: only one request can move the article from "never posted" to "posting".
+      const { rows } = await db.query<{ title: string; body: string; url: string | null }>(
+        `UPDATE content_items
+           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('blueskyPost', jsonb_build_object('status', 'posting', 'claimedAt', NOW()))
+         WHERE id = $1 AND source = 'discovered-article' AND metadata->'blueskyPost' IS NULL
+         RETURNING title, body, url`, [id],
       );
       const item = rows[0];
-      if (!item) throw new NotFoundError('Discover article');
-      if (item.bluesky_post_url) throw new ConflictError(`This article is already on Bluesky: ${item.bluesky_post_url}`, 'BLUESKY_ALREADY_POSTED');
+      if (!item) {
+        const existing = await db.query<{ post_url: string | null; status: string | null }>(
+          `SELECT metadata->'blueskyPost'->>'url' AS post_url, metadata->'blueskyPost'->>'status' AS status
+           FROM content_items WHERE id = $1 AND source = 'discovered-article'`, [id],
+        );
+        const state = existing.rows[0];
+        if (!state) throw new NotFoundError('Discover article');
+        if (state.post_url) throw new ConflictError(`This article is already on Bluesky: ${state.post_url}`, 'BLUESKY_ALREADY_POSTED');
+        throw new ConflictError(
+          state.status === 'unconfirmed'
+            ? 'An earlier Bluesky post for this article may have gone out. Check your Bluesky profile; it will not be posted again from here.'
+            : 'This article is already being posted to Bluesky.',
+          'BLUESKY_POST_IN_PROGRESS',
+        );
+      }
+
       const link = sourceUrl(item.url);
       const description = item.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      const posted = await postToBluesky(copy, link ? { url: link, title: item.title, description } : null);
-      await getDb().query(
-        `UPDATE content_items SET workflow_state = 'published',
-           metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('blueskyPost', jsonb_build_object('url', $2::text, 'uri', $3::text, 'postedAt', NOW()))
-         WHERE id = $1`,
-        [id, posted.url, posted.uri],
-      );
+      let posted;
+      try {
+        posted = await postToBluesky(copy, link ? { url: link, title: item.title, description } : null);
+      } catch (err) {
+        // Release the claim only when nothing could have been published; otherwise keep it so a retry cannot duplicate.
+        await (err instanceof BlueskyPostUnconfirmedError
+          ? db.query(
+            `UPDATE content_items SET metadata = jsonb_set(metadata, '{blueskyPost,status}', '"unconfirmed"')
+             WHERE id = $1 AND metadata->'blueskyPost'->>'status' = 'posting'`, [id],
+          )
+          : db.query(
+            `UPDATE content_items SET metadata = metadata - 'blueskyPost'
+             WHERE id = $1 AND metadata->'blueskyPost'->>'status' = 'posting'`, [id],
+          )).catch((releaseErr: unknown) => { console.error('[bluesky] could not update the post claim:', releaseErr); });
+        throw err;
+      }
+      try {
+        await db.query(
+          `UPDATE content_items SET workflow_state = 'published',
+             metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('blueskyPost', jsonb_build_object('status', 'posted', 'url', $2::text, 'uri', $3::text, 'postedAt', NOW()))
+           WHERE id = $1`,
+          [id, posted.url, posted.uri],
+        );
+      } catch (recordErr) {
+        // The post is live and the "posting" claim still blocks a repeat, so report success rather than invite a retry.
+        console.error(`[bluesky] posted ${posted.url} but could not record it on ${id}:`, recordErr);
+      }
       res.json({ success: true, data: posted });
     } catch (err) { next(err); }
   })();

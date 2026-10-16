@@ -14,6 +14,14 @@ const PAGE_READ_CHARS = 300_000;
 const THUMB_MAX_BYTES = 976_560;
 const USER_AGENT = 'Mozilla/5.0 (compatible; AthenaKnowledgeHub/1.0)';
 
+/** The create-post request was sent but failed, so Bluesky may still have published it. Never retry automatically. */
+export class BlueskyPostUnconfirmedError extends IntegrationError {
+  public constructor(detail: string) {
+    super('bluesky', detail);
+    this.name = 'BlueskyPostUnconfirmedError';
+  }
+}
+
 export interface BlueskyLink { url: string; title: string; description: string }
 export interface BlueskyPostResult { uri: string; url: string }
 
@@ -95,6 +103,6 @@ export async function postToBluesky(copy: string, link: BlueskyLink | null): Pro
     const rkey = created.uri.split('/').pop() ?? '';
     return { uri: created.uri, url: `https://bsky.app/profile/${agent.session?.handle ?? identifier}/post/${rkey}` };
   } catch (err) {
-    throw new IntegrationError('bluesky', `Bluesky rejected the post. ${err instanceof Error ? err.message : ''}`.trim());
+    throw new BlueskyPostUnconfirmedError(`The post may or may not have been published. Check your Bluesky profile before trying again. ${err instanceof Error ? err.message : ''}`.trim());
   }
 }
