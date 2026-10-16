@@ -2,6 +2,16 @@
 
 **Status:** Validated
 
+**Current approved release (2026-10-16):** User approved deploying Athena Desktop
+integration and the website/backend at 09:59 BST. Source `3419a9f` includes
+`825562c` (desktop integration) and removal of certificate signing. Existing
+AZCLI targets and subscription are unchanged: backend in UK South, SWA in West
+Europe, subscription Alliance Tenant Reporting. Production currently runs
+`kh-prod-api:v201`; the new image is `kh-prod-api:v202`. No provisioning,
+certificates, secrets, role assignments or authentication permissions will be
+created or modified. The Windows installer remains unsigned. Rollback backend:
+`cad79107555facr.azurecr.io/kh-prod-api:v201`; frontend source: `a22bccb`.
+
 **Live baseline:** Backend `kh-prod-api:v200` was running on revision
 `kh-prod-api-vnet--0000197` in the existing production subscription when this
 release was validated. No infrastructure, secret or role changes are planned.
@@ -270,6 +280,25 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Athena Desktop integration — 2026-10-16
+
+- `git fetch origin; git merge --no-edit origin/main`: already up to date;
+  application source `3419a9f`.
+- Web `npx tsc --noEmit` and `npm run build`: passed.
+- Backend `npx tsc --noEmit` and `npm run build`: passed.
+- `node scripts\run-isolated-tests.mjs`: 134 passed, 0 failed.
+- `node scripts\run-isolated-tests.mjs --frontend`: 63 passed, 0 failed.
+- Desktop `npm test`: TypeScript build passed; 9 tests passed, 0 failed.
+- Azure CLI authentication and existing target reads succeeded against the
+  approved subscription; current backend is v201. Existing ACR uses a
+  password-secret registry connection, so no new managed identity/RBAC gate is
+  needed.
+- Dockerfile and npm lockfile checked; remote ACR build will compile the exact
+  pushed `main` source before any production revision is updated.
+- No infrastructure/IaC changes are included: template compilation, what-if and
+  provisioning policy checks are not applicable to this application-only update.
+- `Get-AuthenticodeSignature` on `Athena Setup 0.1.0.exe`: `NotSigned`.
 
 Validated 2026-10-16 for podcast/discovery release `c052399` / `f6cd8e5`:
 
