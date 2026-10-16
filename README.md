@@ -871,12 +871,15 @@ utility is `knowledge-hub-backend/scripts/migrate-athena-storage.mjs`, run with
 `DESTINATION_ATHENA_STORAGE_ACCOUNT`, `DESTINATION_ATHENA_STORAGE_KEY` and
 `DATABASE_URL` in the process environment, plus the existing Foundry Search
 endpoint/admin key when updating citations. Run `inventory`, then `copy`; deploy
-the dedicated Athena configuration, repeat `copy` to catch final writes, then
-run `rewrite` and `verify`. Copies are SHA-256 verified and existing destination
+the dedicated Athena configuration, then run `rewrite` (which also copies and
+verifies any final writes) and `verify`. Copies are SHA-256 verified and existing destination
 blobs are never overwritten. Database replacements are restricted to verified
 Athena-container URLs in reviewed Athena tables; blog paths and CMS records
 are excluded. No source files are deleted and no source keys are rotated.
 Keep credentials and signed URLs out of logs and migration artifacts.
+An optional `ATHENA_MIGRATION_PROOF` path stores only blob identities, SHA-256
+hashes and source/destination ETags, so interrupted verification can resume.
+Cached hashes are reused only while both blob versions remain unchanged.
 
 ---
 

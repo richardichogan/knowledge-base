@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import {
   BlobClient, BlobServiceClient, BlobSASPermissions, SASProtocol, StorageSharedKeyCredential,
 } from '@azure/storage-blob';
@@ -35,16 +36,50 @@ function identifier(value) {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-async function hashBlob(blob, etag) {
-  const response = await blob.download(0, undefined, etag ? { conditions: { ifMatch: etag } } : {});
-  if (!response.readableStreamBody) throw new Error('Blob download returned no stream');
-  const hash = createHash('sha256');
-  for await (const chunk of response.readableStreamBody) hash.update(chunk);
-  return hash.digest('hex');
+async function hashBlob(blob, etag, signal) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await blob.download(0, undefined, {
+        ...(etag ? { conditions: { ifMatch: etag } } : {}),
+        abortSignal: AbortSignal.any([signal, AbortSignal.timeout(180_000)]),
+      });
+      if (!response.readableStreamBody) throw new Error('Blob download returned no stream');
+      const hash = createHash('sha256');
+      for await (const chunk of response.readableStreamBody) hash.update(chunk);
+      return hash.digest('hex');
+    } catch (error) {
+      const transient = error.name === 'AbortError' || ['ABORT_ERR', 'REQUEST_ABORTED', 'ECONNRESET', 'ETIMEDOUT'].includes(error.code)
+        || [408, 429, 500, 502, 503, 504].includes(error.statusCode);
+      if (signal.aborted || !transient || attempt === 3) {
+        throw new Error(`SHA-256 download failed in ${blob.containerName}: ${error.code ?? error.name} (${error.statusCode ?? 'network'})`);
+      }
+      console.warn(JSON.stringify({ downloadRetry: attempt, container: blob.containerName, reason: error.code ?? error.name }));
+    }
+  }
+  throw new Error('SHA-256 verification exhausted retries');
+}
+
+function verificationProof() {
+  const path = process.env.ATHENA_MIGRATION_PROOF;
+  const proof = path && existsSync(path) ? JSON.parse(readFileSync(path, 'utf8'))
+    : { source: SOURCE, destination: DESTINATION, blobs: {} };
+  if (proof.source !== SOURCE || proof.destination !== DESTINATION || !proof.blobs) {
+    throw new Error('Invalid migration proof file');
+  }
+  return {
+    blobs: proof.blobs,
+    save() {
+      if (!path) return;
+      writeFileSync(`${path}.tmp`, JSON.stringify(proof));
+      renameSync(`${path}.tmp`, path);
+    },
+  };
 }
 
 async function copyAndVerify(source, destination, copy) {
   const manifest = new Set();
+  const proof = verificationProof();
+  const controller = new AbortController();
   for (const name of ATHENA_CONTAINERS) {
     const from = source.getContainerClient(name);
     const to = destination.getContainerClient(name);
@@ -57,8 +92,10 @@ async function copyAndVerify(source, destination, copy) {
     let verified = 0;
     let bytes = 0;
     const queue = [...blobs];
-    await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
+    const results = await Promise.allSettled(Array.from({ length: Math.min(4, queue.length) }, async () => {
+      try {
       for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+        if (controller.signal.aborted) throw controller.signal.reason;
         const original = from.getBlobClient(item.name);
         const target = to.getBlockBlobClient(item.name);
         if (!await target.exists()) {
@@ -79,14 +116,29 @@ async function copyAndVerify(source, destination, copy) {
         if (props.contentLength !== item.properties.contentLength || props.contentType !== item.properties.contentType) {
           throw new Error(`Destination properties differ in ${name}; refusing overwrite`);
         }
-        const [before, after] = await Promise.all([hashBlob(original, item.properties.etag), hashBlob(target, props.etag)]);
-        if (before !== after) throw new Error(`SHA-256 mismatch in ${name}; refusing overwrite`);
+        const identity = `${name}/${item.name}`;
+        const cached = proof.blobs[identity];
+        if (!cached || cached.sourceEtag !== item.properties.etag || cached.destinationEtag !== props.etag
+          || !/^[0-9a-f]{64}$/.test(cached.sha256)) {
+          const [before, after] = await Promise.all([
+            hashBlob(original, item.properties.etag, controller.signal), hashBlob(target, props.etag, controller.signal),
+          ]);
+          if (before !== after) throw new Error(`SHA-256 mismatch in ${name}; refusing overwrite`);
+          proof.blobs[identity] = { sourceEtag: item.properties.etag, destinationEtag: props.etag, sha256: before };
+          proof.save();
+        }
         manifest.add(`${name}/${item.name}`);
         bytes += props.contentLength ?? 0;
         verified += 1;
         if (verified % 20 === 0) console.log(JSON.stringify({ container: name, verified, total: blobs.length }));
       }
+      } catch (error) {
+        controller.abort(error);
+        throw error;
+      }
     }));
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed) throw failed.reason;
     console.log(JSON.stringify({ container: name, verified, bytes, sha256: 'matched' }));
   }
   return manifest;
@@ -193,7 +245,14 @@ async function verifyDestinationAccess(db) {
   const { rows } = await db.query(`SELECT url FROM content_items WHERE source = 'user-upload' AND url LIKE $1
     UNION SELECT blob_url AS url FROM kb_images WHERE blob_url LIKE $1`,
   [`https://${DESTINATION}.blob.core.windows.net/%`]);
-  for (const row of rows) await new BlobClient(row.url).getProperties();
+  if (rows.length === 0) throw new Error('No destination file references available to verify');
+  for (const row of rows) {
+    try {
+      await new BlobClient(row.url).getProperties();
+    } catch (error) {
+      throw new Error(`Signed Athena URL verification failed: ${error.code ?? error.name}, HTTP ${error.statusCode ?? 'network'}, container ${blobIdentity(row.url).container}`);
+    }
+  }
   if (rows.length > 0) {
     const anonymous = new URL(rows[0].url);
     anonymous.search = '';
@@ -201,7 +260,7 @@ async function verifyDestinationAccess(db) {
     try {
       await new BlobClient(anonymous.href).getProperties();
     } catch (error) {
-      if (![403, 404].includes(error.statusCode) && error.code !== 'PublicAccessNotPermitted') throw error;
+      if (![401, 403, 404].includes(error.statusCode) && error.code !== 'PublicAccessNotPermitted') throw error;
       denied = true;
     }
     if (!denied) throw new Error('Destination blob unexpectedly permits anonymous access');
@@ -237,7 +296,7 @@ async function main() {
     else if (mode === 'copy') await copyAndVerify(source, destination, true);
     else if (mode === 'search') await updateSearch(db);
     else {
-      const manifest = await copyAndVerify(source, destination, false);
+      const manifest = await copyAndVerify(source, destination, mode === 'rewrite');
       if (mode === 'rewrite') {
         await rewriteReferences(db, destination, manifest);
         await updateSearch(db);
@@ -255,7 +314,10 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(error => {
-    console.error('Athena storage migration failed:', String(error.message).replace(/https:\/\/[^\s"'<>]+/g, '[URL redacted]'));
+    console.error('Athena storage migration failed:', JSON.stringify({
+      name: error.name, code: error.code, status: error.statusCode,
+      message: String(error.message).replace(/https:\/\/[^\s"'<>]+/g, '[URL redacted]'),
+    }));
     process.exitCode = 1;
   });
 }

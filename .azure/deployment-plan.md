@@ -21,6 +21,23 @@ containers, healthy revision, SHA-256 equality and no old Athena URL references.
 Existing signed-link lifetimes are preserved; this is not a general SAS policy
 change. Originals remain available for recovery; never rotate their keys.
 
+**Deployment result (2026-10-16, Athena storage migration):** ACR run `ca6f`
+built backend v205 from `95e6e22`. Revision `kh-prod-api-vnet--0000202` is
+Healthy / RunningAtMaxScale and receives 100% of traffic. Dedicated Athena
+environment variables now select `khprodr6mgdnys` and secret reference
+`athena-storage-account-key`. CMS/blog environment values and secret references
+match the previous v204 revision (comparison normalizes absent/null fields).
+No source key, source blob or blog configuration was changed by this migration.
+All 302 Athena blobs (552,660,570 bytes) were copied and SHA-256 verified:
+119 documents, 160 images and 23 chat screens. The transactional URL migration
+replaced 222 distinct Athena URLs, including embedded note images, note history
+and chat context, and updated 67 user-upload Search citations. Final verification
+confirmed 222 signed file URLs work, anonymous reads return 401, and no old
+Athena-container URL references remain in the database or user-upload search
+citations. Existing blog paths are deliberately unchanged. Original Athena
+copies remain untouched in the source account for recovery; deletion/purge has
+not been performed. No frontend deployment or installer update is needed.
+
 **Current approved release (2026-10-16):** User requested deployment of the
 standard diagram arrow shape, matching 380 px Properties/Athena panels, an IBM
 Carbon colour subset, and bold/italic shape and connector descriptions. The
