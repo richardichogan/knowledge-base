@@ -2,6 +2,16 @@
 
 **Status:** Validated
 
+**Current approved release (2026-10-16, Discovery Bluesky):** User explicitly
+requested deployment of Discovery quick-social posting (`f916e69`, `a0ea525`),
+including pending double-headed diagram arrows (`81eeaa9`). Reuse the existing
+Alliance Tenant Reporting ACA/ACR/SWA targets. Backend v205 advances to v206;
+deploy the matching local frontend. Add only `bluesky-app-password` as an ACA
+secret and `BLUESKY_APP_PASSWORD=secretref:bluesky-app-password`. Existing CMS,
+blog and Athena storage configuration remains unchanged. No infrastructure,
+RBAC or schema changes. Do not publish a live Bluesky post during verification.
+Rollback: backend v205 and frontend source `c190ae7`.
+
 **Current approved release (2026-10-16, Athena storage migration):** User
 explicitly requested immediate migration of Athena data only to the current
 subscription and prohibited touching blog content. Target:
@@ -353,6 +363,20 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Discovery Bluesky deployment - 2026-10-16 16:57 BST
+
+- Fetched and merged `origin/main`: already up to date.
+- Both projects: `npx tsc --noEmit` and `npm run build` passed.
+- Backend Bluesky and social draft tests: 9/9 passed, no live social writes.
+- Azure CLI authenticated in Alliance Tenant Reporting; existing ACA v205,
+  ACR Succeeded and SWA production hostname confirmed.
+- Dockerfile and committed package lock verified; successful remote ACR build
+  gates the image update. Existing password-secret registry connection retained.
+- No IaC, provisioning, location, policy or RBAC changes: template compilation,
+  what-if and managed-identity role propagation checks are not applicable.
+- Bluesky credential is read from ignored local configuration into process
+  memory and stored only as an ACA secret; no credential value recorded here.
 
 ### Athena-only storage isolation — 2026-10-16 13:32 BST
 
