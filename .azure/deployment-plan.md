@@ -13,6 +13,16 @@ authentication permissions are being changed. Rollback backend:
 `cad79107555facr.azurecr.io/kh-prod-api:v203`; frontend source baseline:
 `d0ed66c`.
 
+**Deployment result (2026-10-16, diagram enhancements):** commit `c190ae7`
+pushed to the feature branch and `main`. ACR run `ca6e` built `kh-prod-api:v204`
+from `main`; revision `kh-prod-api-vnet--0000201` is Healthy /
+RunningAtMaxScale with 100% traffic. SWA production serves
+`/assets/index-GieYvbfW.js` on both `https://athena.themicrosoftcloudblog.com/`
+and `https://nice-mud-0f780fb03.7.azurestaticapps.net/`. Note: commits must use
+the installed Git for Windows (`C:\Program Files\Git`) so the Vault Radar hook
+resolves coreutils `timeout`; the bundled session Git resolves Windows
+`TIMEOUT.EXE` and the hook fails as "stale worktree metadata".
+
 **Deployment result (2026-10-16):** ACR run `ca6d` built and pushed
 `kh-prod-api:v203` from `main` commit `d0ed66c14fb1ec3de96720f9b6baca38f2fa2355`,
 digest `sha256:1e132b3b173191660a3a89bbfec6de2c0dcc02b98c8c3b31249f3754b80ea55f`.
