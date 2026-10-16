@@ -32,7 +32,7 @@ import { ThinkAthenaPanel } from '../../notes/ThinkAthenaPanel';
 import type { AthenaPageContext } from '../../context/AthenaContext';
 import type { CanvasFullApi } from '../../services/api';
 import {
-  emptyDiagram, DIAGRAM_CALLOUT_TYPES, type DiagramCalloutType, type DiagramDocument, type DiagramEdge, type DiagramKind, type DiagramNode, type DiagramPoint,
+  emptyDiagram, DIAGRAM_CALLOUT_TYPES, type DiagramArrowDirection, type DiagramCalloutType, type DiagramDocument, type DiagramEdge, type DiagramKind, type DiagramNode, type DiagramPoint,
   type DiagramPort, type DiagramSnapshot,
 } from './diagramTypes';
 import {
@@ -41,12 +41,15 @@ import {
   canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, pathD,
   pointAlong, insertWaypoint, hitTestNode, hitTestEdge, nodesInRect, alignNodes, distributeNodes, reorderNodes,
   cloneSelection, removeSelection, normalizeDocument, screenToWorld, worldToScreen, clampZoom, zoomAt, fitViewport,
-  wrapText, edgeLabelLayout, edgeLabelCenter, fitSize, documentShapePath, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
+  wrapText, edgeLabelLayout, edgeLabelCenter, fitSize, documentShapePath, arrowShapePath, arrowAxis, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
 } from './diagramGeometry';
 import { diagramLineJumpGeometry } from './diagramLineJumps';
 import { DiagramIconPicker } from './DiagramIconPicker';
 import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { DiagramMetadata } from './DiagramMetadata';
+import { DiagramDescriptionEditor } from './DiagramDescriptionEditor';
+import { descriptionRuns } from './diagramDescription';
+import { DIAGRAM_FILLS as FILLS, DIAGRAM_STROKES as STROKES, DIAGRAM_TEXT_COLOURS as TEXT_COLOURS, IBM_COLOURS } from './diagramPalette';
 import { DiagramDrilldown } from './DiagramDrilldown';
 import { exportDiagram, type DiagramExportFormat } from './diagramExport';
 import {
@@ -86,16 +89,13 @@ const SHAPE_MIME = 'application/x-kh-diagram-shape';
 const CLIP_TYPE = 'kh-diagram/v1';
 const INFO_TIMEOUT_MS = 5000;
 
-const FILLS = ['#262626', '#1c2d4a', '#173b27', '#3d3215', 'none'] as const;
-const STROKES = ['#161616', '#525252', '#0f62fe', '#198038', '#b28600', '#da1e28', '#8a3ffc', 'none'] as const;
-const TEXT_COLOURS = ['#161616', '#525252', '#ffffff', '#0f62fe', '#198038', '#da1e28'] as const;
 const EDGE_COLOURS = STROKES.filter((c) => c !== 'none');
 const DEFAULT_EDGE_STROKE = '#525252';
 const FONT_MIN = 10;
 const FONT_MAX = 36;
 
 const KIND_LABEL: Record<DiagramKind, string> = {
-  process: 'Process', decision: 'Decision', terminator: 'Start / end', document: 'Document', line: 'Line', text: 'Text', image: 'Image',
+  process: 'Process', decision: 'Decision', terminator: 'Start / end', document: 'Document', arrow: 'Arrow', line: 'Line', text: 'Text', image: 'Image',
   container: 'Container', swimlane: 'Swimlane',
 };
 
@@ -104,6 +104,7 @@ const DEFAULTS: Record<DiagramKind, Pick<DiagramNode, 'label' | 'width' | 'heigh
   decision: { label: 'Decision?', width: 120, height: 80, fill: '#fcf4d6', stroke: '#b28600', textColor: '#161616', fontSize: 16 },
   terminator: { label: 'Start', width: 140, height: 52, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 16 },
   document: { label: 'Document', width: 140, height: 80, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 16 },
+  arrow: { label: '', width: 160, height: 80, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 16 },
   line: { label: '', width: 140, height: 24, fill: 'none', stroke: '#525252', textColor: '#161616', fontSize: 16 },
   text: { label: 'Text', width: 140, height: 40, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 16 },
   image: { label: '', width: 96, height: 96, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 16 },
@@ -111,7 +112,7 @@ const DEFAULTS: Record<DiagramKind, Pick<DiagramNode, 'label' | 'width' | 'heigh
   swimlane: { label: 'Lane', width: 560, height: 180, fill: '#ffffff', stroke: '#525252', textColor: '#161616', fontSize: 18 },
 };
 
-const PALETTE: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'text', 'image', 'container', 'swimlane'];
+const PALETTE: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'arrow', 'text', 'image', 'container', 'swimlane'];
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
@@ -1430,7 +1431,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       case 'endpoint': {
         const exclude = new Set<string>(d.kind === 'connect' ? [d.sourceId] : []);
         const hit = hitTestNode(collapseView(cur).nodes.filter(n => n.kind !== 'line'), world, exclude);
-        setDrag({ ...d, current: world, targetId: hit?.id ?? null, targetPort: hit === null ? null : nearestPort(nodeRect(hit), world, hit.kind) });
+        setDrag({ ...d, current: world, targetId: hit?.id ?? null, targetPort: hit === null ? null : nearestPort(nodeRect(hit), world, hit.kind, hit.arrowDirection) });
         return;
       }
       case 'label': {
@@ -1504,13 +1505,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           setSel({ nodes: [], edges: [edge.id] });
           return;
         }
-        const from = portPoint(nodeRect(source), d.sourcePort, source.kind);
+        const from = portPoint(nodeRect(source), d.sourcePort, source.kind, source.arrowDirection);
         if (distance(from, world) < 40) return;
         // Dropped on empty sheet: create a connected shape there (in an AI flow, another step of the same type).
-        const kind: DiagramKind = source.kind === 'decision' || source.kind === 'terminator' ? 'process' : (isContainerKind(source.kind) || source.kind === 'image' || source.kind === 'text') ? 'process' : source.kind;
+        const kind: DiagramKind = source.kind === 'decision' || source.kind === 'terminator' ? 'process' : (isContainerKind(source.kind) || source.kind === 'image' || source.kind === 'text' || source.kind === 'arrow') ? 'process' : source.kind;
         const step = cur.diagramType === 'ai-flow' && source.flow !== undefined ? aiStepNode(source.flow.stepType) : null;
         const node = step !== null ? placeNode(step.kind, world, step.extra) : placeNode(kind, world);
-        const edge = { ...makeEdge(d.sourceId, d.sourcePort, node.id, nearestPort(nodeRect(node), from, node.kind)), ...aiEdgeExtra(cur) };
+        const edge = { ...makeEdge(d.sourceId, d.sourcePort, node.id, nearestPort(nodeRect(node), from, node.kind, node.arrowDirection)), ...aiEdgeExtra(cur) };
         addNodes([node], [edge]);
         return;
       }
@@ -2249,7 +2250,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                         <text className="dg-noteblock__text" fontSize={NOTE_FONT}>
                           {item.lines.map((line, j) => (
                             <tspan key={j} x={line.x} y={line.y} fontWeight={line.bold ? 600 : 400}
-                              className={line.muted ? 'dg-noteblock__muted' : undefined}>{line.text}</tspan>
+                              className={line.muted ? 'dg-noteblock__muted' : undefined}>{line.runs === undefined ? line.text : line.runs.map((run, k) =>
+                                <tspan key={k} fontWeight={run.bold ? 600 : 400} fontStyle={run.italic ? 'italic' : 'normal'}>{run.text}</tspan>)}</tspan>
                           ))}
                         </text>
                       </a>
@@ -2279,7 +2281,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 if (n === undefined || n.kind === 'line') return null;
                 const r = nodeRect(n);
                 return PORTS.map((port) => {
-                  const pt = portPoint(r, port, n.kind);
+                  const pt = portPoint(r, port, n.kind, n.arrowDirection);
                   const active = (drag?.kind === 'connect' || drag?.kind === 'endpoint') && drag.targetId === id && drag.targetPort === port;
                   return (
                     <circle
@@ -2317,13 +2319,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 let from: P | null = null;
                 if (drag.kind === 'connect') {
                   const s = byId.get(drag.sourceId);
-                  if (s !== undefined) from = portPoint(nodeRect(s), drag.sourcePort, s.kind);
+                  if (s !== undefined) from = portPoint(nodeRect(s), drag.sourcePort, s.kind, s.arrowDirection);
                 } else {
                   const route = routes.get(drag.edgeId);
                   if (route !== undefined && route !== null) from = (drag.end === 'source' ? route[route.length - 1] : route[0]) ?? null;
                 }
                 const t = drag.targetId === null ? undefined : byId.get(drag.targetId);
-                const to = t !== undefined && drag.targetPort !== null ? portPoint(nodeRect(t), drag.targetPort, t.kind) : drag.current;
+                const to = t !== undefined && drag.targetPort !== null ? portPoint(nodeRect(t), drag.targetPort, t.kind, t.arrowDirection) : drag.current;
                 return from === null ? null : <line className="dg-preview-line" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
               })()}
             </g>
@@ -2343,7 +2345,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               <div className="dg-present__caption">
                 <p className="dg-present__step">{presentStep?.number !== null && presentStep?.number !== undefined ? `Note ${presentStep.number}` : 'Step'} · {presenting.index + 1} of {presenting.steps.length}</p>
                 {presentStep !== null && presentStep.title !== '' && <h3 className="dg-present__title">{presentStep.title}</h3>}
-                {presentStep !== null && presentStep.text !== '' && <p className="dg-present__text">{presentStep.text}</p>}
+                {presentStep !== null && presentStep.text !== '' && <p className="dg-present__text">{descriptionRuns(presentStep.text).map((run, index) =>
+                  <span key={index} style={{ fontWeight: run.bold ? 600 : undefined, fontStyle: run.italic ? 'italic' : undefined }}>{run.text}</span>)}</p>}
               </div>
               <div className="dg-present__controls">
                 <IconBtn label="Previous (←)" disabled={presenting.index === 0} onClick={() => { stepPresentation(-1); }}><ChevronLeft size={16} /></IconBtn>
@@ -2555,6 +2558,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           item={(singleNode ?? singleEdge)!}
           kind={singleNode === undefined ? 'Connector' : KIND_LABEL[singleNode.kind]}
           titleLimit={singleNode === undefined ? 500 : 2000}
+          onArrowDirectionChange={(arrowDirection) => {
+            if (singleNode?.kind !== 'arrow') return;
+            updateNodes([singleNode.id], n => {
+              const turned = arrowAxis(n.arrowDirection) !== arrowAxis(arrowDirection);
+              return { ...n, arrowDirection, ...(turned ? { width: n.height, height: n.width } : {}) };
+            });
+          }}
           onCalloutTypeChange={(calloutType) => {
             if (singleNode?.kind !== 'text') return;
             updateNodes([singleNode.id], n => {
@@ -2658,7 +2668,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   );
 };
 
-function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onEdgeStyleChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange }: {
+function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onEdgeStyleChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange, onArrowDirectionChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
   onChange: (field: 'label' | 'description', value: string, first: boolean) => void;
   onAlignmentChange: (alignment: Partial<Pick<DiagramNode, 'textAlign' | 'textVerticalAlign'>>) => void;
@@ -2668,6 +2678,7 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
   onBackgroundChange: (fill: string) => void;
   onFontSizeChange: (fontSize: number) => void;
   onCalloutTypeChange: (calloutType: DiagramCalloutType | undefined) => void;
+  onArrowDirectionChange: (direction: DiagramArrowDirection) => void;
 }): React.ReactElement {
   const firstEdit = useRef(true);
   const change = (field: 'label' | 'description', value: string): void => {
@@ -2687,13 +2698,19 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
       </select>
       <span className="dg-properties__hint">Adds a type label and icon. The title remains your callout text.</span>
     </label>}
+    {'kind' in item && item.kind === 'arrow' && <div className="dg-properties__field">
+      <span>Direction</span>
+      <Segmented label="Arrow direction" value={item.arrowDirection ?? 'right'}
+        options={[{ value: 'right', label: 'Right' }, { value: 'left', label: 'Left' }, { value: 'up', label: 'Up' }, { value: 'down', label: 'Down' }]}
+        onChange={onArrowDirectionChange} />
+    </div>}
     <label className="dg-properties__field">Title
       <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label} spellCheck
         onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('label', e.target.value); }} />
     </label>
     <div className="dg-properties__border">
     {'kind' in item && <>
-      {item.kind !== 'line' && <Swatches label="Background colour" colours={FILLS} value={diagramEditorFill(item.fill)}
+      {item.kind !== 'line' && <Swatches label="Background colour" colours={FILLS} value={FILLS.includes(item.fill) ? item.fill : diagramEditorFill(item.fill)}
         onPick={onBackgroundChange} />}
       <Swatches label={item.kind === 'line' ? 'Line colour' : 'Border colour'} colours={STROKES} value={item.stroke}
         onPick={(stroke) => { onBorderChange({ stroke }); }} />
@@ -2727,10 +2744,12 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
       </select>
     </label>
     </div>
-    <label className="dg-properties__field">Description
-      <textarea aria-label="Shape or connector description" rows={8} maxLength={10000} value={item.description ?? ''} spellCheck
-        onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('description', e.target.value); }} />
-    </label>
+    <DiagramDescriptionEditor key={item.id} value={item.description ?? ''}
+      onFocus={() => { firstEdit.current = true; }}
+      onChange={(value, first) => {
+        if (first) { onChange('description', value, true); firstEdit.current = true; }
+        else change('description', value);
+      }} />
     {(!('kind' in item) || item.kind !== 'line') && <div className="dg-properties__alignment">
       <label className="dg-properties__field">Text size
         <select aria-label="Text size" value={item.fontSize ?? 12}
@@ -2805,6 +2824,12 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
     case 'document':
       body = <path {...common} d={documentShapePath(n)} />;
       break;
+    case 'arrow': {
+      body = <path {...common} strokeLinejoin="round" d={arrowShapePath(n, n.arrowDirection)} />;
+      const layout = diagramTextLayout({ ...n, label });
+      text = <TextLines lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} />;
+      break;
+    }
     case 'process':
       body = <rect {...common} x={x} y={y} width={w} height={h} rx={6} />;
       text = <TextLines lines={wrapText(label, w - 16, fs, maxLines(h - 8))} cx={cx} cy={cy} fontSize={fs} color={color} />;
@@ -2925,6 +2950,7 @@ function ShapeGlyph({ kind }: { kind: DiagramKind }): React.ReactElement {
     case 'decision': shape = <polygon points="10,2 18,10 10,18 2,10" />; break;
     case 'terminator': shape = <rect x={2} y={5} width={16} height={10} rx={5} />; break;
     case 'document': shape = <path d={documentShapePath({ x: 2, y: 3, width: 16, height: 14 })} />; break;
+    case 'arrow': shape = <path strokeLinejoin="round" d={arrowShapePath({ x: 2, y: 4, width: 16, height: 12 })} />; break;
     case 'line': shape = <path d="M2 16 L18 4" />; break;
     case 'text': shape = <path d="M4 5h12M10 5v11M8 16h4" />; break;
     case 'image': shape = <><rect x={2} y={3} width={16} height={14} rx={1} /><path d="M4 15l4-5 3 3 2-2 3 4" /></>; break;
@@ -3001,14 +3027,16 @@ function Segmented<T extends string>({ label, value, options, onChange, compact 
 }
 
 function Swatches({ label, colours, value, onPick }: { label: string; colours: readonly string[]; value: string | undefined; onPick: (c: string) => void }): React.ReactElement {
+  const selected = colours.includes(value ?? '') ? value : colours.find(colour => value === diagramEditorFill(colour));
   return (
     <div className="dg-swatches">
       <span className="dg-swatches__label">{label}</span>
       <div className="dg-swatches__row" role="radiogroup" aria-label={label}>
         {colours.map((c) => (
           <button
-            key={c} type="button" role="radio" aria-checked={value === c} title={c === 'none' ? 'None' : c} aria-label={c === 'none' ? 'None' : c}
-            className={`dg-swatch${c === 'none' ? ' dg-swatch--none' : ''}${value === c ? ' dg-swatch--selected' : ''}`}
+            key={c} type="button" role="radio" aria-checked={selected === c} title={c === 'none' ? 'None' : `${IBM_COLOURS[c] ?? 'Colour'} (${c})`} aria-label={c === 'none' ? 'None' : c}
+            aria-description={IBM_COLOURS[c]}
+            className={`dg-swatch${c === 'none' ? ' dg-swatch--none' : ''}${selected === c ? ' dg-swatch--selected' : ''}`}
             style={c === 'none' ? undefined : { background: c }}
             onClick={() => { onPick(c); }}
           />

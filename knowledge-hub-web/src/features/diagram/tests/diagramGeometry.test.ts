@@ -5,7 +5,7 @@
  */
 import type { DiagramDocument, DiagramEdge, DiagramNode, DiagramPoint } from '../diagramTypes';
 import {
-  alignNodes, boundsOf, diagramBounds, edgeLabelLayout, edgePoints, canParent, cloneSelection, containerAt, distributeNodes, edgeRoute, facingPorts, fitSize,
+  alignNodes, arrowShaftRect, arrowShapePath, arrowShapePoints, boundsOf, diagramBounds, edgeLabelLayout, edgePoints, canParent, cloneSelection, containerAt, distributeNodes, edgeRoute, facingPorts, fitSize,
   fitViewport, hitTestEdge, hitTestNode, insertWaypoint, nearestPort, nodeMap, nodesInRect, normalizeDocument,
   orthogonalRoute, pointAlong, portPoint, removeSelection, renderOrder, reorderNodes, resizeRect, setParent,
   simplifyPolyline, topLevelSelection, translateNodes, wrapText, zoomAt, screenToWorld,
@@ -64,6 +64,20 @@ test('portPoint returns side midpoints', () => {
   eq(nearestPort(r, { x: 0, y: 41 }), 'left');
   eq(facingPorts(r, { x: 300, y: 25, width: 10, height: 10 }), ['right', 'left']);
   eq(facingPorts(r, { x: 50, y: 300, width: 10, height: 10 }), ['bottom', 'top']);
+});
+
+test('arrow shape points the chosen way and its ports sit on the shaft', () => {
+  const r = { x: 0, y: 0, width: 160, height: 80 };
+  eq(arrowShapePoints(r)[0], { x: 160, y: 40 }, 'right tip');
+  eq(arrowShapePoints(r, 'left')[0], { x: 0, y: 40 }, 'left tip');
+  eq(arrowShapePoints({ x: 0, y: 0, width: 80, height: 160 }, 'up')[0], { x: 40, y: 0 }, 'up tip');
+  eq(arrowShapePoints({ x: 0, y: 0, width: 80, height: 160 }, 'down')[0], { x: 40, y: 160 }, 'down tip');
+  eq(portPoint(r, 'top', 'arrow'), { x: 80, y: 16 });
+  eq(portPoint(r, 'bottom', 'arrow', 'left'), { x: 80, y: 64 });
+  eq(portPoint({ x: 0, y: 0, width: 80, height: 160 }, 'left', 'arrow', 'down'), { x: 16, y: 80 });
+  eq(arrowShaftRect(r), { x: 0, y: 16, width: 100, height: 48 });
+  eq(arrowShaftRect(r, 'left'), { x: 60, y: 16, width: 100, height: 48 });
+  ok(arrowShapePath(r).startsWith('M160,40 '), 'path starts at the tip');
 });
 
 test('edges re-attach when a node moves', () => {

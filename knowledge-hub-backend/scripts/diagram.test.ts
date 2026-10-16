@@ -147,6 +147,18 @@ test('document artefacts round-trip with styling and attached connectors', () =>
   assert.deepEqual(validateDiagramDocument(input, NONE), input);
 });
 
+test('arrow shapes round-trip with a direction, which only arrows may carry', () => {
+  const plain = node({ kind: 'arrow', label: 'Next' });
+  const process = node({ x: 300 });
+  for (const arrowDirection of ['right', 'left', 'up', 'down'] as const) {
+    const input = doc([{ ...plain, arrowDirection }, process], [edge(plain.id, process.id)]);
+    assert.deepEqual(validateDiagramDocument(JSON.parse(JSON.stringify(input)), NONE), input);
+  }
+  assert.deepEqual(validateDiagramDocument(doc([plain]), NONE), doc([plain]));
+  rejects(() => validateDiagramDocument({ ...doc([plain]), nodes: [{ ...plain, arrowDirection: 'sideways' }] }, NONE), /arrowDirection/);
+  rejects(() => validateDiagramDocument(doc([node({ arrowDirection: 'left' })]), NONE), /arrowDirection/);
+});
+
 test('standalone lines preserve endpoints and styles without shape attachments', () => {
   const line = node({ kind: 'line', fill: 'none', label: '', lineStart: { x: 0, y: 0.5 },
     lineEnd: { x: 1, y: 0.5 }, strokeStyle: 'dashed', strokeWidth: 4 });

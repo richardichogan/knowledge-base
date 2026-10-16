@@ -1,4 +1,4 @@
-import type { DiagramDocument, DiagramEdge, DiagramKind, DiagramNode, DiagramPoint, DiagramPort } from './diagramTypes';
+import type { DiagramArrowDirection, DiagramDocument, DiagramEdge, DiagramKind, DiagramNode, DiagramPoint, DiagramPort } from './diagramTypes';
 
 /** Pure geometry helpers for the diagram editor. All coordinates are absolute world coordinates. */
 
@@ -48,6 +48,47 @@ export function documentShapePath(r: Rect): string {
   const bottom = r.y + r.height - documentWaveDepth(r.height);
   const depth = documentWaveDepth(r.height);
   return `M${r.x},${r.y} H${r.x + r.width} V${bottom} Q${r.x + r.width * 0.75},${bottom - depth * 2} ${r.x + r.width / 2},${bottom} Q${r.x + r.width * 0.25},${bottom + depth * 2} ${r.x},${bottom} Z`;
+}
+
+/** Shaft thickness as a fraction of the arrow's cross-axis size. */
+export const ARROW_SHAFT = 0.6;
+
+export const arrowAxis = (direction: DiagramArrowDirection | undefined): 'horizontal' | 'vertical' =>
+  direction === 'up' || direction === 'down' ? 'vertical' : 'horizontal';
+
+/** Head length along the arrow's axis. */
+export function arrowHeadLength(r: Pick<Rect, 'width' | 'height'>, direction: DiagramArrowDirection | undefined): number {
+  return arrowAxis(direction) === 'horizontal' ? Math.min(r.width * 0.4, r.height * 0.75) : Math.min(r.height * 0.4, r.width * 0.75);
+}
+
+export function arrowShapePoints(r: Rect, direction: DiagramArrowDirection = 'right'): DiagramPoint[] {
+  const head = arrowHeadLength(r, direction);
+  const { x, y, width: w, height: h } = r;
+  if (arrowAxis(direction) === 'horizontal') {
+    const top = y + h * (1 - ARROW_SHAFT) / 2; const bottom = y + h * (1 + ARROW_SHAFT) / 2; const cy = y + h / 2;
+    return direction === 'left'
+      ? [{ x, y: cy }, { x: x + head, y }, { x: x + head, y: top }, { x: x + w, y: top }, { x: x + w, y: bottom }, { x: x + head, y: bottom }, { x: x + head, y: y + h }]
+      : [{ x: x + w, y: cy }, { x: x + w - head, y: y + h }, { x: x + w - head, y: bottom }, { x, y: bottom }, { x, y: top }, { x: x + w - head, y: top }, { x: x + w - head, y }];
+  }
+  const left = x + w * (1 - ARROW_SHAFT) / 2; const right = x + w * (1 + ARROW_SHAFT) / 2; const cx = x + w / 2;
+  return direction === 'up'
+    ? [{ x: cx, y }, { x: x + w, y: y + head }, { x: right, y: y + head }, { x: right, y: y + h }, { x: left, y: y + h }, { x: left, y: y + head }, { x, y: y + head }]
+    : [{ x: cx, y: y + h }, { x, y: y + h - head }, { x: left, y: y + h - head }, { x: left, y }, { x: right, y }, { x: right, y: y + h - head }, { x: x + w, y: y + h - head }];
+}
+
+export function arrowShapePath(r: Rect, direction?: DiagramArrowDirection): string {
+  return `${arrowShapePoints(r, direction).map((p, i) => `${i === 0 ? 'M' : 'L'}${round2(p.x)},${round2(p.y)}`).join(' ')} Z`;
+}
+
+/** The shaft rectangle, where an arrow's label sits. */
+export function arrowShaftRect(r: Rect, direction?: DiagramArrowDirection): Rect {
+  const head = arrowHeadLength(r, direction);
+  if (arrowAxis(direction) === 'horizontal') {
+    const height = r.height * ARROW_SHAFT;
+    return { x: direction === 'left' ? r.x + head : r.x, y: r.y + (r.height - height) / 2, width: r.width - head, height };
+  }
+  const width = r.width * ARROW_SHAFT;
+  return { x: r.x + (r.width - width) / 2, y: direction === 'up' ? r.y + head : r.y, width, height: r.height - head };
 }
 
 // ── Rects ────────────────────────────────────────────────────────────────────
@@ -100,12 +141,15 @@ export function insetRect(r: Rect, d: number): Rect {
 
 // ── Ports ────────────────────────────────────────────────────────────────────
 
-export function portPoint(r: Rect, port: DiagramPort, kind?: DiagramKind): DiagramPoint {
+export function portPoint(r: Rect, port: DiagramPort, kind?: DiagramKind, direction?: DiagramArrowDirection): DiagramPoint {
+  // Arrow sides attach to the shaft, not the empty corners beside it.
+  const insetY = kind === 'arrow' && arrowAxis(direction) === 'horizontal' ? r.height * (1 - ARROW_SHAFT) / 2 : 0;
+  const insetX = kind === 'arrow' && arrowAxis(direction) === 'vertical' ? r.width * (1 - ARROW_SHAFT) / 2 : 0;
   switch (port) {
-    case 'top': return { x: r.x + r.width / 2, y: r.y };
-    case 'right': return { x: r.x + r.width, y: r.y + r.height / 2 };
-    case 'bottom': return { x: r.x + r.width / 2, y: r.y + r.height - (kind === 'document' ? documentWaveDepth(r.height) : 0) };
-    case 'left': return { x: r.x, y: r.y + r.height / 2 };
+    case 'top': return { x: r.x + r.width / 2, y: r.y + insetY };
+    case 'right': return { x: r.x + r.width - insetX, y: r.y + r.height / 2 };
+    case 'bottom': return { x: r.x + r.width / 2, y: r.y + r.height - insetY - (kind === 'document' ? documentWaveDepth(r.height) : 0) };
+    case 'left': return { x: r.x + insetX, y: r.y + r.height / 2 };
   }
 }
 
@@ -118,11 +162,11 @@ export function portVector(port: DiagramPort): DiagramPoint {
   }
 }
 
-export function nearestPort(r: Rect, p: DiagramPoint, kind?: DiagramKind): DiagramPort {
+export function nearestPort(r: Rect, p: DiagramPoint, kind?: DiagramKind, direction?: DiagramArrowDirection): DiagramPort {
   let best: DiagramPort = 'top';
   let bestD = Infinity;
   for (const port of PORTS) {
-    const d = distance(portPoint(r, port, kind), p);
+    const d = distance(portPoint(r, port, kind, direction), p);
     if (d < bestD) { bestD = d; best = port; }
   }
   return best;
@@ -397,7 +441,7 @@ export function edgeEndpoints(edge: DiagramEdge, byId: ReadonlyMap<string, Diagr
   const src = byId.get(edge.sourceId); const tgt = byId.get(edge.targetId);
   if (!src || !tgt) return null;
   const sRect = nodeRect(src); const tRect = nodeRect(tgt);
-  return { s: portPoint(sRect, edge.sourcePort, src.kind), t: portPoint(tRect, edge.targetPort, tgt.kind), sRect, tRect };
+  return { s: portPoint(sRect, edge.sourcePort, src.kind, src.arrowDirection), t: portPoint(tRect, edge.targetPort, tgt.kind, tgt.arrowDirection), sRect, tRect };
 }
 
 /** The rendered polyline for an edge, attached to the current node geometry. */

@@ -11,7 +11,7 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { ValidationError } from '../types/errors.js';
 import {
   AI_AGENT_MODES, AI_ASSERTION_LEVELS, AI_FLOW_EDGE_TYPES, AI_FLOW_INTERACTIONS, AI_FLOW_STATES, AI_FLOW_STEP_KINDS, AI_FLOW_STEP_TYPES,
-  AI_FLOW_VOLUMES, AI_MEMORY_SCOPES, DATA_SENSITIVITIES, DIAGRAM_CALLOUT_TYPES, DIAGRAM_TYPES,
+  AI_FLOW_VOLUMES, AI_MEMORY_SCOPES, DATA_SENSITIVITIES, DIAGRAM_ARROW_DIRECTIONS, DIAGRAM_CALLOUT_TYPES, DIAGRAM_TYPES,
 } from '../types/diagram.js';
 import type {
   AiFlowAgent, AiFlowControls, AiFlowEdge, AiFlowLane, AiFlowOperations, AiFlowStep,
@@ -66,7 +66,7 @@ const LABEL_CONTROL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 // eslint-disable-next-line no-control-regex
 const NAME_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-const KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'line', 'text', 'image', 'container', 'swimlane'];
+const KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'arrow', 'line', 'text', 'image', 'container', 'swimlane'];
 const PARENT_KINDS: ReadonlySet<DiagramKind> = new Set<DiagramKind>(['container', 'swimlane']);
 const PORTS: readonly DiagramPort[] = ['top', 'right', 'bottom', 'left'];
 const ROUTES: readonly DiagramEdge['route'][] = ['straight', 'orthogonal'];
@@ -172,12 +172,13 @@ function validatePoint(v: unknown, path: string): DiagramPoint {
 }
 
 function validateNode(v: unknown, path: string): DiagramNode {
-  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd', 'collapsed', 'calloutType', 'flow', 'lane']);
+  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd', 'arrowDirection', 'collapsed', 'calloutType', 'flow', 'lane']);
   const c = DIAGRAM_LIMITS.maxCoordinate;
   const kind = oneOf(o['kind'], KINDS, `${path}.kind`);
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
   if (assetId !== null && kind !== 'image') fail(`${path}.assetId`, 'is only allowed on image nodes');
   if (o['calloutType'] !== undefined && kind !== 'text') fail(`${path}.calloutType`, 'is only allowed on text nodes');
+  if (o['arrowDirection'] !== undefined && kind !== 'arrow') fail(`${path}.arrowDirection`, 'is only allowed on arrow nodes');
   const linePoint = (value: unknown, field: string): DiagramPoint => {
     if (kind !== 'line') fail(`${path}.${field}`, 'is only allowed on lines');
     const point = exactObject(value, POINT_KEYS, `${path}.${field}`);
@@ -188,6 +189,7 @@ function validateNode(v: unknown, path: string): DiagramNode {
     kind,
     ...(o['lineStart'] !== undefined ? { lineStart: linePoint(o['lineStart'], 'lineStart') } : {}),
     ...(o['lineEnd'] !== undefined ? { lineEnd: linePoint(o['lineEnd'], 'lineEnd') } : {}),
+    ...(o['arrowDirection'] !== undefined ? { arrowDirection: oneOf(o['arrowDirection'], DIAGRAM_ARROW_DIRECTIONS, `${path}.arrowDirection`) } : {}),
     label: str(o['label'], `${path}.label`, DIAGRAM_LIMITS.maxNodeLabelChars),
     ...(o['description'] !== undefined ? { description: str(o['description'], `${path}.description`, DIAGRAM_LIMITS.maxDescriptionChars) } : {}),
     x: num(o['x'], `${path}.x`, -c, c),

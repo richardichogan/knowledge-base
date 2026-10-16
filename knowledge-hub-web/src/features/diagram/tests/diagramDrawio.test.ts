@@ -56,6 +56,16 @@ test('shapes map to draw.io styles, children are relative to their container', (
   ok(xml.indexOf('id="box"') < xml.indexOf('id="dec"'), 'parents before children');
 });
 
+test('arrow shapes become draw.io single arrows facing the same way', () => {
+  const xml = diagramDrawioXml(doc([
+    node('east', { kind: 'arrow', width: 160, height: 80 }),
+    node('north', { kind: 'arrow', width: 80, height: 160, arrowDirection: 'up' }),
+  ]), new Map());
+  const east = cell(xml, 'east');
+  ok(east.includes('shape=singleArrow') && east.includes('direction=east') && east.includes('arrowWidth=0.6') && east.includes('arrowSize=0.375'), east);
+  ok(cell(xml, 'north').includes('direction=north'), 'up becomes north');
+});
+
 test('connectors keep ports, bends, arrows, label offset and description', () => {
   const xml = diagramDrawioXml(doc([node('a'), node('b', { x: 300 })], [
     edge('e', 'a', 'b', { route: 'orthogonal', sourcePort: 'bottom', targetPort: 'top', waypoints: [{ x: 50, y: 120 }], arrows: 'both', dashed: true,

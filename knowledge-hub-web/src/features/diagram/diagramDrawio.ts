@@ -9,10 +9,11 @@
  */
 import type { DiagramDocument, DiagramEdge, DiagramNode, DiagramPort } from './diagramTypes';
 import { footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
-import { boundsOf, containerHeader, diagramBounds, linePoints, nodeMap, renderOrder, SWIMLANE_HEADER, type Rect } from './diagramGeometry';
+import { ARROW_SHAFT, arrowAxis, arrowHeadLength, boundsOf, containerHeader, diagramBounds, linePoints, nodeMap, renderOrder, SWIMLANE_HEADER, type Rect } from './diagramGeometry';
 import { calloutLayout } from './diagramCallouts';
 import { AGENT_MODE_BADGES, AGENT_MODE_LABELS, ASSERTION_LABELS, EDGE_TYPE_LABELS, INTERACTION_LABELS, SENSITIVITY_LABELS, STATE_LABELS, STEP_TYPE_LABELS, controlCount } from './aiFlow';
 import { aiStepSummary } from './diagramAiFlowBadges';
+import { descriptionPlainText } from './diagramDescription';
 
 export interface DrawioOptions {
   footnotes?: boolean | undefined;
@@ -44,6 +45,8 @@ function borderStyle(n: Pick<DiagramNode, 'strokeStyle'>): Record<string, string
   return {};
 }
 
+const DRAWIO_DIRECTION = { right: 'east', left: 'west', up: 'north', down: 'south' } as const;
+
 function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
   const common = {
     html: 1, whiteSpace: 'wrap',
@@ -64,6 +67,12 @@ function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
       return style({ rhombus: '', ...common, align, verticalAlign, ...children });
     case 'document':
       return style({ shape: 'document', ...common, boundedLbl: 1, size: 0.15, align, verticalAlign, ...children });
+    case 'arrow': {
+      const direction = n.arrowDirection ?? 'right';
+      const along = arrowAxis(direction) === 'horizontal' ? n.width : n.height;
+      return style({ shape: 'singleArrow', ...common, direction: DRAWIO_DIRECTION[direction], arrowWidth: ARROW_SHAFT,
+        arrowSize: Math.round(arrowHeadLength(n, direction) / along * 1000) / 1000, align, verticalAlign, ...children });
+    }
     case 'terminator':
       return style({ rounded: 1, arcSize: 50, ...common, align, verticalAlign, ...children });
     case 'text':
@@ -173,7 +182,7 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     const owner = aiFlow && n.kind === 'swimlane' ? (n.lane?.owner ?? '').trim() : '';
     const label = owner === '' ? htmlLabel(n.label) : `${htmlLabel(n.label)}<br><span style="font-size:10px;font-weight:normal">${htmlLabel(owner)}</span>`;
     cells.push(vertexCell(n.id, label, shapeStyle(n, parentIds.has(n.id)), parentId,
-      { x: n.x - ox, y: n.y - oy, width: n.width, height: n.height }, joinTooltip(n.description, n.flow !== undefined && aiFlow ? aiStepSummary(n) : undefined), aiData));
+      { x: n.x - ox, y: n.y - oy, width: n.width, height: n.height }, joinTooltip(n.description === undefined ? undefined : descriptionPlainText(n.description), n.flow !== undefined && aiFlow ? aiStepSummary(n) : undefined), aiData));
     const callout = calloutLayout(n);
     if (callout !== null) {
       const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="${callout.path}" fill="none" stroke="${xml(colour(n.textColor, '#161616'))}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -199,7 +208,7 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     const geometry = `<mxGeometry relative="1" as="geometry">${points}${offset}</mxGeometry>`;
     const attrs = `style="${xml(edgeStyle(e))}" edge="1" parent="1" source="${xml(e.sourceId)}" target="${xml(e.targetId)}"`;
     const edgeData = aiFlow ? aiEdgeData(e) : {};
-    const tooltip = joinTooltip(e.description, dataSummary(edgeData));
+    const tooltip = joinTooltip(e.description === undefined ? undefined : descriptionPlainText(e.description), dataSummary(edgeData));
     cells.push(tooltip !== '' || Object.keys(edgeData).length > 0
       ? { id: e.id, xml: `<UserObject label="${xml(htmlLabel(e.label))}"${tooltip !== '' ? ` tooltip="${xml(tooltip)}"` : ''}${dataAttrs(edgeData)} id="${xml(e.id)}"><mxCell ${attrs}>${geometry}</mxCell></UserObject>` }
       : { id: e.id, xml: `<mxCell id="${xml(e.id)}" value="${xml(htmlLabel(e.label))}" ${attrs}>${geometry}</mxCell>` });
@@ -224,7 +233,8 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     for (const item of block.items) {
       cells.push(badge(`note-badge-${item.id}`, item.number, item.marker.x, item.marker.y));
       const textX = item.lines[0]?.x ?? item.rect.x;
-      const value = item.lines.map((l) => (l.bold ? `<b>${xml(l.text)}</b>` : xml(l.text))).join('<br>');
+      const value = item.lines.map(l => l.runs === undefined ? (l.bold ? `<b>${xml(l.text)}</b>` : xml(l.text))
+        : l.runs.map(run => `${run.bold ? '<b>' : ''}${run.italic ? '<i>' : ''}${xml(run.text)}${run.italic ? '</i>' : ''}${run.bold ? '</b>' : ''}`).join('')).join('<br>');
       cells.push(vertexCell(`note-${item.id}`, value, style({ text: '', html: 1, whiteSpace: 'wrap', align: 'left', verticalAlign: 'top', fontSize: NOTE_FONT, spacing: 0 }), '1',
         { x: textX, y: item.rect.y + 4, width: item.rect.x + item.rect.width - textX, height: item.rect.height - 4 }));
     }

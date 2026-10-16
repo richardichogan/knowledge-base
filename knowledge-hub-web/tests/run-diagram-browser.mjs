@@ -223,6 +223,15 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Diagram fixture did not mount: ${errors.join('\n') || await evaluate('document.body.innerText')}`);
+    if (process.env.ATHENA_BROWSER_CHECKS === 'diagram-appearance') {
+      console.log(JSON.stringify({ width, checks: await evaluate('window.runDiagramAppearanceChecks()') }, null, 2));
+      if (process.env.DIAGRAM_ARTIFACT_DIR) {
+        await mkdir(process.env.DIAGRAM_ARTIFACT_DIR, { recursive: true });
+        const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        await writeFile(join(process.env.DIAGRAM_ARTIFACT_DIR, `appearance-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+      continue;
+    }
     if (process.env.ATHENA_BROWSER_CHECKS === 'diagram-line-jumps') {
       const checks = await evaluate('window.runDiagramLineJumpChecks()');
       console.log(JSON.stringify({ width, checks: [...checks, ...await lineJumpPointerChecks()] }, null, 2));

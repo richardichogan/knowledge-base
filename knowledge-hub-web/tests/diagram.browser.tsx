@@ -244,6 +244,66 @@ async function runDiagramLineJumpChecks(): Promise<string[]> {
     'Bridge hit targets and transparent knockout masks follow the visible arches',
     'Dotted/dashed strokes, arrowheads and responsive layout are preserved'];
 }
+async function runDiagramAppearanceChecks(): Promise<string[]> {
+  await waitFor(() => window.document.querySelector('.dg-properties') !== null);
+  const propertiesWidth = window.document.querySelector('.dg-properties')!.getBoundingClientRect().width;
+  clickButton('Athena');
+  await waitFor(() => window.document.querySelector('.dg-athena .think-athena-panel') !== null);
+  check(Math.abs(window.document.querySelector('.dg-athena')!.getBoundingClientRect().width - propertiesWidth) < 1,
+    'Properties and Athena panels have exactly the same width');
+  clickButton('Close Athena');
+  await waitFor(() => window.document.querySelector('.dg-properties') !== null);
+  await runDiagramPropertiesChecks();
+  const selectShape = (): void => {
+    window.document.querySelector(`g.dg-node[data-id="${workforce.id}"]`)!
+      .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }));
+  };
+  selectShape();
+  await waitFor(() => window.document.querySelector('textarea[aria-label="Shape or connector description"]') !== null);
+  const background = window.document.querySelector('[aria-label="Background colour"]')!;
+  background.querySelector<HTMLButtonElement>('[title="IBM Teal 10 (#d9fbfb)"]')!.click();
+  await waitFor(() => snapshot.document.nodes.some(node => node.id === workforce.id && node.fill === '#d9fbfb'));
+  check(background.querySelector('[aria-label="#d9fbfb"]')?.getAttribute('aria-checked') === 'true', 'Selected IBM fill stays checked');
+  const field = window.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Shape or connector description"]')!;
+  field.focus();
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'Owner: Operations');
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  await delay(50);
+  field.setSelectionRange(0, 5);
+  clickButton('Bold description');
+  await waitFor(() => field.value === '**Owner**: Operations');
+  field.setSelectionRange(11, 21);
+  field.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, bubbles: true }));
+  await waitFor(() => field.value === '**Owner**: *Operations*');
+  field.blur();
+  const preview = window.document.querySelector('.dg-description__preview')!;
+  check(preview.textContent === 'Owner: Operations', 'Description preview hides formatting markers');
+  check(preview.querySelector<HTMLElement>('span')!.style.fontWeight === '600', 'Bold selection is visible');
+  check([...preview.querySelectorAll<HTMLElement>('span')].some(span => span.style.fontStyle === 'italic'), 'Italic shortcut is visible');
+  await waitFor(() => snapshot.document.nodes.some(node => node.id === workforce.id && node.description === '**Owner**: *Operations*'));
+  clickButton('Add footnote');
+  await waitFor(() => window.document.querySelector('.dg-noteblock tspan[font-style="italic"]') !== null);
+  await waitFor(() => snapshot.document.footnotes?.some(note => note.targetId === workforce.id) === true);
+  const exported = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
+  check(exported.querySelector('parsererror') === null, 'Formatted descriptions export as valid SVG');
+  check([...exported.querySelectorAll('tspan[font-weight="600"]')].some(span => span.textContent === 'Owner'), 'SVG preserves bold');
+  check([...exported.querySelectorAll('tspan[font-style="italic"]')].some(span => span.textContent === 'Operations'), 'SVG preserves italic');
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
+  root.render(null);
+  await delay(50);
+  queryClient.clear();
+  mountEditor();
+  await waitFor(() => window.document.querySelector(`g.dg-node[data-id="${workforce.id}"]`) !== null);
+  selectShape();
+  await waitFor(() => window.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Shape or connector description"]')?.value === '**Owner**: *Operations*');
+  check(window.document.documentElement.scrollWidth <= innerWidth, 'No horizontal page overflow');
+  const properties = window.document.querySelector('.dg-properties')!;
+  check(properties.scrollWidth <= properties.clientWidth, 'Selected shape properties have no horizontal scrollbar');
+  window.document.querySelector('.dg-description')!.scrollIntoView({ block: 'center' });
+  return ['Properties matches Athena width on desktop/mobile', 'IBM named fill saves, stays checked and reopens',
+    'Bold button and italic shortcut update selected text with live preview', 'Footnotes and SVG preserve formatting',
+    'Descriptions survive save/reopen without horizontal overflow'];
+}
 async function runDiagramPropertiesChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector('select[aria-label="Diagram project"]') !== null);
   const properties = window.document.querySelector<HTMLElement>('.dg-properties')!;
@@ -698,7 +758,8 @@ async function runDiagramChecks(): Promise<string[]> {
   borderColours.querySelector<HTMLButtonElement>('[aria-label="#da1e28"]')!.click();
   await waitFor(() => snapshot.document.nodes.some(n => n.id === thickShape.id && n.stroke === '#da1e28'));
   const backgrounds = window.document.querySelector('[aria-label="Background colour"]')!;
-  check(backgrounds.querySelectorAll('button').length === 5, 'Background choices stay minimal');
+  check(backgrounds.querySelectorAll('button').length === 14, 'Background choices include legacy colours and the IBM subset');
+  check(backgrounds.querySelector('[title="IBM Teal 10 (#d9fbfb)"]') !== null, 'IBM swatches have meaningful names');
   for (const fill of ['#262626', '#1c2d4a', '#173b27', '#3d3215', 'none', '#1c2d4a']) {
     backgrounds.querySelector<HTMLButtonElement>(`[aria-label="${fill === 'none' ? 'None' : fill}"]`)!.click();
     await waitFor(() => snapshot.document.nodes.some(n => n.id === thickShape.id && n.fill === fill));
@@ -762,8 +823,22 @@ async function runDiagramChecks(): Promise<string[]> {
   };
   await setProperty('Shape or connector description', 'Process owner: Operations\nOutput: approved request');
   await waitFor(() => snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true));
+  const descriptionField = window.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Shape or connector description"]')!;
+  descriptionField.focus();
+  descriptionField.setSelectionRange(0, 13);
+  clickButton('Bold description');
+  await waitFor(() => window.document.querySelector('.dg-description__preview span')?.textContent === 'Process owner');
+  check(window.document.querySelector<HTMLElement>('.dg-description__preview span')!.style.fontWeight === '600',
+    'Bold button formats selected description text in the preview');
+  await waitFor(() => snapshot.document.nodes.some(n => n.description?.startsWith('**Process owner**') === true));
+  descriptionField.setSelectionRange(19, 29);
+  descriptionField.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, bubbles: true }));
+  await waitFor(() => [...window.document.querySelectorAll<HTMLElement>('.dg-description__preview span')].some(span => span.style.fontStyle === 'italic' && span.textContent === 'Operations'));
+  await waitFor(() => snapshot.document.nodes.some(n => n.description?.includes('*Operations*') === true));
+  await setProperty('Shape or connector description', 'Process owner: Operations\nOutput: approved request');
+  await waitFor(() => snapshot.document.nodes.some(n => n.description?.startsWith('Process owner: Operations') === true));
   clickButton('Undo (Ctrl+Z)');
-  await waitFor(() => !snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true));
+  await waitFor(() => snapshot.document.nodes.some(n => n.description?.includes('*Operations*') === true));
   clickButton('Redo (Ctrl+Shift+Z)');
   await waitFor(() => snapshot.document.nodes.some((n) => n.description?.includes('Process owner: Operations') === true));
   const connector = window.document.querySelector('g.dg-edge')!;
@@ -1044,7 +1119,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Bundled Microsoft icon picker loads and embeds an official icon', 'Save and reopen retain labels and icons',
     'Missing diagram displays an explicit load error', 'No horizontal page overflow'];
 }
-Object.assign(window, { runDiagramChecks, runDiagramPropertiesChecks, runDiagramAiFlowChecks, runDiagramDrilldownChecks, runDiagramLineJumpChecks, diagramFixture: {
+Object.assign(window, { runDiagramChecks, runDiagramAppearanceChecks, runDiagramPropertiesChecks, runDiagramAiFlowChecks, runDiagramDrilldownChecks, runDiagramLineJumpChecks, diagramFixture: {
   snapshot: () => structuredClone(snapshot), saves: () => saves, conflict: (value: boolean) => { conflict = value; },
   waitFor, clickButton,
 } });

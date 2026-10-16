@@ -463,9 +463,20 @@ read and find these categories; they do not imply approval or create Plan tasks.
 Properties offers connector line and shape border thickness from 0.5 to 6 px.
 Shape border colour (including no border) and solid/dashed/dotted styles are
 also available in Properties and preserved in SVG/PNG exports.
-Shape backgrounds use five simple choices: neutral, blue, green, amber or transparent.
+Properties and diagram Athena chat share the same 380 px side-panel width on desktop;
+both move below the drawing on narrow screens.
+Shape backgrounds retain neutral, blue, green, amber and transparent, with a named
+IBM Carbon subset covering blue, purple, cyan, teal, green, magenta, red, yellow
+and orange. Border, connector and text palettes include the corresponding accents.
+The dark canvas adapts light fills for contrast; exports retain the saved IBM colours.
+Shape and connector descriptions support **Bold** and *Italic* toolbar buttons,
+Ctrl+B / Ctrl+I and a live formatted preview. Formatting is stored as plain-text-compatible
+Markdown (`**bold**`, `*italic*`), not HTML. Footnotes, presentation descriptions and
+SVG/PNG/draw.io note exports retain emphasis; draw.io tooltips use plain text.
 The Document shape uses a wavy bottom edge to denote artefacts such as reports,
 specifications and deliverables, with the same styling and text controls.
+The Arrow shape supports right, left, up and down directions in Properties, with
+shaft-aligned labels and connector ports, and editable SVG/draw.io exports.
 New shape labels default to 16 px, with 18 px container and swimlane headings.
 Properties provides a 10-36 px Text size control; existing diagrams retain saved sizes.
 Container headers grow with the title's font size and wrapped lines, keeping

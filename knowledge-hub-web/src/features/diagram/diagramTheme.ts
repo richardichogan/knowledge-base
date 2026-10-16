@@ -4,6 +4,7 @@ const DARK_FILLS: Record<string, string> = {
   '#edf5ff': '#1c2d4a', '#defbe6': '#173b27', '#fcf4d6': '#3d3215',
   '#fff1f1': '#442027', '#f6f2ff': '#302342', '#f4f4f4': '#202020',
   '#d9fbfb': '#0f3433', '#fff0f7': '#3e1a2b',
+  '#e5f6ff': '#012749', '#fff2e8': '#3e1a00',
 };
 const DARK_INK: Record<string, string> = {
   '#000': '#f4f4f4', '#000000': '#f4f4f4', black: '#f4f4f4',
@@ -19,6 +20,7 @@ const DARK_INK: Record<string, string> = {
   '#007d79': '#3ddbd9',
   '#d02670': '#ff7eb6',
   '#6f6f6f': '#a8a8a8',
+  '#1192e8': '#82cfff', '#f1c21b': '#f1c21b', '#eb6200': '#ffb784',
 };
 
 export function diagramEditorInk(colour: string): string {

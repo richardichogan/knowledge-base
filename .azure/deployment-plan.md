@@ -2,15 +2,23 @@
 
 **Status:** Validated
 
-**Current approved release (2026-10-16):** User approved deploying Athena Desktop
-integration and the website/backend at 09:59 BST. Source `3419a9f` includes
-`825562c` (desktop integration) and removal of certificate signing. Existing
-AZCLI targets and subscription are unchanged: backend in UK South, SWA in West
-Europe, subscription Alliance Tenant Reporting. Production currently runs
-`kh-prod-api:v201`; the new image is `kh-prod-api:v202`. No provisioning,
-certificates, secrets, role assignments or authentication permissions will be
-created or modified. The Windows installer remains unsigned. Rollback backend:
-`cad79107555facr.azurecr.io/kh-prod-api:v201`; frontend source: `a22bccb`.
+**Current approved release (2026-10-16):** User requested deployment of the
+standard diagram arrow shape, matching 380 px Properties/Athena panels, an IBM
+Carbon colour subset, and bold/italic shape and connector descriptions. The
+backend validation adds support for saving arrows. Production baseline is
+`kh-prod-api:v203`; next backend image is v204. Existing targets and subscription
+are unchanged: backend in UK South, SWA in West Europe, subscription Alliance
+Tenant Reporting. No provisioning, certificates, secrets, role assignments or
+authentication permissions are being changed. Rollback backend:
+`cad79107555facr.azurecr.io/kh-prod-api:v203`; frontend source baseline:
+`d0ed66c`.
+
+**Deployment result (2026-10-16):** ACR run `ca6d` built and pushed
+`kh-prod-api:v203` from `main` commit `d0ed66c14fb1ec3de96720f9b6baca38f2fa2355`,
+digest `sha256:1e132b3b173191660a3a89bbfec6de2c0dcc02b98c8c3b31249f3754b80ea55f`.
+Container App revision `kh-prod-api-vnet--0000200` is Healthy,
+RunningAtMaxScale, and receives 100% of traffic. Static Web Apps CLI confirmed
+the production deployment to `https://nice-mud-0f780fb03.7.azurestaticapps.net`.
 
 **Deployment result (2026-10-16):** ACR run `ca6c` succeeded for v202
 (digest `sha256:0162d50a48c50c06650841b7adb158d77383cd769cd0f3cd8a39a1f60de4f74a`).
@@ -290,6 +298,43 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Standard diagram enhancements — 2026-10-16
+
+- `git fetch origin` and `git merge --ff-only origin/main`: up to date at
+  `d0ed66c`; no remote changes to merge.
+- Azure CLI confirmed the signed-in user is
+  `Richard.i.Hogan@ibmalliance.onmicrosoft.com` in `Alliance Tenant Reporting`
+  (`740bc3aa-5daf-42f6-939a-b2d007a60d26`). Existing targets confirmed:
+  `kh-prod-api-vnet` on v203 / revision `kh-prod-api-vnet--0000200` with
+  100% traffic, ACR `cad79107555facr`, and SWA `kh-prod-web`.
+- Frontend and backend `npx tsc --noEmit`, `npm run build`: passed.
+- Targeted diagram browser-fixture typecheck: passed. The broader test-fixture
+  typecheck still reports existing errors in data-reliability, navigation and
+  Today fixtures outside this change.
+- Diagram browser appearance/save/reopen checks passed at 1440 px and 390 px:
+  equal panel widths; named IBM colour selection; bold/italic formatting and
+  preview; SVG/footnote formatting; persisted descriptions and no horizontal
+  overflow. The general browser runner reaches an unrelated note-editor test
+  failure (`useNavigate()` outside a Router) after these checks.
+- Diagram geometry 32/32, draw.io 6/6, annotations 13/13, backend diagram
+  validation 34/34, description/palette 6/6, and theme 3/3 passed.
+- No infrastructure or RBAC changes: IaC compilation, what-if, provisioning
+  and role-assignment validation are not applicable. No new permissions,
+  secrets, migrations or database schema changes.
+
+### Podcast research source mix — 2026-10-16
+
+- `d0ed66c14fb1ec3de96720f9b6baca38f2fa2355` was the current `main` source.
+- Backend and frontend `npx tsc --noEmit` and `npm run build`: passed.
+- `node --import tsx/esm --test scripts/podcast-prep.test.ts`: 18 passed,
+  0 failed.
+- Azure CLI identity and the `Alliance Tenant Reporting` subscription were
+  verified before deployment. The production baseline was backend v202.
+- ACR run `ca6d` built and pushed v203 from `main`; the Container App revision
+  became Healthy / RunningAtMaxScale with 100% traffic.
+- Static Web Apps CLI confirmed successful production deployment. No
+  infrastructure, migration, secret, role or authentication changes.
 
 ### Athena Desktop integration — 2026-10-16
 

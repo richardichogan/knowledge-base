@@ -5,7 +5,7 @@ import { calloutLayout } from './diagramCallouts';
 import { diagramDrawioXml } from './diagramDrawio';
 import { diagramBorderDash } from './diagramStroke';
 import { diagramLineJumpGeometry } from './diagramLineJumps';
-import { boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
+import { arrowShapePath, boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
 import { checkAiFlow } from './aiFlow';
 import {
   AI_CHIP_COLOURS, AI_CHIP_FONT, AI_FINDING_RADIUS, AI_SEVERITY_COLOURS, aiEdgeChip, aiEdgeFindingAnchor, aiFindingAnchor, aiLaneOwnerLayout,
@@ -95,7 +95,7 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     extras.push(`<text x="${block.heading.x}" y="${block.heading.y}" ${FONT} font-size="${NOTE_HEADING_FONT}" font-weight="600" fill="${ink}" dominant-baseline="hanging">Notes</text>`);
     for (const item of block.items) {
       extras.push(marker(item.marker.x, item.marker.y, item.number));
-      extras.push(`<text ${FONT} font-size="${NOTE_FONT}" fill="${ink}">${item.lines.map((line) => `<tspan x="${line.x}" y="${line.y}"${line.bold ? ' font-weight="600"' : ''}>${escapeXml(line.text)}</tspan>`).join('')}</text>`);
+      extras.push(`<text ${FONT} font-size="${NOTE_FONT}" fill="${ink}">${item.lines.map((line) => `<tspan x="${line.x}" y="${line.y}"${line.bold ? ' font-weight="600"' : ''}>${line.runs === undefined ? escapeXml(line.text) : line.runs.map(run => `<tspan font-weight="${run.bold ? 600 : 400}" font-style="${run.italic ? 'italic' : 'normal'}">${escapeXml(run.text)}</tspan>`).join('')}</tspan>`).join('')}</text>`);
     }
   }
   if (rows.length > 0) {
@@ -139,6 +139,8 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
       shape = `<${jump === undefined ? `line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}"` : `path d="${jump}"`} fill="none" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}${maskFor(node.id)}/>`;
     } else if (node.kind === 'document') {
       shape = `<path d="${documentShapePath(node)}" ${colour}/>`;
+    } else if (node.kind === 'arrow') {
+      shape = `<path d="${arrowShapePath(node, node.arrowDirection)}" ${colour} stroke-linejoin="round"/>`;
     } else if (node.kind === 'decision') {
       shape = `<polygon points="${node.x + node.width / 2},${node.y} ${node.x + node.width},${node.y + node.height / 2} ${node.x + node.width / 2},${node.y + node.height} ${node.x},${node.y + node.height / 2}" ${colour}/>`;
     } else {

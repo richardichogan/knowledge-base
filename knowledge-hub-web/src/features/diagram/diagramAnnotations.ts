@@ -6,6 +6,7 @@
 import type { DiagramDocument, DiagramEdge, DiagramFootnote, DiagramLegend, DiagramLegendEntry, DiagramNode, DiagramPoint } from './diagramTypes';
 import type { Rect } from './diagramGeometry';
 import { containerHeader, edgeLabelCenter, edgeLabelLayout, edgeRoute, isContainerKind, linePoints, nodeMap, wrapText } from './diagramGeometry';
+import { wrapDescription, type DescriptionRun } from './diagramDescription';
 
 type Doc = DiagramDocument;
 
@@ -121,7 +122,7 @@ const BLOCK_GAP = 40;
 const BLOCK_PAD = 12;
 const TEXT_INDENT = 30;
 
-export interface FootnoteBlockLine { text: string; x: number; y: number; bold: boolean; muted: boolean }
+export interface FootnoteBlockLine { text: string; x: number; y: number; bold: boolean; muted: boolean; runs?: DescriptionRun[] }
 export interface FootnoteBlockItem { id: string; targetId: string; number: number; marker: DiagramPoint; lines: FootnoteBlockLine[]; rect: Rect }
 export interface FootnoteBlock { rect: Rect; divider: Rect; heading: DiagramPoint; items: FootnoteBlockItem[] }
 
@@ -150,10 +151,10 @@ export function footnoteBlock(doc: Pick<Doc, 'nodes' | 'edges' | 'footnotes'>, c
     const textX = columnX + BLOCK_PAD + TEXT_INDENT;
     const title = elementInfo(doc, fn.targetId)?.label ?? 'Missing item';
     const body = footnoteText(doc, fn).trim();
-    const raw: Array<{ text: string; bold: boolean; muted: boolean }> = [
+    const raw: Array<{ text: string; bold: boolean; muted: boolean; runs?: DescriptionRun[] }> = [
       ...wrapText(title, textWidth, NOTE_FONT, 2).map((text) => ({ text, bold: true, muted: false })),
       ...(body !== ''
-        ? body.split('\n').flatMap((para) => (para.trim() === '' ? [] : wrapText(para, textWidth, NOTE_FONT, 40))).map((text) => ({ text, bold: false, muted: false }))
+        ? wrapDescription(body, textWidth, NOTE_FONT).map(line => ({ ...line, bold: false, muted: false }))
         : emptyText !== undefined ? [{ text: emptyText, bold: false, muted: true }] : []),
     ];
     const top = cursor;

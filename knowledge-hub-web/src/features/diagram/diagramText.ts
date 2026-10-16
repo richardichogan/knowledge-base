@@ -1,5 +1,5 @@
 import type { DiagramNode } from './diagramTypes';
-import { containerHeader, SWIMLANE_HEADER, documentWaveDepth, wrapText } from './diagramGeometry';
+import { containerHeader, SWIMLANE_HEADER, documentWaveDepth, wrapText, arrowAxis, arrowShaftRect } from './diagramGeometry';
 import { calloutLayout } from './diagramCallouts';
 
 /** One label layout for the canvas and both export formats. */
@@ -26,6 +26,24 @@ export function diagramTextLayout(node: DiagramNode): {
     const bx = x + SWIMLANE_HEADER / 2;
     const cy = y + h / 2;
     return { lines: wrapText(node.label, h - 16, fs, 1), x: bx, y: cy, anchor: 'middle', weight: 600, rotation: `rotate(-90 ${bx} ${cy})` };
+  }
+  if (node.kind === 'arrow') {
+    const shaft = arrowShaftRect({ x, y, width: w, height: h }, node.arrowDirection);
+    const vertical = arrowAxis(node.arrowDirection) === 'vertical';
+    const width = Math.max(1, shaft.width - (vertical ? 6 : 12));
+    const height = Math.max(fs, shaft.height - (vertical ? 12 : 4));
+    const lines = wrapText(node.label, width, fs, Math.max(1, Math.floor(height / (fs * 1.25))));
+    const horizontal = node.textAlign ?? 'center';
+    const verticalAlign = node.textVerticalAlign ?? 'middle';
+    const halfText = ((lines.length - 1) * fs * 1.25 + fs) / 2;
+    const insetX = (shaft.width - width) / 2;
+    const insetY = (shaft.height - height) / 2;
+    return {
+      lines,
+      x: horizontal === 'left' ? shaft.x + insetX : horizontal === 'right' ? shaft.x + shaft.width - insetX : shaft.x + shaft.width / 2,
+      y: verticalAlign === 'top' ? shaft.y + insetY + halfText : verticalAlign === 'bottom' ? shaft.y + shaft.height - insetY - halfText : shaft.y + shaft.height / 2,
+      anchor: horizontal === 'left' ? 'start' : horizontal === 'right' ? 'end' : 'middle', weight: 400,
+    };
   }
   const width = node.kind === 'decision' ? w * 0.62 : node.kind === 'terminator' ? w - h * 0.6 : w - (node.kind === 'text' ? 8 : 16);
   const contentHeight = node.kind === 'document' ? h - 2 * documentWaveDepth(h) : h;
