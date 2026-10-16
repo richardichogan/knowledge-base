@@ -107,3 +107,16 @@ test('Discovery sorts are stable across filtered pages, factors explain the SQL 
     await db.close();
   }
 });
+
+test('Microsoft product-group blogs are official sources; Tech Community forum threads stay Community', async () => {
+  const { classifySourceAuthority, classifySourceByUrl } = await import('../src/integrations/cms/articleScoringPrompt.js');
+  const foundry = 'https://techcommunity.microsoft.com/t5/microsoft-foundry-blog/introducing-microsoft-decision-1-in-microsoft-foundry-for/ba-p/4562742';
+  const studio = 'https://www.microsoft.com/en-us/copilot/blog/copilot-studio/build-where-you-want-run-with-confidence-now-microsoft-hosts-and-manages-the-code-created-by-copilot/';
+  const forum = 'https://techcommunity.microsoft.com/t5/microsoft-365-copilot/how-do-i-reset-copilot/m-p/4562000';
+  assert.equal(classifySourceAuthority(foundry, null), 'Microsoft/GitHub Official');
+  assert.equal(classifySourceByUrl(foundry, 'Microsoft Foundry Blog'), 'Formal');
+  assert.equal(classifySourceAuthority(studio, null), 'Microsoft/GitHub Official');
+  assert.equal(classifySourceAuthority('https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available', null), 'Microsoft/GitHub Official');
+  assert.equal(classifySourceAuthority(forum, null), 'Community');
+  assert.equal(classifySourceByUrl(forum, 'Tech Community'), 'Community');
+});

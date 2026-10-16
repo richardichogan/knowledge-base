@@ -3,7 +3,6 @@ import type { Pool } from 'pg';
 import { getSchedule, type ScheduleEntry } from './contentSchedule.js';
 import { workToday } from '../integrations/ibm/ibmMeetings.js';
 import { ukClock } from '../sync/ukClock.js';
-import { getOutput, saveOutputVersion } from './chatOutputs.js';
 import { getSessionHistory } from './chatSessionStore.js';
 import { researchPodcast, renderPodcastBrief } from './podcastPrepResearch.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
@@ -102,9 +101,8 @@ export async function generatePodcastPrep(db: Pool, manual = false, now = new Da
   }
   const perform = async (): Promise<void> => {
     try {
-      const existing = claim.outputId ? await getOutput(db, claim.outputId) : null;
       const history = await getSessionHistory(db, claim.sessionId);
-      const previous = [existing?.versions.at(-1)?.content ?? '', ...history.slice(-8).map((m) => `${m.role}: ${m.content}`)].join('\n').slice(-30_000);
+      const previous = history.slice(-8).map((m) => `${m.role}: ${m.content}`).join('\n').slice(-30_000);
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       const result = await (async (): Promise<Awaited<ReturnType<typeof prepare>>> => {
@@ -134,29 +132,15 @@ export async function generatePodcastPrep(db: Pool, manual = false, now = new Da
           WHERE recording_date=$1 AND claim_token=$2 AND status='running'
             AND started_at >= NOW()-interval '30 minutes' FOR UPDATE`, [recording, claim.token]);
         if (!lease.rows.length) throw new Error('Podcast preparation lease expired; a newer attempt owns this recording.');
-        if (existing && claim.outputId) {
-          await client.query('SELECT id FROM chat_outputs WHERE id=$1 FOR UPDATE', [claim.outputId]);
-          const versions = await client.query<{ version: number }>(
-            'SELECT MAX(version) AS version FROM chat_output_versions WHERE output_id=$1', [claim.outputId]);
-          if (Number(versions.rows[0]?.version) !== existing.version) {
-            throw new ConflictError('The brief was edited during research. Your edits are preserved; refresh again to include them.', 'PODCAST_PREP_EDITED');
-          }
-        }
         await client.query(`INSERT INTO ai_chat_sessions(id,title,persona,pinned) VALUES($1,$2,'podcast_prep',true)
           ON CONFLICT(id) DO UPDATE SET updated_at=NOW()`, [claim.sessionId, `Podcast prep — ${recording}`]);
-        const saved = await saveOutputVersion(db, claim.sessionId, {
-          ...(existing ? { outputId: existing.id } : {}), title: `Podcast preparation — ${recording}`,
-          kind: 'document', format: 'markdown', content: markdown, author: 'athena',
-          note: manual ? 'Prepared/refreshed on request' : 'Thursday scheduled preparation',
-        }, client);
         const warnings = [...new Set([...result.warnings, ...result.proposal.warnings])];
+        // The brief opens the conversation; Richard saves an Output only once he has shaped it.
         await client.query(`INSERT INTO ai_chat_messages(session_id,role,content,persona,sources)
-          VALUES($1,'assistant',$2,'podcast_prep',$3)`, [claim.sessionId,
-          `Podcast preparation for ${recording} is saved in Outputs: ${saved.title}. ${result.proposal.topics.length} candidates; ${Math.min(3, result.proposal.topics.length)} recommended discussions.${warnings.length ? ' Research limitations are listed at the top of the brief.' : ''}`,
-          ['podcast_preparation']]);
-        await client.query(`UPDATE podcast_prep_runs SET status='ready',output_id=$3,generated_at=date_trunc('milliseconds',NOW()),
-          evidence=$4,warnings=$5,error=NULL,acknowledged_at=NULL WHERE recording_date=$1 AND claim_token=$2`,
-          [recording, claim.token, saved.id, JSON.stringify(result.evidence), JSON.stringify(warnings)]);
+          VALUES($1,'assistant',$2,'podcast_prep',$3)`, [claim.sessionId, markdown, ['podcast_preparation']]);
+        await client.query(`UPDATE podcast_prep_runs SET status='ready',output_id=NULL,generated_at=date_trunc('milliseconds',NOW()),
+          evidence=$3,warnings=$4,error=NULL,acknowledged_at=NULL WHERE recording_date=$1 AND claim_token=$2`,
+          [recording, claim.token, JSON.stringify(result.evidence), JSON.stringify(warnings)]);
         await client.query('COMMIT');
       } catch (error) { await client.query('ROLLBACK'); throw error; }
       finally { client.release(); }

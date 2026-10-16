@@ -132,39 +132,32 @@ test('leases prevent duplicate jobs, honour retry cooldown, recover interruption
   } finally { await memory.close(); }
 });
 
-test('generation saves an output before ready, acknowledgement is version-specific, refresh preserves conversation and user edits', async () => {
+test('generation posts the brief into the conversation, acknowledgement is version-specific, refresh reads the conversation', async () => {
   const { memory, db } = await fixture();
   try {
     const status = await generatePodcastPrep(db, true, now, false, async () => prepared);
     assert.equal(status.run?.status, 'ready');
     const run = status.run!;
-    assert.ok(run.outputId && run.generatedAt);
-    assert.equal((await memory.query('SELECT * FROM chat_output_versions')).rows.length, 1);
+    assert.ok(run.generatedAt);
+    assert.equal(run.outputId, null);
+    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    const briefs = await memory.query("SELECT content FROM ai_chat_messages WHERE role='assistant'");
+    assert.equal(briefs.rows.length, 1);
+    assert.match(String(briefs.rows[0]?.content), /# Podcast preparation: 2026-10-16/);
     await acknowledgePodcastPrep(db, recording, run.generatedAt!);
     assert.ok((await getPodcastPrepStatus(db, now)).run?.acknowledgedAt);
     await assert.rejects(acknowledgePodcastPrep(db, recording, '2000-01-01'), /not found/);
     await memory.query(`INSERT INTO ai_chat_messages(session_id,role,content) VALUES($1,'user','Prefer commercial implications')`, [run.sessionId]);
-    await memory.query(`UPDATE chat_output_versions SET content='My edited brief' WHERE output_id=$1`, [run.outputId]);
     let received = '';
     const refreshed = await generatePodcastPrep(db, true, now, false, async (_db, _date, previous) => { received = previous; return prepared; });
-    assert.match(received, /My edited brief/);
+    assert.match(received, /# Podcast preparation: 2026-10-16/);
     assert.match(received, /Prefer commercial implications/);
-    assert.equal(refreshed.run?.outputId, run.outputId);
+    assert.equal(refreshed.run?.sessionId, run.sessionId);
     assert.equal(refreshed.run?.acknowledgedAt, null);
-    assert.equal((await memory.query('SELECT * FROM chat_output_versions')).rows.length, 2);
+    assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='assistant'")).rows.length, 2);
     assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='user'")).rows.length, 1);
     assert.equal((await memory.query('SELECT persona FROM ai_chat_sessions')).rows[0]?.persona, 'podcast_prep');
     await generatePodcastPrep(db, false, now, false, async () => { throw new Error('Already prepared: must not rerun'); });
-    await assert.rejects(generatePodcastPrep(db, true, now, false, async () => {
-      await memory.query(`INSERT INTO chat_output_versions(output_id,version,content,author)
-        VALUES($1,3,'Edit made during research','user')`, [run.outputId]);
-      return prepared;
-    }), /edited during research/);
-    assert.equal((await memory.query('SELECT content FROM chat_output_versions ORDER BY version DESC LIMIT 1')).rows[0]?.content, 'Edit made during research');
-    await memory.query('DELETE FROM chat_outputs WHERE id=$1', [run.outputId]);
-    const replaced = await generatePodcastPrep(db, true, now, false, async () => prepared);
-    assert.ok(replaced.run?.outputId && replaced.run.outputId !== run.outputId);
-    assert.equal(replaced.run?.sessionId, run.sessionId);
   } finally { await memory.close(); }
 });
 
@@ -173,18 +166,18 @@ test('failed research is visible and rescheduled recordings cannot publish into 
   try {
     await assert.rejects(generatePodcastPrep(db, true, now, false, async () => { throw new Error('Research unavailable'); }), /Research unavailable/);
     assert.equal((await getPodcastPrepStatus(db, now)).run?.status, 'failed');
-    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='assistant'")).rows.length, 0);
     await assert.rejects(generatePodcastPrep(db, true, now, false, async () => {
       await memory.exec("UPDATE content_schedule SET next_date='2026-10-23'");
       return prepared;
     }), /date changed/);
-    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='assistant'")).rows.length, 0);
     await memory.exec("UPDATE content_schedule SET next_date='2026-10-16'");
     await assert.rejects(generatePodcastPrep(db, true, now, false, async () => {
       await memory.exec("UPDATE podcast_prep_runs SET started_at=NOW()-interval '31 minutes'");
       return prepared;
     }), /lease expired/);
-    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='assistant'")).rows.length, 0);
     await memory.exec("UPDATE content_schedule SET next_date='2026-10-19'");
     assert.match((await getPodcastPrepStatus(db, now)).scheduleWarning!, /not a Friday/);
   } finally { await memory.close(); }
@@ -279,11 +272,11 @@ test('preparation deadline fails the run and never saves a late result or an emp
     assert.equal((await getPodcastPrepStatus(db, now)).run?.status, 'failed');
     finish(prepared);
     await new Promise((resolve) => setTimeout(resolve, 30));
-    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='assistant'")).rows.length, 0);
     await assert.rejects(generatePodcastPrep(db, true, now, false, async () => ({
       proposal: { topics: [], warnings: [] }, evidence: [], warnings: [],
     })), /no evidenced topics/);
-    assert.equal((await memory.query('SELECT * FROM chat_outputs')).rows.length, 0);
+    assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='assistant'")).rows.length, 0);
   } finally { await memory.close(); }
 });
 

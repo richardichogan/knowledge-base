@@ -13,7 +13,7 @@ const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 let data: PodcastPrepStatus = {
   nextRecording: '2026-10-16', scheduleWarning: null, latestBrief: null,
   run: { recordingDate: '2026-10-16', status: 'ready', sessionId: '11111111-1111-4111-8111-111111111111',
-    outputId: '22222222-2222-4222-8222-222222222222', generatedAt: '2026-10-15T06:01:00.000Z',
+    outputId: null, generatedAt: '2026-10-15T06:01:00.000Z',
     acknowledgedAt: null, warnings: ['EP43 transcript unavailable.'], error: null, attempts: 1 },
 };
 let failAcknowledgement = true;
@@ -74,7 +74,7 @@ window.runPodcastPrepChecks = async () => {
     && getComputedStyle(checkin).paddingRight === getComputedStyle(podcast).paddingRight,
   'Shell banner text and action insets align');
   const link = document.querySelector<HTMLAnchorElement>('.podcast-prep-notification a')!;
-  check(link.getAttribute('href') === '/chat?session=11111111-1111-4111-8111-111111111111&output=22222222-2222-4222-8222-222222222222', 'Opens the exact saved chat/output');
+  check(link.getAttribute('href') === '/chat?session=11111111-1111-4111-8111-111111111111', 'Opens the podcast prep conversation');
   check(link.target === '_blank', 'Does not steal the current conversation');
   check(document.body.textContent?.includes('research limitations'), 'Flags limited research');
   check(document.documentElement.scrollWidth <= innerWidth + 1, 'Fits the desktop/mobile width');

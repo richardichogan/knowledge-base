@@ -21,7 +21,7 @@ export const PodcastPrepCard: React.FC = () => {
   });
   const { data } = query;
   const run = data?.run;
-  const brief = run?.outputId ? run : data?.latestBrief;
+  const brief = run?.generatedAt ? run : data?.latestBrief;
   const running = run?.status === 'running';
   return (
     <section className="podcast-prep" aria-labelledby="podcast-prep-title" aria-busy={running || generate.isPending}>
@@ -38,10 +38,10 @@ export const PodcastPrepCard: React.FC = () => {
             : run?.status === 'ready' ? <p>{run.warnings.length ? 'Brief ready, with research limitations noted.' : 'Your shortlist and three recommended discussions are ready.'}</p>
               : <p>Prepared automatically before a scheduled Friday recording. You can also prepare it now.</p>}
         <div className="podcast-prep__actions">
-          {brief?.outputId && <a href={podcastBriefUrl(brief)} target="_blank" rel="noreferrer">Open {brief.recordingDate === data.nextRecording ? 'podcast brief' : `last brief (${brief.recordingDate})`}</a>}
+          {brief?.generatedAt && <a href={podcastBriefUrl(brief)} target="_blank" rel="noreferrer">Open {brief.recordingDate === data.nextRecording ? 'podcast brief' : `last brief (${brief.recordingDate})`}</a>}
           <button type="button" disabled={running || generate.isPending || Boolean(data.scheduleWarning)}
             onClick={() => { generate.mutate(); }}>
-            {running || generate.isPending ? 'Preparing...' : run?.outputId ? 'Refresh brief' : run?.status === 'failed' ? 'Retry preparation' : 'Prepare now'}
+            {running || generate.isPending ? 'Preparing...' : run?.generatedAt ? 'Refresh brief' : run?.status === 'failed' ? 'Retry preparation' : 'Prepare now'}
           </button>
         </div>
       </>}
@@ -61,7 +61,7 @@ export const PodcastPrepNotification: React.FC = () => {
     },
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['podcast-prep'] }); },
   });
-  if (run?.status !== 'ready' || !run.outputId || run.acknowledgedAt) return null;
+  if (run?.status !== 'ready' || !run.generatedAt || run.acknowledgedAt) return null;
   return (
     <div className="podcast-prep-notification" role="region" aria-label="Podcast brief ready">
       <span><strong>Podcast brief ready</strong> — recording {run.recordingDate}.

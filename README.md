@@ -252,9 +252,11 @@ Coverage summaries and source reads run at most three requests concurrently.
 Preparation has an eight-minute deadline: a timeout marks the run failed, preserves
 the previous brief, and prevents a late result from saving a new version.
 
-Results are versioned Outputs in a Podcast Prep chat. Today provides
-**Prepare now**, **Refresh brief**, and an exact brief link. A persistent global
-notification appears once the output is saved; dismissing it is server-backed
+The brief is posted as Athena's message in a Podcast Prep conversation, so it
+can be discussed and reshaped before anything is saved; save an Output from the
+conversation when the segments are settled. A refresh reads the conversation so
+far. Today provides **Prepare now**, **Refresh brief**, and a link to the conversation. A persistent global
+notification appears once the brief is posted; dismissing it is server-backed
 and does not remove the Today link. Opening the brief uses a separate tab and
 does not replace the current conversation. Email, browser push, and OS
 notifications are not enabled.
@@ -349,6 +351,12 @@ original relevance percentage. Rank is relevance weighted by freshness, source
 authority, article type and project fit, displayed on a 100-point scale with one
 decimal place. Boosts can take it above 100; it is not a percentage. CFP scores
 and deadline ordering are unchanged.
+Microsoft product-group blogs count as Microsoft official sources: Tech Community
+blog articles (Foundry, Entra, Azure boards) and the locale-prefixed microsoft.com
+product blogs (Copilot, Copilot Studio, Microsoft 365, Power Platform). Tech
+Community forum threads remain Community. Sources include the Microsoft Foundry
+Blog, Copilot Studio blog and GitHub Changelog, where model, Copilot runtime and
+GitHub Copilot announcements are first published.
 
 Articles can also sort by **Editorial relevance** or **Latest**. Each server
 order uses stable ID ties and the same workflow/source/literal-title filters

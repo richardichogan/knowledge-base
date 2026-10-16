@@ -144,6 +144,17 @@ const MICROSOFT_GITHUB_DOMAINS = [
   'github.com/newsroom',
 ];
 
+/**
+ * Microsoft product-group blogs that the domain list cannot express: Tech Community blog
+ * articles (`/ba-p/`, `/blog/`; forum threads stay Community) and the locale-prefixed
+ * microsoft.com product blogs (Copilot, Copilot Studio, Microsoft 365, Power Platform...).
+ */
+export function isMicrosoftOfficialBlogUrl(url: string): boolean {
+  const u = url.toLowerCase();
+  if (u.includes('techcommunity.microsoft.com')) return /\/ba-p\/|\/blog\/|board\.id=[^&]*blog/.test(u);
+  return /(?:^|\/\/)(?:www\.)?microsoft\.com\/[a-z]{2}-[a-z]{2}\/[^?#]*\bblog\b/.test(u);
+}
+
 /** IBM's own channels. */
 const IBM_DOMAINS = ['newsroom.ibm.com', 'research.ibm.com', 'ibm.com/blog', 'ibm.com/think', 'ibm.com/new', 'ibm.com/products'];
 
@@ -175,7 +186,7 @@ const ANALYST_CONSULTANCY_DOMAINS = [
 export function classifySourceAuthority(articleUrl: string | null, sourceUrl: string | null): SourceAuthorityTier {
   const candidates = [articleUrl, sourceUrl].filter((u): u is string => Boolean(u)).map((u) => u.toLowerCase());
   for (const u of candidates) {
-    if (MICROSOFT_GITHUB_DOMAINS.some((d) => u.includes(d))) return 'Microsoft/GitHub Official';
+    if (MICROSOFT_GITHUB_DOMAINS.some((d) => u.includes(d)) || isMicrosoftOfficialBlogUrl(u)) return 'Microsoft/GitHub Official';
   }
   for (const u of candidates) {
     if (IBM_DOMAINS.some((d) => u.includes(d))) return 'IBM Official';
@@ -250,6 +261,7 @@ export function classifySourceByUrl(
 
   const check = (u: string): SourceType | null => {
     const lower = u.toLowerCase();
+    if (isMicrosoftOfficialBlogUrl(lower)) return 'Formal';
     for (const d of COMMUNITY_DOMAINS) {
       if (lower.includes(d)) return 'Community';
     }
