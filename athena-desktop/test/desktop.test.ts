@@ -28,6 +28,14 @@ describe('navigation', () => {
     assert.equal(isAthenaFrame(undefined, ORIGIN), false);
     assert.equal(isAthenaFrame('not a url', ORIGIN), false);
   });
+
+  it('keeps Microsoft security registration in the sign-in window without granting file access', () => {
+    const registration = 'https://mysignins.microsoft.com/api/post/registerSsprMethods?returl=fixture';
+    assert.equal(classifyUrl(registration, ORIGIN), 'sign-in');
+    assert.equal(isAthenaFrame(registration, ORIGIN), false);
+    assert.equal(classifyUrl('http://mysignins.microsoft.com/', ORIGIN), 'external');
+    assert.equal(classifyUrl('https://mysignins.microsoft.com.evil.example/', ORIGIN), 'external');
+  });
 });
 
 describe('folders', () => {

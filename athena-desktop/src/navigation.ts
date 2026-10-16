@@ -1,7 +1,10 @@
 /** Where links and pop-ups from the Athena page are allowed to go. */
 
 /** Microsoft sign-in pages MSAL opens in a pop-up. */
-const SIGN_IN_HOSTS = new Set(['login.microsoftonline.com', 'login.live.com', 'login.windows.net', 'account.live.com']);
+const SIGN_IN_HOSTS = new Set([
+  'login.microsoftonline.com', 'login.live.com', 'login.windows.net', 'account.live.com',
+  'mysignins.microsoft.com',
+]);
 
 export type WindowOpenDecision = 'athena' | 'sign-in' | 'blank' | 'external' | 'deny';
 

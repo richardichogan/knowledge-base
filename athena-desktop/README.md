@@ -15,6 +15,7 @@ npm install
 npm start          # against production (https://athena.themicrosoftcloudblog.com)
 npm run start:local  # against the local web dev server on :5173
 npm test
+npm run test:navigation  # actual Electron sign-in POST and callback regression
 ```
 
 ## Build the installer
@@ -24,6 +25,11 @@ npm run dist       # release\Athena Setup <version>.exe
 ```
 
 The installer is unsigned. Windows SmartScreen shows "Windows protected your PC": choose **More info → Run anyway**.
+
+Version 0.1.1 fixes Microsoft security-registration sign-in: submissions to
+`mysignins.microsoft.com` stay inside the sign-in window so their POST data and
+session are preserved. Microsoft pages cannot use Athena's local-file bridge.
+To upgrade, close Athena and run the newer installer; existing settings are retained.
 
 ## Release (auto-update)
 
