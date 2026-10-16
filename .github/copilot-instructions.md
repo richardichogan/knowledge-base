@@ -46,7 +46,6 @@ Production is deployed to Azure Container Apps (backend) + Azure Static Web Apps
 | Frontend static web app | `kh-prod-web` | `rg-knowledge-hub-prod` | `Alliance Tenant Reporting` |
 | Main Azure OpenAI (gpt-4o / gpt-4o-mini deployments — `gpt-4o` deployment slot is actually mapped to a `gpt-5.4` model) | `open-msft-alliance-reporting-res` | `rgAllianceReporting` | `Alliance Tenant Reporting` |
 | GPT-5.5 Azure OpenAI (brainstorming persona only) | `imagine-dev-temp-resource` | `rg-imagine-claims-dev-temp` | `sub-ibmc-projImagine-dev` (different subscription — `az account set` before touching it) |
-| Athena Desktop code-signing cert (`athena-desktop-signing`, self-signed) | `kv-athena-desktop` | `rg-knowledge-hub-prod` | `Alliance Tenant Reporting` |
 
 ### Pre-deploy sync (always first)
 

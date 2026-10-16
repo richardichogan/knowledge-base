@@ -40,7 +40,8 @@ export function podcastRecordingDate(entry: ScheduleEntry | undefined, now = new
     date.setUTCDate(date.getUTCDate() - 3);
     while (date.toISOString().slice(0, 10) < workToday(now)) date.setUTCDate(date.getUTCDate() + entry.intervalDays);
   }
-  while (entry.cancelledDates?.includes(date.toISOString().slice(0, 10))) {
+  const skipped = new Set([...(entry.cancelledDates ?? []), ...(entry.recordedDates ?? [])]);
+  while (skipped.has(date.toISOString().slice(0, 10))) {
     date.setUTCDate(date.getUTCDate() + entry.intervalDays);
   }
   return date.toISOString().slice(0, 10);

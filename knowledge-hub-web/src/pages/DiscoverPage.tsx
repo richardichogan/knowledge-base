@@ -16,7 +16,6 @@ import { api } from '../services/api';
 import { requireApiData, requireApiSuccess } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
-import type { ContentItemSummary } from '../types';
 import { SparkCaptureButton } from '../components/sparks/SparkCaptureButton';
 import { copyItemToCanvas } from '../features/canvas/canvasClipboard';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
@@ -26,8 +25,8 @@ import { useFlatTags } from '../hooks/useTaxonomy';
 import { useAthenaContext } from '../context/AthenaContext';
 import { BlogPublishModal } from '../components/discover/BlogPublishModal';
 import { LinkedInDraftModal } from '../components/discover/LinkedInDraftModal';
+import { EmailInbox } from '../components/discover/EmailInbox';
 import { ProjectFitChips } from '../components/discover/ProjectFitChips';
-import { DiscoverReview } from '../components/discover/DiscoverReview';
 import { SavedViews } from '../components/SavedViews';
 import { DEFAULT_DISCOVER_VIEW, DISCOVER_PREFERENCES_KEY, parseWorkspaceView, type DiscoverPreferences, type DiscoverTab } from '../utils/savedViews';
 
@@ -355,7 +354,6 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         </p>
       )}
       <ProjectFitChips fits={item.projectFit} />
-      <DiscoverReview item={item} />
       {item.workflowState === 'shelved' && item.shelvedAt !== null && item.shelvedAt !== undefined && (
         <p className="dc-card-shelved">
           Shelved {formatDate(item.shelvedAt)} — {item.shelvedReason === 'low' ? 'scored low' : 'unactioned too long'}; still searchable by Athena
@@ -780,7 +778,7 @@ export const DiscoverPage: React.FC = () => {
 
       {/* CFPs feed */}
       {isCfps && (
-        <div className="dc-feed">
+        <div className="dc-feed dc-feed--discover">
           {cfpQuery.isLoading && <div className="dc-loading"><InlineLoading description="Loading CFPs…" /></div>}
           {!cfpQuery.isLoading && !cfpQuery.isError && (cfpQuery.data?.success ? cfpQuery.data.data : []).length === 0 && (
             <div className="dc-empty"><p>No CFPs in <strong>{cfpStateFilter.replace('_', ' ')}</strong>.</p></div>
@@ -798,7 +796,7 @@ export const DiscoverPage: React.FC = () => {
 
       {/* Articles feed */}
       {!isInbox && !isCfps && (
-        <div className="dc-feed">
+        <div className="dc-feed dc-feed--discover">
           {sort !== 'weighted' && <p className="dc-sort-note">Ordered by {sort === 'editorial' ? 'editorial relevance' : 'publication date'}.
             {' '}Badges still show weighted rank.</p>}
           {feedQuery.isLoading && (
@@ -854,35 +852,16 @@ export const DiscoverPage: React.FC = () => {
 
       {/* Inbox tab — emails */}
       {isInbox && (
-        <div className="dc-feed">
+        <div className="dc-feed dc-feed--discover">
           {emailQuery.isLoading && (
             <div className="dc-loading"><InlineLoading description="Loading emails…" /></div>
           )}
           {!emailQuery.isLoading && !emailQuery.isError && (emailQuery.data?.success ? emailQuery.data.data.items : []).length === 0 && (
             <div className="dc-empty"><p>No emails indexed.</p></div>
           )}
-          {(emailQuery.data?.success ? emailQuery.data.data.items : []).map((email: ContentItemSummary) => {
-            const meta = email.metadata as Record<string, unknown>;
-            const from = typeof meta['from'] === 'string' ? meta['from'] : null;
-            const account = typeof meta['accountLabel'] === 'string' ? meta['accountLabel'] : null;
-            return (
-              <div key={email.id} className="dc-email-card">
-                <div className="dc-email-from">
-                  {from ?? 'Unknown sender'}
-                  {account !== null && <span className="dc-email-account">{account}</span>}
-                </div>
-                <div className="dc-email-subject">{email.title}</div>
-                <div className="dc-email-date">{formatDate(email.publishedAt)}</div>
-                {email.summary !== '' && email.summary !== email.title && (
-                  <p className="dc-email-preview">{email.summary}</p>
-                )}
-                <button type="button" className="dc-action dc-action--linkedin"
-                  onClick={() => { setLinkedInItem({ id: email.id, title: email.title }); }}>
-                  <Edit size={14} /> Socials
-                </button>
-              </div>
-            );
-          })}
+          {(emailQuery.data?.success ? emailQuery.data.data.items : []).length > 0 && (
+            <EmailInbox items={emailQuery.data?.success ? emailQuery.data.data.items : []} onSocials={setLinkedInItem} />
+          )}
         </div>
       )}
       {blogItem && <BlogPublishModal key={blogItem.id} itemId={blogItem.id} title={blogItem.title}

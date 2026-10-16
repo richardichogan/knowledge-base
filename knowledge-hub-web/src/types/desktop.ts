@@ -41,6 +41,8 @@ export interface AthenaDesktopBridge {
   pickFile(): Promise<string | null>;
   /** Called (debounced) when files in the folders change. Returns an unsubscribe. */
   onFilesChanged(listener: () => void): () => void;
+  /** Desktop 0.1.3+: an Athena `/chat?…` link opened elsewhere, to show in this chat window. */
+  onOpenChat?(listener: (path: string) => void): () => void;
 }
 
 declare global {

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { mock, test } from 'node:test';
 import express from 'express';
 import { PGlite } from '@electric-sql/pglite';
@@ -7,7 +6,7 @@ import { getDb } from '../src/db/db.js';
 import { discoverRouter, type DiscoverItem } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 
-test('Discovery sorts are stable across filtered pages, factors explain the SQL rank, and feedback is retry-safe without workflow/scoring writes', async () => {
+test('Discovery sorts are stable across filtered pages, factors explain the SQL rank', async () => {
   const db = new PGlite();
   const id = (index: number) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
   await db.exec(`CREATE TABLE content_items (
@@ -15,9 +14,6 @@ test('Discovery sorts are stable across filtered pages, factors explain the SQL 
     published_at TIMESTAMPTZ NOT NULL, indexed_at TIMESTAMPTZ DEFAULT NOW(), metadata JSONB DEFAULT '{}',
     workflow_state TEXT DEFAULT 'to-review', relevance_score REAL, relevance_explanation TEXT);
     CREATE TABLE discover_item_tags (discover_item_id UUID, tag_id UUID);`);
-  const migration = await readFile(new URL('../src/db/migrations/066_discover_feedback.sql', import.meta.url), 'utf8');
-  await db.exec(migration);
-  await db.exec(migration);
   for (let index = 0; index < 107; index++) {
     await db.query(`INSERT INTO content_items (id,source,source_id,title,body,published_at,relevance_score,metadata)
       VALUES ($1,'discovered-article',$2,$3,'Article body',date_trunc('hour',NOW()) - $4::integer * INTERVAL '1 day',$5,$6)`,
@@ -43,12 +39,6 @@ test('Discovery sorts are stable across filtered pages, factors explain the SQL 
     const result = await response.json() as { success: boolean; data: { items: DiscoverItem[]; total: number } };
     assert.equal(result.success, true);
     return result.data;
-  };
-  const feedback = async (item: string, body: unknown) => {
-    const response = await fetch(`${base}/${item}/feedback`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    return { status: response.status, result: await response.json() as { success: boolean } };
   };
   try {
     for (const sort of ['weighted', 'editorial', 'latest']) {
@@ -83,24 +73,8 @@ test('Discovery sorts are stable across filtered pages, factors explain the SQL 
       assert.ok(response.status >= 400 && response.status < 500, params);
       assert.equal((await response.json() as { success: boolean }).success, false);
     }
-    const requestId = '11111111-1111-4111-8111-111111111111';
-    const payload = { requestId, reason: 'too-high', explanation: 'Useful source, but too broad for this project.' };
-    const concurrent = await Promise.all([feedback(id(0), payload), feedback(id(0), payload)]);
-    assert.deepEqual(concurrent.map(result => result.status).sort(), [200, 201]);
-    assert.equal((await feedback(id(0), payload)).status, 200);
-    assert.equal((await db.query<{ count: number }>('SELECT COUNT(*)::integer AS count FROM discover_feedback')).rows[0]?.count, 1);
-    assert.equal((await feedback(id(0), { ...payload, reason: 'too-low' })).status, 409);
-    assert.equal((await feedback(id(1), payload)).status, 409);
-    assert.equal((await feedback(id(0), { ...payload, requestId: id(10), reason: 'invented' })).status, 422);
-    assert.equal((await feedback(id(0), { ...payload, explanation: 'x'.repeat(2001) })).status, 422);
-    assert.equal((await feedback(id(0), { ...payload, requestId: 'invalid' })).status, 422);
-    assert.equal((await feedback(id(900), payload)).status, 404);
-    const unchanged = await db.query<{ workflow_state: string; relevance_score: number }>(
-      'SELECT workflow_state,relevance_score FROM content_items WHERE id=$1', [id(0)],
-    );
-    assert.equal(unchanged.rows[0]?.workflow_state, 'to-review');
-    assert.ok(Math.abs(unchanged.rows[0]!.relevance_score - 0.9) < 0.000001);
-    assert.equal((await db.query<{ reason: string }>('SELECT reason FROM discover_feedback')).rows[0]?.reason, 'too-high');
+    const removed = await fetch(`${base}/${id(0)}/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    assert.equal(removed.status, 404, 'Discovery feedback endpoint was removed');
   } finally {
     query.mock.restore();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

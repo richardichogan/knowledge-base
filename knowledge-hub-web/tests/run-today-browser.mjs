@@ -294,14 +294,7 @@ try {
         await evaluate('document.querySelector(".kh-saved-views").open = true');
         const viewsScreenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
         await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `saved-views-${width}.png`), Buffer.from(viewsScreenshot.data, 'base64'));
-        await evaluate(`document.querySelector(".kh-saved-views").open = false;
-          document.querySelector(".dc-review__rank").open = true;
-          document.querySelector(".dc-review__feedback").open = true;
-          document.querySelector(".dc-review").scrollIntoView({ block: "start" });`);
-        const reviewScreenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `discovery-review-${width}.png`), Buffer.from(reviewScreenshot.data, 'base64'));
-        await evaluate(`document.querySelector(".dc-review__rank").open = false;
-          document.querySelector(".dc-review__feedback").open = false; window.scrollTo(0, 0);`);
+        await evaluate('document.querySelector(".kh-saved-views").open = false');
       }
       const results = await evaluate('window.runDiscoverChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));

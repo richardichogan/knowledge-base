@@ -7,23 +7,11 @@ import type { ApiSuccess } from '../types/apiResponse.js';
 import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync.js';
 import { readFeed } from '../integrations/discovery/feedReader.js';
-import { SOURCE_AUTHORITY_WEIGHTS, ARTICLE_TYPE_WEIGHTS } from '../integrations/cms/articleScoringPrompt.js';
+import { discoverRankSql } from '../integrations/cms/discoverRank.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
 import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
-import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
-
-/**
- * Builds a SQL CASE expression mapping a metadata text column's value to its weight, generated
- * directly from the same TS weight map used elsewhere — so tuning a weight constant takes effect
- * immediately in ranking, with no backfill/rescore step required to keep SQL and TS in sync.
- */
-function buildWeightCaseExpr(column: string, weights: Record<string, number>, fallback = 1): string {
-  const whens = Object.entries(weights)
-    .map(([key, value]) => `WHEN '${key.replace(/'/g, "''")}' THEN ${value}`)
-    .join(' ');
-  return `CASE ${column} ${whens} ELSE ${fallback} END`;
-}
+import { NotFoundError, ValidationError } from '../types/errors.js';
 
 export const discoverRouter = Router();
 
@@ -84,9 +72,7 @@ const DISCOVER_PAGE_SIZE_MAX = 100;
 const DISCOVER_ENUM_MAX_LENGTH = 32;
 const BLOG_RELATED_SOURCE_CHARS = 2000;
 const DISCOVER_FILTER_MAX_LENGTH = 256;
-const FEEDBACK_EXPLANATION_MAX_LENGTH = 2000;
 const ASCII_SPACE = 32;
-const FEEDBACK_REASONS = ['too-high', 'too-low', 'not-relevant', 'already-covered', 'incorrect-classification'] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function queryText(value: unknown, name: string, maximum: number): string | undefined {
@@ -96,40 +82,6 @@ function queryText(value: unknown, name: string, maximum: number): string | unde
   }
   return value.trim() || undefined;
 }
-
-discoverRouter.post('/:id/feedback', (req: Request, res: Response, next: NextFunction): void => {
-  void (async (): Promise<void> => {
-    try {
-      const id = req.params['id'];
-      const body: unknown = req.body;
-      if (!id || !UUID.test(id) || typeof body !== 'object' || body === null) {
-        throw new ValidationError('Invalid Discovery feedback');
-      }
-      const { requestId, reason, explanation = '' } = body as Record<string, unknown>;
-      if (typeof requestId !== 'string' || !UUID.test(requestId) || typeof reason !== 'string'
-        || !FEEDBACK_REASONS.some(value => value === reason) || typeof explanation !== 'string'
-        || explanation.length > FEEDBACK_EXPLANATION_MAX_LENGTH || explanation.includes('\u0000')) {
-        throw new ValidationError('Choose a feedback reason and keep the explanation within 2,000 characters.');
-      }
-      const db = getDb();
-      const item = await db.query(`SELECT id FROM content_items WHERE id=$1 AND source='discovered-article'`, [id]);
-      if (item.rows.length === 0) throw new NotFoundError('Discover item');
-      const inserted = await db.query(
-        `INSERT INTO discover_feedback (request_id,item_id,reason,explanation) VALUES ($1,$2,$3,$4)
-         ON CONFLICT (request_id) DO NOTHING RETURNING request_id`,
-        [requestId, id, reason, explanation],
-      );
-      const saved = await db.query<{ item_id: string; reason: string; explanation: string }>(
-        'SELECT item_id,reason,explanation FROM discover_feedback WHERE request_id=$1', [requestId],
-      );
-      const feedback = saved.rows[0];
-      if (!feedback || feedback.item_id !== id.toLowerCase() || feedback.reason !== reason || feedback.explanation !== explanation) {
-        throw new ConflictError('This feedback request was already used for different feedback.', 'FEEDBACK_CONFLICT');
-      }
-      res.status(inserted.rows.length ? HTTP_STATUS.CREATED : HTTP_STATUS.OK).json({ success: true, data: { requestId } });
-    } catch (error) { next(error); }
-  })();
-});
 
 discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
@@ -248,15 +200,8 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       // Articles useful to a live project (projectFit.ts) are lifted by their stored project boost.
       const halfLifeParamIndex = p++;
       params.push(DISCOVER_RECENCY_HALF_LIFE_DAYS);
-      const authorityWeightExpr = buildWeightCaseExpr(`ci.metadata->>'sourceAuthorityTier'`, SOURCE_AUTHORITY_WEIGHTS, 1);
-      const typeWeightExpr = buildWeightCaseExpr(`ci.metadata->>'articleType'`, ARTICLE_TYPE_WEIGHTS, 1);
-      const recencyExpr = `EXP(- EXTRACT(EPOCH FROM (NOW() - ci.published_at)) / 86400.0 / $${halfLifeParamIndex} * LN(2))`;
-      const projectExpr = `(1 + COALESCE((ci.metadata->>'projectBoost')::real, 0))`;
-      const rankScoreExpr = `COALESCE(ci.relevance_score, 0)
-           * ${recencyExpr}
-           * (${authorityWeightExpr})
-           * (${typeWeightExpr})
-           * ${projectExpr}`;
+      const { rank: rankScoreExpr, recency: recencyExpr, authority: authorityWeightExpr, articleType: typeWeightExpr, project: projectExpr }
+        = discoverRankSql('ci', `$${halfLifeParamIndex}`);
 
       const [countResult, dataResult] = await Promise.all([
         db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ci ${where}`, params.slice(0, halfLifeParamIndex - 1)),

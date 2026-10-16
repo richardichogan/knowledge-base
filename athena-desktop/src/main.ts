@@ -6,7 +6,7 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { FolderRegistry, guardPath, type LocalFolder } from './folders';
 import { readFileBytes, readText, writeText } from './fileAccess';
-import { classifyUrl, isAthenaFrame, launchMode, type LaunchMode } from './navigation';
+import { chatLinkPath, classifyUrl, isAthenaFrame, launchMode, type LaunchMode } from './navigation';
 import { isIndexable, Scanner } from './scanner';
 
 const ATHENA_URL = process.env.ATHENA_URL ?? 'https://athena.themicrosoftcloudblog.com';
@@ -65,14 +65,16 @@ async function start(): Promise<void> {
   }
 }
 
-function openExperience(mode: LaunchMode): BrowserWindow {
+function openExperience(mode: LaunchMode, chatPath?: string): BrowserWindow {
   const existing = mode === 'chat' ? chatWindow : mainWindow;
   if (existing !== null && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore();
     existing.focus();
+    // Navigates inside the open chat (no reload), so the chat's state and unsent drafts are kept.
+    if (chatPath !== undefined) existing.webContents.send('athena:open-chat', chatPath);
     return existing;
   }
-  const win = createWindow(mode === 'chat' ? new URL('/chat', ATHENA_ORIGIN).href : ATHENA_URL);
+  const win = createWindow(mode === 'chat' ? new URL(chatPath ?? '/chat', ATHENA_ORIGIN).href : ATHENA_URL);
   if (mode === 'chat') {
     chatWindow = win;
     win.on('closed', () => { chatWindow = null; });
@@ -111,6 +113,11 @@ function createWindow(url: string): BrowserWindow {
 
 function guardContents(contents: WebContents): void {
   contents.setWindowOpenHandler(({ url }) => {
+    const chatPath = chatLinkPath(url, ATHENA_ORIGIN);
+    if (chatPath !== null) {
+      openExperience('chat', chatPath);
+      return { action: 'deny' };
+    }
     switch (classifyUrl(url, ATHENA_ORIGIN)) {
       case 'athena':
         return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, webPreferences: athenaPreferences() } };

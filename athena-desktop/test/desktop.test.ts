@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { FolderRegistry, folderContaining, guardPath, localKey, type LocalFolder } from '../src/folders';
 import { readText, writeText } from '../src/fileAccess';
-import { classifyUrl, isAthenaFrame, launchMode } from '../src/navigation';
+import { chatLinkPath, classifyUrl, isAthenaFrame, launchMode } from '../src/navigation';
 import { Scanner } from '../src/scanner';
 
 const ORIGIN = 'https://athena.example.com';
@@ -16,6 +16,16 @@ describe('navigation', () => {
     assert.equal(launchMode(['Athena.exe', '--chat']), 'chat');
     assert.equal(launchMode(['electron.exe', '.', '--chat']), 'chat');
     assert.equal(launchMode(['Athena.exe', '--chatty']), 'workspace');
+  });
+
+  it('sends Athena chat links to the chat window', () => {
+    const origin = 'https://athena.example.com';
+    assert.equal(chatLinkPath(`${origin}/chat?session=abc&output=o1`, origin), '/chat?session=abc&output=o1');
+    assert.equal(chatLinkPath(`${origin}/chat`, origin), '/chat');
+    assert.equal(chatLinkPath(`${origin}/plan`, origin), null);
+    assert.equal(chatLinkPath(`${origin}/chat/other`, origin), null);
+    assert.equal(chatLinkPath('https://evil.example.com/chat?session=abc', origin), null);
+    assert.equal(chatLinkPath('not a url', origin), null);
   });
   it('keeps Athena pages in the app and sends other sites to the browser', () => {
     assert.equal(classifyUrl('https://athena.example.com/chat?x=1', ORIGIN), 'athena');

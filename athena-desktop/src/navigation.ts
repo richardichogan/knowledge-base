@@ -14,6 +14,18 @@ export function launchMode(args: readonly string[]): LaunchMode {
   return args.includes('--chat') ? 'chat' : 'workspace';
 }
 
+/** `/chat?…` on the Athena site, as a path the chat window can open in place; otherwise null. */
+export function chatLinkPath(url: string, athenaOrigin: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.origin !== athenaOrigin || parsed.pathname !== '/chat') return null;
+  return `${parsed.pathname}${parsed.search}`;
+}
+
 export function classifyUrl(url: string, athenaOrigin: string): WindowOpenDecision {
   if (url === '' || url === 'about:blank') return 'blank';
   let parsed: URL;

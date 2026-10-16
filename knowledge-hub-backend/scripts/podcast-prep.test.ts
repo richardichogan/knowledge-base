@@ -112,6 +112,21 @@ test('schedule reads are non-mutating, calendar overrides win, and explicit canc
   } finally { await memory.close(); }
 });
 
+test('once the recording-day "Podcast Record" event has ended, the next recording is due and today is no longer current', async () => {
+  const { memory, db } = await fixture();
+  try {
+    await memory.exec(`INSERT INTO content_items VALUES(gen_random_uuid(),'Podcast Record',NULL,'graph-calendar',
+      '{"start":"2026-10-16T09:00:00.000Z","end":"2026-10-16T10:00:00.000Z"}','2026-10-16T09:00Z',NOW())`);
+    assert.equal((await getSchedule(db, new Date('2026-10-16T09:30:00Z'), false)).podcast.next, recording);
+    const after = await getSchedule(db, new Date('2026-10-16T10:05:00Z'), false);
+    assert.equal(after.podcast.next, '2026-10-30');
+    assert.deepEqual(after.podcast.recordedDates, [recording]);
+    assert.equal(podcastRecordingDate({ ...after.podcast, next: '2026-10-19', dateSource: 'schedule',
+      note: 'Recorded on Fridays, released the following Monday' }, new Date('2026-10-16T10:05:00Z')), '2026-10-30');
+    assert.equal((await getPodcastPrepStatus(db, new Date('2026-10-16T10:05:00Z'))).nextRecording, '2026-10-30');
+  } finally { await memory.close(); }
+});
+
 test('leases prevent duplicate jobs, honour retry cooldown, recover interruption, and stop after three automatic attempts', async () => {
   const { memory, db } = await fixture();
   try {
@@ -201,6 +216,12 @@ test('podcast research ranks Cloudy-lane Microsoft AI news first and drops off-l
   assert.equal(isNewsItem(governance), true);
   assert.deepEqual(rankPodcastCandidates([generic, chips, msHost, msText, governance]).map((c) => c.url),
     [governance.url, msText.url, generic.url, chips.url, msHost.url]);
+  const ranked = { ...msText, url: 'https://example.com/discover', discoverRank: 82.4 };
+  const lowerRanked = { ...governance, url: 'https://example.com/discover-low', discoverRank: 40 };
+  assert.deepEqual(rankPodcastCandidates([governance, lowerRanked, generic, ranked]).map((c) => c.url),
+    [ranked.url, lowerRanked.url, governance.url, generic.url], 'Ranked Discover articles lead in-lane Microsoft web hits, highest rank first');
+  const brief = renderPodcastBrief(recording, { ...prepared, evidence: evidence.map((e, i) => i === 0 ? { ...e, discoverRank: 82.4 } : e) }, now);
+  assert.match(brief, /Discover rank 82\.4/);
 });
 
 test('article reader uses the longest article region, not a byline card', () => {

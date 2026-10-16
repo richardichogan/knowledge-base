@@ -475,7 +475,6 @@ export interface GraphResponse {
 }
 
 export type DiscoverSort = 'weighted' | 'editorial' | 'latest';
-export type DiscoverFeedbackReason = 'too-high' | 'too-low' | 'not-relevant' | 'already-covered' | 'incorrect-classification';
 
 export interface DiscoverItem {
   id: string;
@@ -1611,10 +1610,6 @@ export class KnowledgeHubApi {
       { params: { state, source, page, pageSize, title, sort } },
     );
     return r.data;
-  }
-
-  async saveDiscoverFeedback(id: string, feedback: { requestId: string; reason: DiscoverFeedbackReason; explanation: string }): Promise<ApiResponse<{ requestId: string }>> {
-    return (await this.client.post<ApiResponse<{ requestId: string }>>(`/api/discover/${id}/feedback`, feedback)).data;
   }
 
   async getDiscoverSources(state?: string): Promise<ApiResponse<Array<{ title: string; count: number }>>> {

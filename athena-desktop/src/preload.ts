@@ -26,5 +26,12 @@ if (athenaOrigin !== '' && window.location.origin === athenaOrigin) {
       ipcRenderer.on('athena:files-changed', handler);
       return () => { ipcRenderer.removeListener('athena:files-changed', handler); };
     },
+    onOpenChat: (listener: (path: string) => void) => {
+      const handler = (_event: IpcRendererEvent, path: unknown): void => {
+        if (typeof path === 'string' && path.startsWith('/chat')) listener(path);
+      };
+      ipcRenderer.on('athena:open-chat', handler);
+      return () => { ipcRenderer.removeListener('athena:open-chat', handler); };
+    },
   });
 }

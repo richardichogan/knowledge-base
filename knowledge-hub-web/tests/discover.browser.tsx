@@ -54,9 +54,13 @@ api.getDiscoverFeed = async (_state, source, _page, _pageSize, title, sort) => {
 }], total: 1, page: 1, pageSize: 25 });
 };
 api.getTimeline = async () => success({ items: [{
-  id: emailId, sourceId: 'email', source: 'email', title: 'Cloud news by email', summary: 'A public product newsletter.',
-  publishedAt: now, metadata: { from: 'Newsletter', accountLabel: 'Personal' },
-}], total: 1, page: 1, pageSize: 50, hasMore: false });
+  id: emailId, sourceId: 'email', source: 'email', title: '[blog] Cloud news by email', summary: 'From: Contoso News <news@contoso.com> on 2026-10-16',
+  publishedAt: now, url: 'https://outlook.office.com/mail/id/example',
+  metadata: { from: 'Contoso News <news@contoso.com>', account: 'richard.hogan@themicrosoftcloudblog.com', accountLabel: 'blog', isRead: false },
+}, {
+  id: 'cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee', sourceId: 'email-2', source: 'email', title: '[podcast] Guest confirmation', summary: 'From: guest@example.com on 2026-10-15',
+  publishedAt: now, metadata: { from: 'guest@example.com', account: 'podcast@themicrosoftcloudblog.com', accountLabel: 'podcast', isRead: true },
+}], total: 2, page: 1, pageSize: 50, hasMore: false });
 api.createLinkedInDraft = async (id) => {
   requests++;
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -160,39 +164,12 @@ export async function runDiscoverChecks(): Promise<string[]> {
     Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
   };
-  const rankDetails = card.querySelector<HTMLDetailsElement>('.dc-review__rank')!;
-  rankDetails.open = true;
-  check(rankDetails.textContent?.includes('124.8 rank points') === true && rankDetails.textContent.includes('x 1.300000'),
-    'Accessible breakdown shows exact returned factors and boosted rank');
-  const feedbackDetails = card.querySelector<HTMLDetailsElement>('.dc-review__feedback')!;
-  feedbackDetails.open = true;
-  if (window.innerWidth <= 600) {
-    check(feedbackDetails.querySelector('select')!.getBoundingClientRect().height >= 44
-      && feedbackDetails.querySelector('select')!.getBoundingClientRect().height <= 46, 'Mobile review controls use compact 44px targets');
-  }
-  const feedbackText = feedbackDetails.querySelector<HTMLTextAreaElement>('textarea')!;
-  setInput(feedbackText, 'Keep this exact explanation after a lost response.');
-  await new Promise(resolve => setTimeout(resolve, 30));
-  const requestIds: string[] = [];
-  let failFeedback = true;
-  api.saveDiscoverFeedback = async (id, payload) => {
-    check(id === articleId, 'Feedback uses exact source identity');
-    requestIds.push(payload.requestId);
-    await new Promise(resolve => setTimeout(resolve, 50));
-    if (failFeedback) return failure();
-    return success({ requestId: payload.requestId });
-  };
-  const submitFeedback = feedbackDetails.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-  submitFeedback.click(); submitFeedback.click();
-  await waitFor(() => feedbackDetails.querySelector('.kh-data-notice') !== null && !submitFeedback.disabled);
-  check(requestIds.length === 1 && feedbackText.value === 'Keep this exact explanation after a lost response.',
-    'Feedback failures retain exact input and prevent same-tick duplicates');
-  failFeedback = false;
-  submitFeedback.click();
-  await waitFor(() => feedbackDetails.textContent?.includes('Feedback recorded.') === true);
-  check(requestIds.length === 2 && requestIds[0] === requestIds[1] && workflowWrites === 0,
-    'Retry reuses durable feedback identity without changing workflow');
-  rankDetails.open = false; feedbackDetails.open = false;
+  check(card.querySelector('.dc-review') === null && !card.textContent?.includes('Why this rank?') && !card.textContent?.includes('relevance feedback'),
+    'Rank breakdown and inert relevance feedback are not shown');
+  const title = card.querySelector<HTMLElement>('.dc-card-title')!;
+  const synopsis = card.querySelector<HTMLElement>('.dc-card-synopsis');
+  check(parseFloat(getComputedStyle(title).fontSize) >= 21 && (synopsis === null || parseFloat(getComputedStyle(synopsis).fontSize) >= 16.5),
+    'Discover titles and synopses use the larger reading sizes');
 
   const sortControl = document.querySelector<HTMLSelectElement>('[aria-label="Sort articles"]')!;
   sortControl.value = 'editorial'; sortControl.dispatchEvent(new Event('change', { bubbles: true }));
@@ -277,7 +254,24 @@ export async function runDiscoverChecks(): Promise<string[]> {
   check(document.activeElement === trigger, 'Focus returns to launching control');
   checks.push('Clipboard denial, generation failure and retry, focus restoration');
   click('Inbox');
-  await waitFor(() => document.querySelector('.dc-email-card') !== null);
+  await waitFor(() => document.querySelector('.dc-email') !== null);
+  const firstEmail = document.querySelector<HTMLElement>('.dc-email')!;
+  check(firstEmail.querySelector('.dc-email__mailbox-name')?.textContent === 'Blog'
+    && firstEmail.querySelector('.dc-email__mailbox-address')?.textContent === 'richard.hogan@themicrosoftcloudblog.com',
+    'Each email names the mailbox and address it came from');
+  check(firstEmail.querySelector('.dc-email__subject')?.textContent === 'Cloud news by email', 'Mailbox prefix is removed from the subject');
+  check(firstEmail.querySelector('.dc-email__sender')?.textContent === 'Contoso News', 'Sender shows the display name');
+  check(!firstEmail.textContent!.includes('From:'), 'No duplicated "From … on …" preview');
+  check(firstEmail.classList.contains('dc-email--unread') && getComputedStyle(firstEmail).borderLeftWidth === '3px', 'Unread mail and mailbox colour rail');
+  check(parseFloat(getComputedStyle(firstEmail.querySelector('.dc-email__subject')!).fontSize) >= 16.5, 'Readable subject size');
+  check(firstEmail.querySelector('a[href="https://outlook.office.com/mail/id/example"]') !== null, 'Open in Outlook link');
+  document.querySelector<HTMLButtonElement>('.dc-inbox-filter[data-mailbox="podcast"]')!.click();
+  await waitFor(() => document.querySelectorAll('.dc-email').length === 1);
+  check(document.querySelector('.dc-email__mailbox-name')?.textContent === 'Podcast', 'Mailbox filter shows only that mailbox');
+  document.querySelector<HTMLButtonElement>('.dc-inbox-filter:not([data-mailbox])')!.click();
+  await waitFor(() => document.querySelectorAll('.dc-email').length === 2);
+  check(document.documentElement.scrollWidth <= window.innerWidth, 'Inbox fits the viewport');
+  checks.push('Inbox shows the source mailbox, sender, subject and mailbox filter');
   click('Socials');
   await waitFor(() => document.querySelector('dialog a')?.getAttribute('href')?.includes('outlook.office.com') === true);
   check(document.querySelector('dialog')!.textContent!.includes('mailbox access'), 'Private mailbox link warning');

@@ -362,24 +362,15 @@ Articles can also sort by **Editorial relevance** or **Latest**. Each server
 order uses stable ID ties and the same workflow/source/literal-title filters
 across pages; badges remain weighted ranks and alternative sorting is labelled.
 This is offset pagination of live data, not a frozen snapshot during concurrent
-ingestion or scoring. **Why this rank?** exposes the actual SQL relevance,
-freshness, source/type and project factors, half-life and computation timestamp.
-Multiply the relevance points and factors to reproduce the rank within display
-rounding (stored REAL scores can incur floating-point rounding). Missing factors
-are labelled unavailable, never reconstructed from guessed weights.
+ingestion or scoring.
 
-**Give relevance feedback** stores an explicit bounded reason and optional
-2,000-character explanation for review. It does not retrain scoring, change
-weights, archive/publish an article or start an AI call. Failed submissions keep
-the exact explanation and reuse their request identity on retry; duplicate
-requests cannot create duplicate rows, and a reused identity with different
-content is rejected. Additive migration `066_discover_feedback.sql` stores this
-authenticated feedback separately from article workflow/scoring.
+Discover cards no longer show a rank breakdown or a relevance-feedback form:
+the feedback was stored for review only and never changed ranking, so it was
+removed (the `discover_feedback` table from migration 066 is no longer written).
 
 The rank sits in its own heading column beside the source and article title,
 so its larger number does not expand the metadata row or push the title down.
-Article titles use a slightly larger size while summaries and actions retain
-their existing layout.
+Discover uses larger reading type for source metadata, titles, synopses and chips.
 
 Connections reuse the existing shared graph, not a canvas-only relationship model.
 Use the existing right-click menu on selected Think note text to **Create Spark**.

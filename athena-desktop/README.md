@@ -17,6 +17,10 @@ The existing browser/PWA is unchanged; its browser sign-in and local draft stora
 remain separate from Electron's.
 
 Version 0.1.2 adds the standalone chat shortcut and window.
+Version 0.1.3 sends Athena chat links (for example **Open podcast brief** on Today)
+to the Athena Chat window that is already open and switches it to that chat in
+place, instead of opening another window. Unsent drafts are kept per chat. If no
+chat window is open, one opens on that chat.
 
 - **Index**: files in your chosen folders (PDF, Word, PowerPoint, Excel, CSV, Markdown, text) are uploaded to your Athena library and kept in sync while the app is open. Files that can't be indexed are listed under "N files not indexed" in Documents → Folders on this PC, with the reason.
 - **Read**: in chat, Athena can read files in those folders (`read_local_file`).

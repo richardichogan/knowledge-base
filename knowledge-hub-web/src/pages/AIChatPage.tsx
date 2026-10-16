@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
@@ -465,6 +465,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const firstLocationKeyRef = useRef(location.key);
 
   // Restore persisted history for a stored session ID once on mount, so a
   // reload or reopening the standalone Athena window continues the same
@@ -686,6 +688,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (view === turnRunRef.current) reportHistoryError(error);
     });
   }
+
+  // A chat link opened while this window is already open (ChatLinkReceiver navigates here): switch in place.
+  // The first location is handled by the initial state above.
+  useEffect(() => {
+    if (!standalone || location.key === firstLocationKeyRef.current) return;
+    const linked = searchParams.get('session');
+    if (linked === null || linked === '') return;
+    handleSelectSession(linked);
+    const output = searchParams.get('output');
+    if (output) openOutput(output);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
 
   // The first time Athena is opened each day she opens on the morning briefing
   // (not in the per-note/canvas panels, which keep their own chats).

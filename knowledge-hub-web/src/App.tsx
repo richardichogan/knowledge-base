@@ -25,6 +25,7 @@ import { AthenaContextProvider } from './context/AthenaContext';
 import { HomePage } from './pages/HomePage';
 import { AppDialogHost } from './components/AppDialog';
 import { LocalFolderSync } from './components/library/LocalFoldersPanel';
+import { ChatLinkReceiver } from './components/ChatLinkReceiver';
 import { deferredView } from './utils/deferredView';
 
 const DiscoverPage = deferredView('Discover', async () => ({ default: (await import('./pages/DiscoverPage')).DiscoverPage }));
@@ -53,6 +54,7 @@ const App: React.FC = () => {
         <LocalFolderSync />
         <AthenaContextProvider>
           <BrowserRouter>
+            <ChatLinkReceiver />
             <GlobalContextMenuProvider>
             <Routes>
               <Route path="/autocue/*" element={<AutocueApp />} />
