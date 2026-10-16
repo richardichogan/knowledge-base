@@ -232,6 +232,16 @@ and pure architecture remain Cyrus's and David's territory. Available recent
 episode transcripts/show notes are read in bounded chunks, alongside recent
 own posts, Discover, and required fresh web research. Previously covered
 subjects qualify only when material new outside news changes the discussion.
+The lead is anchored to what Cloudy actually discusses: the last twelve
+published show notes are passed to the model as an archive, and the lead must
+name the episode (`showThreadId`) it continues with new developments; a lead
+without a valid published-episode thread is rejected. Web queries follow the
+show's themes (agents as accountable digital workers, AI governance, provider
+concentration and sovereignty, Copilot adoption and value). Candidates must be
+AI news on those themes; courses, training, docs, how-tos, pricing and event
+pages are excluded before reading, and in-lane items rank ahead of fresher
+off-lane Microsoft news. Each topic in the brief shows the Cloudy thread it
+continues, or states that it is a new thread.
 Sources are linked and dated. Tech Community articles are read from the publisher's
 full article body embedded in the requested page, not its loading shell or a
 search summary. Failed web searches or selected source reads fail preparation

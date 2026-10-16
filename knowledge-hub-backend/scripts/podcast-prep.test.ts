@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { articleProse } from '../src/utils/articleReading.js';
 import { getSchedule } from '../src/ai/contentSchedule.js';
 import { acknowledgePodcastPrep, claimPodcastPrep, generatePodcastPrep, getPodcastPrepStatus, podcastPrepDue, podcastRecordingDate } from '../src/ai/podcastPrep.js';
-import { isFreshEvidence, isMicrosoftRelevant, mapPodcastResearch, parsePodcastProposal, rankPodcastCandidates, readPodcastSource, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic } from '../src/ai/podcastPrepResearch.js';
+import { isFreshEvidence, isMicrosoftRelevant, mapPodcastResearch, parsePodcastProposal, rankPodcastCandidates, readPodcastSource, isNewsItem, showLaneScore, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic, type ShowEpisode } from '../src/ai/podcastPrepResearch.js';
 
 const now = new Date('2026-10-15T06:00:00Z');
 const recording = '2026-10-16';
@@ -17,11 +17,13 @@ const evidence: PodcastEvidence[] = Array.from({ length: 6 }, (_, i) => ({
 const topics: PodcastTopic[] = evidence.map((e, i) => ({
   title: `Enterprise topic ${i + 1}`, synopsis: 'What happened.', angle: 'An enterprise decision.',
   relevance: ['Changes procurement.', 'Changes adoption.'], sourceIds: [e.id],
+  showThreadId: i === 0 ? 'show-1' : null, showThread: i === 0 ? 'Agents need an HR-style owner; the new release makes that owner mandatory.' : '',
   points: Array.from({ length: i === 0 ? 6 : i === 1 ? 4 : 2 }, () => ({ text: 'Evidence-backed point.', evidenceIds: [e.id] })),
   priorCoverage: 'EP44: earlier discussion.', change: 'A new dated announcement changes the earlier conclusion.',
   handoff: 'Ask David about architectural consequences.', conclusion: 'Check the operational model.', question: 'Who owns the decision?',
 }));
-const prepared = { proposal: { topics, warnings: [] }, evidence, warnings: [] };
+const archive: ShowEpisode[] = [{ id: 'show-1', title: 'What Would HR Do With an AI Agent?', date: '2026-10-06', thesis: 'Treat agents like staff.' }];
+const prepared = { proposal: { topics, warnings: [] }, evidence, warnings: [], archive };
 
 async function fixture(): Promise<{ memory: PGlite; db: Pool }> {
   const memory = new PGlite();
@@ -63,7 +65,7 @@ test('an explicitly documented Monday release resolves to Friday without rewriti
 });
 
 test('six ranked topics have progressively lighter depth, dated links, reserves, and prior coverage', () => {
-  const parsed = parsePodcastProposal(JSON.stringify({ topics, warnings: [] }), evidence);
+  const parsed = parsePodcastProposal(JSON.stringify({ topics, warnings: [] }), evidence, archive);
   assert.equal(parsed.topics.length, 6);
   assert.deepEqual(parsed.topics.slice(0, 3).map((t) => t.points.length), [6, 4, 2]);
   const markdown = renderPodcastBrief(recording, { ...prepared, proposal: parsed }, now);
@@ -71,11 +73,15 @@ test('six ranked topics have progressively lighter depth, dated links, reserves,
   assert.match(markdown, /https:\/\/example.com\/news\/1/);
   assert.match(markdown, /EP44/);
   assert.match(markdown, /\(reserve\)/);
-  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], sourceIds: ['invented'] }], warnings: [] }), evidence), /unknown news source/);
-  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [topics[0], topics[0]], warnings: [] }), evidence), /distinct/);
-  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], points: [] }], warnings: [] }), evidence), /depth/);
-  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], points: [{ text: 'Invented point', evidenceIds: [] }] }], warnings: [] }), evidence), /lacks/);
+  assert.match(markdown, /Continues Cloudy thread:\*\* "What Would HR Do With an AI Agent\?" \(2026-10-06\)/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], sourceIds: ['invented'] }], warnings: [] }), evidence, archive), /unknown news source/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [topics[0], topics[0]], warnings: [] }), evidence, archive), /distinct/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], points: [] }], warnings: [] }), evidence, archive), /depth/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], points: [{ text: 'Invented point', evidenceIds: [] }] }], warnings: [] }), evidence, archive), /lacks/);
   assert.match(parsePodcastProposal(JSON.stringify({ topics: [], warnings: [] }), []).warnings[0]!, /incomplete/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], showThreadId: '' }], warnings: [] }), evidence, archive), /lead topic must continue/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], showThreadId: 'show-99' }], warnings: [] }), evidence, archive), /unknown Cloudy episode/);
+  assert.throws(() => parsePodcastProposal(JSON.stringify({ topics: [{ ...topics[0], showThread: '' }], warnings: [] }), evidence, archive), /empty field/);
   assert.equal(isFreshEvidence('2026-10-14', new Date('2026-10-06'), now), true);
   assert.equal(isFreshEvidence('2026-10-01', new Date('2026-10-06'), now), false);
   assert.equal(isFreshEvidence('unknown', new Date('2026-10-06'), now), false);
@@ -184,14 +190,24 @@ test('failed research is visible and rescheduled recordings cannot publish into 
   } finally { await memory.close(); }
 });
 
-test('podcast research prioritises Microsoft-related news over newer generic news', () => {
+test('podcast research ranks Cloudy-lane Microsoft AI news first and drops off-lane Microsoft news', () => {
   const generic = { title: 'Startup raises funding for AI agents', url: 'https://example.com/a', date: '2026-10-14T10:00:00Z', text: 'General industry news' };
   const msText = { title: 'New enterprise agent pricing', url: 'https://example.com/b', date: '2026-10-12T10:00:00Z', text: 'Microsoft 365 Copilot licensing changes' };
   const msHost = { title: 'Announcing new capabilities', url: 'https://azure.microsoft.com/blog/x', date: '2026-10-11T10:00:00Z', text: '' };
+  const chips = { title: 'Powering Azure infrastructure from grid to chip', url: 'https://azure.microsoft.com/blog/y', date: '2026-10-15T10:00:00Z', text: 'Datacentre power and racks.' };
+  const governance = { title: 'Microsoft publishes agent accountability guidance', url: 'https://blogs.microsoft.com/z', date: '2026-10-08T10:00:00Z', text: 'Copilot agents need governance, oversight and audit.' };
   assert.equal(isMicrosoftRelevant(generic), false);
   assert.equal(isMicrosoftRelevant(msText), true);
   assert.equal(isMicrosoftRelevant(msHost), true);
-  assert.deepEqual(rankPodcastCandidates([generic, msHost, msText]).map((c) => c.url), [msText.url, msHost.url, generic.url]);
+  assert.equal(showLaneScore(chips), 0);
+  assert.equal(showLaneScore(msHost), 0);
+  assert.ok(showLaneScore(governance) > showLaneScore(generic));
+  assert.equal(isNewsItem({ title: 'AZ-900 Microsoft Azure Fundamentals', url: 'https://www.spoclearn.com/us/course/az-900-training' }), false);
+  assert.equal(isNewsItem({ title: 'GitHub Copilot app for Beginners', url: 'https://github.blog/ai/copilot-beginners' }), false);
+  assert.equal(isNewsItem({ title: 'Agents overview', url: 'https://learn.microsoft.com/en-us/copilot/agents' }), false);
+  assert.equal(isNewsItem(governance), true);
+  assert.deepEqual(rankPodcastCandidates([generic, chips, msHost, msText, governance]).map((c) => c.url),
+    [governance.url, msText.url, generic.url, chips.url, msHost.url]);
 });
 
 test('article reader uses the longest article region, not a byline card', () => {
