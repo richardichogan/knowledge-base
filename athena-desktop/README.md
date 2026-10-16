@@ -17,21 +17,13 @@ npm run start:local  # against the local web dev server on :5173
 npm test
 ```
 
-## Build a signed installer
-
-The code-signing certificate is self-signed and lives in Key Vault `kv-athena-desktop` (`rg-knowledge-hub-prod`). Install it on the build PC once:
-
-```
-powershell -File scripts\install-signing-cert.ps1
-```
-
-This puts the private key in CurrentUser\My and trusts the certificate on this PC (Windows asks you to confirm the root certificate: choose Yes). Then:
+## Build the installer
 
 ```
 npm run dist       # release\Athena Setup <version>.exe
 ```
 
-On other PCs the installer shows "Unknown publisher" unless the certificate is trusted there too.
+The installer is unsigned. Windows SmartScreen shows "Windows protected your PC": choose **More info → Run anyway**.
 
 ## Release (auto-update)
 

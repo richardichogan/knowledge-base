@@ -33,11 +33,8 @@
     "win": {
       "target": ["nsis"],
       "icon": "assets/icon.png",
-      "signtoolOptions": {
-        "sign": "./scripts/sign.cjs",
-        "publisherName": "Richard Hogan (Athena Desktop)",
-        "signingHashAlgorithms": ["sha256"]
-      }
+      "signExecutable": false,
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": false,
