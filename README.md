@@ -417,6 +417,17 @@ post moves it to **Published**, matching **Copy URL**; it does not post to Linke
 Generating/closing drafts, failed clipboard copies and copying Inbox emails do
 not change workflow state. Failed workflow updates are shown with a retry option.
 
+**Post to Bluesky** (Discover articles, **Bluesky / X** format) publishes the
+edited copy plus the original link directly to Bluesky, with clickable links and
+a link card (the article's `og:image` as thumbnail when available). It asks for
+confirmation, is limited to Bluesky's 300 characters, moves the article to
+**Published**, records the post URL on the article and blocks posting the same
+article twice. Inbox emails are never posted. It needs `BLUESKY_APP_PASSWORD`
+(a Bluesky app password, never the account password; in production an ACA
+secret) and optionally `BLUESKY_IDENTIFIER` (default `richardihogan.bsky.social`).
+Without the password the button is hidden and copy-and-paste still works.
+Tests: `node --import tsx/esm --test scripts\bluesky.test.ts`.
+
 Browser alerts and confirmations use Athena's styled in-app dialogs throughout
 the web app, with focus trapping, Escape dismissal and Cancel as the initial
 focus for destructive actions.

@@ -11,7 +11,8 @@ import { discoverRankSql } from '../integrations/cms/discoverRank.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
 import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
-import { NotFoundError, ValidationError } from '../types/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
+import { blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
 
 export const discoverRouter = Router();
 
@@ -71,6 +72,7 @@ const DISCOVER_PAGE_SIZE_DEFAULT = 50;
 const DISCOVER_PAGE_SIZE_MAX = 100;
 const DISCOVER_ENUM_MAX_LENGTH = 32;
 const BLOG_RELATED_SOURCE_CHARS = 2000;
+const BLUESKY_REQUEST_MAX_CHARS = 2000;
 const DISCOVER_FILTER_MAX_LENGTH = 256;
 const ASCII_SPACE = 32;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -96,8 +98,9 @@ discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: N
         res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid Discover item ID' } });
         return;
       }
-      const { rows } = await getDb().query<LinkedInSource>(
-        `SELECT title, body, source, url FROM content_items WHERE id = $1 AND source IN ('email', 'discovered-article')`,
+      const { rows } = await getDb().query<LinkedInSource & { bluesky_post_url: string | null }>(
+        `SELECT title, body, source, url, metadata->'blueskyPost'->>'url' AS bluesky_post_url
+         FROM content_items WHERE id = $1 AND source IN ('email', 'discovered-article')`,
         [id],
       );
       const source = rows[0];
@@ -109,7 +112,37 @@ discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: N
         res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'This source has no content to draft from.' } });
         return;
       }
-      res.json({ success: true, data: await (format === 'short' ? generateShortSocialDraft(source) : generateLinkedInDraft(source)) });
+      const draft = await (format === 'short' ? generateShortSocialDraft(source) : generateLinkedInDraft(source));
+      res.json({ success: true, data: { ...draft, blueskyConfigured: blueskyConfigured(), blueskyPostUrl: source.bluesky_post_url } });
+    } catch (err) { next(err); }
+  })();
+});
+
+// Posts the reviewed quick-social copy plus the original article link to Bluesky, then files the article as Published.
+discoverRouter.post('/:id/bluesky-post', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const id = req.params['id'];
+      if (!id || !UUID.test(id)) throw new ValidationError('Invalid Discover item ID');
+      const copy = (req.body as { post?: unknown } | undefined)?.post;
+      if (typeof copy !== 'string' || copy.length > BLUESKY_REQUEST_MAX_CHARS) throw new ValidationError('Post text is required.');
+      const { rows } = await getDb().query<{ title: string; body: string; url: string | null; bluesky_post_url: string | null }>(
+        `SELECT title, body, url, metadata->'blueskyPost'->>'url' AS bluesky_post_url
+         FROM content_items WHERE id = $1 AND source = 'discovered-article'`, [id],
+      );
+      const item = rows[0];
+      if (!item) throw new NotFoundError('Discover article');
+      if (item.bluesky_post_url) throw new ConflictError(`This article is already on Bluesky: ${item.bluesky_post_url}`, 'BLUESKY_ALREADY_POSTED');
+      const link = sourceUrl(item.url);
+      const description = item.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      const posted = await postToBluesky(copy, link ? { url: link, title: item.title, description } : null);
+      await getDb().query(
+        `UPDATE content_items SET workflow_state = 'published',
+           metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('blueskyPost', jsonb_build_object('url', $2::text, 'uri', $3::text, 'postedAt', NOW()))
+         WHERE id = $1`,
+        [id, posted.url, posted.uri],
+      );
+      res.json({ success: true, data: posted });
     } catch (err) { next(err); }
   })();
 });

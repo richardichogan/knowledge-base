@@ -81,6 +81,9 @@
   &__url { margin-top: 10px; font-size: 12px; }
   &__status { margin: 12px 0 0; color: var(--cds-text-secondary); line-height: 1.6; }
   &__error { margin: 12px 0 0; color: #ffb3b8; line-height: 1.6; }
+  &__status a { display: inline-flex; align-items: center; gap: 6px; color: var(--kh-accent); }
+  &__status a:hover { text-decoration: underline; }
+  &__status a:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 3px; }
 }
 .dc-action--linkedin { color: var(--kh-accent); background: transparent; border: 1px solid var(--kh-accent-border); }
 .dc-action--linkedin:hover:not(:disabled) { background: var(--kh-accent-bg); border-color: var(--kh-accent-border); }

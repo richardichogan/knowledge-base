@@ -17,9 +17,10 @@
     "graph:backfill": "node --import tsx/esm scripts/backfill-nodes.ts"
   },
   "dependencies": {
-    "@blocknote/server-util": "0.47.3",
+    "@atproto/api": "^0.27.0",
     "@azure/identity": "^4.4.1",
     "@azure/storage-blob": "^12.24.0",
+    "@blocknote/server-util": "0.47.3",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@opentelemetry/api": "^1.9.0",

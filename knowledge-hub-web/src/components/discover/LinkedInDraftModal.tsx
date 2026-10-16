@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Checkmark, Launch, Renew } from '@carbon/icons-react';
+import { Copy, Checkmark, Launch, Renew, Send } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
+import { confirmDialog } from '../../services/appDialogs';
 import { AppDialog } from '../AppDialog';
-import { SHORT_POST_LIMIT, socialLength } from './socialLength';
+import { BLUESKY_POST_LIMIT, SHORT_POST_LIMIT, blueskyLength, socialLength } from './socialLength';
 
 export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClose: () => void }> = ({ itemId, title, onClose }) => {
   const queryClient = useQueryClient();
@@ -14,6 +15,8 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
   const [markedPublished, setMarkedPublished] = useState(false);
   const [format, setFormat] = useState<'linkedin' | 'short'>('linkedin');
   const [edits, setEdits] = useState<Partial<Record<'linkedin' | 'short', string>>>({});
+  const [posting, setPosting] = useState(false);
+  const [blueskyUrl, setBlueskyUrl] = useState<string | null>(null);
   const draft = useQuery({
     queryKey: ['discover-linkedin-draft', itemId, format],
     queryFn: async () => {
@@ -29,6 +32,35 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
   useEffect(() => { setCopied(false); setCopyError(null); }, [draft.data, draft.dataUpdatedAt, format, edits]);
   const length = socialLength(post, draft.data?.sourceUrl ?? null);
   const tooLong = format === 'short' && length > SHORT_POST_LIMIT;
+  const postedUrl = blueskyUrl ?? draft.data?.blueskyPostUrl ?? null;
+  const canPostBluesky = format === 'short' && draft.data?.sourceKind === 'discovered-article' && draft.data.blueskyConfigured === true;
+  const tooLongForBluesky = blueskyLength(post, draft.data?.sourceUrl ?? null) > BLUESKY_POST_LIMIT;
+  const busy = saving || posting;
+
+  function markPublished(): void {
+    setMarkedPublished(true);
+    void queryClient.invalidateQueries({ queryKey: ['discover'] });
+    void queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
+  }
+
+  async function postToBluesky(): Promise<void> {
+    if (!post.trim() || tooLongForBluesky) return;
+    const ok = await confirmDialog('Post this to Bluesky as @richardihogan.bsky.social now, with the original article link? The article will move to Published.',
+      { title: 'Post to Bluesky', confirmLabel: 'Post now' });
+    if (!ok) return;
+    setPosting(true);
+    setCopyError(null);
+    try {
+      const result = await api.postDiscoverToBluesky(itemId, post.trim());
+      if (!result.success) throw new Error(result.error?.message ?? 'Could not post to Bluesky.');
+      setBlueskyUrl(result.data.url);
+      markPublished();
+    } catch (error) {
+      setCopyError(`Not posted to Bluesky. ${describeApiError(error)}`);
+    } finally {
+      setPosting(false);
+    }
+  }
 
   async function copy(): Promise<void> {
     if (tooLong) { setCopyError('Shorten the post before copying: the copy and original URL exceed 280 characters.'); return; }
@@ -47,9 +79,7 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
       try {
         const result = await api.updateDiscoverWorkflow(itemId, 'published');
         if (!result.success) throw new Error(result.error?.message ?? 'Could not update the article.');
-        setMarkedPublished(true);
-        void queryClient.invalidateQueries({ queryKey: ['discover'] });
-        void queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
+        markPublished();
       } catch (error) {
         setCopyError(`Post copied, but the article could not be moved to Published. Copy again to retry. ${describeApiError(error)}`);
       }
@@ -59,20 +89,26 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
 
   return <AppDialog title="Socials" wide onClose={onClose}
     actions={<>
-      <button type="button" className="kh-dialog__button" disabled={saving} onClick={onClose}>Close</button>
-      <button type="button" className="kh-dialog__button" disabled={draft.isFetching || saving}
+      <button type="button" className="kh-dialog__button" disabled={busy} onClick={onClose}>Close</button>
+      <button type="button" className="kh-dialog__button" disabled={draft.isFetching || busy}
         onClick={() => { setEdits(current => ({ ...current, [format]: undefined })); void draft.refetch(); }}>
         <Renew size={16} /> {draft.isFetching ? 'Writing...' : 'Generate again'}
       </button>
+      {canPostBluesky && <button type="button" className="kh-dialog__button"
+        disabled={!post.trim() || tooLongForBluesky || postedUrl !== null || draft.isFetching || draft.isError || busy}
+        title={postedUrl ? 'Already posted to Bluesky' : undefined}
+        onClick={() => { void postToBluesky(); }}>
+        {postedUrl ? <Checkmark size={16} /> : <Send size={16} />} {posting ? 'Posting...' : postedUrl ? 'On Bluesky' : 'Post to Bluesky'}
+      </button>}
       <button type="button" className="kh-dialog__button kh-dialog__button--primary"
-        disabled={!post.trim() || tooLong || draft.isFetching || draft.isError || saving} onClick={() => { void copy(); }}>
+        disabled={!post.trim() || tooLong || draft.isFetching || draft.isError || busy} onClick={() => { void copy(); }}>
         {copied ? <Checkmark size={16} /> : <Copy size={16} />} {copied ? 'Copied' : 'Copy post + link'}
       </button>
     </>}>
     <p className="dc-linkedin__source-title">{title}</p>
     <div className="dc-linkedin__formats" role="group" aria-label="Social post format">
-      <button type="button" disabled={saving} aria-pressed={format === 'linkedin'} onClick={() => { setFormat('linkedin'); }}>LinkedIn</button>
-      <button type="button" disabled={saving} aria-pressed={format === 'short'} onClick={() => { setFormat('short'); }}>Bluesky / X</button>
+      <button type="button" disabled={busy} aria-pressed={format === 'linkedin'} onClick={() => { setFormat('linkedin'); }}>LinkedIn</button>
+      <button type="button" disabled={busy} aria-pressed={format === 'short'} onClick={() => { setFormat('short'); }}>Bluesky / X</button>
     </div>
     {draft.isFetching && <p className="dc-linkedin__status" role="status">Athena is writing a short post with one enterprise IT observation where relevant...</p>}
     {draft.isError && <p className="dc-linkedin__error" role="alert">{describeApiError(draft.error)}</p>}
@@ -84,6 +120,9 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
         {length} / {SHORT_POST_LIMIT} characters including URL and paragraph breaks (conservative X weighting).
         {tooLong ? ' Shorten the copy to enable Copy.' : ' Fits both Bluesky and X.'}
       </p>}
+      {format === 'short' && draft.data.sourceKind === 'discovered-article' && draft.data.blueskyConfigured !== true && <p className="dc-linkedin__status">
+        Direct posting to Bluesky is not set up on this server (BLUESKY_APP_PASSWORD).
+      </p>}
       <div className="dc-linkedin__source">
         {draft.data.sourceUrl
           ? <a href={draft.data.sourceUrl} target="_blank" rel="noreferrer"><Launch size={16} /> Open original {draft.data.sourceKind === 'email' ? 'email' : 'article'}</a>
@@ -93,6 +132,10 @@ export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClo
       {draft.data.sourceUrl && <input className="dc-linkedin__url" aria-label="Original source link" value={draft.data.sourceUrl} readOnly />}
     </>}
     {copyError && <p className="dc-linkedin__error" role="alert">{copyError}</p>}
-    {copied && <p className="dc-linkedin__status" role="status">Copied with paragraph breaks.{markedPublished ? ' Article moved to Published, just like Copy URL.' : ''} Nothing has been posted to social media.</p>}
+    {copied && <p className="dc-linkedin__status" role="status">Copied with paragraph breaks.{markedPublished ? ' Article moved to Published, just like Copy URL.' : ''}{postedUrl ? '' : ' Nothing has been posted to social media.'}</p>}
+    {format === 'short' && postedUrl && <p className="dc-linkedin__status" role="status">
+      {blueskyUrl ? 'Posted to Bluesky. Article moved to Published. ' : 'This article is already on Bluesky. '}
+      <a href={postedUrl} target="_blank" rel="noreferrer"><Launch size={16} /> View on Bluesky</a>
+    </p>}
   </AppDialog>;
 };

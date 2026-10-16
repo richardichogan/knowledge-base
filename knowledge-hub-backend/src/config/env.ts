@@ -176,6 +176,10 @@ export const env = {
   // Blog publishing (themicrosoftcloudblog.com posts API)
   BLOG_POSTS_API_KEY: optional('BLOG_POSTS_API_KEY'),
   BLOG_POSTS_URL: optionalWithDefault('BLOG_POSTS_URL', 'https://themicrosoftcloudblog.com/api/v1/posts/'),
+  /** Bluesky account used by Discovery "Post to Bluesky"; posting is disabled when the app password is unset. */
+  BLUESKY_IDENTIFIER: optionalWithDefault('BLUESKY_IDENTIFIER', 'richardihogan.bsky.social'),
+  BLUESKY_APP_PASSWORD: optional('BLUESKY_APP_PASSWORD'),
+  BLUESKY_SERVICE: optionalWithDefault('BLUESKY_SERVICE', 'https://bsky.social'),
 
   // SMTP (newsletter via SMTP2GO)
   SMTP_HOST: optionalWithDefault('SMTP_HOST', 'mail.smtp2go.com'),

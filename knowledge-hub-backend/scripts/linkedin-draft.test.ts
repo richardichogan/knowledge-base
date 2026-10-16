@@ -120,7 +120,10 @@ test('draft endpoint handles article/email, missing content, invalid IDs and AI 
       source = { ...source, source: kind };
       const res = await fetch(`${url}/${id}/linkedin-draft`, { method: 'POST' });
       assert.equal(res.status, 200);
-      assert.deepEqual(await res.json(), { success: true, data: { post: `${summary}\n\n${observation}`, sourceUrl: source.url, sourceKind: kind } });
+      const body = await res.json() as { success: boolean; data: Record<string, unknown> };
+      assert.equal(typeof body.data['blueskyConfigured'], 'boolean');
+      delete body.data['blueskyConfigured'];
+      assert.deepEqual(body, { success: true, data: { post: `${summary}\n\n${observation}`, sourceUrl: source.url, sourceKind: kind } });
     }
     const calls = queries.length;
     const invalidFormat = await fetch(`${url}/${id}/linkedin-draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"format":"invalid"}' });

@@ -1,4 +1,11 @@
 export const SHORT_POST_LIMIT = 280;
+export const BLUESKY_POST_LIMIT = 300;
+
+/** Bluesky counts graphemes of the full text, which here is the copy, a blank line and the link. */
+export function blueskyLength(post: string, url: string | null): number {
+  const text = [post.trim(), url].filter(Boolean).join('\n\n');
+  return [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(text)].length;
+}
 
 export function socialLength(post: string, url: string | null): number {
   const weight = (value: string): number => Array.from(value.normalize('NFC')).reduce((total, character) => {
