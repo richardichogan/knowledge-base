@@ -12,6 +12,18 @@ blog and Athena storage configuration remains unchanged. No infrastructure,
 RBAC or schema changes. Do not publish a live Bluesky post during verification.
 Rollback: backend v205 and frontend source `c190ae7`.
 
+**Deployment result (2026-10-16, Discovery Bluesky):** ACR run `ca6g`
+built v206 from `main` release `cfaad72`, digest
+`sha256:cc10a8d9142ae45d090ba70d0a9929ff2fe7fd90408a02977fbc713a9b3a90a5`.
+Revision `kh-prod-api-vnet--0000203` is Healthy / RunningAtMaxScale with
+100% traffic; startup migrations completed and 8/8 DB connections are ready.
+Bluesky uses `BLUESKY_APP_PASSWORD=secretref:bluesky-app-password`.
+Authentication verified as `richardihogan.bsky.social` without publishing.
+SWA production deployed successfully; both production domains return HTTP 200,
+serve `/assets/index-DrLFqa7G.js` and the byte-matching Bluesky action chunk
+`appBootstrap-BOioxC6F.js`. Athena storage remains `khprodr6mgdnys`;
+no blog integration or storage configuration was changed.
+
 **Current approved release (2026-10-16, Athena storage migration):** User
 explicitly requested immediate migration of Athena data only to the current
 subscription and prohibited touching blog content. Target:
