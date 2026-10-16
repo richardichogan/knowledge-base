@@ -5,12 +5,18 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { FolderRegistry, folderContaining, guardPath, localKey, type LocalFolder } from '../src/folders';
 import { readText, writeText } from '../src/fileAccess';
-import { classifyUrl, isAthenaFrame } from '../src/navigation';
+import { classifyUrl, isAthenaFrame, launchMode } from '../src/navigation';
 import { Scanner } from '../src/scanner';
 
 const ORIGIN = 'https://athena.example.com';
 
 describe('navigation', () => {
+  it('launches standalone chat only when the chat shortcut is requested', () => {
+    assert.equal(launchMode(['Athena.exe']), 'workspace');
+    assert.equal(launchMode(['Athena.exe', '--chat']), 'chat');
+    assert.equal(launchMode(['electron.exe', '.', '--chat']), 'chat');
+    assert.equal(launchMode(['Athena.exe', '--chatty']), 'workspace');
+  });
   it('keeps Athena pages in the app and sends other sites to the browser', () => {
     assert.equal(classifyUrl('https://athena.example.com/chat?x=1', ORIGIN), 'athena');
     assert.equal(classifyUrl('https://login.microsoftonline.com/common/oauth2', ORIGIN), 'sign-in');

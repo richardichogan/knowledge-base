@@ -2,6 +2,22 @@
 
 A Windows app (Electron) that opens the hosted Athena site and gives it access to folders you choose on this PC.
 
+## Full app and standalone chat
+
+The installer adds two shortcuts to Start and, when desktop shortcuts are enabled, your desktop:
+
+- **Athena** opens the full workspace.
+- **Athena Chat** opens `/chat`, the same standalone chat interface used by the PWA, without the workspace sidebar/navigation.
+
+Both can be open together. Use the **Athena** menu to open either experience
+(`Ctrl+Shift+C` for chat, `Ctrl+Shift+H` for the full app). Reopening a shortcut
+focuses its existing window without reloading it or replacing its draft.
+The windows share the desktop sign-in, stored chat state, and approved local folders.
+The existing browser/PWA is unchanged; its browser sign-in and local draft storage
+remain separate from Electron's.
+
+Version 0.1.2 adds the standalone chat shortcut and window.
+
 - **Index**: files in your chosen folders (PDF, Word, PowerPoint, Excel, CSV, Markdown, text) are uploaded to your Athena library and kept in sync while the app is open. Files that can't be indexed are listed under "N files not indexed" in Documents → Folders on this PC, with the reason.
 - **Read**: in chat, Athena can read files in those folders (`read_local_file`).
 - **Write**: Athena can propose a change to a file (`propose_local_file_write`). It appears in chat as a diff; nothing is written until you click Apply. If the file changed on disk since the diff was shown, Apply stops and shows the new diff.
@@ -13,6 +29,7 @@ Only the folders you add are reachable. Paths are checked after resolving symlin
 ```
 npm install
 npm start          # against production (https://athena.themicrosoftcloudblog.com)
+npm run start:chat # the standalone /chat experience
 npm run start:local  # against the local web dev server on :5173
 npm test
 npm run test:navigation  # actual Electron sign-in POST and callback regression

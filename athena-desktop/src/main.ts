@@ -1,18 +1,21 @@
 /** Athena Desktop: the Athena site in its own window, plus access to folders the user chooses on this PC. */
-import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { watch, type FSWatcher } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { FolderRegistry, guardPath, type LocalFolder } from './folders';
 import { readFileBytes, readText, writeText } from './fileAccess';
-import { classifyUrl, isAthenaFrame } from './navigation';
+import { classifyUrl, isAthenaFrame, launchMode, type LaunchMode } from './navigation';
 import { isIndexable, Scanner } from './scanner';
 
 const ATHENA_URL = process.env.ATHENA_URL ?? 'https://athena.themicrosoftcloudblog.com';
 const ATHENA_ORIGIN = new URL(ATHENA_URL).origin;
 
 let mainWindow: BrowserWindow | null = null;
+let chatWindow: BrowserWindow | null = null;
+let readyToOpen = false;
+const pendingLaunches = new Set<LaunchMode>([launchMode(process.argv)]);
 let registry: FolderRegistry;
 const scanner = new Scanner();
 const watchers = new Map<string, FSWatcher>();
@@ -21,10 +24,10 @@ let changeTimer: NodeJS.Timeout | null = null;
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow === null) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+  app.on('second-instance', (_event, commandLine) => {
+    const mode = launchMode(commandLine);
+    if (readyToOpen) openExperience(mode);
+    else pendingLaunches.add(mode);
   });
   app.whenReady().then(start).catch((err: unknown) => {
     dialog.showErrorBox('Athena could not start', err instanceof Error ? err.message : String(err));
@@ -38,13 +41,46 @@ async function start(): Promise<void> {
   await registry.load();
   registerIpc();
   watchFolders(await registry.folders());
-  mainWindow = createWindow(ATHENA_URL);
-  mainWindow.on('closed', () => { mainWindow = null; });
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: 'Athena',
+      submenu: [
+        { id: 'open-chat', label: 'Open Athena Chat', accelerator: 'CmdOrCtrl+Shift+C', click: () => { openExperience('chat'); } },
+        { id: 'open-workspace', label: 'Open full app', accelerator: 'CmdOrCtrl+Shift+H', click: () => { openExperience('workspace'); } },
+        { type: 'separator' },
+        { role: 'close' },
+        { role: 'quit' },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+  ]));
+  readyToOpen = true;
+  for (const mode of pendingLaunches) openExperience(mode);
+  pendingLaunches.clear();
   if (app.isPackaged) {
     autoUpdater.checkForUpdatesAndNotify().catch((err: unknown) => {
       console.error('Update check failed:', err);
     });
   }
+}
+
+function openExperience(mode: LaunchMode): BrowserWindow {
+  const existing = mode === 'chat' ? chatWindow : mainWindow;
+  if (existing !== null && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.focus();
+    return existing;
+  }
+  const win = createWindow(mode === 'chat' ? new URL('/chat', ATHENA_ORIGIN).href : ATHENA_URL);
+  if (mode === 'chat') {
+    chatWindow = win;
+    win.on('closed', () => { chatWindow = null; });
+  } else {
+    mainWindow = win;
+    win.on('closed', () => { mainWindow = null; });
+  }
+  return win;
 }
 
 function athenaPreferences(): Electron.WebPreferences {
@@ -65,7 +101,7 @@ function createWindow(url: string): BrowserWindow {
     minHeight: 500,
     title: 'Athena',
     icon: join(__dirname, '..', 'assets', 'icon.png'),
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,
     webPreferences: athenaPreferences(),
   });
   guardContents(win.webContents);

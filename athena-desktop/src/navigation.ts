@@ -8,6 +8,12 @@ const SIGN_IN_HOSTS = new Set([
 
 export type WindowOpenDecision = 'athena' | 'sign-in' | 'blank' | 'external' | 'deny';
 
+export type LaunchMode = 'workspace' | 'chat';
+
+export function launchMode(args: readonly string[]): LaunchMode {
+  return args.includes('--chat') ? 'chat' : 'workspace';
+}
+
 export function classifyUrl(url: string, athenaOrigin: string): WindowOpenDecision {
   if (url === '' || url === 'about:blank') return 'blank';
   let parsed: URL;
