@@ -38,6 +38,15 @@ citations. Existing blog paths are deliberately unchanged. Original Athena
 copies remain untouched in the source account for recovery; deletion/purge has
 not been performed. No frontend deployment or installer update is needed.
 
+**Independent re-verification (2026-10-16):** Re-ran the read-only
+`scripts/migrate-athena-storage.mjs verify` against production (secrets from ACA
+secret refs, not printed). Exit 0. kb-documents 119/119 (433,818,139 bytes),
+kb-images 160/160 (112,339,219 bytes), chat-screens 23/23 (6,503,212 bytes), all
+SHA-256 matched; 222 signed downloads OK; anonymous access denied; 0 old search
+citations; 0 old Athena DB references; `cmsChanged=false`. Backend
+`tsc --noEmit` clean; storage tests 3/3 + 3/3 pass. Live revision
+`kh-prod-api-vnet--0000202` (v205) Healthy at 100% traffic.
+
 **Current approved release (2026-10-16):** User requested deployment of the
 standard diagram arrow shape, matching 380 px Properties/Athena panels, an IBM
 Carbon colour subset, and bold/italic shape and connector descriptions. The
