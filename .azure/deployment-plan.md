@@ -12,6 +12,16 @@ certificates, secrets, role assignments or authentication permissions will be
 created or modified. The Windows installer remains unsigned. Rollback backend:
 `cad79107555facr.azurecr.io/kh-prod-api:v201`; frontend source: `a22bccb`.
 
+**Deployment result (2026-10-16):** ACR run `ca6c` succeeded for v202
+(digest `sha256:0162d50a48c50c06650841b7adb158d77383cd769cd0f3cd8a39a1f60de4f74a`).
+Revision `kh-prod-api-vnet--0000199` is Healthy / RunningAtMaxScale with 100%
+traffic. Startup logs report migration complete and 8/8 DB connections ready.
+SWA production deployment succeeded; the custom domain returns HTTP 200 and
+serves `/assets/index-CJ1xhpKh.js`, matching the locally validated build.
+The existing unsigned Windows installer is available in
+`athena-desktop\release\Athena Setup 0.1.0.exe`. No certificate or permission
+changes were made during this deployment.
+
 **Live baseline:** Backend `kh-prod-api:v200` was running on revision
 `kh-prod-api-vnet--0000197` in the existing production subscription when this
 release was validated. No infrastructure, secret or role changes are planned.
