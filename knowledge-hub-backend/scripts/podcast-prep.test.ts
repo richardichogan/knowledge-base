@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { articleProse } from '../src/utils/articleReading.js';
 import { getSchedule } from '../src/ai/contentSchedule.js';
 import { acknowledgePodcastPrep, claimPodcastPrep, generatePodcastPrep, getPodcastPrepStatus, podcastPrepDue, podcastRecordingDate } from '../src/ai/podcastPrep.js';
-import { isFreshEvidence, isMicrosoftRelevant, mapPodcastResearch, parsePodcastProposal, rankPodcastCandidates, readPodcastSource, isNewsItem, showLaneScore, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic, type ShowEpisode } from '../src/ai/podcastPrepResearch.js';
+import { isFreshEvidence, isMicrosoftRelevant, mapPodcastResearch, parsePodcastProposal, rankPodcastCandidates, selectPodcastSources, readPodcastSource, isNewsItem, showLaneScore, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic, type ShowEpisode } from '../src/ai/podcastPrepResearch.js';
 
 const now = new Date('2026-10-15T06:00:00Z');
 const recording = '2026-10-16';
@@ -222,6 +222,21 @@ test('podcast research ranks Cloudy-lane Microsoft AI news first and drops off-l
     [ranked.url, lowerRanked.url, governance.url, generic.url], 'Ranked Discover articles lead in-lane Microsoft web hits, highest rank first');
   const brief = renderPodcastBrief(recording, { ...prepared, evidence: evidence.map((e, i) => i === 0 ? { ...e, discoverRank: 82.4 } : e) }, now);
   assert.match(brief, /Discover rank 82\.4/);
+  assert.match(brief, /web news search/);
+});
+
+test('podcast sources mix Discover and web news search instead of Discover filling every slot', () => {
+  const item = (url: string, discoverRank?: number) => ({ title: 'Microsoft Copilot governance update', url, date: '2026-10-14', text: '',
+    ...(discoverRank !== undefined ? { discoverRank } : {}) });
+  const discover = Array.from({ length: 20 }, (_, i) => item(`https://example.com/d/${i}`, 90 - i));
+  const web = Array.from({ length: 3 }, (_, i) => item(`https://example.com/w/${i}`));
+  const dupe = item('https://example.com/d/5');
+  const picked = selectPodcastSources([...discover, ...web, dupe], 8, () => true);
+  assert.equal(picked.length, 8);
+  assert.deepEqual(picked.filter((c) => c.discoverRank === undefined).map((c) => c.url), web.map((w) => w.url), 'every web source is kept');
+  assert.deepEqual(picked.filter((c) => c.discoverRank !== undefined).map((c) => c.discoverRank), [90, 89, 88, 87, 86], 'Discover fills the rest in rank order');
+  assert.equal(selectPodcastSources([dupe, discover[5]!], 8, () => true)[0]!.discoverRank, 85, 'a URL found by both keeps its Discover rank');
+  assert.equal(selectPodcastSources(web, 8, () => true).length, 3, 'web alone still works');
 });
 
 test('article reader uses the longest article region, not a byline card', () => {

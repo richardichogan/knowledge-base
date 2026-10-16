@@ -213,6 +213,10 @@ as configured, not verified/connected. The authenticated
 
 ## Thursday podcast preparation
 
+News sources come from two places with equal weight: the Discover list (in its
+ranked order) and web news search. Source slots alternate between the two, so
+neither fills the brief alone, and each source link says where it came from.
+
 Athena prepares a shortlist at 07:00 Europe/London on the Thursday immediately
 before a scheduled Friday recording. The existing podcast schedule and "Podcast
 Record" calendar override remain authoritative; off-weeks do not generate a
