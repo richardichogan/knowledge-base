@@ -13,13 +13,14 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
-import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
+import { BlobSASPermissions, generateBlobSASQueryParameters } from '@azure/storage-blob';
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
 import { HTTP_STATUS, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, OCR_MAX_POLLS, OCR_POLL_INTERVAL_MS, IMAGE_SAS_EXPIRY_YEARS, BLOB_UPLOAD_TIMEOUT_MS } from '../config/constants.js';
 import { BlobStorageError, ValidationError } from '../types/index.js';
 import { analyzeImageWithVision } from '../services/visionAnalyzer.js';
 import type { ApiSuccess, PaginatedList, KnowledgeImage } from '../types/index.js';
+import { getAthenaStorage } from '../services/athenaStorage.js';
 
 const router = Router();
 
@@ -124,14 +125,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
     const imageId = randomUUID();
     const blobName = imageId;
 
-    // Build blob client from account name + key directly (no connection string).
-    const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
-    const accountKey = env.AZURE_STORAGE_ACCOUNT_KEY;
-    if (accountName === undefined || accountKey === undefined) {
-      throw new BlobStorageError('config', 'AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY must be set');
-    }
-    const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
-    const service = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, sharedKeyCredential);
+    const { service, credential: sharedKeyCredential } = getAthenaStorage();
     console.log('[images] Built blob service client');
     const container = service.getContainerClient(KB_IMAGES_CONTAINER);
     const blockBlob = container.getBlockBlobClient(blobName);

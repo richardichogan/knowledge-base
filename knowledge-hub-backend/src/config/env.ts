@@ -56,6 +56,10 @@ export const env = {
   CMS_BLOB_CONTAINER: optionalWithDefault('CMS_BLOB_CONTAINER', 'blogcontent'),
   CMS_POSTS_PREFIX: optionalWithDefault('CMS_POSTS_PREFIX', 'posts/'),
 
+  // Athena files are separate from the CMS account; never fall back to its credentials.
+  ATHENA_STORAGE_ACCOUNT_NAME: optional('ATHENA_STORAGE_ACCOUNT_NAME'),
+  ATHENA_STORAGE_ACCOUNT_KEY: optional('ATHENA_STORAGE_ACCOUNT_KEY'),
+
   // Frontend base URL — used to build deep links back into the app (e.g. a
   // task link in an AI chat reply) so responses can point at the actual
   // Knowledge Hub record instead of just naming it in plain text.

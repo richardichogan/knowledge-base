@@ -5,8 +5,8 @@
  * totals, filters and comparisons are computed rather than estimated.
  */
 import type { Pool } from 'pg';
-import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { env } from '../config/env.js';
+import { getAthenaStorage } from '../services/athenaStorage.js';
 
 const DOCUMENTS_CONTAINER = 'kb-documents';
 export const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'csv']);
@@ -45,10 +45,7 @@ function filesEndpoint(): { url: string; key: string } | null {
 }
 
 async function downloadDocument(blobPath: string): Promise<Buffer> {
-  const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
-  const accountKey = env.AZURE_STORAGE_ACCOUNT_KEY;
-  if (!accountName || !accountKey) throw new Error('Blob storage is not configured');
-  const service = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, new StorageSharedKeyCredential(accountName, accountKey));
+  const { service } = getAthenaStorage();
   return service.getContainerClient(DOCUMENTS_CONTAINER).getBlockBlobClient(blobPath).downloadToBuffer();
 }
 

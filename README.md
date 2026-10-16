@@ -841,8 +841,10 @@ against the UUID-backed image table.
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_SECRET` | Secret for signing/verifying JWT tokens |
-| `AZURE_BLOB_ACCOUNT_URL` | Blob storage account URL (Managed Identity auth) |
-| `AZURE_STORAGE_CONNECTION_STRING` | Local dev fallback for blob auth |
+| `AZURE_BLOB_ACCOUNT_URL` | CMS/blog storage account URL (Managed Identity auth); not used for Athena files |
+| `AZURE_STORAGE_CONNECTION_STRING` | CMS/blog blob authentication; not used for Athena files |
+| `ATHENA_STORAGE_ACCOUNT_NAME` | Dedicated Athena storage account for `kb-documents`, `kb-images` and `chat-screens`; production: `khprodr6mgdnys` in Alliance Tenant Reporting |
+| `ATHENA_STORAGE_ACCOUNT_KEY` | Dedicated Athena account key; use a Container Apps secret reference. No fallback to CMS credentials |
 | `AZURE_OPENAI_ENDPOINT` | Azure AI Foundry endpoint |
 | `AZURE_OPENAI_API_KEY` | Azure AI Foundry API key |
 | `AZURE_OPENAI_DEPLOYMENT_GPT4O` | GPT-4o deployment name |

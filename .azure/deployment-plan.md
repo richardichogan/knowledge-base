@@ -2,6 +2,25 @@
 
 **Status:** Validated
 
+**Current approved release (2026-10-16, Athena storage migration):** User
+explicitly requested immediate migration of Athena data only to the current
+subscription and prohibited touching blog content. Target:
+`khprodr6mgdnys`, `rg-knowledge-hub-prod`, UK South, subscription
+`Alliance Tenant Reporting` (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`),
+tenant `740bc3aa-5daf-42f6-939a-b2d007a60d26`.
+Only `kb-documents`, `kb-images` and `chat-screens` are copied and SHA-256
+verified. New `ATHENA_STORAGE_ACCOUNT_NAME` / `ATHENA_STORAGE_ACCOUNT_KEY`
+configuration isolates Athena from unchanged CMS credentials. Source objects,
+source keys, `blogcontent`, `images`, blog posts and CMS configuration must not
+be changed or deleted. Existing backend v204 advances to v205 using the existing
+Azure CLI / ACR deployment runbook; no infrastructure or RBAC changes and no
+frontend changes. After cutover, repeat the Athena-only copy for any final
+writes, transactionally replace only verified Athena URLs in Athena records,
+then update only user-upload search citations. Verify private destination
+containers, healthy revision, SHA-256 equality and no old Athena URL references.
+Existing signed-link lifetimes are preserved; this is not a general SAS policy
+change. Originals remain available for recovery; never rotate their keys.
+
 **Current approved release (2026-10-16):** User requested deployment of the
 standard diagram arrow shape, matching 380 px Properties/Athena panels, an IBM
 Carbon colour subset, and bold/italic shape and connector descriptions. The
@@ -308,6 +327,32 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Athena-only storage isolation — 2026-10-16 13:32 BST
+
+- `az account show`: confirmed subscription
+  `c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28` and tenant
+  `740bc3aa-5daf-42f6-939a-b2d007a60d26`; target account resource ID is
+  inside `rg-knowledge-hub-prod` in that subscription.
+- Destination account: public blob access disabled, HTTPS-only, TLS 1.2.
+  Destination keys were read into process memory only; no role changes.
+- Read-only source inventory, strictly limited to Athena containers:
+  `kb-documents`: 119 blobs / 433,818,139 bytes; `kb-images`: 160 /
+  112,339,219 bytes; `chat-screens`: 23 / 6,503,212 bytes.
+- `node --import tsx/esm scripts/migrate-athena-storage.mjs inventory`
+  identified Athena-only URL references in reviewed Athena tables. CMS
+  metadata contains blog paths and is excluded by the container allowlist.
+- `node --import tsx/esm --test scripts/athena-storage.test.ts
+  scripts/athena-storage-migration.test.mjs`: 6/6 passed, including no CMS
+  credential fallback and unchanged blog/other-account URLs.
+- `npx tsc --noEmit` passed in both applications. Backend `npm run build`
+  passed. Dockerfile/package-lock unchanged; ACR builds the same validated
+  application using the established GitHub source build.
+- `git fetch origin`: no incoming changes. `git diff --check`: passed.
+- Bicep/what-if/provisioning/RBAC validation not applicable: existing
+  resources and registry permissions are unchanged. Only the Athena-specific
+  secret and environment variables are added. Cutover remains gated on
+  copying and verifying Athena blobs.
 
 ### Standard diagram enhancements — 2026-10-16
 

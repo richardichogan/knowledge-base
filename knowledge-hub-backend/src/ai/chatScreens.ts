@@ -7,8 +7,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import { BlobServiceClient, StorageSharedKeyCredential, type ContainerClient } from '@azure/storage-blob';
-import { env } from '../config/env.js';
+import type { ContainerClient } from '@azure/storage-blob';
+import { getAthenaStorage } from '../services/athenaStorage.js';
 import { analyzeImageWithVision, reviewScreensWithVision, type ScreenImage } from '../services/visionAnalyzer.js';
 
 const CONTAINER = 'chat-screens';
@@ -55,10 +55,7 @@ let containerPromise: Promise<ContainerClient> | null = null;
 
 function container(): Promise<ContainerClient> {
   containerPromise ??= (async () => {
-    const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
-    const accountKey = env.AZURE_STORAGE_ACCOUNT_KEY;
-    if (!accountName || !accountKey) throw new Error('Blob storage is not configured');
-    const service = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, new StorageSharedKeyCredential(accountName, accountKey));
+    const { service } = getAthenaStorage();
     const client = service.getContainerClient(CONTAINER);
     await client.createIfNotExists(); // private: no public access
     return client;

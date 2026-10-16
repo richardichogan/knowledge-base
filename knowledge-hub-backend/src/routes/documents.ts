@@ -14,13 +14,12 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
-import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
+import { BlobSASPermissions, generateBlobSASQueryParameters, type ContainerClient } from '@azure/storage-blob';
 import { GitHubClient } from '../integrations/github/githubClient.js';
 import { canonicalContentSql } from '../db/contentVisibility.js';
 import { getDb } from '../db/db.js';
-import { env } from '../config/env.js';
 import { HTTP_STATUS, IMAGE_SAS_EXPIRY_YEARS, BLOB_UPLOAD_TIMEOUT_MS } from '../config/constants.js';
-import { ValidationError, BlobStorageError } from '../types/errors.js';
+import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { loadConceptTags, invalidateConceptTagCache } from '../services/taxonomyService.js';
 import { FoundryClient } from '../ai/foundryClient.js';
@@ -29,6 +28,7 @@ import { addChatFile, SPREADSHEET_EXTENSIONS } from '../ai/chatFiles.js';
 import { upsertContentItem } from '../db/queries.js';
 import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import { findLocalDocument, listLocalIndex, localSourceId, parseLocalUploadFields, removeLocalDocuments } from '../services/localDocuments.js';
+import { getAthenaStorage } from '../services/athenaStorage.js';
 
 /** Blob container for uploaded user documents (docx/xlsx/pptx/pdf/md). */
 const KB_DOCUMENTS_CONTAINER = 'kb-documents';
@@ -780,13 +780,7 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
       const project = await resolveProject(db, req.body['projectId'], req.body['projectName']);
 
       // Upload the original file to blob storage (same pattern as images.ts).
-      const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
-      const accountKey = env.AZURE_STORAGE_ACCOUNT_KEY;
-      if (accountName === undefined || accountKey === undefined) {
-        throw new BlobStorageError('config', 'AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY must be set');
-      }
-      const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
-      const service = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, sharedKeyCredential);
+      const { service, credential: sharedKeyCredential } = getAthenaStorage();
       const container = service.getContainerClient(KB_DOCUMENTS_CONTAINER);
       await container.createIfNotExists();
 
@@ -911,13 +905,8 @@ router.post('/local-index/remove', (req: Request, res: Response, next: NextFunct
   })();
 });
 
-function documentsContainer(): ReturnType<BlobServiceClient['getContainerClient']> {
-  const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
-  const accountKey = env.AZURE_STORAGE_ACCOUNT_KEY;
-  if (accountName === undefined || accountKey === undefined) {
-    throw new BlobStorageError('config', 'AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY must be set');
-  }
-  const service = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, new StorageSharedKeyCredential(accountName, accountKey));
+function documentsContainer(): ContainerClient {
+  const { service } = getAthenaStorage();
   return service.getContainerClient(KB_DOCUMENTS_CONTAINER);
 }
 
