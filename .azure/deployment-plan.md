@@ -1,13 +1,16 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Current deployment:** Microsoft-focused podcast preparation (`18fb98f`),
-approved 2026-10-15 at 13:41 BST. Backend-only update from v198 to v199 using
-the existing production subscription, ACR and Container App in UK South.
-Backend v199 is live on healthy revision `kh-prod-api-vnet--0000196` with
-100% production traffic. Frontend, infrastructure, migrations, secrets and roles are unchanged.
-Rollback: `cad79107555facr.azurecr.io/kh-prod-api:v198`.
+**Live baseline:** Backend `kh-prod-api:v200` was running on revision
+`kh-prod-api-vnet--0000197` in the existing production subscription when this
+release was validated. No infrastructure, secret or role changes are planned.
+
+**Validated release:** commits `c052399` and `f6cd8e5` are pushed to the feature
+branch and `main`. Backend image `kh-prod-api:v201` has been built from `main`
+and is ready for deployment. The release adds discovery sources and scoring
+updates, changes podcast preparation to a conversational response, and includes
+migration 078. Rollback: `cad79107555facr.azurecr.io/kh-prod-api:v200`.
 
 **Deployment:** AI flow / governance diagram type (`d5e6ea0`) deployed
 2026-10-15. Backend `kh-prod-api:v198` and matching frontend are live on the
@@ -267,6 +270,24 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+Validated 2026-10-16 for podcast/discovery release `c052399` / `f6cd8e5`:
+
+- `git fetch origin` and `git merge --ff-only origin/main`: up to date.
+- Backend and frontend `npx tsc --noEmit` and `npm run build`: passed.
+- `node scripts/run-isolated-tests.mjs`: 125 passed, 0 failed.
+- Azure CLI authentication and production ACA/ACR/SWA reads passed in
+  `Alliance Tenant Reporting`; current backend baseline was v200 on revision
+  `kh-prod-api-vnet--0000197`.
+- ACR run `ca6b` successfully built and pushed `kh-prod-api:v201` from main
+  commit `f6cd8e59655aeff9ee5ac6b99effeda6d0fa5ed2`, digest
+  `sha256:9fdf5388f5afa928a2fec403f986a2457f52720a9fd80495f7d4ae0e1a25e3e9`.
+  The Docker build copied source migrations into the image.
+- Browser automation was unavailable because this host has no configured
+  Chromium executable (`TODAY_BROWSER_PATH`). The full browser-fixture
+  TypeScript check also reports existing type errors in unrelated
+  data-reliability, navigation and Today fixtures; the production frontend
+  typecheck/build and isolated regression suite passed.
 
 Deployed 2026-10-15 for Microsoft-focused podcast preparation:
 
