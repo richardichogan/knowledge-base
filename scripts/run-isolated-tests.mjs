@@ -38,6 +38,7 @@ const tests = frontend ? [
   'scripts/diagram-drilldown.test.ts',
   'scripts/canvas-recycle-bin.test.ts',
   'scripts/ai-flow.test.ts',
+  'scripts/local-documents.test.ts',
 ];
 // Do not inherit local integration credentials or let dotenv load application settings.
 const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'COMSPEC', 'PATHEXT']);

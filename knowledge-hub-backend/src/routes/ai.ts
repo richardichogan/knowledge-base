@@ -20,6 +20,7 @@ import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type 
 import { memoriesCreatedSince } from '../ai/athenaMemory.js';
 import type { NoteEditProposal } from '../ai/noteEdits.js';
 import type { MapChangeProposal } from '../ai/mapEdits.js';
+import { parseLocalFolders, type LocalFileWriteProposal } from '../ai/localFiles.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
 import { createNoteRecord } from './notes.js';
 import { env } from '../config/env.js';
@@ -52,6 +53,7 @@ export interface ChatTurnResult {
   noteEditsFor: string | null;
   mapChanges: MapChangeProposal[];
   mapChangesFor: string | null;
+  localFileWrites: LocalFileWriteProposal[];
   /** Outputs saved or revised this turn (chips on the reply, opening the Outputs panel). */
   outputsChanged: Array<{ id: string; title: string; version: number }>;
   /** The saved reply's id (for "Ask another model"). */
@@ -65,7 +67,7 @@ export interface ChatTurnResult {
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
 export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}): Promise<ChatTurnResult> {
   hooks.signal?.throwIfAborted();
-  const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview, outputsPanel } = reqBody as {
+  const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview, outputsPanel, localFolders: requestedLocalFolders } = reqBody as {
     sessionId?: string;
     message?: string;
     model?: 'standard' | 'light' | 'reasoning';
@@ -77,6 +79,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     screenReview?: { mode?: 'journey' | 'focus'; screenIds?: string[] };
     /** False when the view has no Outputs panel (Think, floating chat, mobile). */
     outputsPanel?: boolean;
+    /** Folders on his PC that Athena Desktop has access to (absent in the browser). */
+    localFolders?: unknown;
   };
   if (outputsPanel === false) hooks = { ...hooks, noOutputsPanel: true };
 
@@ -163,6 +167,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const toolsUsed = new Set<string>();
   const noteEdits: NoteEditProposal[] = [];
   const mapChanges: MapChangeProposal[] = [];
+  const localFileWrites: LocalFileWriteProposal[] = [];
+  const localFolders = parseLocalFolders(requestedLocalFolders);
   const openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
   const contextUsed = emptyContextUsed();
   // Show Notes works from a whole transcript over several turns (and revisions afterwards), so the document it
@@ -176,7 +182,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const modelReply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
-    { noteId: openNoteId, noteEdits, mapChanges },
+    { noteId: openNoteId, noteEdits, mapChanges, localFolders, localFileWrites },
     { ...hooks, contextUsed },
   );
   hooks.signal?.throwIfAborted();
@@ -255,6 +261,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       noteEdits, noteEditsFor: noteEdits.length > 0 ? openNoteId ?? null : null,
       // Proposed changes to the open mind map, applied on "Apply".
     mapChanges, mapChangesFor: mapChanges.length > 0 && openNoteId?.startsWith('map:') === true ? openNoteId.slice('map:'.length) : null,
+      // Proposed writes to files on his PC, applied by Athena Desktop on "Apply".
+      localFileWrites,
   };
 }
 

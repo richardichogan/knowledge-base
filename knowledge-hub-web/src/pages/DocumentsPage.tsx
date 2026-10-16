@@ -25,6 +25,8 @@ import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { useAthenaContext } from '../context/AthenaContext';
 import { SideTabsPanel } from '../components/SideTabsPanel';
 import { OneDriveStatus } from '../components/library/OneDriveStatus';
+import { LocalFoldersPanel } from '../components/library/LocalFoldersPanel';
+import { desktopErrorMessage, getDesktop } from '../types/desktop';
 import { ThinkAthenaPanel } from '../notes/ThinkAthenaPanel';
 import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
@@ -293,6 +295,7 @@ export const DocumentsPage: React.FC = () => {
       </div>
 
       <OneDriveStatus />
+      <LocalFoldersPanel />
 
       {/* ── Three-panel body ── */}
       <div className="docs-body">
@@ -393,6 +396,7 @@ export const DocumentsPage: React.FC = () => {
                         <span className="docs-type-badge">{TYPE_LABEL[doc.type]}</span>
                       </div>
                       <div className="docs-list-item__meta">
+                        {doc.localPath !== undefined && <span className="docs-local-badge" title={doc.localPath}>Local</span>}
                         <span className="docs-list-item__size">{formatBytes(doc.size)}</span>
                       </div>
                     </button>
@@ -511,7 +515,29 @@ export const DocumentsPage: React.FC = () => {
               </div>
             )}
 
-            {!selectedDocIsOneDrive && (
+            {selectedDoc.localPath !== undefined && (
+              <div className="docs-info-panel__section">
+                <p className="docs-info-panel__label">On {selectedDoc.deviceName ?? 'this PC'}</p>
+                <code className="docs-info-panel__path">{selectedDoc.localPath}</code>
+                {getDesktop() !== null && (
+                  <button
+                    type="button"
+                    className="docs-info-panel__local-open"
+                    onClick={() => {
+                      const desktop = getDesktop();
+                      if (desktop === null || selectedDoc.localPath === undefined) return;
+                      desktop.showInFolder(selectedDoc.localPath).catch((err: unknown) => {
+                        void alertDialog(desktopErrorMessage(err), { title: 'Could not show the file', tone: 'danger' });
+                      });
+                    }}
+                  >
+                    Show in folder
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!selectedDocIsOneDrive && selectedDoc.localPath === undefined && (
             <div className="docs-info-panel__section">
               <p className="docs-info-panel__label">Path</p>
               <code className="docs-info-panel__path">{selectedDoc.path}</code>

@@ -31,3 +31,7 @@ scripts/migrate-data-to-prod.sh
 scripts/.env.deploy
 
 node_modules_backup/
+
+# Athena Desktop build output
+athena-desktop/build/
+athena-desktop/release/

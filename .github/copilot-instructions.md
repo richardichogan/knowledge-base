@@ -46,6 +46,7 @@ Production is deployed to Azure Container Apps (backend) + Azure Static Web Apps
 | Frontend static web app | `kh-prod-web` | `rg-knowledge-hub-prod` | `Alliance Tenant Reporting` |
 | Main Azure OpenAI (gpt-4o / gpt-4o-mini deployments — `gpt-4o` deployment slot is actually mapped to a `gpt-5.4` model) | `open-msft-alliance-reporting-res` | `rgAllianceReporting` | `Alliance Tenant Reporting` |
 | GPT-5.5 Azure OpenAI (brainstorming persona only) | `imagine-dev-temp-resource` | `rg-imagine-claims-dev-temp` | `sub-ibmc-projImagine-dev` (different subscription — `az account set` before touching it) |
+| Athena Desktop code-signing cert (`athena-desktop-signing`, self-signed) | `kv-athena-desktop` | `rg-knowledge-hub-prod` | `Alliance Tenant Reporting` |
 
 ### Pre-deploy sync (always first)
 
@@ -86,3 +87,17 @@ npm run build
 $token = az staticwebapp secrets list --name kh-prod-web --resource-group rg-knowledge-hub-prod --query "properties.apiKey" -o tsv
 npx --yes @azure/static-web-apps-cli deploy ./dist --deployment-token $token --env production
 ```
+
+### Athena Desktop release (Electron, `athena-desktop/`)
+
+The desktop app loads the hosted site, so web/backend changes reach it through the normal deploys above. Only rebuild it when `athena-desktop/` changes. Bump `version` in `athena-desktop/package.json` first; installed copies auto-update from the GitHub release.
+
+```
+cd athena-desktop
+npm test
+powershell -File scripts\install-signing-cert.ps1   # once per PC; puts the Key Vault cert in CurrentUser\My
+npm run dist                                         # signed installer in release\
+$env:GH_TOKEN = gh auth token; npm run release       # publishes the GitHub release for auto-update
+```
+
+Never commit the certificate or anything under `athena-desktop/release/`.

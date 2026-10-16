@@ -24,6 +24,7 @@ import { getCanvas } from '../services/canvasService.js';
 import { buildCanvasContext } from '../services/canvasContent.js';
 import { findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../services/diagramContext.js';
 import type { MapChangeProposal } from './mapEdits.js';
+import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
 import { looksLikeMeetingList, importMeetingList, buildTodayScheduleBlock } from '../integrations/ibm/ibmMeetings.js';
 
 
@@ -62,7 +63,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'remember', 'forget_memory', 'save_output', ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -90,7 +91,10 @@ export async function handleConversationTurn(
   /** Called with each tool name the model invokes — lets the caller report the reply's sources. */
   onToolCall?: (toolName: string) => void,
   /** Per-turn tool context: the open Think note, and a collector for proposed edits to it. */
-  toolContext: { noteId?: string | undefined; noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[] } = {},
+  toolContext: {
+    noteId?: string | undefined; noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[];
+    localFolders?: LocalFolder[]; localFileWrites?: LocalFileWriteProposal[];
+  } = {},
   /** Live turn hooks (background turns): streamed text, activity lines, Stop, a longer time budget. */
   hooks: TurnHooks = {},
 ): Promise<string> {
@@ -192,7 +196,8 @@ export async function handleConversationTurn(
     used.screens = (screensBlock.match(/^### /gm) ?? []).length;
   }
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
-  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock].filter((b) => b !== '').join('\n\n---\n\n');
+  const localFolders = toolContext.localFolders ?? [];
+  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
@@ -214,7 +219,7 @@ export async function handleConversationTurn(
 
   const client = getFoundryClient('chat').scoped({ persona, sessionId });
   hooks.onActivity?.('Loading tools');
-  const allTools = await getToolDefinitions();
+  const allTools = [...await getToolDefinitions(), ...(localFolders.length > 0 ? LOCAL_FILE_TOOLS : [])];
   hooks.signal?.throwIfAborted();
   const briefOnly = isImagineDemoBriefRequest(persona, userMessage);
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;

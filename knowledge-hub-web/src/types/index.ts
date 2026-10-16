@@ -32,6 +32,7 @@ export type {
   SavedMemory,
   NoteEdit,
   MapChange,
+  LocalFileWrite,
   ChatTurnEvent,
   SessionTurnState,
   OutputChange,

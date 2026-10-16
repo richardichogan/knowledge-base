@@ -46,7 +46,7 @@ import {
   COMPOSER_ACTION_LABELS, stripActionDirective, conversationProjectId } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi, ContextUsedApi } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, LocalFileWrite, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi, ContextUsedApi } from '../types';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
@@ -55,6 +55,8 @@ import { RememberedNotice } from '../components/athena/RememberedNotice';
 import { ReplyFeedback } from '../components/athena/ReplyFeedback';
 import { NoteEditCard } from '../components/athena/NoteEditCard';
 import { MapChangeCard } from '../components/athena/MapChangeCard';
+import { LocalFileWriteCard } from '../components/athena/LocalFileWriteCard';
+import { desktopErrorMessage, getDesktop } from '../types/desktop';
 import { briefingSeenToday, markBriefingSeen } from '../utils/morningBriefing';
 import { PERSONAS, getPersona } from '../components/athena/personas';
 
@@ -783,7 +785,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         onText: (liveText) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, text: liveText })); },
       };
       try {
-        const result = resumeTurnId !== undefined
+        // In Athena Desktop, Athena may read and propose changes to the folders he chose on this PC.
+      const desktop = getDesktop();
+      let localFolders: Array<{ name: string; path: string }> = [];
+      if (desktop !== null && resumeTurnId === undefined) {
+        try {
+          localFolders = (await desktop.listFolders()).map((f) => ({ name: f.name, path: f.path }));
+        } catch (err) {
+          throw new Error(`Could not read the folders on this PC: ${desktopErrorMessage(err)}`);
+        }
+      }
+      const result = resumeTurnId !== undefined
           ? await followChatTurn(resumeTurnId, handlers, signal)
           : await sendChatTurn(
           {
@@ -795,6 +807,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
             ...(screenReview !== undefined && { screenReview }),
             outputsPanel: standalone && !isMobile,
+            ...(localFolders.length > 0 && { localFolders }),
           },
           handlers,
           signal,
@@ -833,6 +846,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         noteEditsFor: result.data.noteEditsFor,
         mapChanges: result.data.mapChanges,
         mapChangesFor: result.data.mapChangesFor,
+        localFileWrites: result.data.localFileWrites,
         outputsChanged: result.data.outputsChanged,
         id: result.data.assistantMessageId,
         contextUsed: result.data.contextUsed,
@@ -1064,6 +1078,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       noteEditsFor?: string | null | undefined;
       mapChanges?: MapChange[] | undefined;
       mapChangesFor?: string | null | undefined;
+      localFileWrites?: LocalFileWrite[] | undefined;
       outputsChanged?: OutputChange[] | undefined;
       id?: string | undefined;
       contextUsed?: ContextUsedApi | undefined;
@@ -1081,6 +1096,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         ...(meta.memoriesCreated !== undefined && meta.memoriesCreated.length > 0 && { memoriesCreated: meta.memoriesCreated }),
         ...(meta.noteEdits !== undefined && meta.noteEdits.length > 0 && typeof meta.noteEditsFor === 'string' && { noteEdits: meta.noteEdits, noteEditsFor: meta.noteEditsFor }),
         ...(meta.mapChanges !== undefined && meta.mapChanges.length > 0 && typeof meta.mapChangesFor === 'string' && { mapChanges: meta.mapChanges, mapChangesFor: meta.mapChangesFor }),
+        ...(meta.localFileWrites !== undefined && meta.localFileWrites.length > 0 && { localFileWrites: meta.localFileWrites }),
         ...(meta.outputsChanged !== undefined && meta.outputsChanged.length > 0 && { outputsChanged: meta.outputsChanged }),
         ...(meta.id !== undefined && meta.id !== '' && { id: meta.id }),
         ...(meta.contextUsed !== undefined && { contextUsed: meta.contextUsed }),
@@ -2103,6 +2119,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               )}
               {msg.role === 'assistant' && msg.mapChanges !== undefined && msg.mapChangesFor !== undefined && (
                 <MapChangeCard changes={msg.mapChanges} mapId={msg.mapChangesFor} />
+              )}
+              {msg.role === 'assistant' && msg.localFileWrites !== undefined && (
+                <LocalFileWriteCard writes={msg.localFileWrites} />
               )}
               {msg.role === 'assistant' && msg.outputsChanged !== undefined && (
                 <div className="ai-output-chips">

@@ -13326,6 +13326,145 @@ $interactive:      #0f62fe;
 
 .onedrive-status .kb-import-btn { text-decoration: none; padding: 4px 12px; }
 
+// ── Library: folders on this PC (Athena Desktop) ─────────────────────────────
+.local-folders {
+  margin: -0.5rem 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+  font-size: 0.8125rem;
+  color: var(--cds-text-secondary);
+
+  &--error { border-color: rgba(255, 131, 137, 0.45); }
+
+  .kb-import-btn { padding: 4px 12px; }
+}
+
+.local-folders__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.local-folders__dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #ff8389;
+
+  &--ok { background: #42be65; }
+  &--busy { background: #f1c21b; animation: local-folders-pulse 1.2s ease-in-out infinite; }
+}
+
+@keyframes local-folders-pulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .local-folders__dot--busy { animation: none; }
+}
+
+.local-folders__label { color: var(--cds-text-primary); font-weight: 600; }
+.local-folders__detail { min-width: 0; }
+.local-folders__spacer { flex: 1; }
+
+.local-folders__issues {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #f1c21b;
+  font: inherit;
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+}
+
+.local-folders__error { margin: 0.5rem 0 0; color: #ff8389; }
+.local-folders__empty { margin: 0.5rem 0 0; max-width: 72ch; }
+
+.local-folders__list,
+.local-folders__problems {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.local-folders__problems {
+  max-height: 14rem;
+  overflow-y: auto;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--cds-border-subtle-01);
+}
+
+.local-folders__folder,
+.local-folders__problem {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.local-folders__problem { color: var(--cds-text-secondary); }
+.local-folders__problem--error { color: #ff8389; }
+
+.local-folders__name { flex: none; color: var(--cds-text-primary); }
+
+.local-folders__path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--cds-code-01-font-family, 'IBM Plex Mono', monospace);
+  font-size: 0.75rem;
+  color: var(--cds-text-secondary);
+}
+
+.local-folders__remove {
+  flex: none;
+  padding: 0 0.25rem;
+  border: 0;
+  background: none;
+  color: var(--cds-link-primary);
+  font: inherit;
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+}
+
+.docs-local-badge {
+  display: inline-block;
+  margin-left: 0.375rem;
+  padding: 0 0.375rem;
+  border: 1px solid rgba(66, 190, 101, 0.45);
+  border-radius: 0.25rem;
+  color: #42be65;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.docs-info-panel__local-open {
+  margin-top: 0.5rem;
+  padding: 4px 12px;
+  border: 1px solid var(--cds-border-strong-01);
+  background: transparent;
+  color: var(--cds-text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+
+  &:hover { background: var(--cds-layer-hover-01); }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+}
+
 // ── Athena: "Remembered" notice + reply feedback ─────────────────────────────
 .ai-remembered {
   display: flex;
@@ -14075,6 +14214,55 @@ fieldset.proj-modal-body {
 .note-edit-card__failed { margin: 0.5rem 0 0; color: #ff8389; font-size: 0.75rem; }
 .note-edit-card__actions { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.625rem; }
 .note-edit-card__hint { color: var(--cds-text-secondary); font-size: 0.75rem; }
+
+// ── Athena: proposed changes to files on his PC (Athena Desktop) ─────────────
+.local-write__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.local-write {
+  min-width: 0;
+
+  &--discarded { opacity: 0.6; }
+}
+
+.local-write__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-bottom: 0.25rem;
+}
+
+.local-write__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--cds-code-01-font-family, 'IBM Plex Mono', monospace);
+  font-size: 0.75rem;
+  color: var(--cds-text-primary);
+}
+
+.local-write__tag {
+  padding: 0 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--cds-layer-02);
+  color: #42be65;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.local-write__loading { margin: 0.375rem 0 0; color: var(--cds-text-secondary); font-size: 0.75rem; }
+.local-write__diff { margin-top: 0.375rem; max-height: 20rem; overflow-y: auto; }
+.local-write__fold { color: var(--cds-text-helper); font-style: italic; }
 
 // ── Mind maps (Think → Canvas) ───────────────────────────────────────────────
 .notes-editor-area--map { flex-direction: row; }

@@ -23,6 +23,7 @@ import { saveOutputVersion, getOutput } from './chatOutputs.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
 export { textToBlocks } from './markdownToNoteBlocks.js';
 import { FoundryClient, type LlmToolDefinition } from './foundryClient.js';
+import { executeLocalFileTool, LOCAL_FILE_TOOL_NAMES, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
 import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db/queries.js';
 import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
 import { canonicalContentSql } from '../db/contentVisibility.js';
@@ -652,6 +653,8 @@ export async function executeToolCall(
     excludedIds?: ReadonlySet<string>;
     /** Open mind map: outline alias (n1 …) → idea id, and a collector for proposed changes. */
     mapAliases?: Map<string, string> | undefined; mapCanvas?: CanvasFull | undefined; mapChanges?: MapChangeProposal[];
+    /** Folders on his PC (Athena Desktop) and a collector for proposed file writes. */
+    localFolders?: LocalFolder[]; localFileWrites?: LocalFileWriteProposal[];
   } = {},
 ): Promise<unknown> {
   let args: Record<string, unknown> = {};
@@ -671,6 +674,7 @@ export async function executeToolCall(
       : args;
 
   if (isAssetTool(name)) return executeAssetTool(db, name, contextualArgs, turn.noteId);
+  if (LOCAL_FILE_TOOL_NAMES.has(name)) return executeLocalFileTool(db, name, args, turn.localFolders ?? [], turn.localFileWrites);
 
   switch (name) {
     case 'get_discover_sources': return getDiscoverSources(db);

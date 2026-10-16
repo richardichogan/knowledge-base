@@ -44,6 +44,8 @@ export interface ChatRequest {
   screenReview?: { mode: 'journey' | 'focus'; screenIds?: string[] };
   /** False when this view has no Outputs panel (Think, the floating chat, mobile): deliverables go in the reply. */
   outputsPanel?: boolean;
+  /** Athena Desktop: the folders on his PC Athena may read and propose changes to. */
+  localFolders?: Array<{ name: string; path: string }>;
 }
 
 export interface ChatMessage {
@@ -68,6 +70,8 @@ export interface ChatMessage {
   mapChangesFor?: string;
   /** Outputs Athena saved or revised in this reply (chips that open the Outputs panel). */
   outputsChanged?: OutputChange[];
+  /** Changes Athena proposed to files on his PC (Athena Desktop; written on Apply). */
+  localFileWrites?: LocalFileWrite[];
   /** What the reply drew on (the "Used:" line). */
   contextUsed?: ContextUsedApi;
   /** Suggested next steps (buttons under the latest reply). */
@@ -159,6 +163,13 @@ export interface DecisionTracking {
   personaDefault: boolean;
 }
 
+/** A whole-file write Athena proposes for a file on his PC. */
+export interface LocalFileWrite {
+  path: string;
+  content: string;
+  summary: string;
+}
+
 /** One change Athena proposes to the open mind map (a summary plus the ops that make it). */
 export interface MapChange {
   summary: string;
@@ -227,6 +238,7 @@ export interface ChatResponse {
   noteEditsFor?: string | null;
   mapChanges?: MapChange[];
   mapChangesFor?: string | null;
+  localFileWrites?: LocalFileWrite[];
   outputsChanged?: OutputChange[];
   /** The saved reply's id (for "Ask another model"). */
   assistantMessageId?: string;

@@ -235,6 +235,18 @@ export interface DocEntry {
   size: number;
   tags: string[];
   taxonomyTagIds?: string[];
+  /** Files indexed by Athena Desktop: where the file lives on the PC. */
+  localPath?: string;
+  deviceName?: string;
+}
+
+/** One file Athena Desktop has indexed from a PC. */
+export interface LocalIndexEntry {
+  localKey: string;
+  localPath: string;
+  localHash: string;
+  contentItemId: string;
+  blobPath: string | null;
 }
 
 export interface AllianceStatus {
@@ -1524,6 +1536,36 @@ export class KnowledgeHubApi {
       },
     });
     return r.data;
+  }
+
+  // ─── Athena Desktop: local folders ───────────────────────────────────────
+
+  /** What has been indexed from one PC's folders. */
+  async getLocalIndex(deviceId: string): Promise<ApiResponse<LocalIndexEntry[]>> {
+    return (await this.client.get<ApiResponse<LocalIndexEntry[]>>('/api/documents/local-index', { params: { deviceId } })).data;
+  }
+
+  /** Indexes (or re-indexes) one file from a folder on this PC; unchanged files are skipped by the server. */
+  async uploadLocalDocument(
+    file: File,
+    local: { localKey: string; localPath: string; localHash: string; deviceName: string },
+  ): Promise<ApiResponse<{ contentItemId: string; filename: string; unchanged?: true }>> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('projectId', 'personal');
+    formData.append('localKey', local.localKey);
+    formData.append('localPath', local.localPath);
+    formData.append('localHash', local.localHash);
+    formData.append('deviceName', local.deviceName);
+    return (await this.client.post<ApiResponse<{ contentItemId: string; filename: string; unchanged?: true }>>(
+      '/api/documents/upload', formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: IMAGE_UPLOAD_TIMEOUT_MS },
+    )).data;
+  }
+
+  /** Removes indexed copies of files deleted on the PC or in folders no longer used. */
+  async removeLocalDocuments(localKeys: string[]): Promise<ApiResponse<{ removed: number }>> {
+    return (await this.client.post<ApiResponse<{ removed: number }>>('/api/documents/local-index/remove', { localKeys })).data;
   }
 
   // ─── Discover ─────────────────────────────────────────────────────────────

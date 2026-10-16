@@ -28,6 +28,7 @@ import { extractDocumentText } from '../integrations/github/documentExtractor.js
 import { addChatFile, SPREADSHEET_EXTENSIONS } from '../ai/chatFiles.js';
 import { upsertContentItem } from '../db/queries.js';
 import { indexContentItem } from '../ai/foundryIqIndexer.js';
+import { findLocalDocument, listLocalIndex, localSourceId, parseLocalUploadFields, removeLocalDocuments } from '../services/localDocuments.js';
 
 /** Blob container for uploaded user documents (docx/xlsx/pptx/pdf/md). */
 const KB_DOCUMENTS_CONTAINER = 'kb-documents';
@@ -83,6 +84,10 @@ export interface DocEntry {
   tags: string[];
   /** Taxonomy tag IDs assigned by the user */
   taxonomyTagIds: string[];
+  /** Where the file lives on the user's PC, for files indexed by Athena Desktop. */
+  localPath?: string;
+  /** The PC it was indexed from. */
+  deviceName?: string;
 }
 
 export interface DocumentContent {
@@ -344,12 +349,16 @@ router.get('/library', (_req: Request, res: Response, next: NextFunction): void 
             type: inferDocType(filename, false),
             repo: UPLOAD_REPO_SENTINEL,
             path: row.id,
-            sourceLabel: row.project_name ?? row.project_context ?? 'My Uploads',
+            sourceLabel: typeof metadata['localPath'] === 'string'
+              ? `On ${typeof metadata['deviceName'] === 'string' ? metadata['deviceName'] : 'my PC'}`
+              : row.project_name ?? row.project_context ?? 'My Uploads',
             projectId: row.project_context ?? 'personal',
             htmlUrl: row.html_url ?? '',
             size: row.body_bytes ?? 0,
             tags: row.project_context ? [row.project_context] : [],
             taxonomyTagIds: [],
+            ...(typeof metadata['localPath'] === 'string' && { localPath: metadata['localPath'] }),
+            ...(typeof metadata['deviceName'] === 'string' && { deviceName: metadata['deviceName'] }),
           });
           continue;
         }
@@ -745,6 +754,19 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
         return;
       }
 
+      // A file from a folder Athena Desktop indexes: unchanged files are skipped, changed ones replace their copy.
+      const local = parseLocalUploadFields(req.body as Record<string, unknown>);
+      const db = getDb();
+      const existingLocal = local !== null ? await findLocalDocument(db, local.localKey) : null;
+      if (local !== null && existingLocal !== null && existingLocal.localHash === local.localHash) {
+        const body: ApiSuccess<{ contentItemId: string; filename: string; unchanged: true }> = {
+          success: true,
+          data: { contentItemId: existingLocal.contentItemId, filename, unchanged: true },
+        };
+        res.status(HTTP_STATUS.OK).json(body);
+        return;
+      }
+
       const extraction = await extractDocumentText(file.buffer, filename);
       if (!extraction.text.trim()) {
         res.status(HTTP_STATUS.UNPROCESSABLE).json({
@@ -755,7 +777,6 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
       }
       const truncated = extraction.text.length > EXTRACTED_TEXT_MAX_CHARS;
       const text = truncated ? extraction.text.slice(0, EXTRACTED_TEXT_MAX_CHARS) : extraction.text;
-      const db = getDb();
       const project = await resolveProject(db, req.body['projectId'], req.body['projectName']);
 
       // Upload the original file to blob storage (same pattern as images.ts).
@@ -787,9 +808,10 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
       const blobUrl = `${blockBlob.url}?${sasToken}`;
 
       const title = requestedTitle || filename.replace(/\.[^.]+$/, '');
+      const sourceId = local !== null ? localSourceId(local.localKey) : blobId;
       const { id: contentItemId } = await upsertContentItem(db, {
         source: 'user-upload',
-        sourceId: blobId,
+        sourceId,
         title,
         summary: text.slice(0, 500),
         body: text,
@@ -802,16 +824,27 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
           contentType: file.mimetype ?? '',
           sizeBytes: file.buffer.length,
           projectName: project.name,
+          ...(local !== null && {
+            localKey: local.localKey,
+            localPath: local.localPath,
+            localHash: local.localHash,
+            deviceId: local.deviceId,
+            deviceName: local.deviceName,
+          }),
         },
         tags: [project.id],
       });
+      // The replaced version's file is no longer referenced.
+      if (existingLocal?.blobPath != null && existingLocal.blobPath !== blobName) {
+        await container.getBlockBlobClient(existingLocal.blobPath).deleteIfExists();
+      }
 
       // Best-effort: push straight into the Foundry IQ Search index so this
       // is searchable immediately rather than waiting on the next backfill.
       void indexContentItem({
         id: contentItemId,
         source: 'user-upload',
-        sourceId: blobId,
+        sourceId,
         title,
         summary: text.slice(0, 500),
         body: text,
@@ -842,5 +875,50 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
     }
   })();
 });
+
+/**
+ * GET /api/documents/local-index?deviceId=
+ * What Athena Desktop has indexed from one PC, so it can skip unchanged files and remove deleted ones.
+ */
+router.get('/local-index', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const entries = await listLocalIndex(getDb(), String(req.query['deviceId'] ?? ''));
+      const body: ApiSuccess<typeof entries> = { success: true, data: entries };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) { next(err); }
+  })();
+});
+
+/**
+ * POST /api/documents/local-index/remove
+ * Body: { localKeys: string[] } — files deleted on the PC or in a folder that is no longer indexed.
+ */
+router.post('/local-index/remove', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const localKeys = (req.body as { localKeys?: unknown }).localKeys;
+      if (!Array.isArray(localKeys) || localKeys.some((k) => typeof k !== 'string')) {
+        throw new ValidationError('localKeys must be an array of strings', { localKeys: 'invalid' });
+      }
+      const container = documentsContainer();
+      const removed = await removeLocalDocuments(getDb(), localKeys as string[], async (blobPath) => {
+        await container.getBlockBlobClient(blobPath).deleteIfExists();
+      });
+      const body: ApiSuccess<{ removed: number }> = { success: true, data: { removed } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) { next(err); }
+  })();
+});
+
+function documentsContainer(): ReturnType<BlobServiceClient['getContainerClient']> {
+  const accountName = env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = env.AZURE_STORAGE_ACCOUNT_KEY;
+  if (accountName === undefined || accountKey === undefined) {
+    throw new BlobStorageError('config', 'AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY must be set');
+  }
+  const service = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, new StorageSharedKeyCredential(accountName, accountKey));
+  return service.getContainerClient(KB_DOCUMENTS_CONTAINER);
+}
 
 export { router as documentsRouter };
