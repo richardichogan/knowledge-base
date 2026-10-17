@@ -218,7 +218,7 @@ test('AI flow evidence carries lanes, step metadata, connector types and governa
     fill: '#fff', stroke: '#000', textColor: '#000', fontSize: 14, assetId: null, ...over });
   const doc: DiagramDocument = { ...base, diagramType: 'ai-flow', nodes: [
     node({ id: 'lane', kind: 'swimlane', label: 'Agents', width: 600, height: 200, lane: { order: 1, owner: 'AI team' } }),
-    node({ id: 'step', label: 'Triage', parentId: 'lane', flow: { stepType: 'ai_agent_task', agent: { mode: 'autonomous', tools: ['CRM'] }, controls: { sensitivity: 'pii' } } }),
+    node({ id: 'step', label: 'Triage', parentId: 'lane', flow: { stepType: 'digital_worker', agent: { mode: 'autonomous', tools: ['CRM'] }, controls: { sensitivity: 'pii' } } }),
     node({ id: 'other', label: 'Review', parentId: 'lane', flow: { stepType: 'human_task' } }),
   ], edges: [{ id: 'e', sourceId: 'step', targetId: 'other', sourcePort: 'right', targetPort: 'left', route: 'orthogonal', waypoints: [],
     label: '', stroke: '#000', dashed: false, arrows: 'end', flow: { edgeType: 'primary_flow', interaction: 'human_handoff' } }] };

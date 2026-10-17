@@ -1,4 +1,5 @@
 import { ConfigurationError } from '../types/errors.js';
+import { credentialValue } from './credentialValues.js';
 
 /**
  * Typed, validated environment configuration.
@@ -47,6 +48,8 @@ export const env = {
 
   JWT_SECRET: optionalWithDefault('JWT_SECRET', 'dev-secret-change-in-production'),
   JWT_EXPIRES_IN: optionalWithDefault('JWT_EXPIRES_IN', '7d'),
+  /** Stable encryption key for saved connection credentials; defaults to the existing Graph client secret. */
+  CREDENTIAL_ENCRYPTION_KEY: optional('CREDENTIAL_ENCRYPTION_KEY'),
 
   // Azure Blob (CMS) — Managed Identity in production, conn string for local dev
   AZURE_BLOB_ACCOUNT_URL: optional('AZURE_BLOB_ACCOUNT_URL'),
@@ -67,7 +70,7 @@ export const env = {
 
   // Azure AI Foundry
   AZURE_OPENAI_ENDPOINT: integrationCredential('AZURE_OPENAI_ENDPOINT'),
-  AZURE_OPENAI_API_KEY: integrationCredential('AZURE_OPENAI_API_KEY'),
+  get AZURE_OPENAI_API_KEY() { return credentialValue('AZURE_OPENAI_API_KEY', optional('AZURE_OPENAI_API_KEY')) ?? integrationCredential('AZURE_OPENAI_API_KEY'); },
   AZURE_OPENAI_DEPLOYMENT_GPT4O: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT4O', 'gpt-4o'),
   AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT4O_MINI', 'gpt-4o-mini'),
   AZURE_OPENAI_API_VERSION: optionalWithDefault('AZURE_OPENAI_API_VERSION', '2024-08-01-preview'),
@@ -77,7 +80,7 @@ export const env = {
   // Optional: if unset, reasoning personas silently fall back to the default
   // model route rather than failing the request.
   AZURE_OPENAI_ENDPOINT_GPT54: optional('AZURE_OPENAI_ENDPOINT_GPT54'),
-  AZURE_OPENAI_API_KEY_GPT54: optional('AZURE_OPENAI_API_KEY_GPT54'),
+  get AZURE_OPENAI_API_KEY_GPT54() { return credentialValue('AZURE_OPENAI_API_KEY_GPT54', optional('AZURE_OPENAI_API_KEY_GPT54')); },
   AZURE_OPENAI_DEPLOYMENT_GPT54: optionalWithDefault('AZURE_OPENAI_DEPLOYMENT_GPT54', 'gpt-5.4'),
   // 'responses' for deployments (e.g. gpt-6-astra) that only accept tools via the Responses API.
   AZURE_OPENAI_GPT54_API: optionalWithDefault('AZURE_OPENAI_GPT54_API', 'chat'),
@@ -85,12 +88,12 @@ export const env = {
   AZURE_OPENAI_DEPLOYMENT_SCREEN_READ: optional('AZURE_OPENAI_DEPLOYMENT_SCREEN_READ'),
   /** Internal screenshot service (kh-prod-shot): renders pages / mock-ups to images for Athena. */
   SCREENSHOT_SERVICE_URL: optional('SCREENSHOT_SERVICE_URL'),
-  SCREENSHOT_SERVICE_KEY: optional('SCREENSHOT_SERVICE_KEY'),
+  get SCREENSHOT_SERVICE_KEY() { return credentialValue('SCREENSHOT_SERVICE_KEY', optional('SCREENSHOT_SERVICE_KEY')); },
 
   // Azure Speech (voice chat) — same pattern as client-demo's voiceProvider.ts.
   // The Azure AI Services multi-service key also covers the Speech REST API, so
   // AZURE_SPEECH_KEY falls back to AZURE_OPENAI_API_KEY when not set separately.
-  AZURE_SPEECH_KEY: optional('AZURE_SPEECH_KEY'),
+  get AZURE_SPEECH_KEY() { return credentialValue('AZURE_SPEECH_KEY', optional('AZURE_SPEECH_KEY')); },
   AZURE_SPEECH_REGION: optionalWithDefault('AZURE_SPEECH_REGION', 'uksouth'),
   AZURE_SPEECH_VOICE: optionalWithDefault('AZURE_SPEECH_VOICE', 'en-US-Harper:MAI-Voice-2'),
   // Used when the preferred voice above (MAI-Voice-2) isn't enabled on the resource.
@@ -101,7 +104,7 @@ export const env = {
   // endpoint + key are set it's the primary voice; Azure Speech is the fallback.
   /** Full audio/speech URL, e.g. https://<res>.openai.azure.com/openai/deployments/gpt-4o-mini-tts/audio/speech?api-version=2025-03-01-preview */
   AZURE_TTS_ENDPOINT: optional('AZURE_TTS_ENDPOINT'),
-  AZURE_TTS_API_KEY: optional('AZURE_TTS_API_KEY'),
+  get AZURE_TTS_API_KEY() { return credentialValue('AZURE_TTS_API_KEY', optional('AZURE_TTS_API_KEY')); },
   AZURE_TTS_VOICE: optionalWithDefault('AZURE_TTS_VOICE', 'nova'),
   AZURE_TTS_INSTRUCTIONS: optionalWithDefault(
     'AZURE_TTS_INSTRUCTIONS',
@@ -143,19 +146,19 @@ export const env = {
 
   // GitLab
   GITLAB_BASE_URL: optionalWithDefault('GITLAB_BASE_URL', 'https://gitlab.com'),
-  GITLAB_ACCESS_TOKEN: integrationCredential('GITLAB_ACCESS_TOKEN'),
+  get GITLAB_ACCESS_TOKEN() { return credentialValue('GITLAB_ACCESS_TOKEN', optional('GITLAB_ACCESS_TOKEN')) ?? integrationCredential('GITLAB_ACCESS_TOKEN'); },
   GITLAB_USER_ID: integrationCredential('GITLAB_USER_ID'),
   GITLAB_GROUP: optional('GITLAB_GROUP'),
 
   // GitHub
-  GITHUB_ACCESS_TOKEN: integrationCredential('GITHUB_ACCESS_TOKEN'),
+  get GITHUB_ACCESS_TOKEN() { return credentialValue('GITHUB_ACCESS_TOKEN', optional('GITHUB_ACCESS_TOKEN')) ?? integrationCredential('GITHUB_ACCESS_TOKEN'); },
   GITHUB_USERNAME: integrationCredential('GITHUB_USERNAME'),
   GITHUB_CONTENT_STORE_REPO: optionalWithDefault('GITHUB_CONTENT_STORE_REPO', 'richardichogan/content-store'),
   /**
    * Fine-grained user PAT for the Build pipeline (assigning issues to GitHub cloud agents, merging PRs).
    * Needs read/write on contents, issues, pull requests and actions. Falls back to GITHUB_ACCESS_TOKEN.
    */
-  GITHUB_AGENT_TOKEN: optional('GITHUB_AGENT_TOKEN'),
+  get GITHUB_AGENT_TOKEN() { return credentialValue('GITHUB_AGENT_TOKEN', optional('GITHUB_AGENT_TOKEN')); },
   /** Runs the Build pipeline runner in development too (off by default so a local backend never double-dispatches). */
   BUILD_RUNNER_ENABLED: optional('BUILD_RUNNER_ENABLED'),
 
@@ -171,14 +174,14 @@ export const env = {
   // Azure AI Vision — Change 003: OCR for uploaded images
   // Optional: if not set, OCR is skipped and ocrText is stored as empty string
   AZURE_VISION_ENDPOINT: optional('AZURE_VISION_ENDPOINT'),
-  AZURE_VISION_KEY: optional('AZURE_VISION_KEY'),
+  get AZURE_VISION_KEY() { return credentialValue('AZURE_VISION_KEY', optional('AZURE_VISION_KEY')); },
 
   // Blog publishing (themicrosoftcloudblog.com posts API)
-  BLOG_POSTS_API_KEY: optional('BLOG_POSTS_API_KEY'),
+  get BLOG_POSTS_API_KEY() { return credentialValue('BLOG_POSTS_API_KEY', optional('BLOG_POSTS_API_KEY')); },
   BLOG_POSTS_URL: optionalWithDefault('BLOG_POSTS_URL', 'https://themicrosoftcloudblog.com/api/v1/posts/'),
   /** Bluesky account used by Discovery "Post to Bluesky"; posting is disabled when the app password is unset. */
   BLUESKY_IDENTIFIER: optionalWithDefault('BLUESKY_IDENTIFIER', 'richardihogan.bsky.social'),
-  BLUESKY_APP_PASSWORD: optional('BLUESKY_APP_PASSWORD'),
+  get BLUESKY_APP_PASSWORD() { return credentialValue('BLUESKY_APP_PASSWORD', optional('BLUESKY_APP_PASSWORD')); },
   BLUESKY_SERVICE: optionalWithDefault('BLUESKY_SERVICE', 'https://bsky.social'),
 
   // SMTP (newsletter via SMTP2GO)
@@ -193,7 +196,7 @@ export const env = {
   // chatTools falls back to the Postgres full-text search path so local dev
   // doesn't require a Search service.
   FOUNDRY_IQ_SEARCH_ENDPOINT: optional('FOUNDRY_IQ_SEARCH_ENDPOINT'),
-  FOUNDRY_IQ_SEARCH_ADMIN_KEY: optional('FOUNDRY_IQ_SEARCH_ADMIN_KEY'),
+  get FOUNDRY_IQ_SEARCH_ADMIN_KEY() { return credentialValue('FOUNDRY_IQ_SEARCH_ADMIN_KEY', optional('FOUNDRY_IQ_SEARCH_ADMIN_KEY')); },
   FOUNDRY_IQ_KNOWLEDGE_BASE: optionalWithDefault('FOUNDRY_IQ_KNOWLEDGE_BASE', 'kh-knowledge-base'),
 
   // ICA (IBM's internal Gen AI gateway — watsonx/Claude/GPT models over an
@@ -201,8 +204,8 @@ export const env = {
   // search_ica tool, which reaches IBM ibm.com-domain work context that the
   // Alliance-tenant M365 integration cannot see. Optional: if unset,
   // search_ica is not registered as a tool.
-  ICA_API_KEY: optional('ICA_API_KEY'),
-  ICA_CONSULTING_KEY: optional('ICA_CONSULTING_KEY'),
+  get ICA_API_KEY() { return credentialValue('ICA_API_KEY', optional('ICA_API_KEY')); },
+  get ICA_CONSULTING_KEY() { return credentialValue('ICA_CONSULTING_KEY', optional('ICA_CONSULTING_KEY')); },
   ICA_ENDPOINT: optionalWithDefault('ICA_ENDPOINT', 'https://api.nextgen-beta.ica.ibm.com/ica/v1'),
   ICA_MODEL_ID: optionalWithDefault('ICA_MODEL_ID', 'claude-opus-4-6'),
 
@@ -210,7 +213,7 @@ export const env = {
   // via Tavily's hosted MCP server). Optional: if unset, no web_search tools
   // are registered and Athena falls back to fetch_web_page + the Learn MCP
   // tools only.
-  TAVILY_API_KEY: optional('TAVILY_API_KEY'),
+  get TAVILY_API_KEY() { return credentialValue('TAVILY_API_KEY', optional('TAVILY_API_KEY')); },
 
   // Admin / CRON
   ADMIN_PASSWORD: optional('ADMIN_PASSWORD'),

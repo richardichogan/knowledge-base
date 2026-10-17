@@ -4,7 +4,7 @@ import { PRIMARY_DESTINATIONS, TOOL_GROUPS, matchesDestination, selectedTool } f
 
 test('primary workspaces retain their routes including GitHub Build', () => {
   assert.deepEqual(PRIMARY_DESTINATIONS.map((item) => [item.label, item.path]), [
-    ['Today', '/'], ['Discover', '/discover'], ['Plan', '/plan'], ['Think', '/think'], ['Build', '/build'], ['Projects', '/projects'],
+    ['Today', '/'], ['Discover', '/discover'], ['Plan', '/plan'], ['Think', '/think'], ['Build', '/build'],
   ]);
   assert.ok(!matchesDestination('/graph', '/'));
   assert.ok(matchesDestination('/think', '/think'));
@@ -18,6 +18,8 @@ test('supporting records, configuration and management are separated without los
     ['Activity', '/my-work'], ['Sources', '/library'], ['Knowledge graph', '/graph'],
   ]);
   assert.equal(selectedTool('/memory', '')?.label, 'Memory');
+  assert.equal(selectedTool('/projects', '')?.label, 'Projects');
+  assert.equal(TOOL_GROUPS[2]!.items.find((item) => item.id === 'projects')?.path, '/projects');
   assert.equal(selectedTool('/my-work', '')?.label, 'Activity');
   assert.equal(selectedTool('/my-work', '?sync=1')?.label, 'Connections and sync');
   assert.equal(selectedTool('/library', '')?.label, 'Sources');

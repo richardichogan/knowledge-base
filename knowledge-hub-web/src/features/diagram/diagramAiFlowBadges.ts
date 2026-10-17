@@ -57,8 +57,9 @@ const SEVERITY_RANK: Record<AiFlowSeverity, number> = { high: 0, warning: 1, inf
 export const STEP_TYPE_SHORT: Record<AiFlowStepType, { text: string; code: string }> = {
   channel_interaction: { text: 'Channel', code: 'CH' },
   human_task: { text: 'Human', code: 'HU' },
-  ai_agent_task: { text: 'AI agent', code: 'AI' },
-  ai_orchestration: { text: 'Orchestrator', code: 'OR' },
+  digital_steward: { text: 'Steward', code: 'DS' },
+  digital_worker: { text: 'Worker', code: 'DW' },
+  specialist_agent: { text: 'Specialist', code: 'SA' },
   decision_rules: { text: 'Rules', code: 'RU' },
   integration: { text: 'Integration', code: 'IN' },
   data_operation: { text: 'Data', code: 'DA' },

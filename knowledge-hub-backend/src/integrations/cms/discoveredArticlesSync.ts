@@ -7,6 +7,8 @@
  * published pieces (so ground he has covered scores lower).
  */
 import type { Pool } from 'pg';
+import { normaliseFormatFit } from './formatFit.js';
+import { isMicrosoftRelevant } from '../../utils/microsoftRelevance.js';
 import { FoundryClient } from '../../ai/foundryClient.js';
 import {
   buildRelevanceSystemPrompt,
@@ -76,8 +78,16 @@ export async function scoreArticleRow(db: Pool, client: FoundryClient, row: Scor
   // Server-side caps from the URL and title (advertorial, community), then the score itself.
   const detectedSourceType = classifySourceByUrl(sourceUrl, `${sourceTitle} ${row.title}`);
   const capped = enforceScoreCaps(parsed, detectedSourceType);
+  const microsoftRelevant = isMicrosoftRelevant({ title: row.title, url: sourceUrl, text: row.body ?? '' });
+  if (!microsoftRelevant && capped.platform === 'Podcast Topic') capped.platform = 'LinkedIn Standalone';
   capped.alreadyCovered = Math.max(0, Math.min(2, Math.round(Number(capped.alreadyCovered ?? 0)) || 0));
   const relevanceScore = calculateWeightedRelevance(capped);
+  const formatFit = capped.platform === 'Archive'
+    ? { newsletter: 0, podcast: 0, fullBlog: 0, quickBlog: 0, social: 0 }
+    : normaliseFormatFit(capped.formatFit);
+  // Long-form analysis is only built on Formal sources (same rule as the Full Blog Post gate).
+  if (formatFit !== null && capped.sourceType !== 'Formal') formatFit.fullBlog = Math.min(formatFit.fullBlog, 1);
+  if (formatFit !== null && !microsoftRelevant) formatFit.podcast = 0;
 
   // Source authority tier (ranking only, applied live in the Discover query — not folded into the score).
   const authorityTier = classifySourceAuthority(sourceUrl, (row.metadata['sourceUrl'] as string | undefined) ?? sourceTitle);
@@ -100,6 +110,7 @@ export async function scoreArticleRow(db: Pool, client: FoundryClient, row: Scor
                    'sourceAuthorityTier', $14::text, 'sourceAuthorityWeight', $15::numeric,
                    'alreadyCovered', $18::int, 'coveredBy', $19::text, 'scoringVersion', 2
                  )
+              || (CASE WHEN $20::jsonb IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('formatFit', $20::jsonb) END)
       WHERE id = $16`,
     [
       relevanceScore, capped.explanation, capped.platform, capped.sourceType,
@@ -107,6 +118,7 @@ export async function scoreArticleRow(db: Pool, client: FoundryClient, row: Scor
       capped.composite, capped.spark, capped.sparkReason, capped.articleType, ARTICLE_TYPE_WEIGHTS[capped.articleType],
       authorityTier, SOURCE_AUTHORITY_WEIGHTS[authorityTier], row.id,
       hadOldScore, capped.alreadyCovered, capped.coveredBy ?? '',
+      formatFit === null ? null : JSON.stringify(formatFit),
     ],
   );
   return { score: Math.round(relevanceScore * PERCENTAGE_MULTIPLIER), platform: capped.platform, composite: capped.composite };

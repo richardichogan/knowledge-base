@@ -96,6 +96,14 @@ Trial of the Build feature against a scratch repository. Recorded in full, inclu
 - jq `select(.__typename=="Bot")` failed in this shell; parse with `ConvertFrom-Json`.
 - `az containerapp secret list --query "[].name"` lists names without exposing values.
 
+### Updating connection tokens
+
+Open **Menu → Connections and sync → Connection tokens and API keys**. Each token-based connection has an **Add token / key** or **Update token / key** action. Enter the replacement and save. GitLab and GitHub tokens are checked with the provider before replacing the previous credential; other keys are saved without claiming that access has been verified. Provider account verification is not a guarantee of access to every repository.
+
+Saved values are write-only through the API. They are encrypted with AES-256-GCM in the existing `sync_state` credential storage (separate `connection-credential:*` records, excluded from source sync status). Set `CREDENTIAL_ENCRYPTION_KEY` to a stable random secret of at least 32 characters, stored as an Azure Container Apps secret reference. When unset, the existing Graph client secret is used, matching the Graph token-storage approach. Keep the same encryption key on every backend sharing the database; changing it without re-encrypting the stored credentials makes them unreadable. Do not change it during a normal token rotation.
+
+Saved credentials override environment values, survive restarts and are picked up by other running backends within 15 seconds. Existing in-flight requests may still finish using the previous credential. No restart is required for normal token updates. Existing source errors clear after a successful sync; saving a token does not run a full sync. Microsoft connections continue to use their sign-in/reconnect flow rather than manually pasted short-lived access tokens. Provider endpoints, account identifiers, OAuth app secrets and storage-account settings remain server configuration, not token fields.
+
 ### Release state
 
 Backend `kh-prod-api:v182` (migration 069 applied) and the frontend with the Projects redesign were deployed to production on 2026-10-13. Main is at the commit that added this section's predecessor, `20b83de`.

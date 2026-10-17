@@ -77,7 +77,7 @@ test('AI flow documents round-trip lane, step and connector governance metadata'
   const step = node({
     parentId: lane.id, label: 'Triage claim',
     flow: {
-      stepType: 'ai_agent_task', state: 'future', actor: 'Triage agent', systems: ['Claims core'], dataIn: ['FNOL'], dataOut: ['Triage score'],
+      stepType: 'digital_worker', state: 'future', actor: 'Triage agent', systems: ['Claims core'], dataIn: ['FNOL'], dataOut: ['Triage score'],
       agent: {
         role: 'Classifier', mode: 'supervised_autonomous', assertion: 'advisory', orchestrator: 'Claims orchestrator', tools: ['policy_lookup'],
         knowledge: ['Policy wording'], guardrails: ['No payment decisions'], escalationPath: 'Claims handler', decisionBoundary: 'Recommend only',
@@ -102,12 +102,14 @@ test('AI flow metadata rejects unknown values, wrong shapes and unbounded input'
   rejects(() => validateDiagramDocument({ ...doc([]), diagramType: 'bpmn' }, NONE), /document\.diagramType/);
   rejects(() => validateDiagramDocument(withFlow({}), NONE), /flow\.stepType/);
   rejects(() => validateDiagramDocument(withFlow({ stepType: 'robot' }), NONE), /flow\.stepType/);
+  assert.equal(validateDiagramDocument(withFlow({ stepType: 'ai_orchestration' }), NONE).nodes[0]!.flow!.stepType, 'digital_steward');
+  assert.equal(validateDiagramDocument(withFlow({ stepType: 'ai_agent_task' }), NONE).nodes[0]!.flow!.stepType, 'digital_worker');
   rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', owner: 'x' }), NONE), /flow\.owner/);
-  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { mode: 'rogue' } }), NONE), /flow\.agent\.mode/);
-  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { confidenceThreshold: 1.5 } }), NONE), /agent\.confidenceThreshold/);
-  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { tools: 'search' } }), NONE), /agent\.tools/);
-  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { tools: Array(DIAGRAM_LIMITS.maxFlowListItems + 1).fill('t') } }), NONE), /agent\.tools/);
-  rejects(() => validateDiagramDocument(withFlow({ stepType: 'ai_agent_task', agent: { tools: ['x'.repeat(DIAGRAM_LIMITS.maxFlowListItemChars + 1)] } }), NONE), /agent\.tools\[0\]/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'digital_worker', agent: { mode: 'rogue' } }), NONE), /flow\.agent\.mode/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'digital_worker', agent: { confidenceThreshold: 1.5 } }), NONE), /agent\.confidenceThreshold/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'digital_worker', agent: { tools: 'search' } }), NONE), /agent\.tools/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'digital_worker', agent: { tools: Array(DIAGRAM_LIMITS.maxFlowListItems + 1).fill('t') } }), NONE), /agent\.tools/);
+  rejects(() => validateDiagramDocument(withFlow({ stepType: 'digital_worker', agent: { tools: ['x'.repeat(DIAGRAM_LIMITS.maxFlowListItemChars + 1)] } }), NONE), /agent\.tools\[0\]/);
   rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', actor: 'x'.repeat(DIAGRAM_LIMITS.maxFlowTextChars + 1) }), NONE), /flow\.actor/);
   rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', controls: { sensitivity: 'secret' } }), NONE), /controls\.sensitivity/);
   rejects(() => validateDiagramDocument(withFlow({ stepType: 'human_task', controls: { humanApproval: 'yes' } }), NONE), /controls\.humanApproval/);

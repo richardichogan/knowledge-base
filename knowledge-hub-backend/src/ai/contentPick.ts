@@ -17,6 +17,8 @@ import { isTavilyEnabled, getTavilyMcpTools, callTavilyMcpTool } from './tavilyM
 import { getSchedule, describeSchedule, TOO_LATE_DAYS, type ScheduledFormat } from './contentSchedule.js';
 import { STRONG_SCORE } from '../integrations/discovery/feedSync.js';
 import { readingExcerpt } from '../utils/articleReading.js';
+import { microsoftRelevanceSql, isMicrosoftRelevant } from '../utils/microsoftRelevance.js';
+import { PODCAST_SCOPE_RULE } from './podcastEditorial.js';
 
 export type ContentFormat = 'blog' | 'linkedin' | 'newsletter' | 'podcast';
 const FORMATS: readonly ContentFormat[] = ['blog', 'linkedin', 'newsletter', 'podcast'];
@@ -91,6 +93,10 @@ function divePrompt(schedule: string, own: string, episodes: string): string {
 
 Today's publishing rhythm:
 ${schedule}
+
+## Mandatory podcast scope (does not restrict the other publishing formats)
+${PODCAST_SCOPE_RULE}
+Choose podcast ONLY when the supplied article itself contains a Microsoft news hook. Generic AI/cloud news is not a podcast candidate; do not invent a Microsoft connection or assume one because OpenAI is involved.
 
 You will be given ONE article that already scored highly in triage. Decide whether it is worth a piece from Richard NOW, and in which ONE format. Judge only from the article text and his own recent work below. Do not invent facts or quotes.
 
@@ -190,6 +196,9 @@ export async function runDeepDive(db: Pool, article: ArticleRow, ctx?: { schedul
     150_000,
   );
   const dive = parseDive(raw);
+  if (dive.format === 'podcast' && !isMicrosoftRelevant({ title: article.title, url: article.url ?? '', text })) {
+    throw new Error('Podcast assessment rejected: the article has no explicit Microsoft connection.');
+  }
   dive.textSource = source;
   if (source === 'summary') dive.worth = Math.min(dive.worth, 60);
   await db.query(`UPDATE content_items SET metadata = metadata || jsonb_build_object('deepDive', $2::jsonb) WHERE id = $1`, [article.id, JSON.stringify(dive)]);
@@ -235,6 +244,7 @@ async function candidates(db: Pool): Promise<Candidate[]> {
     `SELECT ci.id::text, ci.title, ci.url, ci.published_at, ci.metadata, ci.relevance_score FROM content_items ci
       WHERE ci.source = 'discovered-article' AND ci.workflow_state IN ('to-review', 'saved')
         AND ci.published_at > now() - $1 * interval '1 day' AND ci.metadata ? 'deepDive'
+        AND (ci.metadata->'deepDive'->>'format' IS DISTINCT FROM 'podcast' OR ${microsoftRelevanceSql('ci')})
         AND NOT EXISTS (SELECT 1 FROM content_picks p WHERE p.article_id = ci.id AND p.status IN ('done', 'dropped'))`,
     [CANDIDATE_WINDOW_DAYS],
   );

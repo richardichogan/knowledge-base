@@ -6,7 +6,10 @@
  * vision model (journey review, or a close look at the marked areas).
  */
 import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { Pool } from 'pg';
+import { env } from '../config/env.js';
 import type { ContainerClient } from '@azure/storage-blob';
 import { getAthenaStorage } from '../services/athenaStorage.js';
 import { analyzeImageWithVision, reviewScreensWithVision, type ScreenImage } from '../services/visionAnalyzer.js';
@@ -63,19 +66,43 @@ function container(): Promise<ContainerClient> {
   return containerPromise;
 }
 
+// Local development without Athena storage keeps screenshots on disk instead
+// of failing every paste. Production always requires blob storage.
+const LOCAL_DIR = path.resolve(process.cwd(), '.local-storage', CONTAINER);
+
+function useLocalDisk(): boolean {
+  return !env.isProduction && (!env.ATHENA_STORAGE_ACCOUNT_NAME?.trim() || !env.ATHENA_STORAGE_ACCOUNT_KEY?.trim());
+}
+
+function localPath(name: string): string {
+  if (!/^[0-9a-f-]{36}$/i.test(name)) throw new Error('Invalid screen blob name');
+  return path.join(LOCAL_DIR, name);
+}
+
 async function uploadBlob(buffer: Buffer, contentType: string): Promise<string> {
   const name = randomUUID();
+  if (useLocalDisk()) {
+    await mkdir(LOCAL_DIR, { recursive: true });
+    await writeFile(localPath(name), buffer);
+    return name;
+  }
   await (await container()).getBlockBlobClient(name).uploadData(buffer, { blobHTTPHeaders: { blobContentType: contentType } });
   return name;
 }
 
 export async function downloadBlob(name: string): Promise<Buffer> {
+  if (useLocalDisk()) return readFile(localPath(name));
   return (await container()).getBlockBlobClient(name).downloadToBuffer();
 }
 
 async function deleteBlobs(names: Array<string | null>): Promise<void> {
+  const present = names.filter((n): n is string => n !== null);
+  if (useLocalDisk()) {
+    await Promise.all(present.map((n) => rm(localPath(n), { force: true }).catch(() => undefined)));
+    return;
+  }
   const client = await container();
-  await Promise.all(names.filter((n): n is string => n !== null).map((n) => client.getBlockBlobClient(n).deleteIfExists().catch(() => undefined)));
+  await Promise.all(present.map((n) => client.getBlockBlobClient(n).deleteIfExists().catch(() => undefined)));
 }
 
 async function getRow(db: Pool, id: string): Promise<ScreenRow | null> {

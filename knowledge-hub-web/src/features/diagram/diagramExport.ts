@@ -1,6 +1,7 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
 import { collapseView, footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
 import { diagramTextLayout } from './diagramText';
+import { descriptionPlainText, styledLines } from './diagramMarkdown';
 import { calloutLayout } from './diagramCallouts';
 import { diagramDrawioXml } from './diagramDrawio';
 import { diagramBorderDash } from './diagramStroke';
@@ -28,14 +29,23 @@ function readDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-function textLines(lines: string[], x: number, y: number, fontSize: number, colour: string, anchor = 'middle', weight = 400): string {
+/** One line of title text, with its **bold** and *italic* runs when the Markdown source is given. */
+function lineSvg(source: string | undefined, lines: string[]): string[] {
+  if (source === undefined) return lines.map(escapeXml);
+  return styledLines(source, lines).map((runs) => runs.map((run) => run.bold || run.italic
+    ? `<tspan${run.bold ? ' font-weight="700"' : ''}${run.italic ? ' font-style="italic"' : ''}>${escapeXml(run.text)}</tspan>`
+    : escapeXml(run.text)).join(''));
+}
+
+function textLines(lines: string[], x: number, y: number, fontSize: number, colour: string, anchor = 'middle', weight = 400, source?: string): string {
   const top = y - (lines.length - 1) * fontSize * 1.25 / 2;
-  return `<text font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" fill="${escapeXml(colour)}" text-anchor="${anchor}" dominant-baseline="central" font-weight="${weight}">${lines.map((line, i) => `<tspan x="${x}" y="${top + i * fontSize * 1.25}">${escapeXml(line)}</tspan>`).join('')}</text>`;
+  const content = lineSvg(source, lines);
+  return `<text font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" fill="${escapeXml(colour)}" text-anchor="${anchor}" dominant-baseline="central" font-weight="${weight}">${content.map((line, i) => `<tspan x="${x}" y="${top + i * fontSize * 1.25}">${line}</tspan>`).join('')}</text>`;
 }
 
 function nodeText(node: DiagramNode, titleShift = 0): string {
   const layout = diagramTextLayout(node);
-  const text = textLines(layout.lines, layout.x, layout.y, node.fontSize, node.textColor, layout.anchor, layout.weight);
+  const text = textLines(layout.lines, layout.x, layout.y, node.fontSize, node.textColor, layout.anchor, layout.weight, node.label);
   const rotated = layout.rotation ? `<g transform="${layout.rotation}">${text}</g>` : text;
   return titleShift !== 0 && layout.rotation ? `<g transform="translate(${titleShift} 0)">${rotated}</g>` : rotated;
 }
@@ -122,7 +132,7 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
       const asset = assets.get(node.assetId);
       if (!asset) {
         if (options.tolerateMissingAssets === true) continue;
-        throw new Error(`The icon for "${node.label || 'Image'}" has not loaded. Retry before exporting.`);
+        throw new Error(`The icon for "${descriptionPlainText(node.label) || 'Image'}" has not loaded. Retry before exporting.`);
       }
       embedded.set(node.assetId, await readDataUrl(asset));
     }
@@ -166,27 +176,29 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node, shifted)}${ownerSvg}${calloutHeader(node)}${chips}${findingMark}</g>`;
   });
   const definitions: string[] = [...maskDefinitions];
-  const edges = document.edges.map((edge, i) => {
+  const edgeSvg = document.edges.map((edge, i) => {
     const points = edgeRoute(edge, byId) ?? [];
-    if (points.length < 2) throw new Error(`Connector "${edge.label}" is not attached to two shapes`);
+    if (points.length < 2) throw new Error(`Connector "${descriptionPlainText(edge.label)}" is not attached to two shapes`);
     definitions.push(`<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${20 / 3}" markerHeight="${20 / 3}" markerUnits="strokeWidth" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${escapeXml(edge.stroke)}"/></marker>`);
     const middle = edgeLabelCenter(points, edge);
     const jump = lineJumps.paths.get(edge.id);
     const path = `<${jump === undefined ? `polyline points="${points.map((p) => `${p.x},${p.y}`).join(' ')}"` : `path d="${jump}"`} fill="none" stroke="${escapeXml(edge.stroke)}" stroke-width="${edge.strokeWidth ?? 1.5}"${edge.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.arrows === 'end' || edge.arrows === 'both' ? ` marker-end="url(#arrow-${i})"` : ''}${edge.arrows === 'both' || edge.arrows === 'start' ? ` marker-start="url(#arrow-${i})"` : ''}${maskFor(edge.id)}/>`;
     const { lines, width: labelW, height: labelH, fontSize, lineHeight } = edgeLabelLayout(edge);
-    const label = edge.label.trim() ? `<rect x="${middle.x - labelW / 2}" y="${middle.y - labelH / 2}" width="${labelW}" height="${labelH}" rx="3" fill="white" fill-opacity="0.92"/><text x="${middle.x}" y="${middle.y - labelH / 2 + 3 + fontSize}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" text-anchor="middle" fill="${edge.stroke === 'none' ? '#161616' : escapeXml(edge.stroke)}">${lines.map((line, j) => `<tspan x="${middle.x}" dy="${j === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>` : '';
+    const label = edge.label.trim() ? `<rect x="${middle.x - labelW / 2}" y="${middle.y - labelH / 2}" width="${labelW}" height="${labelH}" rx="3" fill="white" fill-opacity="0.92"/><text x="${middle.x}" y="${middle.y - labelH / 2 + 3 + fontSize}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" text-anchor="middle" fill="${edge.stroke === 'none' ? '#161616' : escapeXml(edge.stroke)}">${lineSvg(edge.label, lines).map((line, j) => `<tspan x="${middle.x}" dy="${j === 0 ? 0 : lineHeight}">${line}</tspan>`).join('')}</text>` : '';
     const edgeChip = aiFlow ? aiEdgeChip(edge, points) : null;
     const edgeFinding = aiFindings.get(edge.id);
     const aiMarks = `${edgeChip === null ? '' : chipSvg(edgeChip)}${edgeFinding === undefined ? '' : findingSvg(aiEdgeFindingAnchor(points), edgeFinding)}`;
     return `${path}${label}${aiMarks}`;
   });
+  const behindEdges = edgeSvg.filter((_, i) => document.edges[i]?.behind === true);
+  const edges = edgeSvg.filter((_, i) => document.edges[i]?.behind !== true);
   const markers = fns.flatMap((fn, i) => {
     const target = view.hiddenBy.get(fn.targetId) ?? fn.targetId;
     const at = footnoteAnchor(document, target, byId);
     return at === null ? [] : [marker(at.x, at.y, i + 1)];
   });
   const grid = includeGrid ? `<pattern id="export-grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r="1" fill="#d0d0d0"/></pattern>` : '';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${bounds.x} ${bounds.y} ${width} ${height}"><defs>${grid}${definitions.join('')}</defs>${background === 'white' ? `<rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="white"/>` : ''}${includeGrid ? `<rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="url(#export-grid)"/>` : ''}${nodes.join('')}${edges.join('')}${markers.join('')}${extras.join('')}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${bounds.x} ${bounds.y} ${width} ${height}"><defs>${grid}${definitions.join('')}</defs>${background === 'white' ? `<rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="white"/>` : ''}${includeGrid ? `<rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="url(#export-grid)"/>` : ''}${behindEdges.join('')}${nodes.join('')}${edges.join('')}${markers.join('')}${extras.join('')}</svg>`;
   return { svg, width, height };
 }
 

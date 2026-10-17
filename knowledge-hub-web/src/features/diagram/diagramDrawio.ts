@@ -13,7 +13,7 @@ import { ARROW_SHAFT, arrowAxis, arrowHeadLength, boundsOf, containerHeader, dia
 import { calloutLayout } from './diagramCallouts';
 import { AGENT_MODE_BADGES, AGENT_MODE_LABELS, ASSERTION_LABELS, EDGE_TYPE_LABELS, INTERACTION_LABELS, SENSITIVITY_LABELS, STATE_LABELS, STEP_TYPE_LABELS, controlCount } from './aiFlow';
 import { aiStepSummary } from './diagramAiFlowBadges';
-import { descriptionPlainText } from './diagramDescription';
+import { descriptionPlainText, descriptionRuns } from './diagramDescription';
 
 export interface DrawioOptions {
   footnotes?: boolean | undefined;
@@ -28,6 +28,13 @@ const xml = (text: string): string => text.replace(/[<>&"']/g, (c) => ({
 
 /** A plain-text label as draw.io html label content (escaped, line breaks kept). */
 const htmlLabel = (text: string): string => xml(text).replace(/\r?\n/g, '<br>');
+
+/** A title with **bold** and *italic* Markdown as draw.io html label content. */
+const richLabel = (text: string): string => descriptionRuns(text).map((run) => {
+  const html = htmlLabel(run.text);
+  const bold = run.bold ? `<b>${html}</b>` : html;
+  return run.italic ? `<i>${bold}</i>` : bold;
+}).join('');
 
 const colour = (c: string | undefined, fallback = 'none'): string => {
   const v = (c ?? '').trim();
@@ -180,7 +187,7 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     }
     const aiData = aiFlow ? aiNodeData(n) : {};
     const owner = aiFlow && n.kind === 'swimlane' ? (n.lane?.owner ?? '').trim() : '';
-    const label = owner === '' ? htmlLabel(n.label) : `${htmlLabel(n.label)}<br><span style="font-size:10px;font-weight:normal">${htmlLabel(owner)}</span>`;
+    const label = owner === '' ? richLabel(n.label) : `${richLabel(n.label)}<br><span style="font-size:10px;font-weight:normal">${htmlLabel(owner)}</span>`;
     cells.push(vertexCell(n.id, label, shapeStyle(n, parentIds.has(n.id)), parentId,
       { x: n.x - ox, y: n.y - oy, width: n.width, height: n.height }, joinTooltip(n.description === undefined ? undefined : descriptionPlainText(n.description), n.flow !== undefined && aiFlow ? aiStepSummary(n) : undefined), aiData));
     const callout = calloutLayout(n);
@@ -201,6 +208,7 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     }
   }
 
+  const behindCells: Cell[] = [];
   for (const e of doc.edges) {
     if (!byId.has(e.sourceId) || !byId.has(e.targetId)) continue;
     const points = e.waypoints.length > 0 ? `<Array as="points">${e.waypoints.map((p) => `<mxPoint x="${p.x}" y="${p.y}"/>`).join('')}</Array>` : '';
@@ -209,11 +217,12 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     const attrs = `style="${xml(edgeStyle(e))}" edge="1" parent="1" source="${xml(e.sourceId)}" target="${xml(e.targetId)}"`;
     const edgeData = aiFlow ? aiEdgeData(e) : {};
     const tooltip = joinTooltip(e.description === undefined ? undefined : descriptionPlainText(e.description), dataSummary(edgeData));
-    cells.push(tooltip !== '' || Object.keys(edgeData).length > 0
-      ? { id: e.id, xml: `<UserObject label="${xml(htmlLabel(e.label))}"${tooltip !== '' ? ` tooltip="${xml(tooltip)}"` : ''}${dataAttrs(edgeData)} id="${xml(e.id)}"><mxCell ${attrs}>${geometry}</mxCell></UserObject>` }
-      : { id: e.id, xml: `<mxCell id="${xml(e.id)}" value="${xml(htmlLabel(e.label))}" ${attrs}>${geometry}</mxCell>` });
+    (e.behind === true ? behindCells : cells).push(tooltip !== '' || Object.keys(edgeData).length > 0
+      ? { id: e.id, xml: `<UserObject label="${xml(richLabel(e.label))}"${tooltip !== '' ? ` tooltip="${xml(tooltip)}"` : ''}${dataAttrs(edgeData)} id="${xml(e.id)}"><mxCell ${attrs}>${geometry}</mxCell></UserObject>` }
+      : { id: e.id, xml: `<mxCell id="${xml(e.id)}" value="${xml(richLabel(e.label))}" ${attrs}>${geometry}</mxCell>` });
   }
 
+  cells.unshift(...behindCells);
   const content = diagramBounds(doc, 0);
   const regions: Rect[] = [content];
   const fns = (options.footnotes ?? true) ? footnotesOf(doc) : [];

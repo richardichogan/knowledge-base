@@ -22,6 +22,7 @@ test('unknown, malformed, duplicate and oversized views/links fail explicitly wi
   const record = { id: '11111111-1111-4111-8111-111111111111', name: 'Review', view: DEFAULT_DISCOVER_VIEW };
   for (const value of [{ ...DEFAULT_DISCOVER_VIEW, version: 2 }, { ...DEFAULT_DISCOVER_VIEW, sort: 'invented' },
     { ...DEFAULT_DISCOVER_VIEW, tab: 'all' }, { ...DEFAULT_DISCOVER_VIEW, cfpState: 'invalid' },
+    { ...DEFAULT_DISCOVER_VIEW, format: 'invented' },
     { ...DEFAULT_DISCOVER_VIEW, source: ['nested'] }, { ...DEFAULT_DISCOVER_VIEW, title: 'x'.repeat(257) },
     { ...DEFAULT_DISCOVER_VIEW, title: '\n' }, { ...DEFAULT_DISCOVER_VIEW, unknown: 'ignored' },
     { version: 1, kind: 'plan', view: 'focus', project: 42, tag: '' }]) {
@@ -36,4 +37,13 @@ test('unknown, malformed, duplicate and oversized views/links fail explicitly wi
   assert.throws(() => parseSharedView('?view=%7B', 'discover'));
   assert.throws(() => parseSharedView('?view=a&view=b', 'discover'));
   assert.throws(() => parseSharedView(`?view=${encodeURIComponent(JSON.stringify(DEFAULT_DISCOVER_VIEW))}`, 'plan'));
+});
+
+test('publishing formats round-trip while older Discover views remain supported', () => {
+  for (const format of ['newsletter', 'podcast', 'fullBlog', 'quickBlog', 'social', ''] as const) {
+    const view = { ...DEFAULT_DISCOVER_VIEW, format };
+    assert.deepEqual(parseWorkspaceView(view), view);
+  }
+  const { format: _format, ...legacyView } = DEFAULT_DISCOVER_VIEW;
+  assert.deepEqual(parseWorkspaceView(legacyView), DEFAULT_DISCOVER_VIEW);
 });

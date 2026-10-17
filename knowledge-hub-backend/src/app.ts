@@ -31,6 +31,7 @@ import { repoMappingsRouter } from './routes/repoMappings.js';
 import { cfpRouter } from './routes/cfp.js';
 import { tagSuggestionRouter } from './routes/tagSuggestionRoutes.js';
 import { sparkRouter, sparkClusterRouter } from './routes/sparkRoutes.js';
+import { navAttentionRouter } from './routes/navAttention.js';
 import { connectionRouter } from './routes/connectionRoutes.js';
 import certScoresRouter from './routes/certScores.js';
 import { graphRouter } from './routes/graphRoutes.js';
@@ -133,6 +134,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/ai', chatPanelRouter);
   app.use('/api/voice', voiceRouter);
   app.use('/api/tasks', tasksRouter);
+  app.use('/api/nav', navAttentionRouter);
   app.use('/api/capture', captureRouter);
   app.use('/api/notes/:noteId/tags', noteTagsRouter);
   app.use('/api/notes', notesRouter);

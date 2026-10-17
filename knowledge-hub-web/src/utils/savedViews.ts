@@ -1,17 +1,20 @@
 import type { CfpWorkflowState, DiscoverSort, DiscoverWorkflowState } from '../services/api';
+import { DISCOVER_FORMATS, type DiscoverFormat } from '../types/discover';
 import { parsePlanPreferences, type PlanPreferences } from './planPreferences';
 
 export type DiscoverTab = DiscoverWorkflowState | 'inbox' | 'cfps';
 export interface DiscoverPreferences {
   version: 1; kind: 'discover'; tab: DiscoverTab; source: string; title: string;
   sort: DiscoverSort; cfpState: CfpWorkflowState;
+  /** Publishing format to rank for; '' ranks overall. Optional so older saved views still load. */
+  format?: DiscoverFormat | '';
 }
 export type WorkspaceView = (PlanPreferences & { kind: 'plan' }) | DiscoverPreferences;
 export interface SavedView { id: string; name: string; view: WorkspaceView }
 export const SAVED_VIEWS_KEY = 'kh-saved-views-v1';
 export const DISCOVER_PREFERENCES_KEY = 'kh-discover-preferences-v1';
 export const DEFAULT_DISCOVER_VIEW: DiscoverPreferences = {
-  version: 1, kind: 'discover', tab: 'to-review', source: '', title: '', sort: 'weighted', cfpState: 'to_review',
+  version: 1, kind: 'discover', tab: 'to-review', source: '', title: '', sort: 'weighted', cfpState: 'to_review', format: '',
 };
 const TABS: DiscoverTab[] = ['to-review', 'saved', 'blog', 'archived', 'published', 'shelved', 'inbox', 'cfps'];
 const CFP_STATES: CfpWorkflowState[] = ['to_review', 'saved', 'submitted', 'archived'];
@@ -29,13 +32,17 @@ export function parseWorkspaceView(value: unknown): WorkspaceView {
     return { ...parsePlanPreferences(JSON.stringify(record)), kind: 'plan' };
   }
   if (record['kind'] !== 'discover' || record['version'] !== 1
-    || Object.keys(record).some(key => !['version', 'kind', 'tab', 'source', 'title', 'sort', 'cfpState'].includes(key))
+    || Object.keys(record).some(key => !['version', 'kind', 'tab', 'source', 'title', 'sort', 'cfpState', 'format'].includes(key))
     || !TABS.some(tab => tab === record['tab']) || !CFP_STATES.some(state => state === record['cfpState'])
     || !['weighted', 'editorial', 'latest'].includes(String(record['sort']))
-    || !text(record['source'], 256) || !text(record['title'], 256)) throw new Error('Invalid Discovery view.');
+    || !text(record['source'], 256) || !text(record['title'], 256)
+    || (record['format'] !== undefined && record['format'] !== '' && !DISCOVER_FORMATS.some(f => f.id === record['format']))) {
+    throw new Error('Invalid Discovery view.');
+  }
   return {
     version: 1, kind: 'discover', tab: record['tab'] as DiscoverTab, source: record['source'],
     title: record['title'], sort: record['sort'] as DiscoverSort, cfpState: record['cfpState'] as CfpWorkflowState,
+    format: (record['format'] ?? '') as DiscoverFormat | '',
   };
 }
 

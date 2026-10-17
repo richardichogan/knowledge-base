@@ -98,7 +98,7 @@ test('an AI flow gets lanes, steps placed in them, sanitised metadata and a vali
     addLanes: [{ key: 'cust', label: 'Customer', owner: 'Policyholder' }, { key: 'ai', label: 'AI agents', owner: 'Claims AI team' }, { label: 'Handlers' }],
     addNodes: [
       { key: 'fnol', label: 'Report claim', lane: 'cust', stepType: 'channel_interaction' },
-      { key: 'triage', label: 'Triage claim', lane: 'ai', stepType: 'ai_agent_task', colour: 'red',
+      { key: 'triage', label: 'Triage claim', lane: 'ai', stepType: 'digital_worker', colour: 'red',
         agent: { mode: 'semi_autonomous', assertion: 'bogus', tools: ['Policy API', '', 'x'.repeat(400)], confidenceThreshold: 85, role: 'r'.repeat(900) },
         controls: { sensitivity: 'pii', authRequired: true, auditLogging: 'yes' } },
       { key: 'review', label: 'Review', lane: 'handlers', stepType: 'human_task' },

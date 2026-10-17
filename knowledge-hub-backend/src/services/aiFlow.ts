@@ -11,8 +11,8 @@ import {
 // ─── Labels ─────────────────────────────────────────────────────────────────
 
 export const STEP_TYPE_LABELS: Record<AiFlowStepType, string> = {
-  channel_interaction: 'Channel interaction', human_task: 'Human task', ai_agent_task: 'AI agent task', ai_orchestration: 'AI orchestration',
-  decision_rules: 'Decision rules', integration: 'Integration', data_operation: 'Data operation', external_party: 'External party',
+  channel_interaction: 'Channel Interaction', human_task: 'Human Task', digital_steward: 'Digital Steward', digital_worker: 'Digital Worker', specialist_agent: 'Specialist Agent',
+  decision_rules: 'Decision Rules', integration: 'Integration', data_operation: 'Data Operation', external_party: 'External Party',
 };
 export const AGENT_MODE_LABELS: Record<AiAgentMode, string> = {
   assistive: 'Assistive', semi_autonomous: 'Semi-autonomous', supervised_autonomous: 'Supervised autonomous', autonomous: 'Autonomous',
@@ -33,7 +33,7 @@ export const STATE_LABELS: Record<AiFlowState, string> = { existing: 'Existing',
 export const MEMORY_LABELS: Record<AiMemoryScope, string> = { none: 'None', session: 'Session', case: 'Case', customer: 'Customer' };
 export const VOLUME_LABELS: Record<AiFlowVolume, string> = { low: 'Low', medium: 'Medium', high: 'High' };
 
-export const isAiStep = (type: AiFlowStepType | undefined): boolean => type === 'ai_agent_task' || type === 'ai_orchestration';
+export const isAiStep = (type: AiFlowStepType | undefined): boolean => type === 'digital_steward' || type === 'digital_worker' || type === 'specialist_agent';
 const SENSITIVE: ReadonlySet<DataSensitivity> = new Set<DataSensitivity>(['pii', 'medical', 'pci']);
 /** Personal, medical or payment data. */
 export const isSensitive = (s: DataSensitivity | undefined): boolean => s !== undefined && SENSITIVE.has(s);
@@ -49,8 +49,9 @@ export type AiFlowStepKind = typeof AI_FLOW_STEP_KINDS[number];
 export const STEP_STYLES: Record<AiFlowStepType, AiFlowStepStyle> = {
   channel_interaction: { kind: 'terminator', fill: '#d9fbfb', stroke: '#007d79', width: 170, height: 56 },
   human_task: { kind: 'process', fill: '#edf5ff', stroke: '#0f62fe', width: 170, height: 72 },
-  ai_agent_task: { kind: 'process', fill: '#f6f2ff', stroke: '#8a3ffc', width: 170, height: 72 },
-  ai_orchestration: { kind: 'process', fill: '#fff0f7', stroke: '#d02670', width: 170, height: 72 },
+  digital_steward: { kind: 'process', fill: '#fff0f7', stroke: '#d02670', width: 170, height: 72 },
+  digital_worker: { kind: 'process', fill: '#f6f2ff', stroke: '#8a3ffc', width: 170, height: 72 },
+  specialist_agent: { kind: 'process', fill: '#fff2e8', stroke: '#ba4e00', width: 170, height: 72 },
   decision_rules: { kind: 'decision', fill: '#fcf4d6', stroke: '#b28600', width: 150, height: 96 },
   integration: { kind: 'process', fill: '#f4f4f4', stroke: '#525252', width: 170, height: 64 },
   data_operation: { kind: 'document', fill: '#defbe6', stroke: '#198038', width: 170, height: 76 },

@@ -1,7 +1,7 @@
 /**
- * notes/ImportNoteModal.tsx — import a file (Markdown, text, Word, Excel,
- * PowerPoint, or PDF) directly into Think as a new note. Extracts the file's
- * text, lets the user adjust the title, project, and tags before saving —
+ * notes/ImportNoteModal.tsx — import Markdown or plain text into Think as a
+ * rich-text note. Preserves Markdown formatting or plain-text lines, and
+ * lets the user adjust the title, project, and tags before saving —
  * distinct from Athena's per-response "save to Think" action.
  *
  * Carbon APIs confirmed from installed source (see GitHubModal.tsx for the
@@ -15,10 +15,10 @@ import { useProjects } from '../hooks/useProjects';
 import { TagPicker } from '../components/TagPicker';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { createNote } from './noteStorage';
-import { markdownToNoteBlocks } from './markdownToBlocks';
+import { markdownToNoteBlocks, plainTextToNoteBlocks } from './markdownToBlocks';
 import type { NoteDocument } from './types';
 
-const ACCEPTED_EXTENSIONS = /\.(md|markdown)$/i;
+const ACCEPTED_EXTENSIONS = /\.(md|markdown|txt)$/i;
 
 interface ImportNoteModalProps {
   open: boolean;
@@ -59,8 +59,10 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
     e.target.value = '';
     if (!selected) return;
 
+    setFile(null);
+    setExtractedText('');
     if (!ACCEPTED_EXTENSIONS.test(selected.name)) {
-      setError('Please choose a Markdown (.md) file.');
+      setError('Please choose a Markdown (.md, .markdown) or text (.txt) file.');
       return;
     }
 
@@ -69,8 +71,8 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
     setTitle(selected.name.replace(/\.[^.]+$/, ''));
     setExtracting(true);
     try {
-      const text = (await selected.text()).trim();
-      if (text === '') throw new Error('the file is empty');
+      const text = await selected.text();
+      if (text.trim() === '') throw new Error('The file is empty.');
       setExtractedText(text);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -92,7 +94,9 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
         {
           title: title.trim() || file.name.replace(/\.[^.]+$/, ''),
           contentType: 'note',
-          contentJson: JSON.stringify(markdownToNoteBlocks(extractedText)),
+          contentJson: JSON.stringify(/\.txt$/i.test(file.name)
+            ? plainTextToNoteBlocks(extractedText)
+            : markdownToNoteBlocks(extractedText)),
         },
         projectId || undefined,
       );
@@ -117,7 +121,7 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
       primaryButtonText={saving ? 'Importing…' : 'Import'}
       secondaryButtonText="Cancel"
       size="sm"
-      primaryButtonDisabled={!file || extracting || saving}
+      primaryButtonDisabled={!file || extractedText.trim() === '' || extracting || saving}
       onRequestClose={handleClose}
       onRequestSubmit={() => { void handleSubmit(); }}
     >
@@ -129,15 +133,18 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
       )}
 
       <label className="notes-import-file-label" htmlFor="import-note-file">
-        {file ? file.name : 'Choose a Markdown (.md) file to import'}
+        {file ? file.name : 'Choose a Markdown (.md, .markdown) or text (.txt) file'}
       </label>
       <input
         id="import-note-file"
         type="file"
-        accept=".md,.markdown"
+        accept=".md,.markdown,.txt"
         className="notes-import-file-input"
+        disabled={extracting || saving}
         onChange={(e) => { void handleFileSelected(e); }}
       />
+      <p className="notes-import-help">Text files become editable rich-text paragraphs, preserving line breaks.
+        {' '}Markdown files also retain headings, lists, links and emphasis.</p>
       {extracting && <InlineLoading description="Extracting text…" />}
 
       <div className="notes-modal-spacer" />

@@ -26,6 +26,7 @@ import { env } from '../config/env.js';
 
 let client: Client | null = null;
 let connecting: Promise<Client> | null = null;
+let activeApiKey: string | undefined;
 
 let cachedTools: LlmToolDefinition[] = [];
 let cachedToolNames: Set<string> = new Set();
@@ -33,10 +34,17 @@ let cacheExpiresAt = 0;
 
 /** True when Tavily is configured for this environment. */
 export function isTavilyEnabled(): boolean {
+  if (activeApiKey !== env.TAVILY_API_KEY) {
+    const previous = client;
+    activeApiKey = env.TAVILY_API_KEY;
+    resetConnection();
+    if (previous !== null) void previous.close().catch(() => { console.error('[Tavily] Could not close the previous connection after a credential change.'); });
+  }
   return Boolean(env.TAVILY_API_KEY);
 }
 
 async function getClient(): Promise<Client> {
+  if (!isTavilyEnabled()) throw new Error('Tavily is not configured');
   if (client !== null) return client;
   if (connecting !== null) return connecting;
 

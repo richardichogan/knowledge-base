@@ -24,12 +24,12 @@ function aiDoc(): DiagramDocument {
       node('triage', {
         label: 'Triage request', x: 80, y: 60, parentId: 'lane',
         flow: {
-          stepType: 'ai_agent_task', state: 'future',
+          stepType: 'digital_worker', state: 'future',
           agent: { mode: 'supervised_autonomous', assertion: 'advisory', tools: ['CRM lookup', 'Knowledge search'], guardrails: ['PII redaction'] },
           controls: { sensitivity: 'pii', auditLogging: true, humanApproval: true },
         },
       }),
-      node('bot', { label: 'Draft reply', x: 320, y: 60, parentId: 'lane', flow: { stepType: 'ai_agent_task' } }),
+      node('bot', { label: 'Draft reply', x: 320, y: 60, parentId: 'lane', flow: { stepType: 'digital_worker' } }),
     ],
     edges: [edge('e1', 'triage', 'bot', { flow: { edgeType: 'primary_flow', interaction: 'agent_handoff' } })],
   };
@@ -59,7 +59,7 @@ test('SVG export can leave governance findings out, and general diagrams have no
 
 test('draw.io export keeps step type, autonomy, sensitivity and lane owner', () => {
   const xml = diagramDrawioXml(aiDoc(), new Map());
-  assert.match(xml, /aiStepType="AI agent task"/);
+  assert.match(xml, /aiStepType="Digital Worker"/);
   assert.match(xml, /aiAutonomy="A3 [^"]+"/);
   assert.match(xml, /aiSensitivity="PII"/);
   assert.match(xml, /aiLaneOwner="Customer service agent"/);

@@ -8,10 +8,8 @@ import { EXTERNAL_FETCH_TIMEOUT_MS, HTTP_STATUS, MS_PER_SECOND } from '../../con
  */
 export class GitHubClient {
   private readonly baseUrl = 'https://api.github.com';
-  private readonly headers: Record<string, string>;
-
-  public constructor() {
-    this.headers = {
+  private get headers(): Record<string, string> {
+    return {
       Authorization: `Bearer ${env.GITHUB_ACCESS_TOKEN}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',

@@ -14,7 +14,7 @@ import {
   AI_FLOW_VOLUMES, AI_MEMORY_SCOPES, DATA_SENSITIVITIES, DIAGRAM_ARROW_DIRECTIONS, DIAGRAM_CALLOUT_TYPES, DIAGRAM_TYPES,
 } from '../types/diagram.js';
 import type {
-  AiFlowAgent, AiFlowControls, AiFlowEdge, AiFlowLane, AiFlowOperations, AiFlowStep,
+  AiFlowAgent, AiFlowControls, AiFlowEdge, AiFlowLane, AiFlowOperations, AiFlowStep, AiFlowStepType,
   DiagramDocument, DiagramEdge, DiagramFootnote, DiagramKind, DiagramLegend, DiagramLegendEntry, DiagramNode, DiagramPoint, DiagramPort,
 } from '../types/diagram.js';
 
@@ -59,6 +59,9 @@ export const ASSET_CONTENT_TYPES = ['image/png', 'image/svg+xml'] as const;
 export type AssetContentType = typeof ASSET_CONTENT_TYPES[number];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Step types renamed to the Imagine agent types (migration 079); still accepted on input. */
+const LEGACY_STEP_TYPES: Readonly<Record<string, AiFlowStepType>> = { ai_orchestration: 'digital_steward', ai_agent_task: 'digital_worker' };
+export const currentStepType = (v: unknown): unknown => (typeof v === 'string' ? LEGACY_STEP_TYPES[v] ?? v : v);
 const COLOR_RE = /^(?:#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})|transparent|none)$/i;
 // Labels may contain line breaks and tabs, but no other control characters.
 // eslint-disable-next-line no-control-regex
@@ -269,7 +272,7 @@ function validateFlowStep(v: unknown, kind: DiagramKind, path: string): AiFlowSt
   if (!FLOW_STEP_KIND_SET.has(kind)) fail(path, `is only allowed on ${AI_FLOW_STEP_KINDS.join(', ')} shapes`);
   const o = exactObject(v, FLOW_STEP_KEYS, path, FLOW_STEP_OPTIONAL_KEYS);
   return {
-    stepType: oneOf(o['stepType'], AI_FLOW_STEP_TYPES, `${path}.stepType`),
+    stepType: oneOf(currentStepType(o['stepType']), AI_FLOW_STEP_TYPES, `${path}.stepType`),
     ...opt(o, 'state', path, (x, at) => oneOf(x, AI_FLOW_STATES, at)),
     ...opt(o, 'actor', path, flowText),
     ...opt(o, 'systems', path, flowList),
@@ -338,7 +341,7 @@ function validateLegend(v: unknown, path: string): DiagramLegend {
 }
 
 function validateEdge(v: unknown, path: string): DiagramEdge {
-  const o = exactObject(v, EDGE_KEYS, path, ['description', 'strokeWidth', 'fontSize', 'labelOffset', 'flow']);
+  const o = exactObject(v, EDGE_KEYS, path, ['description', 'strokeWidth', 'fontSize', 'labelOffset', 'behind', 'flow']);
   const waypoints = array(o['waypoints'], `${path}.waypoints`, DIAGRAM_LIMITS.maxWaypointsPerEdge)
     .map((p, i) => validatePoint(p, `${path}.waypoints[${i}]`));
   return {
@@ -357,6 +360,7 @@ function validateEdge(v: unknown, path: string): DiagramEdge {
     ...(o['strokeWidth'] !== undefined ? { strokeWidth: num(o['strokeWidth'], `${path}.strokeWidth`, 0.5, 6) } : {}),
     dashed: bool(o['dashed'], `${path}.dashed`),
     arrows: oneOf(o['arrows'], ARROWS, `${path}.arrows`),
+    ...(o['behind'] !== undefined && bool(o['behind'], `${path}.behind`) ? { behind: true } : {}),
     ...(o['flow'] !== undefined ? { flow: validateFlowEdge(o['flow'], `${path}.flow`) } : {}),
   };
 }

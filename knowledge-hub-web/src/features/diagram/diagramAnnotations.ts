@@ -6,7 +6,7 @@
 import type { DiagramDocument, DiagramEdge, DiagramFootnote, DiagramLegend, DiagramLegendEntry, DiagramNode, DiagramPoint } from './diagramTypes';
 import type { Rect } from './diagramGeometry';
 import { containerHeader, edgeLabelCenter, edgeLabelLayout, edgeRoute, isContainerKind, linePoints, nodeMap, wrapText } from './diagramGeometry';
-import { wrapDescription, type DescriptionRun } from './diagramDescription';
+import { descriptionPlainText, wrapDescription, type DescriptionRun } from './diagramDescription';
 
 type Doc = DiagramDocument;
 
@@ -16,7 +16,7 @@ export const footnotesOf = (doc: Pick<Doc, 'footnotes'>): DiagramFootnote[] => d
 
 export interface ElementInfo { kind: 'shape' | 'connector'; label: string; description: string }
 
-const clean = (s: string): string => s.replace(/\s+/g, ' ').trim();
+const clean = (s: string): string => descriptionPlainText(s).replace(/\s+/g, ' ').trim();
 
 /** Human description of a shape or connector, for lists and captions. */
 export function elementInfo(doc: Pick<Doc, 'nodes' | 'edges'>, id: string): ElementInfo | null {

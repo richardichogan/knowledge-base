@@ -1375,7 +1375,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         const useEarly = early?.file === file;
         setUploadProgress({ filename: file.name, percent: 0, startedAt: useEarly ? early.startedAt : Date.now() });
         const res = await (useEarly ? early.result : api.uploadChatScreen(chatIdForUploads(), file, persona, question));
-        imageReadRef.current = null;
+        if (imageReadRef.current?.file === file) imageReadRef.current = null;
         if (!res.success) throw new Error(res.error?.message ?? 'image analysis failed');
         fileText = res.data.reading;
         storedIn = `this chat's Screens panel as "${res.data.screen.name}"`;
@@ -1432,7 +1432,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         pageContext: attachedContext,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      if (imageReadRef.current?.file === file) imageReadRef.current = null;
+      const message = describeApiError(err);
       appendMessage('assistant', `⚠️ Couldn't upload "${file.name}" — ${message}.`);
     } finally {
       setUploadProgress(null);

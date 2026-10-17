@@ -389,11 +389,27 @@ async function runDiagramAiFlowChecks(): Promise<string[]> {
   check(findingCount() >= 1, 'An ownerless lane is reported as a governance finding');
   clickButton('Add AI flow step');
   await waitFor(() => window.document.querySelector('.dg-ai-steps__item') !== null);
+  const stepMenu = window.document.querySelector<HTMLElement>('.dg-ai-steps')!;
+  const stepList = stepMenu.querySelector<HTMLElement>('.dg-ai-steps__list')!;
+  const paletteBounds = window.document.querySelector('.dg-palette')!.getBoundingClientRect();
+  const menuBounds = stepMenu.getBoundingClientRect();
+  check(menuBounds.top >= paletteBounds.top && menuBounds.bottom <= Math.min(paletteBounds.bottom, window.innerHeight) + 1,
+    'AI shapes menu stays within the editor height at desktop and mobile widths');
+  check(getComputedStyle(stepList).overflowY === 'auto', 'AI shapes list supports vertical scrolling at every screen width');
+  stepMenu.style.maxHeight = '15rem';
+  stepList.scrollTop = stepList.scrollHeight;
+  check(stepList.scrollTop > 0, 'AI shapes list scrolls when the menu height is constrained');
+  const lastStepBounds = stepList.lastElementChild!.getBoundingClientRect();
+  const listBounds = stepList.getBoundingClientRect();
+  check(lastStepBounds.top >= listBounds.top - 1 && lastStepBounds.bottom <= listBounds.bottom + 1,
+    'Scrolling reaches the final AI shape without clipping it');
+  stepMenu.style.maxHeight = '';
+  stepList.scrollTop = 0;
   const before = snapshot.document.nodes.length;
-  [...window.document.querySelectorAll<HTMLButtonElement>('.dg-ai-steps__item')].find(b => b.textContent?.includes('AI agent task'))!.click();
+  [...window.document.querySelectorAll<HTMLButtonElement>('.dg-ai-steps__item')].find(b => b.textContent?.includes('Digital Worker'))!.click();
   await waitFor(() => snapshot.document.nodes.length === before + 1);
   const step = snapshot.document.nodes.at(-1)!;
-  check(step.flow?.stepType === 'ai_agent_task' && step.kind === STEP_STYLES.ai_agent_task.kind, 'AI step is created with its step type and default shape');
+  check(step.flow?.stepType === 'digital_worker' && step.kind === STEP_STYLES.digital_worker.kind, 'AI step is created with its step type and default shape');
   await waitFor(() => window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-finding]`) !== null);
   check(window.document.querySelector(`g[data-ai-node="${step.id}"] [data-ai-chip="autonomy"]`) === null, 'No autonomy badge before a mode is set');
   window.document.querySelector(`g.dg-node[data-id="${step.id}"]`)!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }));
@@ -458,10 +474,10 @@ async function showAiFlowShowcase(): Promise<void> {
   };
   const steps = [
     step('Submit request', 'channel_interaction', 0, { controls: { authRequired: true } }),
-    step('Triage request', 'ai_agent_task', 1, { agent: { mode: 'supervised_autonomous', assertion: 'advisory', tools: ['Case lookup', 'Policy search'], guardrails: ['PII redaction'] }, controls: { sensitivity: 'pii', auditLogging: true, authRequired: true } }),
+    step('Triage request', 'digital_worker', 1, { agent: { mode: 'supervised_autonomous', assertion: 'advisory', tools: ['Case lookup', 'Policy search'], guardrails: ['PII redaction'] }, controls: { sensitivity: 'pii', auditLogging: true, authRequired: true } }),
     step('Route by rules', 'decision_rules', 1, { state: 'future' }),
     step('Review and approve', 'human_task', 2, { controls: { humanApproval: true } }),
-    step('Draft reply', 'ai_agent_task', 1, { agent: { mode: 'autonomous', assertion: 'authoritative' }, controls: { sensitivity: 'confidential' } }),
+    step('Draft reply', 'digital_worker', 1, { agent: { mode: 'autonomous', assertion: 'authoritative' }, controls: { sensitivity: 'confidential' } }),
   ];
   const edge = (from: DiagramNode, to: DiagramNode, edgeType: NonNullable<DiagramDocument['edges'][number]['flow']>['edgeType'], extra: Partial<DiagramDocument['edges'][number]> = {}): DiagramDocument['edges'][number] => ({
     id: crypto.randomUUID(), sourceId: from.id, targetId: to.id, sourcePort: 'right', targetPort: 'left', route: 'orthogonal', waypoints: [], label: '',

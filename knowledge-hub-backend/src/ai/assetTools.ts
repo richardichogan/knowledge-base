@@ -18,7 +18,7 @@ import {
   type DiagramDocument, type DiagramEdge, type DiagramNode, type DiagramKind,
 } from '../types/diagram.js';
 import { checkAiFlow, EDGE_STYLES, layoutAiFlow, nextLaneOrder, STEP_STYLES } from '../services/aiFlow.js';
-import { DIAGRAM_LIMITS } from '../services/diagramValidation.js';
+import { DIAGRAM_LIMITS, currentStepType } from '../services/diagramValidation.js';
 import { env } from '../config/env.js';
 
 export const ASSET_WRITE_TOOLS = [
@@ -69,7 +69,7 @@ const aiFlowStepProperties = {
   lane: { type: 'string', description: 'AI flow: key, label or id of the lane this step sits in.' },
   stepType: {
     type: 'string', enum: [...AI_FLOW_STEP_TYPES],
-    description: 'AI flow: channel_interaction (customer touchpoint), human_task, ai_agent_task, ai_orchestration (routes work between agents), decision_rules (deterministic rules), integration (system/API call), data_operation (read/write a store), external_party. Sets the default shape and colour.',
+    description: 'AI flow: channel_interaction (customer touchpoint), human_task, digital_steward (orchestrates and oversees digital workers and specialist agents), digital_worker (AI agent that carries out process tasks), specialist_agent (AI agent with deep domain expertise called on for specific tasks), decision_rules (deterministic rules), integration (system/API call), data_operation (read/write a store), external_party. Sets the default shape and colour.',
   },
   state: { type: 'string', enum: [...AI_FLOW_STATES], description: 'AI flow: part of the existing process, the future (target) process, or both.' },
   actor: { type: 'string', description: 'AI flow: who or what performs the step.' },
@@ -78,7 +78,7 @@ const aiFlowStepProperties = {
   dataOut: textList('AI flow: data the step produces.'),
   agent: {
     type: 'object',
-    description: 'AI flow: for ai_agent_task and ai_orchestration steps.',
+    description: 'AI flow: for digital_steward, digital_worker and specialist_agent steps.',
     properties: {
       role: { type: 'string' },
       mode: { type: 'string', enum: [...AI_AGENT_MODES], description: 'Autonomy: assistive (A1, human decides) to autonomous (A4, acts alone).' },
@@ -530,7 +530,7 @@ function merged<T extends object>(existing: T | undefined, incoming: { [K in key
 }
 
 function flowStepFrom(n: Record<string, unknown>, existing?: AiFlowStep): AiFlowStep | undefined {
-  const stepType = oneOf(n['stepType'], AI_FLOW_STEP_TYPES) ?? existing?.stepType;
+  const stepType = oneOf(currentStepType(n['stepType']), AI_FLOW_STEP_TYPES) ?? existing?.stepType;
   if (stepType === undefined) return undefined;
   const a = record(n['agent']);
   const c = record(n['controls']);

@@ -7,8 +7,11 @@ import { startSyncScheduler, stopSyncScheduler } from './sync/scheduler.js';
 import { assertSafeDatabase, createRuntime } from './runtime.js';
 import { recoverInterruptedWork } from './sync/runStore.js';
 import { stopTurnJobs } from './ai/turnJobs.js';
+import { loadConnectionCredentials } from './services/connectionCredentials.js';
 
 assertSafeDatabase(env.DATABASE_MODE, env.DATABASE_URL, env.NODE_ENV);
+let credentialTimer: ReturnType<typeof setInterval> | undefined;
+let refreshingCredentials = false;
 const app = createApp(() => runtime.phase);
 const server = app.listen(env.PORT, () => {
   console.warn(`[Server] Listening on port ${env.PORT} (${env.NODE_ENV}); initializing.`);
@@ -17,15 +20,24 @@ const server = app.listen(env.PORT, () => {
 const runtime = createRuntime({
   initialize: async () => {
     await runMigrations();
+    await loadConnectionCredentials(getDb());
     await getDb().query('SELECT 1');
     await recoverInterruptedWork(getDb());
     await warmUpDb();
   },
   startJobs: () => {
+    credentialTimer = setInterval(() => {
+      if (refreshingCredentials) return;
+      refreshingCredentials = true;
+      void loadConnectionCredentials(getDb()).catch(() => {
+        console.error('[Connections] Credential refresh failed; check database connectivity and the credential encryption key.');
+      }).finally(() => { refreshingCredentials = false; });
+    }, 15_000);
+    credentialTimer.unref();
     if (env.NODE_ENV === 'production') startSyncScheduler();
     else console.warn('[Scheduler] Non-production mode: scheduled jobs disabled.');
   },
-  stopJobs: () => { stopSyncScheduler(); stopTurnJobs(); },
+  stopJobs: () => { clearInterval(credentialTimer); stopSyncScheduler(); stopTurnJobs(); },
   closeServer: () => new Promise<void>((resolve, reject) => {
     server.close((error) => { if (error) reject(error); else resolve(); });
     server.closeIdleConnections();

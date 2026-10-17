@@ -32,27 +32,54 @@ $dg-ink: #f4f4f4;
 }
 
 .dg-header {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-  padding: 0.75rem 1rem;
+  container-type: inline-size;
+  container-name: dg-header;
+  padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--cds-border-subtle-00);
 
+  // Every header control is 2rem tall, including the type switch.
+  .dg-segment { box-sizing: border-box; height: 2rem; }
+  .dg-segment__option { height: 100%; }
+
+  // Title, type, status, tools and panel buttons all sit on one row.
+  &__row { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+  &__main { display: flex; align-items: center; gap: 0.75rem; flex: 0 1 auto; min-width: 0; }
   &__title {
-    flex: 0 1 22rem;
-    min-width: 10rem;
+    flex: 0 1 auto;
+    field-sizing: content;
+    min-width: 6rem;
+    max-width: 24rem;
+    margin-left: -0.5rem;
     background: transparent;
     border: 1px solid transparent;
     color: var(--cds-text-primary);
     font-size: 1.125rem;
     font-weight: 600;
     padding: 0.25rem 0.5rem;
+    text-overflow: ellipsis;
     &:hover { border-color: var(--cds-border-subtle-01); }
     &:focus { outline: none; border-color: var(--kh-accent); }
   }
   &__type-switch { display: inline-flex; flex-shrink: 0; }
-  &__actions { margin-left: auto; display: flex; align-items: center; gap: 0.25rem; }
+  .dg-status-group { flex-shrink: 0; }
+
+  &__toolbar { display: flex; align-items: center; gap: 0.75rem; flex: 1 0 auto; }
+  &__actions { display: flex; align-items: center; gap: 0.5rem; }
+  &__group { display: flex; align-items: center; gap: 0.125rem; flex-shrink: 0; }
+  &__group + &__group { padding-left: 0.5rem; border-left: 1px solid var(--cds-border-subtle-01); }
+  &__panels { display: flex; align-items: center; gap: 0.375rem; margin-left: auto; flex-shrink: 0; }
+  &__panels .dg-text-btn { padding: 0 0.625rem; }
+}
+
+// Narrower editors drop text labels before anything wraps.
+@container dg-header (max-width: 1500px) {
+  .dg-ai-gov-btn__label, .dg-status--saved .dg-status__text { display: none; }
+  .dg-ai-gov-btn { padding: 0 0.5rem; }
+}
+// Last resort on small screens: tools move to a second row.
+@container dg-header (max-width: 1040px) {
+  .dg-header__row { flex-wrap: wrap; row-gap: 0.5rem; }
+  .dg-header__main { flex: 1 1 100%; }
 }
 
 .dg-status-group { display: inline-flex; align-items: center; gap: 0.75rem; }
@@ -282,6 +309,7 @@ $dg-ink: #f4f4f4;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   width: 2rem;
   height: 2rem;
   padding: 0;
@@ -307,6 +335,7 @@ $dg-ink: #f4f4f4;
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
+  box-sizing: border-box;
   height: 2rem;
   padding: 0 0.75rem;
   background: var(--cds-layer-02);
@@ -518,12 +547,15 @@ $dg-ink: #f4f4f4;
 .dg-body { flex: 1; min-height: 0; display: flex; }
 
 .dg-palette {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.5rem 0.375rem;
   background: var(--cds-layer-01);
   border-right: 1px solid var(--cds-border-subtle-01);
+
+  > .dg-anchor--ai-steps { position: static; }
 
   &__item {
     width: 2.5rem;
@@ -1009,18 +1041,19 @@ $dg-ai-info: #0f62fe;
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
+  box-sizing: border-box;
   height: 2rem;
-  padding: 0 0.5rem;
-  background: transparent;
+  padding: 0 0.75rem;
+  background: var(--cds-layer-02);
   border: 1px solid var(--cds-border-subtle-01);
   color: var(--cds-text-primary);
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   cursor: pointer;
   white-space: nowrap;
 
-  &:hover:not(:disabled) { background: var(--cds-layer-hover-01); }
-  &:active:not(:disabled) { background: var(--cds-layer-active-01, var(--cds-layer-hover-01)); }
+  &:hover:not(:disabled) { background: var(--cds-layer-hover-02); }
+  &:active:not(:disabled) { background: var(--cds-layer-active-02, var(--cds-layer-hover-02)); }
   &:focus-visible { @include dg-focus; }
   &:disabled { color: var(--cds-text-disabled); cursor: not-allowed; }
   &--active { background: var(--kh-accent-bg, var(--cds-layer-selected-01)); border-color: var(--kh-accent-border, var(--kh-accent)); }
@@ -1047,8 +1080,22 @@ $dg-ai-info: #0f62fe;
 
 .dg-ai-steps {
   width: 17rem;
-  &__list { display: flex; flex-direction: column; gap: 0.125rem; }
+  &.dg-popover--side {
+    top: 0.5rem;
+    max-height: calc(100% - 1rem);
+    overflow: hidden;
+  }
+  > .dg-popover__heading, > .dg-popover__hint { flex-shrink: 0; }
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
   &__item {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 0.625rem;
@@ -1267,9 +1314,6 @@ $dg-ai-info: #0f62fe;
 }
 
 @media (max-width: 700px) {
-  .dg-header__type-switch { order: 1; }
-  .dg-ai-gov-btn__label { display: none; }
-  .dg-ai-gov-btn { padding: 0 0.375rem; }
-  .dg-popover--side.dg-ai-steps { width: min(17rem, calc(100vw - 4.5rem)); max-height: 60vh; overflow-y: auto; }
+  .dg-popover--side.dg-ai-steps { width: min(17rem, calc(100vw - 4.5rem)); }
   .dg-ai-props__fields { gap: 0.5rem; }
 }

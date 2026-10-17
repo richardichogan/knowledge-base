@@ -1,3 +1,4 @@
+import { CONTENT_FORMATS, formatFitSql, isContentFormat, type ContentFormat, type FormatFit } from '../integrations/cms/formatFit.js';
 import { Router } from 'express';
 import { positiveInteger } from '../utils/queryValidation.js';
 import type { Request, Response, NextFunction } from 'express';
@@ -35,6 +36,8 @@ export interface DiscoverItem {
   taxonomyTagIds: string[];
   /** AI-classified article type */
   articleType: string | null;
+  /** 0-3 fit per publishing format (newsletter, podcast, full/quick blog, social). */
+  formatFit: FormatFit;
   /** Treatment plan: Full Blog Post, LinkedIn Standalone, Newsletter Candidate, Archive, Podcast */
   platform: string | null;
   /** Source type: Formal, Community, Case Study, Advertorial */
@@ -235,6 +238,9 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       };
       const order = orders[sort];
       if (!Object.hasOwn(orders, sort) || !order) throw new ValidationError('Unsupported Discovery sort');
+      const formatParam = queryText(req.query['format'], 'format', DISCOVER_ENUM_MAX_LENGTH);
+      if (formatParam !== undefined && !isContentFormat(formatParam)) throw new ValidationError('Unsupported Discovery format');
+      const format = formatParam;
       const sourceFilter = queryText(req.query['source'], 'source', DISCOVER_FILTER_MAX_LENGTH);
       const titleFilter = queryText(req.query['title'], 'title', DISCOVER_FILTER_MAX_LENGTH);
       const page = positiveInteger(req.query['page'], 'page', 1);
@@ -259,6 +265,8 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         params.push(`%${titleFilter.replace(/[\\%_]/g, '\\$&')}%`);
       }
 
+      // Ranking for a format lists only articles that suit it, strongest fit first, then by rank.
+      if (format !== undefined) conditions.push(`${formatFitSql('ci', format)} >= 1`);
       const where = `WHERE ${conditions.join(' AND ')}`;
       // Live rank score (never stored, always recomputed): recency decay (halves every
       // DISCOVER_RECENCY_HALF_LIFE_DAYS) x source authority weight x article type weight,
@@ -295,19 +303,20 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
           type_factor: number;
           project_factor: number;
           rank_computed_at: Date;
-        }>(
+        } & Record<`fit_${ContentFormat}`, number>>(
           `SELECT ci.id, ci.source_id, ci.title, ci.url, ci.body, ci.published_at, ci.indexed_at,
                   ci.metadata, ci.workflow_state, ci.relevance_score, ci.relevance_explanation,
                   array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids,
                   ${rankScoreExpr} AS rank_score,
                   ${recencyExpr} AS recency_factor, (${authorityWeightExpr}) AS authority_factor,
                   (${typeWeightExpr}) AS type_factor, ${projectExpr} AS project_factor,
+                  ${CONTENT_FORMATS.map((f) => `${formatFitSql('ci', f)} AS "fit_${f}"`).join(', ')},
                   NOW() AS rank_computed_at
            FROM content_items ci
            LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
            ${where}
            GROUP BY ci.id
-           ORDER BY ${order}
+           ORDER BY ${format === undefined ? order : `"fit_${format}" DESC, ${order}`}
            LIMIT $${p++} OFFSET $${p}`,
           [...params, pageSize, offset],
         ),
@@ -329,7 +338,8 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         publishedUrl: typeof row.metadata['publishedUrl'] === 'string' ? row.metadata['publishedUrl'] : null,
         taxonomyTagIds: row.taxonomy_tag_ids ?? [],
         articleType: typeof row.metadata['articleType'] === 'string' ? row.metadata['articleType'] : null,
-        platform: typeof row.metadata['platform'] === 'string' ? row.metadata['platform'] : null,
+        platform: (row.metadata['platform'] === 'Podcast Topic' || row.metadata['platform'] === 'Podcast') && Number(row.fit_podcast) === 0
+          ? null : typeof row.metadata['platform'] === 'string' ? row.metadata['platform'] : null,
         sourceType: typeof row.metadata['sourceType'] === 'string' ? row.metadata['sourceType'] : null,
         spark: typeof row.metadata['spark'] === 'boolean' ? row.metadata['spark'] : null,
         sparkReason: typeof row.metadata['sparkReason'] === 'string' ? row.metadata['sparkReason'] : null,
@@ -348,6 +358,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         sourceGroup: typeof row.metadata['sourceGroup'] === 'string' ? row.metadata['sourceGroup'] : null,
         shelvedAt: typeof row.metadata['shelvedAt'] === 'string' ? row.metadata['shelvedAt'] : null,
         shelvedReason: typeof row.metadata['shelvedReason'] === 'string' ? row.metadata['shelvedReason'] : null,
+        formatFit: Object.fromEntries(CONTENT_FORMATS.map((f) => [f, Number(row[`fit_${f}`])])) as FormatFit,
         projectFit: Array.isArray(row.metadata['projectFit']) ? row.metadata['projectFit'] as DiscoverItem['projectFit'] : [],
       }));
 

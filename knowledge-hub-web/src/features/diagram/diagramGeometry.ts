@@ -1,3 +1,4 @@
+import { descriptionPlainText } from './diagramMarkdown';
 import type { DiagramArrowDirection, DiagramDocument, DiagramEdge, DiagramKind, DiagramNode, DiagramPoint, DiagramPort } from './diagramTypes';
 
 /** Pure geometry helpers for the diagram editor. All coordinates are absolute world coordinates. */
@@ -37,7 +38,7 @@ export function lineGeometry(start: DiagramPoint, end: DiagramPoint): Pick<Diagr
 
 export function containerHeader(node: Pick<DiagramNode, 'label' | 'width' | 'height' | 'fontSize'>): { lines: string[]; height: number } {
   const maxLines = Math.max(1, Math.floor((node.height - 12 - node.fontSize) / (node.fontSize * 1.25)) + 1);
-  const lines = wrapText(node.label, node.width - 20, node.fontSize, maxLines);
+  const lines = wrapText(descriptionPlainText(node.label), node.width - 20, node.fontSize, maxLines);
   const textHeight = node.fontSize + Math.max(0, lines.length - 1) * node.fontSize * 1.25;
   return { lines, height: Math.min(node.height, Math.max(CONTAINER_HEADER, Math.ceil(textHeight + 12))) };
 }
@@ -800,7 +801,8 @@ export function edgeLabelCenter(route: readonly DiagramPoint[], edge: Pick<Diagr
 
 export function edgeLabelLayout(edge: Pick<DiagramEdge, 'label' | 'fontSize'>): { fontSize: number; lines: string[]; lineHeight: number; width: number; height: number } {
   const fontSize = edge.fontSize ?? EDGE_LABEL_FONT;
-  const lines = edge.label.trim() === '' ? [] : wrapText(edge.label.trim(), EDGE_LABEL_WIDTH, fontSize, 3);
+  const text = descriptionPlainText(edge.label).trim();
+  const lines = text === '' ? [] : wrapText(text, EDGE_LABEL_WIDTH, fontSize, 3);
   const lineHeight = fontSize * 1.25;
   return {
     fontSize, lines, lineHeight,

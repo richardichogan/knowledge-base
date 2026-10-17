@@ -23,7 +23,6 @@ export const PRIMARY_DESTINATIONS: NavigationDestination[] = [
   { id: 'plan', path: '/plan', label: 'Plan', icon: CalendarTools },
   { id: 'think', path: '/think', label: 'Think', icon: Idea },
   { id: 'build', path: '/build', label: 'Build', icon: Code },
-  { id: 'projects', path: '/projects', label: 'Projects', icon: Portfolio },
 ];
 
 export const TOOL_GROUPS: NavigationGroup[] = [
@@ -36,6 +35,7 @@ export const TOOL_GROUPS: NavigationGroup[] = [
     { id: 'memory', path: '/memory', label: 'Memory', icon: MachineLearningModel, description: 'Manage what Athena remembers' },
   ] },
   { label: 'Management', items: [
+    { id: 'projects', path: '/projects', label: 'Projects', icon: Portfolio, description: 'Project setup, goals and cockpit' },
     { id: 'sync', path: '/my-work?sync=1', label: 'Connections and sync', icon: Renew, description: 'Manage connected sources and synchronisation' },
     { id: 'tags', action: 'tags', label: 'Tag Manager', icon: Tag, description: 'Manage tags and review suggestions' },
     { id: 'repo-tags', action: 'repo-tags', label: 'Repo to Tag Mappings', icon: Settings, description: 'Manage repository-to-tag mappings' },

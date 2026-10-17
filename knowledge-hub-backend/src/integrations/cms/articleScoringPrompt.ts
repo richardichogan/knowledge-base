@@ -5,7 +5,7 @@
  * written around Richard's actual lens (enterprise architecture, AI governance
  * and security, the IBM–Microsoft practice), a 0–100 score that spreads out
  * rather than piling up at a ceiling, and routing to the publishing format
- * (blog, newsletter, podcast, LinkedIn) the article suits.
+ * (blog, newsletter, Microsoft podcast, LinkedIn) the article suits.
  */
 
 export const COMMUNITY_COMPOSITE_CAP = 6;
@@ -219,6 +219,8 @@ export interface ScoringResult {
   alreadyCovered?: number;
   /** The title of his piece that covers it, when alreadyCovered > 0. */
   coveredBy?: string;
+  /** 0-3 fit per publishing format; normalised by normaliseFormatFit before storage. */
+  formatFit?: unknown;
 }
 
 // ── URL-based source type detection ───────────────────────────────────────────
@@ -294,7 +296,11 @@ export function buildRelevanceSystemPrompt(covered: string[]): string {
 ## What he is building a reputation for
 ${RICHARD_THEMES.map((t) => `- ${t}`).join('\n')}
 
-The VENDOR does not matter; relevance to those themes and to enterprise decisions does. An OpenAI, Google, AWS or IBM announcement can score as high as a Microsoft one if it changes how enterprises choose, combine or govern platforms, or it is a development Richard can credibly analyse. Pure product feature lists, minor service updates, consumer features and corporate PR score low whoever publishes them.
+For general editorial relevance, the VENDOR does not matter; relevance to those themes and to enterprise decisions does. An OpenAI, Google, AWS or IBM announcement can score as high as a Microsoft one if it changes how enterprises choose, combine or govern platforms, or it is a development Richard can credibly analyse. Pure product feature lists, minor service updates, consumer features and corporate PR score low whoever publishes them. This vendor-neutral rule does NOT apply to podcast suitability.
+
+## Podcast scope — mandatory
+Cloudy with a Chance of Insights is a MICROSOFT podcast, not a general AI or cloud show. A podcast candidate MUST have an explicit Microsoft news hook in the supplied article: Microsoft, Azure, Microsoft 365, Copilot, GitHub, Dynamics, Fabric, Entra, Purview, Teams, or Microsoft licensing/partners. Wider industry news qualifies only when the article itself directly connects it to a Microsoft development. OpenAI, Anthropic, Google or AWS news is NOT automatically Microsoft news. Do not invent a Microsoft angle or assume a connection from OpenAI's partnership. Without that explicit connection, podcast fit MUST be 0 and platform MUST NOT be Podcast Topic.
+Within that scope, favour enterprise discussions about AI adoption, value, operating models, procurement, cost, governance and organisational readiness. A Microsoft product mention alone does not make a worthwhile discussion.
 
 **Narrow product features score LOW.** A single service feature, new region, SKU, integration or "now supports..." note (databases, storage, compute, networking, Kubernetes, ML tooling and how-tos) is audienceFit 1 and strategicSignificance 0 unless it changes how enterprises should choose, combine or govern platforms. Most AWS "now supports" posts and Google Cloud feature posts are in this group. Customer-story posts ("How X uses Y") are marketing: audienceFit 1 at most.
 
@@ -347,9 +353,17 @@ When 1 or 2, put the title of his piece in "coveredBy".
 ## Platform routing (apply the FIRST matching rule)
 - **Full Blog Post**: composite >= 8, analyticalDepth = 2, Formal only. VERY rare.
 - **Newsletter Candidate**: composite 6-7, topic is broad and cross-cutting (suits a considered issue).
-- **Podcast Topic**: a genuine debate or tension with multiple valid perspectives that can sustain 10-15 minutes between three hosts. Rare.
+- **Podcast Topic**: an explicit Microsoft news hook meeting the podcast scope above, with a genuine debate or tension that can sustain 10-15 minutes between three hosts. Rare.
 - **LinkedIn Standalone**: composite 4-7, quick-share. Most scored articles land here.
 - **Archive**: composite <= 3, OR audienceFit = 0, OR novelty = 0. MANY articles belong here.
+
+## Format fit (0-3 each, judged independently)
+Rate how well the article suits EACH format, regardless of the single platform above. 0 = no, 1 = weak, 2 = good, 3 = strong. Archive articles are 0 for all.
+- **newsletter**: a broad, cross-cutting topic worth a considered paragraph or section in a fortnightly issue.
+- **podcast**: an explicit Microsoft news hook meeting the mandatory podcast scope above, with a genuine debate three hosts could argue about for 10-15 minutes. No Microsoft connection = 0, regardless of general AI significance.
+- **fullBlog**: enough depth and strategic weight for a long-form analytical post (Formal sources, analyticalDepth 2). Rare.
+- **quickBlog**: a timely development worth a short, opinionated Quick Take reaction post.
+- **social**: worth sharing on LinkedIn or Bluesky with a one-line take.
 
 ## Spark flag
 Default FALSE. True only when the article contains a SPECIFIC data point, statistic, customer example or counterargument that could be cited verbatim in future content. Expect ~25% sparks.
@@ -359,7 +373,7 @@ Exactly one of: Security Disclosure, Product Announcement, Research Report, Opin
 
 ## Output
 ONLY valid JSON, no fences:
-{"audienceFit":<0-3>,"novelty":<0-3>,"strategicSignificance":<0-2>,"analyticalDepth":<0-2>,"composite":<0-10>,"sourceType":"<as provided>","platform":"<Full Blog Post|Newsletter Candidate|Podcast Topic|LinkedIn Standalone|Archive>","spark":<true|false>,"sparkReason":"<specific cited material or empty string>","explanation":"<one sentence>","articleType":"<Security Disclosure|Product Announcement|Research Report|Opinion or Analysis|Press Release|Tutorial or How-To|News or Roundup>","alreadyCovered":<0-2>,"coveredBy":"<title of his piece, or empty string>"}`;
+{"audienceFit":<0-3>,"novelty":<0-3>,"strategicSignificance":<0-2>,"analyticalDepth":<0-2>,"composite":<0-10>,"sourceType":"<as provided>","platform":"<Full Blog Post|Newsletter Candidate|Podcast Topic|LinkedIn Standalone|Archive>","spark":<true|false>,"sparkReason":"<specific cited material or empty string>","explanation":"<one sentence>","articleType":"<Security Disclosure|Product Announcement|Research Report|Opinion or Analysis|Press Release|Tutorial or How-To|News or Roundup>","alreadyCovered":<0-2>,"coveredBy":"<title of his piece, or empty string>","formatFit":{"newsletter":<0-3>,"podcast":<0-3>,"fullBlog":<0-3>,"quickBlog":<0-3>,"social":<0-3>}}`;
 }
 /* eslint-enable max-len */
 

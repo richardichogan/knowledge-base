@@ -45,7 +45,7 @@ test('the backend and web AI flow modules are identical apart from the import pa
 test('a well-governed agent step raises no findings', () => {
   const l = lane('Claims', 1, 'Claims operations');
   const s = step(l, 'Triage', {
-    stepType: 'ai_agent_task',
+    stepType: 'digital_worker',
     agent: { mode: 'supervised_autonomous', assertion: 'authoritative', guardrails: ['No payments'], escalationPath: 'Handler', confidenceThreshold: 0.8, tools: ['lookup'] },
     controls: { sensitivity: 'pii', auditLogging: true, authRequired: true, humanApproval: true },
     operations: { failureHandling: 'Queue for a human' },
@@ -57,9 +57,9 @@ test('a well-governed agent step raises no findings', () => {
 test('governance checks flag unchecked autonomy, missing controls and ownership gaps', () => {
   const l = lane('Agents', 1);
   const risky = step(l, 'Approve payment', {
-    stepType: 'ai_agent_task', agent: { mode: 'autonomous', assertion: 'authoritative', tools: ['pay'] }, controls: { sensitivity: 'pci' },
+    stepType: 'digital_worker', agent: { mode: 'autonomous', assertion: 'authoritative', tools: ['pay'] }, controls: { sensitivity: 'pci' },
   });
-  const bare = step(l, 'Summarise', { stepType: 'ai_orchestration' });
+  const bare = step(l, 'Summarise', { stepType: 'digital_steward' });
   const loose = step(null, 'Loose step', { stepType: 'human_task', controls: { sensitivity: 'confidential' } });
   const untyped = step(l, 'Untyped');
   const human = step(l, 'Review', { stepType: 'human_task' });
@@ -85,7 +85,7 @@ test('governance checks flag unchecked autonomy, missing controls and ownership 
 
 test('assistive agents need no escalation path or confidence threshold', () => {
   const l = lane('Desk', 1, 'Agents');
-  const s = step(l, 'Draft reply', { stepType: 'ai_agent_task', agent: { mode: 'assistive', guardrails: ['Human sends'] }, operations: { failureHandling: 'Manual' } });
+  const s = step(l, 'Draft reply', { stepType: 'digital_worker', agent: { mode: 'assistive', guardrails: ['Human sends'] }, operations: { failureHandling: 'Manual' } });
   assert.deepEqual(codes(doc([l, s])), []);
 });
 
@@ -93,7 +93,7 @@ test('lane layout stacks lanes by order and places steps in flow columns', () =>
   const ops = lane('Operations', 2, 'Ops');
   const customer = lane('Customer', 1, 'Policyholder');
   const start = step(customer, 'Submit claim', { stepType: 'channel_interaction' }, { y: 999 });
-  const triage = step(ops, 'Triage', { stepType: 'ai_agent_task' }, { width: 200, height: 90 });
+  const triage = step(ops, 'Triage', { stepType: 'digital_worker' }, { width: 200, height: 90 });
   const review = step(ops, 'Review', { stepType: 'human_task' });
   const notify = step(customer, 'Notify', { stepType: 'channel_interaction' });
   const group = node({ kind: 'container', label: 'Group', parentId: ops.id, width: 200, height: 120 });

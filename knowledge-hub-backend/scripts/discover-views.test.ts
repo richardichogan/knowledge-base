@@ -5,6 +5,41 @@ import { PGlite } from '@electric-sql/pglite';
 import { getDb } from '../src/db/db.js';
 import { discoverRouter, type DiscoverItem } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
+import { CONTENT_FORMATS, formatFitSql } from '../src/integrations/cms/formatFit.js';
+import { isMicrosoftRelevant } from '../src/utils/microsoftRelevance.js';
+
+test('podcast fit requires Microsoft evidence, including stored and legacy recommendations', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`CREATE TABLE content_items (id INTEGER PRIMARY KEY, title TEXT, url TEXT, body TEXT,
+      metadata JSONB, relevance_explanation TEXT);`);
+    const cases = [
+      { title: 'OpenAI assistant burns tokens', url: 'https://example.com/openai', body: 'An enterprise AI debate.', expected: 0 },
+      { title: 'Microsoft changes Copilot licensing', url: 'https://example.com/news', body: 'Enterprise cost implications.', expected: 3 },
+      { title: 'AI competition inquiry', url: 'https://example.com/news', body: 'The inquiry concerns Microsoft licensing.', expected: 3 },
+      { title: 'Enterprise AI governance', url: 'https://www.microsoft.com/blog/governance', body: 'Enterprise AI adoption.', expected: 3 },
+      { title: 'Generic AI debate', url: 'https://microsoft.com.example.com/news?ref=azure.com', body: 'General industry news.', expected: 0 },
+    ];
+    for (const [index, item] of cases.entries()) {
+      assert.equal(isMicrosoftRelevant({ title: item.title, url: item.url, text: item.body }), item.expected > 0);
+      for (const stored of [false, true]) {
+        await db.query(`INSERT INTO content_items VALUES ($1,$2,$3,$4,$5,'Scored')`,
+          [index * 2 + Number(stored), item.title, item.url, item.body,
+            JSON.stringify({ platform: 'Podcast Topic', compositeScore: 7,
+              ...(stored ? { formatFit: { podcast: 3 } } : {}) })]);
+      }
+    }
+    const fit = formatFitSql('ci', 'podcast');
+    const result = await db.query<{ id: number; fit: number }>(`SELECT id, ${fit} AS fit FROM content_items ci ORDER BY id`);
+    assert.deepEqual(result.rows.map(r => r.fit), cases.flatMap(c => [c.expected, c.expected]));
+    const filtered = await db.query<{ id: number }>(`SELECT id FROM content_items ci WHERE ${fit} >= 1 ORDER BY ${fit} DESC, id`);
+    assert.deepEqual(filtered.rows.map(r => r.id), [2, 3, 4, 5, 6, 7]);
+    const formats = await db.query<Record<string, number>>(`SELECT ${
+      CONTENT_FORMATS.map(f => `${formatFitSql('ci', f)} AS "fit_${f}"`).join(', ')
+    } FROM content_items ci WHERE id = 2`);
+    for (const format of CONTENT_FORMATS) assert.ok(Number.isFinite(formats.rows[0]?.[`fit_${format}`]));
+  } finally { await db.close(); }
+});
 
 test('Discovery sorts are stable across filtered pages, factors explain the SQL rank', async () => {
   const db = new PGlite();

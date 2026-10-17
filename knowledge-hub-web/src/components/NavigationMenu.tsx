@@ -9,13 +9,15 @@ interface Props {
   groups: NavigationGroup[];
   selectedId?: string | undefined;
   attentionIds?: string[] | undefined;
+  /** Rich badge (icon + count) for an item; falls back to the attention dot when it returns null. */
+  renderBadge?: ((id: string) => React.ReactNode) | undefined;
   onAction: (item: NavigationDestination) => void;
   onClose: (restoreFocus: boolean) => void;
   triggerRef: React.RefObject<HTMLButtonElement>;
   initialFocus: 'first' | 'last';
 }
 
-export function NavigationMenu({ id, label, groups, selectedId, attentionIds = [], onAction, onClose, triggerRef, initialFocus }: Props): React.ReactElement {
+export function NavigationMenu({ id, label, groups, selectedId, attentionIds = [], renderBadge, onAction, onClose, triggerRef, initialFocus }: Props): React.ReactElement {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const items = ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]');
@@ -65,7 +67,8 @@ export function NavigationMenu({ id, label, groups, selectedId, attentionIds = [
         const content = <><Icon size={20} /><span className="kh-nav-menu__text"><span>{item.label}</span>
           {item.description && <small>{item.description}</small>}</span>
           {selected && <Checkmark size={16} aria-hidden="true" />}
-          {attentionIds.includes(item.id) && <span className="kh-nav-menu__attention" aria-label="Suggestions need review" />}</>;
+          {renderBadge?.(item.id) ?? (attentionIds.includes(item.id)
+            && <span className="kh-nav-menu__attention" aria-label="Suggestions need review" />)}</>;
         const common = {
           role: 'menuitem', tabIndex: -1,
           className: `kh-nav-menu__item${selected ? ' kh-nav-menu__item--selected' : ''}`,

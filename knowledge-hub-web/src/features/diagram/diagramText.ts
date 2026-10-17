@@ -1,6 +1,7 @@
 import type { DiagramNode } from './diagramTypes';
 import { containerHeader, SWIMLANE_HEADER, documentWaveDepth, wrapText, arrowAxis, arrowShaftRect } from './diagramGeometry';
 import { calloutLayout } from './diagramCallouts';
+import { descriptionPlainText } from './diagramMarkdown';
 
 /** One label layout for the canvas and both export formats. */
 export function diagramTextLayout(node: DiagramNode): {
@@ -25,14 +26,14 @@ export function diagramTextLayout(node: DiagramNode): {
   if (!aligned && node.kind === 'swimlane') {
     const bx = x + SWIMLANE_HEADER / 2;
     const cy = y + h / 2;
-    return { lines: wrapText(node.label, h - 16, fs, 1), x: bx, y: cy, anchor: 'middle', weight: 600, rotation: `rotate(-90 ${bx} ${cy})` };
+    return { lines: wrapText(descriptionPlainText(node.label), h - 16, fs, 1), x: bx, y: cy, anchor: 'middle', weight: 600, rotation: `rotate(-90 ${bx} ${cy})` };
   }
   if (node.kind === 'arrow') {
     const shaft = arrowShaftRect({ x, y, width: w, height: h }, node.arrowDirection);
     const vertical = arrowAxis(node.arrowDirection) === 'vertical';
     const width = Math.max(1, shaft.width - (vertical ? 6 : 12));
     const height = Math.max(fs, shaft.height - (vertical ? 12 : 4));
-    const lines = wrapText(node.label, width, fs, Math.max(1, Math.floor(height / (fs * 1.25))));
+    const lines = wrapText(descriptionPlainText(node.label), width, fs, Math.max(1, Math.floor(height / (fs * 1.25))));
     const horizontal = node.textAlign ?? 'center';
     const verticalAlign = node.textVerticalAlign ?? 'middle';
     const halfText = ((lines.length - 1) * fs * 1.25 + fs) / 2;
@@ -48,7 +49,7 @@ export function diagramTextLayout(node: DiagramNode): {
   const width = node.kind === 'decision' ? w * 0.62 : node.kind === 'terminator' ? w - h * 0.6 : w - (node.kind === 'text' ? 8 : 16);
   const contentHeight = node.kind === 'document' ? h - 2 * documentWaveDepth(h) : h;
   const height = node.kind === 'decision' ? h * 0.6 : contentHeight - (node.kind === 'text' ? 0 : 8);
-  const lines = wrapText(node.label, width, fs, Math.max(1, Math.floor(height / (fs * 1.25))));
+  const lines = wrapText(descriptionPlainText(node.label), width, fs, Math.max(1, Math.floor(height / (fs * 1.25))));
   const horizontal = node.textAlign ?? 'center';
   const vertical = node.textVerticalAlign ?? 'middle';
   const halfText = ((lines.length - 1) * fs * 1.25 + fs) / 2;
@@ -57,7 +58,7 @@ export function diagramTextLayout(node: DiagramNode): {
   let cy = vertical === 'top' ? y + insetY + halfText : vertical === 'bottom' ? y + contentHeight - insetY - halfText : y + contentHeight / 2;
   if (!aligned && node.kind === 'image') cy = y + h - Math.round(fs * 1.3 + 10) / 2 - 2;
   return {
-    lines: !aligned && node.kind === 'image' ? wrapText(node.label, w - 4, fs, 1) : lines,
+    lines: !aligned && node.kind === 'image' ? wrapText(descriptionPlainText(node.label), w - 4, fs, 1) : lines,
     x: horizontal === 'left' ? x + insetX : horizontal === 'right' ? x + w - insetX : x + w / 2,
     y: cy, anchor: horizontal === 'left' ? 'start' : horizontal === 'right' ? 'end' : 'middle',
     weight: node.kind === 'swimlane' ? 600 : 400,

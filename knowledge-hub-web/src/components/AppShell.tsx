@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Header } from '@carbon/react';
-import { ChatLaunch, Search, Menu, Tools } from '@carbon/icons-react';
+import { ChatLaunch, Search, Menu, Tools, Idea, DocumentAdd, Time, WarningAlt } from '@carbon/icons-react';
+import type { CarbonIconType } from '@carbon/icons-react';
+import type { NavAttention } from '../services/api';
 import { FloatingAIChat } from './FloatingAIChat';
 import { CommandPalette } from './CommandPalette';
 import { TagPanel } from './TagPanel';
@@ -17,6 +19,39 @@ import { useGlobalShortcuts } from '../hooks/useGlobalShortcuts';
 import { useAthenaContext } from '../context/AthenaContext';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { api } from '../services/api';
+
+const DISCOVER_SEEN_KEY = 'kh-discover-seen';
+
+/** Last Discover visit; the first ever load starts the clock now rather than flagging the whole backlog. */
+function discoverSeenAt(): string {
+  const saved = localStorage.getItem(DISCOVER_SEEN_KEY);
+  if (saved) return saved;
+  const now = new Date().toISOString();
+  localStorage.setItem(DISCOVER_SEEN_KEY, now);
+  return now;
+}
+
+function localDay(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+type BadgeTab = keyof NavAttention;
+const BADGES: Record<BadgeTab, { icon: CarbonIconType; label: (n: number) => string }> = {
+  think: { icon: Idea, label: (n) => `${n} new spark theme${n === 1 ? '' : 's'}` },
+  discover: { icon: DocumentAdd, label: (n) => `${n} new article${n === 1 ? '' : 's'} to review since your last visit` },
+  plan: { icon: Time, label: (n) => `${n} overdue task${n === 1 ? '' : 's'}` },
+  build: { icon: WarningAlt, label: (n) => `${n} build task${n === 1 ? '' : 's'} waiting on you` },
+};
+const isBadgeTab = (id: string): id is BadgeTab => Object.hasOwn(BADGES, id);
+
+function NavBadge({ id, count }: { id: string; count: number }): React.ReactElement | null {
+  if (count <= 0 || !isBadgeTab(id)) return null;
+  const { icon: Icon, label } = BADGES[id];
+  return <span className={`kh-header__badge kh-header__badge--${id}`} title={label(count)} aria-label={label(count)}>
+    <Icon size={12} aria-hidden="true" />{count > 99 ? '99+' : count}
+  </span>;
+}
 
 export const AppShell: React.FC = () => {
   const [tagPanelOpen, setTagPanelOpen] = useState(false);
@@ -34,12 +69,21 @@ export const AppShell: React.FC = () => {
   const tool = selectedTool(location.pathname, location.search);
   const primary = PRIMARY_DESTINATIONS.find((item) => item.path && matchesDestination(location.pathname, item.path));
   const isThink = matchesDestination(location.pathname, '/think');
-  const { data: unsurfacedData } = useQuery({
-    queryKey: ['unsurfaced-count'],
-    queryFn: () => api.getUnsurfacedClusterCount(),
+  const onDiscover = matchesDestination(location.pathname, '/discover');
+  // Prefix 'unsurfaced-count' so the existing spark invalidations refresh these badges too.
+  const { data: attentionData, refetch: refetchAttention } = useQuery({
+    queryKey: ['unsurfaced-count', 'nav-attention'],
+    queryFn: () => api.getNavAttention(discoverSeenAt(), localDay()),
     refetchInterval: 30_000, staleTime: 30_000,
   });
-  const newClusters = unsurfacedData?.success === true && unsurfacedData.data.count > 0;
+  useEffect(() => {
+    if (!onDiscover) return;
+    localStorage.setItem(DISCOVER_SEEN_KEY, new Date().toISOString());
+    void refetchAttention();
+  }, [onDiscover, refetchAttention]);
+  const attention: NavAttention | null = attentionData?.success === true ? attentionData.data : null;
+  const badgeCount = (id: string): number => (attention && isBadgeTab(id) ? attention[id] : 0);
+  const newClusters = badgeCount('think') > 0;
 
   const closeMenu = useCallback((restoreFocus: boolean): void => {
     setMenu(null);
@@ -78,13 +122,15 @@ export const AppShell: React.FC = () => {
   return (
     <>
       <Header aria-label="Athena" className="kh-header">
-        <Link className="kh-header__brand" to="/" aria-label="Athena home"><span>Richard Hogan</span> Athena</Link>
+        <Link className="kh-header__brand" to="/" aria-label="Athena home">
+          Athena
+        </Link>
         <nav className="kh-header__primary" aria-label="Primary navigation">
           {(narrow ? PRIMARY_DESTINATIONS.filter((item) => item.id === 'today') : PRIMARY_DESTINATIONS).map(({ id, path, label, icon: Icon }) => (
             <Link key={id} to={path!} className={`kh-header__destination${primary?.id === id ? ' kh-header__destination--active' : ''}`}
               aria-current={primary?.id === id ? 'page' : undefined}>
               <Icon size={16} />{label}
-              {id === 'think' && newClusters && <span className="kh-header__dot" aria-label="New clusters available" />}
+              <NavBadge id={id} count={badgeCount(id)} />
             </Link>
           ))}
         </nav>
@@ -93,19 +139,21 @@ export const AppShell: React.FC = () => {
             onClick={() => { setPaletteOpen(true); setMenu(null); }}><Search size={20} /></button>
           <button type="button" className="kh-header__utility kh-header__athena"
             title={isThink ? 'Use Athena in the Think panel' : 'Open Athena'} aria-label="Open Athena" disabled={isThink}
-            onClick={() => { setMenu(null); launchAthena(); }}><ChatLaunch size={20} /><span>Athena</span></button>
+            onClick={() => { setMenu(null); launchAthena(); }}><ChatLaunch size={20} /></button>
           <button type="button" ref={narrow ? mobileRef : toolsRef}
             className={`kh-header__utility${tool || menu ? ' kh-header__utility--active' : ''}`}
             title={narrow ? 'Navigation and Tools' : 'Tools'} aria-label={narrow ? 'Navigation and Tools' : 'Tools'}
             aria-haspopup="menu" aria-expanded={menu !== null} aria-controls={menu ? 'kh-navigation-menu' : undefined}
             onKeyDown={(event) => { menuKey(event, narrow ? 'mobile' : 'tools'); }}
             onClick={() => { setInitialFocus('first'); setMenu((value) => value ? null : narrow ? 'mobile' : 'tools'); }}>
-            {narrow ? <Menu size={20} /> : <Tools size={20} />}<span>{narrow ? 'Menu' : 'Tools'}</span>
+            {narrow ? <Menu size={20} /> : <Tools size={20} />}
           </button>
         </nav>
         {menu && <NavigationMenu id="kh-navigation-menu" label={menu === 'mobile' ? 'Navigation and Tools' : 'Tools'}
           groups={menuGroups} selectedId={tool?.id ?? (menu === 'mobile' ? primary?.id : undefined)}
-          attentionIds={[...(pendingTags.length > 0 ? ['tags'] : []), ...(newClusters ? ['think'] : [])]}
+          attentionIds={[...(pendingTags.length > 0 ? ['tags'] : []), ...(newClusters ? ['think'] : []),
+            ...(['discover', 'plan', 'build'] as const).filter((tab) => badgeCount(tab) > 0)]}
+          renderBadge={(itemId) => NavBadge({ id: itemId, count: badgeCount(itemId) })}
           onAction={selectAction} onClose={closeMenu} triggerRef={narrow ? mobileRef : toolsRef} initialFocus={initialFocus} />}
       </Header>
       <div className="kh-shell">

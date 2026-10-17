@@ -39,6 +39,9 @@ import type { TaskPriority, AtRiskTask, DayCheckin, CheckinAction } from '../typ
 import type { DiagramAsset, DiagramDocument, DiagramDrilldownLink, DiagramSnapshot } from '../features/diagram/diagramTypes';
 import type { GitHubPublication, GitHubPushPayload } from '../notes/types';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
+import type { DiscoverFormat } from '../types/discover';
+
+export { DISCOVER_FORMATS, type DiscoverFormat } from '../types/discover';
 
 export type ProjectRegisterKind = 'question' | 'risk' | 'issue';
 export interface ProjectRegisterItem {
@@ -209,6 +212,17 @@ export interface SourceStatus {
   lastError: string | null;
   syncCadenceMinutes: number | null;
   status: 'ok' | 'error' | 'never-synced';
+}
+
+export interface ConnectionCredential {
+  id: string;
+  name: string;
+  detail: string;
+  helpUrl?: string;
+  configured: boolean;
+  /** Set when no dedicated key is saved and the named shared key is used instead. */
+  usingFallback: string | null;
+  updatedAt: string | null;
 }
 
 export interface EmailAccountConnection {
@@ -476,6 +490,10 @@ export interface GraphResponse {
 
 export type DiscoverSort = 'weighted' | 'editorial' | 'latest';
 
+/** Counts behind the header tab badges. */
+export interface NavAttention { think: number; discover: number; plan: number; build: number }
+
+
 export interface DiscoverItem {
   id: string;
   sourceId: string;
@@ -502,6 +520,8 @@ export interface DiscoverItem {
   articleType: string | null;
   /** Treatment plan: Full Blog Post, LinkedIn Standalone, Newsletter Candidate, Archive, Podcast */
   platform: string | null;
+  /** 0-3 fit per publishing format. */
+  formatFit: Record<DiscoverFormat, number>;
   /** Source type: Formal, Community, Case Study, Advertorial */
   sourceType: string | null;
   /** Spark flag indicating high value */
@@ -510,6 +530,8 @@ export interface DiscoverItem {
   sparkReason: string | null;
   /** Composite relevance score 0-10 */
   compositeScore: number | null;
+  /** Authority tier of the source, e.g. "Microsoft/GitHub Official" */
+  sourceAuthorityTier?: string | null;
   /** 0 = not covered, 1 = same story from another angle, 2 = he has already made this argument */
   alreadyCovered?: number | null;
   /** Title of his own piece that covers it */
@@ -605,6 +627,14 @@ export class KnowledgeHubApi {
   async getSources(): Promise<ApiResponse<SourceStatus[]>> {
     const r = await this.client.get<ApiResponse<SourceStatus[]>>('/api/sources');
     return r.data;
+  }
+
+  async getConnectionCredentials(): Promise<ApiResponse<ConnectionCredential[]>> {
+    return (await this.client.get<ApiResponse<ConnectionCredential[]>>('/api/sources/credentials')).data;
+  }
+
+  async updateConnectionCredential(id: string, token: string): Promise<ApiResponse<{ verified: boolean }>> {
+    return (await this.client.put<ApiResponse<{ verified: boolean }>>(`/api/sources/credentials/${encodeURIComponent(id)}`, { token })).data;
   }
 
   async getEmailAccountConnections(): Promise<ApiResponse<EmailAccountConnection[]>> {
@@ -1619,10 +1649,11 @@ export class KnowledgeHubApi {
     pageSize = 50,
     title?: string,
     sort: DiscoverSort = 'weighted',
+    format?: DiscoverFormat,
   ): Promise<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>> {
     const r = await this.client.get<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>>(
       '/api/discover',
-      { params: { state, source, page, pageSize, title, sort } },
+      { params: { state, source, page, pageSize, title, sort, format } },
     );
     return r.data;
   }
@@ -1786,6 +1817,11 @@ export class KnowledgeHubApi {
   }
 
   /** Returns count of themes (3+ sparks) the user hasn't seen yet. */
+  async getNavAttention(discoverSince: string, today: string): Promise<ApiResponse<NavAttention>> {
+    const r = await this.client.get<ApiResponse<NavAttention>>('/api/nav/attention', { params: { discoverSince, today } });
+    return r.data;
+  }
+
   async getUnsurfacedClusterCount(): Promise<ApiResponse<{ count: number }>> {
     const r = await this.client.get<ApiResponse<{ count: number }>>('/api/spark-clusters/unsurfaced-count');
     return r.data;

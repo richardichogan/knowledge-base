@@ -6,6 +6,8 @@ import { parseTavilySearch, normaliseDigestUrl } from './digestWebSearch.js';
 import { readPublicPage, readingExcerpt } from '../utils/articleReading.js';
 import { AI_PODCAST_PREP_REQUEST_TIMEOUT_MS, DISCOVER_RECENCY_HALF_LIFE_DAYS } from '../config/constants.js';
 import { discoverRankSql } from '../integrations/cms/discoverRank.js';
+import { isMicrosoftRelevant, microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
+export { isMicrosoftRelevant } from '../utils/microsoftRelevance.js';
 
 /** `discoverRank` is the Discover weighted rank (x100) when the source came from his Discover list. */
 export interface PodcastEvidence { id: string; title: string; url: string; date: string; text: string; discoverRank?: number }
@@ -64,18 +66,6 @@ export function selectEpisodeDocuments(rows: ContextRow[]): Map<string, ContextR
     groups.set(key, [...(groups.get(key) ?? []), r]);
   }
   return new Map([...groups].sort(([a], [b]) => Number(b) - Number(a)).slice(0, 2));
-}
-
-const MICROSOFT_TERMS = 'microsoft|msft|azure|copilot|m365|office 365|github|dynamics 365|power platform|power bi|microsoft fabric|entra|purview|intune|sentinel|sharepoint|nadella';
-const MICROSOFT_PATTERN = new RegExp(`\\b(?:${MICROSOFT_TERMS})\\b`, 'i');
-const MICROSOFT_SQL_PATTERN = `\\y(${MICROSOFT_TERMS})\\y`;
-
-/** The podcast is Microsoft-focused, so research prioritises Microsoft-related evidence. */
-export function isMicrosoftRelevant(candidate: { title: string; url: string; text?: string }): boolean {
-  try {
-    if (/(?:^|\.)(?:microsoft|azure|github|office)\.com$/i.test(new URL(candidate.url).hostname)) return true;
-  } catch { /* fall through to text checks */ }
-  return MICROSOFT_PATTERN.test(candidate.title) || MICROSOFT_PATTERN.test((candidate.text ?? '').slice(0, 2000));
 }
 
 /** Searches follow the arguments Cloudy actually makes, not Microsoft's product catalogue. */
@@ -276,14 +266,14 @@ Promise<{ proposal: PodcastProposal; evidence: PodcastEvidence[]; warnings: stri
     warnings.push('No recent LinkedIn posts were available in the index; LinkedIn coverage could not be checked.');
   }
   // His Discover list, in the same weighted-rank order he sees; archived/shelved articles are excluded.
-  const rank = discoverRankSql('ci', '$4');
+  const rank = discoverRankSql('ci', '$3');
   const news = await db.query<ContextRow & { rank_score: number | null }>(`SELECT ci.id::text,ci.title,ci.body,ci.url,ci.metadata,
     COALESCE(ci.published_at,ci.indexed_at)::text AS date, ${rank.rank} AS rank_score
     FROM content_items ci WHERE ci.source='discovered-article' AND ci.published_at > $1 AND ci.published_at <= $2
     AND ci.workflow_state IN ('to-review','saved','blog') AND ci.url IS NOT NULL
-    AND (ci.title ~* $3 OR ci.url ~* '(microsoft|azure|github|office)\\.com' OR LEFT(COALESCE(ci.body,''),2000) ~* $3)
+    AND ${microsoftRelevanceSql('ci')}
     ORDER BY rank_score DESC NULLS LAST, ci.published_at DESC LIMIT 50`,
-  [since, now, MICROSOFT_SQL_PATTERN, DISCOVER_RECENCY_HALF_LIFE_DAYS]);
+  [since, now, DISCOVER_RECENCY_HALF_LIFE_DAYS]);
   const candidates: Array<{ title: string; url: string; date: string; text: string; discoverRank?: number }> = news.rows.map((r) => ({
     title: r.title, url: r.url!, date: r.date, text: r.body ?? '',
     ...(r.rank_score !== null ? { discoverRank: Math.round(r.rank_score * 1000) / 10 } : {}) }));

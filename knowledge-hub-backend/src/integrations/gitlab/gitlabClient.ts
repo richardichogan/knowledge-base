@@ -9,11 +9,13 @@ import { EXTERNAL_FETCH_TIMEOUT_MS } from '../../config/constants.js';
  */
 export class GitLabClient {
   private readonly baseUrl: string;
-  private readonly headers: Record<string, string>;
 
   public constructor() {
     this.baseUrl = `${env.GITLAB_BASE_URL}/api/v4`;
-    this.headers = {
+  }
+
+  private get headers(): Record<string, string> {
+    return {
       'PRIVATE-TOKEN': env.GITLAB_ACCESS_TOKEN ?? '',
       'Content-Type': 'application/json',
     };

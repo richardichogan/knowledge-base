@@ -8,6 +8,7 @@ import { NoteEditor } from '../src/notes/NoteEditor';
 import { api } from '../src/services/api';
 import './note-draft-identity';
 import { getActiveBlockNoteEditor } from '../src/utils/activeBlockNoteEditor';
+import { plainTextToNoteBlocks } from '../src/notes/markdownToBlocks';
 import '../src/styles/global.scss';
 
 const sample = '# IMAGINE: Client Report Assurance\n## High fidelity prototype specification\nVersion: 0.1\n\n## Purpose\nBody **bold** and [policy](https://example.test/policy).\n\nAssumptions:\n- First\n  - Nested\n- Second\n\n3. Third\n4. Fourth\n\n- [x] Done\n- [ ] Waiting\n\n> Human approval remains required.\n\n```text\n## literal code\n```\n\n';
@@ -28,6 +29,12 @@ createRoot(document.getElementById('root')!).render(
 );
 function check(value: boolean, message: string): void { if (!value) throw new Error(message); }
 async function runMarkdownExportChecks(): Promise<string[]> {
+  const textBlocks = plainTextToNoteBlocks('\uFEFFFirst line\r\n\r\n  <b>literal</b> **text**\rLast line');
+  check(textBlocks.length === 4, 'Plain-text imports retain blank lines and normalise line endings');
+  check(textBlocks.every(block => block.type === 'paragraph'), 'Plain-text imports become editable rich-text paragraphs');
+  check(textBlocks[0]?.content === 'First line' && textBlocks[1]?.content === '', 'BOM is removed without losing blank lines');
+  check(textBlocks[2]?.content === '  <b>literal</b> **text**', 'Text indentation, HTML and Markdown characters stay literal');
+  check(textBlocks[3]?.content === 'Last line' && plainTextToNoteBlocks(' \r\n\t').length === 0, 'Lone CR and empty files are handled');
   const editor = getActiveBlockNoteEditor()!;
   check(editor !== null, 'Actual editor mounted server-created blocks');
   const all = editor.document;

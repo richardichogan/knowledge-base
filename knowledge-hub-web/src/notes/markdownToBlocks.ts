@@ -25,3 +25,10 @@ export function markdownToNoteBlocks(text: string): unknown[] {
   if (markdown === '') return [];
   return getMarkdownParser().tryParseMarkdownToBlocks(markdown);
 }
+
+/** Plain text becomes editable paragraphs without treating Markdown or HTML as formatting. */
+export function plainTextToNoteBlocks(text: string): { type: 'paragraph'; content: string }[] {
+  const normalised = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  if (normalised.trim() === '') return [];
+  return normalised.split('\n').map(content => ({ type: 'paragraph', content }));
+}

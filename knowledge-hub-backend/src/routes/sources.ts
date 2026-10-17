@@ -11,8 +11,28 @@ import type { ApiSuccess } from '../types/apiResponse.js';
 import { env } from '../config/env.js';
 import { emailAccountConnections } from '../integrations/email/accountConnections.js';
 import { getAllianceStatus } from '../integrations/alliance/allianceGraph.js';
+import { listConnectionCredentials, updateConnectionCredential } from '../services/connectionCredentials.js';
 
 const router = Router();
+
+router.get('/credentials', (_req: Request, res: Response, next: NextFunction): void => {
+  res.setHeader('Cache-Control', 'no-store');
+  void listConnectionCredentials(getDb()).then((data) => {
+    res.json({ success: true, data });
+  }).catch(next);
+});
+
+router.put('/credentials/:id', (req: Request, res: Response, next: NextFunction): void => {
+  res.setHeader('Cache-Control', 'no-store');
+  const body: unknown = req.body;
+  if (typeof body !== 'object' || body === null || !('token' in body) || Object.keys(body).some((key) => key !== 'token')) {
+    next(new ValidationError('Only the token field is accepted.'));
+    return;
+  }
+  void updateConnectionCredential(getDb(), req.params['id'] ?? '', body.token).then((data) => {
+    res.json({ success: true, data });
+  }).catch(next);
+});
 
 router.get('/email-accounts', (_req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
@@ -37,7 +57,7 @@ router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
         last_sync_at: Date | null;
         item_count: number | null;
         last_error: string | null;
-      }>(`SELECT source, last_sync_at, item_count, last_error FROM sync_state ORDER BY source`);
+      }>(`SELECT source, last_sync_at, item_count, last_error FROM sync_state WHERE source NOT LIKE 'connection-credential:%' ORDER BY source`);
 
       const sources = result.rows.map((row: { source: string; last_sync_at: Date | null; item_count: number | null; last_error: string | null }) => ({
         source: row.source,
