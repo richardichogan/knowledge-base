@@ -15,6 +15,9 @@ import {
 import { Add, ChatLaunch, Checkmark, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { useProjects, type ProjectRecord } from '../services/useProjects';
+import { useUseCases } from '../hooks/useUseCases';
+import { PRODUCT_KIND_LABELS, STAGE_LABELS, type UseCase } from '../types/useCases';
+import { useCaseBoardColumn } from '../features/useCases/useCaseView';
 import { TagPicker } from '../components/TagPicker';
 import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
@@ -246,6 +249,28 @@ const TaskCard: React.FC<{
     </article>
   );
 };
+
+const UseCaseBoardCard: React.FC<{ useCase: UseCase }> = ({ useCase }) => (
+  <Link
+    className="kb-card kb-card--use-case"
+    to={`/plan?view=use-cases&useCase=${encodeURIComponent(useCase.id)}`}
+    aria-label={`Use case: ${useCase.title}; ${STAGE_LABELS[useCase.stage]}`}
+    draggable={false}
+  >
+    <div className="kb-card__header">
+      <span className="kb-card__title">{useCase.title}</span>
+    </div>
+    {useCase.summary !== '' && <p className="kb-card__body">{useCase.summary}</p>}
+    <div className="kb-card__tags">
+      <span className="kb-card__kind">Use case</span>
+      <span className={`kh-uc-stage kh-uc-stage--${useCase.stage}`}>{STAGE_LABELS[useCase.stage]}</span>
+    </div>
+    <div className="kb-card__footer">
+      <span className="kb-card__use-case-kind">{PRODUCT_KIND_LABELS[useCase.productKind]}</span>
+      {useCase.projectName !== null && <span className="kb-card__project">{useCase.projectName}</span>}
+    </div>
+  </Link>
+);
 
 // ── Inbox tray ────────────────────────────────────────────────────────────────
 
@@ -924,6 +949,7 @@ export const TasksPage: React.FC<{
   const [addStatus,     setAddStatus]     = useState<TaskStatus>('backlog');
   const [showOlderDone, setShowOlderDone] = useState(false);
   const { projects } = useProjects();
+  const { data: useCases = [], isPending: useCasesPending, error: useCasesError, refetch: refetchUseCases } = useUseCases();
 
   const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
 
@@ -1047,6 +1073,12 @@ export const TasksPage: React.FC<{
       {isPending && <InlineLoading description="Loading…" />}
       {isError && <DataNotice title="Tasks are unavailable" error={loadError} onRetry={() => { void refetch(); }} />}
       {saveError !== null && !modalOpen && <DataNotice title="Task change was not saved" error={saveError} />}
+      {view === 'board' && useCasesError !== null && (
+        <DataNotice title="Use cases are unavailable" error={useCasesError} onRetry={() => { void refetchUseCases(); }} />
+      )}
+      {view === 'board' && filterTag !== '' && useCases.some((useCase) => useCaseBoardColumn(useCase.stage) !== null)
+        && <p className="kb-board__notice">Use cases are hidden while a tag filter is active because they do not have task tags.</p>}
+      {view === 'board' && filterTag === '' && useCasesPending && <InlineLoading description="Loading use cases…" />}
 
       <InboxTray
         tasks={inboxTasks}
@@ -1071,6 +1103,10 @@ export const TasksPage: React.FC<{
       {view === 'board' && <div className="kb-board">
         {COLUMNS.map((col) => {
           const allColTasks = scopedTasks.filter((t) => t.status === col.id);
+          const colUseCases = filterTag === '' ? useCases
+            .filter((useCase) => filterProject === '' || useCase.projectId === filterProject)
+            .filter((useCase) => useCaseBoardColumn(useCase.stage) === col.id)
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : [];
           // Completed tasks auto-archive after 14 days; only this week's (and any still saving) stay visible by default.
           const isRecentDone = (t: Task): boolean => busyTaskIds.has(t.id) || isRecentlyCompleted(t);
           const olderDone = col.id === 'completed' ? allColTasks.filter((t) => !isRecentDone(t)).length : 0;
@@ -1091,12 +1127,13 @@ export const TasksPage: React.FC<{
 
               <div className="kb-col__head">
                 <span className="kb-col__name">{col.label}</span>
-                {allColTasks.length > 0 && (
-                  <span className="kb-col__count">{allColTasks.length}</span>
+                {allColTasks.length + colUseCases.length > 0 && (
+                  <span className="kb-col__count">{allColTasks.length + colUseCases.length}</span>
                 )}
               </div>
 
               <div className="kb-col__cards">
+                {colUseCases.map((useCase) => <UseCaseBoardCard key={useCase.id} useCase={useCase} />)}
                 {colTasks.map((task) => (
                   <TaskCard
                     key={task.id}

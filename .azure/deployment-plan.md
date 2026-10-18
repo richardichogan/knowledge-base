@@ -2,6 +2,17 @@
 
 **Status:** Validated
 
+**Current approved release (2026-10-18, use cases on the Plan Board):** User
+explicitly requested production deployment without a further permission prompt.
+The release includes the Plan Board cards for active use cases, alongside the
+existing Use cases UI and backend API. Candidate cases appear in Backlog;
+Refining, Spec ready and Handed off cases appear in In Progress. Closed cases
+are omitted. Deploy the backend from `main` as v208 (current production image
+v207) and publish the matching frontend to the existing Static Web App. The
+existing backend startup runner applies additive migration 081 if needed. No
+infrastructure, RBAC, secrets, subscription or location changes. Rollback:
+backend v207 and the pre-release Static Web App bundle.
+
 **Current approved release (2026-10-16, Discovery Bluesky):** User explicitly
 requested deployment of Discovery quick-social posting (`f916e69`, `a0ea525`),
 including pending double-headed diagram arrows (`81eeaa9`). Reuse the existing
@@ -375,6 +386,23 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Use cases on Plan Board — 2026-10-18 16:46 BST (Validated; deployment pending)
+
+- `git fetch origin` and merge of `origin/main`: already up to date. Azure CLI
+  selected `Alliance Tenant Reporting` (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`);
+  current backend image is `kh-prod-api:v207`. Existing ACR and production SWA
+  were confirmed.
+- Backend: `npx tsc --noEmit`, `npm run build`, and `npm run test:isolated`
+  passed (126/126 tests).
+- Frontend: `npm run typecheck`, `npm run build`, and `npm run test:isolated`
+  passed (83 + 6 tests).
+- Local browser verification confirmed Candidate appears in Backlog, Spec ready
+  appears in In Progress, and each card opens the existing use-case detail
+  panel. The temporary test use case was deleted and its absence confirmed.
+- No IaC, role, secret or environment changes. `knowledge-hub-backend/Dockerfile`
+  and lockfiles are unchanged; the backend image is built from the pushed `main`
+  source. Migration 081 is additive and runs through the existing startup path.
 
 ### Discovery Bluesky deployment - 2026-10-16 16:57 BST
 

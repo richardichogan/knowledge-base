@@ -2957,6 +2957,40 @@ input, textarea {
   }
 }
 
+.kb-card--use-case {
+  color: inherit;
+  text-decoration: none;
+
+  &:focus-visible {
+    outline: 2px solid var(--cds-focus);
+    outline-offset: 2px;
+  }
+}
+
+.kb-card__kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 5px;
+  border: 1px solid var(--kh-accent-border);
+  border-radius: var(--kh-radius-sm);
+  color: var(--kh-accent);
+  background: var(--kh-accent-bg);
+  font-size: var(--kh-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.kb-card__use-case-kind {
+  color: var(--cds-text-secondary);
+  font-size: var(--kh-text-meta);
+}
+
+.kb-board__notice {
+  margin: 0 0 0.75rem;
+  color: var(--cds-text-secondary);
+  font-size: var(--kh-text-meta);
+}
+
 // Title row: text + overflow button
 .kb-card__header {
   display: flex;

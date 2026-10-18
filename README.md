@@ -121,8 +121,13 @@ The fixture server uses a separate reusable Vite dependency cache, so running
 checks cannot invalidate the normal development server's prebundled modules.
 
 Plan has Board and List views (the Calendar view was removed; saved views that
-used it open on the Board). Project/tag filters apply across both views, and
-date-only task values remain local calendar dates.
+used it open on the Board). Open use cases also appear on the Board: Candidate
+cases in Backlog and Refining, Spec ready and Handed off cases in In Progress.
+Their cards open the use-case details; stage changes remain in the use-case
+panel because a board column combines multiple lifecycle stages. Closed cases
+do not appear on the active board. Project filters apply to both tasks and use
+cases; a tag filter hides use cases because they do not carry task tags.
+Date-only task values remain local calendar dates.
 Recurring completion, successor creation and tag writes commit together; migration
 `063_task_recurrence_identity.sql` prevents repeated completion from creating
 multiple successors. External integration/indexing work runs only after commit.

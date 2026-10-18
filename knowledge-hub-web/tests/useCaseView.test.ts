@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { UseCase } from '../src/types/useCases';
-import { defaultHandoffPath, filterUseCases, groupByProduct, isStalled, launchFromRef, sinceLabel, sourceHref, stalledNudge } from '../src/features/useCases/useCaseView';
+import { defaultHandoffPath, filterUseCases, groupByProduct, isStalled, launchFromRef, sinceLabel, sourceHref, stalledNudge, useCaseBoardColumn } from '../src/features/useCases/useCaseView';
 
 const NOW = Date.parse('2026-05-01T12:00:00Z');
 const daysAgo = (d: number): string => new Date(NOW - d * 86_400_000).toISOString();
@@ -24,6 +24,15 @@ test('filters: active hides shipped and dropped; kind and project narrow the lis
 test('groups follow product order, newest first, and skip empty groups', () => {
   const groups = groupByProduct([uc({ id: 'old', updatedAt: daysAgo(5) }), uc({ id: 'new' }), uc({ id: 'demo', productKind: 'imagine_demo' })]);
   assert.deepEqual(groups.map((g) => [g.kind, g.items.map((u) => u.id)]), [['imagine_demo', ['demo']], ['product', ['new', 'old']]]);
+});
+
+test('maps active use case stages to task board columns without showing closed cases', () => {
+  assert.equal(useCaseBoardColumn('candidate'), 'backlog');
+  assert.equal(useCaseBoardColumn('refining'), 'in-progress');
+  assert.equal(useCaseBoardColumn('spec_ready'), 'in-progress');
+  assert.equal(useCaseBoardColumn('handed_off'), 'in-progress');
+  assert.equal(useCaseBoardColumn('shipped'), null);
+  assert.equal(useCaseBoardColumn('dropped'), null);
 });
 
 test('since labels and the stalled rule', () => {

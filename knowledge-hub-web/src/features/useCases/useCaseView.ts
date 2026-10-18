@@ -5,6 +5,7 @@ import { CLOSED_STAGES, PRODUCT_KINDS, SOURCE_TYPE_LABELS, type ProductKind, typ
 
 export type StageFilter = 'active' | 'all' | UseCaseStage;
 export type KindFilter = 'all' | ProductKind;
+export type UseCaseBoardColumn = 'backlog' | 'in-progress' | null;
 
 const CLOSED = CLOSED_STAGES;
 const DAY_MS = 86_400_000;
@@ -17,6 +18,13 @@ export function filterUseCases(list: readonly UseCase[], f: { stage: StageFilter
   return list.filter((u) => (f.stage === 'all' || (f.stage === 'active' ? !CLOSED.includes(u.stage) : u.stage === f.stage))
     && (f.kind === 'all' || u.productKind === f.kind)
     && (f.project === '' || u.projectId === f.project));
+}
+
+/** Active use cases share the task board's broad work states without duplicating task records. */
+export function useCaseBoardColumn(stage: UseCaseStage): UseCaseBoardColumn {
+  if (stage === 'candidate') return 'backlog';
+  if (stage === 'refining' || stage === 'spec_ready' || stage === 'handed_off') return 'in-progress';
+  return null;
 }
 
 /** Groups in product order, most recently updated first; empty groups are left out. */
