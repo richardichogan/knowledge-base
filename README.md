@@ -310,20 +310,21 @@ These came from the UX review and competitor research. None is built. Full detai
 
 1. **Command palette actions.** Extend Cmd+K beyond navigation to jump to any note, task, source or project and to run Athena actions (effort S–M).
 2. **Backlinks and unlinked mentions in Think.** A panel on each note listing notes that link to it and text that mentions its title. Chosen instead of deeper folders (M).
-3. **`@` mentions in the note editor.** Reference notes (later people, projects, dates) with `@`, creating a backlink, and invoke `@Athena` on a selection, with Athena's text clearly marked as AI-written (M).
-4. **"Why Athena picked this" in Discover.** Show the reasoning behind each pick, with a tunable interest weighting, and optionally "why not" for filtered-out items (M).
+3. **`@` mentions and `[[` wiki links in the note editor.** Type `@` or `[[topic]]` to link to an existing note, or to create a new note with that title. Each link creates a backlink. `@Athena` runs an instruction on a selection, with Athena's text clearly marked as AI-written (M).
+4. **"Why Athena picked this" in Discover.** Merged into item 11 (M).
 5. **Keyboard triage and density toggle for Discover and Think.** Single-key archive, save, skip and create-from, plus compact and comfortable density (S–M).
 6. **Content pipeline board.** A stage view (idea, draft, published) across Discover, Think, Plan and Build for blog, newsletter, LinkedIn and podcast (M).
 7. **Visible, editable Athena memory.** Show what Athena knows about you, with accept or reject, and a change view (S–M).
 8. **Standard empty states and page templates.** Each area teaches its own shortcuts on first use (S).
 9. **Optional spatial view in Think** for arranging Sparks and notes (M–L).
 10. **Side-peek** to open linked items beside the current view (M–L).
+11. **Discover Watchlists (competitive and market monitoring).** Track named organisations and products against one question and an explicit, versioned baseline, with dated, evidence-linked change briefs. "No meaningful change" is a valid result. Spec: [docs/specs/competitor-watchlists.md](docs/specs/competitor-watchlists.md) (L).
 
 Items 2 and 3 share one note-link definition, described in section 0 of the spec.
 
 Ideas parked for later: Angle Deck, timeline-of-thinking canvas, podcast "on air" persona, source-staleness badges, voice-note capture, repurposing side-by-side, pipeline health counter and "ask the archive".
 
-Next free migration number: 081 (the latest is `080_unified_tagging.sql`; check the migrations folder first).
+Next free migration number: 082 (the latest is `081_use_cases.sql`; check the migrations folder first).
 
 ## Consistent interface (desktop)
 

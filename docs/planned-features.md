@@ -16,7 +16,7 @@ Notes have **no note-to-note link today**. The only note links are canvas-to-not
 - **Format:** an inline BlockNote mention node, `{ type: 'noteMention', props: { noteId } }`, defined in `notes/editorSchema.ts`. The title is display-only and always read from the note, so renames do not break links.
 - **Storage for backlinks:** a table `note_links (source_note_id, target_note_id, created_at)` in migration 082 (or the next free number), rebuilt from the note's content on every save (delete then insert for that source note), so it can be regenerated and never drifts.
 - **Behaviour:** a link to a deleted or recycled note renders as "Unavailable note" and is excluded from backlinks. Navigation uses `/think?noteId=<id>`.
-- Items 2 (backlinks) and 3 (`@` mentions) both read and write only this format.
+- Items 2 (backlinks) and 3 (`@` mentions and `[[` wiki links) both read and write only this format.
 
 Suggested order is the order below (value against effort).
 
@@ -43,18 +43,24 @@ Suggested order is the order below (value against effort).
 
 **Acceptance:** opening a note shows who links to it; "Link it" converts a plain mention into a link and the backlink then appears.
 
-## 3. `@` mentions in the note editor (effort M)
+## 3. `@` mentions and `[[` wiki links in the note editor (effort M)
 
 **Today:** BlockNote supports slash menus; `notes/editorSchema.ts` defines the schema.
 
 **Build:**
-- Typing `@` opens a menu (reuse the slash-menu mechanism). Phase 1 results: notes and **Athena**. Later phases: projects, people, dates.
-- Choosing a note inserts a `noteMention` node (section 0), which produces the backlink for item 2.
+- Typing `@` or `[[` opens a link menu (reuse the slash-menu mechanism). Both triggers produce the same `noteMention` node (section 0); `[[` is the wiki-link habit, `@` also offers Athena.
+- Phase 1 results: notes matching the typed text, and **Athena** (`@` only). Later phases: projects, people, dates.
+- **Link to an existing note:** choosing a note inserts a `noteMention`, which produces the backlink for item 2.
+- **Link to a new note:** when no note matches, the menu offers **Create note "<typed text>"**. This creates a note whose first line (its title) is the typed text, in the current note's project, and inserts a mention to it. The new note opens only if the owner chooses to; the current note stays in place.
+- Typing `[[topic]]` in full and closing the brackets behaves the same: link to the exact-title match if one exists, otherwise offer to create it. Never create a note silently.
+- Pasted Markdown containing `[[topic]]` is left as plain text, and appears in item 2's "Unlinked mentions" for one-click linking.
 - `@Athena <instruction>` runs the instruction on the selected or current block using the existing Athena chat/edit API, and inserts the answer as a **visibly AI-attributed** block so the owner can always tell AI text from their own.
 
-**Acceptance:** `@` lists notes and Athena; inserted note mentions are navigable; AI-written blocks are clearly marked and undoable.
+**Acceptance:** `@` and `[[` list matching notes (and Athena for `@`); choosing a note or creating one inserts a navigable link and a backlink; no note is created without an explicit choice; AI-written blocks are clearly marked and undoable.
 
-## 4. "Why Athena picked this" in Discover (effort M)
+## 4. "Why Athena picked this" in Discover — merged into item 11
+
+Pick reasons and server-side interest weights are now built as part of Discover Watchlists (item 11). The original detail is kept below for reference.
 
 **Today:** Discover is `pages/DiscoverPage.tsx` with `components/discover/DiscoverExplore.tsx` and `features/discover/discoverInsights.ts`; scoring comes from the backend discovery integration (`knowledge-hub-backend/src/integrations/discovery/`).
 
@@ -102,6 +108,21 @@ Suggested order is the order below (value against effort).
 **Build:** open a linked note, source or Athena answer beside the current view using the shared `WorkspaceSidePanel` frame, instead of navigating away. Start with note mentions and backlinks (items 2 and 3).
 
 **Acceptance:** clicking a note mention opens it in a side panel with a close control and focus return; the current page and its scroll position are untouched; Escape closes it.
+
+## 11. Discover Watchlists: competitive and market monitoring (effort L)
+
+**Spec:** `docs/specs/competitor-watchlists.md` (product spec use case 5). Tracked as a use case in Plan → Use cases.
+
+**Build (first version, once the spec's open questions are answered):**
+- A **Watchlists** view in Discover, not a new top-level area. App-wide, with optional project links.
+- A watchlist holds: a question, monitored organisations and products with relationship labels, a **versioned** baseline, comparison criteria, cadence, and active or paused state. Store it server-side in migration 082 or later.
+- Reuse Discover ingestion and `content_items`; link findings to those items rather than copying articles. De-duplicate syndicated press releases so one event is one source.
+- A scheduled run writes dated findings (what changed, why it matters, what is uncertain, whether to respond), each citing its articles and the baseline version it used. "No meaningful change" is a stored, valid result.
+- Athena tool access to saved findings, so it can answer "What changed this month?" with citations.
+- Item 4's pick reasons and server-side weights are delivered here.
+- Each finding offers "→ Use case".
+
+**Acceptance:** one watchlist with about five organisations produces a weekly brief whose every claim links to evidence and a baseline version; syndicated copies count once; a quiet week shows "No meaningful change"; Athena answers questions from the saved findings without re-researching.
 
 ## Parked ideas
 

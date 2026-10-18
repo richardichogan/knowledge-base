@@ -28,12 +28,17 @@ In priority order:
    - Shape it into a spec for a product: an Imagine demo, the Imagine demo platform, or another IBM or personal product.
    - Hand it to GitHub Copilot to build. That is usually an interactive GitHub Copilot session; Athena Build is the option for clear, separable work.
    - See section 6.
-2. **Podcast topic organisation.** Each Thursday Athena prepares a ranked topic brief for the Friday recording, threaded to earlier episodes. Richard reshapes it in conversation, and the show notes persona writes the notes. The podcast is the one place where tracking topics over time matters.
+2. **Podcast topic organisation.** Each Thursday Athena prepares a ranked topic brief for the Friday recording, threaded to earlier episodes. Richard reshapes it in conversation, and the show notes persona writes the notes. Tracking topics over time matters here and in competitive monitoring (use case 5); nowhere else.
 3. **Content.** Once Richard picks a topic (often a Discover item), Athena writes the blog or LinkedIn post and it is published soon after. There is deliberately **no** drafting pipeline or stage tracking for content.
 4. **Programme governance and communications** (parked).
    - The intent is for Athena to coach the areas Richard finds hardest: governance discipline (owners, dates, reviews, escalation, steering readiness) and communications (drafts written for the reader, difficult messages, reviewing his own drafts).
    - Athena helps; it does not run the programme.
    - No work is planned until this is picked up again.
+5. **Competitive and market monitoring** (planned, refining).
+   - Discover **Watchlists** track named organisations and products against one explicit question, a versioned comparison baseline and comparison criteria.
+   - Athena records dated, evidence-backed changes and explains what they mean for the comparison. "No meaningful change" is a valid result.
+   - It earns its place only if it changes a decision, exposes a weak assumption, or saves meaningful research time.
+   - Spec: `docs/specs/competitor-watchlists.md`. Tracked as a use case (section 6).
 
 ## 3. Areas
 
@@ -103,5 +108,5 @@ A *use case* tracks one idea for one product.
 
 - **Built:** everything in section 3. The README documents each feature in detail.
 - **Built since this spec was written:** use cases (section 6).
-- **Planned:** `docs/planned-features.md`, which covers the command palette, backlinks, `@` mentions, "why Athena picked this", keyboard triage, memory editing, empty states, a spatial view and side-peek. Its "content pipeline board" (item 6) is superseded by section 2: only the podcast needs topic tracking.
+- **Planned:** `docs/planned-features.md`, which covers the command palette, backlinks, `@` and `[[` note links, keyboard triage, memory editing, empty states, a spatial view, side-peek and Discover Watchlists (use case 5, which absorbs "why Athena picked this"). Its "content pipeline board" (item 6) is superseded by section 2: content needs no stage tracking.
 - **Assessed, not planned:** Fabric and Fabric IQ (`docs/fabric-iq-assessment.md`).
