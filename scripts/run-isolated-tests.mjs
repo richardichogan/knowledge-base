@@ -32,6 +32,7 @@ const tests = frontend ? [
   'scripts/knowledge-health.test.ts',
   'scripts/project-cockpit.test.ts',
   'scripts/review-packets.test.ts',
+  'scripts/use-cases.test.ts',
   'scripts/plan-review.test.ts',
   'scripts/plan-nudges.test.ts',
   'scripts/blog-quick-take.test.ts',

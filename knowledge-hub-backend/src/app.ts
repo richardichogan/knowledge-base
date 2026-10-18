@@ -37,6 +37,7 @@ import certScoresRouter from './routes/certScores.js';
 import { graphRouter } from './routes/graphRoutes.js';
 import { canvasRouter } from './routes/canvasRoutes.js';
 import { buildRouter } from './routes/build.js';
+import { useCasesRouter } from './routes/useCases.js';
 import { DIAGRAM_LIMITS } from './services/diagramValidation.js';
 import { HTTP_STATUS } from './config/constants.js';
 import { KnowledgeHubError, PayloadTooLargeError } from './types/errors.js';
@@ -158,6 +159,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/graph', graphRouter);
   app.use('/api/canvases', canvasRouter);
   app.use('/api/build', buildRouter);
+  app.use('/api/use-cases', useCasesRouter);
   app.use('/api/today', todayRouter);
   app.use('/api/repo-project-mappings', repoProjectMappingsRouter);
   app.use('/api/health', knowledgeHealthRouter);
