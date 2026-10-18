@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { UseCase } from '../src/types/useCases';
-import { defaultHandoffPath, filterUseCases, groupByProduct, isStalled, launchFromRef, sinceLabel, sourceHref } from '../src/features/useCases/useCaseView';
+import { defaultHandoffPath, filterUseCases, groupByProduct, isStalled, launchFromRef, sinceLabel, sourceHref, stalledNudge } from '../src/features/useCases/useCaseView';
 
 const NOW = Date.parse('2026-05-01T12:00:00Z');
 const daysAgo = (d: number): string => new Date(NOW - d * 86_400_000).toISOString();
@@ -56,4 +56,12 @@ test('right-clicked items map to use case sources', () => {
   assert.equal(launchFromRef('note', '', 'T'), null);
   assert.equal(launchFromRef(undefined, 'x', 'T'), null);
   assert.ok(launchFromRef('note', 'n', 'x'.repeat(300))!.sourceLabel.endsWith('…”'));
+});
+
+test('Today nudge counts stalled use cases and hides at zero', () => {
+  assert.equal(stalledNudge([], NOW), null);
+  assert.equal(stalledNudge([uc({ stage: 'refining', updatedAt: daysAgo(3) }), uc({ stage: 'candidate', updatedAt: daysAgo(40) })], NOW), null);
+  assert.equal(stalledNudge([uc({ stage: 'spec_ready', updatedAt: daysAgo(14) })], NOW), '1 use case has not moved in two weeks');
+  assert.equal(stalledNudge([uc({ stage: 'refining', updatedAt: daysAgo(20) }), uc({ stage: 'spec_ready', updatedAt: daysAgo(30) }),
+    uc({ stage: 'shipped', updatedAt: daysAgo(30) })], NOW), '2 use cases have not moved in two weeks');
 });

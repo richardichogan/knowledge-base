@@ -155,3 +155,20 @@
 @media (prefers-reduced-motion: reduce) {
   .today-brief :is(button, a) { transition: none; }
 }
+
+// One-line nudge (e.g. use cases that stopped moving) under a section heading.
+.today-brief__nudge {
+  margin: 0 0 0.75rem;
+  font-size: var(--kh-text-body);
+
+  a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: #f1c21b;
+    text-decoration: none;
+
+    &:hover { text-decoration: underline; }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  }
+}

@@ -71,3 +71,10 @@ export function launchFromRef(refType: string | undefined, refId: string | undef
     sourceLabel: `${SOURCE_TYPE_LABELS[sourceType]} “${clean.length > LABEL_CHARS ? `${clean.slice(0, LABEL_CHARS)}…` : clean}”`,
   };
 }
+
+/** Today's one-line nudge about use cases that stopped moving, or null when there are none. */
+export function stalledNudge(list: readonly Pick<UseCase, 'stage' | 'updatedAt'>[], now: number = Date.now()): string | null {
+  const count = list.filter((u) => isStalled(u, now)).length;
+  if (count === 0) return null;
+  return count === 1 ? '1 use case has not moved in two weeks' : `${count.toString()} use cases have not moved in two weeks`;
+}

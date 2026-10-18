@@ -7,6 +7,8 @@ import { useTodayBrief, requireTodayData } from '../services/useTodayBrief';
 import { TODAY_LIMITS, relativeTime, todayContext, type TodayItem } from '../services/todayViewModel';
 import { useAthenaContext } from '../context/AthenaContext';
 import { PodcastPrepCard } from '../components/today/PodcastPrepCard';
+import { useUseCases } from '../hooks/useUseCases';
+import { stalledNudge } from '../features/useCases/useCaseView';
 
 type SectionQueries = Array<{ name: string; query: {
   isPending: boolean; isError: boolean; error: unknown; refetch: () => Promise<unknown>;
@@ -118,6 +120,8 @@ function WorkItem({ item, ask, compact = false }: {
 
 export const HomePage: React.FC = () => {
   const brief = useTodayBrief();
+  const { data: useCases = [] } = useUseCases();
+  const useCaseNudge = stalledNudge(useCases, brief.now.getTime());
   const { model, sectionQueries } = brief;
   const { setAthenaContext, openAthena } = useAthenaContext();
   const [athenaItem, setAthenaItem] = useState<TodayItem | undefined>();
@@ -191,6 +195,7 @@ export const HomePage: React.FC = () => {
         <div className="today-brief__column">
         <section className="today-brief__continue" aria-labelledby="today-continue">
           <div className="today-brief__section-heading"><h2 id="today-continue">Continue working</h2><Link to="/think">Go to Think</Link></div>
+          {useCaseNudge !== null && <p className="today-brief__nudge"><Link to="/plan?view=use-cases">{useCaseNudge} <ArrowRight size={14} /></Link></p>}
           <SectionState queries={sectionQueries.continuing} hasItems={model.continuing.length > 0} empty="No recent drafts or active work found. Start a note in Think or choose a task in Plan." />
           {model.continuing.map((item) => <WorkItem key={item.id} item={item} compact ask={(i) => { ask('Help me continue this work from where I left off.', i); }} />)}
         </section>
