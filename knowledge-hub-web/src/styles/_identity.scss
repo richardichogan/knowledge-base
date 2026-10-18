@@ -10,7 +10,7 @@
   min-width: 0;
   padding: 0.125rem 0.5rem;
   border: 1px solid color-mix(in srgb, var(--kh-id) 32%, transparent);
-  border-radius: 999px;
+  border-radius: var(--kh-radius-pill);
   background: color-mix(in srgb, var(--kh-id) 9%, transparent);
   color: var(--cds-text-secondary);
   font: inherit;
@@ -167,7 +167,7 @@
   margin: 1rem 0;
   padding: 1rem;
   border: 1px solid var(--cds-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--kh-radius-lg);
   background: var(--cds-layer-01);
 
   &__heading {
@@ -226,7 +226,7 @@
   height: 2rem;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--kh-radius-md);
   background: transparent;
   cursor: pointer;
 
@@ -248,7 +248,7 @@
   place-items: center;
   width: 1.75rem;
   height: 1.75rem;
-  border-radius: 6px;
+  border-radius: var(--kh-radius-md);
   background: color-mix(in srgb, var(--kh-id) 16%, transparent);
 
   svg { fill: var(--kh-id); }

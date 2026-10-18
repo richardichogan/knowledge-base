@@ -26,7 +26,7 @@
 .pcp-step { font-size: 1rem; margin: 8px 0 0; }
 .pcp-block { display: flex; flex-direction: column; gap: 8px; }
 .pcp-block h3 { font-size: 0.875rem; font-weight: 600; margin: 0; display: flex; gap: 8px; align-items: center; }
-.pcp-count { background: var(--cds-layer-accent-01, #e0e0e0); border-radius: 10px; padding: 0 8px; font-weight: 400; }
+.pcp-count { background: var(--cds-layer-accent-01, #e0e0e0); border-radius: var(--kh-radius-lg); padding: 0 8px; font-weight: 400; }
 .pcp-list, .pcp-reg__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .pcp-list li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--cds-border-subtle-01, #e0e0e0); }
 .pcp-list li a { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }

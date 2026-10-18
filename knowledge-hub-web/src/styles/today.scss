@@ -36,7 +36,7 @@
     min-height: 32px;
     padding: 4px 10px;
     font-size: 0.75rem;
-    border-radius: 3px;
+    border-radius: var(--kh-radius-sm);
     border: 0;
     text-decoration: none;
     line-height: 1.4;
@@ -90,7 +90,7 @@
     padding: 12px 16px;
     margin-bottom: 8px;
     border: 1px solid var(--cds-border-subtle-01);
-    border-radius: 4px;
+    border-radius: var(--kh-radius-md);
     &--compact { background: transparent; padding: 12px 0; border: 0; border-radius: 0; border-bottom: 1px solid var(--cds-border-subtle-01); }
   }
   &__reason { font-size: 0.875rem; line-height: 1.5; margin: 0 0 8px; max-width: 70ch; overflow-wrap: anywhere; }

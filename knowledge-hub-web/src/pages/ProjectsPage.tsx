@@ -536,7 +536,7 @@ export const ProjectsPage: React.FC = () => {
     <main className="page-root proj-page">
 
       <PageHeader title="Projects" subtitle={`${visible.length} of ${projects.length} projects`} actions={
-          <Button renderIcon={Add} size="md" onClick={openCreate}>New project</Button>
+          <button type="button" className="docs-upload-btn" onClick={openCreate}><Add size={16} /> New project</button>
       } />
       <div className="dc-toolbar">
         <div className="dc-tabs kh-command-row">
