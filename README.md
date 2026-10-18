@@ -299,7 +299,7 @@ Implemented: recovery, knowledge health (migration 067), project cockpit and reg
 
 ### Planned features (not yet implemented)
 
-These came from the UX review and competitor research. None is built; they are listed in the order proposed (value against effort). Mobile and tablet work is out of scope except `/chat`.
+These came from the UX review and competitor research. None is built. Full detail (current code, what to build, acceptance) is in [docs/planned-features.md](docs/planned-features.md). Order proposed (value against effort); mobile and tablet work is out of scope except `/chat`.
 
 1. **Command palette actions.** Extend Cmd+K beyond navigation to jump to any note, task, source or project and to run Athena actions (effort S–M).
 2. **Backlinks and unlinked mentions in Think.** A panel on each note listing notes that link to it and text that mentions its title. Chosen instead of deeper folders (M).
