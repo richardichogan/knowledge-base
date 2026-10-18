@@ -14,14 +14,15 @@ export const CreateUseCaseDialog: React.FC<{
   onClose: () => void;
   onCreated: (useCase: UseCaseDetail) => void;
   initialTitle?: string;
+  initialSummary?: string;
   initialProjectId?: string | null;
   sources?: UseCaseSourceRef[];
   /** Shown under the title so it is clear what the use case starts from. */
   sourceLabel?: string;
-}> = ({ onClose, onCreated, initialTitle = '', initialProjectId = null, sources = [], sourceLabel }) => {
+}> = ({ onClose, onCreated, initialTitle = '', initialSummary = '', initialProjectId = null, sources = [], sourceLabel }) => {
   const id = useId();
   const [title, setTitle] = useState(initialTitle.slice(0, 200));
-  const [summary, setSummary] = useState('');
+  const [summary, setSummary] = useState(initialSummary.slice(0, 4000));
   const [productKind, setProductKind] = useState<ProductKind>('imagine_demo');
   const [projectId, setProjectId] = useState(initialProjectId ?? '');
   const { data: projects = [] } = useProjects();

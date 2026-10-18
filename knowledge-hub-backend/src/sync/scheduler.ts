@@ -1,4 +1,5 @@
 import { runWeeklyMemoryReview } from '../ai/memorySuggestions.js';
+import { runDueWatchlists } from '../services/discoverWatchlists.js';
 import { MS_PER_MINUTE, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
@@ -43,6 +44,7 @@ let lastMemoryReviewWeek = ''; // Week key of the last weekly memory review
 let briefingRunning = false;
 let weeklyDigestRunning = false;
 let podcastPrepRunning = false;
+let watchlistsRunning = false;
 /** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
 const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
@@ -124,6 +126,12 @@ export function startSyncScheduler(): void {
         runTier1Sync(db, `sync:${clock.day}:${hour}`).catch((err: unknown) => {
           console.error('[Scheduler] Tier 1 sync failed:', err instanceof Error ? err.message : String(err));
         });
+      }
+      if (!watchlistsRunning && !isSyncInProgress() && !isConnectionCheckInProgress() && !env.isDevelopment) {
+        watchlistsRunning = true;
+        void runDueWatchlists(db)
+          .catch(() => { console.warn('[Scheduler] Watchlist monitoring unavailable.'); })
+          .finally(() => { watchlistsRunning = false; });
       }
 
       // Archive completed tasks older than 14 days — production only (the dev

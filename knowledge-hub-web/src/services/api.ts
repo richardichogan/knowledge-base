@@ -43,6 +43,8 @@ import type {
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { DiscoverFormat } from '../types/discover';
+import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight } from '../types/watchlists';
+import type { BacklinkPage, EntityLinkTarget, EntityLinkType } from '../notes/entityLinks';
 
 export { DISCOVER_FORMATS, type DiscoverFormat } from '../types/discover';
 
@@ -509,6 +511,8 @@ export interface NavAttention { think: number; discover: number; plan: number; b
 
 
 export interface DiscoverItem {
+  pickReasons?: string[];
+  filteredReason?: string | null;
   id: string;
   sourceId: string;
   title: string;
@@ -525,6 +529,7 @@ export interface DiscoverItem {
   rankFactors?: {
     editorial: number | null; recency: number | null; authority: number; articleType: number;
     project: number; halfLifeDays: number; computedAt: string;
+    interests?: number;
   };
   /** URL of the user's own blog post written about this article */
   publishedUrl: string | null;
@@ -621,6 +626,35 @@ export class KnowledgeHubApi {
   }
 
   // ─── Search ───────────────────────────────────────────────────────────────
+
+  async getLinkTargets(q = '', type?: EntityLinkType, id?: string, exclude?: string): Promise<ApiResponse<EntityLinkTarget[]>> {
+    const result = await this.client.get<ApiResponse<EntityLinkTarget[]>>('/api/notes/link-targets', { params: { q, type, id, exclude } });
+    return result.data;
+  }
+
+  async suggestLinkTargets(text: string, exclude: string): Promise<ApiResponse<EntityLinkTarget[]>> {
+    const result = await this.client.post<ApiResponse<EntityLinkTarget[]>>('/api/notes/link-suggestions', { text, exclude });
+    return result.data;
+  }
+
+  async getEntityBacklinks(type: EntityLinkType, id: string, page = 1): Promise<ApiResponse<BacklinkPage>> {
+    const result = await this.client.get<ApiResponse<BacklinkPage>>('/api/notes/entity-backlinks', { params: { type, id, page } });
+    return result.data;
+  }
+
+  async getLinkPreview(type: EntityLinkType, id: string): Promise<ApiResponse<{ summary: string; details: { label: string; value: string }[] }>> {
+    const result = await this.client.get<ApiResponse<{ summary: string; details: { label: string; value: string }[] }>>('/api/notes/link-preview', { params: { type, id } });
+    return result.data;
+  }
+
+  async getNoteBacklinks(id: string, page = 1): Promise<ApiResponse<BacklinkPage>> {
+    const result = await this.client.get<ApiResponse<BacklinkPage>>(`/api/notes/${id}/backlinks`, { params: { page } });
+    return result.data;
+  }
+
+  async getUnlinkedNoteMentions(id: string, page = 1): Promise<ApiResponse<BacklinkPage>> {
+    return (await this.client.get<ApiResponse<BacklinkPage>>(`/api/notes/${encodeURIComponent(id)}/unlinked-mentions`, { params: { page } })).data;
+  }
 
   async search(
     query: SearchQuery,
@@ -1627,6 +1661,32 @@ export class KnowledgeHubApi {
   }
 
   // ─── Discover ─────────────────────────────────────────────────────────────
+  async getWatchlists(): Promise<ApiResponse<Watchlist[]>> {
+    return (await this.client.get<ApiResponse<Watchlist[]>>('/api/discover/watchlists')).data;
+  }
+  async saveWatchlist(config: WatchlistInput, existing?: { id: string; revision: number }): Promise<ApiResponse<Watchlist>> {
+    return existing
+      ? (await this.client.put<ApiResponse<Watchlist>>(`/api/discover/watchlists/${existing.id}`, { ...config, revision: existing.revision })).data
+      : (await this.client.post<ApiResponse<Watchlist>>('/api/discover/watchlists', config)).data;
+  }
+  async getWatchlistRuns(id: string, page = 1): Promise<ApiResponse<WatchRun[]>> {
+    return (await this.client.get<ApiResponse<WatchRun[]>>(`/api/discover/watchlists/${id}/runs`, { params: { page } })).data;
+  }
+  async getWatchlistBaselines(id: string): Promise<ApiResponse<WatchBaselineVersion[]>> {
+    return (await this.client.get<ApiResponse<WatchBaselineVersion[]>>(`/api/discover/watchlists/${id}/baselines`)).data;
+  }
+  async runWatchlist(id: string): Promise<ApiResponse<WatchRun>> {
+    return (await this.client.post<ApiResponse<WatchRun>>(`/api/discover/watchlists/${id}/run`, {}, { timeout: 2 * CHAT_TIMEOUT_MS })).data;
+  }
+  async getDiscoverInterests(): Promise<ApiResponse<InterestWeight[]>> {
+    return (await this.client.get<ApiResponse<InterestWeight[]>>('/api/discover/interests')).data;
+  }
+  async saveDiscoverInterest(weight: InterestWeight): Promise<ApiResponse<InterestWeight[]>> {
+    return (await this.client.put<ApiResponse<InterestWeight[]>>('/api/discover/interests', weight)).data;
+  }
+  async getFilteredDiscover(page = 1): Promise<ApiResponse<{ items: DiscoverItem[]; total: number }>> {
+    return (await this.client.get<ApiResponse<{ items: DiscoverItem[]; total: number }>>('/api/discover', { params: { filtered: true, pageSize: 100, page } })).data;
+  }
 
   async createLinkedInDraft(id: string, format: 'linkedin' | 'short' = 'linkedin'): Promise<ApiResponse<SocialDraft>> {
     return (await this.client.post<ApiResponse<SocialDraft>>(
@@ -1762,6 +1822,7 @@ export class KnowledgeHubApi {
   }
 
   async listSparks(params?: {
+    id?: string;
     source_id?: string;
     source_type?: string;
     cluster_id?: string;

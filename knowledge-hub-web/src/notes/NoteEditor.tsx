@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useCreateBlockNote } from '@blocknote/react';
+import { useQueryClient } from '@tanstack/react-query';
 import '@blocknote/mantine/style.css';
 import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
@@ -40,6 +41,9 @@ import { captureNoteDraft, removeNoteDraftIfUnchanged, storeNoteDraft, type Note
 import { NoteDraftReview } from './NoteDraftReview';
 import { useIdentity } from '../identity';
 import { ExtractionMarks } from './ExtractionMarks';
+import { EntityLinkMenu } from './EntityLinkMenu';
+import { LinkSuggestionBar } from './LinkSuggestionBar';
+import { inlineText, prepareEntityLinkExport } from './linkLabels';
 
 interface NoteEditorProps {
   doc: NoteDocument;
@@ -67,9 +71,7 @@ function extractTitle(blocks: { type: string; content?: unknown }[]): string {
     if (block.type === 'heading') {
       const content = block.content;
       if (Array.isArray(content)) {
-        const text = (content as { text?: string }[])
-          .map((c) => c.text ?? '')
-          .join('');
+        const text = inlineText(content);
         if (text.trim() !== '') return text.trim();
       }
     }
@@ -81,7 +83,7 @@ function extractPlainText(blocks: { type: string; content?: unknown; children?: 
   const parts: string[] = [];
   for (const block of blocks) {
     if (Array.isArray(block.content)) {
-      const text = (block.content as { text?: string }[]).map((c) => c.text ?? '').join('');
+      const text = inlineText(block.content);
       if (text.trim()) parts.push(text.trim());
     }
     if (Array.isArray(block.children)) {
@@ -129,6 +131,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onShowEditor }) => {
+  const queryClient = useQueryClient();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
@@ -399,6 +402,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   }, []);
   const prepareDemoBrief = useCallback(async (): Promise<string> => {
     const current = editorRef.current;
+    await prepareEntityLinkExport(current.document);
     const markdown = await current.blocksToMarkdownLossy(current.document);
     const title = extractTitle(current.document);
     return imagineDemoBriefPrompt(title === UNTITLED_DOCUMENT ? savedDocRef.current.title : title, markdown);
@@ -441,6 +445,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     let failure = 'Save failed - your draft is retained; will retry';
     const saving = saveNote(liveDocument()).then(saved => {
       savedDocRef.current = saved;
+      void queryClient.invalidateQueries({ queryKey: ['note-backlinks'] });
+      void queryClient.invalidateQueries({ queryKey: ['unlinked-mentions'] });
+      void queryClient.invalidateQueries({ queryKey: ['entity-link'] });
+      void queryClient.invalidateQueries({ queryKey: ['entity-link-search'] });
+      void queryClient.invalidateQueries({ queryKey: ['link-preview'] });
       try {
         if (isDirtyRef.current) persistDraft();
         else if (submittedLocal) removeNoteDraftIfUnchanged(localStorage, submittedLocal.draft, submittedLocal.raw);
@@ -654,6 +663,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     setExportMenuOpen(false);
     setExporting(true);
     try {
+      await prepareEntityLinkExport(editor.document);
       const markdown = editor.blocksToMarkdownLossy(editor.document);
       const header = `# ${savedDocRef.current.title || UNTITLED_DOCUMENT}\n\n`;
       const blob = new Blob([header + markdown], { type: 'text/markdown;charset=utf-8' });
@@ -672,6 +682,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     setCopying(true);
     try {
       const blocks = editorRef.current.document;
+      await prepareEntityLinkExport(blocks);
       const markdown = await editorRef.current.blocksToMarkdownLossy(blocks);
       const headingTitle = extractTitle(blocks);
       const title = headingTitle === UNTITLED_DOCUMENT ? savedDocRef.current.title : headingTitle;
@@ -752,6 +763,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     try {
       const result = await api.getNoteGitHubRemote(doc.id);
       if (!result.success) throw new Error(result.error.message);
+      await prepareEntityLinkExport(editorRef.current.document);
       const think = await editorRef.current.blocksToMarkdownLossy(editorRef.current.document);
       setGithubReview({ ...result.data, think });
     } catch (err) {
@@ -959,9 +971,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}
               editable={!historyBusy}
-            />
+            >
+              <EntityLinkMenu editor={editor} noteId={doc.id} projectId={projectId}
+                onError={msg => { setNotification({ kind: 'error', msg }); }} />
+            </BlockNoteViewWrapper>
           </div>
         </div>
+        <LinkSuggestionBar editor={editor} noteId={doc.id} disabled={historyBusy} />
         <ExtractionMarks noteId={doc.id} scrollRef={editorScrollRef} />
 
         {/* Bottom toolbar */}

@@ -61,4 +61,4 @@ jobs:
         working-directory: knowledge-hub-web
         env:
           TODAY_BROWSER_PATH: /usr/bin/google-chrome
-        run: node ../scripts/run-browser-checks.mjs --modes=navigation,discover,today,note-recovery,note-history,markdown-export
+        run: node ../scripts/run-browser-checks.mjs --modes=navigation,discover,today,note-recovery,note-history,markdown-export,note-links,watchlists

@@ -331,6 +331,7 @@ Next free migration number: 082 (the latest is `081_use_cases.sql`; check the mi
 Athena is desktop-first; only the standalone `/chat` screen is designed for phones and tablets.
 
 - **Identity:** every project or topic has one colour and one icon, resolved from a single canonical index. The same chip appears in lists, tags, headers, cards and pickers. Areas colour their topics.
+- **Project lifecycle:** Projects opens on Active; archived records remain available through the Archived filter without losing their tags or linked content.
 - **Unified tagging:** projects and topics are chosen through one tag picker and tag panel, so a note, source or task is tagged the same way everywhere.
 - **Shared page header:** Today, Discover, Plan, Think, Sources, Projects and others use one `PageHeader` (title, subtitle, command row), with matching spacing.
 - **Control sizes:** buttons, dropdowns and icon buttons share `--kh-control-height` (36px; `--kh-control-height-compact` 32px for dense rows), so items on one command row align.

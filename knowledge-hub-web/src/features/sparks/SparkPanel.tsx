@@ -5,14 +5,15 @@
  * → Ship (turn a theme into a note, blog post, canvas or project). Loose sparks sit below the themes.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Search } from '@carbon/icons-react';
 import { api, type SparkCluster, type SparkThemeStatus } from '../../services/api';
 import { SparkComposer } from './SparkComposer';
 import { SparkThemeCard } from './SparkThemeCard';
 import { SparkItem } from './SparkItem';
 import { useLooseSparks, useSparkThemes } from './sparkQueries';
-import { describeApiError, requireApiSuccess } from '../../services/apiError';
+import { describeApiError, requireApiData, requireApiSuccess } from '../../services/apiError';
 
 const SPARK_DRAG_TYPE = 'application/x-athena-loose-spark';
 
@@ -30,6 +31,14 @@ function matches(theme: SparkCluster, needle: string): boolean {
 
 export const SparkPanel: React.FC<{ onDevelop: (prompt: string) => void }> = ({ onDevelop }) => {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const linkedId = searchParams.get('sparkId');
+  const linked = useQuery({
+    queryKey: ['sparks', 'linked', linkedId],
+    queryFn: async () => requireApiData(await api.listSparks({ id: linkedId ?? '', limit: 1 }))[0] ?? null,
+    enabled: linkedId !== null,
+    retry: 1,
+  });
   const [filter, setFilter] = useState<SparkThemeStatus>('active');
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -102,6 +111,12 @@ export const SparkPanel: React.FC<{ onDevelop: (prompt: string) => void }> = ({ 
 
   return (
     <div className="spark-panel">
+      {linkedId && <section className="spark-panel__linked" aria-label="Linked spark">
+        <p>Linked spark</p>
+        {linked.isPending ? <p role="status">Loading linked spark...</p> : linked.error
+          ? <p role="alert">Could not load this spark. <button className="spark-chip" type="button" onClick={() => { void linked.refetch(); }}>Retry</button></p>
+          : linked.data ? <SparkItem spark={linked.data} themes={themes} /> : <p role="alert">This spark is no longer available.</p>}
+      </section>}
       <section className="spark-panel__section">
         <h2 className="spark-panel__heading">Capture a spark</h2>
         <SparkComposer />

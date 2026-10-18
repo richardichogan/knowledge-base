@@ -19,6 +19,8 @@ import { DataNotice } from '../components/DataNotice';
 import { PageHeader } from '../components/PageHeader';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import { DiscoverExplore } from '../components/discover/DiscoverExplore';
+import { DiscoverWatchlists } from '../components/discover/DiscoverWatchlists';
+import { DiscoverInterests } from '../components/discover/DiscoverInterests';
 import { buildBriefing, readSinceLastLooked } from '../features/discover/discoverInsights';
 import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
@@ -41,6 +43,7 @@ interface TabDef {
 const PRIMARY_TABS: TabDef[] = [
   { key: 'to-review',  label: 'For you' },
   { key: 'saved',      label: 'Saved' },
+  { key: 'watchlists', label: 'Watchlists' },
 ];
 
 const MORE_TABS: TabDef[] = [
@@ -397,6 +400,8 @@ export const DiscoverPage: React.FC = () => {
   const PAGE_SIZE = 25;
 
   const isInbox = activeTab === 'inbox';
+  const isWatchlists = activeTab === 'watchlists';
+  const [interestsOpen, setInterestsOpen] = useState(false);
   const isCfps  = activeTab === 'cfps';
   const workflowState = isInbox ? 'to-review' : activeTab as DiscoverWorkflowState;
 
@@ -415,7 +420,7 @@ export const DiscoverPage: React.FC = () => {
   const feedQuery = useQuery({
     queryKey: ['discover', workflowState, page],
     queryFn: async () => requireApiSuccess(await api.getDiscoverFeed(workflowState, undefined, page, PAGE_SIZE, undefined, 'weighted')),
-    enabled: !isInbox && !isCfps,
+    enabled: !isInbox && !isCfps && !isWatchlists,
   });
 
   const cfpQuery = useQuery({
@@ -537,14 +542,16 @@ export const DiscoverPage: React.FC = () => {
 
   return (
     <div className="page-root" role="main">
-      <PageHeader title="Discover" subtitle={isCfps
+      <PageHeader title="Discover" subtitle={isWatchlists ? 'Purpose-led monitoring · private, versioned comparisons' : isCfps
               ? `${(cfpQuery.data?.success ? cfpQuery.data.data : []).length} CFPs to review`
               : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`} actions={
+        <><button type="button" className="dc-sources-toggle" onClick={() => setInterestsOpen(true)}>Interests</button>
         <button type="button" className="dc-sources-toggle" aria-expanded={sourcesOpen} onClick={() => { setSourcesOpen((o) => !o); }}>
           {sourcesOpen ? 'Hide sources' : 'Sources'}
-        </button>
+        </button></>
       } />
       {sourcesOpen && <DiscoverSources onClose={() => { setSourcesOpen(false); }} />}
+      {interestsOpen && <DiscoverInterests onClose={() => setInterestsOpen(false)} />}
       {preferenceError != null && <DataNotice title="Discovery view could not be remembered or restored" error={preferenceError} />}
 
       {/* ── Discovery views ── */}
@@ -571,11 +578,12 @@ export const DiscoverPage: React.FC = () => {
           </select>
         </div>
 
-        {activeQuery.isError && <DataNotice title="Discovery feed is unavailable" error={activeQuery.error} onRetry={() => { void activeQuery.refetch(); }} />}
-        {changeError !== null && <DataNotice title="Discovery change was not saved" error={changeError} />}
+        {!isWatchlists && activeQuery.isError && <DataNotice title="Discovery feed is unavailable" error={activeQuery.error} onRetry={() => { void activeQuery.refetch(); }} />}
+        {!isWatchlists && changeError !== null && <DataNotice title="Discovery change was not saved" error={changeError} />}
       </div>
 
       {/* CFPs feed */}
+      {isWatchlists && <DiscoverWatchlists />}
       {isCfps && (
         <div className="dc-feed dc-feed--discover">
           {cfpQuery.isLoading && <div className="dc-loading"><InlineLoading description="Loading CFPs…" /></div>}
@@ -629,7 +637,7 @@ export const DiscoverPage: React.FC = () => {
       )}
 
       {/* Articles feed */}
-      {!isInbox && !isCfps && (
+      {!isInbox && !isCfps && !isWatchlists && (
         <div className="dc-feed dc-feed--discover">
           {feedQuery.isLoading && (
             <div className="dc-loading">

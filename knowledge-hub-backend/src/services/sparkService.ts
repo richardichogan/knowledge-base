@@ -77,6 +77,7 @@ export interface CreateSparkInput {
 
 /** Query params for listing sparks. */
 export interface ListSparksParams {
+  id?: string;
   sourceId?: string;
   sourceType?: string;
   clusterId?: string;
@@ -153,11 +154,12 @@ const SPARK_SELECT = `
 
 /** Returns a paginated list of sparks matching the given filters. */
 export async function listSparks(db: Pool, params: ListSparksParams): Promise<Spark[]> {
-  const { sourceId, sourceType, clusterId, attached, clustered, search, limit = DEFAULT_LIMIT, offset = 0 } = params;
+  const { id, sourceId, sourceType, clusterId, attached, clustered, search, limit = DEFAULT_LIMIT, offset = 0 } = params;
   const conditions: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
 
+  if (id !== undefined) { conditions.push(`s.id = $${idx++}`); values.push(id); }
   if (sourceId !== undefined)  { conditions.push(`s.source_id = $${idx++}`);   values.push(sourceId); }
   if (sourceType !== undefined){ conditions.push(`s.source_type = $${idx++}`); values.push(sourceType); }
   if (clusterId !== undefined) { conditions.push(`s.cluster_id = $${idx++}`);  values.push(clusterId); }

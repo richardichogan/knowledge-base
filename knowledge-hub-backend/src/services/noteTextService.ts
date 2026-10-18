@@ -22,7 +22,9 @@ import {
   extractImageBlockUrls,
   blocksToTextWithImages,
   blobIdFromUrl,
+  type Block,
 } from '../utils/noteContent.js';
+import { resolveNoteLinks } from './noteLinks.js';
 
 /**
  * Renders a note's raw stored content as plain text, substituting each
@@ -34,7 +36,9 @@ import {
  * re-render a stored body would otherwise get an empty string back.
  */
 export async function renderNoteAsText(db: Pool, rawContentJson: string): Promise<string> {
-  const { blocks } = parseNoteContent(rawContentJson);
+  const parsed = parseNoteContent(rawContentJson);
+  const blocks = /"type"\s*:\s*"(noteMention|entityMention)"/.test(JSON.stringify(parsed.blocks))
+    ? await resolveNoteLinks(db, rawContentJson) as Block[] : parsed.blocks;
   if (blocks.length === 0) return rawContentJson;
 
   const imageUrls = extractImageBlockUrls(blocks);

@@ -11,6 +11,7 @@ import { CreateUseCaseDialog } from './CreateUseCaseDialog';
 
 export interface UseCaseLaunch {
   title: string;
+  summary?: string;
   sources: UseCaseSourceRef[];
   /** e.g. "Discover item “Agentic claims”" */
   sourceLabel: string;
@@ -38,7 +39,7 @@ export const UseCaseLauncher: React.FC<{ launch: UseCaseLaunch; onClose: () => v
   }
 
   return (
-    <CreateUseCaseDialog key="form" onClose={onClose} onCreated={setDone} initialTitle={launch.title}
+    <CreateUseCaseDialog key="form" onClose={onClose} onCreated={setDone} initialTitle={launch.title} initialSummary={launch.summary ?? ''}
       initialProjectId={launch.projectId ?? null} sources={launch.sources} sourceLabel={launch.sourceLabel} />
   );
 };

@@ -47,3 +47,11 @@ test('publishing formats round-trip while older Discover views remain supported'
   const { format: _format, ...legacyView } = DEFAULT_DISCOVER_VIEW;
   assert.deepEqual(parseWorkspaceView(legacyView), DEFAULT_DISCOVER_VIEW);
 });
+
+test('Discover Watchlists is a restorable, shareable view without copying a private baseline into the URL', () => {
+  const view = { ...DEFAULT_DISCOVER_VIEW, tab: 'watchlists' as const };
+  assert.deepEqual(parseWorkspaceView(view), view);
+  const url = new URL(sharedViewUrl(new URL('https://example.com/discover'), view));
+  assert.deepEqual(parseSharedView(url.search, 'discover'), view);
+  assert.ok(!url.searchParams.get('view')?.includes('baseline'));
+});

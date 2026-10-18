@@ -13,6 +13,8 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 
 - **Never use `head` or `tail` to truncate command output.** Run the full command or use `grep` to filter specifically.
 - **Never use `curl` to test endpoints.** If an endpoint needs testing, use the existing API client or logs.
+- **Never run full test suites (full unit, full browser, CI-equivalent runs) during development.** After each change run only `tsc --noEmit` plus the targeted tests for the feature being built and tests for directly affected code. Run the full suites only once, immediately before a push/merge or deployment, and only after the feature is complete.
+- **Finish the requested feature before testing broadly or verifying in the browser.** Do not get sidetracked into extra checks while the feature is incomplete.
 - **Never pipe to `| cat`** just to disable a pager — use `--no-pager` flags where available (e.g. `git --no-pager`).
 
 ---

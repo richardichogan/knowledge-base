@@ -2,6 +2,49 @@
 
 **Status:** refining (not built). Product spec use case 5 (`docs/athena-spec.md`) and backlog item 11 (`docs/planned-features.md`). It absorbs backlog item 4, "Why Athena picked this".
 
+**Development corrections, 18 October 2026 (awaiting owner review):** a
+watchlist searches the web for each named competitor; existing Discover feeds
+are optional extras. Manual comparison text is optional. The creation form calls
+the monitored-name field **Competitor list**, ignores empty extra rows, and
+reports validation beside Save rather than silently disabling it. Form drafts
+are retained in this browser tab across closing/reopening and reload, scoped to
+the signed-in identity/session; successful saves clear the draft and select the
+saved watchlist. Storage failures are visible. Automated tests remain deferred
+until the owner has reviewed the feature.
+Retained new-watchlist drafts also appear on the Watchlists page as **Unsaved
+draft**, with their entered competitors and a **Continue editing** action;
+closing the form is not presented as a successful save.
+The draft shows the exact missing required fields. Complete drafts can be saved
+directly from that page; restored forms highlight and focus blocking fields.
+Archived projects are excluded from new selections, while existing selections
+are preserved.
+
+The analysis report groups findings by competitor, showing what they are doing,
+the specific field, evidenced Microsoft involvement and impact on the user's
+projects. There are no suggested responses. Per owner direction, there are no report filters,
+Create use case actions, or per-finding Evidence & uncertainty sections. Saved
+citations remain available in the report's research sources. Coverage gaps are explicit, research
+configuration is secondary, and older runs are collapsed. The report and controls
+use Athena's shared Carbon surfaces, teal accent, typography, spacing and control
+tokens rather than a separate blue visual theme. Existing analysis text is
+preserved, not rewritten by the presentation layer.
+New analyses use current saved project information and indexed project notes and
+documents, including when manual comparison text is provided. Linked projects
+focus the comparison; otherwise active projects are considered (up to 20, ordered
+by importance and priority). Microsoft involvement must be explicit in the
+competitor's sources. Project impact must relate to supplied project capabilities,
+not merely a shared AI theme. Older reports retain their original findings and
+explicitly mark Microsoft involvement as not separately assessed.
+The monitoring brief is collapsed so the latest analysis appears first. On wide
+screens, a right-hand **What this means for my projects** column groups structured
+assessments by saved project, linking each implication back to its finding.
+Confirmed overlap, possible relevance and insufficient context are distinguished;
+differentiation requires support from both project context and competitor sources,
+not invented scores or assumptions. Repeated fields across competitors are
+listed only when multiple competitors have findings in that field. Narrow
+layouts put implications below activity. Historical findings without structured
+project assessments keep their original impact text and are labelled accordingly.
+
 ## Summary
 
 This would add competitor and market monitoring to Athena, using blogs, news announcements and press releases as inputs. The aim is to identify meaningful competitive change against an explicit comparison baseline, rather than produce another news digest.

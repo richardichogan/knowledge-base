@@ -19,8 +19,9 @@ interface Props {
   editor: any;
   theme: Theme;
   editable?: boolean;
+  children?: React.ReactNode;
 }
 
-export const BlockNoteViewWrapper: React.FC<Props> = ({ editor, theme, editable = true }) => (
-  <BlockNoteView editor={editor} theme={theme} editable={editable} />
+export const BlockNoteViewWrapper: React.FC<Props> = ({ editor, theme, editable = true, children }) => (
+  <BlockNoteView editor={editor} theme={theme} editable={editable}>{children}</BlockNoteView>
 );

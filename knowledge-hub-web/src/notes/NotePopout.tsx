@@ -12,18 +12,18 @@ import { fetchNote } from './noteStorage';
 
 const REFRESH_MS = 5000;
 
-class PopoutBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+export class NoteWritingBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError(): { failed: boolean } { return { failed: true }; }
-  componentDidCatch(error: Error): void { console.error('[Think pop-out] Could not display writing.', error); }
+  componentDidCatch(error: Error): void { console.error('[Think] Could not display writing.', error); }
   render(): React.ReactNode {
     return this.state.failed
-      ? <p className="note-popout__error" role="alert">This note could not be displayed. Reopen the pop-out to retry. Your writing in Think is unchanged.</p>
+      ? <p className="note-popout__error" role="alert">This note could not be displayed. Reopen it to retry. Your writing in Think is unchanged.</p>
       : this.props.children;
   }
 }
 
-function Writing({ contentJson }: { contentJson: string }): React.ReactElement {
+export function NoteWriting({ contentJson }: { contentJson: string }): React.ReactElement {
   const blocks = useMemo(() => {
     const parsed: unknown = JSON.parse(contentJson);
     if (!Array.isArray(parsed)) throw new Error('Note writing is not a block array.');
@@ -69,7 +69,7 @@ export const NotePopout: React.FC = () => {
       {missingImage && <p className="note-popout__error" role="status">An image could not be loaded. Reopen this window to retry.</p>}
       {error && <DataNotice title={data ? 'This view could not refresh. Showing the last loaded writing.' : 'Could not load note'}
         error={error} busy={isFetching} onRetry={() => { void refetch(); }} />}
-      {data && <PopoutBoundary key={noteId}><Writing contentJson={data.contentJson} /></PopoutBoundary>}
+      {data && <NoteWritingBoundary key={noteId}><NoteWriting contentJson={data.contentJson} /></NoteWritingBoundary>}
     </main>
   );
 };

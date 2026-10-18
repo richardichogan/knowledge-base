@@ -25,6 +25,8 @@ const markdownExportChecks = process.env.ATHENA_BROWSER_CHECKS === 'markdown-exp
 const thinkSaveChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-save';
 const noteGitHubChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-github';
 const diagramThemeChecks = process.env.ATHENA_BROWSER_CHECKS === 'diagram-theme';
+const noteLinksChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-links';
+const watchlistChecks = process.env.ATHENA_BROWSER_CHECKS === 'watchlists';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -109,6 +111,8 @@ try {
     for (let i = 0; i < 600; i++) {
       ready = await evaluate(navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
+        : noteLinksChecks ? 'typeof window.runNoteLinkChecks === "function" && document.querySelector(".notes-editor-scroll") !== null'
+        : watchlistChecks ? 'typeof window.runWatchlistChecks === "function"'
         : diagramThemeChecks ? 'typeof window.runDiagramThemeChecks === "function" && document.querySelector(".dg-node__body") !== null'
         : noteGitHubChecks ? 'typeof window.runNoteGitHubChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
         : thinkSaveChecks ? 'typeof window.runThinkSaveChecks === "function" && document.querySelector(".ai-move__button") !== null'
@@ -132,6 +136,12 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, readyState: document.readyState, text: document.body.innerText })')}\n${loadDiagnostics.join('\n')}`);
+    if (noteLinksChecks || watchlistChecks) {
+      const results = await evaluate(noteLinksChecks ? 'window.runNoteLinkChecks()' : 'window.runWatchlistChecks()');
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      console.log(JSON.stringify({ width, checks: results }, null, 2));
+      continue;
+    }
     if (noteRecoveryChecks) {
       if (process.env.TODAY_ARTIFACT_DIR) {
         await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });

@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Button, TextInput, TextArea, Modal,
@@ -458,9 +459,11 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
 
 export const ProjectsPage: React.FC = () => {
   const { projects, loading, error, reload, createProject, updateProject, deleteProject } = useProjects();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedProjectId = searchParams.get('projectId');
   const [search, setSearch] = useState('');
   const [filterGroup, setFilterGroup] = useState<string>('all');
-  const [filterLifecycle, setFilterLifecycle] = useState<ProjectLifecycleState | 'all'>('all');
+  const [filterLifecycle, setFilterLifecycle] = useState<ProjectLifecycleState | 'all'>('active');
   const [modalOpen, setModalOpen] = useState(false);
   const [editProject, setEditProject] = useState<ProjectRecord | null>(null);
   const [saving, setSaving] = useState(false);
@@ -470,6 +473,11 @@ export const ProjectsPage: React.FC = () => {
   const deletePending = useRef(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [cockpitProject, setCockpitProject] = useState<ProjectRecord | null>(null);
+  React.useEffect(() => {
+    if (loading || !linkedProjectId) return;
+    const linked = projects.find(project => project.id === linkedProjectId);
+    if (linked) setCockpitProject(linked);
+  }, [linkedProjectId, loading, projects]);
 
   const { data: groupsData, error: groupsError, refetch: reloadGroups } = useQuery<ProjectGroup[]>({
     queryKey: ['project-groups'],
@@ -798,7 +806,12 @@ export const ProjectsPage: React.FC = () => {
       />
 
       {/* ── Cockpit ── */}
-      <ProjectCockpitModal projectId={cockpitProject?.id ?? null} projectName={cockpitProject?.name ?? ''} onClose={() => setCockpitProject(null)} />
+      {linkedProjectId && !loading && !error && !projects.some(project => project.id === linkedProjectId) &&
+        <p role="alert" className="proj-link-error">The linked project is no longer available.</p>}
+      <ProjectCockpitModal projectId={cockpitProject?.id ?? null} projectName={cockpitProject?.name ?? ''} onClose={() => {
+        setCockpitProject(null);
+        if (linkedProjectId) setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete('projectId'); return next; }, { replace: true });
+      }} />
 
       {/* ── Delete confirm modal ── */}
       <Modal

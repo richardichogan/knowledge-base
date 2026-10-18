@@ -14,7 +14,7 @@ export default defineConfig({
   // In development the proxy below forwards /api → the local backend (used when VITE_API_URL is empty).
   // KH_API_PORT overrides the backend port for when 3000 is taken by another project.
   optimizeDeps: {
-    include: ['react-force-graph-2d'],
+    include: ['react-force-graph-2d', '@blocknote/core/extensions'],
   },
   server: {
     port: 5173,

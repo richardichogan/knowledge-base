@@ -40,7 +40,7 @@ function ageLabel(iso: string, now: number): string | null {
 
 /** Plain-English reasons Athena ranked this item where it is. */
 export function whyPicked(item: DiscoverItem, now = Date.now()): string[] {
-  const reasons: string[] = [];
+  const reasons: string[] = [...(item.pickReasons ?? [])];
   const editorial = item.rankFactors?.editorial ?? item.relevanceScore;
   if (editorial != null && editorial >= 0.85) reasons.push('Strong match with your editorial priorities.');
   else if (editorial != null && editorial >= 0.7) reasons.push('Good match with your editorial priorities.');

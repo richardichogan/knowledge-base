@@ -21,13 +21,18 @@ import { useAthenaContext } from '../context/AthenaContext';
 import { ThinkAthenaPanel } from './ThinkAthenaPanel';
 import { NoteHistoryPanel } from './NoteHistoryPanel';
 import { usePersistedChoice, usePersistedPaneWidth } from '../hooks/usePersistedState';
+import { LinkPreviewContent } from './LinkPreviewPanel';
+import { onLinkPreview } from './linkPreview';
+import type { EntityLinkTarget } from './entityLinks';
 import { WorkspaceSidePanel, useResponsivePanelState } from '../components/WorkspaceSidePanel';
 import { EntityChip } from '../identity';
 import { UseCaseLauncher } from '../features/useCases/UseCaseLauncher';
 import { launchFromRef } from '../features/useCases/useCaseView';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
+import { NoteBacklinks } from './NoteBacklinks';
+import { UnlinkedMentions } from './UnlinkedMentions';
 
-const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections', 'history'] as const;
+const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections', 'history', 'link'] as const;
 type SidePanelTab = typeof SIDE_PANEL_TABS[number];
 
 // Module constant (not an inline literal) so the width hook gets a stable object.
@@ -119,8 +124,13 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const qc = useQueryClient();
   const [retagging, setRetagging] = useState(false);
   const [athenaBusy, setAthenaBusy] = useState(false);
-  const [tab, setTab] = usePersistedChoice<SidePanelTab>('kh_think_side_tab', SIDE_PANEL_TABS, 'athena');
+  const [storedTab, setTab] = usePersistedChoice<SidePanelTab>('kh_think_side_tab', SIDE_PANEL_TABS, 'athena');
   const [useCaseOpen, setUseCaseOpen] = useState(false);
+  const [linkTarget, setLinkTarget] = useState<EntityLinkTarget | null>(null);
+  const [linkHistory, setLinkHistory] = useState<EntityLinkTarget[]>([]);
+  const previewOrigin = React.useRef<HTMLElement | null>(null);
+  const previousTab = React.useRef<SidePanelTab>('athena');
+  const tab: SidePanelTab = storedTab === 'link' && !linkTarget ? 'athena' : storedTab;
   const useCaseLaunch = launchFromRef('note', doc.id, doc.title);
   const [width, setWidth] = usePersistedPaneWidth('think-side-panel', SIDE_PANEL_WIDTH);
   const panelRef = React.useRef<HTMLDialogElement>(null);
@@ -133,6 +143,38 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
       window.requestAnimationFrame(() => { panelRef.current?.querySelector<HTMLTextAreaElement>('.think-athena-panel textarea')?.focus(); });
     });
   }, [registerAthenaLauncher, setTab, setCollapsed, onShowEditor]);
+
+  useEffect(() => onLinkPreview(target => {
+    if (!linkTarget) {
+      previewOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      previousTab.current = tab === 'link' ? 'athena' : tab;
+    }
+    if (linkTarget && (target.type !== linkTarget.type || target.id !== linkTarget.id)) {
+      setLinkHistory(previous => [...previous, linkTarget]);
+    }
+    setLinkTarget(target);
+    setTab('link');
+    setCollapsed(false);
+  }), [setTab, setCollapsed, linkTarget, tab]);
+
+  const closePreview = React.useCallback((): void => {
+    setLinkTarget(null);
+    setLinkHistory([]);
+    setTab(previousTab.current);
+    if (overlay) setCollapsed(true);
+    window.requestAnimationFrame(() => { previewOrigin.current?.focus({ preventScroll: true }); });
+  }, [setTab, setCollapsed, overlay]);
+
+  useEffect(() => {
+    if (tab !== 'link' || collapsed) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      closePreview();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); };
+  }, [tab, collapsed, closePreview]);
 
   // A prompt sent from elsewhere (e.g. "Discuss with Athena" on selected text) opens the Athena tab.
   const lastRequest = React.useRef(athenaRequest?.sequence ?? 0);
@@ -162,6 +204,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
     { id: 'metadata', label: 'Metadata' },
     { id: 'connections', label: 'Connections' },
     { id: 'history', label: 'History' },
+    ...(linkTarget ? [{ id: 'link' as const, label: 'Link' }] : []),
   ];
 
   return (
@@ -208,6 +251,15 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
             <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy} promptRequest={athenaRequest ?? undefined}
               prepareDemoBrief={contentType === 'use-case' ? prepareDemoBrief : undefined} />
           </div>
+
+        {tab === 'link' && linkTarget && (
+          <div role="tabpanel" id="think-side-panel-link" aria-labelledby="think-side-tab-link" className="notes-meta-tabpanel">
+            <LinkPreviewContent target={linkTarget} onClose={closePreview} onBack={linkHistory.length ? () => {
+              setLinkTarget(linkHistory[linkHistory.length - 1] ?? null);
+              setLinkHistory(previous => previous.slice(0, -1));
+            } : undefined} />
+          </div>
+        )}
 
         {tab === 'history' && (
           <div role="tabpanel" id="think-side-panel-history" aria-labelledby="think-side-tab-history" className="notes-meta-tabpanel">
@@ -337,6 +389,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
         {tab === 'connections' && (
           <div role="tabpanel" id="think-side-panel-connections" aria-labelledby="think-side-tab-connections" className="notes-meta-tabpanel">
+            <NoteBacklinks noteId={noteId} />
+            <UnlinkedMentions noteId={noteId} />
             <ConnectionsPanel refId={doc.id} refType="note" headerless />
             <RelatedSparks refId={doc.id} refType="note" />
             {onOpenMap !== undefined && <NoteMaps noteId={doc.id} onOpenMap={onOpenMap} {...(onMapNote !== undefined && { onMapNote })} />}

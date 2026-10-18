@@ -1,6 +1,21 @@
 # Planned features (not yet implemented)
 
-Source: the October 2026 UX review and competitor research (Linear, Raycast, Notion, Obsidian, Capacities, Tana, Readwise Reader, Feedly, NotebookLM, Perplexity and others). **None of these exist yet.** Each is written so a new session can start without prior context.
+Source: the October 2026 UX review and competitor research (Linear, Raycast, Notion, Obsidian, Capacities, Tana, Readwise Reader, Feedly, NotebookLM, Perplexity and others). Items below record the original recommendations; implementation updates identify development work awaiting review. Each is written so a new session can start without prior context.
+
+**Implementation update (18 October 2026, awaiting owner review):** wiki links,
+backlinks and side-peek are in the development worktree. `@` / `[[` search
+notes, projects, sparks, diagrams, tasks, use cases and Discover articles, with
+explicit create-and-link for new notes. Plain mentions are matched against
+saved titles after typing pauses, regardless of capitalisation; the owner can
+link one occurrence, link all or dismiss. Connections contains incoming
+backlinks and unlinked mentions with a revision-checked "Link it" action.
+Links open in the existing Think side panel, not another drawer: notes use the
+native read-only editor; projects show their saved description, goal, role,
+ownership, dates, expected outputs, resources and recent project-note excerpts,
+rather than embedding the management cockpit. Project notes open natively in
+the same panel. Other items show saved content/details plus a full-item link.
+Back, Close and Escape preserve the source editor. Automated tests and CI
+remain deferred until the owner has tried these changes.
 
 Ground rules for every item:
 

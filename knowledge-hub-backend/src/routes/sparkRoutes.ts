@@ -100,6 +100,10 @@ sparkRouter.get('/', (req: Request, res: Response, next: NextFunction): void => 
       const attached = q['attached'] === 'true' ? true : q['attached'] === 'false' ? false : undefined;
       const db = getDb();
       const params: Record<string, unknown> = {};
+      if (q['id'] !== undefined) {
+        if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(q['id'])) throw new ValidationError('Invalid spark ID');
+        params['id'] = q['id'];
+      }
       if (attached !== undefined) params['attached'] = attached;
       if (q['source_id'])   params['sourceId']   = q['source_id'];
       if (q['source_type']) params['sourceType'] = q['source_type'];

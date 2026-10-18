@@ -22,7 +22,16 @@ interface NoteContentWrapper { title?: string; contentType?: string; contentJson
  * assuming the array shape.
  */
 export function blockContentSpans(block: Block): BlockContent[] {
-  return Array.isArray(block.content) ? (block.content as BlockContent[]) : [];
+  const spans: BlockContent[] = [];
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) { value.forEach(walk); return; }
+    if (value === null || typeof value !== 'object') return;
+    const item = value as { text?: unknown; content?: unknown };
+    if (typeof item.text === 'string') spans.push({ text: item.text });
+    else if (Array.isArray(item.content)) walk(item.content);
+  };
+  walk(block.content);
+  return spans;
 }
 
 export function parseNoteContent(contentJson: string): { title: string | null; contentType: string | null; blocks: Block[] } {

@@ -46,6 +46,7 @@ import { findDiagramContext } from '../services/diagramContext.js';
 import { createSpark } from '../services/sparkService.js';
 import { loadCurrentProjectContext } from './projectContext.js';
 import { getDiscoverSources, inspectDiscoverFeed } from './discoveryContext.js';
+import { retrieveWatchlistRecords } from '../services/discoverWatchlists.js';
 import { getAssetToolDefinitions, isAssetTool, executeAssetTool } from './assetTools.js';
 import { searchKnowledgeGraph as searchGraph } from './graphInference.js';
 import { readPublicPage, readingExcerpt } from '../utils/articleReading.js';
@@ -62,6 +63,17 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const learnTools = await getLearnMcpTools();
   const tavilyTools = await getTavilyMcpTools();
   return [
+    {
+      type: 'function',
+      function: {
+        name: 'get_discover_watchlist_records',
+        description: 'Retrieve private saved Discover Watchlists and their dated evidence-linked findings, comparison baseline versions, and coverage. With no ID lists configured watchlists; with an ID returns dated runs. Use for what changed this month, comparison with our proposition, or new capability versus wording. No new research. Cite article URLs and run date/baseline version; do not confuse missing coverage with no meaningful change.',
+        parameters: { type: 'object', properties: {
+          watchlistId: { type: 'string' }, from: { type: 'string', description: 'Inclusive YYYY-MM-DD' },
+          to: { type: 'string', description: 'Inclusive YYYY-MM-DD' },
+        } },
+      },
+    },
     {
       type: 'function',
       function: {
@@ -678,6 +690,7 @@ export async function executeToolCall(
 
   switch (name) {
     case 'get_discover_sources': return getDiscoverSources(db);
+    case 'get_discover_watchlist_records': return retrieveWatchlistRecords(db, args);
     case 'inspect_discover_feed': {
       const url = args['feedUrl'];
       if (typeof url !== 'string' || url.trim() === '') return { error: 'Provide a public RSS/Atom feed URL.' };

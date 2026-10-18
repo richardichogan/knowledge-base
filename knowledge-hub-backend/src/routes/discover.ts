@@ -9,6 +9,7 @@ import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync.js';
 import { readFeed } from '../integrations/discovery/feedReader.js';
 import { discoverRankSql } from '../integrations/cms/discoverRank.js';
+import { interestSql } from '../services/discoverInterests.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
 import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
@@ -52,9 +53,12 @@ export interface DiscoverItem {
   sourceAuthorityTier: string | null;
   /** Live-computed rank score actually used for ordering (relevance_score with recency decay applied) */
   rankScore: number | null;
+  pickReasons: string[];
+  filteredReason: string | null;
   rankFactors: {
     editorial: number | null; recency: number | null; authority: number; articleType: number;
     project: number; halfLifeDays: number; computedAt: string;
+    interests: number;
   };
   /** 0 = not covered, 1 = same story from another angle, 2 = he has already made this argument */
   alreadyCovered: number | null;
@@ -77,6 +81,8 @@ const DISCOVER_ENUM_MAX_LENGTH = 32;
 const BLOG_RELATED_SOURCE_CHARS = 2000;
 const BLUESKY_REQUEST_MAX_CHARS = 2000;
 const DISCOVER_FILTER_MAX_LENGTH = 256;
+const DISCOVER_BOOLEAN_MAX_LENGTH = 5;
+const RANK_FACTOR_PRECISION = 2;
 const ASCII_SPACE = 32;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -247,12 +253,16 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       const pageSize = positiveInteger(req.query['pageSize'], 'pageSize', DISCOVER_PAGE_SIZE_DEFAULT, DISCOVER_PAGE_SIZE_MAX);
       const offset = (page - 1) * pageSize;
       if (!Number.isSafeInteger(offset)) throw new ValidationError('Discovery page is too large');
+      const filteredParam = queryText(req.query['filtered'], 'filtered', DISCOVER_BOOLEAN_MAX_LENGTH);
+      if (filteredParam !== undefined && filteredParam !== 'true') throw new ValidationError('Invalid filtered view.');
+      const filtered = filteredParam === 'true';
+      const interests = interestSql('ci');
 
       const conditions: string[] = [`ci.source = 'discovered-article'`];
       const params: unknown[] = [];
       let p = 1;
 
-      if (VALID_STATES.includes(state as WorkflowState)) {
+      if (!filtered && VALID_STATES.includes(state as WorkflowState)) {
         conditions.push(`workflow_state = $${p++}`);
         params.push(state);
       }
@@ -264,6 +274,10 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         conditions.push(`title ILIKE $${p++}`);
         params.push(`%${titleFilter.replace(/[\\%_]/g, '\\$&')}%`);
       }
+      if (filtered) {
+        conditions.push(`ci.published_at >= NOW()-INTERVAL '7 days'`);
+        conditions.push(`(ci.workflow_state IN ('shelved','archived') OR (${interests.factor})=0)`);
+      } else if (state === 'to-review') conditions.push(`(${interests.factor})>0`);
 
       // Ranking for a format lists only articles that suit it, strongest fit first, then by rank.
       if (format !== undefined) conditions.push(`${formatFitSql('ci', format)} >= 1`);
@@ -303,11 +317,14 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
           type_factor: number;
           project_factor: number;
           rank_computed_at: Date;
+          interest_topics: string | null; interest_source: number; saved_factor: number; interest_factor: number;
         } & Record<`fit_${ContentFormat}`, number>>(
           `SELECT ci.id, ci.source_id, ci.title, ci.url, ci.body, ci.published_at, ci.indexed_at,
                   ci.metadata, ci.workflow_state, ci.relevance_score, ci.relevance_explanation,
                   array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids,
-                  ${rankScoreExpr} AS rank_score,
+                  (${rankScoreExpr}) * (${interests.factor}) AS rank_score,
+                  ${interests.topics} AS interest_topics, ${interests.source} AS interest_source, ${interests.saved} AS saved_factor,
+                  (${interests.factor}) AS interest_factor,
                   ${recencyExpr} AS recency_factor, (${authorityWeightExpr}) AS authority_factor,
                   (${typeWeightExpr}) AS type_factor, ${projectExpr} AS project_factor,
                   ${CONTENT_FORMATS.map((f) => `${formatFitSql('ci', f)} AS "fit_${f}"`).join(', ')},
@@ -346,11 +363,21 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         compositeScore: typeof row.metadata['compositeScore'] === 'number' ? row.metadata['compositeScore'] : null,
         sourceAuthorityTier: typeof row.metadata['sourceAuthorityTier'] === 'string' ? row.metadata['sourceAuthorityTier'] : null,
         rankScore: row.rank_score,
+        pickReasons: [
+          row.relevance_explanation || 'Awaiting editorial assessment.',
+          `Source weight ×${Number(row.interest_source)}; recency ×${Number(row.recency_factor ?? 0).toFixed(RANK_FACTOR_PRECISION)}.`,
+          ...(row.interest_topics ? [`Matched topics: ${row.interest_topics}.`] : []),
+          ...(Number(row.saved_factor) > 1 ? ['You previously saved articles from this source (×1.1).'] : []),
+        ],
+        filteredReason: filtered ? (Number(row.interest_source) === 0 ? 'Source weight is zero.'
+          : row.workflow_state === 'shelved' ? `Shelved: ${String(row.metadata['shelvedReason'] ?? 'editorial triage or age')}.`
+            : row.workflow_state === 'archived' ? 'Archived during triage.' : 'A matching topic has weight zero.') : null,
         rankFactors: {
           editorial: row.relevance_score === null ? null : Number(row.relevance_score),
           recency: row.recency_factor === null ? null : Number(row.recency_factor),
           authority: Number(row.authority_factor), articleType: Number(row.type_factor),
           project: Number(row.project_factor), halfLifeDays: DISCOVER_RECENCY_HALF_LIFE_DAYS,
+          interests: Number(row.interest_factor),
           computedAt: row.rank_computed_at.toISOString(),
         },
         alreadyCovered: typeof row.metadata['alreadyCovered'] === 'number' ? row.metadata['alreadyCovered'] : null,

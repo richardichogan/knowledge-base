@@ -10,6 +10,7 @@ import type {
 import { describeApiError, requireApiData } from '../services/apiError';
 import './ProjectCockpit.css';
 import { ReviewPackets } from './ReviewPackets';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 
 const KIND_LABEL: Record<ProjectRegisterKind, string> = { question: 'Question', risk: 'Risk', issue: 'Issue' };
 const PAGE = 25;
@@ -24,18 +25,23 @@ interface LinkListProps {
   section: CockpitSection<CockpitLink[]>;
   empty: string;
   action?: (link: CockpitLink) => React.ReactNode;
+  compact?: boolean;
 }
 
-const LinkList: React.FC<LinkListProps> = ({ title, section, empty, action }) => (
-  <section className="pcp-block" aria-label={title}>
-    <h3>{title}{section.available && <span className="pcp-count">{section.total}</span>}</h3>
+const LinkList: React.FC<LinkListProps> = ({ title, section, empty, action, compact }) => {
+  const content = <>
     {!section.available ? <Unavailable title={title} /> : section.data.length === 0 ? <p className="pcp-empty">{empty}</p> : (
       <>
         <ul className="pcp-list">
           {section.data.map((link, index) => (
             <li key={`${link.href}-${link.sourceId ?? index}`}>
-              <a href={link.href}>{link.label}</a>
-              <span className="pcp-meta">{[link.meta, when(link.at)].filter(Boolean).join(' · ')}</span>
+              {compact ? <a className="conn-item" href={link.href}>
+                <span className="conn-item__title">{link.label}</span>
+                <span className="conn-item__reason">{[link.meta, when(link.at)].filter(Boolean).join(' · ')}</span>
+              </a> : <>
+                <a href={link.href}>{link.label}</a>
+                <span className="pcp-meta">{[link.meta, when(link.at)].filter(Boolean).join(' · ')}</span>
+              </>}
               {action?.(link)}
             </li>
           ))}
@@ -43,8 +49,14 @@ const LinkList: React.FC<LinkListProps> = ({ title, section, empty, action }) =>
         {section.truncated && <p className="pcp-more">Showing the {section.data.length} most recent of {section.total}.</p>}
       </>
     )}
-  </section>
-);
+  </>;
+  return compact
+    ? <CollapsibleSection label={title} defaultExpanded={!section.available || section.total > 0}
+      headerAdornment={section.available && <span className="pcp-count">{section.total}</span>}>{content}</CollapsibleSection>
+    : <section className="pcp-block" aria-label={title}>
+      <h3>{title}{section.available && <span className="pcp-count">{section.total}</span>}</h3>{content}
+    </section>;
+};
 
 const RegisterRow: React.FC<{ item: ProjectRegisterItem; busy: boolean; onChange: (input: ProjectRegisterInput) => void; onDelete: () => void }> = ({ item, busy, onChange, onDelete }) => {
   const [resolution, setResolution] = useState(item.resolution);
@@ -143,7 +155,7 @@ const Register: React.FC<{ projectId: string }> = ({ projectId }) => {
   );
 };
 
-export const ProjectCockpitModal: React.FC<{ projectId: string | null; projectName: string; onClose: () => void }> = ({ projectId, projectName, onClose }) => {
+export const ProjectCockpitContent: React.FC<{ projectId: string; compact?: boolean }> = ({ projectId, compact = false }) => {
   const qc = useQueryClient();
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [promoted, setPromoted] = useState<Set<string>>(new Set());
@@ -166,20 +178,8 @@ export const ProjectCockpitModal: React.FC<{ projectId: string | null; projectNa
     }
   };
 
-  if (projectId === null) return null;
-
-  return createPortal(
-    <Modal
-      open
-      passiveModal
-      size="lg"
-      hasScrollingContent
-      modalLabel="Project Cockpit"
-      modalHeading={projectName}
-      onRequestClose={onClose}
-      className="pcp-modal"
-    >
-      <div className="pcp">
+  return (
+      <div className={`pcp${compact ? ' pcp--compact' : ''}`}>
         {cockpit.isLoading && <InlineLoading description="Loading cockpit…" />}
         {cockpit.error && <DataNotice title="The cockpit could not be loaded." error={cockpit.error} onRetry={() => { void cockpit.refetch(); }} />}
         {data && (
@@ -187,7 +187,7 @@ export const ProjectCockpitModal: React.FC<{ projectId: string | null; projectNa
             <section className="pcp-outcome" aria-label="Outcome">
               {data.outcome.available ? (
                 <>
-                  <p className="pcp-goal">{data.outcome.data.goal || 'No goal recorded for this project yet.'}</p>
+                  <p className={data.outcome.data.goal ? 'pcp-goal' : 'pcp-empty'}>{data.outcome.data.goal || 'No goal recorded for this project yet.'}</p>
                   <p className="pcp-meta">
                     {data.outcome.data.lifecycleState}
                     {data.outcome.data.targetEndDate ? ` · target ${data.outcome.data.targetEndDate}` : ''}
@@ -198,31 +198,40 @@ export const ProjectCockpitModal: React.FC<{ projectId: string | null; projectNa
                   )}
                 </>
               ) : <Unavailable title="Outcome" />}
-              <p className="pcp-meta">Counts come from linked items only; no completion score is inferred. Updated {new Date(data.generatedAt).toLocaleTimeString('en-GB')}.</p>
+              {!compact && <p className="pcp-meta">Counts come from linked items only; no completion score is inferred. Updated {new Date(data.generatedAt).toLocaleTimeString('en-GB')}.</p>}
             </section>
 
-            <h2 className="pcp-step">Actionable work</h2>
-            <LinkList title="Waiting" section={data.blockers} empty="Nothing waiting on others." />
-            <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this project." />
-            <Register projectId={projectId} />
-            <ReviewPackets projectId={projectId} />
+            {!compact && <h2 className="pcp-step">Actionable work</h2>}
+            <LinkList title="Waiting" section={data.blockers} empty="Nothing waiting on others." compact={compact} />
+            <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this project." compact={compact} />
+            {compact ? <CollapsibleSection label="Questions, risks and issues" defaultExpanded={false}><Register projectId={projectId} /></CollapsibleSection> : <Register projectId={projectId} />}
+            {compact ? <CollapsibleSection label="Review packets" defaultExpanded={false}><ReviewPackets projectId={projectId} /></CollapsibleSection> : <ReviewPackets projectId={projectId} />}
 
             <details className="pcp-evidence">
               <summary>Supporting evidence</summary>
               {promoteError && <DataNotice title="The decision was not promoted." error={promoteError} />}
-              <LinkList title="Chat decisions" section={data.decisions} empty="No chat decisions for this project."
+              <LinkList title="Chat decisions" section={data.decisions} empty="No chat decisions for this project." compact={compact}
                 action={(link) => link.sourceId === undefined ? null : (
                   <Button kind="ghost" size="sm" disabled={promoted.has(link.sourceId)} onClick={() => { void promote(link); }}>
                     {promoted.has(link.sourceId) ? 'In register' : 'Add to register'}
                   </Button>
                 )} />
-              <LinkList title="Recent notes" section={data.notes} empty="No notes filed to this project." />
-              <LinkList title="Outputs" section={data.outputs} empty="No chat outputs for this project." />
+              <LinkList title="Recent notes" section={data.notes} empty="No notes filed to this project." compact={compact} />
+              <LinkList title="Outputs" section={data.outputs} empty="No chat outputs for this project." compact={compact} />
             </details>
           </>
         )}
       </div>
+  );
+};
+
+export const ProjectCockpitModal: React.FC<{ projectId: string | null; projectName: string; onClose: () => void }> = ({ projectId, projectName, onClose }) => {
+  if (projectId === null) return null;
+  return createPortal(
+    <Modal open passiveModal size="lg" hasScrollingContent modalLabel="Project Cockpit"
+      modalHeading={projectName} onRequestClose={onClose} className="pcp-modal">
+      <ProjectCockpitContent key={projectId} projectId={projectId} />
     </Modal>,
-    document.body
+    document.body,
   );
 };

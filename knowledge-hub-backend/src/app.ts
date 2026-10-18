@@ -25,6 +25,7 @@ import { reviewPacketsRouter } from './routes/reviewPackets.js';
 import { tagsRouter } from './routes/tags.js';
 import { documentsRouter } from './routes/documents.js';
 import { discoverRouter } from './routes/discover.js';
+import { discoverMonitoringRouter } from './routes/discoverWatchlists.js';
 import { taxonomyRouter } from './routes/taxonomy.js';
 import { noteTagsRouter } from './routes/noteTags.js';
 import { repoMappingsRouter } from './routes/repoMappings.js';
@@ -147,6 +148,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/documents', documentsRouter);
   app.use('/api/integrations/alliance', allianceApiRouter);
   app.use('/api/memories', memoriesRouter);
+  app.use('/api/discover', discoverMonitoringRouter);
   app.use('/api/discover', discoverRouter);
   app.use('/api/taxonomy', taxonomyRouter);
   app.use('/api/repo-mappings', repoMappingsRouter);

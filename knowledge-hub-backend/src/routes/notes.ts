@@ -27,8 +27,10 @@ import { githubMarkdownBlocks } from '../services/noteMarkdown.js';
 import { GitHubClient } from '../integrations/github/githubClient.js';
 import { ConflictError } from '../types/errors.js';
 import { positiveInteger } from '../utils/queryValidation.js';
+import { noteLinksRouter } from './noteLinks.js';
 
 const router = Router();
+router.use(noteLinksRouter);
 const MAX_REPOSITORY_PAGE = 100;
 function noteStatus(value: unknown): 'active' | 'archived' {
   if (value === undefined || value === 'active') return 'active';
