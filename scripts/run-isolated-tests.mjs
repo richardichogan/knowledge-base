@@ -20,6 +20,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/planInsights.test.ts',
   '../knowledge-hub-web/tests/syncPolling.test.ts',
   '../knowledge-hub-web/tests/planPreferences.test.ts',
+  '../knowledge-hub-web/tests/useCaseView.test.ts',
   '../knowledge-hub-web/tests/savedViews.test.ts',
   '../knowledge-hub-web/tests/noteDraftStorage.test.ts',
   '../knowledge-hub-web/tests/documentList.test.ts',
