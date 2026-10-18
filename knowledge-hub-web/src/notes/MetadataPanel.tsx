@@ -23,6 +23,8 @@ import { NoteHistoryPanel } from './NoteHistoryPanel';
 import { usePersistedChoice, usePersistedPaneWidth } from '../hooks/usePersistedState';
 import { WorkspaceSidePanel, useResponsivePanelState } from '../components/WorkspaceSidePanel';
 import { EntityChip } from '../identity';
+import { UseCaseLauncher } from '../features/useCases/UseCaseLauncher';
+import { launchFromRef } from '../features/useCases/useCaseView';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 
 const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections', 'history'] as const;
@@ -118,6 +120,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const [retagging, setRetagging] = useState(false);
   const [athenaBusy, setAthenaBusy] = useState(false);
   const [tab, setTab] = usePersistedChoice<SidePanelTab>('kh_think_side_tab', SIDE_PANEL_TABS, 'athena');
+  const [useCaseOpen, setUseCaseOpen] = useState(false);
+  const useCaseLaunch = launchFromRef('note', doc.id, doc.title);
   const [width, setWidth] = usePersistedPaneWidth('think-side-panel', SIDE_PANEL_WIDTH);
   const panelRef = React.useRef<HTMLDialogElement>(null);
   const { collapsed, setCollapsed, overlay } = useResponsivePanelState('kh_think_side_collapsed', panelRef, width);
@@ -291,6 +295,18 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                 </div>
               </div>
             </CollapsibleSection>
+
+            <CollapsibleSection label="Use case">
+              <div className="notes-meta-section">
+                <p className="notes-github-help">Turn this note into a use case (or add it to one) so Athena can draft a spec from it for GitHub Copilot or Athena Build.</p>
+                <div className="notes-meta-gh-actions">
+                  <button type="button" className="notes-meta-gh-action" onClick={() => { setUseCaseOpen(true); }}>Make a use case…</button>
+                </div>
+              </div>
+            </CollapsibleSection>
+            {useCaseOpen && useCaseLaunch !== null && (
+              <UseCaseLauncher launch={{ ...useCaseLaunch, projectId: doc.projectId ?? null }} onClose={() => { setUseCaseOpen(false); }} />
+            )}
 
             <CollapsibleSection label="GitHub">
               <div className="notes-meta-section">

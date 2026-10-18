@@ -6,6 +6,8 @@
 
 export const USE_CASE_STAGES = ['candidate', 'refining', 'spec_ready', 'handed_off', 'shipped', 'dropped'] as const;
 export type UseCaseStage = typeof USE_CASE_STAGES[number];
+/** Stages a use case no longer moves on from. */
+export const CLOSED_STAGES: readonly UseCaseStage[] = ['shipped', 'dropped'];
 export const PRODUCT_KINDS = ['imagine_demo', 'imagine_platform', 'product'] as const;
 export type ProductKind = typeof PRODUCT_KINDS[number];
 export type UseCaseSourceType = 'discover' | 'spark' | 'note' | 'canvas';

@@ -4,7 +4,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Close, Launch, Link, Checkmark, Diagram, Edit, Microphone, Chat, Bookmark, Archive } from '@carbon/icons-react';
+import { Close, Launch, Link, Checkmark, Diagram, Edit, Microphone, Chat, Bookmark, Archive, Rocket } from '@carbon/icons-react';
 import { DISCOVER_FORMATS, type DiscoverItem, type DiscoverWorkflowState } from '../../services/api';
 import { SparkCaptureButton } from '../sparks/SparkCaptureButton';
 import { ConnectionsPanel } from '../connections/ConnectionsPanel';
@@ -12,6 +12,8 @@ import { copyItemToCanvas } from '../../features/canvas/canvasClipboard';
 import { useAthenaContext } from '../../context/AthenaContext';
 import { IdentityChip, identitiesFor, useIdentity } from '../../identity';
 import { whyPicked } from '../../features/discover/discoverInsights';
+import { UseCaseLauncher } from '../../features/useCases/UseCaseLauncher';
+import { launchFromRef } from '../../features/useCases/useCaseView';
 
 interface DiscoverExploreProps {
   item: DiscoverItem;
@@ -38,6 +40,10 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
   const closeRef = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
   const [sentToCanvas, setSentToCanvas] = useState(false);
+  const [useCaseOpen, setUseCaseOpen] = useState(false);
+  const useCaseOpenRef = useRef(false);
+  useCaseOpenRef.current = useCaseOpen;
+  const useCaseLaunch = launchFromRef('discover_item', item.id, item.title);
   const { openAthena } = useAthenaContext();
   const reasons = whyPicked(item);
   const formats = DISCOVER_FORMATS
@@ -48,7 +54,7 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
 
   useEffect(() => {
     closeRef.current?.focus();
-    function onKey(e: KeyboardEvent): void { if (e.key === 'Escape') onClose(); }
+    function onKey(e: KeyboardEvent): void { if (e.key === 'Escape' && !useCaseOpenRef.current) onClose(); }
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('keydown', onKey); };
   }, [onClose]);
@@ -61,7 +67,7 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
     });
   }
 
-  return createPortal(
+  return createPortal(<>
     <div className="dc-explore" role="presentation" onClick={onClose}>
       <aside className="dc-explore__panel" role="dialog" aria-modal="true" aria-labelledby="dc-explore-title"
         onClick={(e) => { e.stopPropagation(); }}>
@@ -167,6 +173,9 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
             }}>
               <Diagram size={16} /> {sentToCanvas ? 'Copied' : 'Canvas'}
             </button>
+            <button type="button" className="dc-explore__action" onClick={() => { setUseCaseOpen(true); }}>
+              <Rocket size={16} /> Use case
+            </button>
             {item.url !== null && (
               <button type="button" className="dc-explore__action" onClick={copyUrl}>
                 {copied ? <Checkmark size={16} /> : <Link size={16} />} {copied ? 'Copied' : 'Copy link'}
@@ -194,7 +203,9 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
           </footer>
         )}
       </aside>
-    </div>,
+    </div>
+    {useCaseOpen && useCaseLaunch !== null && <UseCaseLauncher launch={useCaseLaunch} onClose={() => { setUseCaseOpen(false); }} />}
+  </>,
     document.body,
   );
 };

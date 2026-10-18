@@ -15281,6 +15281,8 @@ fieldset.proj-modal-body {
 }
 
 .mm-header__delete { margin-left: auto; }
+.mm-header__use-case { margin-left: auto; }
+.mm-header__use-case + .mm-header__delete { margin-left: 0; }
 .mm-header__nudge { font-size: 0.75rem; color: var(--cds-text-helper); }
 .mm-chip--nudge { border-style: solid; border-color: var(--kh-accent-border); color: var(--kh-accent); }
 

@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import type { CarbonIconType } from '@carbon/icons-react';
 import { CenterCircle, Dashboard, Idea, TaskView, Upload } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
+import { useSearchParams } from 'react-router-dom';
 import { TasksPage } from './TasksPage';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useDueNotifications } from '../hooks/useDueNotifications';
@@ -56,6 +57,16 @@ export const PlanPage: React.FC = () => {
       return next;
     });
   };
+  // Deep link from "→ Use case" confirmations: /plan?view=use-cases&useCase=<id>
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [linkedUseCase, setLinkedUseCase] = useState<string | null>(null);
+  useEffect(() => {
+    if (searchParams.get('view') !== 'use-cases') return;
+    updatePreferences({ view: 'use-cases' });
+    setLinkedUseCase(searchParams.get('useCase'));
+    setSearchParams({}, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run when the link changes only
+  }, [searchParams]);
   const [importOpen, setImportOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const askAthena = usePlanAthena(filterProject, filterTag);
@@ -120,7 +131,7 @@ export const PlanPage: React.FC = () => {
 
       <PlanReviewModal open={reviewOpen} onClose={() => setReviewOpen(false)} />
 
-      {view === 'use-cases' ? <div className="plan-inner plan-inner--use-cases"><UseCasesView filterProject={filterProject} /></div> : <div className="plan-inner">
+      {view === 'use-cases' ? <div className="plan-inner plan-inner--use-cases"><UseCasesView filterProject={filterProject} selectId={linkedUseCase} /></div> : <div className="plan-inner">
         <TasksPage
           importOpen={importOpen}
           onImportClose={() => setImportOpen(false)}

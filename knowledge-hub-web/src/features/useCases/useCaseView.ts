@@ -1,15 +1,17 @@
 /**
  * features/useCases/useCaseView.ts — pure helpers for the Plan "Use cases" view.
  */
-import { PRODUCT_KINDS, type ProductKind, type UseCase, type UseCaseSource, type UseCaseStage } from '../../types/useCases';
+import { CLOSED_STAGES, PRODUCT_KINDS, SOURCE_TYPE_LABELS, type ProductKind, type UseCase, type UseCaseSource, type UseCaseSourceRef, type UseCaseSourceType, type UseCaseStage } from '../../types/useCases';
 
 export type StageFilter = 'active' | 'all' | UseCaseStage;
 export type KindFilter = 'all' | ProductKind;
 
-const CLOSED: readonly UseCaseStage[] = ['shipped', 'dropped'];
+const CLOSED = CLOSED_STAGES;
 const DAY_MS = 86_400_000;
 const STALLED_DAYS = 14;
 const SLUG_CHARS = 60;
+const TITLE_CHARS = 200;
+const LABEL_CHARS = 60;
 
 export function filterUseCases(list: readonly UseCase[], f: { stage: StageFilter; kind: KindFilter; project: string }): UseCase[] {
   return list.filter((u) => (f.stage === 'all' || (f.stage === 'active' ? !CLOSED.includes(u.stage) : u.stage === f.stage))
@@ -54,4 +56,18 @@ export function slugify(title: string): string {
 /** Mirrors the backend default so the handoff dialog can show the path before publishing. */
 export function defaultHandoffPath(title: string, kind: ProductKind): string {
   return `${kind === 'product' ? 'docs/specs' : 'docs/prds'}/${slugify(title)}.md`;
+}
+
+const REF_SOURCE: Record<string, UseCaseSourceType> = { discover_item: 'discover', spark: 'spark', note: 'note', canvas: 'canvas' };
+
+/** What a right-clicked item (data-ctx-ref-type / ref-id) contributes to a use case, or null if it cannot be a source. */
+export function launchFromRef(refType: string | undefined, refId: string | undefined, title: string): { title: string; sources: UseCaseSourceRef[]; sourceLabel: string } | null {
+  const sourceType = refType === undefined ? undefined : REF_SOURCE[refType];
+  if (sourceType === undefined || refId === undefined || refId === '') return null;
+  const clean = title.trim().replace(/\s+/g, ' ');
+  return {
+    title: clean.slice(0, TITLE_CHARS),
+    sources: [{ sourceType, sourceId: refId }],
+    sourceLabel: `${SOURCE_TYPE_LABELS[sourceType]} “${clean.length > LABEL_CHARS ? `${clean.slice(0, LABEL_CHARS)}…` : clean}”`,
+  };
 }

@@ -12,6 +12,8 @@ import { api, type Spark, type SparkCluster } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
 import { describeApiError, requireApiSuccess } from '../../services/apiError';
 import { SparkMenu } from './SparkMenu';
+import { UseCaseLauncher } from '../useCases/UseCaseLauncher';
+import { launchFromRef } from '../useCases/useCaseView';
 import { OUTPUT_LABELS, formatSparkDate, openHref, sparkSourceHref } from './sparkUtils';
 
 const LOOSE = '__loose';
@@ -31,6 +33,8 @@ export const SparkItem: React.FC<{
   const [newTheme, setNewTheme] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [full, setFull] = useState(false);
+  const [useCaseOpen, setUseCaseOpen] = useState(false);
+  const useCaseLaunch = launchFromRef('spark', spark.id, spark.body.split('\n')[0] ?? '');
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['sparks'] });
@@ -156,6 +160,7 @@ export const SparkItem: React.FC<{
         <SparkMenu ariaLabel="Spark actions" buttonClassName="spark-icon-btn" label={<OverflowMenuHorizontal size={16} />} items={[
           { label: 'Edit', onSelect: () => { setDraft(spark.body); setEditing(true); } },
           { label: spark.clusterId === null ? 'Add to theme…' : 'Move to…', onSelect: () => { setMoving(true); } },
+          { label: 'Make a use case…', onSelect: () => { setUseCaseOpen(true); } },
           ...(spark.usedAt ? [{ label: 'Mark as not used', onSelect: () => { mutation.mutate({ kind: 'clear-used' }); } }] : []),
           { label: 'Delete', danger: true, onSelect: () => {
             void confirmDialog('Delete this spark? This cannot be undone.', { title: 'Delete spark', confirmLabel: 'Delete' })
@@ -163,6 +168,7 @@ export const SparkItem: React.FC<{
           } },
         ]} />
       </div>
+      {useCaseOpen && useCaseLaunch !== null && <UseCaseLauncher launch={useCaseLaunch} onClose={() => { setUseCaseOpen(false); }} />}
     </div>
   );
 };

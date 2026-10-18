@@ -20,8 +20,10 @@ import React, {
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Checkmark, Diagram, Link, Copy, TaskAdd, Idea, DocumentAdd, ChatBot, ArrowRight } from '@carbon/icons-react';
+import { Checkmark, Diagram, Link, Copy, TaskAdd, Idea, DocumentAdd, ChatBot, ArrowRight, Rocket } from '@carbon/icons-react';
 import { useAthenaContext } from './AthenaContext';
+import { UseCaseLauncher, type UseCaseLaunch } from '../features/useCases/UseCaseLauncher';
+import { launchFromRef } from '../features/useCases/useCaseView';
 import { createNote } from '../notes/noteStorage';
 import type { NoteExtractionAction } from '../services/api';
 import { api } from '../services/api';
@@ -57,6 +59,8 @@ export function useGlobalContextMenu() { return useContext(Ctx); }
 
 export function GlobalContextMenuProvider({ children }: { children: React.ReactNode }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // Outlives the menu: the dialog opens as the menu closes.
+  const [useCaseLaunch, setUseCaseLaunch] = useState<UseCaseLaunch | null>(null);
   // Browsers collapse the current selection if a right-click lands outside its
   // bounds, *before* the 'contextmenu' event fires — losing the text the user
   // meant to act on. Capture the selection on mousedown (capture phase, which
@@ -214,16 +218,18 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
     <Ctx.Provider value={{ openMenu }}>
       {children}
       {menu && createPortal(
-        <GlobalCtxMenu x={menu.x} y={menu.y} item={menu.item} onClose={() => setMenu(null)} />,
+        <GlobalCtxMenu x={menu.x} y={menu.y} item={menu.item} onClose={() => setMenu(null)}
+          onUseCase={(launch) => { setMenu(null); setUseCaseLaunch(launch); }} />,
         document.body,
       )}
+      {useCaseLaunch && <UseCaseLauncher launch={useCaseLaunch} onClose={() => { setUseCaseLaunch(null); }} />}
     </Ctx.Provider>
   );
 }
 
 type PanelState = 'menu' | 'picker';
 
-function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: CtxItemData; onClose: () => void }) {
+function GlobalCtxMenu({ x, y, item, onClose, onUseCase }: { x: number; y: number; item: CtxItemData; onClose: () => void; onUseCase: (launch: UseCaseLaunch) => void }) {
   const [panel, setPanel]   = useState<PanelState>('menu');
   const [selectedId, setId] = useState<string | null>(null);
   const [sent, setSent]     = useState(false);
@@ -235,6 +241,7 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
   const [results, setResults] = useState<{ action: NoteExtractionAction; label: string; to?: string }[]>([]);
 
   const noteId = item.fromSelection === true && item.refType === 'note' ? item.refId : undefined;
+  const useCaseLaunch = item.fromSelection === true ? null : launchFromRef(item.refType, item.refId, item.title);
   const quote = (item.body ?? '').trim();
   const sourceNote = item.refType === 'note' ? item.title : null;
 
@@ -422,6 +429,11 @@ function GlobalCtxMenu({ x, y, item, onClose }: { x: number; y: number; item: Ct
         <button className="gctx__item" disabled={creatingSpark || savedSpark !== undefined} onClick={() => { createSpark(); }}>
           {savedSpark ? <><Checkmark size={15} /> Spark saved</>
             : <><Idea size={15} /> {creatingSpark ? 'Saving Spark…' : 'Create Spark'}</>}
+        </button>
+      )}
+      {useCaseLaunch !== null && (
+        <button type="button" className="gctx__item" onClick={() => { onUseCase(useCaseLaunch); }}>
+          <Rocket size={15} /> Make a use case…
         </button>
       )}
       <button

@@ -14,6 +14,7 @@ import { describeApiError, requireApiSuccess } from '../../services/apiError';
 import { BlogPublishModal } from '../../components/discover/BlogPublishModal';
 import { SparkItem } from './SparkItem';
 import { SparkMenu } from './SparkMenu';
+import { UseCaseLauncher } from '../useCases/UseCaseLauncher';
 import { OUTPUT_LABELS, developPrompt, openHref, themeOutputHref } from './sparkUtils';
 
 const PREVIEW_COUNT = 3;
@@ -40,6 +41,7 @@ export const SparkThemeCard: React.FC<{
   const [name, setName] = useState(theme.theme);
   const [merging, setMerging] = useState(false);
   const [blogOpen, setBlogOpen] = useState(false);
+  const [useCaseOpen, setUseCaseOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   useEffect(() => { if (!canDrop) setDragOver(false); }, [canDrop]);
@@ -146,6 +148,7 @@ export const SparkThemeCard: React.FC<{
               { label: 'Note outline', disabled: mutation.isPending, onSelect: () => { mutation.mutate({ kind: 'graduate', target: 'note' }); } },
               { label: 'Blog post…', disabled: mutation.isPending, onSelect: () => { setBlogOpen(true); } },
               { label: 'Canvas', disabled: mutation.isPending, onSelect: () => { mutation.mutate({ kind: 'graduate', target: 'canvas' }); } },
+              { label: 'Use case…', disabled: theme.sparks.length === 0, onSelect: () => { setUseCaseOpen(true); } },
               { label: 'Tasks (Plan inbox)', disabled: mutation.isPending, onSelect: () => { mutation.mutate({ kind: 'graduate', target: 'tasks' }); } },
               { label: 'Project', disabled: mutation.isPending, onSelect: () => {
                 void confirmDialog(`Create a new project called "${theme.theme}" from this theme?`, { title: 'Create project', confirmLabel: 'Create project' })
@@ -164,6 +167,13 @@ export const SparkThemeCard: React.FC<{
         ]} />
       </footer>
 
+      {useCaseOpen && (
+        <UseCaseLauncher onClose={() => { setUseCaseOpen(false); }} launch={{
+          title: theme.theme,
+          sources: theme.sparks.map((s) => ({ sourceType: 'spark' as const, sourceId: s.id })),
+          sourceLabel: `Spark theme “${theme.theme}” (${theme.sparks.length === 1 ? '1 spark' : `${theme.sparks.length.toString()} sparks`})`,
+        }} />
+      )}
       {blogOpen && (
         <BlogPublishModal title={theme.theme} onClose={() => { setBlogOpen(false); }} source={{
           key: `spark-theme:${theme.id}`,

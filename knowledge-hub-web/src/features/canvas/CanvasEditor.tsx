@@ -16,7 +16,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { ZoomIn, ZoomOut, FitToScreen, Undo, Copy, Close, Add, TrashCan, ChartNetwork, Pin } from '@carbon/icons-react';
+import { ZoomIn, ZoomOut, FitToScreen, Undo, Copy, Close, Add, TrashCan, ChartNetwork, Pin, Rocket } from '@carbon/icons-react';
+import { UseCaseLauncher } from '../useCases/UseCaseLauncher';
 import { api } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
 import type { CanvasFullApi, CanvasNodeApi, MapOp, MapSuggestionApi } from '../../services/api';
@@ -899,6 +900,7 @@ const CanvasHeader: React.FC<HeaderProps> = ({ map, onDelete, onRename, onPin, o
   const [title, setTitle] = useState(map.title);
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState('');
+  const [useCaseOpen, setUseCaseOpen] = useState(false);
   useEffect(() => { setTitle(map.title); }, [map.title]);
   const { data: notes = [] } = useQuery<NoteListItem[]>({ queryKey: ['notes-list'], queryFn: fetchNotes, staleTime: 30_000, enabled: picking });
   const pinned = new Set(map.linkedNotes.map((n) => n.id));
@@ -941,7 +943,14 @@ const CanvasHeader: React.FC<HeaderProps> = ({ map, onDelete, onRename, onPin, o
           )}
         </div>
       </div>
+      <button type="button" className="mm-icon-btn mm-header__use-case" title="Make a use case from this canvas" aria-label="Make a use case from this canvas"
+        onClick={() => { setUseCaseOpen(true); }}><Rocket size={16} /></button>
       <button type="button" className="mm-icon-btn mm-header__delete" title="Delete canvas" aria-label="Delete canvas" onClick={onDelete}><TrashCan size={16} /></button>
+      {useCaseOpen && (
+        <UseCaseLauncher onClose={() => { setUseCaseOpen(false); }} launch={{
+          title: map.title, sources: [{ sourceType: 'canvas', sourceId: map.id }], sourceLabel: `Canvas “${map.title}”`,
+        }} />
+      )}
     </div>
   );
 };

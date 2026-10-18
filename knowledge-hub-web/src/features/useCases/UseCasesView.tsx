@@ -2,7 +2,7 @@
  * UseCasesView — Plan's "Use cases" view: ideas on their way to a spec and a build,
  * grouped by what they become, with a side panel for the selected one.
  */
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { Add } from '@carbon/icons-react';
 import { SideTabsPanel } from '../../components/SideTabsPanel';
 import type { PaneWidthOptions } from '../../hooks/usePersistedState';
@@ -15,7 +15,7 @@ import { filterUseCases, groupByProduct, isStalled, sinceLabel, type KindFilter,
 
 const SIDE_WIDTH: PaneWidthOptions = { compact: 380, wide: 460, min: 300, max: (viewport) => Math.round(viewport * 0.5) };
 
-export const UseCasesView: React.FC<{ filterProject: string }> = ({ filterProject }) => {
+export const UseCasesView: React.FC<{ filterProject: string; selectId?: string | null }> = ({ filterProject, selectId = null }) => {
   const fid = useId();
   const { data: useCases = [], isLoading, error } = useUseCases();
   const [stage, setStage] = useState<StageFilter>('active');
@@ -25,6 +25,7 @@ export const UseCasesView: React.FC<{ filterProject: string }> = ({ filterProjec
   const [creating, setCreating] = useState(false);
 
   const select = (id: string): void => { setSelected(id); setOpenSeq((n) => n + 1); };
+  useEffect(() => { if (selectId !== null) { setStage('all'); select(selectId); } }, [selectId]);
   const visible = filterUseCases(useCases, { stage, kind, project: filterProject });
   const groups = groupByProduct(visible);
   const filtered = stage !== 'active' || kind !== 'all' || filterProject !== '';

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { UseCase } from '../src/types/useCases';
-import { defaultHandoffPath, filterUseCases, groupByProduct, isStalled, sinceLabel, sourceHref } from '../src/features/useCases/useCaseView';
+import { defaultHandoffPath, filterUseCases, groupByProduct, isStalled, launchFromRef, sinceLabel, sourceHref } from '../src/features/useCases/useCaseView';
 
 const NOW = Date.parse('2026-05-01T12:00:00Z');
 const daysAgo = (d: number): string => new Date(NOW - d * 86_400_000).toISOString();
@@ -44,4 +44,16 @@ test('source links and default handoff paths', () => {
   assert.equal(sourceHref({ sourceType: 'spark', sourceId: 's', url: null }), null);
   assert.equal(defaultHandoffPath('Claims Triage!', 'imagine_platform'), 'docs/prds/claims-triage.md');
   assert.equal(defaultHandoffPath('', 'product'), 'docs/specs/use-case.md');
+});
+
+test('right-clicked items map to use case sources', () => {
+  assert.deepEqual(launchFromRef('discover_item', 'd1', '  Agentic   claims '), {
+    title: 'Agentic claims', sources: [{ sourceType: 'discover', sourceId: 'd1' }], sourceLabel: 'Discover “Agentic claims”',
+  });
+  assert.equal(launchFromRef('note', 'n1', 'N')?.sources[0]?.sourceType, 'note');
+  assert.equal(launchFromRef('spark', 's1', 'S')?.sources[0]?.sourceType, 'spark');
+  assert.equal(launchFromRef('task', 't1', 'T'), null);
+  assert.equal(launchFromRef('note', '', 'T'), null);
+  assert.equal(launchFromRef(undefined, 'x', 'T'), null);
+  assert.ok(launchFromRef('note', 'n', 'x'.repeat(300))!.sourceLabel.endsWith('…”'));
 });
