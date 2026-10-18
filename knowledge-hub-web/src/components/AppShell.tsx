@@ -121,6 +121,7 @@ export const AppShell: React.FC = () => {
 
   return (
     <>
+      <a className="kh-skip-link" href="#kh-main-content">Skip to content</a>
       <Header aria-label="Athena" className="kh-header">
         <Link className="kh-header__brand" to="/" aria-label="Athena home">
           Athena
@@ -161,7 +162,7 @@ export const AppShell: React.FC = () => {
           {tool && <p className="kh-tools-location">Tools / {tool.label}</p>}
           <DayCheckinBanner />
           <PodcastPrepNotification />
-          <div className="kh-shell__page"><Outlet /></div>
+          <div className="kh-shell__page" id="kh-main-content" tabIndex={-1}><Outlet /></div>
         </div>
       </div>
       <QuickSparkModal open={sparkModalOpen} onClose={() => { setSparkModalOpen(false); }} />

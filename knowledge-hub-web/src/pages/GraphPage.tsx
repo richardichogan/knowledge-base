@@ -49,7 +49,7 @@ export const GraphPage: React.FC = () => {
   // ── Selection and hover ───────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // hoveredId is tracked as a ref inside GraphCanvas — not page state
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLElement>(null);
 
   const { data, isLoading, isError, error, retry } = useGraphData({ days, seed, depth: DEFAULT_DEPTH });
 
@@ -140,32 +140,32 @@ export const GraphPage: React.FC = () => {
   // ── Empty / loading states ─────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="graph-page graph-page--center">
+      <main className="graph-page graph-page--center" aria-label="Knowledge graph">
         <p className="graph-empty__hint">Loading graph…</p>
-      </div>
+      </main>
     );
   }
   if (isError && (data === null || allNodes.length === 0)) {
     return (
-      <div className="graph-page graph-page--center">
+      <main className="graph-page graph-page--center" aria-label="Knowledge graph">
         <DataNotice title="Graph data is unavailable" error={error} onRetry={() => { void retry(); }} />
-      </div>
+      </main>
     );
   }
   if (allNodes.length === 0) {
     return (
-      <div className="graph-page graph-page--center">
+      <main className="graph-page graph-page--center" aria-label="Knowledge graph">
         <Network_3 size={48} className="graph-empty__icon" />
         <p className="graph-empty__label">NO CONNECTIONS YET</p>
         <p className="graph-empty__hint">No indexed connections in this date range. This does not mean there is no source content.</p>
         <button className="graph-controls__reset" onClick={() => { void retry(); }}>Refresh graph</button>
         {days !== 365 && <button className="graph-controls__reset" onClick={() => { setDays(365); }}>Look back one year</button>}
-      </div>
+      </main>
     );
   }
 
   return (
-    <div ref={containerRef} className={`graph-page${view === 'list' ? ' graph-page--list' : ''}`} onMouseMove={handleMouseMove}>
+    <main ref={containerRef} aria-label="Knowledge graph" className={`graph-page${view === 'list' ? ' graph-page--list' : ''}`} onMouseMove={handleMouseMove}>
       {isError && <div className="graph-read-error"><DataNotice title="Graph refresh failed; showing previous data" error={error} onRetry={() => { void retry(); }} /></div>}
       {view === 'canvas' && <GraphCanvas
         nodes={visibleNodes}
@@ -223,6 +223,6 @@ export const GraphPage: React.FC = () => {
           onClose={() => { setSelectedIds(new Set()); }}
         />
       )}
-    </div>
+    </main>
   );
 };

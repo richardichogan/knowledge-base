@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import styles from './Page.module.css';
 
 export const NotFoundPage: React.FC = () => (
-  <div className={styles.state}>
-    <p style={{ fontSize: 18, marginBottom: 12 }}>Page not found.</p>
-    <Link to="/">← Back to Timeline</Link>
-  </div>
+  <main className={styles.state}>
+    <h1 className={styles.stateTitle}>Page not found.</h1>
+    <Link to="/">← Back to Today</Link>
+  </main>
 );

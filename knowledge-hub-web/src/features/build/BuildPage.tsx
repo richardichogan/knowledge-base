@@ -22,6 +22,7 @@ import {
 } from '../../services/api';
 import type { ApiResponse } from '../../types/apiResponse';
 import { BranchField, describeBuildError, RepoField, unwrap, useGithubRepos } from './buildShared';
+import { PageHeader } from '../../components/PageHeader';
 
 const RUNNING_POLL_MS = 20_000;
 const MAX_PARALLEL_CHOICES = [1, 2, 3, 4, 5];
@@ -462,14 +463,10 @@ export const BuildPage: React.FC = () => {
   };
 
   return (
-    <div className="build-page">
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Build</h1>
-          <p className="page-subtitle">Turn a spec into tasks for GitHub’s cloud coding agents, then follow each PR through to merge.</p>
-        </div>
+    <main className="build-page">
+      <PageHeader title="Build" subtitle="Turn a spec into tasks for GitHub’s cloud coding agents, then follow each PR through to merge." actions={
         <button type="button" className="docs-upload-btn" onClick={() => { setCreating(true); }}><Add size={20} /> New spec</button>
-      </div>
+      } />
 
       <div className="build-layout">
         <aside className="build-list" aria-label="Specs">
@@ -496,6 +493,6 @@ export const BuildPage: React.FC = () => {
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 };

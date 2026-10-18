@@ -12,7 +12,8 @@ import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, ChevronDown
 import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
-import type { NoteContentBlock, NoteListPage, NoteListFilters } from './noteStorage';
+import type { NoteContentBlock, NoteListPage } from './noteStorage';
+import { loadedNotes, nextNotesPage, noteListQuery, type NoteListQuery } from './noteListState';
 import type { NoteDocument, NoteListItem } from './types';
 import { SideTabsPanel } from '../components/SideTabsPanel';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
@@ -106,27 +107,23 @@ export const NotesPage: React.FC = () => {
 
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const refreshInFlight = useRef(false);
-  const [listFilters, setListFilters] = useState<NoteListFilters>({ sort: 'modified' });
-  const onListFilters = useCallback((next: NoteListFilters): void => {
-    setListFilters((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+  const [listQuery, setListQuery] = useState<NoteListQuery>({ sort: 'modified' });
+  const onListQueryChange = useCallback((next: NoteListQuery): void => {
+    const clean = noteListQuery(next);
+    setListQuery((current) => JSON.stringify(current) === JSON.stringify(clean) ? current : clean);
   }, []);
   const { data: notePages, isLoading, isError, error: listError, isFetching, refetch,
-    hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
-    queryKey: ['notes-list', listFilters],
-    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listFilters),
+    hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError } = useInfiniteQuery({
+    queryKey: ['notes-list', listQuery],
+    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery),
     initialPageParam: 1,
-    getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined,
+    getNextPageParam: nextNotesPage,
     staleTime: 30_000,
     retry: 1,
   });
   const notes = useMemo(() => {
     if (notePages === undefined) return NO_NOTES;
-    const seen = new Set<string>();
-    return notePages.pages.flatMap((page) => page.items).filter((note) => {
-      if (seen.has(note.id)) return false;
-      seen.add(note.id);
-      return true;
-    });
+    return loadedNotes(notePages.pages);
   }, [notePages]);
   const noteTotal = notePages?.pages[0]?.total ?? 0;
 
@@ -550,7 +547,7 @@ export const NotesPage: React.FC = () => {
         onOpenNote={id => { setMode('notes'); setMobilePane('editor'); void handleSelectNote(id); }} />}
       {mode === 'notes' && refreshMessage !== null && <p className="notes-refresh-message notes-refresh-message--error"
         role="alert">{refreshMessage}</p>}
-      {mode === 'notes' && isError && <DataNotice title="Note list is unavailable. Your open note is unchanged." error={listError} onRetry={() => { void refetch(); }} />}
+      {mode === 'notes' && isError && !isFetchNextPageError && <DataNotice title="Note list is unavailable. Your open note is unchanged." error={listError} onRetry={() => { void refetch(); }} />}
       {canvasError !== null && <p className="mm-canvas-error" role="alert">{canvasError}</p>}
       <div className="notes-root">
         {/* ── Left panel ── */}
@@ -619,13 +616,15 @@ export const NotesPage: React.FC = () => {
               onDelete={(id) => { void handleDeleteNote(id); }}
               deletingId={deletingNoteId}
               focusSearchSignal={focusSearchSignal}
-              onFiltersChange={onListFilters}
+              onQueryChange={onListQueryChange}
               total={noteTotal}
               loading={isLoading}
               unavailable={isError}
               hasMore={hasNextPage}
               loadingMore={isFetchingNextPage}
-              onLoadMore={() => { void fetchNextPage(); }}
+              loadMoreError={isFetchNextPageError}
+              fetching={isFetching}
+              onLoadMore={() => { void fetchNextPage({ cancelRefetch: false }); }}
             />
           )}
 

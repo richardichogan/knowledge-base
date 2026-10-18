@@ -5,13 +5,15 @@
  *   1. richardichogan/content-store  — blog drafts, specs, newsletters, etc.
  *   2. /docs folders in project repos — project documentation
  *
- * Left panel  — flat document list, filtered by tags.
+ * Left panel  — progressively rendered document list, filtered before batching.
  * Right panel — read-only markdown viewer with View on GitHub link.
+ * ?docId= accepts a library identity or knowledge-graph document ID.
  *
  * No repo dropdown. No file tree. The library is the navigation.
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading, Tag } from '@carbon/react';
 import { Document, Launch, DocumentAdd, ArrowLeft } from '@carbon/icons-react';
@@ -25,6 +27,8 @@ import { useAthenaContext } from '../context/AthenaContext';
 import { SideTabsPanel } from '../components/SideTabsPanel';
 import { OneDriveStatus } from '../components/library/OneDriveStatus';
 import { LocalFoldersPanel } from '../components/library/LocalFoldersPanel';
+import { DocumentList } from '../components/library/DocumentList';
+import { findDocument, searchDocuments } from '../components/library/documentListModel';
 import { desktopErrorMessage, getDesktop } from '../types/desktop';
 import { ThinkAthenaPanel } from '../notes/ThinkAthenaPanel';
 import { THINK_ATHENA_RAIL_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
@@ -70,7 +74,16 @@ function formatBytes(bytes: number): string {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export const DocumentsPage: React.FC = () => {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedId = searchParams.get('docId');
+  const selectDocument = useCallback((id: string | null) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (id === null) next.delete('docId');
+      else next.set('docId', id);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [activeTagIds, setActiveTagIds] = useState<Set<string>>(new Set());
   const [activeProjectId, setActiveProjectId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -128,16 +141,9 @@ export const DocumentsPage: React.FC = () => {
             return docTagIds.some((id) => matchIds.has(id));
           });
         });
-    if (searchQuery.trim() !== '') {
-      const q = searchQuery.toLowerCase();
-      docs = docs.filter((doc) =>
-        doc.title.toLowerCase().includes(q) ||
-        doc.sourceLabel.toLowerCase().includes(q) ||
-        doc.path.toLowerCase().includes(q),
-      );
-    }
-    return docs;
+    return searchDocuments(docs, searchQuery);
   }, [allDocs, activeProjectId, activeTagIds, searchQuery, taxonomyTree]);
+  const documentFilterKey = JSON.stringify([activeProjectId, [...activeTagIds].sort(), searchQuery.trim().toLocaleLowerCase()]);
 
   function toggleTagId(id: string): void {
     setActiveTagIds((prev) => {
@@ -147,7 +153,7 @@ export const DocumentsPage: React.FC = () => {
     });
   }
 
-  const selectedDoc = allDocs.find((d) => d.id === selectedId) ?? null;
+  const selectedDoc = findDocument(allDocs, selectedId);
   const selectedDocIsUpload = selectedDoc?.repo === 'kb-uploads';
   const selectedDocIsOneDrive = selectedDoc?.repo === 'onedrive';
 
@@ -259,11 +265,11 @@ export const DocumentsPage: React.FC = () => {
   return (
     <div className="docs-page" role="main" data-active-pane={selectedDoc === null ? 'list' : 'editor'}>
       <PageHeader title="Sources" subtitle={allDocs.length > 0 ? <>
-        {allDocs.length} document{allDocs.length !== 1 ? 's' : ''}
-        {(activeProjectId !== '' || activeTagIds.size > 0 || searchQuery.trim() !== '') && ` · ${visibleDocs.length} shown`}
+        {allDocs.length.toLocaleString()} document{allDocs.length !== 1 ? 's' : ''}
+        {(activeProjectId !== '' || activeTagIds.size > 0 || searchQuery.trim() !== '') && ` · ${visibleDocs.length.toLocaleString()} matching`}
       </> : undefined} actions={<>
         {selectedDoc !== null && <button type="button" className="kb-import-btn kh-workspace-back"
-          onClick={() => { setSelectedId(null); }}><ArrowLeft size={16} />Documents</button>}
+          onClick={() => { selectDocument(null); }}><ArrowLeft size={16} />Documents</button>}
         <button
           className="docs-upload-btn"
           onClick={() => setUploadDialogOpen(true)}
@@ -288,6 +294,7 @@ export const DocumentsPage: React.FC = () => {
             <input
               type="search"
               className="docs-search__input"
+              aria-label="Search documents by title, source or path"
               placeholder="Search documents…"
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); }}
@@ -339,46 +346,14 @@ export const DocumentsPage: React.FC = () => {
           {libraryError !== null && <DataNotice title="Sources are unavailable" error={libraryError} onRetry={() => { void reloadLibrary(); }} />}
           {tagError !== null && <DataNotice title="Source tags were not saved" error={tagError} />}
 
-          {/* Group by source (project) */}
-          <div className="docs-list">
-            {(() => {
-              if (visibleDocs.length === 0 && !libraryPending && libraryError === null) {
-                return (
-                  <p className="docs-empty">
-                    {activeTagIds.size > 0 ? 'No documents match the selected tags.' : 'No documents found.'}
-                  </p>
-                );
-              }
-              // Group docs by sourceLabel
-              const groups = new Map<string, typeof visibleDocs>();
-              for (const doc of visibleDocs) {
-                const g = groups.get(doc.sourceLabel) ?? [];
-                g.push(doc);
-                groups.set(doc.sourceLabel, g);
-              }
-              return [...groups.entries()].map(([label, docs]) => (
-                <div key={label} className="docs-group">
-                  <p className="docs-group__label">{label}</p>
-                  {docs.map((doc) => (
-                    <button
-                      key={doc.id}
-                      className={`docs-list-item${selectedId === doc.id ? ' docs-list-item--active' : ''}`}
-                      onClick={() => { setSelectedId(doc.id); }}
-                    >
-                      <div className="docs-list-item__top">
-                        <span className="docs-list-item__title">{doc.title}</span>
-                        <span className="docs-type-badge">{TYPE_LABEL[doc.type]}</span>
-                      </div>
-                      <div className="docs-list-item__meta">
-                        {doc.localPath !== undefined && <span className="docs-local-badge" title={doc.localPath}>Local</span>}
-                        <span className="docs-list-item__size">{formatBytes(doc.size)}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ));
-            })()}
-          </div>
+          <DocumentList
+            key={documentFilterKey}
+            matches={visibleDocs}
+            selectedDoc={selectedDoc}
+            pending={libraryPending}
+            failed={libraryError !== null}
+            onSelect={selectDocument}
+          />
         </div>
 
         <div className="docs-document-area">

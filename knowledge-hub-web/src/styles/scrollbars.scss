@@ -1,0 +1,36 @@
+:root {
+  --kh-scrollbar-size: 4px;
+  --kh-scrollbar-thumb: #525252;
+  --kh-scrollbar-thumb-hover: #6f6f6f;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--kh-scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: var(--kh-scrollbar-size);
+  height: var(--kh-scrollbar-size);
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--kh-scrollbar-thumb);
+  border-radius: var(--kh-radius-sm);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--kh-scrollbar-thumb-hover);
+}
+
+@media (forced-colors: active) {
+  * {
+    scrollbar-color: auto;
+    scrollbar-width: auto;
+  }
+}

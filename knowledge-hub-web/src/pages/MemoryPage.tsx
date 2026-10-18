@@ -14,6 +14,7 @@ import { PERSONAS } from '../components/athena/personas';
 import { useProjects } from '../hooks/useProjects';
 import { describeApiError, requireApiData } from '../services/apiError';
 import type { ApiResponse } from '../types/apiResponse';
+import { PageHeader } from '../components/PageHeader';
 
 type MemoryAction = (key: string, action: () => Promise<ApiResponse<unknown>>, onSaved?: () => void) => Promise<void>;
 
@@ -157,14 +158,10 @@ export const MemoryPage: React.FC = () => {
   };
 
   return (
-    <div className="memory-page">
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Memory</h1>
-          <p className="page-subtitle">What Athena has learned from you — she follows these in every matching conversation.</p>
-        </div>
+    <main className="memory-page">
+      <PageHeader title="Memory" subtitle="What Athena has learned from you — she follows these in every matching conversation." actions={
         <button type="button" className="docs-upload-btn" onClick={() => { setAdding(true); }}><Add size={20} /> Add instruction</button>
-      </div>
+      } />
 
       {isLoading && <InlineLoading description="Loading memory…" />}
       {loadError !== null && <div className="memory-notice">
@@ -246,6 +243,6 @@ export const MemoryPage: React.FC = () => {
           </div>
         </section>
       )}
-    </div>
+    </main>
   );
 };

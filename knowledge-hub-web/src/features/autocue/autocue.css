@@ -155,11 +155,7 @@
   padding: 0 48px;
   cursor: pointer;
   outline: none;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
 }
-
-.ac-script-area::-webkit-scrollbar { display: none; }
 
 .ac-script-inner {
   width: 100%;

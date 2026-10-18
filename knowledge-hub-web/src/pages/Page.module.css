@@ -1,5 +1,12 @@
 /* Shared page layout styles used by all page components */
 
+.stateTitle {
+  margin: 0 0 0.75rem;
+  font-size: var(--kh-heading-section);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .pageTitle {
   font-size: 22px;
   font-weight: 700;

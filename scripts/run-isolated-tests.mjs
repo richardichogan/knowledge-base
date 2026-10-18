@@ -1,7 +1,9 @@
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 
 const backend = resolve(import.meta.dirname, '../knowledge-hub-backend');
+const web = resolve(import.meta.dirname, '../knowledge-hub-web');
 const frontend = process.argv.includes('--frontend');
 const tests = frontend ? [
   '../knowledge-hub-web/tests/todayViewModel.test.ts',
@@ -20,6 +22,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/planPreferences.test.ts',
   '../knowledge-hub-web/tests/savedViews.test.ts',
   '../knowledge-hub-web/tests/noteDraftStorage.test.ts',
+  '../knowledge-hub-web/tests/documentList.test.ts',
 ] : [
   'scripts/note-history.test.ts', 'scripts/build.test.ts', 'scripts/turn-jobs.test.ts',
   'scripts/task-calendar.test.ts', 'scripts/today-activity.test.ts',
@@ -52,3 +55,29 @@ const result = spawnSync(process.execPath, ['--import', 'tsx/esm', '--test', '--
   { cwd: backend, env, stdio: 'inherit' });
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;
+
+if (frontend) {
+  // UI imports need Vite's env replacement and a stylesheet stub. Keep the
+  // bundle in memory so isolated runs never leave generated test files behind.
+  const require = createRequire(resolve(web, 'package.json'));
+  const { build } = require('esbuild');
+  const bundle = await build({
+    absWorkingDir: web,
+    entryPoints: ['tests/note-list.test.tsx'],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    format: 'cjs',
+    define: { 'import.meta.env': '{}' },
+    loader: { '.scss': 'empty' },
+  });
+  const bundled = spawnSync(process.execPath, ['-'], {
+    cwd: web,
+    env,
+    input: bundle.outputFiles[0].text,
+    stdio: ['pipe', 'inherit', 'inherit'],
+    timeout: 30_000,
+  });
+  if (bundled.error) throw bundled.error;
+  if (bundled.status !== 0) process.exitCode = bundled.status ?? 1;
+}

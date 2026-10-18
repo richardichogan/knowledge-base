@@ -11,16 +11,10 @@ import type { NoteDocument, NoteListItem } from './types';
 import type { ContentType } from './constants';
 import { UNTITLED_DOCUMENT } from './constants';
 import { requireApiData } from '../services/apiError';
+import { noteListQuery } from './noteListState';
+import type { NoteListQuery, NoteListPage } from './noteListState';
 
-export interface NoteListFilters {
-  q?: string;
-  contentType?: string;
-  projectId?: string;
-  tagIds?: string;
-  projectTagIds?: string;
-  sort?: 'modified' | 'created' | 'title';
-}
-export interface NoteListPage { items: NoteListItem[]; total: number; page: number; hasMore: boolean }
+export type { NoteListPage } from './noteListState';
 
 // ── Serialisation ─────────────────────────────────────────────────────────────
 
@@ -124,11 +118,11 @@ export async function fetchNotes(): Promise<NoteListItem[]> {
     notes.push(...result.items);
     if (!result.hasMore) return notes;
   }
-  throw new Error('Note list is too large. Use filtered browsing.');
+  throw new Error('Note list is too large. Use search to narrow the list.');
 }
 
-export async function fetchNotesPage(page = 1, filters: NoteListFilters = {}): Promise<NoteListPage> {
-  const result = requireApiData(await api.getNoteSummaries(page, 100, filters));
+export async function fetchNotesPage(page = 1, query: NoteListQuery = {}): Promise<NoteListPage> {
+  const result = requireApiData(await api.getNoteSummaries(page, 100, noteListQuery(query)));
   const items = result.items.map((n) => ({
     id: n.id,
     title: n.title || UNTITLED_DOCUMENT,

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import type { RepoProjectMappingConfig } from '../services/api';
+import { PageHeader } from '../components/PageHeader';
 
 interface TagOption {
   id: string | null;
@@ -54,14 +55,10 @@ export const RepoProjectMappingsPage: React.FC = () => {
   }
 
   return (
-    <div className="page-root today-settings-page">
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Manage repo mapping</h1>
-          <p className="page-subtitle">Map each connected repo/path to a filing project tag.</p>
-        </div>
+    <main className="page-root today-settings-page">
+      <PageHeader title="Manage repo mapping" subtitle="Map each connected repo/path to a filing project tag." actions={
         <Link className="today-settings-page__back" to="/">Back to Today</Link>
-      </div>
+      } />
 
       <div className="today-section-card">
         <div className="today-section-card__header">
@@ -119,6 +116,6 @@ export const RepoProjectMappingsPage: React.FC = () => {
           );
         })}
       </div>
-    </div>
+    </main>
   );
 };

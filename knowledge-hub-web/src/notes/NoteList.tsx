@@ -1,25 +1,21 @@
 /**
- * notes/NoteList.tsx — left panel: searchable, filterable list of notes.
+ * notes/NoteList.tsx — left panel: searchable, paginated list of notes.
  * Flat and newest-first by default; grouping by project is an opt-in toggle.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import { confirmDialog } from '../services/appDialogs';
 import { TextInput } from '@carbon/react';
-import { TrashCan, Close, ChevronDown } from '@carbon/icons-react';
+import { TrashCan, Close, SortAscending, GroupObjects, View } from '@carbon/icons-react';
 import type { NoteListItem } from './types';
-import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
+import { useTaxonomy } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
 import { usePersistedBoolean, usePersistedChoice } from '../hooks/usePersistedState';
-import { CONTENT_TYPE_OPTIONS } from './constants';
-import type { ContentType } from './constants';
 import { contentTypeIcon, ctxTags, identitiesFor, useIdentity } from '../identity';
-import type { NoteListFilters } from './noteStorage';
+import { activateNoteOnKeyDown, NOTE_SORT_OPTIONS, type NoteSortKey, type NoteListQuery } from './noteListState';
+import './noteList.scss';
 
-const SORT_OPTIONS = ['modified', 'created', 'title'] as const;
-type SortKey = (typeof SORT_OPTIONS)[number];
-
-const SORT_LABELS: Record<SortKey, string> = {
+const SORT_LABELS: Record<NoteSortKey, string> = {
   modified: 'Modified',
   created: 'Created',
   title: 'Title',
@@ -33,12 +29,14 @@ interface NoteListProps {
   deletingId?: string | null;
   /** Bumped by the parent to pull focus into the search box (e.g. after expanding from the rail). */
   focusSearchSignal?: number;
-  onFiltersChange?: (filters: NoteListFilters) => void;
+  onQueryChange?: (query: NoteListQuery) => void;
   total?: number;
   loading?: boolean;
   unavailable?: boolean;
   hasMore?: boolean;
   loadingMore?: boolean;
+  loadMoreError?: boolean;
+  fetching?: boolean;
   onLoadMore?: () => void;
 }
 
@@ -54,23 +52,21 @@ export const NoteList: React.FC<NoteListProps> = ({
   onDelete,
   deletingId = null,
   focusSearchSignal = 0,
-  onFiltersChange,
+  onQueryChange,
   total,
   loading = false,
   unavailable = false,
   hasMore = false,
   loadingMore = false,
+  loadMoreError = false,
+  fetching = false,
   onLoadMore,
 }) => {
   const [filter, setFilter] = useState('');
-  const [activeProjectId, setActiveProjectId] = useState('');
-  const [activeContentType, setActiveContentType] = useState<ContentType | ''>('');
-  const [activeTagId, setActiveTagId] = useState('');
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
-  const [sortKey, setSortKey] = usePersistedChoice<SortKey>(
+  const [sortKey, setSortKey] = usePersistedChoice<NoteSortKey>(
     'kh_notes_sort',
-    SORT_OPTIONS,
+    NOTE_SORT_OPTIONS,
     'modified',
   );
   // Grouping and previews are both off by default: the common case is
@@ -93,31 +89,22 @@ export const NoteList: React.FC<NoteListProps> = ({
     projects.map((project) => [project.name.trim().toLocaleLowerCase(), project.id]),
   );
   useEffect(() => {
-    if (onFiltersChange === undefined) return;
-    const projectName = projects.find((project) => project.id === activeProjectId)?.name.trim().toLocaleLowerCase();
-    const projectTags = parents.flatMap((parent) => parent.children ?? [])
-      .filter((tag) => tag.id === activeProjectId || tag.name.trim().toLocaleLowerCase() === projectName)
-      .map((tag) => tag.id);
-    const selectedTags = activeTagId === '' ? [] : [...expandTagIds(activeTagId, parents)];
+    if (onQueryChange === undefined) return;
     const timer = setTimeout(() => {
-      onFiltersChange({
+      onQueryChange({
         ...(filter.trim() !== '' && { q: filter.trim() }),
-        ...(activeProjectId !== '' && { projectId: activeProjectId }),
-        ...(projectTags.length > 0 && { projectTagIds: projectTags.sort().join(',') }),
-        ...(activeContentType !== '' && { contentType: activeContentType }),
-        ...(selectedTags.length > 0 && { tagIds: selectedTags.sort().join(',') }),
         sort: sortKey,
       });
     }, 250);
     return () => { clearTimeout(timer); };
-  }, [onFiltersChange, filter, activeProjectId, activeContentType, activeTagId, sortKey, parents, projects]);
+  }, [onQueryChange, filter, sortKey]);
 
-  // Build a flat map of tagId â†’ tag name, and a set of all "project child" tag IDs.
+  // Build a flat map of tagId → tag name, and a set of all "project child" tag IDs.
   // A project child is any tag whose parent is a top-level project group tag.
   // We treat every child tag of every top-level tag as a potential project grouper,
   // preferring the first match found on the note.
   const tagNameMap = new Map<string, string>();
-  const tagParentMap = new Map<string, string>(); // childId â†’ parentName
+  const tagParentMap = new Map<string, string>();
   for (const parent of parents) {
     tagNameMap.set(parent.id, parent.name);
     for (const child of parent.children ?? []) {
@@ -134,52 +121,9 @@ export const NoteList: React.FC<NoteListProps> = ({
     return projectIdByName.get(projectTagName.trim().toLocaleLowerCase()) ?? projectTagId ?? '__none__';
   };
 
-  const activeFilterCount = [
-    activeProjectId !== '',
-    activeContentType !== '',
-    activeTagId !== '',
-  ].filter(Boolean).length;
-
-  const availableProjectIds = new Set(notes.map(resolveNoteProjectId));
-  if (onFiltersChange !== undefined) {
-    projects.forEach((project) => availableProjectIds.add(project.id));
-    parents.forEach((parent) => parent.children?.forEach((tag) => {
-      availableProjectIds.add(projectIdByName.get(tag.name.trim().toLocaleLowerCase()) ?? tag.id);
-    }));
-    availableProjectIds.add('__none__');
-    if (activeProjectId !== '') availableProjectIds.add(activeProjectId);
-  }
-  const availableProjectOptions = [...availableProjectIds]
-    .map((id) => ({
-      id,
-      label: id === '__none__'
-        ? 'General / unassigned'
-        : (projectNameMap.get(id) ?? tagNameMap.get(id) ?? id),
-    }))
-    .sort((a, b) => {
-      if (a.id === '__none__') return 1;
-      if (b.id === '__none__') return -1;
-      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
-    });
-  const availableContentTypes = onFiltersChange !== undefined ? CONTENT_TYPE_OPTIONS : CONTENT_TYPE_OPTIONS.filter((option) =>
-    notes.some((note) => note.contentType === option.id),
-  );
-  const flatTags = parents.flatMap((parent) => [
-    { ...parent, depth: 0 },
-    ...(parent.children ?? []).map((child) => ({ ...child, depth: 1 })),
-  ]);
-
-  const filteredNotes = notes.filter((n) => {
-    if (onFiltersChange !== undefined) return true;
-    if (!n.title.toLowerCase().includes(filter.toLowerCase())) return false;
-    if (activeProjectId !== '' && resolveNoteProjectId(n) !== activeProjectId) return false;
-    if (activeContentType !== '' && n.contentType !== activeContentType) return false;
-    if (activeTagId !== '') {
-      const matchIds = expandTagIds(activeTagId, parents);
-      if (!(n.tagIds ?? []).some((id) => matchIds.has(id))) return false;
-    }
-    return true;
-  });
+  const filteredNotes = onQueryChange === undefined
+    ? notes.filter((note) => note.title.toLowerCase().includes(filter.trim().toLowerCase()))
+    : notes;
 
   // Standalone lists sort locally; paginated lists preserve the server's global order.
   const compareNotes = (a: NoteListItem, b: NoteListItem): number => {
@@ -190,7 +134,7 @@ export const NoteList: React.FC<NoteListProps> = ({
     return bTime - aTime;
   };
 
-  const sortedNotes = onFiltersChange === undefined ? [...filteredNotes].sort(compareNotes) : filteredNotes;
+  const sortedNotes = onQueryChange === undefined ? [...filteredNotes].sort(compareNotes) : filteredNotes;
 
   // Group by the explicit project first, falling back to older taxonomy-only
   // notes that predate first-class project assignment.
@@ -221,142 +165,63 @@ export const NoteList: React.FC<NoteListProps> = ({
 
   return (
     <>
-      <div className="notes-list-search">
+      <div className="notes-list-search notes-list-tools">
         <div className="notes-list-search__field">
-        <TextInput
-          id="notes-search"
-          ref={searchRef}
-          labelText="Search"
-          hideLabel
-          placeholder="Search…"
-          value={filter}
-          onChange={(e) => { setFilter(e.target.value); }}
-          size="sm"
-        />
-        {filter !== '' && (
-          <button
-            type="button"
-            className="notes-list-search__clear"
-            title="Clear search"
-            aria-label="Clear search"
-            onClick={() => { setFilter(''); searchRef.current?.focus(); }}
-          >
-            <Close size={16} aria-hidden="true" />
-          </button>
-        )}
+          <TextInput
+            id="notes-search"
+            ref={searchRef}
+            labelText="Search"
+            hideLabel
+            placeholder="Search…"
+            value={filter}
+            onChange={(e) => { setFilter(e.target.value); }}
+            size="sm"
+          />
+          {filter !== '' && (
+            <button
+              type="button"
+              className="notes-list-search__clear"
+              title="Clear search"
+              aria-label="Clear search"
+              onClick={() => { setFilter(''); searchRef.current?.focus(); }}
+            >
+              <Close size={16} aria-hidden="true" />
+            </button>
+          )}
         </div>
-      </div>
-
-      <div className="notes-list-arrange kh-command-row">
-        <label className="notes-list-arrange__sort">
-          <span className="notes-list-arrange__label">Sort</span>
+        <label className="notes-list-tools__sort notes-list-tools__icon" title={`Sort notes: ${SORT_LABELS[sortKey]}`}>
+          <SortAscending size={16} aria-hidden="true" />
           <select
-            className="notes-list-filter__select"
+            className="notes-list-tools__select"
+            aria-label={`Sort notes: ${SORT_LABELS[sortKey]}`}
             value={sortKey}
-            onChange={(event) => { setSortKey(event.target.value as SortKey); }}
+            onChange={(event) => { setSortKey(event.target.value as NoteSortKey); }}
           >
-            {SORT_OPTIONS.map((option) => (
+            {NOTE_SORT_OPTIONS.map((option) => (
               <option key={option} value={option}>{SORT_LABELS[option]}</option>
             ))}
           </select>
         </label>
         <button
           type="button"
-          className={`notes-list-arrange__toggle${groupByProject ? ' notes-list-arrange__toggle--on' : ''}`}
+          className="notes-list-tools__icon"
+          title="Group by project"
+          aria-label="Group by project"
           aria-pressed={groupByProject}
           onClick={() => { setGroupByProject((on) => !on); }}
         >
-          Group
+          <GroupObjects size={16} aria-hidden="true" />
         </button>
         <button
           type="button"
-          className={`notes-list-arrange__toggle${showPreviews ? ' notes-list-arrange__toggle--on' : ''}`}
+          className="notes-list-tools__icon"
+          title="Show note previews"
+          aria-label="Show note previews"
           aria-pressed={showPreviews}
           onClick={() => { setShowPreviews((on) => !on); }}
         >
-          Previews
+          <View size={16} aria-hidden="true" />
         </button>
-      </div>
-
-      <div className="notes-list-filters" aria-label="Filter notes">
-        <div className="notes-list-filters__heading">
-          <button
-            type="button"
-            className="notes-list-filters__toggle"
-            aria-expanded={filtersExpanded}
-            aria-controls="notes-list-filter-fields"
-            onClick={() => { setFiltersExpanded((expanded) => !expanded); }}
-          >
-            <ChevronDown
-              size={16}
-              className={`notes-list-filters__chevron${filtersExpanded ? ' notes-list-filters__chevron--expanded' : ''}`}
-            />
-            <span>Filters{activeFilterCount > 0 ? ` · ${activeFilterCount} active` : ''}</span>
-            <span className="notes-list-filters__result-count">
-              {filteredNotes.length} of {total ?? notes.length}
-            </span>
-          </button>
-          {activeFilterCount > 0 && (
-            <button
-              type="button"
-              className="notes-list-filters__clear"
-              onClick={() => {
-                setActiveProjectId('');
-                setActiveContentType('');
-                setActiveTagId('');
-              }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <div
-          id="notes-list-filter-fields"
-          className="notes-list-filters__fields"
-          hidden={!filtersExpanded}
-        >
-          <label className="notes-list-filter">
-            <span className="notes-list-filter__label">Project</span>
-            <select
-              className="notes-list-filter__select"
-              value={activeProjectId}
-              onChange={(event) => { setActiveProjectId(event.target.value); }}
-            >
-              <option value="">All projects</option>
-              {availableProjectOptions.map((project) => (
-                <option key={project.id} value={project.id}>{project.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="notes-list-filter">
-            <span className="notes-list-filter__label">Content type</span>
-            <select
-              className="notes-list-filter__select"
-              value={activeContentType}
-              onChange={(event) => { setActiveContentType(event.target.value as ContentType | ''); }}
-            >
-              <option value="">All types</option>
-              {availableContentTypes.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="notes-list-filter notes-list-filter--wide">
-            <span className="notes-list-filter__label">Tag</span>
-            <select
-              className="notes-list-filter__select"
-              value={activeTagId}
-              onChange={(event) => { setActiveTagId(event.target.value); }}
-            >
-              <option value="">All tags</option>
-              {flatTags.map((tag) => (
-                <option key={tag.id} value={tag.id}>
-                  {tag.depth === 1 ? `— ${tag.name}` : tag.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
       </div>
 
       {/* Notes grouped by project */}
@@ -380,7 +245,6 @@ export const NoteList: React.FC<NoteListProps> = ({
                     deletePending={deletingId !== null}
                     showPreview={showPreviews}
                     sortKey={sortKey}
-                    tagNameMap={tagNameMap}
                   />
                 ))}
               </div>
@@ -396,11 +260,23 @@ export const NoteList: React.FC<NoteListProps> = ({
                 deletePending={deletingId !== null}
                 showPreview={showPreviews}
                 sortKey={sortKey}
-                tagNameMap={tagNameMap}
               />
             ))}
-        {hasMore && onLoadMore !== undefined && <button type="button" className="notes-list-more" disabled={loadingMore}
-          onClick={onLoadMore}>{loadingMore ? 'Loading...' : `Load more (${notes.length} of ${total ?? notes.length})`}</button>}
+      </div>
+      <div className="notes-list-pagination">
+        <span className="notes-list-pagination__count" role="status">
+          {loading ? 'Loading notes…' : unavailable && notes.length === 0 ? 'Notes unavailable'
+            : total !== undefined ? `${sortedNotes.length} of ${total} notes` : `${sortedNotes.length} notes`}
+        </span>
+        {hasMore && onLoadMore !== undefined && (
+          <button type="button" className="notes-list-pagination__more"
+            disabled={loadingMore || fetching} onClick={onLoadMore}>
+            {loadingMore ? 'Loading…' : loadMoreError ? 'Retry load more' : 'Load more'}
+          </button>
+        )}
+        {loadMoreError && <p className="notes-list-pagination__error" role="alert">
+          Could not load more notes. Your loaded notes are unchanged.
+        </p>}
       </div>
     </>
   );
@@ -414,8 +290,7 @@ const NoteCard: React.FC<{
   deletePending: boolean;
   showPreview: boolean;
   /** Drives which timestamp the card shows, so the visible dates match the chosen order. */
-  sortKey: SortKey;
-  tagNameMap: Map<string, string>;
+  sortKey: NoteSortKey;
 }> = ({ note, selectedId, onSelect, onDelete, deleting, deletePending, showPreview, sortKey }) => {
   const identity = useIdentity();
   const isActive = selectedId === note.id;
@@ -440,7 +315,7 @@ const NoteCard: React.FC<{
       ref={cardRef}
       className={`notes-list-item${isActive ? ' notes-list-item--active' : ''}`}
       onClick={() => { onSelect(note.id); }}
-      onKeyDown={(e) => { if (e.key === 'Enter') { onSelect(note.id); } }}
+      onKeyDown={(event) => { activateNoteOnKeyDown(event, () => { onSelect(note.id); }); }}
       data-ctx-title={note.title}
       {...(snippet !== '' ? { 'data-ctx-body': snippet } : {})}
       data-ctx-type="hub_ref"
@@ -451,6 +326,7 @@ const NoteCard: React.FC<{
       role="button" tabIndex={0}
     >
       <button
+        type="button"
         className="notes-list-item__delete"
         title="Delete note"
         disabled={deleting || deletePending}

@@ -5,6 +5,7 @@ import { DataNotice } from '../components/DataNotice';
 import { api } from '../services/api';
 import type { HealthSection, HealthUsageTotals, KnowledgeHealth, KnowledgeHealthParams } from '../services/api';
 import { requireApiData } from '../services/apiError';
+import { PageHeader } from '../components/PageHeader';
 import './KnowledgeHealthPage.css';
 
 const number = new Intl.NumberFormat('en-GB');
@@ -46,13 +47,8 @@ export const KnowledgeHealthPage: React.FC = () => {
     </Select>
   );
   return (
-    <div className="page-root kh-health">
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Knowledge health</h1>
-          <p className="page-subtitle">How Athena is being used and whether your sources are fresh. No prompts or content are shown here.</p>
-        </div>
-      </div>
+    <main className="page-root kh-health">
+      <PageHeader title="Knowledge health" subtitle="How Athena is being used and whether your sources are fresh. No prompts or content are shown here." />
       <form className="kh-health__filters" onSubmit={event => { event.preventDefault(); setApplied({ ...draft }); }}>
         <TextInput id="health-from" type="date" size="sm" labelText="From (UTC)" value={draft.from ?? ''} onChange={event => setDraft(c => ({ ...c, from: event.target.value }))} />
         <TextInput id="health-to" type="date" size="sm" labelText="To (UTC, inclusive)" value={draft.to ?? ''} onChange={event => setDraft(c => ({ ...c, to: event.target.value }))} />
@@ -150,6 +146,6 @@ export const KnowledgeHealthPage: React.FC = () => {
           </section>
         </>
       )}
-    </div>
+    </main>
   );
 };
