@@ -12869,6 +12869,25 @@ $interactive:      #0f62fe;
   }
 }
 
+.today-sparks-group { padding: 8px 16px; }
+.today-sparks-group--divided { padding-bottom: 8px; border-bottom: 1px solid var(--cds-border-subtle-01); }
+.today-sparks-group__label {
+  margin-bottom: 8px;
+  color: var(--cds-text-secondary);
+  font-size: var(--kh-heading-label);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.today-sparks-empty { margin: 0 0 8px; color: var(--cds-text-secondary); font-size: 0.75rem; }
+.today-spark { margin-bottom: 8px; }
+.today-spark__body { color: var(--cds-text-primary); font-size: 0.8125rem; }
+.today-spark__time { margin-top: 2px; color: var(--cds-text-secondary); font-size: 0.75rem; }
+.today-ranked-row--flush { padding-left: 0; padding-right: 0; }
+.today-card-note { margin: 0; padding: 12px 16px; color: var(--cds-text-secondary); font-size: 0.8125rem; }
+.today-card-link { color: var(--cds-text-secondary); font-size: 0.75rem; }
+.today-inherit-link { color: inherit; }
+
 .today-doc-row {
   display: flex;
   align-items: flex-start;

@@ -99,16 +99,16 @@ export const TodaySparksCard: React.FC<TodaySparksCardProps> = ({ rankedClusterI
       </div>
 
       {/* Surfaced clusters */}
-      <div style={{ padding: '4px 16px 8px', borderBottom: '1px solid var(--cds-border-subtle-01)' }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--cds-text-secondary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.08em' }}>
+      <div className="today-sparks-group today-sparks-group--divided">
+        <div className="today-sparks-group__label">
           Clusters
         </div>
         {clusters.length === 0 ? (
-          <p style={{ fontSize: 12, color: 'var(--cds-text-secondary)', margin: '0 0 8px' }}>
+          <p className="today-sparks-empty">
             No clusters yet — sparks accumulate into clusters over time.
           </p>
         ) : clusters.map((c) => (
-          <div key={c.id} className="today-ranked-row" style={{ paddingLeft: 0, paddingRight: 0 }}>
+          <div key={c.id} className="today-ranked-row today-ranked-row--flush">
             <div className="today-ranked-row__body">
               <div className="today-ranked-row__title">{c.theme}</div>
               <div className="today-ranked-row__context">{c.sparkCount} sparks</div>
@@ -122,20 +122,20 @@ export const TodaySparksCard: React.FC<TodaySparksCardProps> = ({ rankedClusterI
       </div>
 
       {/* Recent sparks */}
-      <div style={{ padding: '8px 16px' }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--cds-text-secondary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.08em' }}>
+      <div className="today-sparks-group">
+        <div className="today-sparks-group__label">
           Recent sparks
         </div>
         {sparks.length === 0 ? (
-          <p style={{ fontSize: 12, color: 'var(--cds-text-secondary)', margin: 0 }}>
+          <p className="today-sparks-empty">
             No sparks yet — capture your first one above.
           </p>
         ) : sparks.map((s) => (
-          <div key={s.id} style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 13, color: 'var(--cds-text-primary)' }}>
+          <div key={s.id} className="today-spark">
+            <div className="today-spark__body">
               {s.body.length > 100 ? `${s.body.slice(0, 100)}…` : s.body}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--cds-text-secondary)', marginTop: 2 }}>
+            <div className="today-spark__time">
               {timeAgo(s.createdAt)}
             </div>
           </div>

@@ -35,19 +35,19 @@ export const TodayDocumentsCard: React.FC = () => {
     <div className="today-section-card">
       <div className="today-section-card__header">
         <span className="today-section-card__title">Recently worked on</span>
-        <Link to="/think" style={{ fontSize: 12, color: 'var(--cds-text-secondary)' }}>
+        <Link to="/think" className="today-card-link">
           All notes →
         </Link>
       </div>
 
       {notesQuery.isLoading && (
-        <p style={{ padding: '12px 16px', fontSize: 13, color: 'var(--cds-text-secondary)', margin: 0 }}>
+        <p className="today-card-note">
           Loading…
         </p>
       )}
 
       {!notesQuery.isLoading && notes.length === 0 && (
-        <p style={{ padding: '12px 16px', fontSize: 13, color: 'var(--cds-text-secondary)', margin: 0 }}>
+        <p className="today-card-note">
           No notes yet.
         </p>
       )}
@@ -56,7 +56,7 @@ export const TodayDocumentsCard: React.FC = () => {
         <div key={n.id} className="today-doc-row">
           <div className="today-ranked-row__body">
             <div className="today-ranked-row__title">
-              <Link to="/think" style={{ color: 'inherit' }}>
+              <Link to="/think" className="today-inherit-link">
                 {n.title || 'Untitled note'}
               </Link>
             </div>
