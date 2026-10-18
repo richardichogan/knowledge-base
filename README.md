@@ -297,6 +297,22 @@ Implemented: recovery, knowledge health (migration 067), project cockpit and reg
 
 1. **Build trial run, UI half.** Agent assignment and agent PRs were verified against a scratch repository. Decompose, Start, the runner and the approval flow still need a signed-in session. See [docs/operations.md](docs/operations.md) section 8 for all findings.
 
+### Planned features (not yet implemented)
+
+These came from the UX review and competitor research. None is built; they are listed in the order proposed (value against effort). Mobile and tablet work is out of scope except `/chat`.
+
+1. **Command palette actions.** Extend Cmd+K beyond navigation to jump to any note, task, source or project and to run Athena actions (effort S–M).
+2. **Backlinks and unlinked mentions in Think.** A panel on each note listing notes that link to it and text that mentions its title. Chosen instead of deeper folders (M).
+3. **`@` mentions in the note editor.** Reference notes (later people, projects, dates) with `@`, creating a backlink, and invoke `@Athena` on a selection, with Athena's text clearly marked as AI-written (M).
+4. **"Why Athena picked this" in Discover.** Show the reasoning behind each pick, with a tunable interest weighting, and optionally "why not" for filtered-out items (M).
+5. **Keyboard triage and density toggle for Discover and Think.** Single-key archive, save, skip and create-from, plus compact and comfortable density (S–M).
+6. **Content pipeline board.** A stage view (idea, draft, published) across Discover, Think, Plan and Build for blog, newsletter, LinkedIn and podcast (M).
+7. **Visible, editable Athena memory.** Show what Athena knows about you, with accept or reject, and a change view (S–M).
+8. **Standard empty states and page templates.** Each area teaches its own shortcuts on first use (S).
+9. **Optional spatial view in Think** for arranging Sparks and notes (M–L), and a wider **side-peek** pattern to open linked items beside the current view (M–L).
+
+Ideas parked for later: Angle Deck, timeline-of-thinking canvas, podcast "on air" persona, source-staleness badges, voice-note capture, repurposing side-by-side, pipeline health counter and "ask the archive".
+
 Next free migration number: 070.
 
 ## Consistent interface (desktop)
