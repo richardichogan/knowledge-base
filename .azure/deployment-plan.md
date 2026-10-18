@@ -2,6 +2,22 @@
 
 **Status:** Validated
 
+**Approved release (2026-10-18, watchlists and wiki links):** Deploy the
+completed watchlist report, project implications column, reliable draft saving,
+wiki links/backlinks and project previews from this worktree. Existing AZCLI
+application-only recipe; no infrastructure, identity, role, secret or environment
+changes. Existing production v209 advances to v210. Rollback backend: v209.
+User explicitly requested push and deployment; no further browser launches.
+Additive migrations 082/083 use the existing startup runner.
+
+**Deployment result (2026-10-18 22:34 BST):** Release `8c217ae` pushed to
+the feature branch and main. ACR run `ca6m` built v210 successfully from that
+commit. Revision `kh-prod-api-vnet--0000207` is Healthy / RunningAtMaxScale
+with 100% traffic. Startup migrations completed, 8/8 DB connections are ready,
+and note reindex completed with zero failures. Matching SWA production deploy
+succeeded; custom-domain bundle `index-CFHuypi-.js` SHA-256 matches the local
+release. No browser was launched for deployment verification.
+
 **Current approved release (2026-10-18, use cases on the Plan Board):** User
 explicitly requested production deployment without a further permission prompt.
 The release includes the Plan Board cards for active use cases, alongside the
@@ -399,6 +415,21 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Watchlists and wiki links — 2026-10-18 22:28 BST
+
+- Fetched and merged origin/main: already up to date.
+- Both applications: TypeScript no-emit and production builds passed.
+- Backend isolated suite: 146/146 passed. Frontend: 84/84 plus 6/6 passed.
+- Frontend lint non-regression passed. Backend new lint violations corrected;
+  final non-regression check gates push.
+- Azure read-only checks confirmed existing Alliance Tenant Reporting targets:
+  ACA v209 in UK South, ACR Succeeded, SWA in West Europe. Existing registry
+  password-secret connection retained; no managed-identity RBAC changes.
+- Dockerfile and lockfile inspected; existing migration copies retained.
+  Successful remote ACR build gates container image update. Infrastructure
+  compilation/what-if is not applicable to this application-only update.
+- Browser suite was stopped at the owner's request and is not claimed passed.
 
 ### Use cases on Plan Board — 2026-10-18 16:46 BST (Validated and deployed)
 
