@@ -5,6 +5,8 @@ topic: knowledge-hub-spec
 version: v4
 ---
 
+> **Superseded.** This is the original v4 spec, kept for history. The current product spec is [docs/athena-spec.md](docs/athena-spec.md).
+
 # Personal Knowledge Hub
 ## Project Spec v4 — incorporating CMS schema review and IBM calendar decisions
 

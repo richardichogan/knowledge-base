@@ -1,5 +1,7 @@
 # Athena
 
+> **Product spec:** [docs/athena-spec.md](docs/athena-spec.md) (purpose, use cases, areas, principles). This README is the detailed feature reference.
+
 > Formerly "Personal Knowledge Hub". The product is now called **Athena**; code, folders (`knowledge-hub-*`) and Azure resources (`kh-prod-*`) keep their original names.
 
 The browser favicon and installable-app icons use the teal Athena "A". Their
