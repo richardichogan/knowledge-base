@@ -10,6 +10,7 @@
  * DELETE /api/use-cases/:id/sources/:type/:sourceId
  * POST   /api/use-cases/:id/links                    { url, title? }
  * DELETE /api/use-cases/:id/links/:linkId
+ * POST   /api/use-cases/:id/draft-spec               { replace? } drafts the spec note with Athena (409 if one exists)
  */
 import { Router } from 'express';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
@@ -21,6 +22,10 @@ import {
   listUseCases, getUseCase, createUseCase, updateUseCase, deleteUseCase, addSources, removeSource, addLink, removeLink,
   parseCreate, parsePatch, parseSourceRef, parseProductKind, parseStage,
 } from '../useCases/useCaseStore.js';
+import { draftUseCaseSpec, SPEC_DRAFT_LIMITS, type DraftDeps } from '../useCases/specDraft.js';
+import { getFoundryClient } from '../ai/foundryClient.js';
+import { createNoteRecord, scheduleNoteIndexing } from './notes.js';
+import { writeNote } from '../services/noteVersionService.js';
 
 export const useCasesRouter = Router();
 
@@ -84,4 +89,24 @@ useCasesRouter.post('/:id/links', wrap(async (req, res) => {
 
 useCasesRouter.delete('/:id/links/:linkId', wrap(async (req, res) => {
   send(res, await removeLink(getDb(), param(req, 'id'), param(req, 'linkId')));
+}));
+
+export const draftDeps: DraftDeps = {
+  generate: (system, user) => getFoundryClient('use-case-spec').chatBulk(
+    [{ role: 'system', content: system }, { role: 'user', content: user }], SPEC_DRAFT_LIMITS.maxTokens, 240_000, 'medium'),
+  createNote: async (db, content, projectId) => {
+    const note = await createNoteRecord(db, { content, tags: ['spec'], ...(projectId !== null ? { projectId } : {}) });
+    scheduleNoteIndexing(db, note);
+    return note.id;
+  },
+  replaceNote: async (db, noteId, writing, expectedRevision) => {
+    // restoreWriting checkpoints the current text first, so a redraft never loses Richard's edits.
+    const note = await writeNote(db, noteId, { restoreWriting: writing, expectedRevision });
+    scheduleNoteIndexing(db, note);
+  },
+};
+
+useCasesRouter.post('/:id/draft-spec', wrap(async (req, res) => {
+  const replace = body(req)['replace'] === true;
+  send(res, await draftUseCaseSpec(getDb(), param(req, 'id'), { replace }, draftDeps));
 }));

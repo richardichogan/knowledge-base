@@ -7,6 +7,7 @@ import { getDb } from '../src/db/db.js';
 import { useCasesRouter } from '../src/routes/useCases.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { countStalled, defaultLinkTitle, parseCreate, slugify } from '../src/useCases/useCaseStore.js';
+import { buildSpecPrompt, cleanDraft, draftUseCaseSpec, PER_SOURCE_CHARS, TOTAL_SOURCE_CHARS, type DraftDeps } from '../src/useCases/specDraft.js';
 
 const NOTE = '00000000-0000-4000-8000-0000000000a1';
 const NOTE_ARCHIVED = '00000000-0000-4000-8000-0000000000a2';
@@ -22,13 +23,18 @@ async function fixtureDb(): Promise<PGlite> {
     CREATE TABLE notes (id UUID PRIMARY KEY, content TEXT, status TEXT DEFAULT 'active', project_id TEXT, revision INT DEFAULT 1, updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE content_items (id UUID PRIMARY KEY, title TEXT, summary TEXT, url TEXT);
     CREATE TABLE sparks (id UUID PRIMARY KEY, body TEXT);
-    CREATE TABLE canvases (id UUID PRIMARY KEY, name TEXT, canvas_type TEXT);
+    CREATE TABLE canvases (id UUID PRIMARY KEY, title TEXT, canvas_type TEXT, deleted_at TIMESTAMPTZ);
     INSERT INTO projects VALUES ('p1', 'Imagine');
     INSERT INTO notes (id, content, project_id) VALUES ('${NOTE}', '# Claims triage idea\nbody', 'p1');
     INSERT INTO notes (id, content, status) VALUES ('${NOTE_ARCHIVED}', 'old', 'archived');
     INSERT INTO content_items VALUES ('${ITEM}', 'Agents in insurance', 'sum', 'https://example.com/a');
     INSERT INTO sparks VALUES ('${SPARK}', 'What if claims were triaged by an agent?\nmore');
+    CREATE TABLE canvas_diagrams (canvas_id UUID PRIMARY KEY, document JSONB);
+    CREATE TABLE canvas_nodes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), canvas_id UUID, label TEXT, body TEXT, x NUMERIC DEFAULT 0, y NUMERIC DEFAULT 0);
+    ALTER TABLE projects ADD COLUMN description TEXT DEFAULT '', ADD COLUMN goal TEXT DEFAULT '';
+    UPDATE projects SET description = 'Demo platform for insurers', goal = 'Win the pilot';
     INSERT INTO canvases VALUES ('${CANVAS}', 'Claims flow', 'diagram');
+    INSERT INTO canvas_diagrams VALUES ('${CANVAS}', '{"version":1,"nodes":[{"id":"n1","kind":"process","label":"Intake step","x":0,"y":0,"width":100,"height":40,"parentId":null,"fill":"#fff","stroke":"#000"}],"edges":[],"grid":false,"viewport":{"x":0,"y":0,"zoom":1}}');
   `);
   await db.exec(await readFile(new URL('../src/db/migrations/081_use_cases.sql', import.meta.url), 'utf8'));
   return db;
@@ -173,4 +179,66 @@ test('countStalled counts refining and spec-ready use cases with no update for N
   } finally {
     stub.mock.restore();
   }
+});
+
+const SRC = (sourceType: any, title: string, text: string) => ({ sourceType, title, url: null, text });
+
+test('buildSpecPrompt includes every source type, clips each source and the total, and picks the right template', () => {
+  const product = { projectName: 'Imagine', projectDescription: 'Demo platform', projectGoal: '', repo: 'acme/imagine' };
+  const long = 'x'.repeat(PER_SOURCE_CHARS + 500);
+  const p = buildSpecPrompt({ title: 'Claims', summary: 'Agentic triage', productKind: 'product' }, product, [
+    SRC('discover', 'Article', 'summary text'), SRC('spark', 'Idea', long), SRC('note', 'Note', 'note body'), SRC('canvas', 'Flow', 'Diagram: …'),
+  ]);
+  for (const label of ['Discover item: Article', 'Spark: Idea', 'Think note: Note', 'Canvas: Flow']) assert.ok(p.user.includes(label), label);
+  assert.ok(p.user.includes('[… truncated …]'));
+  assert.ok(p.user.includes('Repository: acme/imagine') && p.user.includes('Project description: Demo platform'));
+  assert.ok(p.system.includes('## Why it fits') && !p.system.includes('IMAGINE demo brief'));
+  assert.ok(p.system.includes('_Not discussed yet._'));
+
+  const many = Array.from({ length: 20 }, (_, i) => SRC('spark', `S${i.toString()}`, 'y'.repeat(PER_SOURCE_CHARS)));
+  const big = buildSpecPrompt({ title: 'Claims', summary: '', productKind: 'imagine_demo' }, product, many);
+  assert.ok(big.user.length < TOTAL_SOURCE_CHARS + 2_000, 'total source text stays within budget');
+  assert.match(big.user, /more sources omitted for length/);
+  assert.ok(big.system.includes('## 1. Business problem and demonstrable outcome'), 'Imagine uses the demo brief template');
+  assert.ok(big.system.includes('a new demo'));
+  const platform = buildSpecPrompt({ title: 'C', summary: '', productKind: 'imagine_platform' }, product, []);
+  assert.ok(platform.system.includes('a platform update'));
+  assert.ok(platform.user.includes('(none yet'));
+  assert.equal(cleanDraft('```markdown\n# Title: spec\n\n## Summary\nText\n```'), '## Summary\nText');
+});
+
+test('draft spec creates a note, moves the stage to refining, refuses a second draft and replaces on request', async () => {
+  const db = await fixtureDb();
+  const prompts: string[] = [];
+  const replaced: Array<{ noteId: string; revision: number; title: string }> = [];
+  const deps: DraftDeps = {
+    generate: async (_system, user) => { prompts.push(user); return '# X: spec\n\n## Summary\nDrafted.'; },
+    createNote: async (pg, content, projectId) => {
+      const { rows } = await pg.query('INSERT INTO notes (id, content, project_id) VALUES (gen_random_uuid(), $1, $2) RETURNING id::text AS id', [content, projectId]);
+      return String((rows[0] as any).id);
+    },
+    replaceNote: async (_pg, noteId, writing, revision) => { replaced.push({ noteId, revision, title: writing.title }); },
+  };
+  await withApp(db, async (call) => {
+    const uc = (await call('POST', '', {
+      title: 'Claims triage', productKind: 'imagine_demo', projectId: 'p1',
+      sources: [{ sourceType: 'canvas', sourceId: CANVAS }, { sourceType: 'note', sourceId: NOTE }],
+    })).json.data;
+    const first = await draftUseCaseSpec(getDb(), uc.id, { replace: false }, deps);
+    assert.equal(first.useCase.stage, 'refining');
+    assert.equal(first.useCase.specNoteId, first.noteId);
+    assert.ok(prompts[0]!.includes('Intake step'), 'diagram labels reach the prompt');
+    assert.ok(prompts[0]!.includes('Claims triage idea'), 'note title reaches the prompt');
+    const note = (await db.query('SELECT content, project_id FROM notes WHERE id::text = $1', [first.noteId])).rows[0] as any;
+    assert.equal(note.project_id, 'p1');
+    assert.equal(JSON.parse(note.content).title, 'Claims triage: spec');
+
+    const again = await call('POST', `/${uc.id as string}/draft-spec`, {});
+    assert.equal(again.status, 409);
+    assert.equal(again.json.error.code, 'SPEC_EXISTS');
+
+    const second = await draftUseCaseSpec(getDb(), uc.id, { replace: true }, deps);
+    assert.equal(second.replaced, true);
+    assert.deepEqual(replaced, [{ noteId: first.noteId, revision: 1, title: 'Claims triage: spec' }]);
+  });
 });

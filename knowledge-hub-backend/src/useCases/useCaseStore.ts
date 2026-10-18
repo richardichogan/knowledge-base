@@ -7,6 +7,7 @@
 import type { Pool } from 'pg';
 import { ValidationError, NotFoundError } from '../types/errors.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
+import { parseNoteContent } from '../utils/noteContent.js';
 
 export const USE_CASE_STAGES = ['candidate', 'refining', 'spec_ready', 'handed_off', 'shipped', 'dropped'] as const;
 export type UseCaseStage = typeof USE_CASE_STAGES[number];
@@ -230,6 +231,13 @@ export async function getUseCase(db: Pool, id: string): Promise<UseCaseDetail> {
 const firstLine = (t: string): string => (t.split('\n').find((l) => l.trim() !== '') ?? '').replace(/^#+\s*/, '').trim();
 const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
 
+/** The note's own title, else its first line of text. */
+export async function noteTitle(db: Pool, content: string): Promise<string> {
+  const own = parseNoteContent(content).title?.trim() ?? '';
+  if (own !== '' && own !== 'Untitled') return own;
+  return firstLine(await renderNoteAsText(db, content)) || 'Untitled note';
+}
+
 /** Looks the source up (it must exist) and returns a title and URL to store with it. */
 export async function resolveSource(db: Pool, ref: SourceRef): Promise<{ title: string; url: string | null }> {
   const missing = (): never => { throw new NotFoundError(`Source ${ref.sourceType} ${ref.sourceId}`); };
@@ -247,13 +255,12 @@ export async function resolveSource(db: Pool, ref: SourceRef): Promise<{ title: 
     case 'note': {
       const { rows } = await db.query(`SELECT content FROM notes WHERE id::text = $1 AND status = 'active'`, [ref.sourceId]);
       const r = (rows as Row[])[0] ?? missing();
-      const rendered = await renderNoteAsText(db, String(r['content'] ?? ''));
-      return { title: clip(firstLine(rendered) || 'Untitled note', SOURCE_TITLE_CHARS), url: null };
+      return { title: clip(await noteTitle(db, String(r['content'] ?? '')), SOURCE_TITLE_CHARS), url: null };
     }
     case 'canvas': {
-      const { rows } = await db.query('SELECT name FROM canvases WHERE id::text = $1', [ref.sourceId]);
+      const { rows } = await db.query('SELECT title FROM canvases WHERE id::text = $1 AND deleted_at IS NULL', [ref.sourceId]);
       const r = (rows as Row[])[0] ?? missing();
-      return { title: clip(String(r['name'] ?? 'Canvas'), SOURCE_TITLE_CHARS), url: null };
+      return { title: clip(String(r['title'] ?? 'Canvas'), SOURCE_TITLE_CHARS), url: null };
     }
   }
 }
