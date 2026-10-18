@@ -2,6 +2,19 @@
 
 ---
 
+## Consistent desktop interface and Think list toolbar
+
+One colour and icon per project or topic, unified tagging, a shared page header,
+unified control heights (36px, 32px compact), shared heading/radius/scrollbar
+scales, and shared side panels. Think's list replaces the Filters row with small
+Sort, Group and Previews icons beside search, and loads 100 notes at a time.
+Sources is paginated. Header badges for Think, Discover, Plan and Build count
+items needing attention (`GET /api/nav/attention`, backend `v207`). The phone-only
+back button no longer shows on desktop. Mobile and tablet layouts are out of
+scope except for `/chat`. See the README section "Consistent interface (desktop)".
+
+---
+
 ## Canvas recycle bin
 
 Deleting a brainstorm or diagram now moves it to **Think recovery & recycle

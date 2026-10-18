@@ -299,7 +299,20 @@ Implemented: recovery, knowledge health (migration 067), project cockpit and reg
 
 Next free migration number: 070.
 
-## Navigation
+## Consistent interface (desktop)
+
+Athena is desktop-first; only the standalone `/chat` screen is designed for phones and tablets.
+
+- **Identity:** every project or topic has one colour and one icon, resolved from a single canonical index. The same chip appears in lists, tags, headers, cards and pickers. Areas colour their topics.
+- **Unified tagging:** projects and topics are chosen through one tag picker and tag panel, so a note, source or task is tagged the same way everywhere.
+- **Shared page header:** Today, Discover, Plan, Think, Sources, Projects and others use one `PageHeader` (title, subtitle, command row), with matching spacing.
+- **Control sizes:** buttons, dropdowns and icon buttons share `--kh-control-height` (36px; `--kh-control-height-compact` 32px for dense rows), so items on one command row align.
+- **Type, radius and scrollbars:** heading tokens (`--kh-heading-section/item/label`), radius tokens (`--kh-radius-sm/md/lg/pill`) and one thin scrollbar style (from Plan) apply app-wide. No visible text is below 12px.
+- **Side panels:** Think's Athena panel and other docked panels use a shared native-dialog frame that docks beside content on wide screens and overlays on narrow ones.
+- **Think list toolbar:** search sits beside small icon buttons for Sort (dropdown), Group and Previews. The old Filters row is removed. The list shows 100 notes at a time with **Load more** ("100 of 111 notes").
+- **Sources list:** paginated with Load more. The same file in different repositories appears as separate rows, each showing its repository path.
+- **Header badges:** Think (new spark themes), Discover (new articles since your last visit), Plan (overdue tasks) and Build (tasks awaiting you) show counts from `GET /api/nav/attention`. A badge is hidden at zero.
+- **Back button:** the "‹ Notes/Canvases" button in Think only appears at phone widths.## Navigation
 The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
 
 Search remains available through the header or Cmd+K / Ctrl+K. Its command palette uses the same destination groups. The toolbar is the only global Athena launcher: it opens the existing popout or reveals and focuses the Sources rail without changing context. It is disabled throughout Think, which uses its built-in Athena panel. There is no floating launcher on any screen. Sparks and Canvas remain Think modes, and quick Spark capture remains available in Think or with Cmd+. / Ctrl+. All existing URLs and redirects are preserved. No global project selector or new administration/search functionality is added.
