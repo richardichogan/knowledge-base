@@ -183,7 +183,7 @@ export async function draftUseCaseSpec(db: Pool, id: string, opts: { replace: bo
   const sources = await gatherSources(db, useCase);
   const { system, user } = buildSpecPrompt(useCase, await productContext(db, useCase), sources);
   const markdown = cleanDraft(await deps.generate(system, user));
-  const writing = { title: `${useCase.title}: spec`, contentType: 'note', contentJson: JSON.stringify(textToBlocks(markdown)) };
+  const writing = { title: `${useCase.title}: spec`, contentType: 'spec', contentJson: JSON.stringify(textToBlocks(markdown)) };
 
   let noteId: string;
   if (existing !== null) {

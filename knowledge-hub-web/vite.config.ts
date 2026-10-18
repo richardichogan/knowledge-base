@@ -28,8 +28,9 @@ export default defineConfig({
       '/api': {
         target: `http://localhost:${process.env['KH_API_PORT'] ?? '3000'}`,
         changeOrigin: true,
-        proxyTimeout: 60_000,
-        timeout: 60_000,
+        // Matches the longest client timeout (Athena spec drafting) so slow AI calls are not cut off in dev.
+        proxyTimeout: 300_000,
+        timeout: 300_000,
         configure: (proxy) => {
           proxy.on('error', (err) => {
             console.warn('[vite-proxy] backend unreachable:', err.message);
