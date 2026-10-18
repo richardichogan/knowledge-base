@@ -309,11 +309,14 @@ These came from the UX review and competitor research. None is built. Full detai
 6. **Content pipeline board.** A stage view (idea, draft, published) across Discover, Think, Plan and Build for blog, newsletter, LinkedIn and podcast (M).
 7. **Visible, editable Athena memory.** Show what Athena knows about you, with accept or reject, and a change view (S–M).
 8. **Standard empty states and page templates.** Each area teaches its own shortcuts on first use (S).
-9. **Optional spatial view in Think** for arranging Sparks and notes (M–L), and a wider **side-peek** pattern to open linked items beside the current view (M–L).
+9. **Optional spatial view in Think** for arranging Sparks and notes (M–L).
+10. **Side-peek** to open linked items beside the current view (M–L).
+
+Items 2 and 3 share one note-link definition, described in section 0 of the spec.
 
 Ideas parked for later: Angle Deck, timeline-of-thinking canvas, podcast "on air" persona, source-staleness badges, voice-note capture, repurposing side-by-side, pipeline health counter and "ask the archive".
 
-Next free migration number: 070.
+Next free migration number: 081 (the latest is `080_unified_tagging.sql`; check the migrations folder first).
 
 ## Consistent interface (desktop)
 
