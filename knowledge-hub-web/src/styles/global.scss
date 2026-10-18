@@ -13451,6 +13451,13 @@ $interactive:      #0f62fe;
   padding-top: 0.125rem;
 }
 
+.dc-feed .dc-card-footer {
+  flex-wrap: nowrap;
+
+  > .dc-card-tags { padding: 0; flex: 1 1 auto; min-width: 0; }
+  > .dc-card-actions { margin-inline-start: auto; flex-shrink: 0; flex-wrap: nowrap; }
+}
+
 // Discover is a reading surface: larger type than the compact card defaults.
 .dc-feed--discover {
   .dc-card { gap: 0.625rem; padding: 1.25rem 1.5rem 1.125rem; }

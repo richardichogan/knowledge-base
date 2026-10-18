@@ -318,13 +318,12 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         </p>
       )}
       {isPublished && <PublishedUrlEditor item={item} />}
-      {taxonomyTags.length > 0 && (
-        <div className="dc-card-tags kh-chip-row">
-          {taxonomyTags.map((t) => <IdentityChip key={t.tagId} identity={t} />)}
-        </div>
-      )}
-
       <div className="dc-card-footer" onClick={stop} onKeyDown={stop}>
+        {taxonomyTags.length > 0 && (
+          <div className="dc-card-tags kh-chip-row">
+            {taxonomyTags.map((t) => <IdentityChip key={t.tagId} identity={t} />)}
+          </div>
+        )}
         <div className="dc-card-actions">
           {(state === 'to-review' || state === 'shelved') && (
             <>
