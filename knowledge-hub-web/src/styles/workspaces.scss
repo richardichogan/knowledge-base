@@ -144,7 +144,8 @@ dialog.kh-workspace-panel--overlay {
   &::backdrop { background: rgb(0 0 0 / 55%); }
 }
 
-.kh-workspace-back { display: none; }
+.kh-workspace-back,
+.kb-import-btn.kh-workspace-back { display: none; }
 
 .plan-inner {
   container-type: inline-size;
@@ -234,7 +235,8 @@ dialog.kh-workspace-panel--overlay {
   }
 
   .kh-page-header__actions :is(input, select) { font-size: 1rem; }
-  .kh-workspace-back { display: inline-flex; }
+  .kh-workspace-back,
+  .kb-import-btn.kh-workspace-back { display: inline-flex; }
   .notes-page .notes-mode-collapse { display: none; }
 
   .notes-header {
