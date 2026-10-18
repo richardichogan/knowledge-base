@@ -13,6 +13,19 @@ existing backend startup runner applies additive migration 081 if needed. No
 infrastructure, RBAC, secrets, subscription or location changes. Rollback:
 backend v207 and the pre-release Static Web App bundle.
 
+**Deployment result (2026-10-18, use cases on the Plan Board):** ACR run `ca6j`
+built `kh-prod-api:v208` from commit `9b87c6c`, digest
+`sha256:f1d2a4b8d274eebc442266ed8d0eefd54fd094e90d62ca652be4d9bc3cd06777`.
+Revision `kh-prod-api-vnet--0000205` is Healthy / RunningAtMaxScale with 100%
+traffic. Startup reported migration completion and 8/8 database connections
+ready. The matching Static Web Apps deployment succeeded at
+`https://nice-mud-0f780fb03.7.azurestaticapps.net`; the custom domain serves
+bundle `index-Dl2yXHoj.js`. Production browser verification reached the
+Microsoft sign-in gate, so the authenticated Board was not exercised in
+production; the same Board/card/detail flow was verified locally. ACR's
+`npm ci` reported dependency audit findings (36 total, including 1 critical);
+no dependency remediation was included in this release.
+
 **Current approved release (2026-10-16, Discovery Bluesky):** User explicitly
 requested deployment of Discovery quick-social posting (`f916e69`, `a0ea525`),
 including pending double-headed diagram arrows (`81eeaa9`). Reuse the existing
@@ -387,7 +400,7 @@ All validation checks pass:
 
 ## 7. Validation Proof
 
-### Use cases on Plan Board — 2026-10-18 16:46 BST (Validated; deployment pending)
+### Use cases on Plan Board — 2026-10-18 16:46 BST (Validated and deployed)
 
 - `git fetch origin` and merge of `origin/main`: already up to date. Azure CLI
   selected `Alliance Tenant Reporting` (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`);
@@ -403,6 +416,14 @@ All validation checks pass:
 - No IaC, role, secret or environment changes. `knowledge-hub-backend/Dockerfile`
   and lockfiles are unchanged; the backend image is built from the pushed `main`
   source. Migration 081 is additive and runs through the existing startup path.
+- ACR run `ca6j` succeeded; v208 revision `kh-prod-api-vnet--0000205` is
+  Healthy / RunningAtMaxScale with 100% traffic. Startup migration completed,
+  8/8 database connections are ready, and the matching Static Web Apps deploy
+  succeeded. The unauthenticated production browser reached Microsoft sign-in
+  and loaded the deployed bundle; full authenticated UI validation was not
+  possible in that browser session.
+- ACR `npm ci` reported 36 dependency audit findings, including 1 critical;
+  dependency remediation was left out of scope.
 
 ### Discovery Bluesky deployment - 2026-10-16 16:57 BST
 
