@@ -685,6 +685,38 @@ Diagram documents and their last 50 saved revisions are stored in PostgreSQL. Sa
 
 Limits are 1,000 nodes, 2,000 connectors, 100 bends per connector, 200 uploaded assets per canvas and 5 MiB per asset. Uploaded PNGs are limited to 16,384 pixels per side and 40 million pixels. Run backend validation and revision-conflict checks from `knowledge-hub-backend` with `node --import tsx/esm --test scripts\diagram.test.ts`; these include every bundled icon and reject unsafe SVG uploads.
 
+## Use cases (ideas → specs → build)
+
+A **use case** tracks one idea for one product, from what you found to what shipped:
+`candidate → refining → spec ready → handed off → shipped` (or `dropped`). Each one is an
+**Imagine demo**, an **Imagine platform** change, or **another product**.
+
+1. **Capture.** Right-click a Discover item, spark or note and choose **Make a use case…**, or use the visible
+   actions: **Use case** in Discover's Explore panel, **Turn into → Use case…** on a Spark theme (attaches all its
+   sparks), **Make a use case…** in a spark's menu, the **Use case** section of a note's Details panel, and the
+   rocket button in a canvas header. The dialog can instead add the item to an open use case. It confirms in place
+   with **Open in Plan**, so triage is not interrupted.
+2. **Track.** Plan → **Use cases** groups use cases by product. Filter by stage (open by default) and product;
+   the Plan project filter applies too. Each row shows stage, sources, project and time since the last update;
+   a refining or spec-ready use case with no update for 14 days shows its age in amber, and Today's
+   **Continue working** shows a one-line link when any have stalled.
+3. **Refine.** In the side panel, **Draft spec** has Athena write a spec note in Think from the sources and the
+   project context (the IMAGINE demo brief template for Imagine kinds). Refine it in Think, then **Redraft** if
+   needed (after a confirmation; the previous text stays in the note's history).
+4. **Hand off.** **Hand off…** either publishes the spec note to GitHub (default path `docs/specs/<slug>.md`, or
+   `docs/prds/<slug>.md` for Imagine) and gives a ready-to-paste GitHub Copilot prompt, or creates an Athena
+   **Build** spec from it. Publishing needs `GITHUB_ACCESS_TOKEN` and the repo configured in Projects.
+5. **Close the loop.** Add PR or issue links, then **Mark shipped** (or **Drop**).
+
+Deep link: `/plan?view=use-cases&useCase=<id>`.
+
+API (`/api/use-cases`): `GET /`, `POST /`, `GET|PATCH|DELETE /:id`, `POST /:id/sources`,
+`DELETE /:id/sources/:type/:sourceId`, `POST /:id/links`, `DELETE /:id/links/:linkId`, `POST /:id/draft-spec`,
+`POST /:id/handoff` (`{ mode: 'github' | 'build', repo?, path? }`). Migration `081_use_cases.sql` runs on startup.
+
+Tests: from `knowledge-hub-backend`, `node --import tsx/esm --test scripts/use-cases.test.ts`; the frontend
+helpers are in `knowledge-hub-web/tests/useCaseView.test.ts` (run with `npm run test:isolated` in `knowledge-hub-web`).
+
 ## Build (GitHub cloud coding agents)
 
 **Build** turns a spec into dependency-ordered tasks and runs them on GitHub's cloud-hosted coding agents (Copilot coding agent or Claude), not the local agents in VS Code or the Copilot app.

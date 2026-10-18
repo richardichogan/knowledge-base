@@ -74,7 +74,7 @@ In priority order:
 
 ## 6. Use cases: ideas → specs → build
 
-**Status: planned. Being built now** (see the README once shipped).
+**Status: built.** See the README section "Use cases (ideas → specs → build)".
 
 A *use case* tracks one idea for one product.
 
@@ -102,6 +102,6 @@ A *use case* tracks one idea for one product.
 ## 8. Built vs planned
 
 - **Built:** everything in section 3. The README documents each feature in detail.
-- **Being built:** use cases (section 6).
+- **Built since this spec was written:** use cases (section 6).
 - **Planned:** `docs/planned-features.md`, which covers the command palette, backlinks, `@` mentions, "why Athena picked this", keyboard triage, memory editing, empty states, a spatial view and side-peek. Its "content pipeline board" (item 6) is superseded by section 2: only the podcast needs topic tracking.
 - **Assessed, not planned:** Fabric and Fabric IQ (`docs/fabric-iq-assessment.md`).

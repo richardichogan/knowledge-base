@@ -2,6 +2,18 @@
 
 ---
 
+## Use cases: ideas → specs → build
+
+New **Plan → Use cases** view tracks an idea for an Imagine demo, the Imagine platform or another product
+from its sources (Discover items, Sparks, notes, canvases) to a spec, a handoff and what shipped. Athena drafts
+the spec as a Think note (IMAGINE demo brief template for Imagine). **Hand off…** publishes it to the repo with a
+ready-to-paste GitHub Copilot prompt, or sends it to Athena Build. "Make a use case…" is available from the
+right-click menu and from Discover Explore, Sparks, the note Details panel and the canvas header. Today links to
+use cases that have stalled for two weeks. Backend: migration `081_use_cases.sql`, `/api/use-cases`. The Athena
+product spec is in `docs/athena-spec.md`. See the README section "Use cases (ideas → specs → build)".
+
+---
+
 ## Consistent desktop interface and Think list toolbar
 
 One colour and icon per project or topic, unified tagging, a shared page header,
