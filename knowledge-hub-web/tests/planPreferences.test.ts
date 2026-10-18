@@ -8,6 +8,11 @@ test('Plan preferences preserve the mode and exact project/tag scopes in a versi
   assert.deepEqual(parsePlanPreferences(null), DEFAULT_PLAN_PREFERENCES);
 });
 
+test('Plan preferences remember the Use cases view', () => {
+  const preferences = { version: 1, view: 'use-cases', project: '', tag: '' };
+  assert.deepEqual(parsePlanPreferences(JSON.stringify(preferences)), preferences);
+});
+
 test('Plan preferences saved with the removed Calendar view fall back to the board', () => {
   const legacy = { version: 1, view: 'calendar', project: 'project-fixture', tag: '' };
   assert.deepEqual(parsePlanPreferences(JSON.stringify(legacy)), { ...legacy, view: 'board' });

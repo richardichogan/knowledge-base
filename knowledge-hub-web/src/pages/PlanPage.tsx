@@ -1,7 +1,7 @@
 /**
  * PlanPage — task planning hub.
  *
- * Board and Focus views of the same tasks behind a view switcher (both render
+ * Board and Focus views of the same tasks, plus Use cases (ideas on their way to a spec) behind a view switcher (both render
  * TasksPage, so the Inbox tray, editor and mutations are shared). Only the
  * shared page header and view tabs live here. The inner .page-header of each sub-page is hidden
  * via the .plan-inner wrapper. Athena opens as the floating window (so the
@@ -10,7 +10,7 @@
 
 import React, { useEffect, useState } from 'react';
 import type { CarbonIconType } from '@carbon/icons-react';
-import { CenterCircle, Dashboard, TaskView, Upload } from '@carbon/icons-react';
+import { CenterCircle, Dashboard, Idea, TaskView, Upload } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
 import { TasksPage } from './TasksPage';
 import { useFlatTags } from '../hooks/useTaxonomy';
@@ -22,6 +22,7 @@ import { DataNotice } from '../components/DataNotice';
 import { usePlanAthena } from '../features/plan/usePlanAthena';
 import { PlanReviewModal } from '../features/plan/PlanReviewModal';
 import { PageHeader } from '../components/PageHeader';
+import { UseCasesView } from '../features/useCases/UseCasesView';
 
 interface ViewTab {
   key: PlanView;
@@ -32,6 +33,7 @@ interface ViewTab {
 const VIEW_TABS: ViewTab[] = [
   { key: 'board',    label: 'Board',     Icon: Dashboard },
   { key: 'focus',    label: 'Focus',     Icon: CenterCircle },
+  { key: 'use-cases', label: 'Use cases', Icon: Idea },
 ];
 
 export const PlanPage: React.FC = () => {
@@ -75,13 +77,13 @@ export const PlanPage: React.FC = () => {
                   && <SelectItem value={filterProject} text="Saved project scope (not available)" />}
                 {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
               </Select>
-              <Select id="plan-filter-tag" labelText="Filter by tag" hideLabel size="sm"
+              {view !== 'use-cases' && <Select id="plan-filter-tag" labelText="Filter by tag" hideLabel size="sm"
                 value={filterTag} onChange={(e) => updatePreferences({ tag: e.target.value })}>
                 <SelectItem value="" text="All tags" />
                 {filterTag !== '' && !flatTags.some(tag => tag.id === filterTag)
                   && <SelectItem value={filterTag} text="Saved tag scope (not available)" />}
                 {flatTags.map((t) => <SelectItem key={t.id} value={t.id} text={t.name} />)}
-              </Select>
+              </Select>}
               {view === 'board' && <button
                 type="button"
                 className="kb-import-btn"
@@ -92,10 +94,10 @@ export const PlanPage: React.FC = () => {
               </button>}
             </>
           )}
-          <button type="button" className="kb-import-btn" onClick={() => setReviewOpen(true)}
+          {view !== 'use-cases' && <button type="button" className="kb-import-btn" onClick={() => setReviewOpen(true)}
             title="Athena reviews your open tasks and suggests what to reschedule, close or split">
             <TaskView size={16} /> Weekly review
-          </button>
+          </button>}
           <SavedViews variant="menu" current={{ ...preferences, kind: 'plan' }} onApply={next => {
             if (next.kind === 'plan') updatePreferences({ view: next.view, project: next.project, tag: next.tag });
           }} />
@@ -118,7 +120,7 @@ export const PlanPage: React.FC = () => {
 
       <PlanReviewModal open={reviewOpen} onClose={() => setReviewOpen(false)} />
 
-      <div className="plan-inner">
+      {view === 'use-cases' ? <div className="plan-inner plan-inner--use-cases"><UseCasesView filterProject={filterProject} /></div> : <div className="plan-inner">
         <TasksPage
           importOpen={importOpen}
           onImportClose={() => setImportOpen(false)}
@@ -127,7 +129,7 @@ export const PlanPage: React.FC = () => {
           view={view}
           onAskAthena={askAthena}
         />
-      </div>
+      </div>}
     </div>
   );
 };

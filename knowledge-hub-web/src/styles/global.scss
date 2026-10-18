@@ -5,6 +5,7 @@
 @use './today';
 @use './navigation';
 @use './identity';
+@use './useCases';
 
 .email-connections {
   margin-bottom: 20px;

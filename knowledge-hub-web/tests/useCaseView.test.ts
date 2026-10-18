@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import type { UseCase } from '../src/types/useCases';
+import { defaultHandoffPath, filterUseCases, groupByProduct, isStalled, sinceLabel, sourceHref } from '../src/features/useCases/useCaseView';
+
+const NOW = Date.parse('2026-05-01T12:00:00Z');
+const daysAgo = (d: number): string => new Date(NOW - d * 86_400_000).toISOString();
+const uc = (over: Partial<UseCase>): UseCase => ({
+  id: 'x', title: 'T', summary: '', productKind: 'product', projectId: null, projectName: null, repo: null,
+  stage: 'candidate', specNoteId: null, buildSpecId: null, handoffRepo: null, handoffPath: null, handoffUrl: null,
+  sourceCount: 0, linkCount: 0, createdAt: daysAgo(30), updatedAt: daysAgo(0), stageChangedAt: daysAgo(0), ...over,
+});
+
+test('filters: active hides shipped and dropped; kind and project narrow the list', () => {
+  const list = [uc({ id: 'a' }), uc({ id: 'b', stage: 'shipped' }), uc({ id: 'c', stage: 'dropped' }),
+    uc({ id: 'd', productKind: 'imagine_demo', projectId: 'p1' })];
+  assert.deepEqual(filterUseCases(list, { stage: 'active', kind: 'all', project: '' }).map((u) => u.id), ['a', 'd']);
+  assert.deepEqual(filterUseCases(list, { stage: 'all', kind: 'all', project: '' }).length, 4);
+  assert.deepEqual(filterUseCases(list, { stage: 'shipped', kind: 'all', project: '' }).map((u) => u.id), ['b']);
+  assert.deepEqual(filterUseCases(list, { stage: 'all', kind: 'imagine_demo', project: 'p1' }).map((u) => u.id), ['d']);
+  assert.deepEqual(filterUseCases(list, { stage: 'all', kind: 'all', project: 'p2' }), []);
+});
+
+test('groups follow product order, newest first, and skip empty groups', () => {
+  const groups = groupByProduct([uc({ id: 'old', updatedAt: daysAgo(5) }), uc({ id: 'new' }), uc({ id: 'demo', productKind: 'imagine_demo' })]);
+  assert.deepEqual(groups.map((g) => [g.kind, g.items.map((u) => u.id)]), [['imagine_demo', ['demo']], ['product', ['new', 'old']]]);
+});
+
+test('since labels and the stalled rule', () => {
+  assert.equal(sinceLabel(daysAgo(0), NOW), 'today');
+  assert.equal(sinceLabel(daysAgo(1), NOW), '1 day');
+  assert.equal(sinceLabel(daysAgo(13), NOW), '13 days');
+  assert.equal(sinceLabel(daysAgo(21), NOW), '3 weeks');
+  assert.equal(isStalled({ stage: 'refining', updatedAt: daysAgo(14) }, NOW), true);
+  assert.equal(isStalled({ stage: 'spec_ready', updatedAt: daysAgo(13) }, NOW), false);
+  assert.equal(isStalled({ stage: 'candidate', updatedAt: daysAgo(40) }, NOW), false);
+});
+
+test('source links and default handoff paths', () => {
+  assert.deepEqual(sourceHref({ sourceType: 'note', sourceId: 'n 1', url: null }), { href: '/think?noteId=n%201', external: false });
+  assert.deepEqual(sourceHref({ sourceType: 'canvas', sourceId: 'c1', url: null }), { href: '/think?mapId=c1', external: false });
+  assert.deepEqual(sourceHref({ sourceType: 'discover', sourceId: 'd', url: 'https://e.com' }), { href: 'https://e.com', external: true });
+  assert.equal(sourceHref({ sourceType: 'discover', sourceId: 'd', url: null }), null);
+  assert.equal(sourceHref({ sourceType: 'spark', sourceId: 's', url: null }), null);
+  assert.equal(defaultHandoffPath('Claims Triage!', 'imagine_platform'), 'docs/prds/claims-triage.md');
+  assert.equal(defaultHandoffPath('', 'product'), 'docs/specs/use-case.md');
+});

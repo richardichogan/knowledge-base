@@ -10,10 +10,10 @@ import { requireApiData } from '../services/apiError';
 import type { CreateUseCaseInput, HandoffInput, UseCaseDetail, UseCasePatch, UseCaseSourceRef } from '../types/useCases';
 
 export const USE_CASES_KEY = ['use-cases'] as const;
-export const useCaseKey = (id: string) => ['use-cases', id] as const;
+export const keyForUseCase = (id: string) => ['use-cases', id] as const;
 
 function store(qc: QueryClient, detail: UseCaseDetail): void {
-  qc.setQueryData(useCaseKey(detail.id), detail);
+  qc.setQueryData(keyForUseCase(detail.id), detail);
   void qc.invalidateQueries({ queryKey: USE_CASES_KEY, exact: true });
   void qc.invalidateQueries({ queryKey: ['today'] });
 }
@@ -28,7 +28,7 @@ export function useUseCases() {
 
 export function useUseCase(id: string | null) {
   return useQuery({
-    queryKey: useCaseKey(id ?? ''),
+    queryKey: keyForUseCase(id ?? ''),
     queryFn: async () => requireApiData(await api.getUseCase(id ?? '')),
     enabled: id !== null,
   });
@@ -55,7 +55,7 @@ export function useDeleteUseCase() {
   return useMutation({
     mutationFn: async (id: string) => { await api.deleteUseCase(id); },
     onSuccess: (_, id) => {
-      qc.removeQueries({ queryKey: useCaseKey(id) });
+      qc.removeQueries({ queryKey: keyForUseCase(id) });
       void qc.invalidateQueries({ queryKey: USE_CASES_KEY, exact: true });
       void qc.invalidateQueries({ queryKey: ['today'] });
     },
