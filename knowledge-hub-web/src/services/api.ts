@@ -38,6 +38,9 @@ import { normaliseTask } from '../types/task';
 import type { TaskPriority, AtRiskTask, DayCheckin, CheckinAction } from '../types/task';
 import type { DiagramAsset, DiagramDocument, DiagramDrilldownLink, DiagramSnapshot } from '../features/diagram/diagramTypes';
 import type { GitHubPublication, GitHubPushPayload } from '../notes/types';
+import type {
+  CreateUseCaseInput, DraftSpecResult, HandoffInput, HandoffResult, UseCase, UseCaseDetail, UseCasePatch, UseCaseSourceRef,
+} from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { DiscoverFormat } from '../types/discover';
 
@@ -2092,6 +2095,57 @@ export class KnowledgeHubApi {
       { repoFullName, projectTagId },
     );
     return r.data;
+  }
+
+  // ─── Use cases (evidence → spec → handoff) ────────────────────────────────
+
+  async listUseCases(): Promise<ApiResponse<UseCase[]>> {
+    return (await this.client.get<ApiResponse<UseCase[]>>('/api/use-cases')).data;
+  }
+
+  async getUseCase(id: string): Promise<ApiResponse<UseCaseDetail>> {
+    return (await this.client.get<ApiResponse<UseCaseDetail>>(`/api/use-cases/${encodeURIComponent(id)}`)).data;
+  }
+
+  async createUseCase(input: CreateUseCaseInput): Promise<ApiResponse<UseCaseDetail>> {
+    return (await this.client.post<ApiResponse<UseCaseDetail>>('/api/use-cases', input)).data;
+  }
+
+  async updateUseCase(id: string, patch: UseCasePatch): Promise<ApiResponse<UseCaseDetail>> {
+    return (await this.client.patch<ApiResponse<UseCaseDetail>>(`/api/use-cases/${encodeURIComponent(id)}`, patch)).data;
+  }
+
+  async deleteUseCase(id: string): Promise<void> {
+    await this.client.delete(`/api/use-cases/${encodeURIComponent(id)}`);
+  }
+
+  async addUseCaseSources(id: string, sources: UseCaseSourceRef[]): Promise<ApiResponse<UseCaseDetail>> {
+    return (await this.client.post<ApiResponse<UseCaseDetail>>(`/api/use-cases/${encodeURIComponent(id)}/sources`, { sources })).data;
+  }
+
+  async removeUseCaseSource(id: string, ref: UseCaseSourceRef): Promise<ApiResponse<UseCaseDetail>> {
+    return (await this.client.delete<ApiResponse<UseCaseDetail>>(
+      `/api/use-cases/${encodeURIComponent(id)}/sources/${ref.sourceType}/${encodeURIComponent(ref.sourceId)}`)).data;
+  }
+
+  async addUseCaseLink(id: string, url: string, title?: string): Promise<ApiResponse<UseCaseDetail>> {
+    return (await this.client.post<ApiResponse<UseCaseDetail>>(`/api/use-cases/${encodeURIComponent(id)}/links`, { url, title })).data;
+  }
+
+  async removeUseCaseLink(id: string, linkId: string): Promise<ApiResponse<UseCaseDetail>> {
+    return (await this.client.delete<ApiResponse<UseCaseDetail>>(
+      `/api/use-cases/${encodeURIComponent(id)}/links/${encodeURIComponent(linkId)}`)).data;
+  }
+
+  /** Drafting runs a long model call; allow it the same budget as the backend. */
+  async draftUseCaseSpec(id: string, replace = false): Promise<ApiResponse<DraftSpecResult>> {
+    return (await this.client.post<ApiResponse<DraftSpecResult>>(
+      `/api/use-cases/${encodeURIComponent(id)}/draft-spec`, { replace }, { timeout: 300_000 })).data;
+  }
+
+  async handoffUseCase(id: string, input: HandoffInput): Promise<ApiResponse<HandoffResult>> {
+    return (await this.client.post<ApiResponse<HandoffResult>>(
+      `/api/use-cases/${encodeURIComponent(id)}/handoff`, input, { timeout: 120_000 })).data;
   }
 
   // ─── Build pipeline (spec → tasks → cloud coding agents) ─────────────────
