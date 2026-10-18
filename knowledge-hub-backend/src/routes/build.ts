@@ -32,8 +32,8 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { HTTP_STATUS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
 import { ValidationError, NotFoundError, ConflictError } from '../types/errors.js';
-import { renderNoteAsText } from '../services/noteTextService.js';
 import * as store from '../build/buildStore.js';
+import { createSpecFromNote } from '../build/specFromNote.js';
 import { decomposeSpec, validateTaskGraph, type TaskDraft } from '../build/decompose.js';
 import { BUILD_AGENTS, getAgentGitHub, type BuildAgent } from '../build/githubAgents.js';
 import { ensureWorkBranch, mergeFinalPullRequest, runSpecLocked } from '../build/buildRunner.js';
@@ -146,20 +146,10 @@ buildRouter.post('/specs', handle(async (req, res) => {
 buildRouter.post('/specs/from-note', handle(async (req, res) => {
   const b = body(req);
   const noteId = str(b['noteId'], 'noteId', { required: true, max: 100 }) as string;
-  const db = getDb();
-  const { rows } = await db.query<{ content: string; project_id: string | null }>(
-    `SELECT content, project_id FROM notes WHERE id::text = $1 AND status = 'active'`, [noteId]);
-  const row = rows[0];
-  if (row === undefined) throw new NotFoundError('Note');
-  const text = (await renderNoteAsText(db, row.content)).trim();
-  const firstLine = text.split('\n').find((l) => l.trim() !== '')?.replace(/^#+\s*/, '').trim() ?? 'Untitled spec';
-  const spec = await store.createSpec({
-    title: firstLine.slice(0, MAX_TITLE_CHARS), specMarkdown: text.slice(0, MAX_SPEC_CHARS),
+  const spec = await createSpecFromNote(getDb(), noteId, {
     repo: repoOf(b['repo'], true) as string, baseBranch: branchOf(b['baseBranch']),
     useWorkBranch: boolOf(b['useWorkBranch'], 'useWorkBranch'),
-    projectId: row.project_id, noteId,
   });
-  await store.addEvent(spec.id, null, 'created', 'Spec created from a Think note');
   await sendSpec(res, spec.id, HTTP_STATUS.CREATED);
 }));
 

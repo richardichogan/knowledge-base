@@ -26,6 +26,9 @@ import { draftUseCaseSpec, SPEC_DRAFT_LIMITS, type DraftDeps } from '../useCases
 import { getFoundryClient } from '../ai/foundryClient.js';
 import { createNoteRecord, scheduleNoteIndexing } from './notes.js';
 import { writeNote } from '../services/noteVersionService.js';
+import { handoffUseCase, type HandoffDeps } from '../useCases/handoff.js';
+import { startPublication, validatePublicationPath } from '../services/noteGitHubService.js';
+import { createSpecFromNote } from '../build/specFromNote.js';
 
 export const useCasesRouter = Router();
 
@@ -109,4 +112,14 @@ export const draftDeps: DraftDeps = {
 useCasesRouter.post('/:id/draft-spec', wrap(async (req, res) => {
   const replace = body(req)['replace'] === true;
   send(res, await draftUseCaseSpec(getDb(), param(req, 'id'), { replace }, draftDeps));
+}));
+
+export const handoffDeps: HandoffDeps = {
+  publish: (db, noteId, repo, path, message, expectedRevision) =>
+    startPublication(db, noteId, repo, validatePublicationPath(path), message, expectedRevision),
+  createBuildSpec: (db, noteId, opts) => createSpecFromNote(db, noteId, opts),
+};
+
+useCasesRouter.post('/:id/handoff', wrap(async (req, res) => {
+  send(res, await handoffUseCase(getDb(), param(req, 'id'), body(req), handoffDeps));
 }));

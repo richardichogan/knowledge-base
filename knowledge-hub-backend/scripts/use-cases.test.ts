@@ -7,6 +7,7 @@ import { getDb } from '../src/db/db.js';
 import { useCasesRouter } from '../src/routes/useCases.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { countStalled, defaultLinkTitle, parseCreate, slugify } from '../src/useCases/useCaseStore.js';
+import { copilotPrompt, defaultHandoffPath, handoffUseCase, type HandoffDeps } from '../src/useCases/handoff.js';
 import { buildSpecPrompt, cleanDraft, draftUseCaseSpec, PER_SOURCE_CHARS, TOTAL_SOURCE_CHARS, type DraftDeps } from '../src/useCases/specDraft.js';
 
 const NOTE = '00000000-0000-4000-8000-0000000000a1';
@@ -240,5 +241,45 @@ test('draft spec creates a note, moves the stage to refining, refuses a second d
     const second = await draftUseCaseSpec(getDb(), uc.id, { replace: true }, deps);
     assert.equal(second.replaced, true);
     assert.deepEqual(replaced, [{ noteId: first.noteId, revision: 1, title: 'Claims triage: spec' }]);
+  });
+});
+
+test('handoff defaults, copilot prompt, stage changes and the no-spec 400', async () => {
+  assert.equal(defaultHandoffPath('Claims Triage!', 'product'), 'docs/specs/claims-triage.md');
+  assert.equal(defaultHandoffPath('Claims Triage', 'imagine_demo'), 'docs/prds/claims-triage.md');
+  const product = copilotPrompt({ title: 'Inbox zero', productKind: 'product' }, 'me/app', 'docs/specs/inbox-zero.md');
+  assert.ok(product.includes('`docs/specs/inbox-zero.md` in me/app'));
+  assert.ok(!product.includes('evidence-led-demo'));
+  const demo = copilotPrompt({ title: 'Claims', productKind: 'imagine_demo' }, 'ibm/imagine', 'docs/prds/claims.md');
+  assert.ok(demo.includes('new IMAGINE demo') && demo.includes('evidence-led-demo'));
+  assert.ok(copilotPrompt({ title: 'X', productKind: 'imagine_platform' }, 'a/b', 'p.md').includes('IMAGINE demo platform'));
+
+  const db = await fixtureDb();
+  const published: unknown[] = [];
+  const deps: HandoffDeps = {
+    publish: async (_db, noteId, repo, path, message, revision) => { published.push({ noteId, repo, path, message, revision }); return { url: `https://github.com/${repo}/blob/main/${path}` }; },
+    createBuildSpec: async (_db, _noteId, opts) => ({ id: opts.repo === 'me/other' ? MISSING : NOTE }),
+  };
+  await withApp(db, async (call) => {
+    const uc = (await call('POST', '', { title: 'Claims triage', productKind: 'imagine_demo', repo: 'ibm/imagine' })).json.data;
+    const noSpec = await call('POST', `/${uc.id as string}/handoff`, {});
+    assert.equal(noSpec.status, 400);
+    assert.equal(noSpec.json.error.code, 'NO_SPEC_NOTE');
+
+    await db.query('UPDATE use_cases SET spec_note_id = $1 WHERE id::text = $2', [NOTE, uc.id]);
+    await assert.rejects(handoffUseCase(getDb(), uc.id, { mode: 'email' }, deps), /mode must be/);
+    await assert.rejects(handoffUseCase(getDb(), uc.id, { repo: 'not a repo' }, deps), /owner\/name/);
+
+    const gh = await handoffUseCase(getDb(), uc.id, {}, deps);
+    assert.deepEqual(published, [{ noteId: NOTE, repo: 'ibm/imagine', path: 'docs/prds/claims-triage.md', message: 'Add spec: Claims triage', revision: 1 }]);
+    assert.equal(gh.useCase.stage, 'handed_off');
+    assert.equal(gh.useCase.handoffPath, 'docs/prds/claims-triage.md');
+    assert.equal(gh.url, 'https://github.com/ibm/imagine/blob/main/docs/prds/claims-triage.md');
+    assert.ok(gh.prompt?.includes('evidence-led-demo'));
+
+    const build = await handoffUseCase(getDb(), uc.id, { mode: 'build', repo: 'me/other' }, deps);
+    assert.equal(build.buildSpecId, MISSING);
+    assert.equal(build.useCase.buildSpecId, MISSING);
+    assert.equal(build.prompt, null);
   });
 });
