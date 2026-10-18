@@ -6,6 +6,7 @@ const MAX_READING_CHARS = 60_000;
 const EXCERPT_PARTS = 3;
 const HALF = 0.5;
 const MIN_REGION_CHARS = 800;
+const ARTICLE_BODY_CAPTURE_GROUP = 2;
 
 /** Strip navigation before extracting prose; never mistake metadata for the article. */
 export function articleProse(html: string, url?: string): string {
@@ -29,7 +30,7 @@ export function articleProse(html: string, url?: string): string {
   const prose = (fragment: string): string => decodeEntities(fragment.replace(/<\/(?:p|div|li|h[1-6]|tr)>|<br\s*\/?>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')).replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
   // Pages often contain several <article>/<main> elements (headers, bylines, cards); use the longest body.
-  const regions = [...cleaned.matchAll(/<(article|main)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => prose(m[2] ?? ''));
+  const regions = [...cleaned.matchAll(/<(article|main)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => prose(m[ARTICLE_BODY_CAPTURE_GROUP] ?? ''));
   const best = regions.reduce((a, b) => (b.length > a.length ? b : a), '');
   return best.length >= MIN_REGION_CHARS ? best : prose(cleaned);
 }

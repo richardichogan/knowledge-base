@@ -4,6 +4,8 @@ import { checkAiFlow } from './aiFlow.js';
 import { renderNoteAsText } from './noteTextService.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 
+const MAX_GOVERNANCE_FINDINGS = 25;
+
 export const DIAGRAM_READING_GUIDANCE = [
   'These are saved diagram records, not screenshots. Read shapes, labels, descriptions, explicit parent/container IDs and connectors as evidence.',
   'For arrows=end, direction is source to target; both means bidirectional; none means an undirected connection, not a directed flow.',
@@ -85,8 +87,8 @@ export function diagramEvidence(document: DiagramDocument, budget = 24_000, sele
   const aiFlow = document.diagramType === 'ai-flow' ? checkAiFlow(document) : undefined;
   return JSON.stringify({ version: document.version, ...(document.diagramType !== undefined ? { diagramType: document.diagramType } : {}),
     ...(aiFlow !== undefined ? {
-      governanceFindings: aiFlow.slice(0, 25).map(f => ({ severity: f.severity, code: f.code, targetId: f.targetId, message: f.message })),
-      omittedGovernanceFindings: Math.max(0, aiFlow.length - 25),
+      governanceFindings: aiFlow.slice(0, MAX_GOVERNANCE_FINDINGS).map(f => ({ severity: f.severity, code: f.code, targetId: f.targetId, message: f.message })),
+      omittedGovernanceFindings: Math.max(0, aiFlow.length - MAX_GOVERNANCE_FINDINGS),
     } : {}),
     totalShapes: document.nodes.length,
     totalConnectors: document.edges.length, omittedShapes: document.nodes.length - shapes.length,

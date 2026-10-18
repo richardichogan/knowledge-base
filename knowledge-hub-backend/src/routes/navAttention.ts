@@ -12,9 +12,10 @@ import { MIN_THEME_SIZE } from '../jobs/clusteringJob.js';
 import { workDay } from '../services/planNudges.js';
 
 export const navAttentionRouter = Router();
+const MAX_DISCOVER_SINCE_CHARS = 40;
 
 function sinceParam(input: unknown): string | null {
-  if (typeof input !== 'string' || input.length > 40) return null;
+  if (typeof input !== 'string' || input.length > MAX_DISCOVER_SINCE_CHARS) return null;
   const time = Date.parse(input);
   return Number.isNaN(time) ? null : new Date(time).toISOString();
 }

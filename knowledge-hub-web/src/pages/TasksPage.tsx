@@ -17,7 +17,7 @@ import { api } from '../services/api';
 import { useProjects, type ProjectRecord } from '../services/useProjects';
 import { useUseCases } from '../hooks/useUseCases';
 import { PRODUCT_KIND_LABELS, STAGE_LABELS, type UseCase } from '../types/useCases';
-import { useCaseBoardColumn } from '../features/useCases/useCaseView';
+import { boardColumnForUseCase } from '../features/useCases/useCaseView';
 import { TagPicker } from '../components/TagPicker';
 import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
@@ -1076,7 +1076,7 @@ export const TasksPage: React.FC<{
       {view === 'board' && useCasesError !== null && (
         <DataNotice title="Use cases are unavailable" error={useCasesError} onRetry={() => { void refetchUseCases(); }} />
       )}
-      {view === 'board' && filterTag !== '' && useCases.some((useCase) => useCaseBoardColumn(useCase.stage) !== null)
+      {view === 'board' && filterTag !== '' && useCases.some((useCase) => boardColumnForUseCase(useCase.stage) !== null)
         && <p className="kb-board__notice">Use cases are hidden while a tag filter is active because they do not have task tags.</p>}
       {view === 'board' && filterTag === '' && useCasesPending && <InlineLoading description="Loading use cases…" />}
 
@@ -1105,7 +1105,7 @@ export const TasksPage: React.FC<{
           const allColTasks = scopedTasks.filter((t) => t.status === col.id);
           const colUseCases = filterTag === '' ? useCases
             .filter((useCase) => filterProject === '' || useCase.projectId === filterProject)
-            .filter((useCase) => useCaseBoardColumn(useCase.stage) === col.id)
+            .filter((useCase) => boardColumnForUseCase(useCase.stage) === col.id)
             .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : [];
           // Completed tasks auto-archive after 14 days; only this week's (and any still saving) stay visible by default.
           const isRecentDone = (t: Task): boolean => busyTaskIds.has(t.id) || isRecentlyCompleted(t);

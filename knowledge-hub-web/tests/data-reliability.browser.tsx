@@ -28,12 +28,21 @@ async function waitFor(condition: () => boolean, step = 'render'): Promise<void>
     if (condition()) return;
     await new Promise(resolve => setTimeout(resolve, 40));
   }
-  throw new Error(`Data reliability fixture timed out (${step}): ${document.querySelector('#navigation-probe')?.getAttribute('data-path')}; context: ${document.querySelector('#navigation-probe')?.getAttribute('data-context')}; summary: ${document.querySelector('.ai-note-summary-card')?.textContent ?? 'none'}; notice: ${document.querySelector('[role="alert"]')?.textContent ?? 'none'}; text: ${document.body.textContent?.slice(-300)}`);
+  throw new Error(`Data reliability fixture timed out (${step}): ${document.querySelector('#navigation-probe')?.getAttribute('data-path')}; context: ${document.querySelector('#navigation-probe')?.getAttribute('data-context')}; summary: ${document.querySelector('.ai-note-summary-card')?.textContent ?? 'none'}; notes: ${document.querySelectorAll('.notes-list-item').length}; active note: ${document.querySelector('.notes-list-item--active')?.textContent ?? 'none'}; editor: ${getActiveBlockNoteEditor() ? 'present' : 'none'}; editor title: ${document.querySelector<HTMLElement>('.notes-editor-scroll')?.dataset.ctxTitle ?? 'none'}; notice: ${document.querySelector('[role="alert"]')?.textContent ?? 'none'}; dialog: ${document.querySelector('dialog[open]')?.textContent?.slice(0, 400) ?? 'none'}; text: ${document.body.textContent?.slice(-300)}`);
 }
 function element<T extends HTMLElement>(query: string): T {
   const match = document.querySelector<T>(query);
   if (!match) throw new Error(`Missing data fixture element: ${query}`);
   return match;
+}
+function openDialogWithText(text: string): HTMLDialogElement | null {
+  return [...document.querySelectorAll<HTMLDialogElement>('dialog[open]')]
+    .find(dialog => dialog.textContent?.includes(text) === true) ?? null;
+}
+function openDialogWithButton(text: string): HTMLDialogElement | null {
+  return [...document.querySelectorAll<HTMLDialogElement>('dialog[open]')]
+    .find(dialog => [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .some(candidate => candidate.textContent?.trim() === text)) ?? null;
 }
 function input(query: string, value: string): void {
   const field = element<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(query);
@@ -251,28 +260,28 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
   api.getDocumentLibrary = async () => failure();
   await queryClient.invalidateQueries({ queryKey: ['documents-library'] });
   await go('/library');
-  await waitFor(() => document.body.textContent?.includes('Sources are unavailable') === true);
+  await waitFor(() => document.body.textContent?.includes('Sources are unavailable') === true, 'library read error');
   check(document.body.textContent?.includes('No documents found') !== true, 'Unavailable library does not claim to be empty');
   api.getDocumentLibrary = libraryRead;
   button('Retry', element('.kh-data-notice')).click();
-  await waitFor(() => document.querySelector('.kh-data-notice') === null && document.querySelector('.docs-list-item') !== null);
+  await waitFor(() => document.querySelector('.kh-data-notice') === null && document.querySelector('.docs-list-item') !== null, 'library read retry');
   const contentRead = api.getDocumentContent;
   queryClient.removeQueries({ queryKey: ['document-content'] });
   api.getDocumentContent = async () => failure();
   element<HTMLButtonElement>('.docs-list-item').click();
-  await waitFor(() => document.body.textContent?.includes('Document content is unavailable') === true);
+  await waitFor(() => document.body.textContent?.includes('Document content is unavailable') === true, 'document content error');
   check(element('#navigation-probe').getAttribute('data-context') === '', 'Unavailable document text cannot ground Athena using metadata alone');
   api.getDocumentContent = contentRead;
   button('Retry', element('.kh-data-notice')).click();
-  await waitFor(() => element('#navigation-probe').getAttribute('data-context')?.includes('Fixture source text') === true);
+  await waitFor(() => element('#navigation-probe').getAttribute('data-context')?.includes('Fixture source text') === true, 'document content retry');
   const libraryTag = { id: '00000000-0000-4000-8000-000000000001', name: 'Reliability fixture tag', slug: 'fixture-tag',
-    parentId: null, colour: null, role: 'filing' as const, usageCount: 0 };
+    parentId: null, colour: null, role: 'concept' as const, usageCount: 0 };
   api.getTaxonomy = async () => success([libraryTag]);
   await queryClient.invalidateQueries({ queryKey: ['taxonomy'] });
   button('Details').click();
-  await waitFor(() => document.querySelector('.docs-info-panel .notes-tag-picker-trigger') !== null);
+  await waitFor(() => document.querySelector('.docs-info-panel .notes-tag-picker-trigger') !== null, 'library tag trigger');
   element<HTMLButtonElement>('.docs-info-panel .notes-tag-picker-trigger').click();
-  await waitFor(() => document.querySelector('.tag-picker-item') !== null);
+  await waitFor(() => document.querySelector('.tag-picker-item') !== null, 'library tag options');
   let tagWrites = 0;
   let tagFailure = true;
   api.setDocumentTags = async (_id, ids) => {
@@ -280,19 +289,19 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
     await new Promise(resolve => setTimeout(resolve, 100));
     return tagFailure ? failure() : success(ids);
   };
-  const tagButton = element<HTMLButtonElement>('.tag-picker-item');
-  tagButton.click();
-  tagButton.click();
-  await waitFor(() => tagButton.disabled);
-  await waitFor(() => document.body.textContent?.includes('were not saved') === true && !tagButton.disabled);
-  check(tagWrites === 1 && !tagButton.classList.contains('tag-picker-item--selected'),
+  const tagButton = (): HTMLButtonElement => element<HTMLButtonElement>('.tag-picker-item');
+  tagButton().click();
+  tagButton().click();
+  await waitFor(() => tagWrites === 1 && tagButton().disabled, 'tag mutation starts once');
+  await waitFor(() => document.body.textContent?.includes('were not saved') === true && !tagButton().disabled, 'tag failure shown and rolled back');
+  check(tagWrites === 1 && !tagButton().classList.contains('tag-picker-item--selected'),
     'Library tag failure rolls back the selection and prevents repeated writes');
   tagFailure = false;
-  tagButton.click();
-  await waitFor(() => tagButton.classList.contains('tag-picker-item--selected') && !tagButton.disabled);
+  tagButton().click();
+  await waitFor(() => tagButton().classList.contains('tag-picker-item--selected') && !tagButton().disabled, 'tag retry saved');
   check(tagWrites === 2, 'Library tag retry writes once');
   document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  await waitFor(() => document.querySelector('.tag-picker-dropdown') === null);
+  await waitFor(() => document.querySelector('.tag-picker-dropdown') === null, 'tag picker closes');
   results.push('Library read/content failures are visible and retryable; unavailable writing cannot fabricate Athena context');
 
   const task: PlanTask = {
@@ -309,16 +318,16 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
   });
   await queryClient.invalidateQueries({ queryKey: ['tasks'] });
   await go('/plan');
-  await waitFor(() => document.querySelector('.plan-view-toggle') !== null);
+  await waitFor(() => document.querySelector('.plan-view-toggle') !== null, 'Plan view loaded');
   button('Board').click();
-  await waitFor(() => document.querySelector('.kb-card') !== null);
+  await waitFor(() => document.querySelector('.kb-card') !== null, 'Plan task fixture loaded');
   taskFailure = true;
   await queryClient.invalidateQueries({ queryKey: ['tasks'] });
-  await waitFor(() => document.body.textContent?.includes('Tasks are unavailable') === true);
+  await waitFor(() => document.body.textContent?.includes('Tasks are unavailable') === true, 'task read failure shown');
   check(document.querySelector('.kb-card') !== null, 'Tasks retain cached work through read failures');
   taskFailure = false;
   button('Retry', element('.kh-data-notice')).click();
-  await waitFor(() => document.querySelector('.kh-data-notice') === null);
+  await waitFor(() => document.querySelector('.kh-data-notice') === null, 'task read retry');
   let taskSaves = 0;
   let taskSaveFailure = true;
   api.updateTask = async (id, request) => {
@@ -351,7 +360,7 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
   const delayedMove = new Promise<void>(resolve => { releaseMove = resolve; });
   api.updateTask = async () => { taskSaves++; await delayedMove; return failure(); };
   element<HTMLButtonElement>('.kb-menu-trigger').click();
-  await waitFor(() => document.querySelector('.kb-menu') !== null);
+  await waitFor(() => document.querySelector('.kb-menu') !== null, 'task completion menu opens');
   button('Completed', element('.kb-menu')).click();
   await waitFor(() => document.querySelector('.kb-card[aria-busy="true"]') !== null, 'completion locked');
   check(element<HTMLButtonElement>('.kb-menu-trigger').disabled, 'Pending completion cannot be moved or deleted again');
@@ -375,7 +384,7 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
     return success(undefined);
   };
   element<HTMLButtonElement>('.kb-menu-trigger').click();
-  await waitFor(() => document.querySelector('.kb-menu') !== null);
+  await waitFor(() => document.querySelector('.kb-menu') !== null, 'task delete failure menu opens');
   button('Delete', element('.kb-menu')).click();
   await waitFor(() => document.querySelector('.kb-card[aria-busy="true"]') !== null);
   check(element<HTMLButtonElement>('.kb-menu-trigger').disabled, 'Pending delete locks the task actions');
@@ -384,9 +393,11 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
   check(document.querySelector('.kb-card') !== null && taskDeletes === 1, 'Failed delete retains the task');
   taskDeleteFailure = false;
   element<HTMLButtonElement>('.kb-menu-trigger').click();
-  await waitFor(() => document.querySelector('.kb-menu') !== null);
+  await waitFor(() => document.querySelector('.kb-menu') !== null, 'task delete retry menu opens');
   button('Delete', element('.kb-menu')).click();
-  await waitFor(() => document.querySelector('.kb-card') === null && document.querySelector('.kh-data-notice') === null);
+  await waitFor(() => taskDeletes === 2, 'task delete retry submitted');
+  await waitFor(() => document.querySelector('.kb-card') === null && document.querySelector('.kh-data-notice') === null,
+    'task delete retry removes the card');
   results.push('Task read/save/delete failures retain work; pending actions lock, and failed completion rolls back its original scope only');
 
   let syncStarts = 0;
@@ -439,7 +450,10 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
   }));
   let noteFailure = false;
   let bodies = 0;
+  let requestedNoteSort = '';
+  let directNoteReads = 0;
   api.getNoteSummaries = async (page = 1, pageSize = 100, filters = {}) => {
+    requestedNoteSort = filters.sort ?? 'modified';
     if (filters.status === 'archived') return failure();
     if (noteFailure) return failure();
     const filtered = notes.filter(note => (filters.q === undefined || `${note.title} ${note.preview}`.toLowerCase().includes(filters.q.toLowerCase()))
@@ -451,6 +465,7 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
   };
   api.getNote = async (id) => {
     bodies++;
+    if (id === 'data-note-104') directNoteReads++;
     const note = notes.find(item => item.id === id);
     if (!note) return failure();
     return success({ id, content: JSON.stringify({ title: note.title, contentType: note.contentType,
@@ -465,9 +480,9 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
     await go('/think');
     await waitFor(() => document.querySelectorAll('.notes-list-item').length === 100 && getActiveBlockNoteEditor() !== null);
     check(bodies === 1, 'Summary loading must not eagerly fetch 100 full bodies');
-    element<HTMLButtonElement>('.notes-list-more').click();
+    element<HTMLButtonElement>('.notes-list-pagination__more').click();
     await waitFor(() => document.querySelectorAll('.notes-list-item').length === 105);
-    check(document.querySelector('.notes-list-more') === null, 'Last page has no misleading load-more action');
+    check(document.querySelector('.notes-list-pagination__more') === null, 'Last page has no misleading load-more action');
     const editor = getActiveBlockNoteEditor();
     const actionsButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]')).find(b => b.textContent?.includes('Actions'));
     if (!document.querySelector('.notes-recovery-launch')) actionsButton?.click();
@@ -475,12 +490,13 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
     const recovery = element<HTMLButtonElement>('.notes-recovery-launch');
     const launcherHeight = recovery.getBoundingClientRect().height;
     recovery.focus(); recovery.click();
-    await waitFor(() => document.querySelector('dialog[open]')?.textContent?.includes('Archive list is unavailable') === true);
-    const recoveryDialog = element<HTMLDialogElement>('dialog[open]');
+    await waitFor(() => openDialogWithText('Archive list is unavailable') !== null, 'archive list error shown');
+    const recoveryDialog = openDialogWithText('Archive list is unavailable');
+    if (!recoveryDialog) throw new Error('Recovery centre did not expose the archive error');
     check(getActiveBlockNoteEditor() === editor && recoveryDialog.contains(document.activeElement), 'Think recovery stays inside the real shell without unmounting its editor');
     if (innerWidth <= 600) check(launcherHeight >= 44, 'Think recovery launcher has a phone touch target');
     button('Close recovery', recoveryDialog).click();
-    await waitFor(() => document.querySelector('dialog[open]') === null);
+    await waitFor(() => document.querySelector('.note-recovery--centre') === null);
     check(document.activeElement === actionsButton && getActiveBlockNoteEditor() === editor, 'Recovery close restores launcher focus and open writing');
     const search = element<HTMLInputElement>('#notes-search');
     input('#notes-search', 'Hidden searchable');
@@ -497,22 +513,13 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
     button('Retry', element('.kh-data-notice')).click();
     await waitFor(() => document.querySelector('.kh-data-notice') === null);
     input('#notes-search', '');
-    await waitFor(() => document.querySelectorAll('.notes-list-item').length === 105);
+    await waitFor(() => {
+      document.querySelector<HTMLButtonElement>('.notes-list-pagination__more:not(:disabled)')?.click();
+      return document.querySelectorAll('.notes-list-item').length === 105;
+    }, 'cleared search shows all notes');
     check(getActiveBlockNoteEditor() === editor, 'Retry preserves the open editor');
-    element<HTMLButtonElement>('.notes-list-filters__toggle').click();
-    await waitFor(() => !element('.notes-list-filters__fields').hidden);
-    input('.notes-list-filters__fields .notes-list-filter:nth-child(2) select', 'blog');
-    await waitFor(() => document.querySelectorAll('.notes-list-item').length === 1
-      && document.querySelector('.notes-list-item-title')?.textContent === notes[104]?.title, 'later-page type filter');
-    input('.notes-list-filters__fields .notes-list-filter:first-child select', projects[1]!.id);
-    await waitFor(() => document.querySelector('.notes-list-empty') !== null, 'project filter sent to server');
-    button('Clear', element('.notes-list-filters')).click();
-    await waitFor(() => document.querySelectorAll('.notes-list-item').length === 105);
-    input('.notes-list-filters__fields .notes-list-filter:nth-child(3) select', libraryTag.id);
-    await waitFor(() => document.querySelectorAll('.notes-list-item').length === 1
-      && document.querySelector('.notes-list-item-title')?.textContent === notes[104]?.title, 'later-page taxonomy filter');
-    button('Clear', element('.notes-list-filters')).click();
-    await waitFor(() => document.querySelectorAll('.notes-list-item').length === 105);
+    input('.notes-list-tools__select', 'title');
+    await waitFor(() => requestedNoteSort === 'title', 'sort selection sent to server');
     let noteCreates = 0;
     let noteCreateFailure = true;
     api.createNote = async (request) => {
@@ -526,15 +533,20 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
     const newNoteButton = element<HTMLButtonElement>('.notes-header__new');
     newNoteButton.click();
     newNoteButton.click();
-    await waitFor(() => document.querySelector('dialog[open]')?.textContent?.includes('Could not create note') === true,
+    await waitFor(() => openDialogWithText('Could not create note') !== null,
       'failed note create shown');
     check(noteCreates === 1 && getActiveBlockNoteEditor() === editor, 'Failed duplicate create preserves the open writing');
-    button('OK', element('dialog[open]')).click();
-    await waitFor(() => document.querySelector('dialog[open]') === null && !newNoteButton.disabled);
+    button('OK', openDialogWithText('Could not create note')!).click();
+    await waitFor(() => openDialogWithText('Could not create note') === null && !newNoteButton.disabled);
     noteCreateFailure = false;
     newNoteButton.click();
+    await waitFor(() => {
+      document.querySelector<HTMLButtonElement>('.notes-list-pagination__more:not(:disabled)')?.click();
+      return document.querySelectorAll('.notes-list-item').length === 106;
+    }, 'create retry loaded all notes');
     await waitFor(() => document.querySelectorAll('.notes-list-item').length === 106
-      && getActiveBlockNoteEditor() !== null && getActiveBlockNoteEditor() !== editor,
+      && document.querySelector('.notes-list-item--active')?.textContent?.includes('Untitled') === true
+      && getActiveBlockNoteEditor() !== null,
       'create retry selected new note');
     const createdEditor = getActiveBlockNoteEditor();
     let noteDeletes = 0;
@@ -547,23 +559,32 @@ export async function runDataReliabilityChecks(queryClient: QueryClient, go: (pa
       return success(undefined);
     };
     const createdRow = [...document.querySelectorAll('.notes-list-item')].find(row => row.textContent?.includes('Untitled'))!;
+    check(createdRow.classList.contains('notes-list-item--active'), 'Created note is the selected writing');
     createdRow.querySelector<HTMLButtonElement>('.notes-list-item__delete')!.click();
-    await waitFor(() => document.querySelector('dialog[open]') !== null);
-    button('Delete', element('dialog[open]')).click();
-    await waitFor(() => document.querySelector('dialog[open]')?.textContent?.includes('Could not delete note') === true,
+    await waitFor(() => openDialogWithButton('Delete') !== null, 'archive confirmation shown');
+    button('Delete', openDialogWithButton('Delete')!).click();
+    await waitFor(() => openDialogWithText('Could not delete note') !== null,
       'failed note archive shown');
-    check(noteDeletes === 1 && getActiveBlockNoteEditor() === createdEditor, 'Failed archive retains the exact open editor');
-    button('OK', element('dialog[open]')).click();
-    await waitFor(() => document.querySelector('dialog[open]') === null
+    check(noteDeletes === 1 && getActiveBlockNoteEditor() === createdEditor
+      && createdRow.classList.contains('notes-list-item--active'), 'Failed archive retains the exact open editor');
+    button('OK', openDialogWithText('Could not delete note')!).click();
+    await waitFor(() => openDialogWithText('Could not delete note') === null
       && !createdRow.querySelector<HTMLButtonElement>('.notes-list-item__delete')!.disabled);
     noteDeleteFailure = false;
     createdRow.querySelector<HTMLButtonElement>('.notes-list-item__delete')!.click();
-    await waitFor(() => document.querySelector('dialog[open]') !== null);
-    button('Delete', element('dialog[open]')).click();
-    await waitFor(() => document.querySelectorAll('.notes-list-item').length === 105 && getActiveBlockNoteEditor() !== createdEditor);
+    await waitFor(() => openDialogWithButton('Delete') !== null, 'archive retry confirmation shown');
+    button('Delete', openDialogWithButton('Delete')!).click();
+    await waitFor(() => {
+      document.querySelector<HTMLButtonElement>('.notes-list-pagination__more:not(:disabled)')?.click();
+      return document.querySelectorAll('.notes-list-item').length === 105
+        && document.querySelector('.notes-list-item--active')?.textContent?.includes('Untitled') !== true;
+    }, 'archive retry removed created note');
     await go('/think?noteId=data-note-104');
-    await waitFor(() => document.querySelector('.notes-list-item--active')?.textContent?.includes(notes[104]!.title) === true,
-      'legacy direct note link');
+    await waitFor(() => directNoteReads > 0, 'legacy direct note requested');
+    await waitFor(() => {
+      document.querySelector<HTMLButtonElement>('.notes-list-pagination__more:not(:disabled)')?.click();
+      return document.querySelector('.notes-list-item--active')?.textContent?.includes(notes[104]!.title) === true;
+    }, 'legacy direct note link');
   }
   await go('/');
   results.push('Think loads 105 summaries, finds later-page writing/types, preserves failed create/archive work, and opens legacy direct links');

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { UseCase } from '../src/types/useCases';
-import { defaultHandoffPath, filterUseCases, groupByProduct, isStalled, launchFromRef, sinceLabel, sourceHref, stalledNudge, useCaseBoardColumn } from '../src/features/useCases/useCaseView';
+import { boardColumnForUseCase, defaultHandoffPath, filterUseCases, groupByProduct, isStalled, launchFromRef, sinceLabel, sourceHref, stalledNudge } from '../src/features/useCases/useCaseView';
 
 const NOW = Date.parse('2026-05-01T12:00:00Z');
 const daysAgo = (d: number): string => new Date(NOW - d * 86_400_000).toISOString();
@@ -27,12 +27,12 @@ test('groups follow product order, newest first, and skip empty groups', () => {
 });
 
 test('maps active use case stages to task board columns without showing closed cases', () => {
-  assert.equal(useCaseBoardColumn('candidate'), 'backlog');
-  assert.equal(useCaseBoardColumn('refining'), 'in-progress');
-  assert.equal(useCaseBoardColumn('spec_ready'), 'in-progress');
-  assert.equal(useCaseBoardColumn('handed_off'), 'in-progress');
-  assert.equal(useCaseBoardColumn('shipped'), null);
-  assert.equal(useCaseBoardColumn('dropped'), null);
+  assert.equal(boardColumnForUseCase('candidate'), 'backlog');
+  assert.equal(boardColumnForUseCase('refining'), 'in-progress');
+  assert.equal(boardColumnForUseCase('spec_ready'), 'in-progress');
+  assert.equal(boardColumnForUseCase('handed_off'), 'in-progress');
+  assert.equal(boardColumnForUseCase('shipped'), null);
+  assert.equal(boardColumnForUseCase('dropped'), null);
 });
 
 test('since labels and the stalled rule', () => {

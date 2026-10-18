@@ -6,6 +6,7 @@ import { getTodaysBriefing, generateMorningBriefing, type Briefing } from '../ai
 import { generateWeeklyMicrosoftDigest, type WeeklyDigest } from '../ai/weeklyMicrosoftDigest.js';
 import { getPodcastPrepStatus, generatePodcastPrep, acknowledgePodcastPrep } from '../ai/podcastPrep.js';
 import { ValidationError } from '../types/errors.js';
+import { HTTP_STATUS } from '../config/constants.js';
 
 export const todayRouter = Router();
 
@@ -13,7 +14,7 @@ todayRouter.get('/podcast-prep', (_req, res, next) => {
   void getPodcastPrepStatus(getDb()).then((data) => { res.json({ success: true, data }); }).catch(next);
 });
 todayRouter.post('/podcast-prep', (_req, res, next) => {
-  void generatePodcastPrep(getDb(), true, new Date(), true).then((data) => { res.status(202).json({ success: true, data }); }).catch(next);
+  void generatePodcastPrep(getDb(), true, new Date(), true).then((data) => { res.status(HTTP_STATUS.ACCEPTED).json({ success: true, data }); }).catch(next);
 });
 todayRouter.post('/podcast-prep/acknowledge', (req, res, next) => {
   const body = req.body as { recordingDate?: unknown; generatedAt?: unknown };

@@ -103,8 +103,9 @@ function check(value: boolean, message: string): void { if (!value) throw new Er
 function button(selector: string): HTMLButtonElement { return document.querySelector<HTMLButtonElement>(selector)!; }
 async function confirmRestore(): Promise<void> {
   button('.note-history__button--restore').click();
-  await waitFor(() => document.querySelector('dialog[open]') !== null);
-  const confirm = [...document.querySelectorAll<HTMLButtonElement>('dialog button')].find(item => item.textContent === 'Restore writing')!;
+  const confirmButton = () => [...document.querySelectorAll<HTMLButtonElement>('dialog.kh-dialog[open] button')].find(item => item.textContent === 'Restore writing');
+  await waitFor(() => confirmButton() !== undefined);
+  const confirm = confirmButton()!;
   confirm.click();
 }
 async function runNoteHistoryChecks(): Promise<string[]> {

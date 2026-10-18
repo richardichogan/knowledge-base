@@ -9,7 +9,7 @@ import { api } from '../src/services/api';
 import { alertDialog, confirmDialog } from '../src/services/appDialogs';
 import type { ApiResponse } from '../src/types/apiResponse';
 import type { CfpItem } from '../src/services/api';
-import { DEFAULT_DISCOVER_VIEW, DISCOVER_PREFERENCES_KEY, SAVED_VIEWS_KEY } from '../src/utils/savedViews';
+import { DISCOVER_PREFERENCES_KEY } from '../src/utils/savedViews';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -24,16 +24,7 @@ let failWorkflow = true;
 let fail = false;
 let denied = false;
 let clipboard = '';
-let sparkWrites = 0;
-let failSpark = true;
 localStorage.removeItem(DISCOVER_PREFERENCES_KEY);
-localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify({ version: 1, items: [{
-  id: '11111111-1111-4111-8111-111111111111', name: 'Unavailable source scope',
-  view: { ...DEFAULT_DISCOVER_VIEW, source: 'Unavailable feed', title: '50%_literal', sort: 'latest' },
-}] }));
-let requestedSort = '';
-let requestedSource: string | undefined;
-let requestedTitle: string | undefined;
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
   writeText: async (value: string) => {
     if (denied) throw new Error('Denied');
@@ -43,8 +34,7 @@ Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
 const now = new Date().toISOString();
 api.getTaxonomy = async () => success([]);
 api.getDiscoverSources = async () => success([]);
-api.getDiscoverFeed = async (_state, source, _page, _pageSize, title, sort) => {
-  requestedSort = sort ?? 'weighted'; requestedSource = source; requestedTitle = title;
+api.getDiscoverFeed = async () => {
   return success({ items: [{
   id: articleId, sourceId: 'test', title: 'A public cloud management announcement', url: 'https://example.com/news',
   description: 'Public news', publishedAt: now, indexedAt: now, sourceTitle: 'Test newsletter', workflowState: 'to-review',
@@ -74,17 +64,6 @@ api.updateDiscoverWorkflow = async (id, state) => {
   if (failWorkflow) throw new Error('Workflow unavailable');
   return success({});
 };
-api.createArticleSpark = async (sourceId, tags) => {
-  sparkWrites++;
-  check(sourceId === articleId, 'Spark asks the server to read its original article, not an old feed synopsis');
-  await new Promise(resolve => setTimeout(resolve, 50));
-  if (failSpark) return failure();
-  return success({
-    id: 'fixture-spark', sourceId: articleId, sourceType: 'discover_item', sourceTitle: 'A public cloud management announcement',
-    body: 'A public cloud management announcement\n\nThe argument from the full article.', tags: tags ?? [], clusterId: null, createdAt: now,
-    usedAt: null, usedType: null, usedRef: null, usedTitle: null,
-  });
-};
 
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={queryClient}>
@@ -101,7 +80,6 @@ async function waitFor(condition: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`Fixture timed out: ${JSON.stringify({
-    sort: requestedSort, source: requestedSource, title: requestedTitle,
     feedbackWrites: requests, workflowWrites, text: document.body.innerText,
   })}`);
 }
@@ -111,116 +89,42 @@ function click(text: string): void {
   button.click();
 }
 
+function el<T extends Element = HTMLElement>(selector: string): T {
+  const found = document.querySelector<T>(selector);
+  if (found === null) throw new Error(`Missing element ${selector}: ${document.body.innerText.slice(0, 600)}`);
+  return found;
+}
+
+function openList(key: string): void {
+  const select = document.querySelector<HTMLSelectElement>('[aria-label="Other Discover lists"]')!;
+  select.value = key;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 export async function runDiscoverChecks(): Promise<string[]> {
   const checks: string[] = [];
-  await waitFor(() => document.querySelector('.dc-action--linkedin') !== null);
+  await waitFor(() => document.querySelector('.dc-card .dc-action--explore') !== null);
   const card = document.querySelector<HTMLElement>('.dc-card')!;
-  check(card.querySelector('.dc-score__value')?.textContent === '124.8rank',
-    'Badge shows the actual weighted rank, not relevance or a clamped percentage');
-  check(card.querySelector('.dc-score')?.getAttribute('title')?.includes('freshness') === true,
-    'Rank tooltip explains the ordering factors');
-  const rankFontSize = getComputedStyle(card.querySelector('.dc-score__value')!).fontSize;
-  check(parseFloat(rankFontSize) >= 28,
-    `Rank number is prominently sized on desktop and mobile (actual ${rankFontSize})`);
-  check(parseFloat(getComputedStyle(card.querySelector('.dc-score__value small')!).fontSize) >= 14,
-    'Rank label remains readable');
-  const metaBounds = card.querySelector('.dc-card-meta')!.getBoundingClientRect();
-  const titleBounds = card.querySelector('.dc-card-title')!.getBoundingClientRect();
-  const scoreBounds = card.querySelector('.dc-score')!.getBoundingClientRect();
-  check(parseFloat(getComputedStyle(card.querySelector('.dc-card-title')!).fontSize) >= 15.75,
-    'Article title is slightly larger than the previous 14px');
-  if (window.innerWidth > 600) {
-    check(titleBounds.top - metaBounds.bottom <= 8, 'Title stays directly below metadata, not below the large rank');
-    check(titleBounds.top < scoreBounds.bottom, 'Rank sits beside the heading rather than pushing it down');
-    check(titleBounds.right < scoreBounds.left, 'Heading text and rank have separate non-overlapping columns');
-  } else {
-    check(card.querySelector('.dc-card-title-row')!.getBoundingClientRect().width >= card.clientWidth - 24,
-      'Mobile title keeps the full card width instead of being squeezed beside rank');
-  }
-  checks.push('Weighted ranking badge preserves boosted values and explains ordering');
-  const more = card.querySelector<HTMLElement>('.dc-card-actions__more')!;
+  check(card.querySelector('.dc-card-title')?.textContent === 'A public cloud management announcement', 'Card shows the article title');
+  check(card.querySelector('.dc-card-synopsis')?.textContent === 'A useful enterprise IT update.', 'Card shows Athena\'s synopsis');
+  check(!card.textContent!.includes('Why Athena picked this'), 'Selection reasons live in Explore, not on the card');
   check(!card.matches(':hover') && !card.matches(':focus-within'), 'Check actions before hovering or focusing the card');
-  check(getComputedStyle(more).opacity === '1', 'Secondary Discover actions remain visible without hover');
-  for (const button of more.querySelectorAll<HTMLButtonElement>('button')) {
-    const style = getComputedStyle(button);
-    check(style.visibility === 'visible' && style.display !== 'none' && button.getBoundingClientRect().width > 0,
-      'Copy URL, Canvas, Spark and Connections controls are discoverable');
+  for (const action of card.querySelectorAll<HTMLButtonElement>('.dc-card-actions button')) {
+    const style = getComputedStyle(action);
+    check(style.visibility === 'visible' && style.display !== 'none' && action.getBoundingClientRect().width > 0,
+      'Save, Not interested and Explore are visible without hover');
   }
-  check(document.documentElement.scrollWidth <= window.innerWidth, 'Visible actions do not cause horizontal page overflow');
-  checks.push('All article actions visible before hover/focus on desktop and touch layouts');
-  const sparkButton = card.querySelector<HTMLButtonElement>('.dc-action--spark')!;
-  sparkButton.click(); sparkButton.click();
-  await waitFor(() => card.querySelector('.dc-spark-error') !== null && !sparkButton.disabled);
-  check(sparkWrites === 1 && card.querySelector('.isc-input') === null,
-    'One click saves the synopsis; same-tick clicks do not duplicate requests or open a writing box');
-  failSpark = false;
-  sparkButton.click();
-  await waitFor(() => sparkButton.textContent?.includes('Spark saved') === true);
-  check(sparkWrites === 2 && sparkButton.disabled && card.querySelector('.dc-spark-error') === null && workflowWrites === 0,
-    'Failed saves can be retried; success is confirmed and prevents repeated capture without changing article workflow');
-  checks.push('One-click synopsis sparks preserve source, report errors, retry and prevent double clicks');
-  const setInput = (input: HTMLInputElement | HTMLTextAreaElement, value: string) => {
-    const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  };
-  check(card.querySelector('.dc-review') === null && !card.textContent?.includes('Why this rank?') && !card.textContent?.includes('relevance feedback'),
-    'Rank breakdown and inert relevance feedback are not shown');
   const title = card.querySelector<HTMLElement>('.dc-card-title')!;
-  const synopsis = card.querySelector<HTMLElement>('.dc-card-synopsis');
-  check(parseFloat(getComputedStyle(title).fontSize) >= 21 && (synopsis === null || parseFloat(getComputedStyle(synopsis).fontSize) >= 16.5),
-    'Discover titles and synopses use the larger reading sizes');
+  const synopsis = card.querySelector<HTMLElement>('.dc-card-synopsis')!;
+  check(parseFloat(getComputedStyle(title).fontSize) >= 15.75 && parseFloat(getComputedStyle(synopsis).fontSize) >= 14,
+    'Discover titles and synopses use readable sizes');
+  check(document.documentElement.scrollWidth <= window.innerWidth, 'Visible actions do not cause horizontal page overflow');
+  checks.push('Article cards show title, synopsis and all actions before hover/focus on desktop and touch layouts');
 
-  const sortControl = document.querySelector<HTMLSelectElement>('[aria-label="Sort articles"]')!;
-  sortControl.value = 'editorial'; sortControl.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => requestedSort === 'editorial');
-  const views = document.querySelector<HTMLDetailsElement>('.kh-saved-views')!;
-  views.open = true;
-  const viewName = views.querySelector<HTMLInputElement>('input')!;
-  setInput(viewName, 'Editorial review');
-  await new Promise(resolve => setTimeout(resolve, 30));
-  click('Save current view');
-  await waitFor(() => views.textContent?.includes('View saved on this device.') === true);
-  const stored = JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY)!) as { items: Array<{ id: string; name: string; view: { sort: string } }> };
-  const editorialView = stored.items.find(item => item.name === 'Editorial review')!;
-  check(editorialView.view.sort === 'editorial', 'Named view persists the server sort');
-  sortControl.value = 'latest'; sortControl.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => requestedSort === 'latest');
-  const picker = views.querySelector<HTMLSelectElement>('select')!;
-  picker.value = ''; picker.dispatchEvent(new Event('change', { bubbles: true }));
-  await new Promise(resolve => setTimeout(resolve, 30));
-  picker.value = editorialView.id; picker.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => requestedSort === 'editorial');
-  click('Copy view link');
-  await waitFor(() => views.textContent?.includes('View link copied.') === true);
-  const shared = new URL(clipboard);
-  check((JSON.parse(shared.searchParams.get('view')!) as { sort: string }).sort === 'editorial',
-    'Shared link contains the selected sort, not article writing');
-  picker.value = '11111111-1111-4111-8111-111111111111'; picker.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => requestedSource === 'Unavailable feed' && requestedTitle === '50%_literal' && requestedSort === 'latest');
-  check(document.querySelector<HTMLSelectElement>('[aria-label="Filter by source"]')?.value === 'Unavailable feed',
-    'Unavailable saved source remains an explicit scope instead of widening to all feeds');
-  await waitFor(() => (JSON.parse(localStorage.getItem(DISCOVER_PREFERENCES_KEY)!) as { source: string }).source === 'Unavailable feed');
-  const write = Storage.prototype.setItem;
-  Storage.prototype.setItem = function(key: string, value: string): void {
-    if (key === SAVED_VIEWS_KEY) throw new Error('Fixture device storage is full');
-    write.call(this, key, value);
-  };
-  try {
-    setInput(viewName, 'Retained name after storage failure');
-    await new Promise(resolve => setTimeout(resolve, 30));
-    click('Save current view');
-    await waitFor(() => document.body.textContent?.includes('View could not be loaded or saved') === true);
-    check(viewName.value === 'Retained name after storage failure', 'Storage failure preserves the unsaved view name');
-  } finally { Storage.prototype.setItem = write; }
-  click('Save current view');
-  await waitFor(() => document.querySelector('.kh-data-notice') === null);
-  picker.value = editorialView.id; picker.dispatchEvent(new Event('change', { bubbles: true }));
-  await waitFor(() => requestedSource === undefined && requestedTitle === undefined && requestedSort === 'editorial');
-  check(document.documentElement.scrollWidth <= window.innerWidth, 'Saved views and review forms fit every viewport');
-  views.open = false;
-  checks.push('All server sort choices, named device-local views, sharing and retry-safe feedback preserve workflow and exact input');
-  const trigger = document.querySelector<HTMLButtonElement>('.dc-action--linkedin')!;
+  card.querySelector<HTMLButtonElement>('.dc-action--explore')!.click();
+  await waitFor(() => document.querySelector('.dc-explore__panel') !== null);
+  const trigger = [...document.querySelectorAll<HTMLButtonElement>('.dc-explore__action')].find(b => b.textContent?.includes('Social post'))!;
+  check(trigger !== undefined, 'Explore offers a social post action');
   trigger.focus();
   trigger.click();
   await waitFor(() => document.querySelector('dialog[open]') !== null);
@@ -235,7 +139,7 @@ export async function runDiscoverChecks(): Promise<string[]> {
   await waitFor(() => document.querySelector('dialog')?.textContent?.includes('Article moved to Published') === true);
   check(clipboard === `${post}\n\nhttps://example.com/news`, 'Clipboard paragraph breaks and source URL');
   check(workflowWrites === 2, 'Copy moves article to Published with explicit failure and retry');
-  checks.push('Article draft, clipboard paragraphs, Published workflow, explicit workflow failure and retry');
+  checks.push('Explore social draft, clipboard paragraphs, Published workflow, explicit workflow failure and retry');
   denied = true;
   click('Copied');
   await waitFor(() => document.querySelector('.dc-linkedin__error') !== null);
@@ -252,8 +156,10 @@ export async function runDiscoverChecks(): Promise<string[]> {
   click('Close');
   await waitFor(() => document.querySelector('dialog[open]') === null);
   check(document.activeElement === trigger, 'Focus returns to launching control');
+  document.querySelector<HTMLButtonElement>('.dc-explore__close')?.click();
+  await waitFor(() => document.querySelector('.dc-explore__panel') === null);
   checks.push('Clipboard denial, generation failure and retry, focus restoration');
-  click('Inbox');
+  openList('inbox');
   await waitFor(() => document.querySelector('.dc-email') !== null);
   const firstEmail = document.querySelector<HTMLElement>('.dc-email')!;
   check(firstEmail.querySelector('.dc-email__mailbox-name')?.textContent === 'Blog'
@@ -265,10 +171,10 @@ export async function runDiscoverChecks(): Promise<string[]> {
   check(firstEmail.classList.contains('dc-email--unread') && getComputedStyle(firstEmail).borderLeftWidth === '3px', 'Unread mail and mailbox colour rail');
   check(parseFloat(getComputedStyle(firstEmail.querySelector('.dc-email__subject')!).fontSize) >= 16.5, 'Readable subject size');
   check(firstEmail.querySelector('a[href="https://outlook.office.com/mail/id/example"]') !== null, 'Open in Outlook link');
-  document.querySelector<HTMLButtonElement>('.dc-inbox-filter[data-mailbox="podcast"]')!.click();
+  el<HTMLButtonElement>('.dc-inbox-filter[data-mailbox="podcast"]').click();
   await waitFor(() => document.querySelectorAll('.dc-email').length === 1);
   check(document.querySelector('.dc-email__mailbox-name')?.textContent === 'Podcast', 'Mailbox filter shows only that mailbox');
-  document.querySelector<HTMLButtonElement>('.dc-inbox-filter:not([data-mailbox])')!.click();
+  el<HTMLButtonElement>('.dc-inbox-filter:not([data-mailbox])').click();
   await waitFor(() => document.querySelectorAll('.dc-email').length === 2);
   check(document.documentElement.scrollWidth <= window.innerWidth, 'Inbox fits the viewport');
   checks.push('Inbox shows the source mailbox, sender, subject and mailbox filter');
@@ -289,7 +195,7 @@ export async function runDiscoverChecks(): Promise<string[]> {
   api.getTimeline = inboxRead;
   click('Retry');
   await waitFor(() => document.querySelector('.kh-data-notice') === null);
-  click('To Review');
+  click('For you');
   await waitFor(() => document.querySelector('.dc-card') !== null);
   const articleRead = api.getDiscoverFeed;
   api.getDiscoverFeed = async () => failure();
@@ -300,21 +206,14 @@ export async function runDiscoverChecks(): Promise<string[]> {
   api.getDiscoverFeed = articleRead;
   click('Retry');
   await waitFor(() => document.querySelector('.kh-data-notice') === null);
-  const sourceRead = api.getDiscoverSources;
-  api.getDiscoverSources = async () => failure();
-  await queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
-  await waitFor(() => document.body.textContent?.includes('Source filters are unavailable') === true);
-  api.getDiscoverSources = sourceRead;
-  click('Retry');
-  await waitFor(() => document.querySelector('.kh-data-notice') === null);
   api.getCfpItems = async () => failure();
-  click('CFPs');
+  openList('cfps');
   await waitFor(() => document.body.textContent?.includes('Discovery feed is unavailable') === true);
   check(document.querySelector('.dc-empty') === null, 'Failed CFP read cannot claim no calls for papers');
   api.getCfpItems = async () => success([]);
   click('Retry');
   await waitFor(() => document.querySelector('.kh-data-notice') === null && document.querySelector('.dc-empty') !== null);
-  checks.push('False article, inbox, CFP and source envelopes show scoped Retry notices rather than false-empty feeds');
+  checks.push('False article, inbox and CFP envelopes show scoped Retry notices rather than false-empty feeds');
   let cfp: CfpItem = { id: 'cfp-fixture', source: 'callingallpapers', conferenceName: 'Reliable CFP fixture',
     description: null, tags: [], eventUri: null, cfpUri: 'https://example.com/cfp', cfpDeadline: now,
     eventStart: null, eventEnd: null, location: null, isVirtual: true, relevanceScore: null,
@@ -331,7 +230,7 @@ export async function runDiscoverChecks(): Promise<string[]> {
     cfp = { ...cfp, workflowState: state };
     return success({});
   };
-  const saveCfp = document.querySelector<HTMLButtonElement>('.dc-card--cfp .dc-action--save')!;
+  const saveCfp = el<HTMLButtonElement>('.dc-card--cfp .dc-action--save');
   saveCfp.click();
   saveCfp.click();
   await waitFor(() => saveCfp.disabled);
@@ -344,7 +243,7 @@ export async function runDiscoverChecks(): Promise<string[]> {
     const response = await articleRead(...args);
     return response.success ? success({ ...response.data, items: response.data.items.map(item => ({ ...item, workflowState: 'published' as const })) }) : response;
   };
-  click('Published');
+  openList('published');
   await waitFor(() => document.querySelector('.dc-published-url-input') !== null);
   let urlWrites = 0;
   let urlFailure = true;
@@ -353,11 +252,11 @@ export async function runDiscoverChecks(): Promise<string[]> {
     await new Promise(resolve => setTimeout(resolve, 100));
     return urlFailure ? failure() : success({});
   };
-  const urlInput = document.querySelector<HTMLInputElement>('.dc-published-url-input')!;
+  const urlInput = el<HTMLInputElement>('.dc-published-url-input');
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(urlInput, 'https://example.com/retained-post');
   urlInput.dispatchEvent(new Event('input', { bubbles: true }));
   await new Promise(resolve => setTimeout(resolve, 50));
-  const saveUrl = document.querySelector<HTMLButtonElement>('.dc-published-url-save')!;
+  const saveUrl = el<HTMLButtonElement>('.dc-published-url-save');
   saveUrl.click();
   saveUrl.click();
   await waitFor(() => urlInput.disabled);

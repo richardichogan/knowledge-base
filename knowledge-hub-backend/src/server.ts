@@ -12,6 +12,7 @@ import { loadConnectionCredentials } from './services/connectionCredentials.js';
 assertSafeDatabase(env.DATABASE_MODE, env.DATABASE_URL, env.NODE_ENV);
 let credentialTimer: ReturnType<typeof setInterval> | undefined;
 let refreshingCredentials = false;
+const CREDENTIAL_REFRESH_INTERVAL_MS = 15_000;
 const app = createApp(() => runtime.phase);
 const server = app.listen(env.PORT, () => {
   console.warn(`[Server] Listening on port ${env.PORT} (${env.NODE_ENV}); initializing.`);
@@ -32,7 +33,7 @@ const runtime = createRuntime({
       void loadConnectionCredentials(getDb()).catch(() => {
         console.error('[Connections] Credential refresh failed; check database connectivity and the credential encryption key.');
       }).finally(() => { refreshingCredentials = false; });
-    }, 15_000);
+    }, CREDENTIAL_REFRESH_INTERVAL_MS);
     credentialTimer.unref();
     if (env.NODE_ENV === 'production') startSyncScheduler();
     else console.warn('[Scheduler] Non-production mode: scheduled jobs disabled.');

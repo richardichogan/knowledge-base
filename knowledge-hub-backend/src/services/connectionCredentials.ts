@@ -6,15 +6,32 @@ import { EXTERNAL_FETCH_TIMEOUT_MS } from '../config/constants.js';
 import { ConfigurationError, IntegrationError, NotFoundError, ValidationError } from '../types/errors.js';
 
 const PREFIX = 'connection-credential:';
+const MIN_ENCRYPTION_KEY_CHARS = 32;
+const GCM_NONCE_BYTES = 12;
+const GCM_AUTH_TAG_BYTES = 16;
+const GCM_CIPHERTEXT_OFFSET = GCM_NONCE_BYTES + GCM_AUTH_TAG_BYTES;
+const UNAUTHORIZED_STATUS = 401;
+const FORBIDDEN_STATUS = 403;
+const MAX_CREDENTIAL_CHARS = 8_192;
+
+export interface ConnectionCredentialView {
+  id: string;
+  name: string;
+  detail: string;
+  helpUrl?: string;
+  configured: boolean;
+  usingFallback: string | null;
+  updatedAt: string | null;
+}
 
 function encryptionKey(): Buffer {
   const secret = env.CREDENTIAL_ENCRYPTION_KEY ?? env.GRAPH_CLIENT_SECRET;
-  if (!secret || secret.length < 32) throw new ConfigurationError('CREDENTIAL_ENCRYPTION_KEY (at least 32 characters)');
+  if (!secret || secret.length < MIN_ENCRYPTION_KEY_CHARS) throw new ConfigurationError(`CREDENTIAL_ENCRYPTION_KEY (at least ${MIN_ENCRYPTION_KEY_CHARS} characters)`);
   return createHash('sha256').update(`athena-connection-credentials:${secret}`).digest();
 }
 
 function encrypt(name: CredentialName, value: string): string {
-  const iv = randomBytes(12);
+  const iv = randomBytes(GCM_NONCE_BYTES);
   const cipher = createCipheriv('aes-256-gcm', encryptionKey(), iv);
   cipher.setAAD(Buffer.from(name));
   const data = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
@@ -24,10 +41,10 @@ function encrypt(name: CredentialName, value: string): string {
 function decrypt(name: CredentialName, encoded: string): string {
   try {
     const raw = Buffer.from(encoded, 'base64');
-    const decipher = createDecipheriv('aes-256-gcm', encryptionKey(), raw.subarray(0, 12));
+    const decipher = createDecipheriv('aes-256-gcm', encryptionKey(), raw.subarray(0, GCM_NONCE_BYTES));
     decipher.setAAD(Buffer.from(name));
-    decipher.setAuthTag(raw.subarray(12, 28));
-    return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8');
+    decipher.setAuthTag(raw.subarray(GCM_NONCE_BYTES, GCM_CIPHERTEXT_OFFSET));
+    return Buffer.concat([decipher.update(raw.subarray(GCM_CIPHERTEXT_OFFSET)), decipher.final()]).toString('utf8');
   } catch {
     throw new ConfigurationError(`Unable to decrypt saved ${name}; restore the original CREDENTIAL_ENCRYPTION_KEY / Graph client secret`);
   }
@@ -45,7 +62,7 @@ export async function loadConnectionCredentials(db: Pool): Promise<void> {
   replaceCredentialValues(values);
 }
 
-export async function listConnectionCredentials(db: Pool) {
+export async function listConnectionCredentials(db: Pool): Promise<ConnectionCredentialView[]> {
   await loadConnectionCredentials(db);
   const result = await db.query<{ source: string; updated_at: Date }>(
     'SELECT source, updated_at FROM sync_state WHERE source LIKE $1', [`${PREFIX}%`],
@@ -81,7 +98,7 @@ async function checkToken(id: string, value: string): Promise<boolean> {
   } catch {
     throw new IntegrationError(id, 'Could not reach the provider to verify the token. The previous credential has not been changed.');
   }
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === UNAUTHORIZED_STATUS || response.status === FORBIDDEN_STATUS) {
     throw new ValidationError('The provider rejected this token. Check its expiry, permissions and organisation access. The previous credential has not been changed.');
   }
   if (!response.ok) throw new IntegrationError(id, `Token verification failed (HTTP ${response.status}). The previous credential has not been changed.`);
@@ -91,7 +108,7 @@ async function checkToken(id: string, value: string): Promise<boolean> {
 export async function updateConnectionCredential(db: Pool, id: string, input: unknown): Promise<{ verified: boolean }> {
   const entry = connectionCredentials.find((c) => c.id === id);
   if (entry === undefined) throw new NotFoundError('Token connection');
-  if (typeof input !== 'string' || input.trim().length === 0 || input.length > 8192 || /[\r\n\0]/.test(input)) {
+  if (typeof input !== 'string' || input.trim().length === 0 || input.length > MAX_CREDENTIAL_CHARS || /[\r\n\0]/.test(input)) {
     throw new ValidationError('Enter a non-empty token or API key (maximum 8,192 characters, no line breaks).');
   }
   const value = input.trim();

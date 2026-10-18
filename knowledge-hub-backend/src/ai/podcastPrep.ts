@@ -19,6 +19,13 @@ interface RunRow {
 }
 const PREP_TIMEOUT_MS = 480_000;
 const MINUTE_MS = 60_000;
+const ISO_DATE_CHARS = 10;
+const MONDAY_RELEASE_TO_FRIDAY_RECORDING_DAYS = 3;
+const FRIDAY_UTC_DAY = 5;
+export const PODCAST_PREP_START_UTC_HOUR = 7;
+export const PODCAST_PREP_END_UTC_HOUR = 18;
+const MAX_PREVIOUS_MESSAGES = 8;
+const MAX_PREVIOUS_HISTORY_CHARS = 30_000;
 const SELECT = `SELECT to_char(recording_date,'YYYY-MM-DD') AS recording_date,
   CASE WHEN status='running' AND started_at < NOW()-interval '30 minutes' THEN 'failed' ELSE status END AS status,
   session_id::text,output_id::text,generated_at,acknowledged_at,warnings,
@@ -37,22 +44,23 @@ export function podcastRecordingDate(entry: ScheduleEntry | undefined, now = new
   // Some schedules explicitly store the Monday release, not the preceding Friday recording.
   if (entry.dateSource !== 'calendar' && date.getUTCDay() === 1
     && /recorded (?:on )?fridays/i.test(note) && /released the following monday/i.test(note)) {
-    date.setUTCDate(date.getUTCDate() - 3);
-    while (date.toISOString().slice(0, 10) < workToday(now)) date.setUTCDate(date.getUTCDate() + entry.intervalDays);
+    date.setUTCDate(date.getUTCDate() - MONDAY_RELEASE_TO_FRIDAY_RECORDING_DAYS);
+    while (date.toISOString().slice(0, ISO_DATE_CHARS) < workToday(now)) date.setUTCDate(date.getUTCDate() + entry.intervalDays);
   }
   const skipped = new Set([...(entry.cancelledDates ?? []), ...(entry.recordedDates ?? [])]);
-  while (skipped.has(date.toISOString().slice(0, 10))) {
+  while (skipped.has(date.toISOString().slice(0, ISO_DATE_CHARS))) {
     date.setUTCDate(date.getUTCDate() + entry.intervalDays);
   }
-  return date.toISOString().slice(0, 10);
+  return date.toISOString().slice(0, ISO_DATE_CHARS);
 }
 
 export function podcastPrepDue(recording: string | null, now = new Date()): boolean {
-  if (!recording || new Date(`${recording}T12:00:00Z`).getUTCDay() !== 5) return false;
+  if (!recording || new Date(`${recording}T12:00:00Z`).getUTCDay() !== FRIDAY_UTC_DAY) return false;
   const clock = ukClock(now);
   const tomorrow = new Date(`${workToday(now)}T12:00:00Z`);
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  return clock.weekday === 'Thu' && clock.hour >= 7 && clock.hour < 18 && tomorrow.toISOString().slice(0, 10) === recording;
+  return clock.weekday === 'Thu' && clock.hour >= PODCAST_PREP_START_UTC_HOUR
+    && clock.hour < PODCAST_PREP_END_UTC_HOUR && tomorrow.toISOString().slice(0, ISO_DATE_CHARS) === recording;
 }
 
 export async function getPodcastPrepStatus(db: Pool, now = new Date()): Promise<PodcastPrepStatus> {
@@ -64,7 +72,7 @@ export async function getPodcastPrepStatus(db: Pool, now = new Date()): Promise<
   ]);
   return { nextRecording: next,
     scheduleWarning: next === null ? 'No podcast recording date is set. Set it with Athena before automatic preparation can run.'
-      : new Date(`${next}T12:00:00Z`).getUTCDay() !== 5 ? 'The saved recording date is not a Friday. Correct it with Athena to enable Thursday preparation.' : null,
+      : new Date(`${next}T12:00:00Z`).getUTCDay() !== FRIDAY_UTC_DAY ? 'The saved recording date is not a Friday. Correct it with Athena to enable Thursday preparation.' : null,
     run: current.rows[0] ? runData(current.rows[0]) : null,
     latestBrief: latest.rows[0] ? runData(latest.rows[0]) : null };
 }
@@ -103,7 +111,7 @@ export async function generatePodcastPrep(db: Pool, manual = false, now = new Da
   const perform = async (): Promise<void> => {
     try {
       const history = await getSessionHistory(db, claim.sessionId);
-      const previous = history.slice(-8).map((m) => `${m.role}: ${m.content}`).join('\n').slice(-30_000);
+      const previous = history.slice(-MAX_PREVIOUS_MESSAGES).map((m) => `${m.role}: ${m.content}`).join('\n').slice(-MAX_PREVIOUS_HISTORY_CHARS);
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       const result = await (async (): Promise<Awaited<ReturnType<typeof prepare>>> => {

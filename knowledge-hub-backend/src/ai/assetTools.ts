@@ -40,6 +40,10 @@ const PROJECT_LIFECYCLE = ['active', 'paused', 'completed', 'archived'] as const
 const NODE_KINDS = ['process', 'decision', 'terminator', 'document'] as const;
 const MAX_DIAGRAM_NODES = 80;
 const MAX_MAP_IDEAS = 60;
+const MAX_PROJECT_ID_CHARS = 60;
+const PERCENTAGE_MAX = 100;
+const MAX_LANE_DESCRIPTION_CHARS = 2_000;
+const MAX_GOVERNANCE_FINDINGS = 10;
 
 /** Diagram colour names → saved (light-theme) fill and border, as the editor's swatches use. */
 export const DIAGRAM_COLOURS: Record<string, { fill: string; stroke: string }> = {
@@ -63,7 +67,8 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[]): T | undefined =>
   typeof v === 'string' && (allowed as readonly string[]).includes(v) ? v as T : undefined;
 
-const textList = (description: string) => ({ type: 'array', items: { type: 'string' }, description });
+const textList = (description: string): { type: string; items: { type: string }; description: string } =>
+  ({ type: 'array', items: { type: 'string' }, description });
 /** AI flow step metadata accepted on shapes; only record what the user stated or the sources show. */
 const aiFlowStepProperties = {
   lane: { type: 'string', description: 'AI flow: key, label or id of the lane this step sits in.' },
@@ -417,7 +422,7 @@ async function createProject(db: Pool, args: Record<string, unknown>): Promise<u
   const name = str(args['name']);
   if (name === undefined) return { error: 'name is required.' };
   if (await resolveProjectId(db, name) !== null) return { error: `A project called "${name}" already exists; use update_project.` };
-  const slug = (str(args['id']) ?? name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  const slug = (str(args['id']) ?? name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_PROJECT_ID_CHARS);
   const id = slug !== '' && await resolveProjectId(db, slug) === null ? slug : randomUUID();
   const tags = cleanTags(args['tags']) ?? [];
   await db.query(
@@ -519,7 +524,7 @@ const flag = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : 
 /** 0–1; a percentage (e.g. 85) is converted. */
 const threshold = (v: unknown): number | undefined => {
   if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return undefined;
-  const t = v > 1 && v <= 100 ? v / 100 : v;
+  const t = v > 1 && v <= PERCENTAGE_MAX ? v / PERCENTAGE_MAX : v;
   return t <= 1 ? t : undefined;
 };
 /** Merges defined incoming values over existing ones; undefined when nothing is left. */
@@ -572,7 +577,7 @@ function laneSpecs(v: unknown): LaneSpec[] {
     const label = str(l['label']);
     if (label === undefined) return [];
     const owner = flowText(l['owner']);
-    const description = str(l['description'])?.slice(0, 2000);
+    const description = str(l['description'])?.slice(0, MAX_LANE_DESCRIPTION_CHARS);
     return [{ key: str(l['key']) ?? label, label, ...(owner !== undefined ? { owner } : {}), ...(description !== undefined ? { description } : {}) }];
   });
 }
@@ -675,8 +680,8 @@ function governanceSummary(doc: DiagramDocument): Record<string, unknown> {
   const count = (s: string): number => findings.filter((f) => f.severity === s).length;
   return {
     high: count('high'), warnings: count('warning'), info: count('info'),
-    top: findings.slice(0, 10).map((f) => `${f.severity}: ${f.message}`),
-    ...(findings.length > 10 ? { more: findings.length - 10 } : {}),
+    top: findings.slice(0, MAX_GOVERNANCE_FINDINGS).map((f) => `${f.severity}: ${f.message}`),
+    ...(findings.length > MAX_GOVERNANCE_FINDINGS ? { more: findings.length - MAX_GOVERNANCE_FINDINGS } : {}),
     note: 'Advisory checks for governance details not recorded on the diagram. Tell the user about the high ones and ask for the missing details; do not invent controls to clear them.',
   };
 }

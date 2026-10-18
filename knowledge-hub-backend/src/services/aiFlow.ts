@@ -79,10 +79,13 @@ export type AiFlowSeverity = 'high' | 'warning' | 'info';
 export interface AiFlowFinding { code: string; severity: AiFlowSeverity; targetId: string; message: string }
 const SEVERITY_RANK: Record<AiFlowSeverity, number> = { high: 0, warning: 1, info: 2 };
 const STEP_KINDS: ReadonlySet<DiagramKind> = new Set<DiagramKind>(AI_FLOW_STEP_KINDS);
+const MAX_STEP_LABEL_CHARS = 60;
+const TRUNCATED_STEP_LABEL_CHARS = 57;
+const LAYOUT_CENTER_DIVISOR = 2;
 
 const named = (label: string): string => {
   const text = label.replace(/\s+/g, ' ').trim();
-  return text === '' ? 'Untitled step' : `"${text.length > 60 ? `${text.slice(0, 57)}...` : text}"`;
+  return text === '' ? 'Untitled step' : `"${text.length > MAX_STEP_LABEL_CHARS ? `${text.slice(0, TRUNCATED_STEP_LABEL_CHARS)}...` : text}"`;
 };
 
 /**
@@ -207,7 +210,7 @@ export function layoutAiFlow(doc: DiagramDocument): DiagramDocument {
   const columns = steps.length === 0 ? 1 : Math.max(...column.values()) + 1;
   const columnPitch = Math.max(L.minColumnPitch, ...steps.map((s) => s.width + L.columnGap));
   const cellWidth = columnPitch - L.columnGap;
-  const laneWidth = L.header + L.padX * 2 + columns * columnPitch - L.columnGap;
+  const laneWidth = L.header + L.padX * LAYOUT_CENTER_DIVISOR + columns * columnPitch - L.columnGap;
   const originX = Math.min(...lanes.map((l) => l.x));
   const originY = Math.min(...lanes.map((l) => l.y));
 
@@ -225,13 +228,13 @@ export function layoutAiFlow(doc: DiagramDocument): DiagramDocument {
     }
     const rows = Math.max(1, ...perColumn.values());
     const rowPitch = Math.max(L.minRowPitch, ...children.map((s) => s.height + L.rowGap));
-    const height = Math.max(L.minLaneHeight, L.padY * 2 + rows * rowPitch);
-    const top = y + (height - rows * rowPitch) / 2;
+    const height = Math.max(L.minLaneHeight, L.padY * LAYOUT_CENTER_DIVISOR + rows * rowPitch);
+    const top = y + (height - rows * rowPitch) / LAYOUT_CENTER_DIVISOR;
     moved.set(lane.id, { x: originX, y, width: laneWidth, height });
     for (const s of children) {
-      const cx = originX + L.header + L.padX + column.get(s.id)! * columnPitch + cellWidth / 2;
-      const cy = top + row.get(s.id)! * rowPitch + rowPitch / 2;
-      moved.set(s.id, { x: Math.round(cx - s.width / 2), y: Math.round(cy - s.height / 2) });
+      const cx = originX + L.header + L.padX + column.get(s.id)! * columnPitch + cellWidth / LAYOUT_CENTER_DIVISOR;
+      const cy = top + row.get(s.id)! * rowPitch + rowPitch / LAYOUT_CENTER_DIVISOR;
+      moved.set(s.id, { x: Math.round(cx - s.width / LAYOUT_CENTER_DIVISOR), y: Math.round(cy - s.height / LAYOUT_CENTER_DIVISOR) });
     }
     y += height;
   }

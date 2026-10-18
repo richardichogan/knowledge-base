@@ -23,6 +23,8 @@ export interface LocalFileWriteProposal {
 const MAX_FOLDERS = 50;
 const MAX_WRITE_CHARS = 200_000;
 const READ_MAX_CHARS = 50_000;
+const UNC_ROOT_SEGMENTS = 2;
+const DRIVE_ROOT_SEGMENTS = 1;
 const WRITABLE_EXTENSIONS = new Set(['md', 'markdown', 'txt', 'csv', 'json', 'yaml', 'yml', 'html', 'css', 'ts', 'tsx', 'js', 'jsx', 'py', 'ps1', 'xml']);
 
 export const LOCAL_FILE_TOOL_NAMES = new Set(['read_local_file', 'propose_local_file_write']);
@@ -45,9 +47,9 @@ function isAbsoluteWindowsPath(p: string): boolean {
 /** Lower-cased, backslash-separated, no trailing separator, with `.` and `..` resolved; null if it escapes the root. */
 export function normaliseWindowsPath(p: string): string | null {
   const unc = p.startsWith('\\\\') || p.startsWith('//');
-  const parts = p.replace(/\//g, '\\').split('\\').slice(unc ? 2 : 0);
+  const parts = p.replace(/\//g, '\\').split('\\').slice(unc ? UNC_ROOT_SEGMENTS : 0);
   // A drive root (C:) or UNC share (\\server\share) cannot be climbed out of.
-  const rootSegments = unc ? 2 : 1;
+  const rootSegments = unc ? UNC_ROOT_SEGMENTS : DRIVE_ROOT_SEGMENTS;
   const segments: string[] = [];
   for (const part of parts) {
     if (part === '' || part === '.') continue;

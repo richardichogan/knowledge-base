@@ -14,6 +14,7 @@ const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_PATH_LENGTH = 1_024;
 const MAX_DEVICE_NAME_LENGTH = 120;
+const DEVICE_ID_CHARS = 36;
 
 export interface LocalUploadFields {
   localKey: string;
@@ -59,7 +60,7 @@ export function parseLocalUploadFields(body: Record<string, unknown>): LocalUplo
   if (typeof deviceName !== 'string' || deviceName.trim() === '' || deviceName.length > MAX_DEVICE_NAME_LENGTH) {
     throw new ValidationError('deviceName required', { deviceName: 'invalid' });
   }
-  return { localKey, localPath, localHash, deviceId: localKey.slice(0, 36), deviceName: deviceName.trim() };
+  return { localKey, localPath, localHash, deviceId: localKey.slice(0, DEVICE_ID_CHARS), deviceName: deviceName.trim() };
 }
 
 /** The stored copy of a local file, if it has been indexed. */

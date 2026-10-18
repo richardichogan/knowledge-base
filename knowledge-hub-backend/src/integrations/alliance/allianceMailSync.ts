@@ -12,12 +12,14 @@ import type { Pool } from 'pg';
 import { env } from '../../config/env.js';
 import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import type { ContentItem } from '../../types/contentItem.js';
+import { MS_PER_DAY } from '../../config/constants.js';
 import { filterImportantEmails } from '../email/emailImportanceFilter.js';
 import { allianceGraphGet, getAllianceStatus, isAllianceConfigured } from './allianceGraph.js';
 
 const SYNC_STATE_KEY = 'alliance-mail';
 const SYNC_WINDOW_DAYS = 30;
 const MAX_BODY_CHARS = 5_000;
+const ISO_DATE_CHARS = 10;
 const ACCOUNT_LABEL = 'alliance';
 
 export interface AllianceMessage {
@@ -60,7 +62,7 @@ export function allianceMessageToContentItem(msg: AllianceMessage, account: stri
     source: 'email',
     sourceId: `alliance-${msg.id}`,
     title: `[${ACCOUNT_LABEL}] ${subject}`,
-    summary: `From: ${from} on ${msg.receivedDateTime.slice(0, 10)}`,
+    summary: `From: ${from} on ${msg.receivedDateTime.slice(0, ISO_DATE_CHARS)}`,
     body: `From: ${from}\nDate: ${msg.receivedDateTime}\nSubject: ${subject}\n\n${raw.slice(0, MAX_BODY_CHARS)}`,
     publishedAt: msg.receivedDateTime,
     url: msg.webLink,
@@ -88,7 +90,7 @@ export async function syncAllianceMail(db: Pool): Promise<{ indexed: number; err
   const account = status.account ?? env.ALLIANCE_ALLOWED_UPN ?? 'alliance';
   const messages: AllianceMessage[] = [];
   try {
-    let next: string | undefined = allianceInboxPath(new Date(Date.now() - SYNC_WINDOW_DAYS * 86_400_000));
+    let next: string | undefined = allianceInboxPath(new Date(Date.now() - SYNC_WINDOW_DAYS * MS_PER_DAY));
     while (next !== undefined) {
       const page: MessagePage = await allianceGraphGet<MessagePage>(db, next);
       messages.push(...page.value);

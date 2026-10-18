@@ -8,6 +8,7 @@ import { microsoftRelevanceSql } from '../../utils/microsoftRelevance.js';
  */
 
 export const CONTENT_FORMATS = ['newsletter', 'podcast', 'fullBlog', 'quickBlog', 'social'] as const;
+const MAX_FORMAT_FIT_SCORE = 3;
 export type ContentFormat = typeof CONTENT_FORMATS[number];
 export type FormatFit = Record<ContentFormat, number>;
 
@@ -23,7 +24,7 @@ export function normaliseFormatFit(raw: unknown): FormatFit | null {
   for (const format of CONTENT_FORMATS) {
     const value = Number(source[format]);
     if (!Number.isFinite(value)) return null;
-    fit[format] = Math.max(0, Math.min(3, Math.round(value)));
+    fit[format] = Math.max(0, Math.min(MAX_FORMAT_FIT_SCORE, Math.round(value)));
   }
   return fit;
 }

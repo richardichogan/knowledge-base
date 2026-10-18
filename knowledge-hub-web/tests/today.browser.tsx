@@ -165,15 +165,10 @@ export async function runTodayChecks(): Promise<string[]> {
   await waitFor(() => document.querySelectorAll('.today-brief__change-list li').length === 3);
   results.push('Change summaries expand and collapse');
 
-  const completedTitle = document.querySelector('.today-brief__attention h3')!.textContent;
-  const more = document.querySelector<HTMLElement>('.today-brief__attention summary')!;
-  more.click();
-  check(more.parentElement!.hasAttribute('open'), 'Keyboard-native disclosure opens');
-  button('Mark done').click();
-  await waitFor(() => tasks.filter((task) => task.status === 'completed').length === 1);
-  await waitFor(() => document.querySelectorAll('.today-brief__attention article').length === 5);
-  await waitFor(() => ![...document.querySelectorAll('.today-brief__attention h3')].some((h) => h.textContent === completedTitle));
-  results.push('Native secondary-action disclosure and task completion with query invalidation');
+  check(document.querySelector('.today-brief__more') === null, 'Today cards have no secondary More menu');
+  check([...document.querySelectorAll('.today-brief__attention article')].every((a) => a.querySelector('.today-brief__actions button[aria-label^="Ask Athena"]') !== null),
+    'Each attention item keeps its primary action and Ask Athena');
+  results.push('Today cards keep primary action and Ask Athena without a secondary More menu');
 
   const reads = taskReads;
   button('Refresh').click();
@@ -288,7 +283,7 @@ Object.assign(window, { readPageStyle: () => {
   const style = getComputedStyle(title);
   const headerStyle = getComputedStyle(header);
   return {
-    left: title.getBoundingClientRect().left, top: title.getBoundingClientRect().top,
+    left: Math.round(title.getBoundingClientRect().left), top: Math.round(title.getBoundingClientRect().top),
     rightGutter: document.querySelector('.kh-content')!.clientWidth - header.getBoundingClientRect().right,
     fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight,
     lineHeight: style.lineHeight, letterSpacing: style.letterSpacing, color: style.color,

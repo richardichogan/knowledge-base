@@ -169,20 +169,20 @@ createRoot(document.getElementById('root')!).render(<QueryClientProvider client=
   defaultOptions: { queries: { retry: false } },
 })}><MemoryRouter><Fixture /></MemoryRouter></QueryClientProvider>);
 function check(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
-async function waitFor(predicate: () => boolean): Promise<void> {
+async function waitFor(predicate: () => boolean, step = 'step'): Promise<void> {
   for (let index = 0; index < 350; index++) {
     if (predicate()) return;
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  throw new Error(`Recovery fixture timed out: ${document.body.innerText}`);
+  throw new Error(`Recovery fixture timed out (${step}): ${document.body.innerText}`);
 }
 function click(text: string, scope: ParentNode = document): void {
   const control = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === text);
   check(control && !control.disabled, `Enabled control required: ${text}`); control.click();
 }
 async function confirm(text: string): Promise<void> {
-  await waitFor(() => [...document.querySelectorAll('dialog[open]')].some(dialog => dialog.textContent?.includes(text)));
-  const dialogs = document.querySelectorAll('dialog[open]');
+  await waitFor(() => [...document.querySelectorAll('dialog.kh-dialog[open]')].some(dialog => dialog.textContent?.includes(text)));
+  const dialogs = document.querySelectorAll('dialog.kh-dialog[open]');
   click(text, dialogs[dialogs.length - 1]!);
 }
 function draftRegion(): HTMLElement { return document.querySelector<HTMLElement>('.note-recovery--comparison')!; }
@@ -276,13 +276,13 @@ async function runNoteRecoveryReloadChecks(): Promise<string[]> {
     quota.call(this, key, value);
   };
   insert('Quota failure cannot erase open writing');
-  await waitFor(() => document.body.textContent?.includes('Local recovery copy unavailable') === true);
+  await waitFor(() => document.body.textContent?.includes('Local recovery copy unavailable') === true, 'quota notice');
   Storage.prototype.setItem = quota;
   check(JSON.stringify(editor.document).includes('Quota failure'), 'Quota error leaves live writing in place');
   const launcher = document.querySelector<HTMLButtonElement>('.notes-recovery-launch')!;
   launcher.focus(); launcher.click();
-  await waitFor(() => document.querySelector('dialog[open]')?.textContent?.includes('25 of 27') === true);
-  const centre = document.querySelector<HTMLDialogElement>('dialog[open]')!;
+  await waitFor(() => document.querySelector('dialog.kh-dialog[open]')?.textContent?.includes('25 of 27') === true, 'recovery centre 25 of 27');
+  const centre = document.querySelector<HTMLDialogElement>('dialog.kh-dialog[open]')!;
   check(getActiveBlockNoteEditor() === editor && centre.contains(document.activeElement), 'Recovery opens modally without unmounting editor');
   await waitFor(() => centre.textContent?.includes('Agentic SDLC') === true);
   const agentic = [...centre.querySelectorAll<HTMLElement>('.note-recovery__canvas-entry')]
@@ -319,7 +319,7 @@ async function runNoteRecoveryReloadChecks(): Promise<string[]> {
     && JSON.parse(archived[0]!.content).githubPath === 'archived.md', 'Archive response-loss retry is a truthful no-op preserving metadata');
   check(getActiveBlockNoteEditor() === editor, 'Archive mutation never replaces open writing');
   click('Close recovery', centre);
-  await waitFor(() => document.querySelector('dialog[open]') === null);
+  await waitFor(() => document.querySelector('dialog.kh-dialog[open]') === null);
   check(document.activeElement === launcher, 'Recovery close returns focus');
   const unsupportedId = '44444444-4444-4444-8444-444444444444';
   const unsupported = captureNoteDraft(owner, unsupportedId, { ...fromApiNote(persisted), title: 'Unsupported local blocks',
@@ -339,7 +339,7 @@ async function runNoteRecoveryReloadChecks(): Promise<string[]> {
   await new Promise(resolve => setTimeout(resolve, 20));
   check(restoreControl.disabled, 'Reselecting a failed preview cannot enable an unsafe restore');
   click('Discard local copy', draftRegion());
-  await waitFor(() => document.querySelectorAll('dialog[open]').length === 2);
+  await waitFor(() => document.querySelectorAll('dialog.kh-dialog[open]').length === 2);
   storeNoteDraft(localStorage, { ...unsupported, updatedAt: new Date().toISOString(), writing: { ...unsupported.writing, title: 'Newer local copy must survive discard' } });
   await confirm('Discard copy');
   await waitFor(() => draftRegion().textContent?.includes('Local copy changed while you reviewed') === true);
@@ -379,9 +379,9 @@ async function prepareNoteRecoveryComparison(): Promise<void> {
 async function prepareNoteRecoveryCentre(): Promise<void> {
   failArchivePreview = false;
   openCentre();
-  await waitFor(() => document.querySelector('dialog[open] .note-recovery__entries button') !== null);
-  document.querySelector<HTMLButtonElement>('dialog[open] .note-recovery__entries button')!.click();
-  await waitFor(() => document.querySelector('dialog[open] .note-recovery__preview') !== null);
-  document.querySelector('dialog[open] .note-recovery__preview')!.scrollIntoView({ block: 'nearest' });
+  await waitFor(() => document.querySelector('dialog.kh-dialog[open] .note-recovery__entries button') !== null);
+  document.querySelector<HTMLButtonElement>('dialog.kh-dialog[open] .note-recovery__entries button')!.click();
+  await waitFor(() => document.querySelector('dialog.kh-dialog[open] .note-recovery__preview') !== null);
+  document.querySelector('dialog.kh-dialog[open] .note-recovery__preview')!.scrollIntoView({ block: 'nearest' });
 }
 Object.assign(window, { runNoteRecoveryChecks, runNoteRecoveryReloadChecks, prepareNoteRecoveryComparison, prepareNoteRecoveryCentre });

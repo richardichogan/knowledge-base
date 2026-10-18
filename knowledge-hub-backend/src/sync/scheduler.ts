@@ -13,7 +13,7 @@ import { archiveCompletedTasks } from '../services/taskArchiveService.js';
 import { isConnectionCheckInProgress } from './connectionWork.js';
 import { runClaimedJob } from './runStore.js';
 import { ukClock } from './ukClock.js';
-import { generatePodcastPrep } from '../ai/podcastPrep.js';
+import { generatePodcastPrep, PODCAST_PREP_END_UTC_HOUR, PODCAST_PREP_START_UTC_HOUR } from '../ai/podcastPrep.js';
 
 /**
  * Scheduler for sync jobs.
@@ -76,7 +76,8 @@ export function startSyncScheduler(): void {
   const db = getDb();
   function preparePodcastIfDue(): void {
     const clock = ukClock();
-    if (clock.weekday !== 'Thu' || clock.hour < 7 || clock.hour >= 18 || podcastPrepRunning) return;
+    if (clock.weekday !== 'Thu' || clock.hour < PODCAST_PREP_START_UTC_HOUR
+      || clock.hour >= PODCAST_PREP_END_UTC_HOUR || podcastPrepRunning) return;
     podcastPrepRunning = true;
     void generatePodcastPrep(db).catch((error: unknown) => {
       console.error('[Scheduler] Podcast preparation failed:', error);

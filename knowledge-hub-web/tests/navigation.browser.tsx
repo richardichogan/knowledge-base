@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { Theme } from '@carbon/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppShell } from '../src/components/AppShell';
+import { AUTH_ENABLED } from '../src/services/auth';
 import { AthenaContextProvider, useAthenaContext } from '../src/context/AthenaContext';
 import { TimelinePage } from '../src/pages/TimelinePage';
 import { DocumentsPage } from '../src/pages/DocumentsPage';
@@ -45,14 +46,17 @@ const graphFixture: GraphResponse = {
   stats: { totalNodes: 800, totalEdges: 1000, filteredNodes: 112, filteredEdges: 101, truncated: true },
 };
 api.getPendingTags = async () => success([]);
+api.getNavAttention = async () => success({ think: 0, discover: 0, plan: 0, build: 0 });
 api.getTaxonomy = async () => success([]);
 api.getRepoMappings = async () => success([]);
 api.getUnsurfacedClusterCount = async () => success({ count: 1 });
 api.getPodcastPrep = async () => success({ nextRecording: null, scheduleWarning: 'No recording date set.', run: null, latestBrief: null });
 api.getDayCheckin = async () => success({ day: '2026-10-15', hour: 8, status: null, items: [], completedToday: [] });
 api.getProjects = async () => success([]);
+api.getProjectGroups = async () => success([]);
 api.getTags = async () => success([]);
 api.listBuildSpecs = async () => success([]);
+api.listUseCases = async () => success([]);
 api.listChatSessions = async () => success({ sessions: [] });
 api.listModelChoices = async () => success([]);
 api.getMorningBriefing = async () => success(null);
@@ -229,11 +233,15 @@ function assertFrame(): void {
 
 export async function runNavigationChecks(): Promise<string[]> {
   const results: string[] = [];
+  check(!AUTH_ENABLED, 'Navigation fixture must not enable production sign-in');
   const mobile = window.innerWidth <= 1100;
   await waitFor(() => document.querySelector('main h1')?.textContent === 'Today');
   check(selector<HTMLAnchorElement>('.kh-header__brand').getAttribute('href') === '/', 'Brand returns to Today');
-  const primaryLabels = [...document.querySelectorAll('.kh-header__primary a')].map((item) => item.textContent?.trim());
-  check(JSON.stringify(primaryLabels) === JSON.stringify(mobile ? ['Today'] : ['Today', 'Discover', 'Plan', 'Think', 'Build', 'Projects']), 'Primary labels and order');
+  const primaryLabels = [...document.querySelectorAll('.kh-header__primary a')].map((item) =>
+    [...item.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent?.trim()).join(''));
+  check(JSON.stringify(primaryLabels) === JSON.stringify(mobile
+    ? ['Today']
+    : ['Today', 'Discover', 'Plan', 'Think', 'Build']), `Primary labels and order: ${JSON.stringify(primaryLabels)}`);
   check(selector('.kh-header__primary [aria-current="page"]').textContent === 'Today', 'Today active');
   check(getComputedStyle(selector('.kh-header__primary [aria-current="page"]')).borderBottomStyle !== 'none', 'Active navigation underline');
   assertFrame();
@@ -366,8 +374,8 @@ export async function runNavigationChecks(): Promise<string[]> {
     'Plan no longer offers a Calendar view');
   check(selector('#plan-filter-project').getAttribute('aria-label') === 'Filter by project'
     || document.querySelector('label[for="plan-filter-project"]')?.textContent === 'Filter by project', 'Project filter is named');
-  check(selector('.plan-header').scrollWidth <= selector('.plan-header').clientWidth + 1,
-    `Plan controls fit narrow widths: ${JSON.stringify([...document.querySelectorAll<HTMLElement>('.plan-header, .plan-header__right, .plan-header__right > *')].map((element) => ({
+  check(selector('.plan-root .kh-page-header__actions').scrollWidth <= selector('.plan-root .kh-page-header__actions').clientWidth + 1,
+    `Plan controls fit narrow widths: ${JSON.stringify([...document.querySelectorAll<HTMLElement>('.plan-root .kh-page-header, .plan-root .kh-page-header__actions, .plan-root .kh-page-header__actions > *')].map((element) => ({
       class: element.className, width: element.clientWidth, scroll: element.scrollWidth,
       min: getComputedStyle(element).minWidth, flex: getComputedStyle(element).flex,
     })))}`);
@@ -500,7 +508,9 @@ export async function runNavigationChecks(): Promise<string[]> {
   const sharedFrame = document.createElement('div');
   sharedFrame.className = 'page-root';
   document.body.append(sharedFrame);
-  check(frameStyle.padding === getComputedStyle(sharedFrame).padding, 'Projects gutters and vertical spacing match shared primary pages');
+  const sharedFrameStyle = getComputedStyle(sharedFrame);
+  check(frameStyle.paddingLeft === sharedFrameStyle.paddingLeft && frameStyle.paddingRight === sharedFrameStyle.paddingRight
+    && frameStyle.paddingTop === '16px', 'Projects keeps shared horizontal gutters and compact tool top spacing');
   sharedFrame.remove();
   check(document.querySelectorAll('h1').length === 1 && document.querySelectorAll('.proj-card h2').length === 4, 'Project heading hierarchy');
   check(selector('.dc-toolbar').getBoundingClientRect().top >= selector('.page-header').getBoundingClientRect().bottom, 'Filters are below shared header');
@@ -515,7 +525,11 @@ export async function runNavigationChecks(): Promise<string[]> {
   await waitFor(() => document.querySelector<HTMLInputElement>('#pm-name')?.value.includes('long project') === true);
   check(selector<HTMLTextAreaElement>('#pm-expected-outputs').value.includes(output), 'Edit retains complete output text');
   const modal = selector('#pm-name').closest('.cds--modal-content')!;
-  check(modal.scrollWidth <= modal.clientWidth + 1, 'Project editor has no horizontal overflow');
+  check(modal.scrollWidth <= modal.clientWidth + 1,
+    `Project editor has no horizontal overflow: ${modal.scrollWidth}px content in ${modal.clientWidth}px modal; ${[...modal.querySelectorAll<HTMLElement>('*')]
+      .filter((element) => element.scrollWidth > element.clientWidth + 1)
+      .map((element) => `${element.tagName}.${String(element.className)} ${element.scrollWidth}/${element.clientWidth}`)
+      .join(', ')}`);
   key(document, 'Escape');
   await waitFor(() => document.querySelector('.cds--modal.is-visible') === null);
   const searchInput = selector<HTMLInputElement>('.dc-search__input');
@@ -553,27 +567,33 @@ export async function runNavigationChecks(): Promise<string[]> {
       check(menuItem('Think').getAttribute('aria-current') === 'page', `Think selected in ${mode}`);
       key(document.activeElement!, 'Escape');
     } else check(selector('.kh-header__primary [aria-current="page"]').textContent?.trim() === 'Think', `Think selected in ${mode}`);
-    check(selector<HTMLButtonElement>('[aria-label="Open Athena"]').disabled, 'Toolbar Athena disabled in every Think mode');
-    selector<HTMLButtonElement>('[aria-label="Open Athena"]').click();
-    check(document.querySelector('.ai-float-panel') === null, 'Disabled Think launcher cannot open a popout');
+    const athenaLauncher = selector<HTMLButtonElement>('[aria-label="Open Athena"]');
+    check(athenaLauncher.disabled === (mode !== 'Sparks'), `Toolbar Athena availability in ${mode}`);
+    athenaLauncher.click();
+    if (mode === 'Sparks') {
+      await waitFor(() => document.querySelector('.think-athena-panel') !== null);
+      check(document.querySelector('.ai-float-panel') === null, 'Think launcher opens embedded Athena without a popout');
+    } else {
+      check(document.querySelector('.ai-float-panel') === null, 'Disabled Think launcher cannot open a popout');
+    }
   }
   document.dispatchEvent(new KeyboardEvent('keydown', { key: '.', metaKey: true, bubbles: true }));
   await waitFor(() => document.querySelector('[aria-label="New Spark"]') !== null);
   key(document, 'Escape');
   await waitFor(() => document.querySelector('[aria-label="New Spark"]') === null);
-  results.push('Think selected in all modes, toolbar Athena disabled and quick Spark shortcut preserved');
+  results.push('Think selected in all modes, Athena opens only where embedded, and quick Spark shortcut preserved');
 
   if (window.innerWidth >= 1200) {
     await go('/think/fixture-note');
     await waitFor(() => document.querySelector('#think-side-tab-athena') !== null && document.querySelector('.ai-float-button') === null);
     selector<HTMLButtonElement>('#think-side-tab-metadata').click();
-    selector<HTMLButtonElement>('[aria-label="Collapse side panel"]').click();
-    await waitFor(() => selector('.notes-meta-panel').hidden);
-    selector<HTMLButtonElement>('[aria-label="Open Athena"]').click();
-    check(selector('.notes-meta-panel').hidden, 'Disabled Think toolbar does not change embedded panel');
-    selector<HTMLButtonElement>('[aria-label="Open side panel"]').click();
-    selector<HTMLButtonElement>('#think-side-tab-athena').click();
-    await waitFor(() => !selector('.notes-meta-panel').hidden && selector('#think-side-tab-athena').getAttribute('aria-selected') === 'true');
+    selector<HTMLButtonElement>('[aria-label="Collapse side panel"], [aria-label="Close side panel"]').click();
+    await waitFor(() => !selector<HTMLDialogElement>('.notes-meta-panel').open);
+    const thinkAthenaLauncher = selector<HTMLButtonElement>('[aria-label="Open Athena"]');
+    check(!thinkAthenaLauncher.disabled, 'Think toolbar can open embedded Athena for the selected note');
+    thinkAthenaLauncher.click();
+    await waitFor(() => selector<HTMLDialogElement>('.notes-meta-panel').open
+      && selector('#think-side-tab-athena').getAttribute('aria-selected') === 'true');
     check(selector('#navigation-probe').dataset.context === 'Note context preserved', 'Metadata rail retains note context');
     check(document.querySelector('.ai-float-panel') === null, 'Header must not duplicate embedded conversation');
     await go('/library');
@@ -581,7 +601,7 @@ export async function runNavigationChecks(): Promise<string[]> {
     selector<HTMLButtonElement>('.docs-list-item').click();
     await waitFor(() => document.querySelector('#library-side-tab-athena') !== null && document.querySelector('.ai-float-button') === null);
     selector<HTMLButtonElement>('#library-side-tab-details').click();
-    selector<HTMLButtonElement>('[aria-label="Collapse side panel"]').click();
+    selector<HTMLButtonElement>('[aria-label="Collapse side panel"], [aria-label="Close side panel"]').click();
     selector<HTMLButtonElement>('[aria-label="Open Athena"]').click();
     await waitFor(() => selector('#library-side-tab-athena').getAttribute('aria-selected') === 'true' && !selector('.side-tabs-panel').hidden);
     await waitFor(() => document.activeElement === document.querySelector('.think-athena-panel textarea'));

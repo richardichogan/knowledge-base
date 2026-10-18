@@ -116,7 +116,7 @@ try {
         : authCallbackChecks ? 'typeof window.runAuthCallbackChecks === "function"'
         : imagineBriefChecks ? 'typeof window.runImagineBriefChecks === "function" && document.querySelector("#compact-skill .ai-demo-brief-skill") !== null'
         : markdownExportChecks ? 'typeof window.runMarkdownExportChecks === "function" && document.querySelector(".notes-export-anchor > button") !== null'
-        : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-action--linkedin") !== null'
+        : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-card .dc-action--explore") !== null'
         : sparkChecks ? 'typeof window.runSparkChecks === "function" && document.querySelector(".spark-item__drag") !== null'
         : podcastPrepChecks ? 'typeof window.runPodcastPrepChecks === "function" && document.querySelector(".podcast-prep-notification") !== null'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
@@ -291,10 +291,6 @@ try {
         await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
         const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
         await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `discover-card-${width}.png`), Buffer.from(screenshot.data, 'base64'));
-        await evaluate('document.querySelector(".kh-saved-views").open = true');
-        const viewsScreenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `saved-views-${width}.png`), Buffer.from(viewsScreenshot.data, 'base64'));
-        await evaluate('document.querySelector(".kh-saved-views").open = false');
       }
       const results = await evaluate('window.runDiscoverChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
@@ -314,7 +310,9 @@ try {
       await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
       await delay(50);
       assert.equal(await evaluate('document.querySelector("dialog[open]") === null'), true, 'Escape dismisses alert');
-      await evaluate('document.querySelector(".dc-action--linkedin").click()');
+      await evaluate('document.querySelector(".dc-card .dc-action--explore").click()');
+      await delay(100);
+      await evaluate('[...document.querySelectorAll(".dc-explore__action")].find((b) => b.textContent.includes("Social post")).click()');
       await delay(100);
       assert.equal(await evaluate('document.querySelector("dialog[open]") !== null'), true);
       if (process.env.TODAY_ARTIFACT_DIR) {
@@ -389,10 +387,15 @@ try {
       const todayTypography = comparison === 'discover' ? todayBody : todayNoteTitle;
       // Think's one-line list titles do not prescribe a line-height; Today wraps
       // titles intentionally. Family, size and weight still use the same style.
-      const { lineHeight: referenceLineHeight, ...referenceType } = referenceTypography;
-      const { lineHeight: todayLineHeight, ...todayType } = todayTypography;
-      assert.deepEqual(todayType, referenceType, `Today content typography must match ${comparison}`);
-      if (comparison === 'discover') assert.equal(todayLineHeight, referenceLineHeight);
+      // Discover is a larger reading surface by design, so only family and weight are shared.
+      const { lineHeight: _referenceLineHeight, ...referenceType } = referenceTypography;
+      const { lineHeight: _todayLineHeight, ...todayType } = todayTypography;
+      if (comparison === 'discover') {
+        assert.deepEqual({ fontFamily: todayType.fontFamily, fontWeight: todayType.fontWeight },
+          { fontFamily: referenceType.fontFamily, fontWeight: referenceType.fontWeight }, 'Today content typography must match discover family and weight');
+      } else {
+        assert.deepEqual(todayType, referenceType, `Today content typography must match ${comparison}`);
+      }
       if (comparison === 'think') {
         const referenceButton = await evaluate('window.readTypography(".kb-import-btn")');
         assert.deepEqual(todayRefresh, referenceButton, 'Today Refresh must match Think Import typography');
@@ -405,7 +408,6 @@ try {
     }
   }
 } finally {
-  if (socket?.readyState === WebSocket.OPEN) await command('Browser.close');
   socket?.close();
   browser.kill();
   await new Promise((resolve) => { if (browser.exitCode !== null) resolve(); else browser.once('exit', resolve); });

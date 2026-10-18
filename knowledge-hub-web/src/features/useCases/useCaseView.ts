@@ -21,7 +21,7 @@ export function filterUseCases(list: readonly UseCase[], f: { stage: StageFilter
 }
 
 /** Active use cases share the task board's broad work states without duplicating task records. */
-export function useCaseBoardColumn(stage: UseCaseStage): UseCaseBoardColumn {
+export function boardColumnForUseCase(stage: UseCaseStage): UseCaseBoardColumn {
   if (stage === 'candidate') return 'backlog';
   if (stage === 'refining' || stage === 'spec_ready' || stage === 'handed_off') return 'in-progress';
   return null;

@@ -2510,7 +2510,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {anyBends && <IconBtn label="Remove bends" onClick={() => { updateEdges(sel.edges, (x) => ({ ...x, waypoints: [] })); }}><Reset size={16} /></IconBtn>}
               <span className="dg-divider" aria-hidden="true" />
               <IconBtn label="Bring to front" pressed={selectedEdges.every((x) => x.behind !== true)}
-                onClick={() => { updateEdges(sel.edges, (x) => { const { behind: _drop, ...rest } = x; return rest; }); }}><BringToFront size={16} /></IconBtn>
+                onClick={() => { updateEdges(sel.edges, (x) => { const next = { ...x }; delete next.behind; return next; }); }}><BringToFront size={16} /></IconBtn>
               <IconBtn label="Send to back (behind shapes)" pressed={selectedEdges.every((x) => x.behind === true)}
                 onClick={() => { updateEdges(sel.edges, (x) => ({ ...x, behind: true })); }}><SendToBack size={16} /></IconBtn>
               <span className="dg-divider" aria-hidden="true" />
