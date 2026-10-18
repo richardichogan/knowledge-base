@@ -5,6 +5,7 @@
  *  - build: creates an Athena Build spec from the note.
  */
 import type { Pool } from 'pg';
+import { HTTP_STATUS } from '../config/constants.js';
 import { KnowledgeHubError, ValidationError } from '../types/errors.js';
 import { IMAGINE_DEMO_BUILD_INSTRUCTION } from '../ai/imagineDemoBriefSkill.js';
 import { getUseCase, recordAction, REPO_RE, slugify, type ProductKind, type UseCaseDetail } from './useCaseStore.js';
@@ -18,6 +19,7 @@ export interface HandoffDeps {
 
 export interface HandoffResult { useCase: UseCaseDetail; mode: HandoffMode; url: string | null; path: string | null; buildSpecId: string | null; prompt: string | null }
 
+const MAX_COMMIT_MESSAGE = 200;
 const isImagine = (k: ProductKind): boolean => k !== 'product';
 
 export function defaultHandoffPath(title: string, kind: ProductKind): string {
@@ -56,7 +58,7 @@ export async function handoffUseCase(db: Pool, id: string, b: Record<string, unk
   const note = useCase.specNoteId === null ? undefined
     : (await db.query(`SELECT revision FROM notes WHERE id::text = $1 AND status = 'active'`, [useCase.specNoteId])).rows[0] as { revision: number } | undefined;
   if (useCase.specNoteId === null || note === undefined) {
-    throw new KnowledgeHubError('Draft the spec first: this use case has no spec note to hand off.', 400, 'NO_SPEC_NOTE');
+    throw new KnowledgeHubError('Draft the spec first: this use case has no spec note to hand off.', HTTP_STATUS.BAD_REQUEST, 'NO_SPEC_NOTE');
   }
   const repo = repoOf(b['repo'], useCase.handoffRepo ?? useCase.repo);
 
@@ -68,7 +70,7 @@ export async function handoffUseCase(db: Pool, id: string, b: Record<string, unk
 
   const rawPath = typeof b['path'] === 'string' && b['path'].trim() !== '' ? b['path'].trim() : null;
   const path = rawPath ?? useCase.handoffPath ?? defaultHandoffPath(useCase.title, useCase.productKind);
-  const published = await deps.publish(db, useCase.specNoteId, repo, path, `Add spec: ${useCase.title}`.slice(0, 200), Number(note.revision));
+  const published = await deps.publish(db, useCase.specNoteId, repo, path, `Add spec: ${useCase.title}`.slice(0, MAX_COMMIT_MESSAGE), Number(note.revision));
   const updated = await recordAction(db, id, { stage: 'handed_off', handoffRepo: repo, handoffPath: path, handoffUrl: published.url });
   return { useCase: updated, mode, url: published.url, path, buildSpecId: null, prompt: copilotPrompt(useCase, repo, path) };
 }

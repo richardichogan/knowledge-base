@@ -75,7 +75,7 @@ useCasesRouter.delete('/:id', wrap(async (req, res) => {
 
 useCasesRouter.post('/:id/sources', wrap(async (req, res) => {
   const raw = body(req)['sources'];
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 20) {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_SOURCES_PER_REQUEST) {
     throw new ValidationError('sources must be a list of 1 to 20 items', { sources: '1 to 20 items' });
   }
   send(res, await addSources(getDb(), param(req, 'id'), raw.map(parseSourceRef)));
@@ -94,9 +94,12 @@ useCasesRouter.delete('/:id/links/:linkId', wrap(async (req, res) => {
   send(res, await removeLink(getDb(), param(req, 'id'), param(req, 'linkId')));
 }));
 
+const SPEC_DRAFT_TIMEOUT_MS = 240_000;
+const MAX_SOURCES_PER_REQUEST = 20;
+
 export const draftDeps: DraftDeps = {
   generate: (system, user) => getFoundryClient('use-case-spec').chatBulk(
-    [{ role: 'system', content: system }, { role: 'user', content: user }], SPEC_DRAFT_LIMITS.maxTokens, 240_000, 'medium'),
+    [{ role: 'system', content: system }, { role: 'user', content: user }], SPEC_DRAFT_LIMITS.maxTokens, SPEC_DRAFT_TIMEOUT_MS, 'medium'),
   createNote: async (db, content, projectId) => {
     const note = await createNoteRecord(db, { content, tags: ['spec'], ...(projectId !== null ? { projectId } : {}) });
     scheduleNoteIndexing(db, note);

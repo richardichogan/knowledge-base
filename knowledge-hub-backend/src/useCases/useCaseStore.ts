@@ -24,6 +24,10 @@ const MAX_LINK_TITLE = 200;
 const MAX_URL = 1000;
 const SOURCE_TITLE_CHARS = 160;
 const LIST_LIMIT = 500;
+const MAX_REPO = 200;
+const MAX_ID = 100;
+const SLUG_CHARS = 60;
+const STALLED_DAYS = 14;
 
 export interface UseCaseSource { sourceType: UseCaseSourceType; sourceId: string; title: string; url: string | null; addedAt: string }
 export interface UseCaseLink { id: string; url: string; title: string; addedAt: string }
@@ -83,7 +87,7 @@ export function parseProductKind(v: unknown): ProductKind {
 export function parseRepo(v: unknown): string | null | undefined {
   if (v === undefined) return undefined;
   if (v === null) return null;
-  const r = text(v, 'repo', 200, false) ?? '';
+  const r = text(v, 'repo', MAX_REPO, false) ?? '';
   if (r === '') return null;
   if (!REPO_RE.test(r)) throw new ValidationError('repo must be owner/name', { repo: 'expected owner/name' });
   return r;
@@ -95,7 +99,7 @@ export function parseSourceRef(v: unknown): SourceRef {
   if (typeof sourceType !== 'string' || !(SOURCE_TYPES as readonly string[]).includes(sourceType)) {
     throw new ValidationError('sourceType is not valid', { sourceType: SOURCE_TYPES.join(', ') });
   }
-  const sourceId = text(o['sourceId'], 'sourceId', 100, true) as string;
+  const sourceId = text(o['sourceId'], 'sourceId', MAX_ID, true) as string;
   return { sourceType: sourceType as UseCaseSourceType, sourceId };
 }
 
@@ -109,8 +113,8 @@ export function parseLinkUrl(v: unknown): string {
 
 /** A short title for a link: "owner/repo#123" for GitHub PRs and issues, otherwise the host and path. */
 export function defaultLinkTitle(url: string): string {
-  const m = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/(pull|issues)\/(\d+)/.exec(url);
-  if (m !== null) return `${m[1]!}#${m[3]!}`;
+  const m = /^https:\/\/github\.com\/(?<repo>[^/]+\/[^/]+)\/(?:pull|issues)\/(?<num>\d+)/.exec(url);
+  if (m?.groups !== undefined) return `${m.groups['repo']!}#${m.groups['num']!}`;
   const u = new URL(url);
   return `${u.host}${u.pathname}`.replace(/\/$/, '').slice(0, MAX_LINK_TITLE);
 }
@@ -123,7 +127,7 @@ export function parseCreate(b: Record<string, unknown>): UseCaseCreate {
   const title = text(b['title'], 'title', MAX_TITLE, true) as string;
   const summary = text(b['summary'], 'summary', MAX_SUMMARY, false) ?? '';
   const productKind = parseProductKind(b['productKind']);
-  const projectId = (text(b['projectId'], 'projectId', 100, false) ?? '') || null;
+  const projectId = (text(b['projectId'], 'projectId', MAX_ID, false) ?? '') || null;
   const repo = parseRepo(b['repo']) ?? null;
   if (productKind === 'product' && projectId === null && repo === null) {
     throw new ValidationError('Choose a project or a repo for this product', { projectId: 'project or repo required' });
@@ -144,7 +148,7 @@ export function parsePatch(b: Record<string, unknown>): UseCasePatch {
   if (b['title'] !== undefined) patch.title = text(b['title'], 'title', MAX_TITLE, true) as string;
   if (b['summary'] !== undefined) patch.summary = text(b['summary'], 'summary', MAX_SUMMARY, false) ?? '';
   if (b['productKind'] !== undefined) patch.productKind = parseProductKind(b['productKind']);
-  if (b['projectId'] !== undefined) patch.projectId = (text(b['projectId'], 'projectId', 100, false) ?? '') || null;
+  if (b['projectId'] !== undefined) patch.projectId = (text(b['projectId'], 'projectId', MAX_ID, false) ?? '') || null;
   if (b['repo'] !== undefined) patch.repo = parseRepo(b['repo']) ?? null;
   if (b['stage'] !== undefined) patch.stage = parseStage(b['stage']);
   if (Object.keys(patch).length === 0) throw new ValidationError('Nothing to update', {});
@@ -152,7 +156,7 @@ export function parsePatch(b: Record<string, unknown>): UseCasePatch {
 }
 
 export function slugify(title: string): string {
-  const s = title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '');
+  const s = title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, SLUG_CHARS).replace(/-+$/, '');
   return s === '' ? 'use-case' : s;
 }
 
@@ -369,7 +373,7 @@ export async function removeLink(db: Pool, id: string, linkId: string): Promise<
 }
 
 /** Use cases still being shaped (refining / spec ready) with no update for `days` days. */
-export async function countStalled(db: Pool, days = 14): Promise<number> {
+export async function countStalled(db: Pool, days = STALLED_DAYS): Promise<number> {
   const { rows } = await db.query(
     `SELECT COUNT(*)::int AS n FROM use_cases WHERE stage IN ('refining', 'spec_ready') AND updated_at < NOW() - make_interval(days => $1::int)`, [days]);
   return Number((rows as Row[])[0]?.['n'] ?? 0);

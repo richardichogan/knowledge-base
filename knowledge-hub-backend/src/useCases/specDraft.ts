@@ -12,6 +12,8 @@ import { textToBlocks } from '../ai/markdownToNoteBlocks.js';
 import { IMAGINE_DEMO_BRIEF_TEMPLATE } from '../ai/imagineDemoBriefSkill.js';
 import { getUseCase, noteTitle, recordAction, type UseCaseDetail, type UseCaseSourceType } from './useCaseStore.js';
 
+/** Below this many characters of budget, a source is omitted rather than shown as a stub. */
+const MIN_SOURCE_ROOM = 200;
 export const PER_SOURCE_CHARS = 8_000;
 export const TOTAL_SOURCE_CHARS = 60_000;
 const SPEC_MAX_TOKENS = 14_000;
@@ -84,7 +86,7 @@ export function buildSpecPrompt(useCase: Pick<UseCaseDetail, 'title' | 'summary'
   for (const s of sources) {
     const header = `### ${SOURCE_LABEL[s.sourceType]}: ${s.title}${s.url !== null ? `\nLink: ${s.url}` : ''}`;
     const room = TOTAL_SOURCE_CHARS - used - header.length;
-    if (room < 200) { omitted++; continue; }
+    if (room < MIN_SOURCE_ROOM) { omitted++; continue; }
     const body = clip(s.text.trim(), Math.min(PER_SOURCE_CHARS, room));
     const part = `${header}\n${body === '' ? '(no text)' : body}`;
     parts.push(part);
