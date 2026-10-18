@@ -15,8 +15,8 @@ import {
 import { Add, ChatLaunch, Checkmark, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { useProjects, type ProjectRecord } from '../services/useProjects';
-import { useFlatTags } from '../hooks/useTaxonomy';
 import { TagPicker } from '../components/TagPicker';
+import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import type { PlanTask as Task, TaskStatus, TaskPriority } from '../types/task';
 import { FOCUS_GROUPS, focusDate, groupForFocus, isRecentlyCompleted, originHref, originLabel, taskAthenaPrompt, taskHealth, RECENT_COMPLETED_DAYS, type FocusGroupId } from '../features/plan/taskInsights';
@@ -154,13 +154,8 @@ const TaskCard: React.FC<{
   onAskAthena?: ((task: Task) => void) | undefined;
 }> = ({ task, busy, projects, onMove, onDelete, onEdit, onAskAthena }) => {
   const [dragging, setDragging] = useState(false);
-  const flatTags = useFlatTags();
-
-  // Resolve taxonomy tag names from IDs
-  const tagIds = task.taxonomyTagIds?.length ? task.taxonomyTagIds : [];
-  const resolvedTags = tagIds
-    .map((id) => flatTags.find((t) => t.id === id))
-    .filter(Boolean) as { id: string; name: string; colour?: string }[];
+  const identity = useIdentity();
+  const resolvedTags = identitiesFor(identity, task.taxonomyTagIds ?? [], task.projectId);
 
   const done = task.status === 'completed';
   const showPriority = !done && task.priority === 'urgent';
@@ -212,12 +207,7 @@ const TaskCard: React.FC<{
         {health && (
           <span className={`kb-card__health kb-card__health--${health.kind}`} title={health.title}>{health.label}</span>
         )}
-        {resolvedTags.map((t) => (
-          <span key={t.id} className="kb-card__tag">
-            {t.colour && <span className="kb-card__tag-dot" style={{ background: t.colour }} aria-hidden="true" />}
-            {t.name}
-          </span>
-        ))}
+        {resolvedTags.map((t) => <IdentityChip key={t.tagId} identity={t} />)}
       </div>
     )}
 
@@ -234,7 +224,7 @@ const TaskCard: React.FC<{
     )}
 
     <div className="kb-card__footer">
-      <span className="kb-card__project">{getProjectName(task.projectId, projects)}</span>
+      <EntityChip projectId={task.projectId} fallbackLabel={getProjectName(task.projectId, projects)} className="kb-card__project" />
       <div className="kb-card__footer-right">
         {task.recurringCadence != null && (
           <span className="kb-card__recur" title={`Repeats ${task.recurringCadence}`}>
@@ -792,7 +782,6 @@ const TaskModal: React.FC<{
   const [linkedTagIds, setLinkedTagIds] = useState<string[]>([]);
   const [recurringCadence, setRecurringCadence] = useState<string>('none');
   const [waitingOn, setWaitingOn] = useState('');
-  const flatTags = useFlatTags();
   const statusOptions = initial?.status === 'inbox' ? [{ id: 'inbox' as const, label: 'Inbox' }, ...COLUMNS] : COLUMNS;
 
   React.useEffect(() => {
@@ -895,12 +884,7 @@ const TaskModal: React.FC<{
         <div className="kb-modal-form__field">
           <p className="kb-modal-form__label">Tags</p>
           <div className="kb-modal-tags">
-            {linkedTagIds.length > 0 && flatTags.filter((t) => linkedTagIds.includes(t.id)).map((t) => (
-              <span key={t.id} className="kb-modal-tags__chip kb-modal-tags__chip--active">
-                {t.colour && <span className="kb-modal-tags__dot" style={{ background: t.colour }} />}
-                {t.name}
-              </span>
-            ))}
+            {linkedTagIds.map((id) => <EntityChip key={id} tagId={id} size="md" />)}
             <TagPicker
               selectedIds={linkedTagIds}
               disabled={saving}

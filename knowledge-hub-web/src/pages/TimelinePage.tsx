@@ -16,8 +16,8 @@ import { Launch, Renew, ChevronDown, ChevronUp } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { SourceStatus } from '../services/api';
 import type { ContentItemSummary } from '../types';
-import { inferProjectId, PROJECT_MAP, type Project } from '../config/projects';
-import { useFlatTags } from '../hooks/useTaxonomy';
+import { inferProjectId, PROJECT_MAP } from '../config/projects';
+import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { EmailAccountConnections } from '../components/EmailAccountConnections';
 import { ConnectionTokens } from '../components/ConnectionTokens';
@@ -136,7 +136,7 @@ function getSubtitle(item: ContentItemSummary): string | null {
  * Get the project for a card using the projects config.
  * Returns null for 'personal' (default — no tag needed).
  */
-function getProject(item: ContentItemSummary): { name: string; colour: Project['colour'] } | null {
+function getProject(item: ContentItemSummary): { id: string; name: string } | null {
   const id = inferProjectId(
     item.source,
     item.metadata as Record<string, unknown> | undefined,
@@ -144,7 +144,7 @@ function getProject(item: ContentItemSummary): { name: string; colour: Project['
   );
   if (id === 'personal') return null;
   const project = PROJECT_MAP.get(id);
-  return project != null ? { name: project.name, colour: project.colour } : null;
+  return project != null ? { id: project.id, name: project.name } : null;
 }
 
 // ── Timeline card ─────────────────────────────────────────────────────────────
@@ -164,16 +164,13 @@ function mapSourceToRefType(source: string): string {
 
 const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
   const [expanded, setExpanded] = useState(false);
-  const flatTags = useFlatTags();
+  const identity = useIdentity();
   const meta = getMeta(item.source);
   const subtitle = getSubtitle(item);
   const hasSummary = item.summary !== '' && item.summary !== item.title;
-  const cmsTags = item.tags ?? [];
   const project = getProject(item);
-
-  const taxonomyTags = (item.taxonomyTagIds ?? [])
-    .map((id) => flatTags.find((t) => t.id === id))
-    .filter((t): t is NonNullable<typeof t> => t != null);
+  // Source labels in item.tags are system metadata, not themes — only the taxonomy is shown.
+  const taxonomyTags = identitiesFor(identity, item.taxonomyTagIds ?? [], project?.id);
 
   return (
     <div className={`tl-card${expanded ? ' tl-card--expanded' : ''}`}>
@@ -183,7 +180,7 @@ const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
           <span className="tl-card-time">{formatTime(item.publishedAt)}</span>
           <Tag type={meta.tagType} size="sm">{meta.label}</Tag>
           {project != null && (
-            <Tag type={project.colour} size="sm">{project.name}</Tag>
+            <EntityChip projectId={project.id} name={project.name} fallbackLabel={project.name} />
           )}
         </div>
 
@@ -193,23 +190,9 @@ const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
           {subtitle !== null && (
             <span className="tl-card-subtitle">{subtitle}</span>
           )}
-          {/* Taxonomy tags (primary) + CMS tags (secondary) */}
-          {(taxonomyTags.length > 0 || cmsTags.length > 0) && (
-            <div className="tl-card-tags">
-              {taxonomyTags.map((t) => (
-                <span key={t.id} className="tl-taxonomy-pill" title={t.name}>
-                  {t.colour && (
-                    <span
-                      className="tl-taxonomy-pill__swatch"
-                      style={{ background: t.colour }}
-                    />
-                  )}
-                  {t.name}
-                </span>
-              ))}
-              {cmsTags.map((t) => (
-                <Tag key={t} type="outline" size="sm">{t}</Tag>
-              ))}
+          {taxonomyTags.length > 0 && (
+            <div className="tl-card-tags kh-chip-row">
+              {taxonomyTags.map((t) => <IdentityChip key={t.tagId} identity={t} />)}
             </div>
           )}
           {/* Show full summary when expanded */}

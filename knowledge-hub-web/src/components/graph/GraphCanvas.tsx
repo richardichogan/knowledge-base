@@ -13,6 +13,7 @@ import type { GraphNode, GraphEdge } from '../../services/api';
 import { TooltipHost, type TooltipHostHandle } from './GraphTooltip';
 import { FADE_DURATION, nodeRadius, drawNode, drawEdge } from './graphDraw';
 import { nodeColour, type ColourMode } from './graphColour';
+import { useIdentity } from '../../identity';
 import { TYPE_TO_SHAPE } from './graphShapes';
 
 const DOUBLE_CLICK_MS = 300;
@@ -72,6 +73,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const fgRef         = useRef<any>(null);
 
   const adjacency  = useMemo(() => buildAdjacency(edges), [edges]);
+  const identity   = useIdentity();
+  const areaColour = useCallback((name: string) => identity.byName(name)?.hex, [identity]);
   const edgeCounts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const e of edges) {
@@ -129,7 +132,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const isNeighbour = hovNeigh.has(node.id) || selNeigh.has(node.id);
     const anyActive   = hov !== null || selectedIds.size > 0;
     const isDimmed    = anyActive && !isHovered && !isSelected && !isNeighbour;
-    const baseColour  = nodeColour(node.refType, (node.conceptParent as string | null) ?? null, colourMode);
+    const baseColour  = nodeColour(node.refType, (node.conceptParent as string | null) ?? null, colourMode, areaColour);
     const colour = (searchQuery && !node.title.toLowerCase().includes(searchQuery.toLowerCase()))
       ? 'rgba(82,82,82,0.3)'
       : baseColour;
@@ -142,7 +145,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       fadeAlpha: Math.min(1, (Date.now() - mountTimeRef.current) / FADE_DURATION),
       label: node.title,
     });
-  }, [selectedIds, searchQuery, adjacency, maxEdges, colourMode]);
+  }, [selectedIds, searchQuery, adjacency, maxEdges, colourMode, areaColour]);
 
   const linkCanvasObject = useCallback((link: FGLink, ctx: CanvasRenderingContext2D, gs: number) => {
     const src = link.source as FGNode;

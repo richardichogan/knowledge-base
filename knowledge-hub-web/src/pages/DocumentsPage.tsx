@@ -19,7 +19,7 @@ import { api } from '../services/api';
 import type { DocEntry, DocType } from '../services/api';
 import { PROJECTS } from '../config/projects';
 import { TagPicker } from '../components/TagPicker';
-import { useFlatTags, useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
+import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { useAthenaContext } from '../context/AthenaContext';
@@ -44,6 +44,7 @@ const LIBRARY_SIDE_WIDTH: PaneWidthOptions = {
   min: 280,
   max: (viewport) => Math.round(viewport * 0.5),
 };
+import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
 import { renderMarkdown } from '../utils/markdown';
 
 // ── Source config ─────────────────────────────────────────────────────────────
@@ -68,14 +69,6 @@ const TYPE_LABEL: Record<DocType, string> = {
   newsletter: 'Newsletter',
   readme: 'README',
   doc: 'Doc',
-};
-
-const TYPE_TAG_COLOR: Record<DocType, string> = {
-  'blog-draft': 'blue',
-  spec: 'purple',
-  newsletter: 'teal',
-  readme: 'warm-gray',
-  doc: 'cyan',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -126,7 +119,7 @@ export const DocumentsPage: React.FC = () => {
 
   // Taxonomy hooks
   const { data: taxonomyTree = [] } = useTaxonomy();
-  const flatTags = useFlatTags();
+  const identity = useIdentity();
 
   // Filter by active taxonomy tag IDs + search query
   const visibleDocs = useMemo(() => {
@@ -342,14 +335,8 @@ export const DocumentsPage: React.FC = () => {
               {tagFilterOpen && (
                 <div className="docs-tag-filter__chips">
                   {taxonomyTree.map((parent) => (
-                    <button
-                      key={parent.id}
-                      className={`docs-tag-chip${activeTagIds.has(parent.id) ? ' docs-tag-chip--active' : ''}`}
-                      onClick={() => { toggleTagId(parent.id); }}
-                      ref={(el) => { if (el && parent.colour) el.style.setProperty('--chip-colour', parent.colour); }}
-                    >
-                      {parent.name}
-                    </button>
+                    <EntityChip key={parent.id} tagId={parent.id} fallbackLabel={parent.name} size="md"
+                      active={activeTagIds.has(parent.id)} onClick={() => { toggleTagId(parent.id); }} />
                   ))}
                   {activeTagIds.size > 0 && (
                     <button className="docs-tag-chip docs-tag-chip--clear" onClick={() => { setActiveTagIds(new Set()); }}>
@@ -426,8 +413,7 @@ export const DocumentsPage: React.FC = () => {
               <div className="docs-viewer__toolbar">
                 <div className="docs-viewer__file-info">
                   <Tag
-                    // @ts-expect-error Carbon Tag type union is too wide
-                    type={TYPE_TAG_COLOR[selectedDoc.type]}
+                    type="gray"
                     size="sm"
                   >
                     {TYPE_LABEL[selectedDoc.type]}
@@ -487,8 +473,7 @@ export const DocumentsPage: React.FC = () => {
             <div className="docs-info-panel__section">
               <p className="docs-info-panel__label">Type</p>
               <Tag
-                // @ts-expect-error Carbon Tag type union is too wide
-                type={TYPE_TAG_COLOR[selectedDoc.type]}
+                type="gray"
                 size="sm"
               >
                 {TYPE_LABEL[selectedDoc.type]}
@@ -552,19 +537,9 @@ export const DocumentsPage: React.FC = () => {
             <div className="docs-info-panel__section docs-info-panel__section--tags">
               <p className="docs-info-panel__label">Tags</p>
               <div className="docs-info-panel__tags">
-                {(selectedDoc.taxonomyTagIds ?? []).map((tagId) => {
-                  const tag = flatTags.find((t) => t.id === tagId);
-                  if (!tag) return null;
-                  return (
-                    <span
-                      key={tagId}
-                      className="docs-info-tag"
-                      style={{ background: tag.colour ?? undefined }}
-                    >
-                      {tag.name}
-                    </span>
-                  );
-                })}
+                {identitiesFor(identity, selectedDoc.taxonomyTagIds ?? []).map((t) => (
+                  <IdentityChip key={t.tagId} identity={t} />
+                ))}
                 {(selectedDoc.taxonomyTagIds ?? []).length === 0 && (
                   <span className="docs-info-panel__value docs-info-panel__value--muted">None</span>
                 )}

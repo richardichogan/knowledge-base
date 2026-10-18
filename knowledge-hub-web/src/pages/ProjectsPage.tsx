@@ -6,14 +6,13 @@ import React, { useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Button, TextInput, TextArea, Modal,
-  Select, SelectItem, InlineNotification, ComboBox, Tag, Checkbox,
+  Select, SelectItem, InlineNotification, Checkbox,
 } from '@carbon/react';
 import { Add, Dashboard, Edit, TrashCan, LogoGithub, Launch, Search } from '@carbon/icons-react';
 import {
   useProjects,
   type ProjectRecord,
   type ProjectColour,
-  type ProjectCategory,
   type ProjectPriority,
   type ProjectType,
   type ProjectLifecycleState,
@@ -23,6 +22,7 @@ import {
   type UpdateProjectInput,
 } from '../services/useProjects';
 import { api } from '../services/api';
+import { COLOUR_LABEL, IDENTITY_COLOURS, IDENTITY_ICONS, IdentityChip, colourHex, identityIcon, type Identity } from '../identity';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
 import { parseExpectedOutputs, validateProjectContext } from '../services/projectFormValidation';
@@ -38,12 +38,6 @@ const GitLabIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const COLOURS: ProjectColour[] = ['blue','cyan','teal','purple','green','magenta','warm-gray','gray','red'];
-const CATEGORIES: { value: ProjectCategory; label: string }[] = [
-  { value: 'work',        label: 'Work' },
-  { value: 'side-hustle', label: 'Side hustle' },
-  { value: 'personal',    label: 'Personal' },
-];
 const PRIORITIES: { value: ProjectPriority; label: string }[] = [
   { value: 'high',   label: '🔴 High' },
   { value: 'medium', label: '🟡 Medium' },
@@ -72,11 +66,6 @@ const LIFECYCLE_LABEL: Record<ProjectLifecycleState, string> = {
   completed: 'Completed',
   archived: 'Archived',
 };
-const CATEGORY_BADGE: Record<ProjectCategory, { label: string; cls: string }> = {
-  work:         { label: 'Work',        cls: 'proj-cat--work' },
-  'side-hustle':{ label: 'Side hustle', cls: 'proj-cat--side' },
-  personal:     { label: 'Personal',    cls: 'proj-cat--personal' },
-};
 const PRIORITY_BADGE: Record<ProjectPriority, { label: string; cls: string }> = {
   high:   { label: 'High',   cls: 'proj-pri--high' },
   medium: { label: 'Medium', cls: 'proj-pri--medium' },
@@ -84,6 +73,8 @@ const PRIORITY_BADGE: Record<ProjectPriority, { label: string; cls: string }> = 
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+interface ProjectGroup { id: string; name: string; }
 
 function getSource(p: ProjectRecord): 'gitlab' | 'github' | null {
   if ((p.gitlabPaths?.length ?? 0) > 0) return 'gitlab';
@@ -96,13 +87,13 @@ function getSource(p: ProjectRecord): 'gitlab' | 'github' | null {
 interface ProjectModalProps {
   open: boolean;
   initial: ProjectRecord | null;   // null = create mode
-  allTags: string[];
+  groups: ProjectGroup[];
   onClose: () => void;
   onSave: (data: CreateProjectInput | UpdateProjectInput) => Promise<void>;
   saving: boolean;
 }
 
-const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onClose, onSave, saving }) => {
+const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onClose, onSave, saving }) => {
   const isEdit = initial != null;
 
   const [name, setName]             = useState(initial?.name ?? '');
@@ -116,7 +107,8 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
   const [importance, setImportance] = useState<ProjectImportance>(initial?.importance ?? 'normal');
   const [expectedOutputsRaw, setExpectedOutputsRaw] = useState((initial?.expectedOutputs ?? []).join('\n'));
   const [colour, setColour]         = useState<ProjectColour>(initial?.colour ?? 'gray');
-  const [category, setCategory]     = useState<ProjectCategory>(initial?.category ?? 'work');
+  const [icon, setIcon]             = useState<string>(initial?.icon ?? 'folder');
+  const [groupId, setGroupId]       = useState<string>(initial?.groupId ?? '');
   const [priority, setPriority]     = useState<ProjectPriority>(initial?.priority ?? 'medium');
   const [projectType, setProjectType] = useState<ProjectType>(initial?.projectType ?? 'standard');
   const [hasIcaCollection, setHasIcaCollection] = useState(initial?.hasIcaDocumentCollection ?? false);
@@ -125,7 +117,6 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
   const [gitlabRaw, setGitlabRaw]   = useState((initial?.gitlabPaths ?? []).join('\n'));
   const [githubRaw, setGithubRaw]   = useState((initial?.githubRepos ?? []).join('\n'));
   const [links, setLinks]           = useState<ProjectLink[]>(initial?.links ?? []);
-  const [tags, setTags]             = useState<string[]>(initial?.tags ?? []);
   const [err, setErr]               = useState<string | null>(null);
 
   // Reset when modal reopens for a new project
@@ -142,7 +133,8 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
       setImportance(initial?.importance ?? 'normal');
       setExpectedOutputsRaw((initial?.expectedOutputs ?? []).join('\n'));
       setColour(initial?.colour ?? 'gray');
-      setCategory(initial?.category ?? 'work');
+      setIcon(initial?.icon ?? 'folder');
+      setGroupId(initial?.groupId ?? '');
       setPriority(initial?.priority ?? 'medium');
       setProjectType(initial?.projectType ?? 'standard');
       setHasIcaCollection(initial?.hasIcaDocumentCollection ?? false);
@@ -151,7 +143,6 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
       setGitlabRaw((initial?.gitlabPaths ?? []).join('\n'));
       setGithubRaw((initial?.githubRepos ?? []).join('\n'));
       setLinks(initial?.links ?? []);
-      setTags(initial?.tags ?? []);
       setErr(null);
     }
   }, [open, initial]);
@@ -199,7 +190,8 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
         importance,
         expectedOutputs: parseExpectedOutputs(expectedOutputsRaw),
         colour,
-        category,
+        icon,
+        groupId: groupId === '' ? null : groupId,
         priority,
         projectType,
         gitlabPaths: gitlabRaw.split('\n').map((s) => s.trim()).filter(Boolean),
@@ -207,7 +199,6 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
         hasIcaDocumentCollection: hasIcaCollection,
         icaDocumentCollectionName: hasIcaCollection ? icaCollectionName.trim() : '',
         icaDocumentCollectionId: hasIcaCollection ? icaCollectionId.trim() : '',
-        tags,
         links: normalizedLinks,
       });
     } catch (e) {
@@ -215,10 +206,10 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
     }
   };
 
-  // Tag options: global tags not already applied
-  const tagOptions = allTags
-    .filter((t) => !tags.includes(t))
-    .map((t) => ({ id: t, label: t }));
+  const preview: Identity = {
+    tagId: null, label: name.trim() || 'New project', kind: 'project', hex: colourHex(colour), icon,
+    projectId: null, parentName: groups.find((g) => g.id === groupId)?.name ?? null,
+  };
 
   return (
     <Modal
@@ -317,8 +308,9 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
         </div>
 
         <div className="proj-modal-row">
-          <Select id="pm-category" labelText="Category" value={category} onChange={(e) => setCategory(e.target.value as ProjectCategory)}>
-            {CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value} text={c.label} />)}
+          <Select id="pm-group" labelText="Group" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            <SelectItem value="" text="No group" />
+            {groups.map((g) => <SelectItem key={g.id} value={g.id} text={g.name} />)}
           </Select>
 
           <Select id="pm-priority" labelText="Priority" value={priority} onChange={(e) => setPriority(e.target.value as ProjectPriority)}>
@@ -357,9 +349,33 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
           )}
         </div>
 
-        <Select id="pm-colour" labelText="Colour" value={colour} onChange={(e) => setColour(e.target.value as ProjectColour)}>
-          {COLOURS.map((c) => <SelectItem key={c} value={c} text={c} />)}
-        </Select>
+        <div className="proj-identity-editor">
+          <div className="proj-identity-editor__heading">
+            <p className="proj-identity-editor__title">Identity</p>
+            <IdentityChip identity={preview} size="md" />
+          </div>
+          <p className="proj-identity-editor__help">How this project looks on every tag, card and graph node.</p>
+          <div className="proj-swatches" role="radiogroup" aria-label="Project colour">
+            {IDENTITY_COLOURS.map((c) => (
+              <button key={c} type="button" role="radio" aria-checked={colour === c} aria-label={COLOUR_LABEL[c]} title={COLOUR_LABEL[c]}
+                className={`proj-swatch${colour === c ? ' proj-swatch--active' : ''}`}
+                style={{ '--kh-id': colourHex(c) } as React.CSSProperties}
+                onClick={() => setColour(c)} />
+            ))}
+          </div>
+          <div className="proj-icon-grid" role="radiogroup" aria-label="Project icon" style={{ '--kh-id': colourHex(colour) } as React.CSSProperties}>
+            {Object.entries(IDENTITY_ICONS).map(([key, { label }]) => {
+              const Icon = identityIcon(key);
+              return (
+                <button key={key} type="button" role="radio" aria-checked={icon === key} aria-label={label} title={label}
+                  className={`proj-icon-option${icon === key ? ' proj-icon-option--active' : ''}`}
+                  onClick={() => setIcon(key)}>
+                  <Icon size={16} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <TextArea
           id="pm-gitlab"
@@ -432,39 +448,6 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
           ))}
         </div>
 
-        {/* Tags — ComboBox with autocomplete from global_tags + removable pills */}
-        <div>
-          <ComboBox
-            id="pm-tags"
-            items={tagOptions}
-            itemToString={(item) => (item ? item.label : '')}
-            titleText="Tags"
-            placeholder="Add a tag…"
-            allowCustomValue
-            onChange={({ selectedItem, inputValue }) => {
-              const val = (selectedItem?.label ?? inputValue ?? '').trim();
-              if (val !== '' && !tags.includes(val)) {
-                setTags([...tags, val]);
-              }
-            }}
-            size="sm"
-          />
-          {tags.length > 0 && (
-            <div className="proj-tag-pills-edit">
-              {tags.map((t) => (
-                <Tag
-                  key={t}
-                  type="cool-gray"
-                  size="sm"
-                  filter
-                  onClose={() => { setTags(tags.filter((x) => x !== t)); }}
-                >
-                  {t}
-                </Tag>
-              ))}
-            </div>
-          )}
-        </div>
       </fieldset>
     </Modal>
   );
@@ -475,7 +458,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, allTags, onC
 export const ProjectsPage: React.FC = () => {
   const { projects, loading, error, reload, createProject, updateProject, deleteProject } = useProjects();
   const [search, setSearch] = useState('');
-  const [filterCat, setFilterCat] = useState<ProjectCategory | 'all'>('all');
+  const [filterGroup, setFilterGroup] = useState<string>('all');
   const [filterLifecycle, setFilterLifecycle] = useState<ProjectLifecycleState | 'all'>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editProject, setEditProject] = useState<ProjectRecord | null>(null);
@@ -487,19 +470,16 @@ export const ProjectsPage: React.FC = () => {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [cockpitProject, setCockpitProject] = useState<ProjectRecord | null>(null);
 
-  const { data: globalTagsData, error: tagsError, refetch: reloadTags } = useQuery<string[]>({
-    queryKey: ['global-tags'],
-    queryFn: async () => {
-      const res = await api.getTags();
-      return requireApiData(res);
-    },
+  const { data: groupsData, error: groupsError, refetch: reloadGroups } = useQuery<ProjectGroup[]>({
+    queryKey: ['project-groups'],
+    queryFn: async () => requireApiData(await api.getProjectGroups()),
     staleTime: 60_000,
     retry: 1,
   });
-  const allTags = globalTagsData ?? [];
+  const groups = groupsData ?? [];
 
   const visible = projects.filter((p) => {
-    if (filterCat !== 'all' && p.category !== filterCat) return false;
+    if (filterGroup !== 'all' && (p.groupId ?? 'none') !== filterGroup) return false;
     if (filterLifecycle !== 'all' && (p.lifecycleState ?? 'active') !== filterLifecycle) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -509,8 +489,8 @@ export const ProjectsPage: React.FC = () => {
       p.goal.toLowerCase().includes(q) ||
       p.role.toLowerCase().includes(q) ||
       p.ownership.toLowerCase().includes(q) ||
-      p.expectedOutputs.some((output) => output.toLowerCase().includes(q)) ||
-      p.tags.some((t) => t.toLowerCase().includes(q))
+      (p.groupName ?? '').toLowerCase().includes(q) ||
+      p.expectedOutputs.some((output) => output.toLowerCase().includes(q))
     );
   });
 
@@ -581,12 +561,13 @@ export const ProjectsPage: React.FC = () => {
         <div className="dc-toolbar__filters">
           <select
             className="dc-filter-select"
-            aria-label="Filter by category"
-            value={filterCat}
-            onChange={(e) => setFilterCat(e.target.value as ProjectCategory | 'all')}
+            aria-label="Filter by group"
+            value={filterGroup}
+            onChange={(e) => setFilterGroup(e.target.value)}
           >
-            <option value="all">All categories</option>
-            {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            <option value="all">All groups</option>
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            <option value="none">No group</option>
           </select>
           <div className="dc-search">
             <Search size={16} className="dc-search__icon" />
@@ -603,7 +584,7 @@ export const ProjectsPage: React.FC = () => {
       </div>
 
       {error && <DataNotice title="Projects could not be refreshed." error={error} onRetry={() => { void reload(); }} />}
-      {tagsError && <DataNotice title="Project tag suggestions are unavailable." error={tagsError} onRetry={() => { void reloadTags(); }} />}
+      {groupsError && <DataNotice title="Project groups are unavailable." error={groupsError} onRetry={() => { void reloadGroups(); }} />}
 
       {/* ── Grid ── */}
       {loading ? (
@@ -614,7 +595,7 @@ export const ProjectsPage: React.FC = () => {
           <p className="proj-empty">
             {projects.length === 0
               ? 'No projects yet. Create a project to organise your work.'
-              : 'No projects match these filters. Try another search or category.'}
+              : 'No projects match these filters. Try another search or group.'}
           </p>
         )}
         <div className="dc-feed proj-feed">
@@ -624,7 +605,7 @@ export const ProjectsPage: React.FC = () => {
               ...(project.githubRepos ?? []).map((repo) => ({ type: 'github' as const, name: repo.split('/').pop() ?? repo, url: `https://github.com/${repo}` })),
             ];
             const source = getSource(project);
-            const cat = CATEGORY_BADGE[project.category];
+            const ProjectIcon = identityIcon(project.icon);
             const pri = PRIORITY_BADGE[project.priority ?? 'medium'];
             const lifecycle = project.lifecycleState ?? 'active';
             const importanceClass = `proj-importance--${project.importance ?? 'normal'}`;
@@ -649,6 +630,9 @@ export const ProjectsPage: React.FC = () => {
                   <div className="proj-card-header">
                     <div className="proj-card-title-col">
                       <div className="proj-card-title-row">
+                        <span className="proj-card-mark" style={{ '--kh-id': colourHex(project.colour) } as React.CSSProperties} aria-hidden="true">
+                          <ProjectIcon size={16} />
+                        </span>
                         <h2 className="proj-card-name" title={project.name}>{project.name}</h2>
                         {source === 'gitlab' && (
                           <span className="proj-source-badge proj-source-badge--gitlab" title="GitLab repository">
@@ -664,7 +648,9 @@ export const ProjectsPage: React.FC = () => {
 
                       {/* Badges / metadata */}
                       <div className="proj-card-badges">
-                        <span className={`proj-cat-badge ${cat.cls}`}>{cat.label}</span>
+                        {project.groupName && (
+                          <IdentityChip identity={{ tagId: project.groupId ?? null, label: project.groupName, kind: 'group', hex: null, icon: null, projectId: null, parentName: null }} />
+                        )}
                         <span className={`proj-pri-badge ${pri.cls}`}>{pri.label} priority</span>
                         <span className={`proj-lifecycle-badge proj-lifecycle-badge--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
                         {project.importance && project.importance !== 'normal' && (
@@ -764,7 +750,7 @@ export const ProjectsPage: React.FC = () => {
                   )}
 
                   {/* Footer with Repos, Links & Tags */}
-                  {(repos.length > 0 || project.links.length > 0 || project.tags.length > 0) && (
+                  {(repos.length > 0 || project.links.length > 0) && (
                     <div className="proj-card-footer">
                       {(repos.length > 0 || project.links.length > 0) && (
                         <div className="proj-card-repos">
@@ -797,13 +783,6 @@ export const ProjectsPage: React.FC = () => {
                           ))}
                         </div>
                       )}
-                      {project.tags.length > 0 && (
-                        <div className="proj-card-tags">
-                          {project.tags.map((t) => (
-                            <span key={t} className="proj-tag-pill">{t}</span>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -818,7 +797,7 @@ export const ProjectsPage: React.FC = () => {
       <ProjectModal
         open={modalOpen}
         initial={editProject}
-        allTags={allTags}
+        groups={groups}
         onClose={() => { setModalOpen(false); setEditProject(null); }}
         onSave={handleSave}
         saving={saving}

@@ -13,6 +13,7 @@ import { useProjects } from '../hooks/useProjects';
 import { usePersistedBoolean, usePersistedChoice } from '../hooks/usePersistedState';
 import { CONTENT_TYPE_OPTIONS } from './constants';
 import type { ContentType } from './constants';
+import { contentTypeIcon, ctxTags, identitiesFor, useIdentity } from '../identity';
 import type { NoteListFilters } from './noteStorage';
 
 const SORT_OPTIONS = ['modified', 'created', 'title'] as const;
@@ -45,20 +46,6 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-const TYPE_STYLE: Record<string, { color: string; bg: string; border: string }> = {
-  project:      { color: '#3ddbd9', bg: 'rgba(61,219,217,0.1)',  border: 'rgba(61,219,217,0.2)' },
-  blog:         { color: '#f1c21b', bg: 'rgba(241,194,27,0.1)',  border: 'rgba(241,194,27,0.2)' },
-  note:         { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' },
-  podcast:      { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
-  'podcast-show-notes': { color: '#8a3ffc', bg: 'rgba(138,63,252,0.1)', border: 'rgba(138,63,252,0.2)' },
-  newsletter:   { color: '#be84ff', bg: 'rgba(190,132,255,0.1)', border: 'rgba(190,132,255,0.2)' },
-  script:       { color: '#ff8389', bg: 'rgba(255,131,137,0.1)', border: 'rgba(255,131,137,0.2)' },
-  architecture: { color: '#4589ff', bg: 'rgba(69,137,255,0.1)',  border: 'rgba(69,137,255,0.2)' },
-  meeting:      { color: '#ff832b', bg: 'rgba(255,131,43,0.1)',  border: 'rgba(255,131,43,0.2)' },
-  research:     { color: '#1192e8', bg: 'rgba(17,146,232,0.1)',  border: 'rgba(17,146,232,0.2)' },
-  spec:         { color: '#ee5396', bg: 'rgba(238,83,150,0.1)',  border: 'rgba(238,83,150,0.2)' },
-  'use-case':   { color: '#08bdba', bg: 'rgba(8,189,186,0.1)',   border: 'rgba(8,189,186,0.2)' },
-};
 
 export const NoteList: React.FC<NoteListProps> = ({
   notes,
@@ -130,14 +117,11 @@ export const NoteList: React.FC<NoteListProps> = ({
   // We treat every child tag of every top-level tag as a potential project grouper,
   // preferring the first match found on the note.
   const tagNameMap = new Map<string, string>();
-  const tagColourMap = new Map<string, string>(); // tagId â†’ colour
   const tagParentMap = new Map<string, string>(); // childId â†’ parentName
   for (const parent of parents) {
     tagNameMap.set(parent.id, parent.name);
-    if (parent.colour) tagColourMap.set(parent.id, parent.colour);
     for (const child of parent.children ?? []) {
       tagNameMap.set(child.id, child.name);
-      if (child.colour) tagColourMap.set(child.id, child.colour);
       tagParentMap.set(child.id, parent.name);
     }
   }
@@ -397,7 +381,6 @@ export const NoteList: React.FC<NoteListProps> = ({
                     showPreview={showPreviews}
                     sortKey={sortKey}
                     tagNameMap={tagNameMap}
-                    tagColourMap={tagColourMap}
                   />
                 ))}
               </div>
@@ -414,7 +397,6 @@ export const NoteList: React.FC<NoteListProps> = ({
                 showPreview={showPreviews}
                 sortKey={sortKey}
                 tagNameMap={tagNameMap}
-                tagColourMap={tagColourMap}
               />
             ))}
         {hasMore && onLoadMore !== undefined && <button type="button" className="notes-list-more" disabled={loadingMore}
@@ -434,8 +416,8 @@ const NoteCard: React.FC<{
   /** Drives which timestamp the card shows, so the visible dates match the chosen order. */
   sortKey: SortKey;
   tagNameMap: Map<string, string>;
-  tagColourMap: Map<string, string>;
-}> = ({ note, selectedId, onSelect, onDelete, deleting, deletePending, showPreview, sortKey, tagNameMap, tagColourMap }) => {
+}> = ({ note, selectedId, onSelect, onDelete, deleting, deletePending, showPreview, sortKey }) => {
+  const identity = useIdentity();
   const isActive = selectedId === note.id;
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -447,18 +429,11 @@ const NoteCard: React.FC<{
     if (isActive) cardRef.current?.scrollIntoView({ block: 'nearest' });
   }, [isActive]);
 
-  const st = TYPE_STYLE[note.contentType] ?? TYPE_STYLE['note'] ?? { color: '#a8a8a8', bg: 'rgba(168,168,168,0.1)', border: 'rgba(168,168,168,0.2)' };
+  const TypeIcon = contentTypeIcon(note.contentType);
   const preview = note.body ?? '';
   const snippet = preview.replace(/[#*_`>[\]\n]+/g, ' ').trim().slice(0, 120);
-  // Encode as "name|colour" so the canvas renderer can use the correct colour
-  const tagEntries = (note.tagIds ?? [])
-    .map((id) => {
-      const name = tagNameMap.get(id);
-      if (!name) return null;
-      const colour = tagColourMap.get(id);
-      return colour ? `${name}|${colour}` : name;
-    })
-    .filter((n): n is string => !!n);
+  // Encoded as "name|colour" so the canvas renderer can use the correct colour
+  const tagEntries = ctxTags(identitiesFor(identity, note.tagIds ?? []));
 
   return (
     <div
@@ -472,7 +447,7 @@ const NoteCard: React.FC<{
       data-ctx-ref-id={note.id}
       data-ctx-ref-type="note"
       data-ctx-source={`Note · ${note.contentType}`}
-      {...(tagEntries.length > 0 ? { 'data-ctx-tags': tagEntries.join(',') } : {})}
+      {...(tagEntries !== undefined ? { 'data-ctx-tags': tagEntries } : {})}
       role="button" tabIndex={0}
     >
       <button
@@ -499,17 +474,9 @@ const NoteCard: React.FC<{
         <span className="notes-list-item-date">
           {formatDate((sortKey === 'created' ? note.createdAt : note.updatedAt) ?? note.updatedAt)}
         </span>
-        <span
-          className="notes-type-tag"
-          ref={(el) => {
-            if (el) {
-              el.style.color = st.color;
-              el.style.background = st.bg;
-              el.style.borderColor = st.border;
-            }
-          }}
-        >
-          {note.contentType}
+        <span className="notes-type-tag kh-type-mark">
+          <TypeIcon size={12} aria-hidden="true" />
+          {note.contentType.replace(/-/g, ' ')}
         </span>
       </div>
     </div>

@@ -34,33 +34,27 @@ export const TYPE_TO_FAMILY: Record<string, Family> = {
   task:            'task',
 };
 
-/** One colour per concept-area parent. */
-export const CONCEPT_COLOUR: Record<string, string> = {
-  'Microsoft Cloud':         '#82cfff',
-  'AI':                      '#be95ff',
-  'Security and Identity':   '#fa4d56',
-  'DevOps and Automation':   '#6fdc8c',
-  'Architecture and Method': '#ffb784',
-  'Observability and Data':  '#3ddbd9',
-  'Industry':                '#f1c21b',
-};
-
 /** Colour for nodes with no concept-area parent. */
 export const NO_CONCEPT_COLOUR = '#6f6f6f';
+
+/** Resolves a concept-area name to its theme colour (from the shared identity index). */
+export type AreaColour = (areaName: string) => string | null | undefined;
 
 /**
  * Returns the fill colour for a node given the active colour mode.
  * @param refType      - Node content type (e.g. 'note', 'spark').
  * @param conceptParent - Dominant concept-area parent name, or null.
  * @param mode         - Active colour mode.
+ * @param areaColour   - Area name → theme colour, so the graph matches every other tag.
  */
 export function nodeColour(
   refType: string,
   conceptParent: string | null,
   mode: ColourMode,
+  areaColour?: AreaColour,
 ): string {
   if (mode === 'concept') {
-    return conceptParent ? (CONCEPT_COLOUR[conceptParent] ?? NO_CONCEPT_COLOUR) : NO_CONCEPT_COLOUR;
+    return conceptParent ? (areaColour?.(conceptParent) ?? NO_CONCEPT_COLOUR) : NO_CONCEPT_COLOUR;
   }
   const family = TYPE_TO_FAMILY[refType];
   return family ? FAMILY_COLOUR[family] : '#8d8d8d';

@@ -24,9 +24,9 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       const db = getDb();
       const { noteId } = req.params as { noteId: string };
       const rows = await db.query<{
-        id: string; name: string; slug: string; parent_id: string | null; colour: string | null; source: string;
+        id: string; name: string; slug: string; parent_id: string | null; colour: string | null; role: 'filing' | 'concept'; project_id: string | null; source: string;
       }>(
-        `SELECT t.id, t.name, t.slug, t.parent_id, t.colour, nt.source
+        `SELECT t.id, t.name, t.slug, t.parent_id, t.colour, t.role, t.project_id, nt.source
          FROM tags t
          INNER JOIN note_tags nt ON nt.tag_id = t.id
          WHERE nt.note_id = $1
@@ -34,7 +34,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         [noteId],
       );
       const tags: TaxonomyTag[] = rows.rows.map((r) => ({
-        id: r.id, name: r.name, slug: r.slug, parentId: r.parent_id, colour: r.colour, usageCount: 0, source: r.source,
+        id: r.id, name: r.name, slug: r.slug, parentId: r.parent_id, colour: r.colour, role: r.role, projectId: r.project_id, usageCount: 0, source: r.source,
       }));
       const body: ApiSuccess<TaxonomyTag[]> = { success: true, data: tags };
       res.status(HTTP_STATUS.OK).json(body);

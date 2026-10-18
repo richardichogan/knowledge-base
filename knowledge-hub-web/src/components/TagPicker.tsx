@@ -8,6 +8,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, ChevronRight, Checkmark } from '@carbon/icons-react';
 import { useTaxonomy } from '../hooks/useTaxonomy';
+import { IdentityMark, useIdentity } from '../identity';
 import type { TaxonomyTag } from '../services/api';
 
 interface TagPickerProps {
@@ -26,6 +27,7 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { data: parents = [] } = useTaxonomy();
+  const identity = useIdentity();
 
   // Position the dropdown relative to the trigger via portal
   const updatePos = useCallback(() => {
@@ -147,12 +149,11 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
                 )}
                 <button
                   disabled={disabled}
-                  className={`tag-picker-item${isSelected ? ' tag-picker-item--selected' : ''}`}
-                  onClick={() => { toggle(parent.id); }}
+                  className={`tag-picker-item${isSelected ? ' tag-picker-item--selected' : ''}${identity.byTagId(parent.id)?.kind === 'group' ? ' tag-picker-item--group' : ''}`}
+                  onClick={() => { if (identity.byTagId(parent.id)?.kind === 'group') toggleExpand(parent.id); else toggle(parent.id); }}
+                  title={identity.byTagId(parent.id)?.kind === 'group' ? 'A project group — pick a project inside it' : undefined}
                 >
-                  {parent.colour && (
-                    <span className="tag-picker-swatch" style={{ background: parent.colour }} />
-                  )}
+                  <IdentityMark identity={identity.byTagId(parent.id)} />
                   <span className="tag-picker-name">{parent.name}</span>
                   {isSelected && <Checkmark size={14} className="tag-picker-check" />}
                 </button>
@@ -167,9 +168,7 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
                     className={`tag-picker-item tag-picker-item--child${childSelected ? ' tag-picker-item--selected' : ''}`}
                     onClick={() => { toggle(child.id); }}
                   >
-                    {child.colour && (
-                      <span className="tag-picker-swatch" style={{ background: child.colour }} />
-                    )}
+                    <IdentityMark identity={identity.byTagId(child.id)} />
                     <span className="tag-picker-name">{child.name}</span>
                     {childSelected && <Checkmark size={14} className="tag-picker-check" />}
                   </button>

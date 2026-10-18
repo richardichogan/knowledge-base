@@ -314,7 +314,9 @@ export interface CfpItem {
   discoveredAt: string;
 }
 
-export type ProjectColour = 'blue' | 'cyan' | 'teal' | 'purple' | 'green' | 'magenta' | 'warm-gray' | 'gray' | 'red';
+export type ProjectColour =
+  | 'blue' | 'cyan' | 'teal' | 'green' | 'lime' | 'yellow' | 'orange'
+  | 'red' | 'magenta' | 'purple' | 'indigo' | 'warm-gray' | 'gray';
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
 export type ProjectType = 'standard' | 'formal-client';
@@ -327,6 +329,13 @@ export interface Project {
   id: string;
   name: string;
   colour: ProjectColour;
+  /** Identity icon key (see src/identity/icons.tsx). */
+  icon: string;
+  /** The tag that stands for this project wherever tags appear. Read-only. */
+  tagId?: string | null;
+  /** Project group (e.g. IBM Projects). Send null to ungroup. */
+  groupId?: string | null;
+  groupName?: string | null;
   category: ProjectCategory;
   priority: ProjectPriority;
   projectType: ProjectType;
@@ -368,6 +377,8 @@ export interface TaxonomyTag {
   parentId: string | null;
   colour: string | null;
   role: 'filing' | 'concept';
+  /** Set when this tag stands for a project. */
+  projectId?: string | null;
   usageCount: number;
   children?: TaxonomyTag[];
 }
@@ -1381,6 +1392,11 @@ export class KnowledgeHubApi {
 
   async getProjects(): Promise<ApiResponse<Project[]>> {
     const r = await this.client.get<ApiResponse<Project[]>>('/api/projects');
+    return r.data;
+  }
+
+  async getProjectGroups(): Promise<ApiResponse<{ id: string; name: string }[]>> {
+    const r = await this.client.get<ApiResponse<{ id: string; name: string }[]>>('/api/projects/groups');
     return r.data;
   }
 

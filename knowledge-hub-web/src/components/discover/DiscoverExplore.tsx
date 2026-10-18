@@ -10,6 +10,7 @@ import { SparkCaptureButton } from '../sparks/SparkCaptureButton';
 import { ConnectionsPanel } from '../connections/ConnectionsPanel';
 import { copyItemToCanvas } from '../../features/canvas/canvasClipboard';
 import { useAthenaContext } from '../../context/AthenaContext';
+import { IdentityChip, identitiesFor, useIdentity } from '../../identity';
 import { whyPicked } from '../../features/discover/discoverInsights';
 
 interface DiscoverExploreProps {
@@ -33,6 +34,7 @@ function anglePrompt(item: DiscoverItem): string {
 }
 
 export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames, isUpdating, onClose, onStateChange, onLinkedIn, onBlog }) => {
+  const exploreTags = identitiesFor(useIdentity(), item.taxonomyTagIds ?? []);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
   const [sentToCanvas, setSentToCanvas] = useState(false);
@@ -83,7 +85,11 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
         <section className="dc-explore__section">
           <h3>Why it matters</h3>
           <p>{item.relevanceExplanation ?? 'Athena has not assessed this article yet.'}</p>
-          {tagNames.length > 0 && <p className="dc-explore__tags">{tagNames.join(' · ')}</p>}
+          {exploreTags.length > 0 && (
+            <div className="dc-explore__tags kh-chip-row">
+              {exploreTags.map((t) => <IdentityChip key={t.tagId} identity={t} size="md" />)}
+            </div>
+          )}
         </section>
 
         <section className="dc-explore__section">

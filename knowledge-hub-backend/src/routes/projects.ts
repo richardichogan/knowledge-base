@@ -14,12 +14,11 @@ import { upsertTags } from '../db/tagHelpers.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError, NotFoundError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
+import { IDENTITY_COLOURS, IDENTITY_PALETTE, type IdentityColour } from '../services/identityPalette.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type ProjectColour =
-  | 'blue' | 'cyan' | 'teal' | 'purple' | 'green'
-  | 'magenta' | 'warm-gray' | 'gray' | 'red';
+export type ProjectColour = IdentityColour;
 
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
@@ -36,6 +35,13 @@ export interface Project {
   id: string;
   name: string;
   colour: ProjectColour;
+  /** Icon key from the shared identity icon set */
+  icon: string;
+  /** The filing tag that represents this project everywhere tags appear */
+  tagId: string | null;
+  /** Project group (top-level filing tag), e.g. "IBM Projects" */
+  groupId: string | null;
+  groupName: string | null;
   category: ProjectCategory;
   priority: ProjectPriority;
   projectType: ProjectType;
@@ -62,13 +68,20 @@ export interface Project {
 // ── Row mapper ────────────────────────────────────────────────────────────────
 
 const PROJECT_COLUMNS = `*, to_char(start_date, 'YYYY-MM-DD') AS start_date,
-  to_char(target_end_date, 'YYYY-MM-DD') AS target_end_date`;
+  to_char(target_end_date, 'YYYY-MM-DD') AS target_end_date,
+  (SELECT t.id FROM tags t WHERE t.project_id = projects.id) AS tag_id,
+  (SELECT g.id FROM tags t JOIN tags g ON g.id = t.parent_id WHERE t.project_id = projects.id) AS group_id,
+  (SELECT g.name FROM tags t JOIN tags g ON g.id = t.parent_id WHERE t.project_id = projects.id) AS group_name`;
 
 function rowToProject(row: Record<string, unknown>): Project {
   return {
     id:           row['id'] as string,
     name:         row['name'] as string,
     colour:       row['colour'] as ProjectColour,
+    icon:         String(row['icon'] ?? 'folder'),
+    tagId:        row['tag_id'] == null ? null : String(row['tag_id']),
+    groupId:      row['group_id'] == null ? null : String(row['group_id']),
+    groupName:    row['group_name'] == null ? null : String(row['group_name']),
     category:     row['category'] as ProjectCategory,
     priority:     row['priority'] as ProjectPriority,
     projectType:  (row['project_type'] as ProjectType | undefined) ?? 'standard',
@@ -95,7 +108,8 @@ function rowToProject(row: Record<string, unknown>): Project {
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
-const COLOURS: ProjectColour[] = ['blue','cyan','teal','purple','green','magenta','warm-gray','gray','red'];
+const COLOURS: ProjectColour[] = IDENTITY_COLOURS;
+const ICON_RE = /^[a-z0-9-]{1,40}$/;
 const CATEGORIES: ProjectCategory[] = ['work', 'personal', 'side-hustle'];
 const PRIORITIES: ProjectPriority[] = ['low', 'medium', 'high'];
 const PROJECT_TYPES: ProjectType[] = ['standard', 'formal-client'];
@@ -124,6 +138,12 @@ function validateInput(input: Record<string, unknown>, requireName: boolean): vo
   }
   if (input['colour'] !== undefined && !COLOURS.includes(input['colour'] as ProjectColour)) {
     throw new ValidationError(`colour must be one of: ${COLOURS.join(', ')}`, { colour: 'invalid' });
+  }
+  if (input['icon'] !== undefined && (typeof input['icon'] !== 'string' || !ICON_RE.test(input['icon']))) {
+    throw new ValidationError('icon must be an icon key', { icon: 'invalid' });
+  }
+  if (input['groupId'] !== undefined && input['groupId'] !== null && typeof input['groupId'] !== 'string') {
+    throw new ValidationError('groupId must be a tag id or null', { groupId: 'invalid' });
   }
   if (input['category'] !== undefined && !CATEGORIES.includes(input['category'] as ProjectCategory)) {
     throw new ValidationError(`category must be one of: ${CATEGORIES.join(', ')}`, { category: 'invalid' });
@@ -185,9 +205,77 @@ function validateInput(input: Record<string, unknown>, requireName: boolean): vo
   }
 }
 
+// ── Project ↔ filing tag sync ────────────────────────────────────────────────
+
+type Db = ReturnType<typeof getDb>;
+
+function toSlug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project';
+}
+
+async function assertGroup(db: Db, groupId: string): Promise<void> {
+  const r = await db.query(
+    `SELECT 1 FROM tags WHERE id = $1 AND role = 'filing' AND parent_id IS NULL AND project_id IS NULL`, [groupId],
+  );
+  if (r.rows.length === 0) throw new ValidationError('groupId must be a project group', { groupId: 'invalid' });
+}
+
+/**
+ * Keep the project's filing tag in step with the project: same name, same colour,
+ * under the chosen group. Creates the tag if the project has none.
+ * `groupId` undefined leaves the group unchanged; null makes the project ungrouped.
+ */
+async function syncProjectTag(db: Db, projectId: string, groupId: string | null | undefined): Promise<void> {
+  const project = await db.query<{ name: string; colour: IdentityColour }>(
+    'SELECT name, colour FROM projects WHERE id = $1', [projectId],
+  );
+  const row = project.rows[0];
+  if (row === undefined) return;
+  const hex = IDENTITY_PALETTE[row.colour] ?? IDENTITY_PALETTE.gray;
+  if (groupId) await assertGroup(db, groupId);
+
+  const existing = await db.query<{ id: string }>('SELECT id FROM tags WHERE project_id = $1', [projectId]);
+  const tagId = existing.rows[0]?.id;
+  if (tagId !== undefined) {
+    const params: unknown[] = [tagId, row.name, hex];
+    let parentSql = '';
+    if (groupId !== undefined) { params.push(groupId); parentSql = `, parent_id = $${params.length}`; }
+    await db.query(`UPDATE tags SET name = $2, colour = $3${parentSql}, updated_at = NOW() WHERE id = $1`, params);
+    return;
+  }
+  const base = toSlug(projectId);
+  const taken = await db.query<{ slug: string }>(`SELECT slug FROM tags WHERE slug = $1 OR slug LIKE $1 || '-%'`, [base]);
+  const slugs = new Set(taken.rows.map((r) => r.slug));
+  let slug = base;
+  for (let i = 2; slugs.has(slug); i++) slug = `${base}-${i}`;
+  await db.query(
+    `INSERT INTO tags (name, slug, role, parent_id, colour, project_id) VALUES ($1, $2, 'filing', $3, $4, $5)`,
+    [row.name, slug, groupId ?? null, hex, projectId],
+  );
+}
+
+async function loadProject(db: Db, id: string): Promise<Project> {
+  const r = await db.query<Record<string, unknown>>(`SELECT ${PROJECT_COLUMNS} FROM projects WHERE id = $1`, [id]);
+  if (r.rows.length === 0) throw new NotFoundError(`Project '${id}' not found`);
+  return rowToProject(r.rows[0] as Record<string, unknown>);
+}
+
 // ── Router ────────────────────────────────────────────────────────────────────
 
 const router = Router();
+
+// GET /api/projects/groups — project groups (top-level filing tags)
+router.get('/groups', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const r = await getDb().query<{ id: string; name: string }>(
+        `SELECT id, name FROM tags WHERE role = 'filing' AND parent_id IS NULL AND project_id IS NULL ORDER BY name`,
+      );
+      const body: ApiSuccess<{ id: string; name: string }[]> = { success: true, data: r.rows };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) { next(err); }
+  })();
+});
 
 // GET /api/projects — list all, optional ?category=&priority= filters
 router.get('/', (req: Request, res: Response, next: NextFunction): void => {
@@ -222,13 +310,14 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       const id = String(input['id'] ?? '').trim() || randomUUID();
       const tags = Array.isArray(input['tags']) ? (input['tags'] as string[]).filter(Boolean) : [];
       const result = await db.query<Record<string, unknown>>(
-        `INSERT INTO projects (id, name, colour, category, priority, project_type, description, goal, role, ownership, lifecycle_state, start_date, target_end_date, importance, expected_outputs, gitlab_paths, github_repos, has_ica_document_collection, ica_document_collection_name, ica_document_collection_id, links, tags)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-         RETURNING ${PROJECT_COLUMNS}`,
+        `INSERT INTO projects (id, name, colour, icon, category, priority, project_type, description, goal, role, ownership, lifecycle_state, start_date, target_end_date, importance, expected_outputs, gitlab_paths, github_repos, has_ica_document_collection, ica_document_collection_name, ica_document_collection_id, links, tags)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+         RETURNING id`,
         [
           id,
           String(input['name']).trim(),
           (input['colour'] as string | undefined) ?? 'gray',
+          (input['icon'] as string | undefined) ?? 'folder',
           (input['category'] as string | undefined) ?? 'work',
           (input['priority'] as string | undefined) ?? 'medium',
           (input['projectType'] as string | undefined) ?? 'standard',
@@ -250,7 +339,9 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
           tags,
         ],
       );
-      const body: ApiSuccess<Project> = { success: true, data: rowToProject(result.rows[0] as Record<string, unknown>) };
+      const createdId = String((result.rows[0] as Record<string, unknown>)['id']);
+      await syncProjectTag(db, createdId, (input['groupId'] as string | null | undefined) ?? null);
+      const body: ApiSuccess<Project> = { success: true, data: await loadProject(db, createdId) };
       res.status(HTTP_STATUS.CREATED).json(body);
       // Auto-upsert tags into global registry (fire-and-forget)
       upsertTags(db, tags).catch((e: unknown) => {
@@ -275,6 +366,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
 
       if (input['name'] !== undefined)        add('name',         String(input['name']).trim());
       if (input['colour'] !== undefined)      add('colour',       input['colour']);
+      if (input['icon'] !== undefined)        add('icon',         input['icon']);
       if (input['category'] !== undefined)    add('category',     input['category']);
       if (input['priority'] !== undefined)    add('priority',     input['priority']);
       if (input['projectType'] !== undefined) add('project_type', input['projectType']);
@@ -297,7 +389,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (Array.isArray(input['links']))       add('links',        JSON.stringify(input['links']));
       if (Array.isArray(input['tags']))        add('tags',         (input['tags'] as string[]).filter(Boolean));
 
-      if (fields.length === 0) throw new ValidationError('no fields to update', {});
+      if (fields.length === 0 && input['groupId'] === undefined) throw new ValidationError('no fields to update', {});
       if (input['startDate'] !== undefined || input['targetEndDate'] !== undefined) {
         const current = await db.query<{ start_date: string | null; target_end_date: string | null }>(
           `SELECT to_char(start_date, 'YYYY-MM-DD') AS start_date,
@@ -319,12 +411,13 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       fields.push('updated_at = NOW()');
       params.push(id);
 
-      const result = await db.query<Record<string, unknown>>(
-        `UPDATE projects SET ${fields.join(', ')} WHERE id = $${params.length} RETURNING ${PROJECT_COLUMNS}`,
+      const result = await db.query(
+        `UPDATE projects SET ${fields.join(', ')} WHERE id = $${params.length} RETURNING id`,
         params,
       );
       if (result.rows.length === 0) throw new NotFoundError(`Project '${id}' not found`);
-      const updated = rowToProject(result.rows[0] as Record<string, unknown>);
+      await syncProjectTag(db, id ?? '', input['groupId'] as string | null | undefined);
+      const updated = await loadProject(db, id ?? '');
       const body: ApiSuccess<Project> = { success: true, data: updated };
       res.status(HTTP_STATUS.OK).json(body);
       // Auto-upsert tags into global registry (fire-and-forget)

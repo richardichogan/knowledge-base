@@ -14,6 +14,7 @@ import { Close, Add, Edit, TrashCan, ChevronUp } from '@carbon/icons-react';
 import { useRepoMappings, useCreateRepoMapping, useUpdateRepoMapping, useDeleteRepoMapping } from '../hooks/useRepoMappings';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import type { RepoTagMapping } from '../services/api';
+import { EntityChip } from '../identity';
 
 interface ProjectsModalProps {
   open: boolean;
@@ -139,10 +140,7 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({ open, onClose }) =
             <div key={m.id} className="project-row">
               {/* Summary row */}
               <div className="project-row__summary">
-                {m.tagColour && (
-                  <span className="project-row__swatch" style={{ background: m.tagColour }} />
-                )}
-                <span className="project-row__name">{m.tagName}</span>
+                <EntityChip tagId={m.tagId} fallbackLabel={m.tagName} />
                 <span className="project-row__category">
                   {repoCount(m)} repo{repoCount(m) !== 1 ? 's' : ''}
                 </span>

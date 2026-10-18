@@ -4,6 +4,7 @@
 @use '@carbon/react';
 @use './today';
 @use './navigation';
+@use './identity';
 
 .email-connections {
   margin-bottom: 20px;
@@ -3066,15 +3067,16 @@ input, textarea {
 // Project + due date footer
 .kb-card__footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 0.25rem 0.5rem;
   padding-top: 0.5rem;
   border-top: 1px solid var(--cds-border-subtle-00);
 }
 
 .kb-card__project {
-  font-size: 0.6875rem;
-  color: var(--cds-text-secondary);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3786,12 +3788,7 @@ input, textarea {
 }
 
 .notes-type-tag {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.625rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 1px 6px;
-  border-radius: 2px;
+  font-size: 0.6875rem;
 }
 
 .notes-list-item-meta {
@@ -8843,10 +8840,17 @@ body.kh-pane-resizing {
   min-width: 0;
 }
 
-.tag-panel-swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+.tag-panel-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.tag-panel-note {
+  font-size: 0.6875rem;
+  color: var(--cds-text-helper);
   flex-shrink: 0;
 }
 
@@ -8926,15 +8930,30 @@ body.kh-pane-resizing {
   }
 }
 
-.tag-panel-colour-input {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--cds-border-strong-01);
-  border-radius: 2px;
-  cursor: pointer;
-  background: none;
-  flex-shrink: 0;
+.tag-panel-edit-block {
+  flex: 1;
+  min-width: 0;
+  background: var(--cds-layer-02);
+  border-top: 1px solid var(--cds-border-subtle-01);
+
+  .tag-panel-edit-row {
+    background: none;
+    border-top: none;
+  }
+}
+
+.tag-panel-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  padding: 0 0.5rem 0.5rem;
+
+  .tag-panel-swatch-option {
+    width: 1.125rem;
+    height: 1.125rem;
+
+    &.proj-swatch--active { box-shadow: 0 0 0 2px var(--cds-layer-02), 0 0 0 4px var(--kh-id); }
+  }
 }
 
 .tag-panel-add-child {
@@ -13671,7 +13690,7 @@ $interactive:      #0f62fe;
 }
 
 .dc-explore__hint { color: var(--cds-text-secondary) !important; font-size: 0.9375rem !important; }
-.dc-explore__tags { color: var(--cds-text-secondary) !important; font-size: 0.9375rem !important; }
+.dc-explore__tags { margin-top: 0.25rem; }
 
 .dc-explore__list {
   margin: 0;

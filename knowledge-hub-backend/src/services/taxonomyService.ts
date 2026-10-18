@@ -154,7 +154,7 @@ async function projectTagId(db: Pool, projectContext: string | null | undefined)
   if (projectContext === null || projectContext === undefined || projectContext === '') return null;
   if (projectTagCache.has(projectContext)) return projectTagCache.get(projectContext) ?? null;
   const r = await db.query<{ id: string }>(
-    `SELECT t.id FROM projects p JOIN tags t ON lower(t.name) = lower(p.name) WHERE p.id = $1 ORDER BY (t.role = 'filing') DESC LIMIT 1`,
+    `SELECT id FROM tags WHERE project_id = $1`,
     [projectContext],
   ).catch(() => ({ rows: [] as Array<{ id: string }> }));
   const id = r.rows[0]?.id ?? null;

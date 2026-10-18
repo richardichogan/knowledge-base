@@ -23,6 +23,7 @@ import { ThinkAthenaPanel } from './ThinkAthenaPanel';
 import { NoteHistoryPanel } from './NoteHistoryPanel';
 import { PaneResizer } from '../components/PaneResizer';
 import { usePersistedBoolean, usePersistedChoice, usePersistedPaneWidth } from '../hooks/usePersistedState';
+import { EntityChip } from '../identity';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 
 const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections', 'history'] as const;
@@ -268,18 +269,15 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
               <div className="notes-meta-section">
                 <p className="notes-meta-section-label">Tags</p>
                 <div className="notes-meta-tags-chips">
-                  {appliedTags.map((t) => (
-                    <span key={t.id} className={`notes-meta-tag-chip${autoTagIds.includes(t.id) ? ' notes-meta-tag-chip--auto' : ''}`}>
-                      {t.name}
-                      {autoTagIds.includes(t.id) && (
-                        <>
-                          <span className="notes-meta-tag-auto" title="Added automatically by Athena">auto</span>
-                          <button type="button" className="notes-meta-tag-remove" aria-label={`Remove tag ${t.name}`} title="Remove this tag (Athena won't re-add it)"
-                            onClick={() => onTagIdsChange(taxonomyTagIds.filter((id) => id !== t.id))}>×</button>
-                        </>
-                      )}
-                    </span>
-                  ))}
+                  {appliedTags.map((t) => {
+                    const auto = autoTagIds.includes(t.id);
+                    return (
+                      <EntityChip key={t.id} tagId={t.id} fallbackLabel={t.name}
+                        suffix={auto ? <span className="notes-meta-tag-auto" title="Added automatically by Athena">auto</span> : undefined}
+                        removeTitle={auto ? "Remove this tag (Athena won't re-add it)" : 'Remove this tag'}
+                        onRemove={() => onTagIdsChange(taxonomyTagIds.filter((id) => id !== t.id))} />
+                    );
+                  })}
                   <TagPicker
                     selectedIds={taxonomyTagIds}
                     onChange={onTagIdsChange}

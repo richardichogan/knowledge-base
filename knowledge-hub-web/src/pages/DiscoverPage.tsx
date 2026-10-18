@@ -21,6 +21,7 @@ import { DiscoverExplore } from '../components/discover/DiscoverExplore';
 import { buildBriefing, readSinceLastLooked, whyPicked } from '../features/discover/discoverInsights';
 import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
+import { IdentityChip, ctxTags, identitiesFor, useIdentity } from '../identity';
 import { useAthenaContext } from '../context/AthenaContext';
 import { BlogPublishModal } from '../components/discover/BlogPublishModal';
 import { LinkedInDraftModal } from '../components/discover/LinkedInDraftModal';
@@ -263,10 +264,9 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
   const state = item.workflowState;
   const isPublished = state === 'published';
   const [whyOpen, setWhyOpen] = useState(false);
-  const flatTags = useFlatTags();
-  const taxonomyTags = (item.taxonomyTagIds ?? [])
-    .map((id) => flatTags.find((t) => t.id === id))
-    .filter((t): t is NonNullable<typeof t> => t !== undefined);
+  const identity = useIdentity();
+  const taxonomyTags = identitiesFor(identity, item.taxonomyTagIds ?? []);
+  const ctx = ctxTags(taxonomyTags);
   const reasons = whyOpen ? whyPicked(item) : [];
   const stop = (e: React.SyntheticEvent): void => { e.stopPropagation(); };
 
@@ -289,7 +289,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
       data-ctx-type="hub_ref"
       data-ctx-ref-id={item.id}
       data-ctx-ref-type="discover_item"
-      {...(taxonomyTags.length > 0 ? { 'data-ctx-tags': taxonomyTags.map((t) => t.colour ? `${t.name}|${t.colour}` : t.name).join(',') } : {})}
+      {...(ctx !== undefined ? { 'data-ctx-tags': ctx } : {})}
     >
       <div className="dc-card-meta">
         <span className="dc-card-source">{item.sourceTitle}</span>
@@ -320,13 +320,8 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
       )}
       {isPublished && <PublishedUrlEditor item={item} />}
       {taxonomyTags.length > 0 && (
-        <div className="dc-card-tags">
-          {taxonomyTags.map((t) => (
-            <span key={t.id} className="dc-taxonomy-pill"
-              ref={(el) => { if (el && t.colour) el.style.setProperty('--pill-colour', t.colour); }}>
-              {t.name}
-            </span>
-          ))}
+        <div className="dc-card-tags kh-chip-row">
+          {taxonomyTags.map((t) => <IdentityChip key={t.tagId} identity={t} />)}
         </div>
       )}
 

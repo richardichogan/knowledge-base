@@ -103,7 +103,7 @@ router.post('/:id/accept', (req: Request, res: Response, next: NextFunction): vo
       const tagRow = await db.query<{ id: string }>(
         `INSERT INTO tags (name, slug, role, parent_id, colour) VALUES ($1,$2,'concept',$3,$4)
          ON CONFLICT (slug) DO UPDATE SET role = 'concept', updated_at = now() RETURNING id`,
-        [name, slug, parentId, colour],
+        [name, slug, parentId, parentId === null ? colour : null],
       );
       const tagId = tagRow.rows[0]!.id;
 
@@ -180,7 +180,7 @@ router.post('/accept-all', (req: Request, res: Response, next: NextFunction): vo
         await db.query(
           `INSERT INTO tags (name, slug, role, parent_id, colour) VALUES ($1,$2,'concept',$3,$4)
            ON CONFLICT (slug) DO UPDATE SET role = 'concept', updated_at = now()`,
-          [row.suggested_name, slug, parentId, colour],
+          [row.suggested_name, slug, parentId, parentId === null ? colour : null],
         );
         await db.query(
           `UPDATE pending_tag_suggestions SET status = 'accepted', updated_at = now() WHERE id = $1`,

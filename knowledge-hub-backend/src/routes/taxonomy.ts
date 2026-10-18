@@ -25,6 +25,9 @@ export interface TaxonomyTag {
   slug: string;
   parentId: string | null;
   colour: string | null;
+  role: 'filing' | 'concept';
+  /** Set when this filing tag represents a project. */
+  projectId: string | null;
   usageCount: number;
   children?: TaxonomyTag[];
 }
@@ -69,9 +72,9 @@ router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
       const db = getDb();
       const rows = await db.query<{
         id: string; name: string; slug: string; parent_id: string | null;
-        colour: string | null; usage_count: number;
+        colour: string | null; role: 'filing' | 'concept'; project_id: string | null; usage_count: number;
       }>(
-        `SELECT t.id, t.name, t.slug, t.parent_id, t.colour,
+        `SELECT t.id, t.name, t.slug, t.parent_id, t.colour, t.role, t.project_id,
                 (SELECT COUNT(*)::int FROM note_tags nt WHERE nt.tag_id = t.id) +
                 (SELECT COUNT(*)::int FROM discover_item_tags dt WHERE dt.tag_id = t.id) AS usage_count
          FROM tags t ORDER BY t.name ASC`,
@@ -79,7 +82,7 @@ router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
 
       const allTags: TaxonomyTag[] = rows.rows.map((r) => ({
         id: r.id, name: r.name, slug: r.slug, parentId: r.parent_id,
-        colour: r.colour, usageCount: r.usage_count, children: [],
+        colour: r.colour, role: r.role, projectId: r.project_id, usageCount: r.usage_count, children: [],
       }));
 
       const byId = new Map(allTags.map((t) => [t.id, t]));
@@ -156,13 +159,18 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       };
       await validateName(db, name, parentId);
       const slug = toSlug(name.trim());
+      const parentRole = parentId === null ? null
+        : (await db.query<{ role: 'filing' | 'concept' }>('SELECT role FROM tags WHERE id = $1', [parentId])).rows[0]?.role ?? null;
+      const role = parentRole ?? 'concept';
+      // Topics inherit their area's colour; only top-level tags carry one.
+      const ownColour = parentId === null ? colour : null;
       const row = await db.query<{ id: string }>(
-        `INSERT INTO tags (name, slug, parent_id, colour) VALUES ($1,$2,$3,$4) RETURNING id`,
-        [name.trim(), slug, parentId, colour],
+        `INSERT INTO tags (name, slug, parent_id, colour, role) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+        [name.trim(), slug, parentId, ownColour, role],
       );
       const tagId = row.rows[0]?.id;
       if (tagId === undefined) throw new Error('Insert failed');
-      const tag: TaxonomyTag = { id: tagId, name: name.trim(), slug, parentId, colour, usageCount: 0 };
+      const tag: TaxonomyTag = { id: tagId, name: name.trim(), slug, parentId, colour: ownColour, role, projectId: null, usageCount: 0 };
       const body: ApiSuccess<TaxonomyTag> = { success: true, data: tag };
       res.status(HTTP_STATUS.CREATED).json(body);
     } catch (err) { next(err); }
@@ -177,11 +185,18 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       const db = getDb();
       const { id } = req.params;
       const { name, colour } = req.body as { name?: string; colour?: string | null };
-      const existing = await db.query<{ parent_id: string | null }>(
-        'SELECT parent_id FROM tags WHERE id = $1', [id],
+      const existing = await db.query<{ parent_id: string | null; project_id: string | null }>(
+        'SELECT parent_id, project_id FROM tags WHERE id = $1', [id],
       );
       if (existing.rows.length === 0) throw new NotFoundError(`Tag ${id} not found`);
+      const projectId = existing.rows[0]!.project_id;
+      if (projectId !== null && colour !== undefined) {
+        throw new ValidationError('This tag is a project — change its colour on the project', { colour: 'project' });
+      }
       if (name !== undefined) await validateName(db, name, existing.rows[0]!.parent_id);
+      if (projectId !== null && name !== undefined) {
+        await db.query('UPDATE projects SET name = $2, updated_at = NOW() WHERE id = $1', [projectId, name.trim()]);
+      }
 
       const fields: string[] = ['updated_at = NOW()'];
       const params: unknown[] = [id];

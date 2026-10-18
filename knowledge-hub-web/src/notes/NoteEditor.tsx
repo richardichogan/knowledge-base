@@ -38,6 +38,7 @@ import { imagineDemoBriefPrompt } from './imagineDemoBrief';
 import { noteDraftIdentity } from '../services/auth';
 import { captureNoteDraft, removeNoteDraftIfUnchanged, storeNoteDraft, type NoteDraft } from './noteDraftStorage';
 import { NoteDraftReview } from './NoteDraftReview';
+import { useIdentity } from '../identity';
 import { ExtractionMarks } from './ExtractionMarks';
 
 interface NoteEditorProps {
@@ -803,6 +804,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
   // Applied tags for metadata panel
   const appliedTags = flatTags.filter((t) => taxonomyTagIds.includes(t.id));
+  const identity = useIdentity();
 
   return (
     <div className="notes-editor-panel">
@@ -947,7 +949,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           data-ctx-ref-id={doc.id}
           data-ctx-ref-type="note"
           data-ctx-source={`Note · ${contentType}`}
-          {...(appliedTags.length > 0 ? { 'data-ctx-tags': appliedTags.map((t) => t.colour ? `${t.name}|${t.colour}` : t.name).join(',') } : {})}
+          {...(appliedTags.length > 0 ? { 'data-ctx-tags': appliedTags.map((t) => `${t.name}|${identity.hexForTag(t.id)}`).join(',') } : {})}
           {...(appliedTags.length > 0 ? { 'data-ctx-tag-ids': appliedTags.map((t) => t.id).join(',') } : {})}
         >
           <div className="notes-editor-inner">
