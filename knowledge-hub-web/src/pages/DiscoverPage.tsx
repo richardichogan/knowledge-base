@@ -19,7 +19,7 @@ import { DataNotice } from '../components/DataNotice';
 import { PageHeader } from '../components/PageHeader';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import { DiscoverExplore } from '../components/discover/DiscoverExplore';
-import { buildBriefing, readSinceLastLooked, whyPicked } from '../features/discover/discoverInsights';
+import { buildBriefing, readSinceLastLooked } from '../features/discover/discoverInsights';
 import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { IdentityChip, ctxTags, identitiesFor, useIdentity } from '../identity';
@@ -264,11 +264,9 @@ interface CardProps {
 const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate, onExplore }) => {
   const state = item.workflowState;
   const isPublished = state === 'published';
-  const [whyOpen, setWhyOpen] = useState(false);
   const identity = useIdentity();
   const taxonomyTags = identitiesFor(identity, item.taxonomyTagIds ?? []);
   const ctx = ctxTags(taxonomyTags);
-  const reasons = whyOpen ? whyPicked(item) : [];
   const stop = (e: React.SyntheticEvent): void => { e.stopPropagation(); };
 
   return (
@@ -326,16 +324,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         </div>
       )}
 
-      {whyOpen && (
-        <ul className="dc-card-why" aria-label="Why Athena picked this" onClick={stop}>
-          {reasons.length > 0 ? reasons.map((r) => <li key={r}>{r}</li>) : <li>Ranked on general relevance; no stronger signal.</li>}
-        </ul>
-      )}
-
       <div className="dc-card-footer" onClick={stop} onKeyDown={stop}>
-        <button type="button" className="dc-why-toggle" aria-expanded={whyOpen} onClick={() => { setWhyOpen((o) => !o); }}>
-          Why Athena picked this
-        </button>
         <div className="dc-card-actions">
           {(state === 'to-review' || state === 'shelved') && (
             <>
