@@ -16,6 +16,7 @@ import { Bookmark, Archive, Renew, Launch, ArrowRight, Checkmark, Microphone } f
 import { api } from '../services/api';
 import { requireApiData, requireApiSuccess } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
+import { PageHeader } from '../components/PageHeader';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import { DiscoverExplore } from '../components/discover/DiscoverExplore';
 import { buildBriefing, readSinceLastLooked, whyPicked } from '../features/discover/discoverInsights';
@@ -547,26 +548,20 @@ export const DiscoverPage: React.FC = () => {
   );
 
   return (
-    <div className="page-root">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Discover</h1>
-          <p className="page-subtitle">
-            {isCfps
+    <div className="page-root" role="main">
+      <PageHeader title="Discover" subtitle={isCfps
               ? `${(cfpQuery.data?.success ? cfpQuery.data.data : []).length} CFPs to review`
-              : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`}
-          </p>
-        </div>
+              : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`} actions={
         <button type="button" className="dc-sources-toggle" aria-expanded={sourcesOpen} onClick={() => { setSourcesOpen((o) => !o); }}>
           {sourcesOpen ? 'Hide sources' : 'Sources'}
         </button>
-      </div>
+      } />
       {sourcesOpen && <DiscoverSources onClose={() => { setSourcesOpen(false); }} />}
       {preferenceError != null && <DataNotice title="Discovery view could not be remembered or restored" error={preferenceError} />}
 
       {/* ── Discovery views ── */}
       <div className="dc-toolbar">
-        <div className="dc-tabs">
+        <div className="dc-tabs kh-command-row">
           {PRIMARY_TABS.map((tab) => (
             <button
               key={tab.key}

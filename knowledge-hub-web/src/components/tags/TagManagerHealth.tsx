@@ -8,11 +8,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading, InlineNotification } from '@carbon/react';
 import { api } from '../../services/api';
 import { confirmDialog, alertDialog } from '../../services/appDialogs';
-import { PROJECTS } from '../../config/projects';
+import { useProjects } from '../../hooks/useProjects';
 
 export const TagManagerHealth: React.FC = () => {
   const qc = useQueryClient();
-  const allDocRepos = PROJECTS.flatMap((p) => p.githubRepos ?? []);
+  const { data: projects = [] } = useProjects();
+  const allDocRepos = projects.flatMap((project) => project.githubRepos);
   const { data, isPending, isError } = useQuery({
     queryKey: ['taxonomy-health'],
     queryFn:  () => api.getHealthReport(),

@@ -21,6 +21,7 @@ import { SavedViews } from '../components/SavedViews';
 import { DataNotice } from '../components/DataNotice';
 import { usePlanAthena } from '../features/plan/usePlanAthena';
 import { PlanReviewModal } from '../features/plan/PlanReviewModal';
+import { PageHeader } from '../components/PageHeader';
 
 interface ViewTab {
   key: PlanView;
@@ -63,11 +64,8 @@ export const PlanPage: React.FC = () => {
   useDueNotifications();
 
   return (
-    <div className="plan-root">
-      {/* Shared header */}
-      <div className="plan-header page-header">
-        <h1 className="page-title">Plan</h1>
-        <div className="plan-header__right">
+    <div className="plan-root" role="main">
+      <PageHeader title="Plan" actions={<>
           {(
             <>
               <Select id="plan-filter-project" labelText="Filter by project" hideLabel size="sm"
@@ -101,7 +99,7 @@ export const PlanPage: React.FC = () => {
           <SavedViews variant="menu" current={{ ...preferences, kind: 'plan' }} onApply={next => {
             if (next.kind === 'plan') updatePreferences({ view: next.view, project: next.project, tag: next.tag });
           }} />
-          <div className="plan-view-toggle">
+          <div className="plan-view-toggle kh-command-row">
             {VIEW_TABS.map(({ key, label, Icon }) => (
               <button
                 key={key}
@@ -114,8 +112,7 @@ export const PlanPage: React.FC = () => {
               </button>
             ))}
           </div>
-        </div>
-      </div>
+      </>} />
 
       {preferenceError != null && <DataNotice title="Plan view could not be remembered or restored" error={preferenceError} />}
 

@@ -8,16 +8,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   InlineLoading,
   InlineNotification,
-  Tag,
   Toggle,
   Button,
 } from '@carbon/react';
 import { Launch, Renew, ChevronDown, ChevronUp } from '@carbon/icons-react';
 import { api } from '../services/api';
-import type { SourceStatus } from '../services/api';
+import type { Project, SourceStatus } from '../services/api';
 import type { ContentItemSummary } from '../types';
-import { inferProjectId, PROJECT_MAP } from '../config/projects';
-import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
+import { inferProjectId } from '../utils/projectMatching';
+import { contentTypeIcon, EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
+import { useProjects } from '../hooks/useProjects';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { EmailAccountConnections } from '../components/EmailAccountConnections';
 import { ConnectionTokens } from '../components/ConnectionTokens';
@@ -25,45 +25,46 @@ import { useLocation } from 'react-router-dom';
 import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
 import { pollSyncRun } from '../services/syncPolling';
 import { DataNotice } from '../components/DataNotice';
+import { PageHeader } from '../components/PageHeader';
 
 // ── Source metadata ───────────────────────────────────────────────────────────
 
 interface SourceMeta {
   label: string;
-  tagType: 'blue' | 'cyan' | 'teal' | 'purple' | 'green' | 'magenta' | 'warm-gray' | 'gray' | 'red';
+  contentType: string;
   group: string;
 }
 
 const SOURCE_META: Record<string, SourceMeta> = {
-  'cms-blog':               { label: 'Blog',         tagType: 'blue',      group: 'Content' },
-  'cms-newsletter':         { label: 'Newsletter',   tagType: 'cyan',      group: 'Content' },
-  'cms-podcast-show-notes': { label: 'Podcast',      tagType: 'teal',      group: 'Content' },
-  'cms-session-summary':    { label: 'Session',      tagType: 'purple',    group: 'Content' },
-  'github-commit':          { label: 'GH Commit',    tagType: 'green',     group: 'GitHub' },
-  'github-pr':              { label: 'GH PR',        tagType: 'green',     group: 'GitHub' },
-  'github-issue':           { label: 'GH Issue',     tagType: 'green',     group: 'GitHub' },
-  'github-action':          { label: 'GH Action',    tagType: 'green',     group: 'GitHub' },
-  'github-release':         { label: 'GH Release',   tagType: 'green',     group: 'GitHub' },
-  'github-deployment':      { label: 'GH Deploy',    tagType: 'green',     group: 'GitHub' },
-  'github-pr-review':       { label: 'GH Review',    tagType: 'green',     group: 'GitHub' },
-  'gitlab-release':         { label: 'GL Release',   tagType: 'magenta',   group: 'GitLab' },
-  'gitlab-deployment':      { label: 'GL Deploy',    tagType: 'magenta',   group: 'GitLab' },
-  'gitlab-commit':          { label: 'GL Commit',    tagType: 'magenta',   group: 'GitLab' },
-  'gitlab-mr':              { label: 'GL MR',        tagType: 'magenta',   group: 'GitLab' },
-  'gitlab-issue':           { label: 'GL Issue',     tagType: 'magenta',   group: 'GitLab' },
-  'gitlab-pipeline':        { label: 'Pipeline',     tagType: 'red',       group: 'GitLab' },
-  'graph-calendar':         { label: 'Calendar',     tagType: 'warm-gray', group: 'Microsoft 365' },
-  'graph-todo':             { label: 'To Do',        tagType: 'warm-gray', group: 'Microsoft 365' },
-  'email':                  { label: 'Email',        tagType: 'warm-gray', group: 'Microsoft 365' },
-  'note':                   { label: 'Note',         tagType: 'gray',      group: 'Notes' },
-  'image':                  { label: 'Image',        tagType: 'gray',      group: 'Notes' },
-  'discovered-article':     { label: 'Discovered',   tagType: 'cyan',      group: 'Content' },
+  'cms-blog':               { label: 'Blog',       contentType: 'blog',       group: 'Content' },
+  'cms-newsletter':         { label: 'Newsletter', contentType: 'newsletter', group: 'Content' },
+  'cms-podcast-show-notes': { label: 'Podcast',    contentType: 'podcast',    group: 'Content' },
+  'cms-session-summary':    { label: 'Session',    contentType: 'meeting',    group: 'Content' },
+  'github-commit':          { label: 'GH Commit',  contentType: 'code',       group: 'GitHub' },
+  'github-pr':              { label: 'GH PR',      contentType: 'task',       group: 'GitHub' },
+  'github-issue':           { label: 'GH Issue',   contentType: 'task',       group: 'GitHub' },
+  'github-action':          { label: 'GH Action',  contentType: 'code',       group: 'GitHub' },
+  'github-release':         { label: 'GH Release', contentType: 'spec',       group: 'GitHub' },
+  'github-deployment':      { label: 'GH Deploy',  contentType: 'code',       group: 'GitHub' },
+  'github-pr-review':       { label: 'GH Review',  contentType: 'task',       group: 'GitHub' },
+  'gitlab-release':         { label: 'GL Release', contentType: 'spec',       group: 'GitLab' },
+  'gitlab-deployment':      { label: 'GL Deploy',  contentType: 'code',       group: 'GitLab' },
+  'gitlab-commit':          { label: 'GL Commit',  contentType: 'code',       group: 'GitLab' },
+  'gitlab-mr':              { label: 'GL MR',      contentType: 'task',       group: 'GitLab' },
+  'gitlab-issue':           { label: 'GL Issue',   contentType: 'task',       group: 'GitLab' },
+  'gitlab-pipeline':        { label: 'Pipeline',   contentType: 'code',       group: 'GitLab' },
+  'graph-calendar':         { label: 'Calendar',   contentType: 'meeting',    group: 'Microsoft 365' },
+  'graph-todo':             { label: 'To Do',      contentType: 'task',       group: 'Microsoft 365' },
+  'email':                  { label: 'Email',      contentType: 'chat',       group: 'Microsoft 365' },
+  'note':                   { label: 'Note',       contentType: 'note',       group: 'Notes' },
+  'image':                  { label: 'Image',      contentType: 'spec',       group: 'Notes' },
+  'discovered-article':     { label: 'Discovered', contentType: 'research',   group: 'Content' },
 };
 
 const ALL_GROUPS = ['Content', 'GitHub', 'GitLab', 'Microsoft 365', 'Notes'];
 
 function getMeta(source: string): SourceMeta {
-  return SOURCE_META[source] ?? { label: source, tagType: 'gray', group: 'Other' };
+  return SOURCE_META[source] ?? { label: source, contentType: 'note', group: 'Other' };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -133,18 +134,17 @@ function getSubtitle(item: ContentItemSummary): string | null {
 }
 
 /**
- * Get the project for a card using the projects config.
+ * Get the project for a card using the canonical API project records.
  * Returns null for 'personal' (default — no tag needed).
  */
-function getProject(item: ContentItemSummary): { id: string; name: string } | null {
+function getProject(item: ContentItemSummary, projects: readonly Project[]): Project | null {
   const id = inferProjectId(
-    item.source,
-    item.metadata as Record<string, unknown> | undefined,
+    item.metadata != null ? item.metadata as Record<string, unknown> : undefined,
     item.projectContext,
+    projects,
   );
   if (id === 'personal') return null;
-  const project = PROJECT_MAP.get(id);
-  return project != null ? { id: project.id, name: project.name } : null;
+  return projects.find((project) => project.id === id) ?? null;
 }
 
 // ── Timeline card ─────────────────────────────────────────────────────────────
@@ -162,13 +162,14 @@ function mapSourceToRefType(source: string): string {
   return source;
 }
 
-const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
+const TimelineCard: React.FC<{ item: ContentItemSummary; projects: readonly Project[] }> = ({ item, projects }) => {
   const [expanded, setExpanded] = useState(false);
   const identity = useIdentity();
   const meta = getMeta(item.source);
+  const SourceIcon = contentTypeIcon(meta.contentType);
   const subtitle = getSubtitle(item);
   const hasSummary = item.summary !== '' && item.summary !== item.title;
-  const project = getProject(item);
+  const project = getProject(item, projects);
   // Source labels in item.tags are system metadata, not themes — only the taxonomy is shown.
   const taxonomyTags = identitiesFor(identity, item.taxonomyTagIds ?? [], project?.id);
 
@@ -178,7 +179,7 @@ const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
         {/* Left: time + source tag + project */}
         <div className="tl-card-left">
           <span className="tl-card-time">{formatTime(item.publishedAt)}</span>
-          <Tag type={meta.tagType} size="sm">{meta.label}</Tag>
+          <span className="kh-type-mark"><SourceIcon size={14} aria-hidden="true" />{meta.label}</span>
           {project != null && (
             <EntityChip projectId={project.id} name={project.name} fallbackLabel={project.name} />
           )}
@@ -236,6 +237,7 @@ const TimelineCard: React.FC<{ item: ContentItemSummary }> = ({ item }) => {
 
 export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeSources }) => {
   const location = useLocation();
+  const { data: projects = [] } = useProjects();
   const [enabledGroups, setEnabledGroups] = useState<Set<string>>(new Set(ALL_GROUPS));
   const [notification, setNotification] = useState<{ kind: 'success' | 'error'; msg: string } | null>(null);
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
@@ -366,12 +368,8 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
   }
 
   return (
-    <div className="page-root">
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Activity</h1>
-        </div>
-        <div className="page-controls">
+    <div className="page-root" role="main">
+      <PageHeader title="Activity" actions={<>
           <Button
             kind="ghost"
             size="sm"
@@ -395,8 +393,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
           >
             Sync Status
           </Button>
-        </div>
-      </div>
+      </>} />
 
         {syncPanelOpen && (
           <div className="tl-sync-panel">
@@ -477,7 +474,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
                     <span className="cal-day-count">{items.length} item{items.length !== 1 ? 's' : ''}</span>
                   </div>
                   <div className="tl-card-list">
-                    {items.map((item) => <TimelineCard key={item.id} item={item} />)}
+                    {items.map((item) => <TimelineCard key={item.id} item={item} projects={projects} />)}
                   </div>
                 </div>
               ))}

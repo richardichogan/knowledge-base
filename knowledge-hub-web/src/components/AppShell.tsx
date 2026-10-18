@@ -138,7 +138,7 @@ export const AppShell: React.FC = () => {
           <button type="button" className="kh-header__utility" title="Search (Cmd+K / Ctrl+K)" aria-label="Search"
             onClick={() => { setPaletteOpen(true); setMenu(null); }}><Search size={20} /></button>
           <button type="button" className="kh-header__utility kh-header__athena"
-            title={isThink ? 'Use Athena in the Think panel' : 'Open Athena'} aria-label="Open Athena" disabled={isThink}
+            title={isThink && !hasEmbeddedAthena ? 'Open a note or canvas to use Athena' : 'Open Athena'} aria-label="Open Athena" disabled={isThink && !hasEmbeddedAthena}
             onClick={() => { setMenu(null); launchAthena(); }}><ChatLaunch size={20} /></button>
           <button type="button" ref={narrow ? mobileRef : toolsRef}
             className={`kh-header__utility${tool || menu ? ' kh-header__utility--active' : ''}`}

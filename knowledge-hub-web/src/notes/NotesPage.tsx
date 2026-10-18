@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, ChevronDown, Document, Idea, Draw, TrashCan, Renew } from '@carbon/icons-react';
+import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, ChevronDown, Document, Idea, Draw, TrashCan, Renew, ArrowLeft } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
@@ -28,6 +28,8 @@ import type { DiagramType } from '../features/diagram/diagramTypes';
 import '../features/diagram/diagramIntegration.scss';
 import { DataNotice } from '../components/DataNotice';
 import { canvasHierarchy } from '../features/canvas/canvasHierarchy';
+import { PageHeader } from '../components/PageHeader';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -70,6 +72,9 @@ export const NotesPage: React.FC = () => {
   const [selectedId,       setSelectedId]       = useState<string | null>(null);
   const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
   const [mode,             setMode]             = useState<ViewMode>('notes');
+  const [mobilePane, setMobilePane] = useState<'list' | 'editor'>('list');
+  const mobile = useMediaQuery('(max-width: 640px)');
+  const showEditor = useCallback(() => { setMobilePane('editor'); }, []);
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [deletingNoteId,   setDeletingNoteId]   = useState<string | null>(null);
   const deletingNoteRef = useRef<string | null>(null);
@@ -167,6 +172,7 @@ export const NotesPage: React.FC = () => {
     const linkedId = searchParams.get('noteId');
     if (linkedId !== null) {
       setMode('notes');
+      setMobilePane('editor');
       void handleSelectNote(linkedId);
       searchParams.delete('noteId');
       setSearchParams(searchParams, { replace: true });
@@ -208,6 +214,7 @@ export const NotesPage: React.FC = () => {
         latestSelectRef.current = doc.id;
         setSelectedId(doc.id);
         setOpenDoc(doc);
+        setMobilePane('editor');
       }
     } catch (err) {
       await alertDialog(err instanceof Error ? err.message : 'Could not create the note.', { title: 'Could not create note', tone: 'danger' });
@@ -222,6 +229,7 @@ export const NotesPage: React.FC = () => {
     latestSelectRef.current = doc.id;
     setSelectedId(doc.id);
     setOpenDoc(doc);
+    setMobilePane('editor');
   }
 
   async function handleDeleteNote(id: string): Promise<void> {
@@ -312,6 +320,7 @@ export const NotesPage: React.FC = () => {
   const [canvasFootnote, setCanvasFootnote] = useState<number | undefined>(undefined);
   function openMap(mapId: string, tab?: string): void {
     setMode('canvas');
+    setMobilePane('editor');
     setCanvasOpenTab(tab);
     setCanvasFootnote(undefined);
     setSelectedCanvasId(mapId);
@@ -332,6 +341,7 @@ export const NotesPage: React.FC = () => {
   /** Opens a note from a map (switches Think back to Notes). */
   function openNoteFromMap(noteId: string): void {
     setMode('notes');
+    setMobilePane('editor');
     setSelectedId(null);
     void handleSelectNote(noteId);
   }
@@ -459,18 +469,17 @@ export const NotesPage: React.FC = () => {
   }, [mode, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
 
   return (
-    <div className="notes-page">
-      {/* ── Header + command bar (matches Plan / Library) ── */}
-      <div className="page-header notes-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Think</h1>
-        </div>
-        <div className="plan-header__right">
-          {mode === 'notes' && <div className="notes-doc-actions-slot" ref={setDocActionsSlot} />}
+    <div className="notes-page" role="main" data-active-pane={mode === 'sparks' ? 'editor' : mobilePane}>
+      <PageHeader title="Think" className="notes-header" actions={<>
+          {mode !== 'sparks' && mobilePane === 'editor' && <button type="button"
+            className="kb-import-btn kh-workspace-back" onClick={() => { setMobilePane('list'); }}>
+            <ArrowLeft size={16} />{mode === 'canvas' ? 'Canvases' : 'Notes'}
+          </button>}
+          {mode === 'notes' && <div className="notes-doc-actions-slot kh-command-row" ref={setDocActionsSlot} />}
           {mode === 'canvas' && <button type="button" className="kb-import-btn notes-recycle-launch" aria-haspopup="dialog"
             title="Open canvas recycle bin" onClick={() => { setRecoveryOpen(true); }}><TrashCan size={16} /><span>Recycle bin</span></button>}
           {mode === 'notes' && openDoc === null && (
-            <div className="notes-export-anchor notes-more-anchor" ref={moreMenuRef}>
+            <div className="notes-export-anchor notes-more-anchor kh-command-row" ref={moreMenuRef}>
               <button type="button" className="kb-import-btn notes-more-btn" aria-haspopup="menu" aria-expanded={moreMenuOpen}
                 onClick={() => { setMoreMenuOpen((v) => !v); }}>
                 <ChevronDown size={16} /> Actions
@@ -493,7 +502,7 @@ export const NotesPage: React.FC = () => {
               )}
             </div>
           )}
-          <div className="plan-view-toggle" role="tablist" aria-label="Think view">
+          <div className="plan-view-toggle kh-command-row" role="tablist" aria-label="Think view">
             {VIEW_MODES.map(({ key, label, Icon }) => (
               <button
                 key={key}
@@ -501,7 +510,7 @@ export const NotesPage: React.FC = () => {
                 role="tab"
                 aria-selected={mode === key}
                 className={`plan-view-btn${mode === key ? ' plan-view-btn--active' : ''}`}
-                onClick={() => { setMode(key); }}
+                onClick={() => { setMode(key); setMobilePane('list'); }}
               >
                 <Icon size={16} />
                 {label}
@@ -510,7 +519,7 @@ export const NotesPage: React.FC = () => {
           </div>
           {/* Always present (label follows the view) so the bar keeps its
               shape when switching Notes / Sparks / Canvas. */}
-          <div className="mm-newmap-anchor">
+          <div className="mm-newmap-anchor kh-command-row">
             <button
               type="button"
               className="docs-upload-btn notes-header__new"
@@ -535,18 +544,17 @@ export const NotesPage: React.FC = () => {
               />
             )}
           </div>
-        </div>
-      </div>
+      </>} />
 
       {recoveryOpen && <NoteRecoveryCentre onClose={() => setRecoveryOpen(false)}
-        onOpenNote={id => { setMode('notes'); void handleSelectNote(id); }} />}
+        onOpenNote={id => { setMode('notes'); setMobilePane('editor'); void handleSelectNote(id); }} />}
       {mode === 'notes' && refreshMessage !== null && <p className="notes-refresh-message notes-refresh-message--error"
         role="alert">{refreshMessage}</p>}
       {mode === 'notes' && isError && <DataNotice title="Note list is unavailable. Your open note is unchanged." error={listError} onRetry={() => { void refetch(); }} />}
       {canvasError !== null && <p className="mm-canvas-error" role="alert">{canvasError}</p>}
       <div className="notes-root">
         {/* ── Left panel ── */}
-        {mode === 'sparks' ? null : listCollapsed ? (
+        {mode === 'sparks' ? null : listCollapsed && !mobile ? (
           // Collapsed rail. Search and "+" both expand the list rather than
           // opening cramped rail-width variants of those controls — at 56px
           // wide there is no room to show results or a title field.
@@ -607,7 +615,7 @@ export const NotesPage: React.FC = () => {
             <NoteList
               notes={notes}
               selectedId={selectedId}
-              onSelect={(id) => { void handleSelectNote(id); }}
+              onSelect={(id) => { setMobilePane('editor'); void handleSelectNote(id); }}
               onDelete={(id) => { void handleDeleteNote(id); }}
               deletingId={deletingNoteId}
               focusSearchSignal={focusSearchSignal}
@@ -638,8 +646,8 @@ export const NotesPage: React.FC = () => {
                       tabIndex={0}
                       data-ctx-title={c.title}
                       data-ctx-type="note"
-                      onClick={() => { setSelectedCanvasId(c.id); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') setSelectedCanvasId(c.id); }}
+                      onClick={() => { setSelectedCanvasId(c.id); setMobilePane('editor'); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { setSelectedCanvasId(c.id); setMobilePane('editor'); } }}
                     >
                       <button
                         className="notes-list-item__delete"
@@ -725,7 +733,7 @@ export const NotesPage: React.FC = () => {
         ) : (
           <div className="notes-editor-area">
             {openDoc !== null ? (
-              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }} onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
+              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }} onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>
             )}

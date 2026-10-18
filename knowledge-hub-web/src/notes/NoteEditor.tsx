@@ -54,6 +54,7 @@ interface NoteEditorProps {
   onCreateDiagram?: (noteId: string) => Promise<void>;
   onImport?: () => void;
   onRecovery?: () => void;
+  onShowEditor?: (() => void) | undefined;
 }
 
 /** Renders `node` into `slot` via a portal when one is provided, otherwise in place. */
@@ -127,7 +128,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onShowEditor }) => {
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
@@ -814,7 +815,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         {/* Note actions — rendered into the Think page command bar when it
             provides a slot, otherwise inline above the editor. */}
         {portalInto(actionsSlot, (
-        <div className={actionsSlot ? 'notes-doc-actions' : 'notes-top-bar'}>
+        <div className={actionsSlot ? 'notes-doc-actions kh-command-row' : 'notes-top-bar'}>
           <button type="button" className="notes-popout-btn" disabled={historyBusy}
             title="Open this note in a content-only, read-only window"
             onClick={() => {
@@ -830,17 +831,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                 if (!saved) setNotification({ kind: 'error', msg: 'The pop-out shows saved writing only. Current edits could not be saved; resolve the save error in Think before relying on the pop-out.' });
               });
             }}>
-            <Launch size={16} /> Pop out
+            <Launch size={16} /><span className="notes-action-label">Pop out</span>
           </button>
-          <div className="notes-export-anchor" ref={exportMenuRef}>
+          <div className="notes-export-anchor kh-command-row" ref={exportMenuRef}>
             <button
               type="button"
               className="kb-import-btn"
+              aria-label={exporting ? 'Exporting note' : githubBusy ? 'Publishing note' : 'Note actions'}
               aria-haspopup="menu"
               aria-expanded={exportMenuOpen}
               onClick={() => { setExportMenuOpen((v) => !v); }}
             >
-              <ChevronDown size={16} /> {exporting ? 'Exporting…' : githubBusy ? 'Publishing…' : 'Actions'}
+              <ChevronDown size={16} /><span className="notes-action-label">{exporting ? 'Exporting…' : githubBusy ? 'Publishing…' : 'Actions'}</span>
             </button>
             {exportMenuOpen && (
               <ul className="kb-menu" role="menu">
@@ -963,7 +965,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         <ExtractionMarks noteId={doc.id} scrollRef={editorScrollRef} />
 
         {/* Bottom toolbar */}
-        <div className="notes-bottom-toolbar">
+        <div className="notes-bottom-toolbar kh-command-row">
           <button
             type="button"
             className={`notes-tb-btn${toolbarState.blockType === 'heading' && toolbarState.level === 1 ? ' notes-tb-btn--active' : ''}`}
@@ -1046,6 +1048,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       {/* Right: metadata panel */}
       <MetadataPanel
         doc={doc}
+        onShowEditor={onShowEditor}
         contentType={contentType}
         onContentTypeChange={(value) => {
           setContentType(value);

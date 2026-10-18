@@ -14,10 +14,9 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading, Tag } from '@carbon/react';
-import { Document, Launch, DocumentAdd } from '@carbon/icons-react';
+import { Document, Launch, DocumentAdd, ArrowLeft } from '@carbon/icons-react';
 import { api } from '../services/api';
 import type { DocEntry, DocType } from '../services/api';
-import { PROJECTS } from '../config/projects';
 import { TagPicker } from '../components/TagPicker';
 import { useTaxonomy, expandTagIds } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
@@ -33,6 +32,7 @@ import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { alertDialog } from '../services/appDialogs';
 import { requireApiSuccess, describeApiError } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
+import { PageHeader } from '../components/PageHeader';
 
 // Same cap as Think notes: enough for long specs, bounded for the model.
 const DOC_CONTEXT_MAX_CHARS = 100_000;
@@ -48,18 +48,6 @@ import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identit
 import { renderMarkdown } from '../utils/markdown';
 
 // ── Source config ─────────────────────────────────────────────────────────────
-
-// Build the extra repos list and label map from project config
-const PROJECT_REPOS = PROJECTS.filter((p) => p.githubRepos && p.githubRepos.length > 0);
-
-const EXTRA_REPOS: string[] = PROJECT_REPOS.flatMap((p) => p.githubRepos ?? []);
-
-const REPO_LABELS: Record<string, string> = {};
-for (const p of PROJECT_REPOS) {
-  for (const repo of p.githubRepos ?? []) {
-    REPO_LABELS[repo] = p.name;
-  }
-}
 
 // ── Type badge config ─────────────────────────────────────────────────────────
 
@@ -103,11 +91,15 @@ export const DocumentsPage: React.FC = () => {
   const [athenaBusy, setAthenaBusy] = useState(false);
   const { data: projectRecords = [] } = useProjects();
   const projectOptions = projectRecords;
+  const extraRepos = useMemo(() => projectRecords.flatMap((project) => project.githubRepos), [projectRecords]);
+  const repoLabels = useMemo(() => Object.fromEntries(
+    projectRecords.flatMap((project) => project.githubRepos.map((repo) => [repo, project.name] as const)),
+  ), [projectRecords]);
 
   // ── Fetch unified library ──────────────────────────────────────────────────
   const { data: libraryData, isPending: libraryPending, error: libraryError, refetch: reloadLibrary } = useQuery({
-    queryKey: ['documents-library'],
-    queryFn: async () => requireApiSuccess(await api.getDocumentLibrary(EXTRA_REPOS, REPO_LABELS)),
+    queryKey: ['documents-library', extraRepos, repoLabels],
+    queryFn: async () => requireApiSuccess(await api.getDocumentLibrary(extraRepos, repoLabels)),
     staleTime: 5 * 60_000,
   });
 
@@ -265,18 +257,13 @@ export const DocumentsPage: React.FC = () => {
   }, [handleUpload]);
 
   return (
-    <div className="docs-page">
-      {/* ── Header ── */}
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Sources</h1>
-          {allDocs.length > 0 && (
-            <p className="page-subtitle">
-              {allDocs.length} document{allDocs.length !== 1 ? 's' : ''}
-              {(activeProjectId !== '' || activeTagIds.size > 0 || searchQuery.trim() !== '') && ` · ${visibleDocs.length} shown`}
-            </p>
-          )}
-        </div>
+    <div className="docs-page" role="main" data-active-pane={selectedDoc === null ? 'list' : 'editor'}>
+      <PageHeader title="Sources" subtitle={allDocs.length > 0 ? <>
+        {allDocs.length} document{allDocs.length !== 1 ? 's' : ''}
+        {(activeProjectId !== '' || activeTagIds.size > 0 || searchQuery.trim() !== '') && ` · ${visibleDocs.length} shown`}
+      </> : undefined} actions={<>
+        {selectedDoc !== null && <button type="button" className="kb-import-btn kh-workspace-back"
+          onClick={() => { setSelectedId(null); }}><ArrowLeft size={16} />Documents</button>}
         <button
           className="docs-upload-btn"
           onClick={() => setUploadDialogOpen(true)}
@@ -285,7 +272,7 @@ export const DocumentsPage: React.FC = () => {
           <DocumentAdd size={20} />
           Upload Document
         </button>
-      </div>
+      </>} />
 
       <OneDriveStatus />
       <LocalFoldersPanel />
@@ -394,6 +381,7 @@ export const DocumentsPage: React.FC = () => {
           </div>
         </div>
 
+        <div className="docs-document-area">
         {/* ── Middle: markdown viewer ── */}
         <div className="docs-viewer">
           {selectedDoc === null && (
@@ -566,6 +554,7 @@ export const DocumentsPage: React.FC = () => {
           />
         )}
 
+        </div>
       </div>
 
       {/* ── Upload dialog ── */}

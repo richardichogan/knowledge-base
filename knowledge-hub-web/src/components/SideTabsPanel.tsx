@@ -8,11 +8,11 @@
  * in-flight reply and the thread's scroll position survive tab switches).
  */
 import React, { useEffect } from 'react';
-import { SidePanelClose, SidePanelOpen } from '@carbon/icons-react';
-import { PaneResizer } from './PaneResizer';
-import { usePersistedBoolean, usePersistedChoice, usePersistedPaneWidth } from '../hooks/usePersistedState';
+import { SidePanelClose } from '@carbon/icons-react';
+import { usePersistedChoice, usePersistedPaneWidth } from '../hooks/usePersistedState';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { useAthenaContext } from '../context/AthenaContext';
+import { WorkspaceSidePanel, useResponsivePanelState } from './WorkspaceSidePanel';
 
 export interface SideTab {
   id: string;
@@ -43,10 +43,10 @@ export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, 
   const tabIds = tabs.map((t) => t.id);
   const [storedTab, setTab] = usePersistedChoice<string>(`kh_${storageKey}_tab`, tabIds, defaultTab);
   const tab = tabIds.includes(storedTab) ? storedTab : (tabIds[0] ?? defaultTab);
-  const [collapsed, setCollapsed] = usePersistedBoolean(`kh_${storageKey}_collapsed`, defaultCollapsed);
   const [width, setWidth] = usePersistedPaneWidth(storageKey, widthOptions);
   const { registerAthenaLauncher } = useAthenaContext();
-  const panelRef = React.useRef<HTMLDivElement>(null);
+  const panelRef = React.useRef<HTMLDialogElement>(null);
+  const { collapsed, setCollapsed, overlay } = useResponsivePanelState(`kh_${storageKey}_collapsed`, panelRef, width, defaultCollapsed);
   const hasAthena = tabIds.includes('athena');
   useEffect(() => {
     if (!hasAthena) return;
@@ -78,31 +78,9 @@ export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, 
   const busyTab = tabs.find((t) => t.dot === 'busy');
 
   return (
-    <>
-      {collapsed ? (
-        <div className="think-side-strip">
-          <button
-            type="button"
-            className="think-side-strip__btn"
-            title="Open side panel (⌘J)"
-            aria-label="Open side panel"
-            onClick={() => { setCollapsed(false); }}
-          >
-            <SidePanelOpen size={16} className="think-side-strip__icon" />
-          </button>
-          {tabs.some((t) => t.dot !== undefined) && (
-            <span className={`think-athena-status__dot${busyTab ? ' think-athena-status__dot--busy' : ''}`} />
-          )}
-        </div>
-      ) : (
-        <PaneResizer width={width} onResize={setWidth} side="right" label="Resize side panel" />
-      )}
-      <div
-        ref={panelRef}
-        className="notes-meta-panel side-tabs-panel"
-        hidden={collapsed}
-        style={{ width: `${String(width)}px`, minWidth: `${String(width)}px` }}
-      >
+      <WorkspaceSidePanel panelRef={panelRef} label={label} width={width} onResize={setWidth}
+        collapsed={collapsed} setCollapsed={setCollapsed} overlay={overlay} className="side-tabs-panel"
+        status={tabs.some(t => t.dot !== undefined) ? busyTab ? 'busy' : 'idle' : undefined}>
         <div className="notes-meta-tabs" role="tablist" aria-label={label}>
           {tabs.map((t) => (
             <button
@@ -124,8 +102,8 @@ export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, 
           <button
             type="button"
             className="notes-meta-tabs__collapse"
-            title="Collapse side panel (⌘J)"
-            aria-label="Collapse side panel"
+            title={overlay ? 'Close side panel (Esc)' : 'Collapse side panel (⌘J)'}
+            aria-label={overlay ? 'Close side panel' : 'Collapse side panel'}
             onClick={() => { setCollapsed(true); }}
           >
             <SidePanelClose size={16} />
@@ -148,7 +126,6 @@ export const SideTabsPanel: React.FC<SideTabsPanelProps> = ({ storageKey, tabs, 
             </div>
           );
         })}
-      </div>
-    </>
+      </WorkspaceSidePanel>
   );
 };

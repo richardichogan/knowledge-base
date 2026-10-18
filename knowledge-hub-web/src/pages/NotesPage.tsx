@@ -50,7 +50,7 @@ export const NotesPage: React.FC = () => {
         <div className="page-title-group">
           <h1 className="page-title">Notes</h1>
         </div>
-        <div className="page-controls">
+        <div className="page-controls kh-command-row">
           <Button
             renderIcon={Add}
             onClick={() => { if (content.trim()) createMutation.mutate(content.trim()); }}

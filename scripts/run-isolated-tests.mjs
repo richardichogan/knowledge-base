@@ -8,6 +8,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/navigation.test.ts',
   '../knowledge-hub-web/tests/appDialogs.test.ts',
   '../knowledge-hub-web/tests/projectFormValidation.test.ts',
+  '../knowledge-hub-web/tests/projectIdentity.test.ts',
   '../knowledge-hub-web/tests/apiError.test.ts',
   '../knowledge-hub-web/tests/diagramTheme.test.ts',
   '../knowledge-hub-web/tests/diagramLineJumps.test.ts',

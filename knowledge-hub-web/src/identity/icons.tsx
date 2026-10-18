@@ -62,6 +62,8 @@ export const PROJECT_ICON_KEYS = Object.keys(IDENTITY_ICONS);
 /** Content types are identified by icon only — never by colour. */
 const CONTENT_TYPE_ICON: Record<string, CarbonIconType> = {
   note: Notebook,
+  code: Code,
+  task: Task,
   project: Folder,
   blog: Blog,
   podcast: Microphone,

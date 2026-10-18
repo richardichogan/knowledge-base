@@ -191,16 +191,18 @@ body.cds--body--with-modal-open {
   --sidebar-width: 220px;
   --header-height: 52px;
   --kh-header-height: 48px;
+  --kh-control-height: 36px;
+  --kh-control-radius: 4px;
   // Full-page height = viewport minus Carbon header and page padding.
   --full-page-height: calc(100vh - var(--kh-header-height) - 2rem - 1rem);
 
-  // Knowledge Hub accent — IBM Carbon Teal 40
+  // Athena accent.
   --kh-accent: #3ddbd9;
   --kh-accent-bg: rgba(61, 219, 217, 0.08);
   --kh-accent-border: rgba(61, 219, 217, 0.25);
 
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--cds-text-primary);
   background: var(--cds-background);
 }
@@ -369,6 +371,49 @@ input, textarea {
   display: flex;
   align-items: center;
   gap: var(--cds-spacing-04);
+}
+
+.kh-command-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+
+  > :is(button, a, input, select) {
+    box-sizing: border-box;
+    min-height: var(--kh-control-height);
+    height: var(--kh-control-height);
+  }
+
+  .cds--btn {
+    box-sizing: border-box;
+    min-height: var(--kh-control-height);
+    height: var(--kh-control-height);
+    padding-block: 0;
+    border-radius: var(--kh-control-radius);
+  }
+
+  :is(.cds--select, .cds--dropdown, .cds--list-box) {
+    min-height: var(--kh-control-height);
+    height: var(--kh-control-height);
+  }
+
+  :is(.cds--select-input, .cds--dropdown) {
+    min-height: var(--kh-control-height);
+    height: var(--kh-control-height);
+  }
+
+  > :is(.dc-filter-select, .dc-search) {
+    box-sizing: border-box;
+    min-height: var(--kh-control-height);
+    height: var(--kh-control-height);
+    margin-block: 0;
+  }
+
+  svg {
+    flex: none;
+    width: 16px;
+    height: 16px;
+  }
 }
 
 // Legacy — kept for old references
@@ -7421,7 +7466,7 @@ body.kh-pane-resizing {
 
 .dc-toolbar__filters {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   flex: 0 0 auto;
@@ -8044,47 +8089,6 @@ body.kh-pane-resizing {
   display: flex;
   flex-direction: column;
   padding: 3.5rem 3rem 0;
-}
-
-.plan-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 0 20px;
-  flex-shrink: 0;
-}
-
-.plan-header__right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
-}
-
-.plan-root .plan-header {
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.plan-root .plan-header__right {
-  flex-wrap: wrap;
-  min-width: 0;
-  max-width: 100%;
-
-  .cds--form-item {
-    flex: 1 1 150px;
-    min-width: 0;
-  }
-
-  .plan-view-toggle {
-    min-width: 0;
-    max-width: 100%;
-    flex-wrap: wrap;
-  }
-
-  .plan-view-btn {
-    padding-inline: 10px;
-  }
 }
 
 .kb-import-btn {

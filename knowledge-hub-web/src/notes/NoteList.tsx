@@ -247,7 +247,7 @@ export const NoteList: React.FC<NoteListProps> = ({
         </div>
       </div>
 
-      <div className="notes-list-arrange">
+      <div className="notes-list-arrange kh-command-row">
         <label className="notes-list-arrange__sort">
           <span className="notes-list-arrange__label">Sort</span>
           <select

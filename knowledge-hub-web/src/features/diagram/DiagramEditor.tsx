@@ -1934,12 +1934,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         <SaveIndicator status={saveStatus} uploading={uploading} />
         </div>
         <div className="dg-header__toolbar">
-        <div className="dg-header__actions" role="toolbar" aria-label="Diagram tools">
-          <div className="dg-header__group">
+        <div className="dg-header__actions kh-command-row" role="toolbar" aria-label="Diagram tools">
+          <div className="dg-header__group kh-command-row">
           <IconBtn label="Undo (Ctrl+Z)" disabled={!canUndo} onClick={() => { stepHistory('undo'); }}><Undo size={16} /></IconBtn>
           <IconBtn label="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={() => { stepHistory('redo'); }}><Redo size={16} /></IconBtn>
           </div>
-          <div className="dg-header__group">
+          <div className="dg-header__group kh-command-row">
           <IconBtn label={doc.grid ? 'Hide grid and snapping' : 'Show grid and snap to it'} pressed={doc.grid} onClick={toggleGrid}><Grid size={16} /></IconBtn>
           <IconBtn label={doc.legend?.visible === true ? 'Hide colour key' : 'Show colour key'} pressed={doc.legend?.visible === true}
             onClick={() => { const visible = doc.legend?.visible !== true; changeAnnotations(setLegend(doc, { ...(doc.legend ?? DEFAULT_LEGEND), visible }), true); if (!visible) setKeyFilter(null); }}>
@@ -1950,9 +1950,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             <ListNumbered size={16} />
           </IconBtn>
           </div>
-          {isAiFlow && <div className="dg-header__group">
+          {isAiFlow && <div className="dg-header__group kh-command-row">
             <IconBtn label="Arrange lanes — stack lanes by order and line steps up in flow order" onClick={arrangeLanes}><ArrangeVertical size={16} /></IconBtn>
-            <div className="dg-anchor">
+            <div className="dg-anchor kh-command-row">
               <button type="button" className={`dg-ai-gov-btn${menu === 'governance' ? ' dg-ai-gov-btn--active' : ''}${aiFindings.length === 0 ? ' dg-ai-gov-btn--clear' : ` dg-ai-gov-btn--${aiFindings[0]?.severity ?? 'info'}`}`}
                 aria-expanded={menu === 'governance'} aria-haspopup="dialog"
                 title={aiFindings.length === 0 ? 'Governance — no findings' : `Governance — ${aiFindings.length} finding${aiFindings.length === 1 ? '' : 's'}`}
@@ -1967,7 +1967,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 </div>
               )}
             </div>
-            <div className="dg-anchor">
+            <div className="dg-anchor kh-command-row">
               <IconBtn label="AI flow key" pressed={menu === 'ai-key'} onClick={() => { setMenu(menu === 'ai-key' ? null : 'ai-key'); }}><Help size={16} /></IconBtn>
               {menu === 'ai-key' && (
                 <div className="dg-popover dg-popover--end dg-popover--wide" role="dialog" aria-label="AI flow key">
@@ -1976,8 +1976,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               )}
             </div>
           </div>}
-          <div className="dg-header__group">
-          <div className="dg-anchor">
+          <div className="dg-header__group kh-command-row">
+          <div className="dg-anchor kh-command-row">
             <IconBtn label="Check text" pressed={menu === 'text-check'} onClick={() => { setMenu(menu === 'text-check' ? null : 'text-check'); }}><SpellCheck size={16} /></IconBtn>
             {menu === 'text-check' && (
               <div className="dg-popover dg-popover--end dg-popover--wide" role="dialog" aria-label="Check text">
@@ -1992,7 +1992,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               </div>
             )}
           </div>
-          <div className="dg-anchor">
+          <div className="dg-anchor kh-command-row">
             <IconBtn label="Named versions" pressed={menu === 'versions'} onClick={() => { setMenu(menu === 'versions' ? null : 'versions'); }}><RecentlyViewed size={16} /></IconBtn>
             {menu === 'versions' && (
               <div className="dg-popover dg-popover--end dg-popover--wide" role="dialog" aria-label="Named versions">

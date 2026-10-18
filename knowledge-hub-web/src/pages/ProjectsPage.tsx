@@ -25,6 +25,7 @@ import { api } from '../services/api';
 import { COLOUR_LABEL, IDENTITY_COLOURS, IDENTITY_ICONS, IdentityChip, colourHex, identityIcon, type Identity } from '../identity';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
+import { PageHeader } from '../components/PageHeader';
 import { parseExpectedOutputs, validateProjectContext } from '../services/projectFormValidation';
 import { ProjectCockpitModal } from './ProjectCockpit';
 
@@ -534,18 +535,11 @@ export const ProjectsPage: React.FC = () => {
   return (
     <main className="page-root proj-page">
 
-      {/* ── Header ── */}
-      <div className="page-header">
-        <div className="page-title-group">
-          <h1 className="page-title">Projects</h1>
-          <p className="page-subtitle">{visible.length} of {projects.length} projects</p>
-        </div>
-        <div className="page-controls">
+      <PageHeader title="Projects" subtitle={`${visible.length} of ${projects.length} projects`} actions={
           <Button renderIcon={Add} size="md" onClick={openCreate}>New project</Button>
-        </div>
-      </div>
+      } />
       <div className="dc-toolbar">
-        <div className="dc-tabs">
+        <div className="dc-tabs kh-command-row">
           {LIFECYCLE_STATES.map((state) => (
             <button
               key={state.value}
@@ -558,7 +552,7 @@ export const ProjectsPage: React.FC = () => {
             </button>
           ))}
         </div>
-        <div className="dc-toolbar__filters">
+        <div className="dc-toolbar__filters kh-command-row">
           <select
             className="dc-filter-select"
             aria-label="Filter by group"

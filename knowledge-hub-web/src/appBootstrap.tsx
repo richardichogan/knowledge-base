@@ -7,6 +7,7 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './styles/global.scss';
+import './styles/workspaces.scss';
 
 // Unregister any stale service workers — they cause blank-page / fetch-fail issues
 // when the dev server port changes between sessions.
