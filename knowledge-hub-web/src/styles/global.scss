@@ -415,6 +415,30 @@ input, textarea {
     height: var(--kh-control-height);
   }
 
+  // Match the outlined command buttons rather than Carbon's filled field.
+  .cds--select-input {
+    box-sizing: border-box;
+    background: none;
+    border: 1px solid var(--cds-border-strong-01);
+    border-radius: var(--kh-control-radius);
+    color: var(--cds-text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.25;
+    padding-inline-start: 14px;
+    transition: background 80ms, color 80ms;
+
+    &:hover {
+      background: var(--cds-layer-hover-02);
+      color: var(--cds-text-primary);
+    }
+  }
+
+  .cds--select-input__wrapper .cds--select__arrow {
+    top: 50%;
+    transform: translateY(-50%);
+    fill: var(--cds-icon-secondary);
+  }
+
   > :is(.dc-filter-select, .dc-search) {
     box-sizing: border-box;
     min-height: var(--kh-control-height);
