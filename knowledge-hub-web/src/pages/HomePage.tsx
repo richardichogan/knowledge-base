@@ -46,18 +46,11 @@ function WorkItem({ item, ask, compact = false }: {
 }): React.ReactElement {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [snooze, setSnooze] = useState('');
   const [error, setError] = useState('');
   const draftUrl = useRef<string | null>(null);
   const mutation = useMutation({
-    mutationFn: async (action: 'done' | 'snooze' | 'save' | 'shelve' | 'draft' | 'dismiss') => {
-      if (item.taskId && (action === 'done' || action === 'snooze')) {
-        requireTodayData(await api.updateTask(item.taskId, action === 'done' ? { status: 'completed' } : { dueDate: snooze }));
-      } else if (item.discoverId && (action === 'save' || action === 'shelve')) {
-        requireTodayData(await api.updateDiscoverWorkflow(item.discoverId, action === 'save' ? 'saved' : 'shelved'));
-      } else if (item.clusterId && action === 'dismiss') {
-        requireTodayData(await api.updateSparkCluster(item.clusterId, { dismissed: true }));
-      } else if (item.clusterId && action === 'draft') {
+    mutationFn: async () => {
+      if (item.clusterId) {
         if (draftUrl.current === null) {
           const { output } = requireTodayData(await api.graduateSparkTheme(item.clusterId, 'note'));
           draftUrl.current = output.url ?? `/think?noteId=${encodeURIComponent(output.ref)}`;
@@ -92,25 +85,9 @@ function WorkItem({ item, ask, compact = false }: {
         : relativeTime(item.date)}` : ''}</p>
       <div className="today-brief__actions">
         {item.clusterId
-          ? <button type="button" className="today-brief__primary" disabled={mutation.isPending} onClick={() => { mutation.mutate('draft'); }}>{mutation.isPending ? 'Creating...' : 'Create outline note'}</button>
+          ? <button type="button" className="today-brief__primary" disabled={mutation.isPending} onClick={() => { mutation.mutate(); }}>{mutation.isPending ? 'Creating...' : 'Create outline note'}</button>
           : <ItemLink item={item}>{item.action} <ArrowRight size={16} /></ItemLink>}
         <button type="button" className="today-brief__quiet" aria-label={`Ask Athena about ${item.title}`} onClick={() => { ask(item); }}>Ask Athena</button>
-        {(item.taskId || item.discoverId || item.clusterId) && <details className="today-brief__more">
-          <summary aria-label={`More actions for ${item.title}`}>More</summary>
-          <div className="today-brief__more-actions">
-            {item.taskId && <>
-              <button type="button" disabled={mutation.isPending} onClick={() => { mutation.mutate('done'); }}>Mark done</button>
-              <label>Move due date<input type="date" value={snooze} onChange={(e) => { setSnooze(e.target.value); }} /></label>
-              <button type="button" disabled={!snooze || mutation.isPending} onClick={() => { mutation.mutate('snooze'); }}>Snooze to date</button>
-            </>}
-            {item.discoverId && <>
-              <button type="button" disabled={mutation.isPending} onClick={() => { mutation.mutate('save'); }}>Save article</button>
-              <button type="button" disabled={mutation.isPending} onClick={() => { mutation.mutate('shelve'); }}>Shelve</button>
-            </>}
-            {item.clusterId && <button type="button" disabled={mutation.isPending} onClick={() => { mutation.mutate('dismiss'); }}>Dismiss cluster</button>}
-            {item.projectId && <Link to="/projects">View projects</Link>}
-          </div>
-        </details>}
       </div>
       {mutation.isPending && <p className="today-brief__meta" role="status">Saving your change...</p>}
       {error && <p className="today-brief__error" role="alert">{error}</p>}
