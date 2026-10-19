@@ -169,7 +169,9 @@ export const AppShell: React.FC = () => {
       <TagPanel open={tagPanelOpen} onClose={() => { setTagPanelOpen(false); }} />
       <ProjectsModal open={projectsOpen} onClose={() => { setProjectsOpen(false); }} />
       {!isThink && !hasEmbeddedAthena && <FloatingAIChat pageContext={pageContext ?? undefined} />}
-      <CommandPalette open={paletteOpen} onClose={() => { setPaletteOpen(false); }} onNavigationAction={selectAction} />
+      <CommandPalette open={paletteOpen} onClose={() => { setPaletteOpen(false); }} onNavigationAction={selectAction}
+        onSparkCapture={() => { setSparkModalOpen(true); }}
+        onAskAthena={isThink && !hasEmbeddedAthena ? undefined : launchAthena} />
     </>
   );
 };

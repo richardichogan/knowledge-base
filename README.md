@@ -306,9 +306,9 @@ Implemented: recovery, knowledge health (migration 067), project cockpit and reg
 
 ### Planned features (not yet implemented)
 
-These came from the UX review and competitor research. None is built. Full detail (current code, what to build, acceptance) is in [docs/planned-features.md](docs/planned-features.md). Order proposed (value against effort); mobile and tablet work is out of scope except `/chat`.
+These came from the UX review and competitor research. Item 1 is built; the rest are not. Full detail (current code, what to build, acceptance) is in [docs/planned-features.md](docs/planned-features.md). Order proposed (value against effort); mobile and tablet work is out of scope except `/chat`.
 
-1. **Command palette actions.** Extend Cmd+K beyond navigation to jump to any note, task, source or project and to run Athena actions (effort S–M).
+1. **Command palette actions (built).** Cmd+K finds any note, project, spark, diagram, task, use case, Discover article, Athena chat or linked source by title. It runs actions (capture a Spark, ask Athena about this page, open chats, go to Think) and lists recent items first. "New task" and "saved view" actions are still to do (effort S–M).
 2. **Backlinks and unlinked mentions in Think.** A panel on each note listing notes that link to it and text that mentions its title. Chosen instead of deeper folders (M).
 3. **`@` mentions and `[[` wiki links in the note editor.** Type `@` or `[[topic]]` to link to an existing note, or to create a new note with that title. Each link creates a backlink. `@Athena` runs an instruction on a selection, with Athena's text clearly marked as AI-written (M).
 4. **"Why Athena picked this" in Discover.** Merged into item 11 (M).
@@ -343,7 +343,7 @@ Athena is desktop-first; only the standalone `/chat` screen is designed for phon
 - **Back button:** the "‹ Notes/Canvases" button in Think only appears at phone widths.## Navigation
 The single desktop header contains **Today, Discover, Plan, Think, Build and Projects**. The Athena identity returns to Today. **Tools** groups Activity (the existing `/my-work` route), Sources (`/library`), Knowledge graph and Memory separately from management actions. Connections and sync opens Activity's existing sync-status panel without starting a sync; Tag Manager, repo-to-tag mappings and repo project mappings retain their existing panels/routes. On narrow screens, Today stays visible and the menu separates Main destinations from Tools.
 
-Search remains available through the header or Cmd+K / Ctrl+K. Its command palette uses the same destination groups. The toolbar is the only global Athena launcher: it opens the existing popout or reveals and focuses the Sources rail without changing context. It is disabled throughout Think, which uses its built-in Athena panel. There is no floating launcher on any screen. Sparks and Canvas remain Think modes, and quick Spark capture remains available in Think or with Cmd+. / Ctrl+. All existing URLs and redirects are preserved. No global project selector or new administration/search functionality is added.
+Search remains available through the header or Cmd+K / Ctrl+K. Its command palette uses the same destination groups and also searches Athena items, chats and sources, and runs quick actions. The toolbar is the only global Athena launcher: it opens the existing popout or reveals and focuses the Sources rail without changing context. It is disabled throughout Think, which uses its built-in Athena panel. There is no floating launcher on any screen. Sparks and Canvas remain Think modes, and quick Spark capture remains available in Think or with Cmd+. / Ctrl+. All existing URLs and redirects are preserved. No global project selector or new administration/search functionality is added.
 
 The command palette is a native modal dialog, traps Tab/Shift+Tab, and returns
 focus to its launching control. Discovery exposes selected filter states; a

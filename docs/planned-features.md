@@ -37,6 +37,19 @@ Suggested order is the order below (value against effort).
 
 ## 1. Command palette actions (effort S–M)
 
+**Implemented (Cmd+K / Ctrl+K):** one input searches notes, projects, sparks,
+diagrams, tasks, use cases and Discover articles (existing link-target search),
+Athena chats (server-side past-chat search) and linked library sources. Internal
+results open in place; articles and sources open in a new tab. Actions: capture
+a Spark, ask Athena about the current page (hidden in Think unless a note or
+canvas is open, matching the toolbar), open Athena chats, go to Think. With an
+empty input, the last six opened items (stored locally in the browser) appear
+first. Keyboard, native dialog, focus trap and focus return are unchanged. Not
+done: "new task" and "jump to a saved view" actions, because neither has a URL
+entry point yet.
+
+**Original brief:**
+
 **Today:** `knowledge-hub-web/src/components/CommandPalette.tsx` (Cmd+K / Ctrl+K) only navigates to destinations, using groups from `navigation/destinations.ts`.
 
 **Build:**
