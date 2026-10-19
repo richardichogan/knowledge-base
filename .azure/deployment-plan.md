@@ -2,7 +2,16 @@
 
 **Status:** Validated
 
-**Current approved release (2026-10-19, Decision Gate shape):** Deploy
+**Current approved release (2026-10-19, Athena chat discovery):** Deploy
+branch commits `26e76fa`, `5c77719`, and `37cb21a` to the existing production
+Container App and Static Web App. Backend v213 advances to v214. The release
+adds automatic retrieval of relevant saved Athena chats, synchronizes stale
+note-index project/tag metadata, and includes the already-committed project
+picker and right-click fixes. No schema migration, infrastructure, identity,
+role, secret, or dependency changes. Roll back the backend to v213 and redeploy
+the prior frontend bundle if verification fails.
+
+**Previously deployed release (2026-10-19, Decision Gate shape):** Deploy
 `de69b43` from `main` to the existing production Container App and Static Web
 App. Backend v212 advances to v213; the frontend adds the red diamond Decision
 Gate to the AI-flow palette, key and step-type picker. No migrations,
@@ -471,6 +480,23 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Athena chat discovery — 2026-10-19 12:15 BST (Validated; deployment pending)
+
+- `git merge --no-edit origin/main` completed with no changes; commit
+  `37cb21a` contains the retrieval fix and regression tests. It is on top of
+  branch commits `26e76fa` and `5c77719`.
+- Backend: `npx tsc --noEmit`, `npm run build`, and
+  `npm run test:isolated` passed; 156/156 isolated tests passed.
+- Frontend: `npx tsc --noEmit`, `npm run build`, and
+  `npm run test:isolated` passed; isolated test groups passed 97/97 and 6/6.
+- Focused frontend ESLint and `git diff --check` passed. A read-only production
+  chat search ranked “Local document indexing status” first and returned the
+  delegation/acceptance gate exchange.
+- Production baseline confirmed as backend v213, revision
+  `kh-prod-api-vnet--0000210`; Static Web App target is `kh-prod-web`
+  (`nice-mud-0f780fb03.7.azurestaticapps.net`). Infrastructure and static role
+  verification are not applicable; no infrastructure or RBAC files changed.
 
 ### Decision Gate shape — 2026-10-19 (Validated and deployed)
 
