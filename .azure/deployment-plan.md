@@ -6,10 +6,25 @@
 branch commits `26e76fa`, `5c77719`, and `37cb21a` to the existing production
 Container App and Static Web App. Backend v213 advances to v214. The release
 adds automatic retrieval of relevant saved Athena chats, synchronizes stale
-note-index project/tag metadata, and includes the already-committed project
-picker and right-click fixes. No schema migration, infrastructure, identity,
-role, secret, or dependency changes. Roll back the backend to v213 and redeploy
-the prior frontend bundle if verification fails.
+note-index project/tag metadata, avoids false Think-note creation intent, and
+includes the already-committed project picker and right-click fixes. No schema
+migration, infrastructure, identity, role, secret, or dependency changes.
+Roll back the backend to v213 and redeploy the prior frontend bundle if
+verification fails.
+
+**Deployment result (2026-10-19, Athena chat discovery):** Commits
+`26e76fa`, `5c77719`, and `37cb21a` were pushed to the feature branch and
+`main` at `0fc8733398997b13651f05c43c9be6f258e0c89e`. ACR build `ca6r`
+successfully built `kh-prod-api:v214`, digest
+`sha256:2026029ddb04ea88385fed5488cc3fc7fd02744e2b72bbd4634f1548a769eb70`.
+Revision `kh-prod-api-vnet--0000211` is Healthy / RunningAtMaxScale with 100%
+traffic. Startup completed migrations, warmed 8/8 database connections, and
+reindexed 73/118 note bodies with zero failures. The frontend deployment
+succeeded; the custom domain loaded Athena's Microsoft sign-in gate and served
+`/assets/index-Bp8cUGax.js`, matching the local build. The existing app identity
+is `None`; no ACR role assignments or role changes were required. ACR reported
+the existing dependency-audit baseline (36 findings, including 1 critical) and
+Node 20 engine warnings; no dependency manifests changed.
 
 **Previously deployed release (2026-10-19, Decision Gate shape):** Deploy
 `de69b43` from `main` to the existing production Container App and Static Web
@@ -481,7 +496,7 @@ All validation checks pass:
 
 ## 7. Validation Proof
 
-### Athena chat discovery — 2026-10-19 12:15 BST (Validated; deployment pending)
+### Athena chat discovery — 2026-10-19 12:30 BST (Validated and deployed)
 
 - `git merge --no-edit origin/main` completed with no changes; commit
   `37cb21a` contains the retrieval fix and regression tests. It is on top of
@@ -497,6 +512,15 @@ All validation checks pass:
   `kh-prod-api-vnet--0000210`; Static Web App target is `kh-prod-web`
   (`nice-mud-0f780fb03.7.azurestaticapps.net`). Infrastructure and static role
   verification are not applicable; no infrastructure or RBAC files changed.
+- ACR build `ca6r` produced v214 with digest
+  `sha256:2026029ddb04ea88385fed5488cc3fc7fd02744e2b72bbd4634f1548a769eb70`.
+  Revision `kh-prod-api-vnet--0000211` is Healthy / RunningAtMaxScale at 100%
+  traffic. Startup migrations completed, 8/8 database connections are ready,
+  and note reindexing completed with zero failures.
+- Static Web Apps production deployment succeeded. The production custom
+  domain loaded the sign-in gate and served `/assets/index-Bp8cUGax.js`, the
+  same asset name as the locally validated build. Live ACR role verification
+  found no role assignments; the Container App identity type is `None`.
 
 ### Decision Gate shape — 2026-10-19 (Validated and deployed)
 
