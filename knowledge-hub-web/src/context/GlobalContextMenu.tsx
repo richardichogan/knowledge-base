@@ -193,8 +193,10 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
   // meant to act on. Capture the selection on mousedown (capture phase, which
   // runs before that collapse) so we can fall back to it.
   const lastMouseDownSelection = useRef<string>('');
-  // Right-clicks whose mousedown is left to the browser (so the caret lands on
+  // Right-clicks whose *mousedown* is left to the browser (so the caret lands on
   // the clicked word): in editable text with nothing selected, or with Shift held.
+  // This is not the menu: the 'contextmenu' handler still blocks the browser's
+  // own menu for every right-click except Shift+right-click.
   const nativeMenuForThisClick = useRef(false);
   // A native right-click in editable text makes the browser select the word
   // under the cursor. That selection is not the user's, so it must not show the
