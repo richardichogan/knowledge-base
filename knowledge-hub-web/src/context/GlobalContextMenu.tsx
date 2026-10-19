@@ -55,6 +55,19 @@ interface GlobalCtxMenuCtx { openMenu: (e: MouseEvent | React.MouseEvent, item: 
 const Ctx = createContext<GlobalCtxMenuCtx>({ openMenu: () => {} });
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+// How long after a native right-click the browser's own word selection may arrive.
+const BROWSER_WORD_WINDOW_MS = 1500;
+interface SelectionRange { startNode: Node; startOffset: number; endNode: Node; endOffset: number }
+function currentSelectionRange(): SelectionRange | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  return { startNode: range.startContainer, startOffset: range.startOffset, endNode: range.endContainer, endOffset: range.endOffset };
+}
+function sameSelectionRange(a: SelectionRange, b: SelectionRange | null): boolean {
+  return b !== null && a.startNode === b.startNode && a.startOffset === b.startOffset
+    && a.endNode === b.endNode && a.endOffset === b.endOffset;
+}
 export function useGlobalContextMenu() { return useContext(Ctx); }
 
 export function GlobalContextMenuProvider({ children }: { children: React.ReactNode }) {
@@ -71,8 +84,10 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
   const nativeMenuForThisClick = useRef(false);
   // A native right-click in editable text makes the browser select the word
   // under the cursor. That selection is not the user's, so it must not show the
-  // formatting toolbar or turn the next right-click into Athena's menu.
-  const browserWordSelection = useRef(false);
+  // formatting toolbar or turn the next right-click into Athena's menu. The
+  // exact range is remembered: it stays "the browser's" (even after Escape
+  // closes the spelling menu) until the selection actually changes.
+  const browserWordSelection = useRef<{ startedAt: number; range: SelectionRange | null } | null>(null);
 
   const openMenu = useCallback((e: MouseEvent | React.MouseEvent, item: CtxItemData) => {
     e.preventDefault();
@@ -87,27 +102,28 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         const inEditable = (e.target as HTMLElement | null)?.closest('[contenteditable="true"], input, textarea') != null;
         // What is visibly selected right now (the editor's own state can lag a
         // click behind, and it remembers old selections).
-        const hasSelection = !browserWordSelection.current && (sel.length > 2 || hasBlockNoteCellSelection());
+        const browserWord = isBrowserWordSelection();
+        const hasSelection = !browserWord && (sel.length > 2 || hasBlockNoteCellSelection());
         nativeMenuForThisClick.current = e.shiftKey || (inEditable && !hasSelection);
         // Let the browser place the caret on the word under the cursor, which is
         // what its context menu needs to offer spelling corrections.
         if (nativeMenuForThisClick.current) {
           if (inEditable) {
-            browserWordSelection.current = true;
+            browserWordSelection.current = { startedAt: performance.now(), range: browserWord ? currentSelectionRange() : null };
             document.body.classList.add('kh-native-context');
             clearActiveBlockNoteSelectionSnapshot();
             suspendBlockNoteSelectionCapture();
           }
           return;
         }
-        if (browserWordSelection.current) {
+        if (browserWord) {
           // Right-click elsewhere after a spelling menu: drop the browser's word
           // so it is not treated as the text to act on.
-          browserWordSelection.current = false;
-          document.body.classList.remove('kh-native-context');
+          endBrowserWordSelection();
           window.getSelection()?.removeAllRanges();
           lastMouseDownSelection.current = '';
         } else {
+          endBrowserWordSelection();
           lastMouseDownSelection.current = sel;
         }
         // Freeze the BlockNote selection snapshot right now, before the
@@ -129,22 +145,43 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
       } else {
         // A fresh left-click/drag is starting a new selection — resume
         // tracking so the next right-click has an up-to-date snapshot.
-        clearBrowserWordSelection();
+        endBrowserWordSelection();
         resumeBlockNoteSelectionCapture();
       }
     }
-    function clearBrowserWordSelection() {
+    function isBrowserWordSelection(): boolean {
+      const range = browserWordSelection.current?.range;
+      return range != null && sameSelectionRange(range, currentSelectionRange());
+    }
+    function endBrowserWordSelection() {
       if (!browserWordSelection.current) return;
-      browserWordSelection.current = false;
+      browserWordSelection.current = null;
       document.body.classList.remove('kh-native-context');
       resumeBlockNoteSelectionCapture();
     }
+    function onSelectionChange() {
+      const pending = browserWordSelection.current;
+      if (!pending) return;
+      const current = currentSelectionRange();
+      if (performance.now() - pending.startedAt < BROWSER_WORD_WINDOW_MS) {
+        // The browser selects the word while opening its menu.
+        if (current) pending.range = current;
+      } else if (!pending.range || !sameSelectionRange(pending.range, current)) {
+        // The user changed the selection (typed, picked a suggestion, extended it…).
+        endBrowserWordSelection();
+      }
+    }
+    function onKeyDown() {
+      // Keyboard activity before the browser selected a word means any later selection is the user's.
+      if (browserWordSelection.current && !browserWordSelection.current.range) endBrowserWordSelection();
+    }
     document.addEventListener('mousedown', onMouseDown, true);
-    // Typing or keyboard selection also ends the browser's word selection.
-    document.addEventListener('keydown', clearBrowserWordSelection, true);
+    document.addEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('keydown', onKeyDown, true);
     return () => {
       document.removeEventListener('mousedown', onMouseDown, true);
-      document.removeEventListener('keydown', clearBrowserWordSelection, true);
+      document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('keydown', onKeyDown, true);
       document.body.classList.remove('kh-native-context');
     };
   }, []);
