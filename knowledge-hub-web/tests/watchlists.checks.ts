@@ -215,7 +215,11 @@ export async function runWatchlistChecks(queryClient: QueryClient): Promise<stri
   if (window.innerWidth >= 1280) check(rail.getBoundingClientRect().left > document.querySelector('.dw-finding')!.getBoundingClientRect().right, 'Project implications occupy the right-hand space');
   check(!document.body.innerText.includes('Suggested response') && !document.body.innerText.includes('→ Use case'), 'No rejected suggested response or use-case action');
   check(document.querySelector('.dw-evidence a')?.getAttribute('href') === 'https://example.com/evidence', 'Finding links to evidence');
-  check(document.body.innerText.includes('syndicated copies counted once'), 'Syndication is not corroboration');
+  const researchSources = document.querySelector<HTMLDetailsElement>('.dw-evidence')?.closest('details');
+  check(researchSources && !researchSources.open, 'Research sources remain collapsed by default');
+  researchSources.open = true;
+  check(researchSources.innerText.includes('syndicated copies counted once'), 'Syndication is not corroboration');
+  researchSources.open = false;
   checks.push('Competitor activity, field, Microsoft involvement and a linked project-impact column without rejected actions');
 
   button('Edit watchlist').click();
