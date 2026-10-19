@@ -15,9 +15,10 @@ test('primary workspaces retain their routes including GitHub Build', () => {
 test('supporting records, configuration and management are separated without losing destinations', () => {
   assert.deepEqual(TOOL_GROUPS.map((group) => group.label), ['Context and records', 'Athena configuration', 'Management']);
   assert.deepEqual(TOOL_GROUPS[0]!.items.map((item) => [item.label, item.path]), [
-    ['Activity', '/my-work'], ['Sources', '/library'], ['Knowledge graph', '/graph'],
+    ['People', '/people'], ['Activity', '/my-work'], ['Sources', '/library'], ['Knowledge graph', '/graph'],
   ]);
   assert.equal(selectedTool('/memory', '')?.label, 'Memory');
+  assert.equal(selectedTool('/people', '?personId=abc')?.label, 'People');
   assert.equal(selectedTool('/projects', '')?.label, 'Projects');
   assert.equal(TOOL_GROUPS[2]!.items.find((item) => item.id === 'projects')?.path, '/projects');
   assert.equal(selectedTool('/my-work', '')?.label, 'Activity');

@@ -60,6 +60,8 @@ import { LocalFileWriteCard } from '../components/athena/LocalFileWriteCard';
 import { desktopErrorMessage, getDesktop } from '../types/desktop';
 import { briefingSeenToday, markBriefingSeen } from '../utils/morningBriefing';
 import { PERSONAS, getPersona } from '../components/athena/personas';
+import { PeopleMentionSuggestions } from '../people/PeopleMentionSuggestions';
+import { PeopleMessageText } from '../people/PeopleMessageText';
 
 type AthenaThinkContentType = Extract<ContentType, 'blog' | 'newsletter'>;
 
@@ -2107,7 +2109,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               aria-label={msg.role === 'user' ? 'You' : 'Athena'}
             >
               {msg.role === 'user' ? (
-                <div className="ai-bubble-text">{msg.content}</div>
+                <div className="ai-bubble-text"><PeopleMessageText text={msg.content} /></div>
               ) : (
                 <div
                   className="ai-bubble-text ai-bubble-text--md"
@@ -2358,6 +2360,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             onChange={handleFileSelected}
           />
           <div className="ai-input-field">
+            <PeopleMentionSuggestions input={input} textarea={textareaRef} onChange={value => { hasUserWorkRef.current = true; setInput(value); }} />
             <Button
               type="button"
               kind="ghost"

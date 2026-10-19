@@ -45,6 +45,7 @@ import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { DiscoverFormat } from '../types/discover';
 import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight } from '../types/watchlists';
 import type { BacklinkPage, EntityLinkTarget, EntityLinkType } from '../notes/entityLinks';
+import type { Person, PersonInput } from '../types/people';
 
 export { DISCOVER_FORMATS, type DiscoverFormat } from '../types/discover';
 
@@ -626,6 +627,28 @@ export class KnowledgeHubApi {
   }
 
   // ─── Search ───────────────────────────────────────────────────────────────
+
+  async getPeople(q = ''): Promise<ApiResponse<Person[]>> {
+    return (await this.client.get<ApiResponse<Person[]>>('/api/people', { params: { q } })).data;
+  }
+
+  async getPerson(id: string): Promise<ApiResponse<Person>> {
+    return (await this.client.get<ApiResponse<Person>>(`/api/people/${encodeURIComponent(id)}`)).data;
+  }
+
+  async savePerson(input: PersonInput, id?: string): Promise<ApiResponse<Person>> {
+    return id
+      ? (await this.client.put<ApiResponse<Person>>(`/api/people/${encodeURIComponent(id)}`, input)).data
+      : (await this.client.post<ApiResponse<Person>>('/api/people', input)).data;
+  }
+
+  async importPeople(people: PersonInput[]): Promise<ApiResponse<{ created: number; updated: number }>> {
+    return (await this.client.post<ApiResponse<{ created: number; updated: number }>>('/api/people/import', { people })).data;
+  }
+
+  async deletePerson(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return (await this.client.delete<ApiResponse<{ deleted: boolean }>>(`/api/people/${encodeURIComponent(id)}`)).data;
+  }
 
   async getLinkTargets(q = '', type?: EntityLinkType, id?: string, exclude?: string): Promise<ApiResponse<EntityLinkTarget[]>> {
     const result = await this.client.get<ApiResponse<EntityLinkTarget[]>>('/api/notes/link-targets', { params: { q, type, id, exclude } });

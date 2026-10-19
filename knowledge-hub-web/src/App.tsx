@@ -40,6 +40,7 @@ const GraphPage = deferredView('Graph', async () => ({ default: (await import('.
 const AIChatPage = deferredView('Athena', async () => ({ default: (await import('./pages/AIChatPage')).AIChatPage }));
 const RepoProjectMappingsPage = deferredView('Project mappings', async () => ({ default: (await import('./pages/RepoProjectMappingsPage')).RepoProjectMappingsPage }));
 const ProjectsPage = deferredView('Projects', async () => ({ default: (await import('./pages/ProjectsPage')).ProjectsPage }));
+const PeoplePage = deferredView('People', async () => ({ default: (await import('./pages/PeoplePage')).PeoplePage }));
 const BuildPage = deferredView('Build', async () => ({ default: (await import('./features/build/BuildPage')).BuildPage }));
 const KnowledgeHealthPage = deferredView('Knowledge health', async () => ({ default: (await import('./pages/KnowledgeHealthPage')).KnowledgeHealthPage }));
 
@@ -82,6 +83,7 @@ const App: React.FC = () => {
                 <Route path="calendar"  element={<Navigate to="/plan" replace />} />
                 <Route path="notes"     element={<Navigate to="/think" replace />} />
                 <Route path="projects"  element={<ProjectsPage />} />
+                <Route path="people" element={<PeoplePage />} />
                 <Route path="documents" element={<Navigate to="/library" replace />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Route>

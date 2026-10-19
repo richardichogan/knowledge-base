@@ -27,6 +27,7 @@ test('entity link search, atomic derived backlinks, nested content, rename/delet
     CREATE TABLE tasks(id UUID PRIMARY KEY, title TEXT, archived BOOLEAN DEFAULT false, updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE content_items(id UUID PRIMARY KEY, source TEXT, title TEXT, url TEXT, published_at TIMESTAMPTZ, indexed_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE use_cases(id UUID PRIMARY KEY, title TEXT, stage TEXT DEFAULT 'candidate', updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE people(id UUID PRIMARY KEY, name TEXT, emails TEXT[] DEFAULT '{}', organisation TEXT DEFAULT '', updated_at TIMESTAMPTZ DEFAULT NOW());
   `);
   await db.exec(await readFile(new URL('../src/db/migrations/064_note_list_metadata.sql', import.meta.url), 'utf8'));
   const migration = await readFile(new URL('../src/db/migrations/082_note_links.sql', import.meta.url), 'utf8');

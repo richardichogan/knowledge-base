@@ -21,6 +21,7 @@ import { getSessionProjectId, readPastChat, searchReferencedPastChats } from './
 import { selectRequiredToolChoice } from './toolRouting.js';
 import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
 import { getCanvas } from '../services/canvasService.js';
+import { buildPeopleContext } from '../services/peopleContext.js';
 import { buildCanvasContext } from '../services/canvasContent.js';
 import { findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../services/diagramContext.js';
 import type { MapChangeProposal } from './mapEdits.js';
@@ -253,8 +254,9 @@ export async function handleConversationTurn(
     used.screens = (screensBlock.match(/^### /gm) ?? []).length;
   }
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
+  const peopleBlock = await buildPeopleContext(db, [userMessage, ...history.filter(message => message.role === 'user').slice(-8).reverse().map(message => message.content)]);
   const localFolders = toolContext.localFolders ?? [];
-  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, scheduleBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, peopleBlock, scheduleBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
