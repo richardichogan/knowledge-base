@@ -8,6 +8,7 @@ import { AppDialog } from '../../components/AppDialog';
 import { useProjects } from '../../hooks/useProjects';
 import { useAddUseCaseSources, useCreateUseCase, useUseCases } from '../../hooks/useUseCases';
 import { describeApiError } from '../../services/apiError';
+import { ProjectOptions } from '../../components/ProjectOptions';
 import { CLOSED_STAGES, PRODUCT_KINDS, PRODUCT_KIND_LABELS, type ProductKind, type UseCaseDetail, type UseCaseSourceRef } from '../../types/useCases';
 
 export const CreateUseCaseDialog: React.FC<{
@@ -106,7 +107,7 @@ export const CreateUseCaseDialog: React.FC<{
             <select id={`${id}-project`} className="kh-uc-input kh-uc-select" value={projectId}
               onChange={(e) => { setProjectId(e.target.value); }}>
               <option value="">No project</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <ProjectOptions projects={projects} selected={projectId} />
             </select>
           </label>
         </div>

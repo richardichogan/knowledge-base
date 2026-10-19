@@ -5855,6 +5855,29 @@ body.kh-pane-resizing {
   option { background: #262626; color: #f4f4f4; }
 }
 
+// Project + Content type share one row; long names clip with an ellipsis and
+// the full value shows in the select's tooltip.
+.notes-meta-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.notes-meta-pair__field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+
+  .notes-meta-section-label { display: block; }
+
+  .notes-meta-type-select {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
 .notes-meta-tags-chips {
   display: flex;
   flex-wrap: wrap;
@@ -17359,4 +17382,15 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
   padding: 0.625rem 0.75rem 0.625rem 1rem;
 
   @media (max-width: 672px) { margin: 0.5rem 1rem 0; }
+}
+
+// Grouped pickers (projects by parent, content types by family): group headings
+// read as quiet section labels in the dark dropdown, members as normal options.
+select optgroup {
+  background: #161616;
+  color: #a8a8a8;
+  font-style: normal;
+  font-weight: 600;
+
+  option { font-weight: 400; color: #f4f4f4; }
 }

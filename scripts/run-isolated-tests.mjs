@@ -25,7 +25,9 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/savedViews.test.ts',
   '../knowledge-hub-web/tests/noteDraftStorage.test.ts',
   '../knowledge-hub-web/tests/documentList.test.ts',
+  '../knowledge-hub-web/tests/projectOptions.test.ts',
 ] : [
+  'scripts/project-parents-migration.test.ts',
   'scripts/note-links.test.ts',
   'scripts/discover-watchlists.test.ts',
   'scripts/note-history.test.ts', 'scripts/build.test.ts', 'scripts/turn-jobs.test.ts',

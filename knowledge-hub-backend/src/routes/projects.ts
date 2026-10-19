@@ -39,7 +39,7 @@ export interface Project {
   icon: string;
   /** The filing tag that represents this project everywhere tags appear */
   tagId: string | null;
-  /** Project group (top-level filing tag), e.g. "IBM Projects" */
+  /** Project group (top-level filing tag), e.g. "IBM", "Nelfin", "Personal" */
   groupId: string | null;
   groupName: string | null;
   category: ProjectCategory;

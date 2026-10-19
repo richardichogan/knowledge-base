@@ -50,6 +50,7 @@ const LIBRARY_SIDE_WIDTH: PaneWidthOptions = {
 };
 import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
 import { renderMarkdown } from '../utils/markdown';
+import { ProjectOptions } from '../components/ProjectOptions';
 
 // ── Source config ─────────────────────────────────────────────────────────────
 
@@ -310,9 +311,7 @@ export const DocumentsPage: React.FC = () => {
               onChange={(e) => { setActiveProjectId(e.target.value); }}
             >
               <option value="">All projects</option>
-              {projectOptions.map((project) => (
-                <option key={project.id} value={project.id}>{project.name}</option>
-              ))}
+              <ProjectOptions projects={projectOptions} selected={activeProjectId} />
             </select>
           </div>
 
@@ -582,9 +581,7 @@ export const DocumentsPage: React.FC = () => {
                 disabled={uploadLoading}
               >
                 {!projectOptions.some((project) => project.id === 'personal') && <option value="personal">Personal / unassigned</option>}
-                {projectOptions.map((project) => (
-                  <option key={project.id} value={project.id}>{project.name}</option>
-                ))}
+                <ProjectOptions projects={projectOptions} selected={uploadProjectId} />
               </select>
             </div>
 

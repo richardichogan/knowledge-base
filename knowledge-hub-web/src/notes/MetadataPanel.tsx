@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { SidePanelClose } from '@carbon/icons-react';
-import { CONTENT_TYPE_OPTIONS } from './constants';
+import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_OPTIONS } from './constants';
 import type { ContentType } from './constants';
 import type { NoteDocument } from './types';
 import { TagPicker } from '../components/TagPicker';
@@ -30,6 +30,7 @@ import { UseCaseLauncher } from '../features/useCases/UseCaseLauncher';
 import { launchFromRef } from '../features/useCases/useCaseView';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { NoteBacklinks } from './NoteBacklinks';
+import { ProjectOptions } from '../components/ProjectOptions';
 import { UnlinkedMentions } from './UnlinkedMentions';
 
 const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections', 'history', 'link'] as const;
@@ -269,32 +270,36 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
         {tab === 'metadata' && (
           <div role="tabpanel" id="think-side-panel-metadata" aria-labelledby="think-side-tab-metadata" className="notes-meta-tabpanel">
             <CollapsibleSection label="Organisation">
-              <div className="notes-meta-section">
-                <p className="notes-meta-section-label">Project</p>
-                <select
-                  title="Project"
-                  className="notes-meta-type-select"
-                  value={projectId}
-                  onChange={(e) => { onProjectChange(e.target.value); }}
-                >
-                  <option value="">No project</option>
-                  {[...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })).map((project) => (
-                    <option key={project.id} value={project.id}>{project.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="notes-meta-section">
-                <p className="notes-meta-section-label">Content type</p>
-                <select
-                  title="Content type"
-                  className="notes-meta-type-select"
-                  value={contentType}
-                  onChange={(e) => { onContentTypeChange(e.target.value as ContentType); }}
-                >
-                  {CONTENT_TYPE_OPTIONS.map((o) => (
-                    <option key={o.id} value={o.id}>{o.label}</option>
-                  ))}
-                </select>
+              <div className="notes-meta-section notes-meta-pair">
+                <label className="notes-meta-pair__field">
+                  <span className="notes-meta-section-label">Project</span>
+                  <select
+                    className="notes-meta-type-select"
+                    value={projectId}
+                    title={projects.find((project) => project.id === projectId)?.name ?? 'No project'}
+                    onChange={(e) => { onProjectChange(e.target.value); }}
+                  >
+                    <option value="">No project</option>
+                    <ProjectOptions projects={projects} selected={projectId} />
+                  </select>
+                </label>
+                <label className="notes-meta-pair__field">
+                  <span className="notes-meta-section-label">Content type</span>
+                  <select
+                    className="notes-meta-type-select"
+                    value={contentType}
+                    title={CONTENT_TYPE_OPTIONS.find((option) => option.id === contentType)?.label ?? 'Content type'}
+                    onChange={(e) => { onContentTypeChange(e.target.value as ContentType); }}
+                  >
+                    {CONTENT_TYPE_GROUPS.map((group) => (
+                      <optgroup key={group.label} label={group.label}>
+                        {group.options.map((o) => (
+                          <option key={o.id} value={o.id}>{o.label}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
               </div>
               <div className="notes-meta-section">
                 <p className="notes-meta-section-label">Tags</p>

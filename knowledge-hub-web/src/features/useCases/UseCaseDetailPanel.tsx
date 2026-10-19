@@ -10,6 +10,7 @@ import {
   useAddUseCaseLink, useDeleteUseCase, useDraftUseCaseSpec, useRemoveUseCaseLink, useRemoveUseCaseSource, useUpdateUseCase, useUseCase,
 } from '../../hooks/useUseCases';
 import { describeApiError } from '../../services/apiError';
+import { ProjectOptions } from '../../components/ProjectOptions';
 import { confirmDialog } from '../../services/appDialogs';
 import {
   PRODUCT_KINDS, PRODUCT_KIND_LABELS, SOURCE_TYPE_LABELS, STAGE_LABELS, USE_CASE_STAGES,
@@ -116,7 +117,7 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
             <option value="">No project</option>
             {useCase.projectId !== null && !projects.some((p) => p.id === useCase.projectId)
               && <option value={useCase.projectId}>{useCase.projectName ?? 'Unavailable project'}</option>}
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <ProjectOptions projects={projects} selected={useCase.projectId ?? ''} />
           </select>
         </label>
         <BlurField id={`${fid}-repo`} label="Repository" value={useCase.repo ?? ''} maxLength={200} placeholder="owner/name"

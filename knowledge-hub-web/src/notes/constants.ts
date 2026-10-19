@@ -23,25 +23,35 @@ export type ContentType =
   | 'spec'
   | 'use-case';
 
+export type ContentTypeGroup = 'Work' | 'Publishing' | 'Thinking';
+
 export interface ContentTypeOption {
   id: ContentType;
   label: string;
+  group: ContentTypeGroup;
 }
 
+/** Stored ids never change — other features key off them. Only labels and grouping are presentational. */
 export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
-  { id: 'blog',                label: 'Blog draft' },
-  { id: 'podcast',              label: 'Podcast script' },
-  { id: 'podcast-show-notes',   label: 'Podcast show notes' },
-  { id: 'newsletter',           label: 'Newsletter edition' },
-  { id: 'project',              label: 'Project note' },
-  { id: 'note',                 label: 'General note' },
-  { id: 'script',               label: 'Script' },
-  { id: 'architecture',         label: 'Architecture doc' },
-  { id: 'meeting',              label: 'Meeting notes / transcript' },
-  { id: 'research',             label: 'Research brief' },
-  { id: 'spec',                 label: 'Technical spec' },
-  { id: 'use-case',             label: 'Use case' },
+  { id: 'meeting',              label: 'Meeting notes',      group: 'Work' },
+  { id: 'project',              label: 'Project note',       group: 'Work' },
+  { id: 'use-case',             label: 'Use case',           group: 'Work' },
+  { id: 'spec',                 label: 'Technical spec',     group: 'Work' },
+  { id: 'architecture',         label: 'Architecture doc',   group: 'Work' },
+  { id: 'blog',                 label: 'Blog draft',         group: 'Publishing' },
+  { id: 'newsletter',           label: 'Newsletter edition', group: 'Publishing' },
+  { id: 'podcast',              label: 'Podcast script',     group: 'Publishing' },
+  { id: 'podcast-show-notes',   label: 'Podcast show notes', group: 'Publishing' },
+  { id: 'script',               label: 'Script',             group: 'Publishing' },
+  { id: 'note',                 label: 'General note',       group: 'Thinking' },
+  { id: 'research',             label: 'Research brief',     group: 'Thinking' },
 ];
+
+export const CONTENT_TYPE_GROUPS: { label: ContentTypeGroup; options: ContentTypeOption[] }[] =
+  (['Work', 'Publishing', 'Thinking'] as const).map((label) => ({
+    label,
+    options: CONTENT_TYPE_OPTIONS.filter((option) => option.group === label),
+  }));
 
 // ── Tag type per content type ─────────────────────────────────────────────────
 

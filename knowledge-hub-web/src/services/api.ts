@@ -338,7 +338,7 @@ export interface Project {
   icon: string;
   /** The tag that stands for this project wherever tags appear. Read-only. */
   tagId?: string | null;
-  /** Project group (e.g. IBM Projects). Send null to ungroup. */
+  /** Project group / parent (IBM, Nelfin or Personal). Send null to ungroup. */
   groupId?: string | null;
   groupName?: string | null;
   category: ProjectCategory;

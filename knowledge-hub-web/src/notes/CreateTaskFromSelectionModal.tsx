@@ -8,6 +8,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
+import { ProjectOptions } from '../components/ProjectOptions';
 import { useProjects } from '../hooks/useProjects';
 import type { TaskDestination } from '../types/task';
 
@@ -176,9 +177,7 @@ Respond with only the JSON object, no markdown, no explanation.`;
               onChange={(e) => setProjectId(e.target.value)}
               disabled={aiLoading}
             >
-              {[...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })).map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
+              <ProjectOptions projects={projects} selected={projectId} />
             </select>
           </div>
 

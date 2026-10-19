@@ -11,6 +11,7 @@
 import React, { useState } from 'react';
 import { Modal, TextInput, InlineLoading, InlineNotification } from '@carbon/react';
 import { api } from '../services/api';
+import { ProjectOptions } from '../components/ProjectOptions';
 import { useProjects } from '../hooks/useProjects';
 import { TagPicker } from '../components/TagPicker';
 import { useFlatTags } from '../hooks/useTaxonomy';
@@ -167,9 +168,7 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
         onChange={(e) => { setProjectId(e.target.value); }}
       >
         <option value="">No project</option>
-        {[...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })).map((project) => (
-          <option key={project.id} value={project.id}>{project.name}</option>
-        ))}
+        <ProjectOptions projects={projects} selected={projectId} />
       </select>
 
       <div className="notes-modal-spacer" />
