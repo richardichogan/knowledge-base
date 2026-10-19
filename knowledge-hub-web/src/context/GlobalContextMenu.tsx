@@ -76,9 +76,39 @@ export function useGlobalContextMenu() { return useContext(Ctx); }
 type SpellTarget =
   | { kind: 'field'; el: HTMLInputElement | HTMLTextAreaElement; start: number; end: number; word: string }
   | { kind: 'rich'; root: HTMLElement; range: Range; word: string };
-interface SpellMenuState { x: number; y: number; target: SpellTarget }
+interface SpellMenuState { x: number; y: number; edit: EditTarget; spelling: SpellTarget | null }
 
-const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', '']);
+/** Where Cut/Copy/Paste act: a text field's selection, or a rich-text range (possibly collapsed). */
+type EditTarget =
+  | { kind: 'field'; el: HTMLInputElement | HTMLTextAreaElement; start: number; end: number }
+  | { kind: 'rich'; root: HTMLElement; range: Range };
+
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', '']);
+
+function textField(target: HTMLElement): HTMLInputElement | HTMLTextAreaElement | null {
+  const field = target.closest('input, textarea');
+  return field instanceof HTMLTextAreaElement || (field instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(field.type)) ? field : null;
+}
+
+function editTargetAt(target: HTMLElement, x: number, y: number): EditTarget | null {
+  const field = textField(target);
+  if (field) {
+    if (field.disabled || field.selectionStart === null) return null;
+    return { kind: 'field', el: field, start: field.selectionStart, end: field.selectionEnd ?? field.selectionStart };
+  }
+  const root = target.closest<HTMLElement>('[contenteditable="true"]');
+  if (!root) return null;
+  const selection = window.getSelection();
+  if (selection && selection.rangeCount > 0 && !selection.isCollapsed && root.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+    return { kind: 'rich', root, range: selection.getRangeAt(0).cloneRange() };
+  }
+  const caret = document.caretRangeFromPoint?.(x, y);
+  if (caret && root.contains(caret.startContainer)) return { kind: 'rich', root, range: caret };
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  return { kind: 'rich', root, range };
+}
 const WORD_CHAR = /[\p{L}\p{M}'’-]/u;
 
 /** Expands `[at, at]` in `text` to the surrounding word, trimming edge apostrophes/hyphens. */
@@ -98,9 +128,9 @@ function wordBounds(text: string, at: number): { start: number; end: number } | 
  * the browser only selects a misspelled word after the 'contextmenu' event.
  */
 function wordAtPoint(target: HTMLElement, x: number, y: number): SpellTarget | null {
-  const field = target.closest('input, textarea');
-  if (field instanceof HTMLTextAreaElement || (field instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(field.type))) {
-    if (field.readOnly || field.disabled || field.selectionStart === null || field.selectionStart !== field.selectionEnd) return null;
+  const field = textField(target);
+  if (field) {
+    if (field.readOnly || field.disabled || field.type === 'password' || field.selectionStart === null || field.selectionStart !== field.selectionEnd) return null;
     const bounds = wordBounds(field.value, field.selectionStart);
     return bounds ? { kind: 'field', el: field, ...bounds, word: field.value.slice(bounds.start, bounds.end) } : null;
   }
@@ -163,8 +193,8 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
   // meant to act on. Capture the selection on mousedown (capture phase, which
   // runs before that collapse) so we can fall back to it.
   const lastMouseDownSelection = useRef<string>('');
-  // Right-clicks left to the browser: in editable text with nothing selected
-  // (so spell-check suggestions work), or with Shift held.
+  // Right-clicks whose mousedown is left to the browser (so the caret lands on
+  // the clicked word): in editable text with nothing selected, or with Shift held.
   const nativeMenuForThisClick = useRef(false);
   // A native right-click in editable text makes the browser select the word
   // under the cursor. That selection is not the user's, so it must not show the
@@ -298,26 +328,37 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         const misspelled = word ? isMisspelled(word.word) : false;
         if (word && misspelled) {
           e.preventDefault();
-          setMenu(null);
-          setSpellMenu({ x: e.clientX, y: e.clientY, target: word });
+          openEditMenu(e, target, word);
           return;
         }
         if (word && misspelled === null) {
           // First right-click before the dictionary has arrived: wait for it.
           e.preventDefault();
-          const { clientX: x, clientY: y } = e;
+          const edit = editTargetAt(target, e.clientX, e.clientY);
           loadSpelling().then(
-            () => { if (isMisspelled(word.word)) { setMenu(null); setSpellMenu({ x, y, target: word }); } else openAthenaMenu(e, target); },
-            () => { openAthenaMenu(e, target); },
+            () => { if (isMisspelled(word.word)) openEditMenu(e, target, word, edit); else if (!openAthenaMenu(e, target)) openEditMenu(e, target, null, edit); },
+            () => { if (!openAthenaMenu(e, target)) openEditMenu(e, target, null, edit); },
           );
           return;
         }
       }
-      openAthenaMenu(e, target);
+      if (openAthenaMenu(e, target)) return;
+      // Nothing for Athena to offer: never fall back to the browser's own menu
+      // (Shift+right-click is the way to reach it). Editable text gets a dark
+      // Cut/Copy/Paste menu; anywhere else, no menu.
+      e.preventDefault();
+      openEditMenu(e, target, null);
     }
 
-    /** Athena's normal menu; returns without preventDefault to leave the browser's. */
-    function openAthenaMenu(e: MouseEvent, target: HTMLElement) {
+    function openEditMenu(e: MouseEvent, target: HTMLElement, spelling: SpellTarget | null, known?: EditTarget | null) {
+      const edit = known !== undefined ? known : editTargetAt(target, e.clientX, e.clientY);
+      if (!edit) return;
+      setMenu(null);
+      setSpellMenu({ x: e.clientX, y: e.clientY, edit, spelling });
+    }
+
+    /** Athena's normal menu. False when it has nothing to offer for this click. */
+    function openAthenaMenu(e: MouseEvent, target: HTMLElement): boolean {
       const liveSel = window.getSelection()?.toString().trim() ?? '';
       // BlockNote/ProseMirror table cell-range selections don't populate the
       // native browser Selection object correctly — ask the editor directly
@@ -360,7 +401,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
             nodeType: el.getAttribute('data-ctx-type') ?? 'text',
           },
         });
-        return;
+        return true;
       }
 
       // 2. Image
@@ -369,7 +410,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         e.preventDefault();
         setMenu({ x: e.clientX, y: e.clientY,
           item: { title: img.alt || 'Image', imageUrl: img.src, url: img.src, nodeType: 'note' } });
-        return;
+        return true;
       }
 
       // 3. Text selection (no ctx element found)
@@ -384,7 +425,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
             ...(inChat ? { fromChat: true, source: 'Athena chat' } : {}),
             nodeType: 'note',
           } });
-        return;
+        return true;
       }
 
       // 4. Anchor link
@@ -393,7 +434,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         e.preventDefault();
         setMenu({ x: e.clientX, y: e.clientY,
           item: { title: anchor.textContent?.trim() || anchor.href, url: anchor.href, nodeType: 'text' } });
-        return;
+        return true;
       }
       // 5. Right-click on an Athena reply with nothing selected: act on the whole reply
       const reply = target.closest('.ai-bubble-text, .ai-bubble-text--md') as HTMLElement | null;
@@ -403,10 +444,10 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY,
             item: { title: 'Athena chat', body: text, fromSelection: true, fromChat: true, source: 'Athena chat', nodeType: 'note' } });
-          return;
+          return true;
         }
       }
-      // 6. passthrough
+      return false;
     }
 
     document.addEventListener('contextmenu', onContextMenu, true);
@@ -430,21 +471,51 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
   );
 }
 
-function SpellingMenu({ x, y, target, onClose }: SpellMenuState & { onClose: () => void }) {
+const SHORTCUT = IS_MAC ? '⌘' : 'Ctrl+';
+
+/** Puts focus and the selection back where they were when the menu opened. */
+function restoreEditTarget(edit: EditTarget): void {
+  if (edit.kind === 'field') {
+    edit.el.focus({ preventScroll: true });
+    edit.el.setSelectionRange(edit.start, edit.end);
+    return;
+  }
+  edit.root.focus({ preventScroll: true });
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(edit.range);
+}
+
+function insertIntoEditTarget(edit: EditTarget, text: string): void {
+  restoreEditTarget(edit);
+  if (document.execCommand('insertText', false, text)) return;
+  if (edit.kind === 'field') {
+    edit.el.setRangeText(text, edit.start, edit.end, 'end');
+    edit.el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
+/**
+ * Athena's dark replacement for the browser's right-click menu in editable text
+ * with nothing selected (a selection gets Athena's main menu, which can copy it).
+ */
+function SpellingMenu({ x, y, edit, spelling, onClose }: SpellMenuState & { onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const writable = edit.kind === 'rich' || (!edit.el.readOnly && !edit.el.disabled);
 
   useEffect(() => {
+    if (!spelling) return;
     let live = true;
-    spellingSuggestions(target.word)
+    spellingSuggestions(spelling.word)
       .then((list) => { if (live) setSuggestions(list); })
       .catch((err: unknown) => {
         console.warn('[SpellingMenu] suggestions failed:', err);
         if (live) setError('Spelling suggestions are unavailable right now.');
       });
     return () => { live = false; };
-  }, [target.word]);
+  }, [spelling]);
 
   useEffect(() => {
     const el = ref.current;
@@ -457,19 +528,20 @@ function SpellingMenu({ x, y, target, onClose }: SpellMenuState & { onClose: () 
   });
 
   useEffect(() => {
-    if (suggestions && suggestions.length > 0) ref.current?.querySelector<HTMLButtonElement>('.gctx__item')?.focus({ preventScroll: true });
-  }, [suggestions]);
+    if (spelling && suggestions === null) return;
+    ref.current?.querySelector<HTMLButtonElement>('.gctx__item:not(:disabled)')?.focus({ preventScroll: true });
+  }, [spelling, suggestions]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
-        (target.kind === 'field' ? target.el : target.root).focus({ preventScroll: true });
+        restoreEditTarget(edit);
         return;
       }
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-      const items = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>('.gctx__item') ?? []);
+      const items = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>('.gctx__item:not(:disabled)') ?? []);
       if (items.length === 0) return;
       e.preventDefault();
       const at = items.indexOf(document.activeElement as HTMLButtonElement);
@@ -485,29 +557,55 @@ function SpellingMenu({ x, y, target, onClose }: SpellMenuState & { onClose: () 
       document.removeEventListener('mousedown', onDown, true);
       window.removeEventListener('blur', onClose);
     };
-  }, [onClose, target]);
+  }, [onClose, edit]);
 
   const pick = (replacement: string) => {
-    if (replaceMisspelling(target, replacement)) onClose();
+    if (spelling && replaceMisspelling(spelling, replacement)) onClose();
     else setError('The text changed. Right-click the word again.');
   };
 
+  const paste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      insertIntoEditTarget(edit, text);
+      onClose();
+    } catch {
+      setError(`Your browser blocked the clipboard. Use ${SHORTCUT}V instead.`);
+    }
+  };
+
+  const selectAll = () => {
+    if (edit.kind === 'field') { edit.el.focus({ preventScroll: true }); edit.el.select(); }
+    else { edit.root.focus({ preventScroll: true }); document.execCommand('selectAll'); }
+    onClose();
+  };
+
   return (
-    <div ref={ref} className="gctx gctx--spelling" role="menu" aria-label={`Spelling suggestions for ${target.word}`}
+    <div ref={ref} className="gctx gctx--spelling" role="menu"
+      aria-label={spelling ? `Spelling suggestions for ${spelling.word}` : 'Edit'}
       onContextMenu={(e) => { e.preventDefault(); }}>
-      <div className="gctx__preview">
-        <span className="gctx__source">Spelling</span>
-        <span className="gctx__title gctx__title--misspelt">{target.word}</span>
-      </div>
-      <div className="gctx__divider" />
-      {error !== null ? <p className="gctx__note gctx__note--error" role="alert">{error}</p>
-        : suggestions === null ? <p className="gctx__note">Finding suggestions…</p>
-        : suggestions.length === 0 ? <p className="gctx__note">No suggestions</p>
-        : suggestions.map((s) => (
-          <button key={s} type="button" role="menuitem" className="gctx__item gctx__item--suggestion" onClick={() => { pick(s); }}>
-            {s}
-          </button>
-        ))}
+      {spelling && <>
+        <div className="gctx__preview">
+          <span className="gctx__source">Spelling</span>
+          <span className="gctx__title gctx__title--misspelt">{spelling.word}</span>
+        </div>
+        <div className="gctx__divider" />
+        {suggestions === null && error === null ? <p className="gctx__note">Finding suggestions…</p>
+          : suggestions?.length === 0 ? <p className="gctx__note">No suggestions</p>
+          : suggestions?.map((s) => (
+            <button key={s} type="button" role="menuitem" className="gctx__item gctx__item--suggestion" onClick={() => { pick(s); }}>
+              {s}
+            </button>
+          ))}
+        <div className="gctx__divider" />
+      </>}
+      {error !== null && <p className="gctx__note gctx__note--error" role="alert">{error}</p>}
+      <button type="button" role="menuitem" className="gctx__item" disabled={!writable} onClick={() => { void paste(); }}>
+        Paste<span className="gctx__shortcut">{SHORTCUT}V</span>
+      </button>
+      <button type="button" role="menuitem" className="gctx__item" onClick={selectAll}>
+        Select all<span className="gctx__shortcut">{SHORTCUT}A</span>
+      </button>
     </div>
   );
 }

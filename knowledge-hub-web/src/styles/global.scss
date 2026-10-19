@@ -4527,6 +4527,24 @@ body.kh-native-context .bn-formatting-toolbar {
 
   .gctx__preview { width: auto; max-width: none; gap: 0.125rem; }
   .gctx__source { line-height: 1.4; }
+
+  .gctx__item:focus-visible {
+    outline: 2px solid var(--kh-accent, #3ddbd9);
+    outline-offset: -2px;
+    background: var(--cds-layer-hover, #333333);
+  }
+
+  .gctx__item:disabled { color: var(--cds-text-disabled, #6f6f6f); }
+}
+
+.gctx__shortcut {
+  margin-left: auto;
+  padding-left: 1.5rem;
+  font-size: var(--kh-text-meta);
+  font-weight: 400;
+  color: var(--cds-text-secondary, #c6c6c6);
+
+  .gctx__item:disabled & { color: inherit; }
 }
 
 .gctx__title--misspelt {
