@@ -7,7 +7,7 @@ import { AthenaContextProvider } from '../src/context/AthenaContext';
 import { AppDialogHost } from '../src/components/AppDialog';
 import { api } from '../src/services/api';
 import { DISCOVER_PREFERENCES_KEY } from '../src/utils/savedViews';
-import { runWatchlistChecks } from './watchlists.checks';
+import { runWatchlistChecks, runWatchlistProjectChecks } from './watchlists.checks';
 import type { ApiResponse } from '../src/types/apiResponse';
 import '../src/styles/global.scss';
 
@@ -33,7 +33,7 @@ createRoot(document.getElementById('root')!).render(
     <AppDialogHost /><div className="kh-content watchlists"><DiscoverPage /></div>
   </AthenaContextProvider></MemoryRouter></QueryClientProvider>,
 );
-Object.assign(window, { runWatchlistChecks: async () => {
+Object.assign(window, { runWatchlistProjectChecks: () => runWatchlistProjectChecks(client), runWatchlistChecks: async () => {
   for (let attempt = 0; attempt < 200; attempt++) {
     if (document.querySelector('.dc-card') !== null) break;
     await new Promise(resolve => setTimeout(resolve, 20));

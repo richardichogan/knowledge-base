@@ -8,6 +8,8 @@ const browserPath = process.env.TODAY_BROWSER_PATH;
 assert.ok(browserPath, 'Set TODAY_BROWSER_PATH to an installed Chromium browser executable');
 const fixtureUrl = process.env.TODAY_FIXTURE_URL ?? 'http://localhost:5142/tests/today.html';
 const navigationChecks = process.env.ATHENA_BROWSER_CHECKS === 'navigation';
+const projectPickerChecks = process.env.ATHENA_BROWSER_CHECKS === 'project-pickers';
+const watchlistProjectChecks = process.env.ATHENA_BROWSER_CHECKS === 'watchlist-projects';
 const discoverChecks = process.env.ATHENA_BROWSER_CHECKS === 'discover';
 const sparkChecks = process.env.ATHENA_BROWSER_CHECKS === 'sparks';
 const podcastPrepChecks = process.env.ATHENA_BROWSER_CHECKS === 'podcast-prep';
@@ -111,6 +113,8 @@ try {
     for (let i = 0; i < 600; i++) {
       ready = await evaluate(navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
+        : projectPickerChecks ? 'typeof window.runProjectPickerChecks === "function" && document.querySelector(".kh-header__primary") !== null'
+        : watchlistProjectChecks ? 'typeof window.runWatchlistProjectChecks === "function"'
         : noteLinksChecks ? 'typeof window.runNoteLinkChecks === "function" && document.querySelector(".notes-editor-scroll") !== null'
         : watchlistChecks ? 'typeof window.runWatchlistChecks === "function"'
         : diagramThemeChecks ? 'typeof window.runDiagramThemeChecks === "function" && document.querySelector(".dg-node__body") !== null'
@@ -136,6 +140,12 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, readyState: document.readyState, text: document.body.innerText })')}\n${loadDiagnostics.join('\n')}`);
+    if (projectPickerChecks || watchlistProjectChecks) {
+      const results = await evaluate(projectPickerChecks ? 'window.runProjectPickerChecks()' : 'window.runWatchlistProjectChecks()');
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      console.log(JSON.stringify({ width, checks: results }, null, 2));
+      continue;
+    }
     if (noteLinksChecks || watchlistChecks) {
       const results = await evaluate(noteLinksChecks ? 'window.runNoteLinkChecks()' : 'window.runWatchlistChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));

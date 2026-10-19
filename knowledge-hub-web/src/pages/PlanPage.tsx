@@ -17,6 +17,7 @@ import { TasksPage } from './TasksPage';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useDueNotifications } from '../hooks/useDueNotifications';
 import { useProjects } from '../hooks/useProjects';
+import { ProjectOptions } from '../components/ProjectOptions';
 import { DEFAULT_PLAN_PREFERENCES, PLAN_PREFERENCES_KEY, parsePlanPreferences, type PlanPreferences, type PlanView } from '../utils/planPreferences';
 import { SavedViews } from '../components/SavedViews';
 import { DataNotice } from '../components/DataNotice';
@@ -86,7 +87,7 @@ export const PlanPage: React.FC = () => {
                 <SelectItem value="" text="All projects" />
                 {filterProject !== '' && !projects.some(project => project.id === filterProject)
                   && <SelectItem value={filterProject} text="Saved project scope (not available)" />}
-                {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
+                <ProjectOptions projects={projects} selected={filterProject} />
               </Select>
               {view !== 'use-cases' && <Select id="plan-filter-tag" labelText="Filter by tag" hideLabel size="sm"
                 value={filterTag} onChange={(e) => updatePreferences({ tag: e.target.value })}>

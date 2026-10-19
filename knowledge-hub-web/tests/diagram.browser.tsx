@@ -14,6 +14,7 @@ import { calloutLayout, DIAGRAM_CALLOUTS } from '../src/features/diagram/diagram
 import { NoteMaps } from '../src/features/canvas/NoteMaps';
 import { EDGE_STYLES, layoutAiFlow, STEP_STYLES } from '../src/features/diagram/aiFlow';
 import type { AiFlowStep, AiFlowStepType } from '../src/features/diagram/diagramTypes';
+import { projectPickerProjects } from './projectPickerFixtures';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -125,7 +126,7 @@ api.linkCanvasNote = async () => { linkedNotes = [{ id: noteId, title: 'Process 
 api.unlinkCanvasNote = async () => { linkedNotes = []; return api.getCanvas(canvasId); };
 let athenaLinkedId: string | null = null;
 api.getSessionIdForNote = async id => { athenaLinkedId = id; return success({ sessionId: null }); };
-api.getProjects = async () => success([]);
+api.getProjects = async () => success(projectPickerProjects);
 api.listModelChoices = async () => success([]);
 api.summarizeNote = async () => success({ summary: 'Diagram fixture context.' });
 let submittedChat = false;
@@ -339,6 +340,18 @@ async function runDiagramPropertiesChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector('select[aria-label="Diagram project"]') !== null);
   const properties = window.document.querySelector<HTMLElement>('.dg-properties')!;
   const projectSelect = properties.querySelector<HTMLSelectElement>('select[aria-label="Diagram project"]')!;
+  await waitFor(() => projectSelect.querySelectorAll('optgroup').length === 4);
+  check(JSON.stringify([...projectSelect.querySelectorAll('optgroup')].map(group => group.label))
+    === JSON.stringify(['IBM', 'Nelfin', 'Personal', 'Other']), 'Diagram projects use the shared parent hierarchy');
+  check(![...projectSelect.options].some(option => option.value === 'atom' || option.value === 'acre'),
+    'Diagram picker hides unselected archived and completed projects');
+  projectSelect.value = 'imagine';
+  projectSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await delay(50);
+  check(projectSelect.value === 'imagine', 'Choosing a grouped diagram project retains its stored ID');
+  projectSelect.value = '';
+  projectSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await delay(50);
   function checkPropertiesFit(): void {
     const overflow = [...properties.querySelectorAll<HTMLElement>('input, textarea, select')]
       .map(control => `${control.getAttribute('aria-label')}: ${Math.round(control.getBoundingClientRect().width)}px (${getComputedStyle(control).boxSizing})`)
@@ -367,7 +380,8 @@ async function runDiagramPropertiesChecks(): Promise<string[]> {
   check(properties.scrollTop > 0, 'Properties can still be scrolled vertically');
   properties.style.maxHeight = originalHeight;
   properties.scrollTop = 0;
-  return ['Properties controls fit without horizontal scrolling, including long project names',
+  return ['Diagram projects follow IBM/Nelfin/Personal groups and preserve selected project IDs',
+    'Properties controls fit without horizontal scrolling, including long project names',
     'Vertical scrolling remains available when Properties content exceeds the panel height'];
 }
 async function runDiagramAiFlowChecks(): Promise<string[]> {

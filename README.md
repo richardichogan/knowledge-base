@@ -149,6 +149,15 @@ Project selectors share one live cache across workspaces, including Today,
 Athena uploads and diagram properties. A valid empty list does not invent
 configured projects; failures can retain real cached records with visible errors
 and retry. Personal/unassigned and existing unknown scope IDs remain explicit.
+All project pickers use the shared IBM / Nelfin / Personal hierarchy, including
+diagram properties, task editing, Plan filters, Athena conversation grounding
+and attachments, notes, use cases and Sources. Archived/completed projects are
+hidden unless currently selected; stored project IDs are unchanged. Memory's
+searchable picker shows parent/project paths, and linked watchlist projects use
+the same grouped ordering. Reuse `ProjectOptions` (native or Carbon selects) or
+`groupProjectsByParent` (searchable/multi-selection controls) for new pickers.
+The isolated browser runner's `--modes=project-pickers,diagram-properties,watchlist-projects`
+selection covers these pickers at desktop and phone widths without live API calls.
 Memory, Library, Discover and Plan now expose failed reads/changes, retain edit
 input and prevent duplicate pending submissions. Note summaries are tied to the
 current note/request, so obsolete responses cannot replace a newer note's summary.

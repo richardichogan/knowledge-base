@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types/apiResponse';
 import type { Watchlist, WatchlistInput, WatchRun, InterestWeight } from '../src/types/watchlists';
+import { projectPickerProjects } from './projectPickerFixtures';
 
 const ok = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
 const sourceId = '11111111-1111-4111-8111-111111111111';
@@ -30,6 +31,60 @@ function fill(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElemen
 async function setField(label: string, value: string): Promise<void> {
   fill(input(label), value);
   await new Promise(resolve => setTimeout(resolve, 10));
+}
+
+export async function runWatchlistProjectChecks(queryClient: QueryClient): Promise<string[]> {
+  let saved: Watchlist[] = [];
+  api.getProjects = async () => ok(projectPickerProjects);
+  api.getWatchlists = async () => ok(saved);
+  api.listDiscoveryFeeds = async () => ok([]);
+  api.getWatchlistRuns = async () => ok([]);
+  api.getWatchlistBaselines = async () => ok([]);
+  api.saveWatchlist = async config => {
+    const watchlist: Watchlist = { id: 'picker-watchlist', config, revision: 1, baselineVersion: 1,
+      nextRunAt: now, createdAt: now, updatedAt: now, lastRun: null };
+    saved = [watchlist];
+    return ok(watchlist);
+  };
+  queryClient.removeQueries({ queryKey: ['projects'] });
+  queryClient.removeQueries({ queryKey: ['watchlists'] });
+  await waitFor(() => [...document.querySelectorAll('button')].some(b => b.textContent?.trim() === 'Watchlists'));
+  button('Watchlists').click();
+  await waitFor(() => document.querySelector('.dw-empty') !== null);
+  button('New watchlist').click();
+  await waitFor(() => document.querySelectorAll('.dw-project-group').length === 4);
+  check(JSON.stringify([...document.querySelectorAll('.dw-project-group legend')].map(legend => legend.textContent))
+    === JSON.stringify(['IBM', 'Nelfin', 'Personal', 'Other']), 'Watchlist projects use the shared parent hierarchy');
+  const checkbox = (name: string): HTMLInputElement => {
+    const field = [...document.querySelectorAll('.dw-project-group label')]
+      .find(label => label.textContent?.trim() === name)?.querySelector<HTMLInputElement>('input');
+    check(field, `Missing project checkbox: ${name}`);
+    return field;
+  };
+  check(![...document.querySelectorAll('.dw-project-group label')].some(label => /ATOM|ACRE/.test(label.textContent ?? '')),
+    'Watchlist projects hide unselected archived and completed projects');
+  checkbox('IMAGINE').click();
+  checkbox('Healthwise').click();
+  await setField('Name', 'Project picker watchlist');
+  await setField('Monitoring question', 'What changed for these projects?');
+  await setField('Comparison criteria', 'Availability');
+  fill(document.querySelector<HTMLInputElement>('[aria-label="Competitor 1"]')!, 'Fixture competitor');
+  await waitFor(() => !button('Save watchlist').disabled);
+  button('Save watchlist').click();
+  await waitFor(() => document.querySelector('#watchlist-form') === null && saved.length === 1);
+  check(JSON.stringify(saved[0]?.config.projectIds) === JSON.stringify(['imagine', 'healthwise']),
+    'Grouped watchlist selection saves original project IDs');
+  saved = [{ ...saved[0]!, config: { ...saved[0]!.config, projectIds: ['atom', 'acre'] } }];
+  queryClient.setQueryData(['watchlists'], saved);
+  await waitFor(() => document.querySelector('.dw-detail')?.textContent?.includes('atom') === true);
+  button('Edit watchlist').click();
+  await waitFor(() => document.querySelector('#watchlist-form') !== null);
+  check(checkbox('ATOM').checked && checkbox('ACRE').checked, 'Existing archived and completed selections remain visible and checked');
+  const form = document.querySelector<HTMLElement>('#watchlist-form')!;
+  check(form.scrollWidth <= form.clientWidth + 1, 'Grouped watchlist projects fit the responsive form');
+  button('Close').click();
+  return ['Watchlist projects share parent groups, preserve saved IDs and fit desktop/phone forms',
+    'Existing archived and completed watchlist selections remain visible and checked'];
 }
 
 export async function runWatchlistChecks(queryClient: QueryClient): Promise<string[]> {

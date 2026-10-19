@@ -28,6 +28,7 @@ import { AppDialogHost } from '../src/components/AppDialog';
 import type { GraphResponse } from '../src/services/api';
 import { PLAN_PREFERENCES_KEY } from '../src/utils/planPreferences';
 import { deferredView, newerBuildEntry } from '../src/utils/deferredView';
+import { projectPickerProjects } from './projectPickerFixtures';
 import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -228,6 +229,88 @@ function assertFrame(): void {
     check(rect.top >= header.top && rect.bottom <= header.bottom + 1,
       `Navigation controls share one row: ${element.textContent || element.getAttribute('aria-label')}; header ${header.top}..${header.bottom}, control ${rect.top}..${rect.bottom}`);
     check(rect.height >= 44 && rect.width >= 44, 'Header controls need touch targets');
+  }
+}
+
+export async function runProjectPickerChecks(): Promise<string[]> {
+  const originalProjects = api.getProjects;
+  const cachedProjects = queryClient.getQueryData(['projects']);
+  const planPreferences = localStorage.getItem(PLAN_PREFERENCES_KEY);
+  const setValue = (field: HTMLInputElement | HTMLSelectElement, value: string): void => {
+    const prototype = field instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(field, value);
+    field.dispatchEvent(new Event(field instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
+  };
+  const checkGroups = (field: HTMLSelectElement): void => {
+    check(JSON.stringify([...field.querySelectorAll('optgroup')].map(group => group.label))
+      === JSON.stringify(['IBM', 'Nelfin', 'Personal', 'Other']), `${field.id || field.getAttribute('aria-label')} uses project parent groups`);
+    check(![...field.options].some(option => option.value === 'atom' || option.value === 'acre'),
+      'Unselected archived and completed projects stay hidden');
+  };
+  try {
+    await go('/');
+    api.getProjects = async () => success(projectPickerProjects);
+    queryClient.setQueryData(['projects'], projectPickerProjects);
+    localStorage.setItem(PLAN_PREFERENCES_KEY, JSON.stringify({ version: 1, view: 'board', project: '', tag: '' }));
+    await go('/plan');
+    await waitFor(() => document.querySelector('#plan-filter-project optgroup') !== null);
+    checkGroups(selector<HTMLSelectElement>('#plan-filter-project'));
+    selector<HTMLButtonElement>('.kb-col__add').click();
+    await waitFor(() => document.querySelector('.cds--modal.is-visible #t-project') !== null);
+    const taskProject = selector<HTMLSelectElement>('.cds--modal.is-visible #t-project');
+    checkGroups(taskProject);
+    check(taskProject.value === 'personal', 'Task default keeps the original General project ID');
+    setValue(taskProject, 'imagine');
+    await waitFor(() => taskProject.value === 'imagine');
+    selector<HTMLButtonElement>('.cds--modal.is-visible .cds--btn--secondary').click();
+
+    await go('/chat');
+    await waitFor(() => document.querySelector('select[aria-label="Conversation project"] optgroup') !== null);
+    const conversation = selector<HTMLSelectElement>('select[aria-label="Conversation project"]');
+    checkGroups(conversation);
+    setValue(conversation, 'imagine');
+    await waitFor(() => conversation.value === 'imagine');
+    setValue(conversation, '');
+    const files = new DataTransfer();
+    files.items.add(new File(['Project picker fixture'], 'picker.txt', { type: 'text/plain' }));
+    const fileInput = selector<HTMLInputElement>('.ai-file-input-hidden');
+    fileInput.files = files.files;
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => document.querySelector('select[aria-label="Project for attached file"]') !== null);
+    const attachment = selector<HTMLSelectElement>('select[aria-label="Project for attached file"]');
+    checkGroups(attachment);
+    setValue(attachment, 'blog-site');
+    await waitFor(() => attachment.value === 'blog-site');
+    selector<HTMLButtonElement>('.ai-pending-file__remove').click();
+
+    await go('/library');
+    await waitFor(() => document.querySelector('.docs-project-filter__select optgroup') !== null);
+    checkGroups(selector<HTMLSelectElement>('.docs-project-filter__select'));
+    await go('/memory');
+    await waitFor(() => document.querySelector('.memory-page') !== null);
+    [...document.querySelectorAll<HTMLButtonElement>('.memory-page button')]
+      .find(button => button.textContent?.trim() === 'Add instruction')!.click();
+    await waitFor(() => document.querySelector('.memory-add select[aria-label="Applies to"]') !== null);
+    setValue(selector<HTMLSelectElement>('.memory-add select[aria-label="Applies to"]'), 'project');
+    await waitFor(() => document.querySelector('.memory-add .memory-project-picker input') !== null);
+    const memoryProject = selector<HTMLInputElement>('.memory-add .memory-project-picker input');
+    setValue(memoryProject, 'IBM');
+    memoryProject.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    await waitFor(() => document.querySelector('.memory-add [role="option"]') !== null);
+    const choices = [...document.querySelectorAll<HTMLElement>('.memory-add [role="option"]')];
+    check(choices.some(choice => choice.textContent === 'IBM / IMAGINE'), 'Memory can search by parent and shows parent/project paths');
+    check(!choices.some(choice => /ATOM|ACRE/.test(choice.textContent ?? '')), 'Memory hides unselected retired projects');
+    choices.find(choice => choice.textContent === 'IBM / IMAGINE')!.click();
+    await waitFor(() => memoryProject.value === 'IBM / IMAGINE');
+    return ['Plan filters, task editor, Athena conversations/attachments and Sources share the project hierarchy',
+      'Memory retains searchable parent/project paths and excludes unselected retired projects'];
+  } finally {
+    await go('/');
+    api.getProjects = originalProjects;
+    if (cachedProjects === undefined) queryClient.removeQueries({ queryKey: ['projects'] });
+    else queryClient.setQueryData(['projects'], cachedProjects);
+    if (planPreferences === null) localStorage.removeItem(PLAN_PREFERENCES_KEY);
+    else localStorage.setItem(PLAN_PREFERENCES_KEY, planPreferences);
   }
 }
 
@@ -624,6 +707,7 @@ export async function runNavigationChecks(): Promise<string[]> {
   await waitFor(() => selector('#navigation-probe').dataset.path === '/');
   assertFrame();
   results.push('Supporting service failures do not affect primary navigation or Tools membership');
+  results.push(...await runProjectPickerChecks());
   results.push(...await runDataReliabilityChecks(queryClient, go));
 
   let releaseBriefing = (): void => undefined;
@@ -711,4 +795,4 @@ async function showGraphReview(): Promise<void> {
   [...document.querySelectorAll<HTMLButtonElement>('.graph-controls__chip')].find(control => control.textContent === 'Relationships')!.click();
   await waitFor(() => document.querySelector('.graph-relationships') !== null);
 }
-Object.assign(window, { runNavigationChecks, verifyChatReload, showGraphReview });
+Object.assign(window, { runNavigationChecks, runProjectPickerChecks, verifyChatReload, showGraphReview });

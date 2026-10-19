@@ -15,6 +15,7 @@ import {
 import { Add, ChatLaunch, Checkmark, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { useProjects, type ProjectRecord } from '../services/useProjects';
+import { ProjectOptions } from '../components/ProjectOptions';
 import { useUseCases } from '../hooks/useUseCases';
 import { PRODUCT_KIND_LABELS, STAGE_LABELS, type UseCase } from '../types/useCases';
 import { boardColumnForUseCase } from '../features/useCases/useCaseView';
@@ -865,7 +866,9 @@ const TaskModal: React.FC<{
         {/* Project + Status — side by side */}
         <div className="kb-modal-form__row">
           <Select id="t-project" labelText="Project" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            {projects.map((p) => <SelectItem key={p.id} value={p.id} text={p.name} />)}
+            {projectId !== '' && !projects.some(project => project.id === projectId)
+              && <SelectItem value={projectId} text={`Unavailable project: ${projectId}`} />}
+            <ProjectOptions projects={projects} selected={projectId} />
           </Select>
           <Select id="t-status" labelText="Status" value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
             {statusOptions.map((c) => <SelectItem key={c.id} value={c.id} text={c.label} />)}

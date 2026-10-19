@@ -12,6 +12,7 @@ import { confirmDialog } from '../services/appDialogs';
 import type { AthenaMemory, MemoryScopeType } from '../types';
 import { PERSONAS } from '../components/athena/personas';
 import { useProjects } from '../hooks/useProjects';
+import { groupProjectsByParent } from '../components/ProjectOptions';
 import { describeApiError, requireApiData } from '../services/apiError';
 import type { ApiResponse } from '../types/apiResponse';
 import { PageHeader } from '../components/PageHeader';
@@ -45,7 +46,8 @@ const ORIGIN_LABEL: Record<AthenaMemory['origin'], string> = {
 const ScopeFields: React.FC<{ scopeType: MemoryScopeType; scopeValue: string; disabled?: boolean; onChange: (t: MemoryScopeType, v: string) => void }> = ({ scopeType, scopeValue, disabled = false, onChange }) => {
   const projectPickerId = useId();
   const { data: projects = [], error, refetch } = useProjects();
-  const options = projects.map(({ id, name }) => ({ id, name }));
+  const options = groupProjectsByParent(projects, [scopeValue]).flatMap(group =>
+    group.projects.map(project => ({ id: project.id, name: `${group.label} / ${project.name}` })));
   if (scopeValue !== '' && !options.some((project) => project.id === scopeValue)) {
     options.push({ id: scopeValue, name: `Legacy / unknown project: ${scopeValue}` });
   }

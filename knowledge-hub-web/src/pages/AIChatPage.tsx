@@ -19,6 +19,7 @@ import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
 import { useProjects } from '../hooks/useProjects';
+import { ProjectOptions, type ProjectPickerItem } from '../components/ProjectOptions';
 import { DataNotice } from '../components/DataNotice';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
 import { LiveReply } from '../components/athena/LiveReply';
@@ -410,9 +411,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [interruptedTurn, setInterruptedTurn] = useState<{ sessionId: string; message: string } | null>(null);
 
   const projectsQuery = useProjects();
-  const uploadProjectOptions = (projectsQuery.data ?? []).map(({ id, name }) => ({ id, name }));
+  const uploadProjectOptions: ProjectPickerItem[] = [...(projectsQuery.data ?? [])];
   if (!uploadProjectOptions.some((project) => project.id === 'personal')) {
-    uploadProjectOptions.unshift({ id: 'personal', name: 'Personal / unassigned' });
+    uploadProjectOptions.unshift({ id: 'personal', name: 'Personal / unassigned', groupName: 'Personal' });
   }
   for (const id of [uploadProjectId, activeProjectId]) {
     if (id !== '' && !uploadProjectOptions.some((project) => project.id === id)) {
@@ -1859,9 +1860,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           onChange={(event) => { handleProjectChipChange(event.target.value); }}
         >
           <option value="">No project</option>
-          {uploadProjectOptions.map((project) => (
-            <option key={project.id} value={project.id}>{project.name}</option>
-          ))}
+          <ProjectOptions projects={uploadProjectOptions} selected={chipProjectId} />
         </select>
         {chipProjectId !== '' && (
           <button
@@ -2327,9 +2326,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 onChange={(e) => { setUploadProjectId(e.target.value); }}
                 aria-label="Project for attached file"
               >
-                {uploadProjectOptions.map((project) => (
-                  <option key={project.id} value={project.id}>{project.name}</option>
-                ))}
+                <ProjectOptions projects={uploadProjectOptions} selected={uploadProjectId} />
               </select>
             </label>}
             <button

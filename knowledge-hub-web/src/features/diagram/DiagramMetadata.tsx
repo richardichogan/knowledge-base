@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useProjects } from '../../hooks/useProjects';
+import { ProjectOptions } from '../../components/ProjectOptions';
 import { api, type CanvasFullApi, type CanvasSummaryApi } from '../../services/api';
 
 export function DiagramMetadata({ canvas, onSaved }: {
@@ -49,7 +50,7 @@ export function DiagramMetadata({ canvas, onSaved }: {
         onChange={(event) => { setProject(event.target.value); }}>
         <option value="">No project</option>
         {project !== '' && !projects.data?.some(item => item.id === project) && <option value={project}>{project}</option>}
-        {projects.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        <ProjectOptions projects={projects.data ?? []} selected={project} />
       </select>
     </label>
     <p className="dg-properties__hint">Project grounds this diagram's Athena conversation. Choose No project to remove that restriction on the next message.</p>

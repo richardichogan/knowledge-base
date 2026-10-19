@@ -12,9 +12,12 @@ const PARENT_ORDER = ['IBM', 'Nelfin', 'Personal'];
 const UNGROUPED = 'Other';
 const HIDDEN_STATES = new Set(['archived', 'completed']);
 
+/** Project identity plus optional lifecycle metadata for legacy/unassigned choices. */
+export type ProjectPickerItem = Pick<Project, 'id' | 'name' | 'groupName'> & Partial<Pick<Project, 'lifecycleState'>>;
+
 export interface ProjectOptionGroup {
   label: string;
-  projects: Project[];
+  projects: ProjectPickerItem[];
 }
 
 function parentRank(label: string): number {
@@ -23,10 +26,10 @@ function parentRank(label: string): number {
   return label === UNGROUPED ? PARENT_ORDER.length + 1 : PARENT_ORDER.length;
 }
 
-export function groupProjectsByParent(projects: readonly Project[], selectedIds: readonly string[] = []): ProjectOptionGroup[] {
-  const groups = new Map<string, Project[]>();
+export function groupProjectsByParent(projects: readonly ProjectPickerItem[], selectedIds: readonly string[] = []): ProjectOptionGroup[] {
+  const groups = new Map<string, ProjectPickerItem[]>();
   for (const project of projects) {
-    if (HIDDEN_STATES.has(project.lifecycleState) && !selectedIds.includes(project.id)) continue;
+    if (project.lifecycleState !== undefined && HIDDEN_STATES.has(project.lifecycleState) && !selectedIds.includes(project.id)) continue;
     const label = project.groupName?.trim() || UNGROUPED;
     groups.set(label, [...(groups.get(label) ?? []), project]);
   }
@@ -39,7 +42,7 @@ export function groupProjectsByParent(projects: readonly Project[], selectedIds:
 }
 
 interface ProjectOptionsProps {
-  projects: readonly Project[];
+  projects: readonly ProjectPickerItem[];
   /** Current value(s) of the select — always listed even if archived. */
   selected?: string | readonly string[];
 }

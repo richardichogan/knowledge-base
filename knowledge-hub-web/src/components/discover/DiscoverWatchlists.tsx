@@ -4,6 +4,7 @@ import { api } from '../../services/api';
 import { requireApiData } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
 import { DataNotice } from '../DataNotice';
+import { groupProjectsByParent } from '../ProjectOptions';
 import type { Watchlist, WatchlistInput, WatchRelationship, WatchRun, WatchRunStatus } from '../../types/watchlists';
 import '../../styles/discoverWatchlists.scss';
 import { noteDraftIdentity } from '../../services/auth';
@@ -184,8 +185,11 @@ const WatchlistForm: React.FC<{ existing: Watchlist | null; onClose: () => void;
       <fieldset className="dw-fieldset"><legend>Linked projects (optional)</legend>
         <p className="dw-hint">Choose projects to focus the impact assessment. If none are selected, Athena considers your active projects.</p>
         {projects.isError && <DataNotice title="Projects unavailable" error={projects.error} />}
-        {projects.data?.filter(p => p.lifecycleState !== 'archived' || config.projectIds.includes(p.id)).map(p => <label key={p.id} className="dw-check"><input type="checkbox" checked={config.projectIds.includes(p.id)}
-          onChange={e => patch({ projectIds: e.target.checked ? [...config.projectIds, p.id] : config.projectIds.filter(id => id !== p.id) })} />{p.name}</label>)}
+        {groupProjectsByParent(projects.data ?? [], config.projectIds).map(group => <fieldset key={group.label} className="dw-project-group">
+          <legend>{group.label}</legend>
+          {group.projects.map(p => <label key={p.id} className="dw-check"><input type="checkbox" checked={config.projectIds.includes(p.id)}
+            onChange={e => patch({ projectIds: e.target.checked ? [...config.projectIds, p.id] : config.projectIds.filter(id => id !== p.id) })} />{p.name}</label>)}
+        </fieldset>)}
       </fieldset>
       <label className="dw-field">Cadence<select value={config.cadence} onChange={e => patch({ cadence: e.target.value as WatchlistInput['cadence'] })}>
         <option value="daily">Daily</option><option value="weekly">Weekly</option>
