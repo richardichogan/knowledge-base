@@ -2,6 +2,28 @@
 
 **Status:** Validated
 
+**Current approved release (2026-10-19, project and content-type organization):**
+Deploy commits `1227966` and `2dd4d1d` from this worktree. Backend v210 advances
+to v211; deploy the matching frontend to the existing Static Web App. The
+additive startup migration 084 organizes projects under IBM, Nelfin and Personal.
+Independent Ventures projects are explicitly mapped to Personal; migration
+backs up the affected project/tag/junction tables and preserves references to
+the retired group. No infrastructure, subscription, identity, role or secret
+changes. Rollback backend to v210 and redeploy the previous frontend bundle.
+User explicitly requested deployment.
+
+**Deployment result (2026-10-19):** Commits `1227966` and `2dd4d1d` pushed to
+the feature branch and `main`. ACR build `ca6n` succeeded for
+`kh-prod-api:v211`, digest
+`sha256:febfd055fc6165089ae906c2112a96b0f4c37b9a18e615c6a59a78a768be50af`,
+from commit `2dd4d1d`. Revision `kh-prod-api-vnet--0000208` is Healthy /
+RunningAtMaxScale. Startup applied `084_project_parents.sql`, completed
+migrations, and warmed all 8/8 database connections. The frontend deployment
+succeeded; production and local build both serve `index-BCW3R0uy.js`. Custom
+domain verification reached Athena's expected Microsoft sign-in gate. The ACR
+build reported 36 dependency audit findings (1 critical, 21 high), consistent
+with the existing dependency baseline; no dependency changes were made.
+
 **Approved release (2026-10-18, watchlists and wiki links):** Deploy the
 completed watchlist report, project implications column, reliable draft saving,
 wiki links/backlinks and project previews from this worktree. Existing AZCLI
@@ -415,6 +437,19 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Project and content-type organization — 2026-10-19 09:30 BST (Validated)
+
+- Azure CLI authenticated as the expected account in Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`). Production ACA image confirmed as
+  `kh-prod-api:v210`; ACR and Static Web App targets confirmed.
+- Both projects: `npx tsc --noEmit` and `npm run build` passed.
+- Backend `npm run test:isolated`: 156/156 passed, including migration 084 tests.
+  Frontend isolated suite: 92/92 and 6/6 passed.
+- `git diff --check` passed. Docker is unavailable locally; the remote ACR build
+  is required to pass before the backend image is updated.
+- No IaC, identity or RBAC changes; Bicep/what-if/static role validation is not
+  applicable to this existing application-only release.
 
 ### Watchlists and wiki links — 2026-10-18 22:28 BST
 
