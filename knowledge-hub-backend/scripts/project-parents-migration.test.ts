@@ -31,6 +31,8 @@ async function seed(): Promise<PGlite> {
     INSERT INTO projects VALUES
       ('imagine', 'IMAGINE', 'work'), ('cloudy', 'Cloudy with a Chance of Insights', 'work'),
       ('blog-site', 'Blog Site', 'personal'), ('structara-ai', 'Structara AI', 'side-hustle'),
+      ('modelair', 'ModelAIr', 'side-hustle'), ('knowledge-hub', 'Knowledge Hub', 'side-hustle'),
+      ('auto-queue-app', 'Auto Queue App', 'side-hustle'), ('content-pipeline', 'Content Pipeline', 'side-hustle'),
       ('healthwise', 'Healthwise', 'side-hustle'), ('personal', 'Personal', 'work');
     INSERT INTO tags (name, slug, role, project_id, parent_id) VALUES
       ('IMAGINE', 'imagine', 'filing', 'imagine', (SELECT id FROM tags WHERE slug = 'ibm-projects')),
@@ -39,6 +41,9 @@ async function seed(): Promise<PGlite> {
       ('Structara AI', 'structara-ai', 'filing', 'structara-ai', (SELECT id FROM tags WHERE slug = 'independent-ventures')),
       ('Healthwise', 'healthwise', 'filing', 'healthwise', (SELECT id FROM tags WHERE slug = 'nelfin')),
       ('Personal', 'personal', 'filing', 'personal', NULL);
+    INSERT INTO tags (name, slug, role, project_id, parent_id)
+      SELECT name, id, 'filing', id, (SELECT id FROM tags WHERE slug = 'independent-ventures')
+        FROM projects WHERE id IN ('modelair', 'knowledge-hub', 'auto-queue-app', 'content-pipeline');
     INSERT INTO note_tags VALUES
       ('eminence-note', (SELECT id FROM tags WHERE slug = 'eminence'), 'manual'),
       ('ibm-note', (SELECT id FROM tags WHERE slug = 'ibm-projects'), 'manual');
@@ -68,12 +73,16 @@ test('migration 084 files every project under IBM, Nelfin or Personal and is saf
       FROM projects p JOIN tags t ON t.project_id = p.id JOIN tags g ON g.id = t.parent_id
      ORDER BY p.id`);
   assert.deepEqual(placement.rows, [
+    { id: 'auto-queue-app', name: 'Auto Queue App', category: 'personal', parent: 'Personal' },
     { id: 'blog-site', name: 'Blog Site', category: 'personal', parent: 'Personal' },
     { id: 'cloudy', name: 'Cloudy with a Chance of Insights', category: 'work', parent: 'IBM' },
+    { id: 'content-pipeline', name: 'Content Pipeline', category: 'personal', parent: 'Personal' },
     { id: 'healthwise', name: 'Healthwise', category: 'side-hustle', parent: 'Nelfin' },
     { id: 'imagine', name: 'IMAGINE', category: 'work', parent: 'IBM' },
+    { id: 'knowledge-hub', name: 'Knowledge Hub', category: 'personal', parent: 'Personal' },
+    { id: 'modelair', name: 'ModelAIr', category: 'personal', parent: 'Personal' },
     { id: 'personal', name: 'General', category: 'personal', parent: 'Personal' },
-    { id: 'structara-ai', name: 'Structara AI', category: 'side-hustle', parent: 'Nelfin' },
+    { id: 'structara-ai', name: 'Structara AI', category: 'personal', parent: 'Personal' },
   ]);
   await db.close();
 });
@@ -90,6 +99,6 @@ test('migration 084 keeps content that was tagged with a retired group', async (
     { note_id: 'ibm-note', name: 'IBM' },
   ]);
   const tasks = await db.query<{ name: string }>(`SELECT t.name FROM task_tags x JOIN tags t ON t.id = x.tag_id`);
-  assert.deepEqual(tasks.rows, [{ name: 'Nelfin' }]);
+  assert.deepEqual(tasks.rows, [{ name: 'Personal' }]);
   await db.close();
 });

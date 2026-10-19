@@ -7,7 +7,7 @@
 --   Eminence              → split: work projects to IBM, personal ones to Personal;
 --                           direct uses of the Eminence tag fold into the
 --                           'Content and Eminence' theme so nothing is lost
---   Independent Ventures  → side-hustle projects join Nelfin; direct uses fold into Nelfin
+--   Independent Ventures  → personal projects join Personal; direct uses fold into Personal
 --   Personal (new group)  → personal projects; the old ungrouped "Personal"
 --                           project becomes "General" inside it
 --
@@ -71,6 +71,11 @@ SELECT 'Personal', 'personal-projects', 'filing'
  WHERE pg_temp.group_id('Personal') IS NULL AND NOT EXISTS (SELECT 1 FROM tags WHERE slug = 'personal-projects');
 
 -- ── 2. File every project under its parent by category ──────────────────────
+-- These independently built projects are personal, not Nelfin ventures.
+UPDATE projects SET category = 'personal', updated_at = now()
+ WHERE id IN ('structara-ai', 'modelair', 'knowledge-hub', 'auto-queue-app', 'content-pipeline')
+   AND category <> 'personal';
+
 UPDATE tags t
    SET parent_id = CASE p.category
                      WHEN 'work'        THEN pg_temp.group_id('IBM')
@@ -82,7 +87,7 @@ UPDATE tags t
  WHERE t.project_id = p.id;
 
 -- ── 3. Retire the old groups without losing anything tagged with them ───────
-SELECT pg_temp.merge_tag(pg_temp.group_id('Independent Ventures'), pg_temp.group_id('Nelfin'));
+SELECT pg_temp.merge_tag(pg_temp.group_id('Independent Ventures'), pg_temp.group_id('Personal'));
 SELECT pg_temp.merge_tag(
   pg_temp.group_id('Eminence'),
   (SELECT id FROM tags WHERE lower(name) = 'content and eminence' AND role = 'concept' ORDER BY parent_id NULLS FIRST LIMIT 1)
