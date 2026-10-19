@@ -6981,7 +6981,7 @@ body.kh-pane-resizing {
   max-height: calc(100vh - 8rem);
   background: var(--cds-background);
   border: 1px solid var(--cds-border-subtle-01);
-  border-radius: var(--kh-radius-pill);
+  border-radius: var(--kh-radius-md);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
