@@ -33,7 +33,7 @@ api.getNoteBacklinks = async () => ({ success: true, data: { items: [targets[0]!
 api.getLinkTargets = async (q = '', type, targetId) => {
   if (failSearch) throw new Error('Fixture lookup unavailable');
   return { success: true, data: targets.filter(target => (!type || target.type === type) &&
-    (!targetId || target.id === targetId) && target.title.toLowerCase().includes(q.toLowerCase())) };
+    (!targetId || target.id === targetId) && target.title.toLowerCase().includes(q.toLowerCase())).map(target => ({ ...target })) };
 };
 api.createNote = async input => {
   if (failCreate) throw new Error('Fixture creation unavailable');
@@ -152,7 +152,6 @@ async function runNoteLinkChecks(): Promise<string[]> {
   await waitFor(() => persisted.content.includes('entityMention') && persisted.content.includes('Creation failure'));
   const markdown = await editor.blocksToMarkdownLossy(editor.document);
   check(markdown.includes('Roadmap note') && markdown.includes('think?noteId='), 'frontend markdown export retains links and readable titles');
-  await qc.invalidateQueries({ queryKey: ['entity-link', 'note', id(1)] });
   targets[0]!.title = 'Renamed roadmap';
   await qc.invalidateQueries({ queryKey: ['entity-link', 'note', id(1)] });
   await waitFor(() => [...document.querySelectorAll('.note-mention')].some(link => link.textContent?.includes('Renamed roadmap')));

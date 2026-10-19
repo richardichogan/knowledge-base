@@ -159,7 +159,7 @@ export async function runWatchlistChecks(queryClient: QueryClient): Promise<stri
   };
 
   button('Watchlists').click();
-  await waitFor(() => document.body.innerText.includes('No watchlists yet.'));
+  await waitFor(() => document.querySelector('.dw-empty')?.textContent?.includes('No saved watchlists yet.') === true);
   button('New watchlist').click();
   await waitFor(() => document.querySelector('#watchlist-form') !== null);
   check(input('Name').value === '' && input('Our position').value === '', 'No invented baseline or first watchlist');

@@ -36,7 +36,11 @@ const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
   ...(authCallbackChecks || authLiveChecks || notePopoutChecks ? ['--disable-popup-blocking'] : []),
   '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
-], { stdio: 'ignore' });
+], { stdio: ['ignore', 'ignore', 'pipe'] });
+let browserStartupError;
+let browserStderr = '';
+browser.on('error', error => { browserStartupError = error; });
+browser.stderr.on('data', chunk => { browserStderr = (browserStderr + chunk.toString()).slice(-8000); });
 let socket;
 let sequence = 0;
 const browserErrors = [];
@@ -71,11 +75,15 @@ async function retryAbortedMount(attempt) {
 
 try {
   let port;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
+    if (browserStartupError) throw browserStartupError;
+    if (browser.exitCode !== null || browser.signalCode !== null) {
+      throw new Error(`Browser exited before readiness (${browser.exitCode ?? browser.signalCode}): ${browserStderr}`);
+    }
     try { port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; break; }
     catch (error) { if (error.code !== 'ENOENT') throw error; await delay(100); }
   }
-  assert.ok(port, 'Browser did not start its isolated debugging endpoint');
+  assert.ok(port, `Browser did not start its isolated debugging endpoint within 30s: ${browserStderr}`);
   const page = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();
   socket = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once: true }); socket.addEventListener('error', reject, { once: true }); });
@@ -450,6 +458,9 @@ try {
 } finally {
   socket?.close();
   browser.kill();
-  await new Promise((resolve) => { if (browser.exitCode !== null) resolve(); else browser.once('exit', resolve); });
+  await new Promise((resolve) => {
+    if (browser.exitCode !== null || browser.signalCode !== null || browserStartupError) resolve();
+    else browser.once('exit', resolve);
+  });
   await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
