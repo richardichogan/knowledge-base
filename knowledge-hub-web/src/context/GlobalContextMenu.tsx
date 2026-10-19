@@ -69,6 +69,10 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
   // Right-clicks left to the browser: in editable text with nothing selected
   // (so spell-check suggestions work), or with Shift held.
   const nativeMenuForThisClick = useRef(false);
+  // A native right-click in editable text makes the browser select the word
+  // under the cursor. That selection is not the user's, so it must not show the
+  // formatting toolbar or turn the next right-click into Athena's menu.
+  const browserWordSelection = useRef(false);
 
   const openMenu = useCallback((e: MouseEvent | React.MouseEvent, item: CtxItemData) => {
     e.preventDefault();
@@ -83,12 +87,29 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         const inEditable = (e.target as HTMLElement | null)?.closest('[contenteditable="true"], input, textarea') != null;
         // What is visibly selected right now (the editor's own state can lag a
         // click behind, and it remembers old selections).
-        const hasSelection = sel.length > 2 || hasBlockNoteCellSelection();
+        const hasSelection = !browserWordSelection.current && (sel.length > 2 || hasBlockNoteCellSelection());
         nativeMenuForThisClick.current = e.shiftKey || (inEditable && !hasSelection);
         // Let the browser place the caret on the word under the cursor, which is
         // what its context menu needs to offer spelling corrections.
-        if (nativeMenuForThisClick.current) return;
-        lastMouseDownSelection.current = sel;
+        if (nativeMenuForThisClick.current) {
+          if (inEditable) {
+            browserWordSelection.current = true;
+            document.body.classList.add('kh-native-context');
+            clearActiveBlockNoteSelectionSnapshot();
+            suspendBlockNoteSelectionCapture();
+          }
+          return;
+        }
+        if (browserWordSelection.current) {
+          // Right-click elsewhere after a spelling menu: drop the browser's word
+          // so it is not treated as the text to act on.
+          browserWordSelection.current = false;
+          document.body.classList.remove('kh-native-context');
+          window.getSelection()?.removeAllRanges();
+          lastMouseDownSelection.current = '';
+        } else {
+          lastMouseDownSelection.current = sel;
+        }
         // Freeze the BlockNote selection snapshot right now, before the
         // browser's native "select word under cursor to build its context
         // menu" behavior can run. That native behavior happens between
@@ -108,11 +129,24 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
       } else {
         // A fresh left-click/drag is starting a new selection — resume
         // tracking so the next right-click has an up-to-date snapshot.
+        clearBrowserWordSelection();
         resumeBlockNoteSelectionCapture();
       }
     }
+    function clearBrowserWordSelection() {
+      if (!browserWordSelection.current) return;
+      browserWordSelection.current = false;
+      document.body.classList.remove('kh-native-context');
+      resumeBlockNoteSelectionCapture();
+    }
     document.addEventListener('mousedown', onMouseDown, true);
-    return () => document.removeEventListener('mousedown', onMouseDown, true);
+    // Typing or keyboard selection also ends the browser's word selection.
+    document.addEventListener('keydown', clearBrowserWordSelection, true);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown, true);
+      document.removeEventListener('keydown', clearBrowserWordSelection, true);
+      document.body.classList.remove('kh-native-context');
+    };
   }, []);
 
   useEffect(() => {

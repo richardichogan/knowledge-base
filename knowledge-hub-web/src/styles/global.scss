@@ -4333,6 +4333,12 @@ input, textarea {
 
 // ── Global context menu (gctx) ────────────────────────────────────────────────
 
+// The browser selects a word for its own right-click (spelling) menu; that is
+// not a user selection, so BlockNote's formatting toolbar stays hidden.
+body.kh-native-context .bn-formatting-toolbar {
+  display: none !important;
+}
+
 .gctx {
   position: fixed;
   z-index: 10000;
