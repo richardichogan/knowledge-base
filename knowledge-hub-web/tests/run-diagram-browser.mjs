@@ -11,6 +11,8 @@ const fixtureUrl = process.env.DIAGRAM_FIXTURE_URL ?? 'http://localhost:5142/tes
 const profile = await mkdtemp(join(tmpdir(), 'athena-diagram-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+  // Never touch the macOS Keychain, which otherwise prompts for his password.
+  '--use-mock-keychain', '--password-store=basic',
   '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
   '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
 ], { stdio: 'ignore' });

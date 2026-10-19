@@ -34,6 +34,8 @@ const watchlistChecks = process.env.ATHENA_BROWSER_CHECKS === 'watchlists';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+  // Never touch the macOS Keychain, which otherwise prompts for his password.
+  '--use-mock-keychain', '--password-store=basic',
   ...(authCallbackChecks || authLiveChecks || notePopoutChecks ? ['--disable-popup-blocking'] : []),
   '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'] });

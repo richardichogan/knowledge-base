@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
 
@@ -8,6 +10,16 @@ const allowedModes = ['navigation', 'chat', 'project-pickers', 'watchlist-projec
 const selection = process.argv.find(argument => argument.startsWith('--modes='));
 const modes = selection === undefined ? ['navigation', 'discover', 'today', 'chat'] : selection.slice('--modes='.length).split(',');
 if (modes.length === 0 || modes.some(mode => !allowedModes.includes(mode))) throw new Error('Select only supported isolated browser fixture modes.');
+// Locally, default to Playwright's headless Chromium shell: it is windowless and never asks for the Keychain.
+if (!process.env.TODAY_BROWSER_PATH) {
+  const cache = process.platform === 'darwin' ? join(homedir(), 'Library/Caches/ms-playwright') : join(homedir(), '.cache/ms-playwright');
+  const shells = existsSync(cache) ? readdirSync(cache).filter(name => name.startsWith('chromium_headless_shell-')).sort().reverse() : [];
+  for (const shell of shells) {
+    const dir = join(cache, shell);
+    const candidate = readdirSync(dir).map(sub => join(dir, sub, 'chrome-headless-shell')).find(existsSync);
+    if (candidate) { process.env.TODAY_BROWSER_PATH = candidate; break; }
+  }
+}
 const reservation = createServer();
 reservation.listen(5197, '127.0.0.1');
 await once(reservation, 'listening');
