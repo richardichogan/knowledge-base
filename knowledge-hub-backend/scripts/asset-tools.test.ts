@@ -160,3 +160,29 @@ test('the note open beside the chat must go through a reviewed edit', async () =
   const result = await executeAssetTool(db, 'update_note', { noteId: 'n1', content: 'x' }, 'n1') as Record<string, unknown>;
   assert.match(String(result['error']), /propose_note_edit/);
 });
+
+test('Athena can add a decision gate with its delegation, acceptance and shared governance rules', () => {
+  const { doc, problems } = applyDiagramUpdate(emptyDiagram(), {
+    diagramType: 'ai-flow',
+    addLanes: [{ key: 'ai', label: 'AI agents', owner: 'Claims AI team' }],
+    addNodes: [
+      { key: 'ds', label: 'Steward', lane: 'ai', stepType: 'digital_steward' },
+      { key: 'gate', label: 'May work begin?', lane: 'ai', stepType: 'decision_gate',
+        gate: { gateKind: 'bogus', delegation: { permittedWork: 'Triage only', onFail: 'rework' }, acceptance: { requiredOutputs: ['Summary'], onFail: 'hold' },
+          shared: { accountableOwner: 'Claims manager', recordRequirements: ['outcome'] } } },
+      { key: 'plain', label: 'Rules', lane: 'ai', stepType: 'decision_rules', gate: { gateKind: 'acceptance' } },
+      { key: 'review', label: 'Review', lane: 'ai', stepType: 'human_task' },
+    ],
+    addEdges: [{ from: 'ds', to: 'gate' }, { from: 'gate', to: 'review', gateEvaluation: 'acceptance', gateOutcome: 'escalate' }],
+  });
+  assert.deepEqual(problems, []);
+  const gate = doc.nodes.find((n) => n.label === 'May work begin?')!;
+  assert.equal(gate.kind, 'decision');
+  assert.deepEqual(gate.flow?.gate, {
+    gateKind: 'delegation_acceptance', delegation: { permittedWork: 'Triage only' }, acceptance: { requiredOutputs: ['Summary'], onFail: 'hold' },
+    shared: { accountableOwner: 'Claims manager', recordRequirements: ['outcome'] },
+  });
+  assert.equal(doc.nodes.find((n) => n.label === 'Rules')!.flow?.gate, undefined, 'only decision gates carry gate rules');
+  assert.deepEqual(doc.edges.map((e) => [e.flow?.gateEvaluation, e.flow?.gateOutcome]), [[undefined, undefined], ['acceptance', 'escalate']]);
+  assert.doesNotThrow(() => validateDiagramDocument(JSON.parse(JSON.stringify(doc)), new Set()));
+});

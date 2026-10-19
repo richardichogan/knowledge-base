@@ -11,10 +11,11 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { ValidationError } from '../types/errors.js';
 import {
   AI_AGENT_MODES, AI_ASSERTION_LEVELS, AI_FLOW_EDGE_TYPES, AI_FLOW_INTERACTIONS, AI_FLOW_STATES, AI_FLOW_STEP_KINDS, AI_FLOW_STEP_TYPES,
-  AI_FLOW_VOLUMES, AI_MEMORY_SCOPES, DATA_SENSITIVITIES, DIAGRAM_ARROW_DIRECTIONS, DIAGRAM_CALLOUT_TYPES, DIAGRAM_TYPES,
+  AI_FLOW_VOLUMES, AI_GATE_ACCEPTANCE_FAILURES, AI_GATE_DELEGATION_FAILURES, AI_GATE_EVALUATIONS, AI_GATE_KINDS, AI_GATE_OUTCOMES,
+  AI_MEMORY_SCOPES, DATA_SENSITIVITIES, DIAGRAM_ARROW_DIRECTIONS, DIAGRAM_CALLOUT_TYPES, DIAGRAM_TYPES,
 } from '../types/diagram.js';
 import type {
-  AiFlowAgent, AiFlowControls, AiFlowEdge, AiFlowLane, AiFlowOperations, AiFlowStep, AiFlowStepType,
+  AiFlowAgent, AiFlowControls, AiFlowEdge, AiFlowGate, AiFlowGateAcceptance, AiFlowGateDelegation, AiFlowGateShared, AiFlowLane, AiFlowOperations, AiFlowStep, AiFlowStepType,
   DiagramDocument, DiagramEdge, DiagramFootnote, DiagramKind, DiagramLegend, DiagramLegendEntry, DiagramNode, DiagramPoint, DiagramPort,
 } from '../types/diagram.js';
 
@@ -86,14 +87,19 @@ const POINT_KEYS = ['x', 'y'] as const;
 const NODE_KEYS = ['id', 'kind', 'label', 'x', 'y', 'width', 'height', 'parentId', 'fill', 'stroke', 'textColor', 'fontSize', 'assetId'] as const;
 const EDGE_KEYS = ['id', 'sourceId', 'targetId', 'sourcePort', 'targetPort', 'route', 'waypoints', 'label', 'stroke', 'dashed', 'arrows'] as const;
 const FLOW_STEP_KEYS = ['stepType'] as const;
-const FLOW_STEP_OPTIONAL_KEYS = ['state', 'actor', 'systems', 'dataIn', 'dataOut', 'agent', 'controls', 'operations'] as const;
+const FLOW_STEP_OPTIONAL_KEYS = ['state', 'actor', 'systems', 'dataIn', 'dataOut', 'agent', 'controls', 'operations', 'gate'] as const;
+const FLOW_GATE_KEYS = ['gateKind'] as const;
+const FLOW_GATE_OPTIONAL_KEYS = ['delegation', 'acceptance', 'shared'] as const;
+const FLOW_GATE_DELEGATION_KEYS = ['permittedWork', 'authorityLimits', 'requiredInputs', 'obligations', 'approvalConditions', 'evidence', 'onFail'] as const;
+const FLOW_GATE_ACCEPTANCE_KEYS = ['requiredOutputs', 'validationCriteria', 'uncertaintyHandling', 'humanReviewConditions', 'evidence', 'onFail'] as const;
+const FLOW_GATE_SHARED_KEYS = ['accountableOwner', 'controlRefs', 'enforcedBy', 'overrideAuthority', 'pendingBehaviour', 'recordRequirements'] as const;
 const FLOW_AGENT_KEYS = ['role', 'mode', 'assertion', 'orchestrator', 'tools', 'knowledge', 'guardrails', 'escalationPath', 'decisionBoundary', 'confidenceThreshold', 'memory', 'model', 'promptVersion'] as const;
 const FLOW_CONTROL_KEYS = ['sensitivity', 'authRequired', 'authModel', 'auditLogging', 'humanApproval', 'regulatoryTags'] as const;
 const FLOW_OPERATION_KEYS = ['volume', 'sla', 'failureHandling', 'monitoring'] as const;
 const FLOW_LANE_KEYS = ['order'] as const;
 const FLOW_LANE_OPTIONAL_KEYS = ['owner', 'description'] as const;
 const FLOW_EDGE_KEYS = ['edgeType'] as const;
-const FLOW_EDGE_OPTIONAL_KEYS = ['interaction', 'payload', 'sensitivity', 'auth', 'condition'] as const;
+const FLOW_EDGE_OPTIONAL_KEYS = ['interaction', 'payload', 'sensitivity', 'auth', 'condition', 'gateEvaluation', 'gateOutcome'] as const;
 const FLOW_STEP_KIND_SET: ReadonlySet<DiagramKind> = new Set<DiagramKind>(AI_FLOW_STEP_KINDS);
 
 // ─── Document ───────────────────────────────────────────────────────────────
@@ -268,11 +274,60 @@ function validateFlowOperations(v: unknown, path: string): AiFlowOperations {
   };
 }
 
+function validateGateDelegation(v: unknown, path: string): AiFlowGateDelegation {
+  const o = exactObject(v, [], path, FLOW_GATE_DELEGATION_KEYS);
+  return {
+    ...opt(o, 'permittedWork', path, flowText),
+    ...opt(o, 'authorityLimits', path, flowText),
+    ...opt(o, 'requiredInputs', path, flowList),
+    ...opt(o, 'obligations', path, flowList),
+    ...opt(o, 'approvalConditions', path, flowText),
+    ...opt(o, 'evidence', path, flowList),
+    ...opt(o, 'onFail', path, (x, at) => oneOf(x, AI_GATE_DELEGATION_FAILURES, at)),
+  };
+}
+
+function validateGateAcceptance(v: unknown, path: string): AiFlowGateAcceptance {
+  const o = exactObject(v, [], path, FLOW_GATE_ACCEPTANCE_KEYS);
+  return {
+    ...opt(o, 'requiredOutputs', path, flowList),
+    ...opt(o, 'validationCriteria', path, flowText),
+    ...opt(o, 'uncertaintyHandling', path, flowText),
+    ...opt(o, 'humanReviewConditions', path, flowText),
+    ...opt(o, 'evidence', path, flowList),
+    ...opt(o, 'onFail', path, (x, at) => oneOf(x, AI_GATE_ACCEPTANCE_FAILURES, at)),
+  };
+}
+
+function validateGateShared(v: unknown, path: string): AiFlowGateShared {
+  const o = exactObject(v, [], path, FLOW_GATE_SHARED_KEYS);
+  return {
+    ...opt(o, 'accountableOwner', path, flowText),
+    ...opt(o, 'controlRefs', path, flowList),
+    ...opt(o, 'enforcedBy', path, flowText),
+    ...opt(o, 'overrideAuthority', path, flowText),
+    ...opt(o, 'pendingBehaviour', path, flowText),
+    ...opt(o, 'recordRequirements', path, flowList),
+  };
+}
+
+function validateFlowGate(v: unknown, path: string): AiFlowGate {
+  const o = exactObject(v, FLOW_GATE_KEYS, path, FLOW_GATE_OPTIONAL_KEYS);
+  return {
+    gateKind: oneOf(o['gateKind'], AI_GATE_KINDS, `${path}.gateKind`),
+    ...opt(o, 'delegation', path, validateGateDelegation),
+    ...opt(o, 'acceptance', path, validateGateAcceptance),
+    ...opt(o, 'shared', path, validateGateShared),
+  };
+}
+
 function validateFlowStep(v: unknown, kind: DiagramKind, path: string): AiFlowStep {
   if (!FLOW_STEP_KIND_SET.has(kind)) fail(path, `is only allowed on ${AI_FLOW_STEP_KINDS.join(', ')} shapes`);
   const o = exactObject(v, FLOW_STEP_KEYS, path, FLOW_STEP_OPTIONAL_KEYS);
+  const stepType = oneOf(currentStepType(o['stepType']), AI_FLOW_STEP_TYPES, `${path}.stepType`);
+  if (o['gate'] !== undefined && stepType !== 'decision_gate') fail(`${path}.gate`, 'is only allowed on decision_gate steps');
   return {
-    stepType: oneOf(currentStepType(o['stepType']), AI_FLOW_STEP_TYPES, `${path}.stepType`),
+    stepType,
     ...opt(o, 'state', path, (x, at) => oneOf(x, AI_FLOW_STATES, at)),
     ...opt(o, 'actor', path, flowText),
     ...opt(o, 'systems', path, flowList),
@@ -281,6 +336,7 @@ function validateFlowStep(v: unknown, kind: DiagramKind, path: string): AiFlowSt
     ...opt(o, 'agent', path, validateFlowAgent),
     ...opt(o, 'controls', path, validateFlowControls),
     ...opt(o, 'operations', path, validateFlowOperations),
+    ...opt(o, 'gate', path, validateFlowGate),
   };
 }
 
@@ -303,6 +359,8 @@ function validateFlowEdge(v: unknown, path: string): AiFlowEdge {
     ...opt(o, 'sensitivity', path, (x, at) => oneOf(x, DATA_SENSITIVITIES, at)),
     ...opt(o, 'auth', path, flowText),
     ...opt(o, 'condition', path, flowText),
+    ...opt(o, 'gateEvaluation', path, (x, at) => oneOf(x, AI_GATE_EVALUATIONS, at)),
+    ...opt(o, 'gateOutcome', path, (x, at) => oneOf(x, AI_GATE_OUTCOMES, at)),
   };
 }
 

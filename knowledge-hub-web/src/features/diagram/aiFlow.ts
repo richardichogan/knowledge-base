@@ -5,7 +5,8 @@
  * knowledge-hub-web/src/features/diagram/aiFlow.ts; only the import path differs.
  */
 import {
-  AI_FLOW_STEP_KINDS, type AiAgentMode, type AiAssertionLevel, type AiFlowEdgeType, type AiFlowInteraction, type AiFlowState, type AiFlowStep, type AiFlowStepType, type AiFlowVolume, type AiMemoryScope, type DataSensitivity, type DiagramDocument, type DiagramKind, type DiagramNode, type DiagramPort,
+  AI_FLOW_STEP_KINDS, type AiAgentMode, type AiAssertionLevel, type AiFlowEdgeType, type AiFlowGate, type AiFlowInteraction, type AiFlowState, type AiFlowStep, type AiFlowStepType, type AiFlowVolume,
+  type AiGateAcceptanceFailure, type AiGateDelegationFailure, type AiGateEvaluation, type AiGateKind, type AiGateOutcome, type AiMemoryScope, type DataSensitivity, type DiagramDocument, type DiagramKind, type DiagramNode, type DiagramPort,
 } from './diagramTypes';
 
 // ─── Labels ─────────────────────────────────────────────────────────────────
@@ -32,6 +33,23 @@ export const INTERACTION_LABELS: Record<AiFlowInteraction, string> = {
 export const STATE_LABELS: Record<AiFlowState, string> = { existing: 'Existing', future: 'Future', both: 'Existing and future' };
 export const MEMORY_LABELS: Record<AiMemoryScope, string> = { none: 'None', session: 'Session', case: 'Case', customer: 'Customer' };
 export const VOLUME_LABELS: Record<AiFlowVolume, string> = { low: 'Low', medium: 'Medium', high: 'High' };
+export const GATE_KIND_LABELS: Record<AiGateKind, string> = {
+  delegation_acceptance: 'Delegation and acceptance', acceptance: 'Acceptance only (consolidation)', action_authorisation: 'Action authorisation',
+};
+/** Direction chip text for each gate kind. */
+export const GATE_KIND_SHORT: Record<AiGateKind, string> = { delegation_acceptance: 'DEL · ACC', acceptance: 'ACC', action_authorisation: 'AUTH' };
+export const GATE_DELEGATION_FAILURE_LABELS: Record<AiGateDelegationFailure, string> = { block: 'Block', clarify: 'Ask for clarification', escalate: 'Escalate to a human' };
+export const GATE_ACCEPTANCE_FAILURE_LABELS: Record<AiGateAcceptanceFailure, string> = { rework: 'Return for rework', hold: 'Hold', escalate: 'Escalate to a human' };
+export const GATE_EVALUATION_LABELS: Record<AiGateEvaluation, string> = { delegation: 'Delegation', acceptance: 'Acceptance', action_authorisation: 'Action authorisation' };
+export const GATE_OUTCOME_LABELS: Record<AiGateOutcome, string> = {
+  pass: 'Pass', block: 'Block', clarify: 'Clarify', rework: 'Rework', hold: 'Hold', escalate: 'Escalate', re_evaluate: 'Re-evaluate',
+};
+
+/** Delegation rules apply to delegation and action-authorisation gates. */
+export const gateChecksDelegation = (kind: AiGateKind): boolean => kind !== 'acceptance';
+/** Acceptance rules apply to delegation-and-acceptance and acceptance-only gates. */
+export const gateChecksAcceptance = (kind: AiGateKind): boolean => kind !== 'action_authorisation';
+export const defaultGate = (): AiFlowGate => ({ gateKind: 'delegation_acceptance' });
 
 export const isAiStep = (type: AiFlowStepType | undefined): boolean => type === 'digital_steward' || type === 'digital_worker' || type === 'specialist_agent';
 const SENSITIVE: ReadonlySet<DataSensitivity> = new Set<DataSensitivity>(['pii', 'medical', 'pci']);
@@ -105,6 +123,32 @@ export function checkAiFlow(doc: DiagramDocument): AiFlowFinding[] {
     }
     return false;
   };
+  const filled = (s: string | undefined): boolean => (s ?? '').trim() !== '';
+  const checkGate = (n: DiagramNode, gate: AiFlowGate): void => {
+    const name = named(n.label);
+    const d = gate.delegation ?? {};
+    const a = gate.acceptance ?? {};
+    const s = gate.shared ?? {};
+    if (!filled(s.accountableOwner)) add('gate-no-owner', 'high', n.id, `Decision gate ${name} has no accountable owner.`);
+    if (gateChecksDelegation(gate.gateKind) && !filled(d.permittedWork) && !filled(d.authorityLimits) && (d.obligations ?? []).length === 0) {
+      add('gate-no-delegation-rules', 'warning', n.id, `Decision gate ${name} has no delegation rules (permitted work, authority limits or obligations).`);
+    }
+    if (gateChecksAcceptance(gate.gateKind) && (a.requiredOutputs ?? []).length === 0 && !filled(a.validationCriteria)) {
+      add('gate-no-acceptance-rules', 'warning', n.id, `Decision gate ${name} has no acceptance rules (required outputs or validation criteria).`);
+    }
+    if ((s.recordRequirements ?? []).length === 0) add('gate-no-record', 'warning', n.id, `Decision gate ${name} does not say what decision record must be kept.`);
+    if (!filled(s.enforcedBy)) add('gate-no-enforcer', 'warning', n.id, `Decision gate ${name} does not say what enforces it.`);
+    const escalations = doc.edges.filter((e) => (e.sourceId === n.id || e.targetId === n.id) && e.flow?.gateOutcome === 'escalate');
+    if (escalations.length === 0) {
+      add('gate-no-escalation', 'warning', n.id, `Decision gate ${name} has no escalate connector to a human task.`);
+    }
+    for (const e of escalations) {
+      const other = byId.get(e.sourceId === n.id ? e.targetId : e.sourceId);
+      if (other?.flow !== undefined && other.flow.stepType !== 'human_task') {
+        add('gate-escalates-to-agent', 'warning', e.id, `Decision gate ${name} escalates to ${named(other.label)}, which is not a human task.`);
+      }
+    }
+  };
 
   for (const n of doc.nodes) {
     if (n.kind === 'swimlane') {
@@ -123,6 +167,7 @@ export function checkAiFlow(doc: DiagramDocument): AiFlowFinding[] {
     if (isRestricted(controls.sensitivity) && controls.authRequired !== true) {
       add('restricted-no-auth', 'warning', n.id, `${name} handles ${SENSITIVITY_LABELS[controls.sensitivity!]} data without required authentication.`);
     }
+    if (flow.stepType === 'decision_gate') { checkGate(n, flow.gate ?? defaultGate()); continue; }
     if (!isAiStep(flow.stepType)) continue;
     const agent = flow.agent ?? {};
     const mode = agent.mode;
@@ -151,8 +196,15 @@ export function checkAiFlow(doc: DiagramDocument): AiFlowFinding[] {
     if (flow.interaction === 'human_handoff' && to?.flow !== undefined && to.flow.stepType !== 'human_task') {
       add('handoff-not-human', 'info', e.id, `The ${route} connector is a human hand-off, but the target is not a human task.`);
     }
-    if (flow.interaction === 'agent_handoff' && to?.flow !== undefined && !isAiStep(to.flow.stepType)) {
+    if (flow.interaction === 'agent_handoff' && to?.flow !== undefined && !isAiStep(to.flow.stepType) && to.flow.stepType !== 'decision_gate') {
       add('handoff-not-agent', 'info', e.id, `The ${route} connector is an agent hand-off, but the target is not an AI step.`);
+    }
+    const ends = new Set([from?.flow?.stepType, to?.flow?.stepType]);
+    if (ends.has('digital_steward') && ends.has('digital_worker') && RANKING_EDGES.has(flow.edgeType)) {
+      add('delegation-ungoverned', 'info', e.id, `The ${route} connector delegates between a Digital Steward and a Digital Worker with no decision gate between them.`);
+    }
+    if ((flow.gateEvaluation !== undefined || flow.gateOutcome !== undefined) && !ends.has('decision_gate')) {
+      add('gate-route-no-gate', 'info', e.id, `The ${route} connector has a gate evaluation or outcome but is not connected to a decision gate.`);
     }
   }
   return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);

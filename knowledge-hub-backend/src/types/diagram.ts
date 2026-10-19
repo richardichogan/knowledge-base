@@ -31,6 +31,19 @@ export const AI_FLOW_EDGE_TYPES = ['primary_flow', 'supporting_flow', 'condition
 export type AiFlowEdgeType = typeof AI_FLOW_EDGE_TYPES[number];
 export const AI_FLOW_INTERACTIONS = ['sync', 'async', 'agent_handoff', 'human_handoff'] as const;
 export type AiFlowInteraction = typeof AI_FLOW_INTERACTIONS[number];
+/** Decision gate: which boundary it controls. */
+export const AI_GATE_KINDS = ['delegation_acceptance', 'acceptance', 'action_authorisation'] as const;
+export type AiGateKind = typeof AI_GATE_KINDS[number];
+export const AI_GATE_DELEGATION_FAILURES = ['block', 'clarify', 'escalate'] as const;
+export type AiGateDelegationFailure = typeof AI_GATE_DELEGATION_FAILURES[number];
+export const AI_GATE_ACCEPTANCE_FAILURES = ['rework', 'hold', 'escalate'] as const;
+export type AiGateAcceptanceFailure = typeof AI_GATE_ACCEPTANCE_FAILURES[number];
+/** Which gate evaluation a connector carries. */
+export const AI_GATE_EVALUATIONS = ['delegation', 'acceptance', 'action_authorisation'] as const;
+export type AiGateEvaluation = typeof AI_GATE_EVALUATIONS[number];
+/** The gate outcome a connector represents. */
+export const AI_GATE_OUTCOMES = ['pass', 'block', 'clarify', 'rework', 'hold', 'escalate', 're_evaluate'] as const;
+export type AiGateOutcome = typeof AI_GATE_OUTCOMES[number];
 /** Node kinds that may carry AI-flow step metadata. */
 export const AI_FLOW_STEP_KINDS = ['process', 'decision', 'terminator', 'document'] as const;
 export interface AiFlowAgent {
@@ -63,6 +76,41 @@ export interface AiFlowOperations {
   failureHandling?: string;
   monitoring?: string;
 }
+/** Delegation (Steward to Worker): may work begin? */
+export interface AiFlowGateDelegation {
+  permittedWork?: string;
+  authorityLimits?: string;
+  requiredInputs?: string[];
+  obligations?: string[];
+  approvalConditions?: string;
+  evidence?: string[];
+  onFail?: AiGateDelegationFailure;
+}
+/** Acceptance (Worker to Steward): may the returned work be used? */
+export interface AiFlowGateAcceptance {
+  requiredOutputs?: string[];
+  validationCriteria?: string;
+  uncertaintyHandling?: string;
+  humanReviewConditions?: string;
+  evidence?: string[];
+  onFail?: AiGateAcceptanceFailure;
+}
+/** Governance shared by both directions of a gate. */
+export interface AiFlowGateShared {
+  accountableOwner?: string;
+  controlRefs?: string[];
+  enforcedBy?: string;
+  overrideAuthority?: string;
+  pendingBehaviour?: string;
+  recordRequirements?: string[];
+}
+/** Decision gate rules. The diagram is the control specification, not a record that a check ran. */
+export interface AiFlowGate {
+  gateKind: AiGateKind;
+  delegation?: AiFlowGateDelegation;
+  acceptance?: AiFlowGateAcceptance;
+  shared?: AiFlowGateShared;
+}
 /** AI flow / governance metadata for a process step. */
 export interface AiFlowStep {
   stepType: AiFlowStepType;
@@ -74,6 +122,8 @@ export interface AiFlowStep {
   agent?: AiFlowAgent;
   controls?: AiFlowControls;
   operations?: AiFlowOperations;
+  /** Decision gate steps only. */
+  gate?: AiFlowGate;
 }
 /** AI flow metadata for a swimlane. */
 export interface AiFlowLane {
@@ -90,6 +140,9 @@ export interface AiFlowEdge {
   sensitivity?: DataSensitivity;
   auth?: string;
   condition?: string;
+  /** Connectors to or from a decision gate: the evaluation carried and the outcome taken. */
+  gateEvaluation?: AiGateEvaluation;
+  gateOutcome?: AiGateOutcome;
 }export interface DiagramNode {
   id: string;
   kind: DiagramKind;

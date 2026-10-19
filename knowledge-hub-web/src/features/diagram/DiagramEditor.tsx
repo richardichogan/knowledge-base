@@ -63,7 +63,7 @@ import { DiagramTextCheck } from './DiagramTextCheck';
 import { DiagramElementNotes } from './DiagramElementNotes';
 import { diagramEditorFill, diagramEditorInk, diagramEditorNodeColours } from './diagramTheme';
 import { diagramBorderDash } from './diagramStroke';
-import { checkAiFlow, layoutAiFlow, nextLaneOrder, EDGE_STYLES, STEP_STYLES, STEP_TYPE_LABELS, type AiFlowSeverity } from './aiFlow';
+import { checkAiFlow, defaultGate, layoutAiFlow, nextLaneOrder, EDGE_STYLES, STEP_STYLES, STEP_TYPE_LABELS, type AiFlowSeverity } from './aiFlow';
 import { AI_FLOW_STEP_TYPES, type AiFlowStepType, type DiagramType } from './diagramTypes';
 import {
   aiEdgeChip, aiEdgeFindingAnchor, aiFindingAnchor, aiLaneOwnerLayout, aiStepChips, findingsByTarget, AI_CHIP_COLOURS, AI_CHIP_FONT,
@@ -156,7 +156,7 @@ function aiStepNode(type: AiFlowStepType): { kind: DiagramKind; extra: Partial<D
   const s = STEP_STYLES[type];
   return {
     kind: s.kind,
-    extra: { label: STEP_TYPE_LABELS[type], width: s.width, height: s.height, fill: s.fill, stroke: s.stroke, textColor: '#161616', fontSize: 14, flow: { stepType: type } },
+    extra: { label: STEP_TYPE_LABELS[type], width: s.width, height: s.height, fill: s.fill, stroke: s.stroke, textColor: '#161616', fontSize: 14, flow: type === 'decision_gate' ? { stepType: type, gate: defaultGate() } : { stepType: type } },
   };
 }
 
@@ -2624,6 +2624,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         /> : <p className="dg-properties__empty">{sel.nodes.length + sel.edges.length > 1 ? 'Select one shape or connector to edit its properties.' : 'Select a shape or connector to edit its title and description.'}</p>}
         {isAiFlow && singleId !== undefined && <AiFlowProperties
           key={`ai-${singleId}`} node={singleNode} edge={singleEdge} nextLaneOrder={nextLaneOrder(doc)}
+          gateConnector={singleEdge !== undefined && doc.nodes.some((n) => (n.id === singleEdge.sourceId || n.id === singleEdge.targetId) && n.flow?.stepType === 'decision_gate')}
           onNodeChange={(next, first) => {
             const current = docRef.current;
             const updated = { ...current, nodes: current.nodes.map((n) => n.id === next.id ? next : n) };

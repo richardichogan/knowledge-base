@@ -149,3 +149,56 @@ test('every step type has a valid default style', () => {
     assert.doesNotThrow(() => validateDiagramDocument(doc([n]), new Set()));
   }
 });
+
+test('a decision gate needs an owner, rules, a record, an enforcer and a human escalation route', () => {
+  const l = lane('Governance', 1, 'Risk');
+  const gate = step(l, 'May work begin?', { stepType: 'decision_gate', gate: { gateKind: 'delegation_acceptance' } }, { kind: 'decision' });
+  assert.deepEqual(codes(doc([l, gate]), gate.id), ['gate-no-acceptance-rules', 'gate-no-delegation-rules', 'gate-no-enforcer', 'gate-no-escalation', 'gate-no-owner', 'gate-no-record']);
+
+  const worker = step(l, 'Worker', { stepType: 'digital_worker', agent: { mode: 'assistive', guardrails: ['x'] }, operations: { failureHandling: 'retry' } });
+  const human = step(l, 'Handler review', { stepType: 'human_task' });
+  const governed = step(l, 'May work begin?', {
+    stepType: 'decision_gate',
+    gate: {
+      gateKind: 'delegation_acceptance',
+      delegation: { permittedWork: 'Triage only', onFail: 'escalate' },
+      acceptance: { requiredOutputs: ['Triage summary'] },
+      shared: { accountableOwner: 'Claims manager', enforcedBy: 'Orchestrator policy', recordRequirements: ['outcome', 'rule version'] },
+    },
+  }, { kind: 'decision' });
+  const toAgent = edge(governed, worker, { flow: { edgeType: 'primary_flow', gateOutcome: 'escalate' } });
+  const toHuman = edge(governed, human, { flow: { edgeType: 'conditional_flow', gateEvaluation: 'acceptance', gateOutcome: 'escalate' } });
+  const d = doc([l, governed, worker, human], [toAgent, toHuman]);
+  assert.deepEqual(codes(d, governed.id), []);
+  assert.deepEqual(codes(d, toAgent.id), ['gate-escalates-to-agent']);
+  assert.deepEqual(codes(d, toHuman.id), []);
+  assert.deepEqual(validateDiagramDocument(JSON.parse(JSON.stringify(d)), new Set()), d, 'gate metadata round-trips through validation');
+});
+
+test('acceptance-only and action-authorisation gates check only their own direction', () => {
+  const l = lane('Governance', 1, 'Risk');
+  const acc = step(l, 'Consolidate', { stepType: 'decision_gate', gate: { gateKind: 'acceptance' } }, { kind: 'decision' });
+  const auth = step(l, 'Before settlement', { stepType: 'decision_gate', gate: { gateKind: 'action_authorisation' } }, { kind: 'decision' });
+  const d = doc([l, acc, auth]);
+  assert.ok(codes(d, acc.id).includes('gate-no-acceptance-rules'));
+  assert.ok(!codes(d, acc.id).includes('gate-no-delegation-rules'));
+  assert.ok(codes(d, auth.id).includes('gate-no-delegation-rules'));
+  assert.ok(!codes(d, auth.id).includes('gate-no-acceptance-rules'));
+});
+
+test('ungated steward to worker delegation and orphan gate outcomes are flagged', () => {
+  const l = lane('Agents', 1, 'Ops');
+  const ds = step(l, 'Steward', { stepType: 'digital_steward' });
+  const dw = step(l, 'Worker', { stepType: 'digital_worker' });
+  const direct = edge(ds, dw, { flow: { edgeType: 'primary_flow', gateOutcome: 'pass' } });
+  assert.deepEqual(codes(doc([l, ds, dw], [direct]), direct.id), ['delegation-ungoverned', 'gate-route-no-gate']);
+});
+
+test('gate validation rejects gates on other step types and unknown gate values', () => {
+  const bad = (flow: unknown): DiagramDocument => doc([node({ kind: 'decision', flow: flow as AiFlowStep })]);
+  assert.throws(() => validateDiagramDocument(bad({ stepType: 'decision_rules', gate: { gateKind: 'acceptance' } }), new Set()), /decision_gate/);
+  assert.throws(() => validateDiagramDocument(bad({ stepType: 'decision_gate', gate: { gateKind: 'maybe' } }), new Set()));
+  assert.throws(() => validateDiagramDocument(bad({ stepType: 'decision_gate', gate: { gateKind: 'acceptance', acceptance: { onFail: 'block' } } }), new Set()));
+  assert.throws(() => validateDiagramDocument(bad({ stepType: 'decision_gate', gate: { gateKind: 'acceptance', extra: 1 } }), new Set()));
+  assert.doesNotThrow(() => validateDiagramDocument(bad({ stepType: 'decision_gate' }), new Set()), 'gates saved before gate fields stay valid');
+});

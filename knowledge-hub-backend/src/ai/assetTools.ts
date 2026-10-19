@@ -13,8 +13,9 @@ import type { LlmToolDefinition } from './foundryClient.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
 import {
   AI_AGENT_MODES, AI_ASSERTION_LEVELS, AI_FLOW_EDGE_TYPES, AI_FLOW_INTERACTIONS, AI_FLOW_STATES, AI_FLOW_STEP_TYPES, AI_FLOW_VOLUMES,
-  AI_MEMORY_SCOPES, DATA_SENSITIVITIES,
-  type AiFlowAgent, type AiFlowControls, type AiFlowEdge, type AiFlowOperations, type AiFlowStep,
+  AI_GATE_ACCEPTANCE_FAILURES, AI_GATE_DELEGATION_FAILURES, AI_GATE_EVALUATIONS, AI_GATE_KINDS, AI_GATE_OUTCOMES, AI_MEMORY_SCOPES, DATA_SENSITIVITIES,
+  type AiFlowAgent, type AiFlowControls, type AiFlowEdge, type AiFlowGate, type AiFlowGateAcceptance, type AiFlowGateDelegation, type AiFlowGateShared,
+  type AiFlowOperations, type AiFlowStep,
   type DiagramDocument, type DiagramEdge, type DiagramNode, type DiagramKind,
 } from '../types/diagram.js';
 import { checkAiFlow, EDGE_STYLES, layoutAiFlow, nextLaneOrder, STEP_STYLES } from '../services/aiFlow.js';
@@ -118,6 +119,40 @@ const aiFlowStepProperties = {
       failureHandling: { type: 'string' }, monitoring: { type: 'string' },
     },
   },
+  gate: {
+    type: 'object',
+    description: 'AI flow: decision_gate steps only. The control rules the gate applies; record only what the user stated or the sources show. Route escalation through a connector with gateOutcome "escalate" to a human_task.',
+    properties: {
+      gateKind: { type: 'string', enum: [...AI_GATE_KINDS], description: 'delegation_acceptance (Steward ? Worker: may work begin, may returned work be used), acceptance (consolidation check on returned work), action_authorisation (before settlement, adverse decisions or customer communication). Defaults to delegation_acceptance.' },
+      delegation: {
+        type: 'object', description: 'Delegation (Steward ? Worker): may work begin?',
+        properties: {
+          permittedWork: { type: 'string' }, authorityLimits: { type: 'string' },
+          requiredInputs: textList('Inputs that must be present before work begins.'), obligations: textList('Obligations the worker must meet.'),
+          approvalConditions: { type: 'string' }, evidence: textList('Evidence recorded for the delegation decision.'),
+          onFail: { type: 'string', enum: [...AI_GATE_DELEGATION_FAILURES] },
+        },
+      },
+      acceptance: {
+        type: 'object', description: 'Acceptance (Worker ? Steward): may the returned work be used? Returned work is not approved work.',
+        properties: {
+          requiredOutputs: textList('Outputs the worker must return.'), validationCriteria: { type: 'string' },
+          uncertaintyHandling: { type: 'string', description: 'Low confidence, conflicting evidence and exceptions.' },
+          humanReviewConditions: { type: 'string' }, evidence: textList('Evidence recorded for the acceptance decision.'),
+          onFail: { type: 'string', enum: [...AI_GATE_ACCEPTANCE_FAILURES] },
+        },
+      },
+      shared: {
+        type: 'object', description: 'Governance shared by both directions.',
+        properties: {
+          accountableOwner: { type: 'string' }, controlRefs: textList('Policy or control ids with versions.'),
+          enforcedBy: { type: 'string', description: 'Component that enforces the gate.' }, overrideAuthority: { type: 'string' },
+          pendingBehaviour: { type: 'string', description: 'What happens while a decision is pending.' },
+          recordRequirements: textList('What the decision record must retain.'),
+        },
+      },
+    },
+  },
 };
 const aiFlowEdgeProperties = {
   edgeType: {
@@ -129,6 +164,8 @@ const aiFlowEdgeProperties = {
   sensitivity: { type: 'string', enum: [...DATA_SENSITIVITIES] },
   auth: { type: 'string', description: 'AI flow: how the hop is authenticated.' },
   condition: { type: 'string', description: 'AI flow: when a conditional flow is taken.' },
+  gateEvaluation: { type: 'string', enum: [...AI_GATE_EVALUATIONS], description: 'AI flow: on a connector to or from a decision_gate, which evaluation it carries.' },
+  gateOutcome: { type: 'string', enum: [...AI_GATE_OUTCOMES], description: 'AI flow: on a connector from a decision_gate, the outcome it represents. Escalate goes to a named human_task.' },
 };
 const diagramNodeSchema = {
   type: 'object',
@@ -554,10 +591,33 @@ function flowStepFrom(n: Record<string, unknown>, existing?: AiFlowStep): AiFlow
   const operations = merged<AiFlowOperations>(existing?.operations, {
     volume: oneOf(o['volume'], AI_FLOW_VOLUMES), sla: flowText(o['sla']), failureHandling: flowText(o['failureHandling']), monitoring: flowText(o['monitoring']),
   });
-  return merged<AiFlowStep>({ ...existing, stepType }, {
+  const gate = stepType === 'decision_gate' ? gateFrom(record(n['gate']), existing?.gate) : undefined;
+  const step = merged<AiFlowStep>({ ...existing, stepType }, {
     state: oneOf(n['state'], AI_FLOW_STATES), actor: flowText(n['actor']),
-    systems: flowList(n['systems']), dataIn: flowList(n['dataIn']), dataOut: flowList(n['dataOut']), agent, controls, operations,
+    systems: flowList(n['systems']), dataIn: flowList(n['dataIn']), dataOut: flowList(n['dataOut']), agent, controls, operations, gate,
   });
+  if (step !== undefined && stepType !== 'decision_gate') delete step.gate;
+  return step;
+}
+
+function gateFrom(g: Record<string, unknown>, existing?: AiFlowGate): AiFlowGate {
+  const d = record(g['delegation']);
+  const a = record(g['acceptance']);
+  const s = record(g['shared']);
+  const delegation = merged<AiFlowGateDelegation>(existing?.delegation, {
+    permittedWork: flowText(d['permittedWork']), authorityLimits: flowText(d['authorityLimits']), requiredInputs: flowList(d['requiredInputs']),
+    obligations: flowList(d['obligations']), approvalConditions: flowText(d['approvalConditions']), evidence: flowList(d['evidence']),
+    onFail: oneOf(d['onFail'], AI_GATE_DELEGATION_FAILURES),
+  });
+  const acceptance = merged<AiFlowGateAcceptance>(existing?.acceptance, {
+    requiredOutputs: flowList(a['requiredOutputs']), validationCriteria: flowText(a['validationCriteria']), uncertaintyHandling: flowText(a['uncertaintyHandling']),
+    humanReviewConditions: flowText(a['humanReviewConditions']), evidence: flowList(a['evidence']), onFail: oneOf(a['onFail'], AI_GATE_ACCEPTANCE_FAILURES),
+  });
+  const shared = merged<AiFlowGateShared>(existing?.shared, {
+    accountableOwner: flowText(s['accountableOwner']), controlRefs: flowList(s['controlRefs']), enforcedBy: flowText(s['enforcedBy']),
+    overrideAuthority: flowText(s['overrideAuthority']), pendingBehaviour: flowText(s['pendingBehaviour']), recordRequirements: flowList(s['recordRequirements']),
+  });
+  return merged<AiFlowGate>({ ...existing, gateKind: oneOf(g['gateKind'], AI_GATE_KINDS) ?? existing?.gateKind ?? 'delegation_acceptance' }, { delegation, acceptance, shared })!;
 }
 
 /** Connector metadata; in an AI flow an untyped connector is the primary flow. */
@@ -565,6 +625,7 @@ function flowEdgeFrom(e: Record<string, unknown>, aiFlow: boolean, existing?: Ai
   const rest = {
     interaction: oneOf(e['interaction'], AI_FLOW_INTERACTIONS), payload: flowText(e['payload']),
     sensitivity: oneOf(e['sensitivity'], DATA_SENSITIVITIES), auth: flowText(e['auth']), condition: flowText(e['condition']),
+    gateEvaluation: oneOf(e['gateEvaluation'], AI_GATE_EVALUATIONS), gateOutcome: oneOf(e['gateOutcome'], AI_GATE_OUTCOMES),
   };
   const edgeType = oneOf(e['edgeType'], AI_FLOW_EDGE_TYPES) ?? existing?.edgeType
     ?? (aiFlow || Object.values(rest).some((v) => v !== undefined) ? 'primary_flow' : undefined);

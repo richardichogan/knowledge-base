@@ -6,7 +6,7 @@
 import type { AiFlowFinding, AiFlowSeverity } from './aiFlow';
 import {
   AGENT_MODE_BADGES, AGENT_MODE_LABELS, ASSERTION_LABELS, INTERACTION_LABELS, SENSITIVITY_LABELS, STATE_LABELS, STEP_TYPE_LABELS,
-  STEP_STYLES, controlCount, isAiStep, isRestricted, isSensitive,
+  GATE_KIND_LABELS, GATE_KIND_SHORT, STEP_STYLES, controlCount, defaultGate, isAiStep, isRestricted, isSensitive,
 } from './aiFlow';
 import type { AiAssertionLevel, AiFlowInteraction, AiFlowStepType, DiagramDocument, DiagramEdge, DiagramNode, DiagramPoint } from './diagramTypes';
 import { SWIMLANE_HEADER, documentWaveDepth, pointAlong, wrapText } from './diagramGeometry';
@@ -120,6 +120,10 @@ export function aiStepChips(n: DiagramNode, reserveFinding = false): AiChip[] {
   }
   if (agent?.assertion !== undefined) {
     topRight.push({ key: 'assertion', text: ASSERTION_SHORT[agent.assertion], title: `Assertion: ${ASSERTION_LABELS[agent.assertion]}`, tone: 'assertion' });
+  }
+  if (flow.stepType === 'decision_gate') {
+    const kind = (flow.gate ?? defaultGate()).gateKind;
+    topRight.push({ key: 'gate', text: GATE_KIND_SHORT[kind], title: `Gate: ${GATE_KIND_LABELS[kind]}`, tone: 'controls' });
   }
   const type = STEP_TYPE_SHORT[flow.stepType];
   const typeSpec: ChipSpec = { key: 'type', text: type.text, short: type.code, title: `Step type: ${STEP_TYPE_LABELS[flow.stepType]}`, tone: 'type' };

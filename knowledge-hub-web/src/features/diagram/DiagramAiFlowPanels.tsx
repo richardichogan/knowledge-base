@@ -6,12 +6,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AGENT_MODE_BADGES, AGENT_MODE_LABELS, ASSERTION_LABELS, EDGE_STYLES, EDGE_TYPE_LABELS, INTERACTION_LABELS, MEMORY_LABELS,
-  SENSITIVITY_LABELS, STATE_LABELS, STEP_STYLES, STEP_TYPE_LABELS, VOLUME_LABELS, isAiStep, type AiFlowFinding, type AiFlowSeverity,
+  GATE_ACCEPTANCE_FAILURE_LABELS, GATE_DELEGATION_FAILURE_LABELS, GATE_EVALUATION_LABELS, GATE_KIND_LABELS, GATE_OUTCOME_LABELS,
+  SENSITIVITY_LABELS, STATE_LABELS, STEP_STYLES, STEP_TYPE_LABELS, VOLUME_LABELS, defaultGate, gateChecksAcceptance, gateChecksDelegation, isAiStep,
+  type AiFlowFinding, type AiFlowSeverity,
 } from './aiFlow';
 import {
   AI_AGENT_MODES, AI_ASSERTION_LEVELS, AI_FLOW_EDGE_TYPES, AI_FLOW_INTERACTIONS, AI_FLOW_STATES, AI_FLOW_STEP_KINDS, AI_FLOW_STEP_TYPES,
-  AI_FLOW_VOLUMES, AI_MEMORY_SCOPES, DATA_SENSITIVITIES, type AiFlowAgent, type AiFlowControls, type AiFlowEdge, type AiFlowOperations,
-  type AiFlowStep, type AiFlowStepType, type DiagramEdge, type DiagramKind, type DiagramNode,
+  AI_FLOW_VOLUMES, AI_GATE_ACCEPTANCE_FAILURES, AI_GATE_DELEGATION_FAILURES, AI_GATE_EVALUATIONS, AI_GATE_KINDS, AI_GATE_OUTCOMES,
+  AI_MEMORY_SCOPES, DATA_SENSITIVITIES, type AiFlowAgent, type AiFlowControls, type AiFlowEdge, type AiFlowGate, type AiFlowGateAcceptance,
+  type AiFlowGateDelegation, type AiFlowGateShared, type AiFlowOperations, type AiFlowStep, type AiFlowStepType, type DiagramEdge, type DiagramKind, type DiagramNode,
 } from './diagramTypes';
 import { AI_CHIP_COLOURS, AI_SEVERITY_COLOURS, AI_SEVERITY_LABELS, ASSERTION_SHORT, STEP_TYPE_SHORT, applyStepStyle, hasStepStyle, parseAiList, type AiChipTone } from './diagramAiFlowBadges';
 import { diagramEditorFill, diagramEditorInk } from './diagramTheme';
@@ -167,10 +170,12 @@ export interface AiFlowPropertiesProps {
   nextLaneOrder: number;
   onNodeChange: (next: DiagramNode, first: boolean) => void;
   onEdgeChange: (next: DiagramEdge, first: boolean) => void;
+  /** The selected connector starts or ends at a decision gate. */
+  gateConnector?: boolean;
 }
 
-export function AiFlowProperties({ node, edge, nextLaneOrder, onNodeChange, onEdgeChange }: AiFlowPropertiesProps): React.ReactElement | null {
-  if (edge !== undefined) return <AiConnectorProperties edge={edge} onChange={onEdgeChange} />;
+export function AiFlowProperties({ node, edge, nextLaneOrder, onNodeChange, onEdgeChange, gateConnector = false }: AiFlowPropertiesProps): React.ReactElement | null {
+  if (edge !== undefined) return <AiConnectorProperties edge={edge} gateConnector={gateConnector} onChange={onEdgeChange} />;
   if (node === undefined) return null;
   if (node.kind === 'swimlane') return <AiLaneProperties node={node} nextLaneOrder={nextLaneOrder} onChange={onNodeChange} />;
   if (!isAiStepKind(node.kind)) {
@@ -190,7 +195,10 @@ function AiStepProperties({ node, onChange }: { node: DiagramNode; onChange: (ne
     if (type === undefined) { setFlow(undefined); return; }
     const previous = flow?.stepType;
     const label = previous !== undefined && node.label === STEP_TYPE_LABELS[previous] ? STEP_TYPE_LABELS[type] : node.label;
-    const n: DiagramNode = { ...node, label, flow: { ...(flow ?? {}), stepType: type } };
+    const nextFlow: AiFlowStep = { ...(flow ?? {}), stepType: type };
+    if (type === 'decision_gate') nextFlow.gate = flow?.gate ?? defaultGate();
+    else delete nextFlow.gate;
+    const n: DiagramNode = { ...node, label, flow: nextFlow };
     onChange(previous === undefined ? applyStepStyle(n, type) : n, true);
   };
 
@@ -241,6 +249,8 @@ function AiStepProperties({ node, onChange }: { node: DiagramNode; onChange: (ne
       <ListField label="Data in" value={flow.dataIn} onChange={(v, first) => { set('dataIn', v, first); }} />
       <ListField label="Data out" value={flow.dataOut} onChange={(v, first) => { set('dataOut', v, first); }} />
 
+      {flow.stepType === 'decision_gate' && <AiGateFields gate={flow.gate ?? defaultGate()} onChange={(g, first) => { set('gate', g, first); }} />}
+
       <Group title="Agent" defaultOpen={ai} badge={agentCount > 0 ? String(agentCount) : undefined} key={`agent-${ai ? 'ai' : 'other'}`}>
         {!ai && <p className="dg-ai-props__note">Optional for this step type. Use it when an AI agent assists the step.</p>}
         <TextField label="Agent role" value={agent.role} onChange={(v, first) => { setAgent('role', v, first); }} />
@@ -280,6 +290,61 @@ function AiStepProperties({ node, onChange }: { node: DiagramNode; onChange: (ne
   );
 }
 
+function AiGateFields({ gate, onChange }: { gate: AiFlowGate; onChange: (next: AiFlowGate, first: boolean) => void }): React.ReactElement {
+  const delegation = gate.delegation ?? {};
+  const acceptance = gate.acceptance ?? {};
+  const shared = gate.shared ?? {};
+  const setPart = <P extends 'delegation' | 'acceptance' | 'shared'>(part: P, value: NonNullable<AiFlowGate[P]>, first: boolean): void => {
+    onChange(withKey(gate, part, isEmpty(value) ? undefined : value), first);
+  };
+  const setD = <K extends keyof AiFlowGateDelegation>(key: K, value: AiFlowGateDelegation[K] | undefined, first = true): void => { setPart('delegation', withKey(delegation, key, value), first); };
+  const setA = <K extends keyof AiFlowGateAcceptance>(key: K, value: AiFlowGateAcceptance[K] | undefined, first = true): void => { setPart('acceptance', withKey(acceptance, key, value), first); };
+  const setS = <K extends keyof AiFlowGateShared>(key: K, value: AiFlowGateShared[K] | undefined, first = true): void => { setPart('shared', withKey(shared, key, value), first); };
+  const count = (o: object): string | undefined => (Object.keys(o).length > 0 ? String(Object.keys(o).length) : undefined);
+  return (
+    <>
+      <SelectField label="Gate type" value={gate.gateKind} options={AI_GATE_KINDS} labels={GATE_KIND_LABELS} emptyLabel={null}
+        onChange={(v) => { if (v !== undefined) onChange({ ...gate, gateKind: v }, true); }} />
+      <p className="dg-ai-props__note">The gate is the control specification, not a record that a check ran. Returned work is not approved work.</p>
+
+      <Group title="Shared governance" defaultOpen badge={count(shared)}>
+        <TextField label="Accountable owner" value={shared.accountableOwner} placeholder="Named role accountable for the gate" onChange={(v, first) => { setS('accountableOwner', v, first); }} />
+        <TextField label="Enforced by" value={shared.enforcedBy} placeholder="Component that applies the rules" onChange={(v, first) => { setS('enforcedBy', v, first); }} />
+        <ListField label="Control references" value={shared.controlRefs} placeholder="Policy or control id and version, comma separated" onChange={(v, first) => { setS('controlRefs', v, first); }} />
+        <TextField label="Override authority" value={shared.overrideAuthority} placeholder="Who may override, and when" multiline onChange={(v, first) => { setS('overrideAuthority', v, first); }} />
+        <TextField label="While pending" value={shared.pendingBehaviour} placeholder="What happens while a decision is pending" multiline onChange={(v, first) => { setS('pendingBehaviour', v, first); }} />
+        <ListField label="Decision record" value={shared.recordRequirements} placeholder="e.g. checks run, source evidence, rule version, outcome, approver, rationale"
+          onChange={(v, first) => { setS('recordRequirements', v, first); }} />
+        <p className="dg-ai-props__hint">Escalation: draw a connector from the gate to a human task and set its outcome to Escalate.</p>
+      </Group>
+
+      {gateChecksDelegation(gate.gateKind) && (
+        <Group title={gate.gateKind === 'action_authorisation' ? 'Authorisation ? may the action proceed?' : 'Delegation ? DS ? DW'} defaultOpen badge={count(delegation)}>
+          <TextField label="Permitted work" value={delegation.permittedWork} multiline onChange={(v, first) => { setD('permittedWork', v, first); }} />
+          <TextField label="Authority limits" value={delegation.authorityLimits} multiline onChange={(v, first) => { setD('authorityLimits', v, first); }} />
+          <ListField label="Required inputs" value={delegation.requiredInputs} onChange={(v, first) => { setD('requiredInputs', v, first); }} />
+          <ListField label="Obligations" value={delegation.obligations} onChange={(v, first) => { setD('obligations', v, first); }} />
+          <TextField label="Approval conditions" value={delegation.approvalConditions} multiline onChange={(v, first) => { setD('approvalConditions', v, first); }} />
+          <ListField label="Evidence recorded" value={delegation.evidence} onChange={(v, first) => { setD('evidence', v, first); }} />
+          <SelectField label="If it fails" value={delegation.onFail} options={AI_GATE_DELEGATION_FAILURES} labels={GATE_DELEGATION_FAILURE_LABELS} onChange={(v) => { setD('onFail', v); }} />
+        </Group>
+      )}
+
+      {gateChecksAcceptance(gate.gateKind) && (
+        <Group title="Acceptance ? DW ? DS" defaultOpen badge={count(acceptance)}>
+          <ListField label="Required outputs" value={acceptance.requiredOutputs} onChange={(v, first) => { setA('requiredOutputs', v, first); }} />
+          <TextField label="Validation criteria" value={acceptance.validationCriteria} multiline onChange={(v, first) => { setA('validationCriteria', v, first); }} />
+          <TextField label="Uncertainty handling" value={acceptance.uncertaintyHandling} placeholder="Low confidence, conflicting evidence, exceptions" multiline
+            onChange={(v, first) => { setA('uncertaintyHandling', v, first); }} />
+          <TextField label="Human review when" value={acceptance.humanReviewConditions} multiline onChange={(v, first) => { setA('humanReviewConditions', v, first); }} />
+          <ListField label="Evidence recorded" value={acceptance.evidence} onChange={(v, first) => { setA('evidence', v, first); }} />
+          <SelectField label="If it fails" value={acceptance.onFail} options={AI_GATE_ACCEPTANCE_FAILURES} labels={GATE_ACCEPTANCE_FAILURE_LABELS} onChange={(v) => { setA('onFail', v); }} />
+        </Group>
+      )}
+    </>
+  );
+}
+
 function AiLaneProperties({ node, nextLaneOrder, onChange }: { node: DiagramNode; nextLaneOrder: number; onChange: (next: DiagramNode, first: boolean) => void }): React.ReactElement {
   const lane = node.lane ?? { order: nextLaneOrder };
   const setLane = (key: 'owner' | 'description', value: string, first: boolean): void => { onChange({ ...node, lane: withKey(lane, key, value) }, first); };
@@ -295,7 +360,7 @@ function AiLaneProperties({ node, nextLaneOrder, onChange }: { node: DiagramNode
   );
 }
 
-function AiConnectorProperties({ edge, onChange }: { edge: DiagramEdge; onChange: (next: DiagramEdge, first: boolean) => void }): React.ReactElement {
+function AiConnectorProperties({ edge, gateConnector, onChange }: { edge: DiagramEdge; gateConnector: boolean; onChange: (next: DiagramEdge, first: boolean) => void }): React.ReactElement {
   const flow: AiFlowEdge = edge.flow ?? { edgeType: 'primary_flow' };
   const set = <K extends keyof AiFlowEdge>(key: K, value: AiFlowEdge[K] | undefined, first = true): void => {
     onChange({ ...edge, flow: withKey(flow, key, value) }, first);
@@ -314,6 +379,12 @@ function AiConnectorProperties({ edge, onChange }: { edge: DiagramEdge; onChange
       <SelectField label="Data sensitivity" value={edge.flow?.sensitivity} options={DATA_SENSITIVITIES} labels={SENSITIVITY_LABELS} onChange={(v) => { set('sensitivity', v); }} />
       <TextField label="Authentication" value={edge.flow?.auth} placeholder="e.g. mTLS, service principal" onChange={(v, first) => { set('auth', v, first); }} />
       <TextField label="Condition" value={edge.flow?.condition} placeholder="When this path is taken" onChange={(v, first) => { set('condition', v, first); }} />
+      {(gateConnector || edge.flow?.gateEvaluation !== undefined || edge.flow?.gateOutcome !== undefined) && (
+        <>
+          <SelectField label="Gate evaluation" value={edge.flow?.gateEvaluation} options={AI_GATE_EVALUATIONS} labels={GATE_EVALUATION_LABELS} onChange={(v) => { set('gateEvaluation', v); }} />
+          <SelectField label="Gate outcome" value={edge.flow?.gateOutcome} options={AI_GATE_OUTCOMES} labels={GATE_OUTCOME_LABELS} onChange={(v) => { set('gateOutcome', v); }} />
+        </>
+      )}
     </div>
   );
 }
