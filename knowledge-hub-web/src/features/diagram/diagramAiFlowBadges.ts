@@ -60,6 +60,7 @@ export const STEP_TYPE_SHORT: Record<AiFlowStepType, { text: string; code: strin
   digital_steward: { text: 'Steward', code: 'DS' },
   digital_worker: { text: 'Worker', code: 'DW' },
   specialist_agent: { text: 'Specialist', code: 'SA' },
+  decision_gate: { text: 'Gate', code: 'DG' },
   decision_rules: { text: 'Rules', code: 'RU' },
   integration: { text: 'Integration', code: 'IN' },
   data_operation: { text: 'Data', code: 'DA' },

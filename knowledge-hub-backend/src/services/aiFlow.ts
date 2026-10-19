@@ -11,7 +11,7 @@ import {
 // ─── Labels ─────────────────────────────────────────────────────────────────
 
 export const STEP_TYPE_LABELS: Record<AiFlowStepType, string> = {
-  channel_interaction: 'Channel Interaction', human_task: 'Human Task', digital_steward: 'Digital Steward', digital_worker: 'Digital Worker', specialist_agent: 'Specialist Agent',
+  channel_interaction: 'Channel Interaction', human_task: 'Human Task', digital_steward: 'Digital Steward', digital_worker: 'Digital Worker', specialist_agent: 'Specialist Agent', decision_gate: 'Decision Gate',
   decision_rules: 'Decision Rules', integration: 'Integration', data_operation: 'Data Operation', external_party: 'External Party',
 };
 export const AGENT_MODE_LABELS: Record<AiAgentMode, string> = {
@@ -52,6 +52,7 @@ export const STEP_STYLES: Record<AiFlowStepType, AiFlowStepStyle> = {
   digital_steward: { kind: 'process', fill: '#fff0f7', stroke: '#d02670', width: 170, height: 72 },
   digital_worker: { kind: 'process', fill: '#f6f2ff', stroke: '#8a3ffc', width: 170, height: 72 },
   specialist_agent: { kind: 'process', fill: '#fff2e8', stroke: '#ba4e00', width: 170, height: 72 },
+  decision_gate: { kind: 'decision', fill: '#fff1f1', stroke: '#da1e28', width: 150, height: 96 },
   decision_rules: { kind: 'decision', fill: '#fcf4d6', stroke: '#b28600', width: 150, height: 96 },
   integration: { kind: 'process', fill: '#f4f4f4', stroke: '#525252', width: 170, height: 64 },
   data_operation: { kind: 'document', fill: '#defbe6', stroke: '#198038', width: 170, height: 76 },

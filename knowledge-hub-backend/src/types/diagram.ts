@@ -13,7 +13,7 @@ export type DiagramCalloutType = typeof DIAGRAM_CALLOUT_TYPES[number];
 /** A diagram's semantic mode. Absent means 'general'. */
 export const DIAGRAM_TYPES = ['general', 'ai-flow'] as const;
 export type DiagramType = typeof DIAGRAM_TYPES[number];
-export const AI_FLOW_STEP_TYPES = ['channel_interaction', 'human_task', 'digital_steward', 'digital_worker', 'specialist_agent', 'decision_rules', 'integration', 'data_operation', 'external_party'] as const;
+export const AI_FLOW_STEP_TYPES = ['channel_interaction', 'human_task', 'digital_steward', 'digital_worker', 'specialist_agent', 'decision_gate', 'decision_rules', 'integration', 'data_operation', 'external_party'] as const;
 export type AiFlowStepType = typeof AI_FLOW_STEP_TYPES[number];
 export const AI_FLOW_STATES = ['existing', 'future', 'both'] as const;
 export type AiFlowState = typeof AI_FLOW_STATES[number];

@@ -74,7 +74,7 @@ const aiFlowStepProperties = {
   lane: { type: 'string', description: 'AI flow: key, label or id of the lane this step sits in.' },
   stepType: {
     type: 'string', enum: [...AI_FLOW_STEP_TYPES],
-    description: 'AI flow: channel_interaction (customer touchpoint), human_task, digital_steward (orchestrates and oversees digital workers and specialist agents), digital_worker (AI agent that carries out process tasks), specialist_agent (AI agent with deep domain expertise called on for specific tasks), decision_rules (deterministic rules), integration (system/API call), data_operation (read/write a store), external_party. Sets the default shape and colour.',
+    description: 'AI flow: channel_interaction (customer touchpoint), human_task, digital_steward (orchestrates and oversees digital workers and specialist agents), digital_worker (AI agent that carries out process tasks), specialist_agent (AI agent with deep domain expertise called on for specific tasks), decision_gate (governance control point between agents, e.g. Digital Steward and Digital Worker: may work begin, may returned work be used, or escalate to a human), decision_rules (deterministic rules), integration (system/API call), data_operation (read/write a store), external_party. Sets the default shape and colour.',
   },
   state: { type: 'string', enum: [...AI_FLOW_STATES], description: 'AI flow: part of the existing process, the future (target) process, or both.' },
   actor: { type: 'string', description: 'AI flow: who or what performs the step.' },
