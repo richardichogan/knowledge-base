@@ -16,7 +16,7 @@ interface UsedLineProps {
   onInclude: (sourceId: string) => void;
 }
 
-const KIND_LABEL: Record<string, string> = { note: 'Think note', document: 'Library', item: 'Synced', node: 'Graph' };
+const KIND_LABEL: Record<string, string> = { note: 'Think note', document: 'Library', item: 'Synced', node: 'Graph', chat: 'Chat' };
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n.toString()} ${n === 1 ? one : many}`;

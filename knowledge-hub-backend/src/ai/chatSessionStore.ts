@@ -323,6 +323,7 @@ export interface PastChatMatch {
   title: string;
   updatedAt: string;
   fromThink: boolean;
+  excerptRole: string;
   messageCount: number;
   excerpt: string;
   href: string;
@@ -345,21 +346,23 @@ export async function searchPastChats(db: Pool, query: string, excludeSessionId:
   if (q === '') return [];
   const terms = q.split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}-]/gu, '')).filter((w) => w.length > 1 && !SEARCH_STOPWORDS.has(w.toLowerCase()));
   const orQuery = terms.filter((w) => w.length > 2).join(' | ');
-  // Rank by how many of the search words a message contains (so the message
-  // matching ALL of them wins over one repeating a common word), then FTS rank.
-  const { rows } = await db.query<{ id: string; title: string | null; updated_at: string; from_think: boolean; message_count: number; excerpt: string | null }>(
+  // A user's question is stronger evidence of the chat's topic than a later
+  // assistant answer that may have repeated or misinterpreted it.
+  const { rows } = await db.query<{ id: string; title: string | null; updated_at: string; from_think: boolean; message_count: number; excerpt: string | null; excerpt_role: string | null }>(
     `WITH matches AS (
-       SELECT m.session_id, m.content,
+       SELECT m.session_id, m.content, m.role,
               (SELECT count(*) FROM unnest($5::text[]) t WHERE m.content ILIKE '%' || t || '%') * 10 +
               CASE WHEN m.content ILIKE '%' || $1 || '%' THEN 20 ELSE 0 END +
-              CASE WHEN $2 <> '' THEN ts_rank(to_tsvector('english', m.content), to_tsquery('english', $2)) ELSE 0 END AS rank
+              CASE WHEN $2 <> '' THEN ts_rank(to_tsvector('english', m.content), to_tsquery('english', $2)) ELSE 0 END +
+              CASE WHEN m.role = 'user' THEN 6 ELSE 0 END AS rank
          FROM ai_chat_messages m
         WHERE ($2 <> '' AND to_tsvector('english', m.content) @@ to_tsquery('english', $2))
            OR m.content ILIKE '%' || $1 || '%'
      ), best AS (
-       SELECT DISTINCT ON (session_id) session_id, content, rank FROM matches ORDER BY session_id, rank DESC
+       SELECT DISTINCT ON (session_id) session_id, content, role, rank
+         FROM matches ORDER BY session_id, rank DESC, (role = 'user') DESC
      )
-     SELECT s.id, s.title, s.updated_at, s.from_think,
+     SELECT s.id, s.title, s.updated_at, s.from_think, b.role AS excerpt_role,
             (SELECT count(*)::int FROM ai_chat_messages c WHERE c.session_id = s.id) AS message_count,
             b.content AS excerpt
        FROM ai_chat_sessions s
@@ -378,29 +381,73 @@ export async function searchPastChats(db: Pool, query: string, excludeSessionId:
     title: r.title ?? 'Untitled chat',
     updatedAt: new Date(r.updated_at).toISOString(),
     fromThink: r.from_think,
+    excerptRole: r.excerpt_role ?? 'assistant',
     messageCount: r.message_count,
     excerpt: (r.excerpt ?? '').slice(0, 400),
     href: `/chat?session=${encodeURIComponent(r.id)}`,
   }));
 }
 
+/** Searches with useful phrase expansions when the user refers to a gate discussion. */
+export async function searchReferencedPastChats(db: Pool, query: string, excludeSessionId?: string): Promise<PastChatMatch[]> {
+  const queries = /\bdecision gates?\b/i.test(query)
+    ? ['governance gate inbound outbound digital steward', 'delegation acceptance gate', query]
+    : [query];
+  const results = await Promise.all(queries.map((candidate) => searchPastChats(db, candidate, excludeSessionId, 8)));
+  const seen = new Set<string>();
+  return results.flat().filter((match) => {
+    if (seen.has(match.sessionId)) return false;
+    seen.add(match.sessionId);
+    return true;
+  }).slice(0, 8);
+}
+
 /** Reads a saved conversation for Athena (most recent messages last), bounded so it fits in a tool result. */
-export async function readPastChat(db: Pool, sessionId: string, maxMessages = 40): Promise<{ title: string; fromThink: boolean; messages: { role: string; content: string; at: string }[] } | null> {
+export async function readPastChat(
+  db: Pool,
+  sessionId: string,
+  maxMessages = 40,
+  query?: string,
+): Promise<{ title: string; fromThink: boolean; messages: { role: string; content: string; at: string }[] } | null> {
   const session = await db.query<{ title: string | null; from_think: boolean }>(
     `SELECT title, from_think FROM ai_chat_sessions WHERE id::text = $1`, [sessionId]);
   const head = session.rows[0];
   if (head === undefined) return null;
-  const { rows } = await db.query<{ role: string; content: string; created_at: string }>(
-    `SELECT role, content, created_at FROM (
-       SELECT role, content, created_at, id FROM ai_chat_messages WHERE session_id::text = $1
-        ORDER BY created_at DESC, id DESC LIMIT $2
-     ) recent ORDER BY created_at ASC, id ASC`,
-    [sessionId, maxMessages],
-  );
+  const queryTerms = query?.trim().split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}\p{N}-]/gu, ''))
+    .filter((word) => word.length > 2 && !SEARCH_STOPWORDS.has(word.toLowerCase())) ?? [];
+  const rows = queryTerms.length > 0
+    ? (await db.query<{ role: string; content: string; created_at: string }>(
+      `WITH ranked AS (
+         SELECT role, content, created_at, id,
+                (SELECT count(*) FROM unnest($3::text[]) t WHERE content ILIKE '%' || t || '%') * 10
+                  + CASE WHEN role = 'user' THEN 6 ELSE 0 END AS rank
+           FROM ai_chat_messages
+          WHERE session_id::text = $1
+            AND EXISTS (SELECT 1 FROM unnest($3::text[]) t WHERE content ILIKE '%' || t || '%')
+       )
+       SELECT role, content, created_at FROM (
+         SELECT role, content, created_at, id FROM ranked
+          ORDER BY rank DESC, created_at DESC, id DESC LIMIT $2
+       ) relevant
+       ORDER BY created_at ASC, id ASC`,
+      [sessionId, Math.min(maxMessages, 8), queryTerms],
+    )).rows
+    : (await db.query<{ role: string; content: string; created_at: string }>(
+      `SELECT role, content, created_at FROM (
+         SELECT role, content, created_at, id FROM ai_chat_messages WHERE session_id::text = $1
+          ORDER BY created_at DESC, id DESC LIMIT $2
+       ) recent ORDER BY created_at ASC, id ASC`,
+      [sessionId, maxMessages],
+    )).rows;
   return {
     title: head.title ?? 'Untitled chat',
     fromThink: head.from_think,
-    messages: rows.map((r) => ({ role: r.role, content: r.content.slice(0, 2000), at: new Date(r.created_at).toISOString() })),
+    messages: rows.map((r) => ({
+      role: r.role,
+      content: r.content.slice(0, queryTerms.length > 0 ? 5000 : 2000),
+      at: new Date(r.created_at).toISOString(),
+    })),
   };
 }
 

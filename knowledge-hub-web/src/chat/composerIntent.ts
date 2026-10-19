@@ -73,7 +73,10 @@ const ACTION_PATTERNS: Array<{ action: ComposerAction; pattern: RegExp }> = [
   { action: 'task', pattern: /\b(add a task|action item|to-?do|remind me to|task board|taskboard)\b/i },
   { action: 'critique', pattern: /\b(critique|poke holes|tear apart|sanity check|challenge this|weak points|feedback on)\b/i },
   { action: 'code', pattern: /\b(refactor|stack trace|typescript|javascript|regex|compile error|unit test|this function|code sample)\b/i },
-  { action: 'note', pattern: /\b(think note|jot down|capture this|save this as a note|make a note)\b/i },
+  {
+    action: 'note',
+    pattern: /\b(jot down|capture this|save this as a note|make a note)\b|\b(?:create|write|save|capture|jot down|make)\b[\s\S]{0,40}\bthink note\b/i,
+  },
   // Only creation verbs count. Nouns like "article", "blog post" or "newsletter" are everywhere in
   // ordinary questions ("review the attached article", "the newsletter is due Friday").
   { action: 'draft', pattern: /\b(draft (me |up |a |an |the |my |some )|write (me |up |out )?(a|an|the|my|some|up)\b|compose (a|an|the)\b|put together (a|an|the)\b|outline (a|an|the|for)\b)/i },

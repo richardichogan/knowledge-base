@@ -337,8 +337,10 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'Athena Desktop) and including chats started from a Think note. Whenever the user refers to an earlier chat ' +
     '("we discussed", "the conversation on my phone", "where is that chat"), call search_past_chats with a few ' +
     'distinctive words, try a second phrasing if the first finds nothing, then read_past_chat on the best match ' +
-    'before answering. Give him the chat title and its link. Never say you cannot see other chats or devices ' +
-    'without having searched.',
+    'with a query for the relevant exchange before answering. An automatically supplied "Earlier conversation ' +
+    'explicitly referenced by the user" block is already read source material: use it before searching topic notes, ' +
+    'and do not substitute a related note for a prior conversation. Give him the chat title and link. Never say you ' +
+    'cannot see other chats or devices without having searched.',
   '- When judging or grouping an article the user shares, read its source text (fetch its URL or read the full Think note), ' +
     'including enough of the reasoning and conclusion to identify the actual argument. A title, feed description, ' +
     'search snippet or old relevance score is not evidence of what the article argues. For long sources read further ' +

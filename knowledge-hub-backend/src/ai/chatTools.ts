@@ -110,10 +110,13 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'read_past_chat',
-        description: 'Reads the messages of one saved conversation found with search_past_chats (most recent 40 messages, oldest first).',
+        description: 'Reads one saved conversation found with search_past_chats. Without query returns the most recent 40 messages; with query returns up to 8 matching messages with full relevant excerpts, oldest first.',
         parameters: {
           type: 'object',
-          properties: { sessionId: { type: 'string', description: 'sessionId from search_past_chats.' } },
+          properties: {
+            sessionId: { type: 'string', description: 'sessionId from search_past_chats.' },
+            query: { type: 'string', description: 'Optional topic words to retrieve matching messages without silently truncating the rest of the chat.' },
+          },
           required: ['sessionId'],
         },
       },
@@ -736,7 +739,8 @@ export async function executeToolCall(
     case 'read_past_chat': {
       const id = args['sessionId'];
       if (typeof id !== 'string' || id.trim() === '') return { error: 'Provide a sessionId from search_past_chats.' };
-      const chat = await readPastChat(db, id.trim());
+      const query = typeof args['query'] === 'string' ? args['query'].trim() : undefined;
+      const chat = await readPastChat(db, id.trim(), 40, query);
       return chat === null ? { error: 'No saved chat with that id.' } : { ...chat, href: `/chat?session=${encodeURIComponent(id.trim())}` };
     }
     case 'get_project_details': {

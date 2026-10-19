@@ -17,7 +17,7 @@ import { getToolDefinitions, executeToolCall } from './chatTools.js';
 import { AI_MAX_TOOL_ITERATIONS, AI_WRAP_UP_ROUND_MIN_MS, SHOW_NOTES_MAX_TOOL_ITERATIONS, AI_CHAT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
-import { getSessionProjectId } from './chatSessionStore.js';
+import { getSessionProjectId, readPastChat, searchReferencedPastChats } from './chatSessionStore.js';
 import { selectRequiredToolChoice } from './toolRouting.js';
 import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
 import { getCanvas } from '../services/canvasService.js';
@@ -61,6 +61,27 @@ const NO_OUTPUTS_PANEL_NOTE = [
 
 /** Output budget for a turn that edits the open note: a long redraft must not be cut off. */
 const NOTE_EDIT_MAX_TOKENS = 14_000;
+const PAST_CHAT_REFERENCE_PATTERN =
+  /\b(?:earlier|previous|prior|past|latest)\b[\s\S]{0,35}\b(?:athena\s+)?(?:chat|conversation|discussion)\b|\b(?:we|you)\s+(?:discussed|talked about|covered)\b|\b(?:chat|conversation|discussion)\b[\s\S]{0,70}\b(?:in think|on mobile|on my phone|earlier|before|today)\b|\bwhat we discussed\b/i;
+const PAST_CHAT_QUERY_STOPWORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'i', 'you', 'we', 'they', 'my', 'our',
+  'this', 'that', 'these', 'those', 'do', 'does', 'did', 'have', 'has', 'had', 'can', 'could', 'would',
+  'should', 'to', 'of', 'in', 'on', 'at', 'for', 'with', 'and', 'or', 'but', 'as', 'from', 'about',
+  'around', 'based', 'conversation', 'discussion', 'chat', 'think', 'earlier', 'previous', 'prior',
+  'past', 'latest', 'today', 'accurately', 'describing', 'review', 'find', 'read', 'please',
+]);
+
+function pastChatSearchQuery(message: string): string | null {
+  const topicMatch = [
+    /\b(?:conversation|discussion|chat)\s+(?:about|around|on|regarding)\s+(.+?)(?=\s+\b(?:in|on)\s+(?:think|mobile|my phone)\b|\b(?:earlier|before|today)\b|[?.]|$)/i,
+    /\b(?:we|you)\s+(?:discussed|talked about|covered)\s+(.+?)(?=\b(?:earlier|before|today)\b|[?.]|$)/i,
+  ].map((pattern) => pattern.exec(message)).find((match) => match?.[1] !== undefined);
+  const source = topicMatch?.[1] ?? message;
+  const terms = source.toLowerCase().match(/[\p{L}\p{N}-]+/gu)
+    ?.filter((term) => term.length > 2 && !PAST_CHAT_QUERY_STOPWORDS.has(term)) ?? [];
+  const distinctTerms = [...new Set(terms)].slice(0, 6);
+  return distinctTerms.length >= 2 ? distinctTerms.join(' ') : null;
+}
 
 /** Tools that change something; left out when a turn must only read. */
 const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', ...ASSET_WRITE_TOOLS]);
@@ -121,8 +142,44 @@ export async function handleConversationTurn(
   const excluded = new Set(sessionId !== undefined
     ? (await getExcludedSources(db, sessionId).catch(() => [])).map((s) => s.id)
     : []);
-  if (excluded.size > 0) context.ragItems = context.ragItems.filter((item) => !excluded.has(item.id));
   const used = hooks.contextUsed;
+  if (excluded.size > 0) context.ragItems = context.ragItems.filter((item) => !excluded.has(item.id));
+  let pastChatBlock = '';
+  if (PAST_CHAT_REFERENCE_PATTERN.test(userMessage)) {
+    const query = pastChatSearchQuery(userMessage);
+    if (query !== null) {
+      hooks.onActivity?.('Finding the earlier conversation');
+      const matches = await searchReferencedPastChats(db, query, sessionId);
+      const candidates = matches.filter((match) => !excluded.has(match.sessionId)).slice(0, 3);
+      const readQuery = /\bdecision gates?\b/i.test(query) ? `${query} delegation acceptance` : query;
+      const excerpts = await Promise.all(candidates.map(async (match) => {
+        const chat = await readPastChat(db, match.sessionId, 3, readQuery);
+        if (chat === null || chat.messages.length === 0) return null;
+        return {
+          match,
+          text: chat.messages.map((message) => `${message.role.toUpperCase()} (${message.at}): ${message.content}`).join('\n\n'),
+        };
+      }));
+      const retrieved = excerpts.filter((item): item is NonNullable<typeof item> => item !== null);
+      if (retrieved.length > 0) {
+        pastChatBlock = [
+          '## Earlier conversation explicitly referenced by the user',
+          'These are matching passages read directly from saved Athena chats, not topic-related notes. Use them as the source of truth for what was previously discussed. Prefer the exchange that directly answers the user’s reference. Do not substitute a related note or invent what the earlier discussion said. If the passages do not identify one clear conversation or do not contain enough detail, say so and ask rather than guessing.',
+          ...retrieved.map(({ match, text }) =>
+            `### [${match.title}](${match.href})${match.fromThink ? ' (started from Think)' : ''}\n${text}`),
+        ].join('\n\n');
+        if (used !== undefined) {
+          for (const { match } of retrieved) {
+            if (!used.found.some((source) => source.id === match.sessionId)) {
+              used.found.push({
+                id: match.sessionId, kind: 'chat', title: match.title, url: match.href,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
   let diagramBlock = '';
   if (openDiagram !== null) {
@@ -197,7 +254,7 @@ export async function handleConversationTurn(
   }
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
   const localFolders = toolContext.localFolders ?? [];
-  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, scheduleBlock, meetingImportNote, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, scheduleBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);

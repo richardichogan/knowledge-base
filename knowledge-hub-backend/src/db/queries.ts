@@ -101,7 +101,17 @@ export async function upsertContentItem(
       title = EXCLUDED.title,
       summary = EXCLUDED.summary,
       body = EXCLUDED.body,
+      published_at = EXCLUDED.published_at,
       url = EXCLUDED.url,
+      project_context = EXCLUDED.project_context,
+      tags = EXCLUDED.tags,
+      foundry_indexed_at = CASE
+        WHEN content_items.body IS DISTINCT FROM EXCLUDED.body
+          OR content_items.project_context IS DISTINCT FROM EXCLUDED.project_context
+          OR content_items.tags IS DISTINCT FROM EXCLUDED.tags
+        THEN NULL
+        ELSE content_items.foundry_indexed_at
+      END,
       -- Merge metadata: preserve scoring fields (platform, sourceType, spark, etc.) that were calculated
       -- Only update the source-provided fields (status, newsWorthiness, sourceTitle, etc.)
       metadata = content_items.metadata || EXCLUDED.metadata,

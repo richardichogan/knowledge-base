@@ -30,13 +30,17 @@ interface NoteReindexRow {
   tags: string[];
   updated_at: string;
   indexed_body: string | null;
+  indexed_project_context: string | null;
+  indexed_tags: string[] | null;
 }
 
 /** Runs the note re-index job. All errors are logged, never thrown. */
 export async function runNoteReindexJob(db: Pool): Promise<void> {
   try {
     const { rows } = await db.query<NoteReindexRow>(
-      `SELECT n.id, n.content, n.project_id, n.tags, n.updated_at, ci.body AS indexed_body
+      `SELECT n.id, n.content, n.project_id, n.tags, n.updated_at,
+              ci.body AS indexed_body, ci.project_context AS indexed_project_context,
+              ci.tags AS indexed_tags
          FROM notes n
          LEFT JOIN content_items ci ON ci.source = 'note' AND ci.source_id = n.id::text
         WHERE n.status = 'active'`,
@@ -54,7 +58,11 @@ export async function runNoteReindexJob(db: Pool): Promise<void> {
           updatedAt: new Date(row.updated_at).toISOString(),
         };
         const payload = await buildNoteIndexPayload(db, note);
-        if (payload.body === row.indexed_body) continue;
+        const indexedTags = [...(row.indexed_tags ?? [])].sort();
+        const payloadTags = [...payload.tags].sort();
+        if (payload.body === row.indexed_body
+          && payload.projectContext === row.indexed_project_context
+          && JSON.stringify(payloadTags) === JSON.stringify(indexedTags)) continue;
 
         await upsertContentItem(db, payload);
         rebuilt++;
