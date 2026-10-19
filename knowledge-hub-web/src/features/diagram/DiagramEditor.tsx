@@ -3119,18 +3119,44 @@ function LabelEditor({ initial, box, limit, multiline, onCommit, onCancel }: {
   const [value, setValue] = useState(initial);
   const done = useRef(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const latest = useRef({ value, onCommit, onCancel });
+  latest.current = { value, onCommit, onCancel };
+  // Focus inside Athena's right-click menu (spelling suggestions, Paste…) is not leaving the
+  // label: the menu acts on this field and hands focus back, so stay open until the user
+  // clicks or focuses somewhere else.
+  const inMenu = useRef(false);
   useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
   const finish = (commit: boolean): void => {
     if (done.current) return;
     done.current = true;
-    if (commit) onCommit(value); else onCancel();
+    if (commit) latest.current.onCommit(latest.current.value); else latest.current.onCancel();
   };
+  useEffect(() => {
+    const outside = (target: EventTarget | null): boolean =>
+      !(target instanceof Node && (ref.current?.contains(target) || (target instanceof Element && target.closest('.gctx'))));
+    const onPointerDown = (e: PointerEvent): void => { if (inMenu.current && outside(e.target)) finish(true); };
+    const onFocusIn = (e: FocusEvent): void => {
+      if (!inMenu.current) return;
+      if (e.target === ref.current) inMenu.current = false;
+      else if (outside(e.target)) finish(true);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('focusin', onFocusIn, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('focusin', onFocusIn, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- finish reads refs only
+  }, []);
   return (
     <textarea
       ref={ref} spellCheck className={`dg-label-editor${multiline ? '' : ' dg-label-editor--single'}`} aria-label="Label" value={value}
       style={{ left: box.left, top: box.top, width: box.width, height: box.height, fontSize: box.fontSize }}
       onChange={(e) => { setValue(e.target.value); }}
-      onBlur={() => { finish(true); }}
+      onBlur={(e) => {
+        if (e.relatedTarget instanceof Element && e.relatedTarget.closest('.gctx')) { inMenu.current = true; return; }
+        finish(true);
+      }}
       onPointerDown={(e) => { e.stopPropagation(); }}
       onKeyDown={(e) => {
         e.stopPropagation();

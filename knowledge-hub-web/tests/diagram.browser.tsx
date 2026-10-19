@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { DiagramEditor } from '../src/features/diagram/DiagramEditor';
+import { GlobalContextMenuProvider } from '../src/context/GlobalContextMenu';
 import { api } from '../src/services/api';
 import type { ApiResponse } from '../src/types';
 import { emptyDiagram, type DiagramDocument, type DiagramNode, type DiagramSnapshot } from '../src/features/diagram/diagramTypes';
@@ -139,16 +140,23 @@ api.startChatTurn = async () => {
 };
 
 const root = createRoot(window.document.getElementById('root')!);
-function mountEditor(): void { root.render(
-  <MemoryRouter><QueryClientProvider client={queryClient}>
+// `?contextMenu` mounts Athena's global right-click menu, for spelling-in-label probes.
+const withContextMenu = new URLSearchParams(location.search).has('contextMenu');
+function mountEditor(): void {
+  const editor = (
     <div className="kh-content" style={{ height: '100vh', padding: '24px' }}>
       <div className="notes-editor-area notes-editor-area--map" style={{ height: '100%' }}>
         <DiagramEditor canvasId={canvasId} onDeleted={() => undefined} onOpenNote={(id) => { openedNote = id; }} />
       </div>
       <div hidden><NoteMaps noteId={noteId} onOpenMap={() => undefined} /></div>
     </div>
-  </QueryClientProvider></MemoryRouter>,
-); }
+  );
+  root.render(
+    <MemoryRouter><QueryClientProvider client={queryClient}>
+      {withContextMenu ? <GlobalContextMenuProvider>{editor}</GlobalContextMenuProvider> : editor}
+    </QueryClientProvider></MemoryRouter>,
+  );
+}
 mountEditor();
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
