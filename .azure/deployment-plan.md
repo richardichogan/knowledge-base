@@ -2,6 +2,33 @@
 
 **Status:** Validated
 
+**Current approved release (2026-10-19 14:58 BST, People and dark context menu):**
+User explicitly requested deployment of the completed branch through `e733777`.
+Deploy the existing backend as v215 (currently v214) and the matching website.
+Includes the Tools People page, person mentions, 40 seeded contacts, and the
+dark spelling/edit context menu fixes. Startup migrations 085/086 add the people
+table, person note links, and idempotent contact data. No infrastructure,
+identity, RBAC, secret, subscription or location changes. Existing AZCLI
+application-only recipe applies; do not provision or recreate resources.
+Rollback to backend v214 and its matching frontend bundle; retain additive
+people data rather than deleting production contacts.
+
+**Deployment result (2026-10-19 15:10 BST, People and dark context menu):**
+Release `e733777` was pushed to the feature branch and `main`. ACR build `ca6s`
+built v215, digest
+`sha256:ebb5f06524771b4f8c871923c7286ab7bbeb6871ef74b19e02e0687c6cf19132`.
+Revision `kh-prod-api-vnet--0000212` is Healthy / RunningAtMaxScale with 100%
+traffic. Startup applied migrations 085/086, completed successfully, and warmed
+8/8 database connections. A read-only production query confirmed both migrations
+and 40 people with 43 email addresses. API `/health` and `/ready` returned HTTP
+200 with `ok` and `ready`. The matching Static Web App production deployment
+succeeded; both the custom domain and default domain serve
+`/assets/index-DwYbP0z2.js` with SHA-256 identical to the local build. Live
+registry role query returned no assignments; the existing secret-based registry
+configuration and None identity were unchanged. Existing dependency audit
+baseline remains 36 findings (including 1 critical) during the build; no backend
+dependency changes were included.
+
 **Current approved release (2026-10-19, Athena chat discovery):** Deploy
 branch commits `26e76fa`, `5c77719`, and `37cb21a` to the existing production
 Container App and Static Web App. Backend v213 advances to v214. The release
@@ -495,6 +522,25 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### People and dark context menu — 2026-10-19 15:03 BST (Validated)
+
+- `git fetch origin --quiet` and `git merge origin/main --no-edit` succeeded;
+  the branch through `e733777` already includes current main `338a1c5`.
+- Azure CLI authenticated in Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`); existing resource group is
+  Succeeded in uksouth. Existing ACA/registry/SWA reads succeeded.
+- Backend `npx tsc --noEmit`, `npm run build`, and isolated suite succeeded:
+  163/163 tests, including contact seed reruns, deduplication and alias lookups.
+- Frontend `npx tsc --noEmit`, `npm run build`, and isolated suites succeeded:
+  99/99 and 6/6 tests. Entry asset is `/assets/index-DwYbP0z2.js`.
+- Dockerfile copies all numbered SQL migrations into the image. Remote ACR
+  build must succeed before updating the running backend. No local server was
+  started against the production database.
+- No IaC, identity or RBAC changes: compilation, what-if and provisioning
+  policy checks are not applicable to this existing-resource image/content
+  update. ACA identity remains None with its existing registry secret reference;
+  managed-identity AcrPull propagation does not apply.
 
 ### Athena chat discovery — 2026-10-19 12:30 BST (Validated and deployed)
 
