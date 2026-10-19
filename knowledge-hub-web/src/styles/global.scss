@@ -4520,6 +4520,41 @@ body.kh-native-context .bn-formatting-toolbar {
   margin: 0.125rem 0;
 }
 
+.gctx--spelling {
+  min-width: 200px;
+  max-width: 280px;
+  padding-bottom: 0.25rem;
+
+  .gctx__preview { width: auto; max-width: none; gap: 0.125rem; }
+  .gctx__source { line-height: 1.4; }
+}
+
+.gctx__title--misspelt {
+  text-decoration: underline wavy var(--cds-support-error, #fa4d56);
+  text-underline-offset: 3px;
+  line-height: 1.4;
+  padding-bottom: 0.25rem;
+}
+
+.gctx__item--suggestion {
+  font-weight: 600;
+
+  &:focus-visible {
+    outline: 2px solid var(--kh-accent, #3ddbd9);
+    outline-offset: -2px;
+    background: var(--cds-layer-hover, #333333);
+  }
+}
+
+.gctx__note {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: var(--kh-text-meta);
+  color: var(--cds-text-secondary, #c6c6c6);
+
+  &--error { color: var(--cds-text-error, #ff8389); }
+}
+
 .gctx__item {
   display: flex;
   align-items: center;

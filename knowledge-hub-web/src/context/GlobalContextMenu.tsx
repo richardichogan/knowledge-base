@@ -2,11 +2,12 @@
  * GlobalContextMenu — app-wide right-click menu.
  *
  * Triggers on ANY right-click. Priority:
+ *  0. Misspelled word right-clicked in editable text (en-GB dictionary) → spelling menu
  *  1. Element with data-ctx-title → structured item
  *  2. <img> element               → image node
  *  3. Text selection              → text node
  *  4. <a href> ancestor           → link node
- *  5. Passthrough to browser
+ *  5. Passthrough to browser (Shift+right-click always passes through)
  */
 
 import React, {
@@ -30,7 +31,8 @@ import { api } from '../services/api';
 import type { CanvasSummaryApi } from '../services/api';
 import { extractTasksWithAI } from '../utils/aiTaskExtraction';
 import { addWorkingDays, toISODateString } from '../utils/dates';
-import { getActiveBlockNoteSelectedText, clearActiveBlockNoteSelectionSnapshot, suspendBlockNoteSelectionCapture, resumeBlockNoteSelectionCapture, hasBlockNoteCellSelection } from '../utils/activeBlockNoteEditor';
+import { getActiveBlockNoteSelectedText, clearActiveBlockNoteSelectionSnapshot, suspendBlockNoteSelectionCapture, resumeBlockNoteSelectionCapture, hasBlockNoteCellSelection, getActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
+import { isMisspelled, isSpellableWord, loadSpelling, spellingSuggestions } from '../utils/spelling';
 
 export interface CtxItemData {
   title: string;
@@ -70,8 +72,90 @@ function sameSelectionRange(a: SelectionRange, b: SelectionRange | null): boolea
 }
 export function useGlobalContextMenu() { return useContext(Ctx); }
 
+/** A misspelled word the user right-clicked, shown in Athena's spelling menu. */
+type SpellTarget =
+  | { kind: 'field'; el: HTMLInputElement | HTMLTextAreaElement; start: number; end: number; word: string }
+  | { kind: 'rich'; root: HTMLElement; range: Range; word: string };
+interface SpellMenuState { x: number; y: number; target: SpellTarget }
+
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', '']);
+const WORD_CHAR = /[\p{L}\p{M}'’-]/u;
+
+/** Expands `[at, at]` in `text` to the surrounding word, trimming edge apostrophes/hyphens. */
+function wordBounds(text: string, at: number): { start: number; end: number } | null {
+  let start = at;
+  let end = at;
+  while (start > 0 && WORD_CHAR.test(text.charAt(start - 1))) start--;
+  while (end < text.length && WORD_CHAR.test(text.charAt(end))) end++;
+  while (start < end && /['’-]/.test(text.charAt(start))) start++;
+  while (end > start && /['’-]/.test(text.charAt(end - 1))) end--;
+  return end > start && isSpellableWord(text.slice(start, end)) ? { start, end } : null;
+}
+
+/**
+ * The word under a right-click in editable text, or null. The mousedown has
+ * already put the caret at the click point; nothing is selected yet because
+ * the browser only selects a misspelled word after the 'contextmenu' event.
+ */
+function wordAtPoint(target: HTMLElement, x: number, y: number): SpellTarget | null {
+  const field = target.closest('input, textarea');
+  if (field instanceof HTMLTextAreaElement || (field instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(field.type))) {
+    if (field.readOnly || field.disabled || field.selectionStart === null || field.selectionStart !== field.selectionEnd) return null;
+    const bounds = wordBounds(field.value, field.selectionStart);
+    return bounds ? { kind: 'field', el: field, ...bounds, word: field.value.slice(bounds.start, bounds.end) } : null;
+  }
+  const root = target.closest<HTMLElement>('[contenteditable="true"]');
+  const caret = root ? document.caretRangeFromPoint?.(x, y) : null;
+  if (!root || !caret || caret.startContainer.nodeType !== Node.TEXT_NODE || !root.contains(caret.startContainer)) return null;
+  const node = caret.startContainer as Text;
+  const bounds = wordBounds(node.data, caret.startOffset);
+  if (!bounds) return null;
+  const range = document.createRange();
+  range.setStart(node, bounds.start);
+  range.setEnd(node, bounds.end);
+  // The caret snaps to the nearest text, so make sure the pointer is really on the word.
+  const onWord = [...range.getClientRects()].some((r) => x >= r.left - 1 && x <= r.right + 1 && y >= r.top - 1 && y <= r.bottom + 1);
+  return onWord ? { kind: 'rich', root, range, word: range.toString() } : null;
+}
+
+/** Replaces the misspelled word. False when the text changed while the menu was open. */
+function replaceMisspelling(target: SpellTarget, replacement: string): boolean {
+  if (target.kind === 'field') {
+    const { el, start, end, word } = target;
+    if (el.value.slice(start, end) !== word) return false;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(start, end);
+    // execCommand keeps the edit on the field's undo stack and fires React's onChange.
+    if (!document.execCommand('insertText', false, replacement)) {
+      el.setRangeText(replacement, start, end, 'end');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    return true;
+  }
+  const { root, range, word } = target;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote does not type its ProseMirror view
+  const view = (getActiveBlockNoteEditor() as any)?._tiptapEditor?.view as import('prosemirror-view').EditorView | undefined;
+  if (view && view.dom.contains(range.startContainer) && view.dom.contains(range.endContainer)) {
+    const from = view.posAtDOM(range.startContainer, range.startOffset);
+    const to = view.posAtDOM(range.endContainer, range.endOffset);
+    if (view.state.doc.textBetween(from, to) !== word) return false;
+    view.dispatch(view.state.tr.insertText(replacement, from, to));
+    view.focus();
+    return true;
+  }
+  if (!root.isConnected || range.toString() !== word) return false;
+  root.focus({ preventScroll: true });
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  document.execCommand('insertText', false, replacement);
+  return true;
+}
+
 export function GlobalContextMenuProvider({ children }: { children: React.ReactNode }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [spellMenu, setSpellMenu] = useState<SpellMenuState | null>(null);
+  const endBrowserWordRef = useRef<() => void>(() => {});
   // Outlives the menu: the dialog opens as the menu closes.
   const [useCaseLaunch, setUseCaseLaunch] = useState<UseCaseLaunch | null>(null);
   // Browsers collapse the current selection if a right-click lands outside its
@@ -108,6 +192,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         // Let the browser place the caret on the word under the cursor, which is
         // what its context menu needs to offer spelling corrections.
         if (nativeMenuForThisClick.current) {
+          lastMouseDownSelection.current = '';
           if (inEditable) {
             browserWordSelection.current = { startedAt: performance.now(), range: browserWord ? currentSelectionRange() : null };
             document.body.classList.add('kh-native-context');
@@ -175,21 +260,64 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
       // Keyboard activity before the browser selected a word means any later selection is the user's.
       if (browserWordSelection.current && !browserWordSelection.current.range) endBrowserWordSelection();
     }
+    function onFocusIn(e: FocusEvent) {
+      // Fetch the dictionary before the first right-click needs it.
+      if ((e.target as HTMLElement | null)?.closest?.('[contenteditable="true"], input, textarea')) {
+        document.removeEventListener('focusin', onFocusIn, true);
+        loadSpelling().catch((err: unknown) => { console.warn('[GlobalContextMenu] spelling dictionary unavailable:', err); });
+      }
+    }
+    endBrowserWordRef.current = endBrowserWordSelection;
     document.addEventListener('mousedown', onMouseDown, true);
     document.addEventListener('selectionchange', onSelectionChange);
     document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('focusin', onFocusIn, true);
     return () => {
       document.removeEventListener('mousedown', onMouseDown, true);
       document.removeEventListener('selectionchange', onSelectionChange);
       document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('focusin', onFocusIn, true);
       document.body.classList.remove('kh-native-context');
     };
   }, []);
 
   useEffect(() => {
     function onContextMenu(e: MouseEvent) {
-      if (nativeMenuForThisClick.current || e.shiftKey) { nativeMenuForThisClick.current = false; return; }
       const target = e.target as HTMLElement;
+      if (e.shiftKey) {
+        // Shift+right-click always gets the browser's own menu.
+        nativeMenuForThisClick.current = false;
+        return;
+      }
+      if (nativeMenuForThisClick.current) {
+        // Right-click in editable text with nothing selected. Handling it here
+        // (preventDefault) also stops the browser selecting the whole word.
+        nativeMenuForThisClick.current = false;
+        endBrowserWordRef.current();
+        const word = wordAtPoint(target, e.clientX, e.clientY);
+        const misspelled = word ? isMisspelled(word.word) : false;
+        if (word && misspelled) {
+          e.preventDefault();
+          setMenu(null);
+          setSpellMenu({ x: e.clientX, y: e.clientY, target: word });
+          return;
+        }
+        if (word && misspelled === null) {
+          // First right-click before the dictionary has arrived: wait for it.
+          e.preventDefault();
+          const { clientX: x, clientY: y } = e;
+          loadSpelling().then(
+            () => { if (isMisspelled(word.word)) { setMenu(null); setSpellMenu({ x, y, target: word }); } else openAthenaMenu(e, target); },
+            () => { openAthenaMenu(e, target); },
+          );
+          return;
+        }
+      }
+      openAthenaMenu(e, target);
+    }
+
+    /** Athena's normal menu; returns without preventDefault to leave the browser's. */
+    function openAthenaMenu(e: MouseEvent, target: HTMLElement) {
       const liveSel = window.getSelection()?.toString().trim() ?? '';
       // BlockNote/ProseMirror table cell-range selections don't populate the
       // native browser Selection object correctly — ask the editor directly
@@ -293,8 +421,94 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
           onUseCase={(launch) => { setMenu(null); setUseCaseLaunch(launch); }} />,
         document.body,
       )}
+      {spellMenu && createPortal(
+        <SpellingMenu key={`${spellMenu.x},${spellMenu.y}`} {...spellMenu} onClose={() => setSpellMenu(null)} />,
+        document.body,
+      )}
       {useCaseLaunch && <UseCaseLauncher launch={useCaseLaunch} onClose={() => { setUseCaseLaunch(null); }} />}
     </Ctx.Provider>
+  );
+}
+
+function SpellingMenu({ x, y, target, onClose }: SpellMenuState & { onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [suggestions, setSuggestions] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    spellingSuggestions(target.word)
+      .then((list) => { if (live) setSuggestions(list); })
+      .catch((err: unknown) => {
+        console.warn('[SpellingMenu] suggestions failed:', err);
+        if (live) setError('Spelling suggestions are unavailable right now.');
+      });
+    return () => { live = false; };
+  }, [target.word]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    const r = el.getBoundingClientRect();
+    if (r.right > window.innerWidth) el.style.left = `${Math.max(0, x - r.width)}px`;
+    if (r.bottom > window.innerHeight) el.style.top = `${Math.max(0, y - r.height)}px`;
+  });
+
+  useEffect(() => {
+    if (suggestions && suggestions.length > 0) ref.current?.querySelector<HTMLButtonElement>('.gctx__item')?.focus({ preventScroll: true });
+  }, [suggestions]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        (target.kind === 'field' ? target.el : target.root).focus({ preventScroll: true });
+        return;
+      }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const items = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>('.gctx__item') ?? []);
+      if (items.length === 0) return;
+      e.preventDefault();
+      const at = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next = e.key === 'ArrowDown' ? (at + 1) % items.length : (at <= 0 ? items.length - 1 : at - 1);
+      items[next]?.focus();
+    };
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('mousedown', onDown, true);
+    window.addEventListener('blur', onClose);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('mousedown', onDown, true);
+      window.removeEventListener('blur', onClose);
+    };
+  }, [onClose, target]);
+
+  const pick = (replacement: string) => {
+    if (replaceMisspelling(target, replacement)) onClose();
+    else setError('The text changed. Right-click the word again.');
+  };
+
+  return (
+    <div ref={ref} className="gctx gctx--spelling" role="menu" aria-label={`Spelling suggestions for ${target.word}`}
+      onContextMenu={(e) => { e.preventDefault(); }}>
+      <div className="gctx__preview">
+        <span className="gctx__source">Spelling</span>
+        <span className="gctx__title gctx__title--misspelt">{target.word}</span>
+      </div>
+      <div className="gctx__divider" />
+      {error !== null ? <p className="gctx__note gctx__note--error" role="alert">{error}</p>
+        : suggestions === null ? <p className="gctx__note">Finding suggestions…</p>
+        : suggestions.length === 0 ? <p className="gctx__note">No suggestions</p>
+        : suggestions.map((s) => (
+          <button key={s} type="button" role="menuitem" className="gctx__item gctx__item--suggestion" onClick={() => { pick(s); }}>
+            {s}
+          </button>
+        ))}
+    </div>
   );
 }
 
