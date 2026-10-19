@@ -290,6 +290,9 @@ export interface ChatSessionSummary {
   persona?: AthenaPersona;
   projectId: string | null;
   pinned?: boolean;
+  /** Started from a Think note. */
+  fromThink?: boolean;
+  noteId?: string | null;
 }
 
 export interface ExportToThinkResponse {

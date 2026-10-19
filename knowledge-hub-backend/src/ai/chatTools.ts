@@ -50,6 +50,7 @@ import { retrieveWatchlistRecords } from '../services/discoverWatchlists.js';
 import { getAssetToolDefinitions, isAssetTool, executeAssetTool } from './assetTools.js';
 import { searchKnowledgeGraph as searchGraph } from './graphInference.js';
 import { readPublicPage, readingExcerpt } from '../utils/articleReading.js';
+import { searchPastChats, readPastChat } from './chatSessionStore.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -88,6 +89,33 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
         name: 'inspect_discover_feed',
         description: 'Checks a candidate RSS/Atom feed using the app feed reader and compares it against existing subscriptions. Read-only: does not add sources or import articles. Use to verify actual feed URLs before recommending them; duplicates are not new recommendations.',
         parameters: { type: 'object', properties: { feedUrl: { type: 'string', description: 'Public RSS/Atom feed URL, not an individual article URL.' } }, required: ['feedUrl'] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'search_past_chats',
+        description: 'Searches EVERY saved Athena conversation (from mobile, desktop and Think-note chats) by title and message text. Use whenever the user mentions an earlier conversation, a chat on another device, or something "we discussed". Returns chat titles, dates, a matching excerpt, and a link. Follow up with read_past_chat to read one.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'A few distinctive words or a phrase from the earlier conversation.' },
+            limit: { type: 'number', description: 'Max chats to return (default 8, max 20).' },
+          },
+          required: ['query'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'read_past_chat',
+        description: 'Reads the messages of one saved conversation found with search_past_chats (most recent 40 messages, oldest first).',
+        parameters: {
+          type: 'object',
+          properties: { sessionId: { type: 'string', description: 'sessionId from search_past_chats.' } },
+          required: ['sessionId'],
+        },
       },
     },
     {
@@ -695,6 +723,21 @@ export async function executeToolCall(
       const url = args['feedUrl'];
       if (typeof url !== 'string' || url.trim() === '') return { error: 'Provide a public RSS/Atom feed URL.' };
       return inspectDiscoverFeed(db, url.trim());
+    }
+    case 'search_past_chats': {
+      const query = args['query'];
+      if (typeof query !== 'string' || query.trim() === '') return { error: 'Provide a few words from the earlier conversation.' };
+      const limit = typeof args['limit'] === 'number' && Number.isFinite(args['limit']) ? Math.min(Math.max(Math.round(args['limit']), 1), 20) : 8;
+      const chats = await searchPastChats(db, query, turn.sessionId, limit);
+      return chats.length === 0
+        ? { chats: [], note: 'No saved chat matched. Try different or fewer distinctive words before telling the user it does not exist.' }
+        : { chats, note: 'Links open the chat in Athena on any device. Use read_past_chat to read one before summarising it.' };
+    }
+    case 'read_past_chat': {
+      const id = args['sessionId'];
+      if (typeof id !== 'string' || id.trim() === '') return { error: 'Provide a sessionId from search_past_chats.' };
+      const chat = await readPastChat(db, id.trim());
+      return chat === null ? { error: 'No saved chat with that id.' } : { ...chat, href: `/chat?session=${encodeURIComponent(id.trim())}` };
     }
     case 'get_project_details': {
       const id = contextualArgs['projectId'];

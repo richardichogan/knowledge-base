@@ -6,6 +6,8 @@
 
 const LABELS: Record<string, string> = {
   get_project_details: 'Reading current project details',
+  search_past_chats: 'Searching your past conversations',
+  read_past_chat: 'Reading an earlier conversation',
   get_discover_sources: 'Reading your Discover feed subscriptions',
   inspect_discover_feed: 'Checking a candidate RSS/Atom feed',
   search_knowledge_base: 'Searching your notes and synced content',

@@ -81,6 +81,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [serverMatches, setServerMatches] = useState<Set<string> | null>(null);
+  const [serverSessions, setServerSessions] = useState<ChatSessionSummary[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -89,11 +90,13 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   // names are matched locally so results appear instantly while it runs.
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setServerMatches(null); return undefined; }
+    if (q.length < 2) { setServerMatches(null); setServerSessions([]); return undefined; }
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void api.searchChatSessions(q).then((r) => {
-        if (!cancelled && r.success) setServerMatches(new Set(r.data.ids));
+        if (cancelled || !r.success) return;
+        setServerMatches(new Set(r.data.ids));
+        setServerSessions(r.data.sessions ?? []);
       }).catch(() => { /* local matching still applies */ });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
@@ -106,13 +109,16 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (q === '') return sessions;
-    return sessions.filter((s) => {
+    // Search also covers chats older than the loaded list.
+    const loaded = new Set(sessions.map((s) => s.id));
+    const pool = [...sessions, ...serverSessions.filter((s) => !loaded.has(s.id))];
+    return pool.filter((s) => {
       const projectName = s.projectId !== null ? projectNameById.get(s.projectId) ?? '' : '';
       return s.title.toLowerCase().includes(q)
         || projectName.toLowerCase().includes(q)
         || serverMatches?.has(s.id) === true;
     });
-  }, [sessions, query, serverMatches, projectNameById]);
+  }, [sessions, query, serverMatches, serverSessions, projectNameById]);
 
   const groups = useMemo(() => {
     const now = new Date();
@@ -241,6 +247,9 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                       <div className="kh-chat-sidebar__item-title" title={s.title}>{s.title}</div>
                     )}
                     <div className="kh-chat-sidebar__item-meta">
+                      {s.fromThink === true && (
+                        <span className="kh-chat-sidebar__origin" title="Started from a Think note">Think</span>
+                      )}
                       {projectName !== null && (
                         <span className="kh-chat-sidebar__project" title={projectName}>{projectName}</span>
                       )}

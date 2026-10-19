@@ -1083,10 +1083,9 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  /** Lists past chat sessions for the sidebar, most recently active first. */
-  /** The main chat list: chats started from a Think note stay with their note, not here. */
+  /** Lists past chat sessions for the sidebar, most recently active first — all chats, including Think-note ones. */
   async listChatSessions(): Promise<ApiResponse<{ sessions: ChatSessionSummary[] }>> {
-    const r = await this.client.get<ApiResponse<{ sessions: ChatSessionSummary[] }>>('/api/ai/sessions', { params: { excludeThink: '1' } });
+    const r = await this.client.get<ApiResponse<{ sessions: ChatSessionSummary[] }>>('/api/ai/sessions');
     return r.data;
   }
 
@@ -1139,9 +1138,9 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  /** Full-text search across chat titles and message text; returns matching session ids. */
-  async searchChatSessions(query: string): Promise<ApiResponse<{ ids: string[] }>> {
-    const r = await this.client.get<ApiResponse<{ ids: string[] }>>('/api/ai/sessions/search', { params: { q: query } });
+  /** Full-text search across all chat titles and message text; returns matching ids and summaries. */
+  async searchChatSessions(query: string): Promise<ApiResponse<{ ids: string[]; sessions?: ChatSessionSummary[] }>> {
+    const r = await this.client.get<ApiResponse<{ ids: string[]; sessions?: ChatSessionSummary[] }>>('/api/ai/sessions/search', { params: { q: query } });
     return r.data;
   }
 

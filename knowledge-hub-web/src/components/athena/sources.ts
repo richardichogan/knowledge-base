@@ -15,6 +15,8 @@ const SOURCE_LABELS: Record<string, string> = {
   search_knowledge_graph: 'Knowledge graph',
   search_ica: 'IBM Consulting Advantage',
   fetch_web_page: 'Web',
+  search_past_chats: 'Past chats',
+  read_past_chat: 'Past chats',
 };
 
 /** De-duplicated, ordered source labels for a reply's tool list. */

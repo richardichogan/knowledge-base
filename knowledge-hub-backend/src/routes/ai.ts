@@ -4,7 +4,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { handleConversationTurn, type TurnHooks, summariseSession, rollUpConversationSummary, formatSessionForThink, summarizeNoteContent, generateSessionTitle } from '../ai/conversationService.js';
-import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessionIds, setPendingTurn, getPendingTurn, setNextSteps } from '../ai/chatSessionStore.js';
+import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessions, setPendingTurn, getPendingTurn, setNextSteps } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { draftSpecFromSession } from '../ai/specDraft.js';
@@ -493,15 +493,16 @@ router.get('/sessions', (req: Request, res: Response, next: NextFunction): void 
 
 /**
  * GET /api/ai/sessions/search?q=
- * Sidebar search across chat titles AND message text. Returns matching ids;
- * the sidebar filters its already-loaded list with them.
+ * Sidebar search across chat titles AND message text (all chats, including
+ * Think-note ones and those older than the loaded list). Returns ids plus
+ * full summaries so the sidebar can show matches it hasn't loaded.
  */
 router.get('/sessions/search', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
     try {
       const q = typeof req.query['q'] === 'string' ? req.query['q'] : '';
-      const ids = await searchSessionIds(getDb(), q);
-      const body: ApiSuccess<{ ids: string[] }> = { success: true, data: { ids } };
+      const sessions = await searchSessions(getDb(), q);
+      const body: ApiSuccess<{ ids: string[]; sessions: typeof sessions }> = { success: true, data: { ids: sessions.map((s) => s.id), sessions } };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
       next(err);

@@ -50,6 +50,9 @@ export interface SessionListItem {
   persona: string;
   projectId: string | null;
   pinned: boolean;
+  /** Started from a Think note; still a normal chat that can be opened anywhere. */
+  fromThink: boolean;
+  noteId: string | null;
 }
 
 /** Ensures a session row exists, then returns its current message history. */
@@ -255,29 +258,24 @@ export async function searchSessionIds(db: Pool, query: string, limit = 50): Pro
   return rows.map((r) => r.id);
 }
 
-/** Lists sessions for the chat history sidebar: pinned first, then most recently active. */
-/** Chats for the sidebar; `excludeThink` leaves out chats started from a Think note (they live with their note). */
-export async function listSessions(db: Pool, limit = 50, excludeThink = false): Promise<SessionListItem[]> {
-  const { rows } = await db.query<{
-    id: string;
-    title: string | null;
-    started_at: string;
-    updated_at: string;
-    preview: string | null;
-    persona: string;
-    project_id: string | null;
-    pinned: boolean;
-  }>(
-    `SELECT s.id, s.title, s.started_at, s.updated_at, s.persona, s.project_id, s.pinned,
-            (SELECT content FROM ai_chat_messages m WHERE m.session_id = s.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS preview
-       FROM ai_chat_sessions s
-      WHERE EXISTS (SELECT 1 FROM ai_chat_messages m WHERE m.session_id = s.id)
-        AND ($2::boolean = false OR s.from_think = false)
-      ORDER BY s.pinned DESC, s.updated_at DESC
-      LIMIT $1`,
-    [limit, excludeThink],
-  );
-  return rows.map((r) => ({
+interface SessionListRow {
+  id: string;
+  title: string | null;
+  started_at: string;
+  updated_at: string;
+  preview: string | null;
+  persona: string;
+  project_id: string | null;
+  pinned: boolean;
+  from_think: boolean;
+  note_id: string | null;
+}
+
+const SESSION_LIST_COLUMNS = `s.id, s.title, s.started_at, s.updated_at, s.persona, s.project_id, s.pinned, s.from_think, s.note_id::text AS note_id,
+            (SELECT content FROM ai_chat_messages m WHERE m.session_id = s.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS preview`;
+
+function toSessionListItem(r: SessionListRow): SessionListItem {
+  return {
     id: r.id,
     title: r.title ?? 'New chat',
     startedAt: r.started_at,
@@ -286,7 +284,124 @@ export async function listSessions(db: Pool, limit = 50, excludeThink = false): 
     persona: r.persona,
     projectId: r.project_id,
     pinned: r.pinned,
+    fromThink: r.from_think,
+    noteId: r.note_id,
+  };
+}
+
+/** Chats for the sidebar, pinned first then most recently active; `excludeThink` leaves out chats started from a Think note. */
+export async function listSessions(db: Pool, limit = 50, excludeThink = false): Promise<SessionListItem[]> {
+  const { rows } = await db.query<SessionListRow>(
+    `SELECT ${SESSION_LIST_COLUMNS}
+       FROM ai_chat_sessions s
+      WHERE EXISTS (SELECT 1 FROM ai_chat_messages m WHERE m.session_id = s.id)
+        AND ($2::boolean = false OR s.from_think = false)
+      ORDER BY s.pinned DESC, s.updated_at DESC
+      LIMIT $1`,
+    [limit, excludeThink],
+  );
+  return rows.map(toSessionListItem);
+}
+
+/** Sidebar search results as full summaries, so matches older than the loaded list still appear. */
+export async function searchSessions(db: Pool, query: string, limit = 50): Promise<SessionListItem[]> {
+  const ids = await searchSessionIds(db, query, limit);
+  if (ids.length === 0) return [];
+  const { rows } = await db.query<SessionListRow>(
+    `SELECT ${SESSION_LIST_COLUMNS}
+       FROM ai_chat_sessions s
+      WHERE s.id = ANY($1::uuid[])
+        AND EXISTS (SELECT 1 FROM ai_chat_messages m WHERE m.session_id = s.id)
+      ORDER BY s.updated_at DESC`,
+    [ids],
+  );
+  return rows.map(toSessionListItem);
+}
+
+export interface PastChatMatch {
+  sessionId: string;
+  title: string;
+  updatedAt: string;
+  fromThink: boolean;
+  messageCount: number;
+  excerpt: string;
+  href: string;
+}
+
+const SEARCH_STOPWORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'am', 'was', 'were', 'be', 'been', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+  'me', 'my', 'your', 'our', 'this', 'that', 'these', 'those', 'do', 'does', 'did', 'have', 'has', 'had', 'can',
+  'could', 'will', 'would', 'should', 'to', 'of', 'in', 'on', 'at', 'for', 'with', 'and', 'or', 'but', 'not',
+  'so', 'if', 'as', 'from', 'about', 'what', 'where', 'when', 'how', 'see', 'chat', 'conversation',
+]);
+
+/**
+ * Athena's own chat-history search: every saved conversation (main chat,
+ * Think-note chats, mobile and desktop alike), matched on title or message
+ * text, with the best matching excerpt.
+ */
+export async function searchPastChats(db: Pool, query: string, excludeSessionId: string | undefined, limit = 8): Promise<PastChatMatch[]> {
+  const q = query.trim();
+  if (q === '') return [];
+  const terms = q.split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}-]/gu, '')).filter((w) => w.length > 1 && !SEARCH_STOPWORDS.has(w.toLowerCase()));
+  const orQuery = terms.filter((w) => w.length > 2).join(' | ');
+  // Rank by how many of the search words a message contains (so the message
+  // matching ALL of them wins over one repeating a common word), then FTS rank.
+  const { rows } = await db.query<{ id: string; title: string | null; updated_at: string; from_think: boolean; message_count: number; excerpt: string | null }>(
+    `WITH matches AS (
+       SELECT m.session_id, m.content,
+              (SELECT count(*) FROM unnest($5::text[]) t WHERE m.content ILIKE '%' || t || '%') * 10 +
+              CASE WHEN m.content ILIKE '%' || $1 || '%' THEN 20 ELSE 0 END +
+              CASE WHEN $2 <> '' THEN ts_rank(to_tsvector('english', m.content), to_tsquery('english', $2)) ELSE 0 END AS rank
+         FROM ai_chat_messages m
+        WHERE ($2 <> '' AND to_tsvector('english', m.content) @@ to_tsquery('english', $2))
+           OR m.content ILIKE '%' || $1 || '%'
+     ), best AS (
+       SELECT DISTINCT ON (session_id) session_id, content, rank FROM matches ORDER BY session_id, rank DESC
+     )
+     SELECT s.id, s.title, s.updated_at, s.from_think,
+            (SELECT count(*)::int FROM ai_chat_messages c WHERE c.session_id = s.id) AS message_count,
+            b.content AS excerpt
+       FROM ai_chat_sessions s
+       LEFT JOIN best b ON b.session_id = s.id
+      WHERE (b.session_id IS NOT NULL OR s.title ILIKE '%' || $1 || '%')
+        AND ($3::text IS NULL OR s.id::text <> $3::text)
+        AND EXISTS (SELECT 1 FROM ai_chat_messages e WHERE e.session_id = s.id)
+      ORDER BY COALESCE(b.rank, 0)
+               + (SELECT count(*) FROM unnest($5::text[]) t WHERE COALESCE(s.title, '') ILIKE '%' || t || '%') * 10 DESC,
+               s.updated_at DESC
+      LIMIT $4`,
+    [q, orQuery, excludeSessionId ?? null, limit, terms],
+  );
+  return rows.map((r) => ({
+    sessionId: r.id,
+    title: r.title ?? 'Untitled chat',
+    updatedAt: new Date(r.updated_at).toISOString(),
+    fromThink: r.from_think,
+    messageCount: r.message_count,
+    excerpt: (r.excerpt ?? '').slice(0, 400),
+    href: `/chat?session=${encodeURIComponent(r.id)}`,
   }));
+}
+
+/** Reads a saved conversation for Athena (most recent messages last), bounded so it fits in a tool result. */
+export async function readPastChat(db: Pool, sessionId: string, maxMessages = 40): Promise<{ title: string; fromThink: boolean; messages: { role: string; content: string; at: string }[] } | null> {
+  const session = await db.query<{ title: string | null; from_think: boolean }>(
+    `SELECT title, from_think FROM ai_chat_sessions WHERE id::text = $1`, [sessionId]);
+  const head = session.rows[0];
+  if (head === undefined) return null;
+  const { rows } = await db.query<{ role: string; content: string; created_at: string }>(
+    `SELECT role, content, created_at FROM (
+       SELECT role, content, created_at, id FROM ai_chat_messages WHERE session_id::text = $1
+        ORDER BY created_at DESC, id DESC LIMIT $2
+     ) recent ORDER BY created_at ASC, id ASC`,
+    [sessionId, maxMessages],
+  );
+  return {
+    title: head.title ?? 'Untitled chat',
+    fromThink: head.from_think,
+    messages: rows.map((r) => ({ role: r.role, content: r.content.slice(0, 2000), at: new Date(r.created_at).toISOString() })),
+  };
 }
 
 /** Deletes a session and all of its messages (ON DELETE CASCADE handles the messages). */

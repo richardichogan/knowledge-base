@@ -2211,6 +2211,16 @@ input, textarea {
   margin-top: 0.125rem;
 }
 
+.kh-chat-sidebar__origin {
+  flex: none;
+  padding: 0 0.3125rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: var(--kh-radius-sm);
+  color: var(--cds-text-secondary);
+  font-size: var(--kh-text-meta);
+  line-height: 1.4;
+}
+
 .kh-chat-sidebar__project {
   display: inline-flex;
   align-items: center;
