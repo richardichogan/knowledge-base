@@ -5391,12 +5391,13 @@ body.kh-pane-resizing {
 
 .note-mention-wrap { display: inline; }
 .note-mention {
-  color: var(--kh-accent, #78a9ff);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  // Muted so in-note links read as part of the prose, not as shouting accents.
+  color: #5fa898;
+  text-decoration: none;
   overflow-wrap: anywhere;
   cursor: pointer;
-  &:hover { text-decoration-thickness: 2px; }
+  transition: color 120ms ease-out;
+  &:hover { color: #82c4b4; text-decoration: none; }
   &:focus-visible { outline: 2px solid var(--kh-accent, #78a9ff); outline-offset: 2px; }
   &--unavailable { color: var(--cds-text-secondary); cursor: not-allowed; text-decoration: line-through; }
 }
@@ -5527,6 +5528,13 @@ body.kh-pane-resizing {
   .bn-editor {
     background: var(--cds-background);
     color: var(--cds-text-primary);
+
+    a:not(.note-mention) {
+      color: #7d9bc4;
+      text-decoration: none;
+      transition: color 120ms ease-out;
+      &:hover { color: #a3bde0; text-decoration: none; }
+    }
 
     // BlockNote (v0.47+) renders headings as div[data-content-type="heading"][data-level="N"],
     // NOT semantic <h1>-<h6> tags. A prior override targeted a literal `h1` tag selector here,
