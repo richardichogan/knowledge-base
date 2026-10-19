@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { usePageTitle } from '../navigation/PageTitle';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
@@ -73,6 +74,7 @@ export const NotesPage: React.FC = () => {
   const [selectedId,       setSelectedId]       = useState<string | null>(null);
   const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
   const [mode,             setMode]             = useState<ViewMode>('notes');
+  usePageTitle({ view: VIEW_MODES.find((v) => v.key === mode)?.label });
   const [mobilePane, setMobilePane] = useState<'list' | 'editor'>('list');
   const mobile = useMediaQuery('(max-width: 640px)');
   const showEditor = useCallback(() => { setMobilePane('editor'); }, []);

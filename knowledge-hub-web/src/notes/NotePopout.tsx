@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { usePageTitle } from '../navigation/PageTitle';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useCreateBlockNote } from '@blocknote/react';
@@ -54,12 +55,7 @@ export const NotePopout: React.FC = () => {
     refetchIntervalInBackground: true,
     retry: false,
   });
-  const title = data ? `${data.title} - Think` : 'Think note';
-  useEffect(() => {
-    const previous = document.title;
-    document.title = title;
-    return () => { document.title = previous; };
-  }, [title]);
+  usePageTitle({ item: data?.title ?? 'Note' });
 
   return (
     <main className="note-popout" aria-label="Note content (read only)" onErrorCapture={event => {

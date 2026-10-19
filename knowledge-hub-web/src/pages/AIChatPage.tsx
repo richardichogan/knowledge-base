@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { usePageTitle } from '../navigation/PageTitle';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
@@ -333,6 +334,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   noteSummaryIdentity.current = currentNoteId;
   useEffect(() => () => { noteSummaryRequest.current++; }, []);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
+  usePageTitle({ item: standalone ? chatSessions.find((s) => s.id === sessionId)?.title : null });
   // Shown once the user has scrolled well up from the latest message.
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const draftPrefix = isNoteLinkedPanel

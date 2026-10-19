@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { usePageTitle } from '../navigation/PageTitle';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { Bookmark, Archive, Renew, Launch, ArrowRight, Checkmark, Microphone } from '@carbon/icons-react';
@@ -386,6 +387,7 @@ export const DiscoverPage: React.FC = () => {
   });
   const [preferenceError, setPreferenceError] = useState<unknown>(restored.error);
   const [activeTab, setActiveTab] = useState<ActiveTab>(restored.view.tab);
+  usePageTitle({ view: STATE_TABS.find((tab) => tab.key === activeTab)?.label });
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
   const updatingIdsRef = useRef(new Set<string>());
   const [page, setPage] = useState(1);

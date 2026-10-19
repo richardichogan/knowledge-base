@@ -9,6 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { usePageTitle } from '../navigation/PageTitle';
 import type { CarbonIconType } from '@carbon/icons-react';
 import { CenterCircle, Dashboard, Idea, TaskView, Upload } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
@@ -52,6 +53,7 @@ export const PlanPage: React.FC = () => {
     catch (error) { console.warn('[Plan] Could not remember current filters.', error); setPreferenceError(error); }
   }, [preferences]);
   const { view, project: filterProject, tag: filterTag } = preferences;
+  usePageTitle({ view: VIEW_TABS.find((tab) => tab.key === view)?.label });
   const updatePreferences = (patch: Partial<Omit<PlanPreferences, 'version'>>): void => {
     setPreferences(previous => {
       const next = { ...previous, ...patch };

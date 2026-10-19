@@ -11,6 +11,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/commandPaletteItems.test.ts',
   '../knowledge-hub-web/tests/todayViewModel.test.ts',
   '../knowledge-hub-web/tests/navigation.test.ts',
+  '../knowledge-hub-web/tests/documentTitle.test.ts',
   '../knowledge-hub-web/tests/appDialogs.test.ts',
   '../knowledge-hub-web/tests/projectFormValidation.test.ts',
   '../knowledge-hub-web/tests/projectIdentity.test.ts',
