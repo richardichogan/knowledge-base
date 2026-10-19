@@ -2,7 +2,26 @@
 
 **Status:** Validated
 
-**Current approved release (2026-10-19, past-chat discovery and muted links):**
+**Current approved release (2026-10-19, Decision Gate shape):** Deploy
+`de69b43` from `main` to the existing production Container App and Static Web
+App. Backend v212 advances to v213; the frontend adds the red diamond Decision
+Gate to the AI-flow palette, key and step-type picker. No migrations,
+infrastructure, identity, role or secret changes. Rollback backend to v212
+and redeploy the previous frontend bundle.
+
+**Deployment result (2026-10-19):** ACR build `ca6q` built
+`kh-prod-api:v213` from `main` commit `de69b430fe95144026a5ad80849a11605205a468`,
+digest `sha256:edb02c5cb6f8d61293a1dd2e825ee22a02cf0fc6625f36fd120b8629005ffb0d`.
+Revision `kh-prod-api-vnet--0000210` is Healthy / RunningAtMaxScale with 100%
+traffic; startup migration completed and 8/8 database connections are ready.
+The Static Web App deployment succeeded. Both production domains serve
+`/assets/index-DJTk6Gj7.js`, matching the local build.
+
+**Validation:** Both apps passed `npx tsc --noEmit` and production builds.
+Backend isolated tests passed 156/156; frontend isolated tests passed 95/95
+and 6/6. No infrastructure, role, secret or dependency changes.
+
+**Previous approved release (2026-10-19, past-chat discovery and muted links):**
 Deploy commits `6180cc2`, `224b0fb` and `7f7d413`. Backend v211 advances to
 v212 (chat sidebar shows Think/mobile chats, server-side chat search, Athena
 `search_past_chats` / `read_past_chat` tools); frontend adds muted note-link
@@ -452,6 +471,21 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Decision Gate shape — 2026-10-19 (Validated and deployed)
+
+- Commit `de69b430fe95144026a5ad80849a11605205a468` is on both the feature
+  branch and `main`.
+- Backend and web `npx tsc --noEmit` passed; both production builds succeeded.
+- Backend isolated tests: 156/156 passed. Frontend isolated tests: 95/95 and
+  6/6 passed.
+- No IaC, identity, RBAC, secret or dependency changes; infrastructure and
+  role validation is not applicable to this application-only release.
+- ACR build `ca6q` succeeded for backend v213. Revision
+  `kh-prod-api-vnet--0000210` is Healthy / RunningAtMaxScale with 100% traffic;
+  startup migration completed and 8/8 database connections are ready.
+- Both production domains serve the matching frontend bundle
+  `/assets/index-DJTk6Gj7.js`.
 
 ### Project and content-type organization — 2026-10-19 09:30 BST (Validated)
 
