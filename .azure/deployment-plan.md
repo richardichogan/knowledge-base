@@ -2,7 +2,22 @@
 
 **Status:** Validated
 
-**Current approved release (2026-10-19, project and content-type organization):**
+**Current approved release (2026-10-19, past-chat discovery and muted links):**
+Deploy commits `6180cc2`, `224b0fb` and `7f7d413`. Backend v211 advances to
+v212 (chat sidebar shows Think/mobile chats, server-side chat search, Athena
+`search_past_chats` / `read_past_chat` tools); frontend adds muted note-link
+styling. No migrations, infrastructure, identity, role or secret changes.
+Rollback backend to v211 and redeploy the previous frontend bundle. User
+explicitly requested deployment. Validation: backend and web `tsc --noEmit`
+pass, backend isolated tests 156/156, frontend 98/98, web build succeeded,
+read-only production probes confirmed the target chats rank first.
+
+**Deployment result (2026-10-19):** Pushed to the feature branch and `main`
+(`7f7d413`). ACR build of `kh-prod-api:v212` from `#main` succeeded. Revision
+`kh-prod-api-vnet--0000209` is Healthy / RunningAtMaxScale and startup logs
+show clean sync runs. Frontend deployed to `kh-prod-web` production.
+
+**Previous approved release (2026-10-19, project and content-type organization):**
 Deploy commits `1227966` and `2dd4d1d` from this worktree. Backend v210 advances
 to v211; deploy the matching frontend to the existing Static Web App. The
 additive startup migration 084 organizes projects under IBM, Nelfin and Personal.
