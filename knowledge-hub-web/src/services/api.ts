@@ -1740,6 +1740,10 @@ export class KnowledgeHubApi {
     return (await this.client.post<ApiResponse<BlogDraft>>(`/api/discover/${id}/blog-draft`, { length }, { timeout: CHAT_TIMEOUT_MS })).data;
   }
 
+  async getBlogCategories(): Promise<ApiResponse<string[]>> {
+    return (await this.client.get<ApiResponse<string[]>>('/api/discover/blog-categories')).data;
+  }
+
   async publishBlogPost(id: string, post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published' }): Promise<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>> {
     return (await this.client.post<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>>(`/api/discover/${id}/blog-publish`, post, { timeout: CHAT_TIMEOUT_MS })).data;
   }

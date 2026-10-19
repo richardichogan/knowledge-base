@@ -6,6 +6,7 @@ import { HTTP_STATUS } from '../config/constants.js';
 import { env } from '../config/env.js';
 import { ValidationError } from '../types/errors.js';
 import { POST_TYPES, type PostType } from '../ai/blogDraft.js';
+import { BLOG_CATEGORIES, resolveBlogCategory } from '../ai/blogHouseStyle.js';
 
 export interface BlogPublishBody { excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
 
@@ -33,6 +34,11 @@ export function parsePublishBody(body: unknown): BlogPublishBody {
     throw new ValidationError('Title (200), summary (1,000) and takeaways (10 max, 300 characters each) exceed the blog limits.');
   }
   if (!parsed.title || !parsed.content || !parsed.summary) throw new ValidationError('Title, summary and content are required to publish.');
+  const unknown = parsed.categories.filter(category => resolveBlogCategory(category) === undefined);
+  if (unknown.length > 0) {
+    throw new ValidationError(`Unknown blog categories: ${unknown.join(', ')}. Use any of: ${BLOG_CATEGORIES.join(', ')}. Other topics such as Dynamics 365 belong in tags. Quick take is a post type, not a category.`);
+  }
+  parsed.categories = [...new Set(parsed.categories.map(category => resolveBlogCategory(category)!))];
   return parsed;
 }
 

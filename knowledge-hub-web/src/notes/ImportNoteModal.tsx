@@ -14,6 +14,7 @@ import { api } from '../services/api';
 import { ProjectOptions } from '../components/ProjectOptions';
 import { useProjects } from '../hooks/useProjects';
 import { TagPicker } from '../components/TagPicker';
+import { EntityChip } from '../identity';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { createNote } from './noteStorage';
 import { markdownToNoteBlocks, plainTextToNoteBlocks } from './markdownToBlocks';
@@ -175,7 +176,7 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
       <p className="notes-meta-section-label">Tags</p>
       <div className="notes-meta-tags-chips">
         {appliedTags.map((t) => (
-          <span key={t.id} className="notes-meta-tag-chip">{t.name}</span>
+          <EntityChip key={t.id} tagId={t.id} fallbackLabel={t.name} />
         ))}
         <TagPicker
           selectedIds={tagIds}

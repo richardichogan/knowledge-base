@@ -26,6 +26,14 @@ export interface ContextUsed {
   outputs: number;
   decisions: number;
   screens: number;
+  /** Character counts for the initial model request, not token estimates or source contents. */
+  initialSize?: {
+    systemChars: number;
+    historyChars: number;
+    turnChars: number;
+    toolSchemaChars: number;
+    outputsIndexChars: number;
+  };
 }
 
 export function emptyContextUsed(): ContextUsed {

@@ -35,6 +35,15 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PublishResult | null>(null);
+  const categories = useQuery({
+    queryKey: ['blog-categories'],
+    queryFn: async () => {
+      const response = await api.getBlogCategories();
+      if (!response.success) throw new Error(response.error?.message ?? 'Could not load blog categories.');
+      return response.data;
+    },
+    retry: false, refetchOnWindowFocus: false,
+  });
   const draft = useQuery({
     queryKey: ['blog-draft', target.key, length],
     queryFn: async () => {
@@ -61,6 +70,10 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
   };
 
   async function publish(status: 'draft' | 'published'): Promise<void> {
+    if (!categories.data || invalidCategories.length > 0) {
+      setError('Choose only accepted blog categories before sending. Other topics belong in tags.');
+      return;
+    }
     if (status === 'published') {
       const warning = value.postType === 'newsletter' ? ' This is a newsletter, so subscribers will be emailed.' : '';
       const ok = await confirmDialog(`Publish "${value.title.trim()}" live on themicrosoftcloudblog.com now?${warning}`,
@@ -94,7 +107,9 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
     setPublishing(false);
   }
 
-  const ready = !!(value.title.trim() && value.summary.trim() && value.content.trim());
+  const invalidCategories = commas(value.categories).filter(category =>
+    !categories.data?.some(accepted => accepted.toLowerCase() === category.toLowerCase()));
+  const ready = !!(value.title.trim() && value.summary.trim() && value.content.trim() && categories.data && invalidCategories.length === 0);
   return <AppDialog title="Publish to blog" wide onClose={onClose}
     actions={<>
       <button type="button" className="kh-dialog__button" disabled={publishing} onClick={onClose}>Close</button>
@@ -121,6 +136,10 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
     {draft.isFetching && <div className="dc-loading" role="status"><InlineLoading description={`Athena is writing ${length === 'short' ? 'a quick take' : 'an article'} in the blog house style...`} /></div>}
     {publishing && <div className="dc-loading" role="status"><InlineLoading description="Sending to The Microsoft Cloud Blog..." /></div>}
     {draft.isError && <p className="dc-linkedin__error" role="alert">{describeApiError(draft.error)}</p>}
+    {categories.isError && <p className="dc-linkedin__error" role="alert">
+      Blog categories could not be loaded: {describeApiError(categories.error)}{' '}
+      <button type="button" className="kh-dialog__button" onClick={() => { void categories.refetch(); }}>Retry categories</button>
+    </p>}
     {d && !draft.isFetching && !draft.isError && !result && <>
       <label className="dc-linkedin__label" htmlFor="blog-type">Post type</label>
       <select id="blog-type" className="dc-filter-select" value={value.postType}
@@ -139,7 +158,15 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
       <label className="dc-linkedin__label" htmlFor="blog-takeaways">{value.postType === 'quick' ? 'Key takeaways (optional, not shown on quick takes)' : 'Key takeaways (one per line)'}</label>
       <textarea id="blog-takeaways" className="dc-linkedin__copy" rows={4} value={value.takeaways} onChange={set('takeaways')} />
       <label className="dc-linkedin__label" htmlFor="blog-categories">Categories (comma separated)</label>
-      <input id="blog-categories" className="dc-linkedin__url" value={value.categories} onChange={set('categories')} />
+      <input id="blog-categories" className="dc-linkedin__url" value={value.categories} onChange={set('categories')}
+        aria-describedby="blog-category-help" aria-invalid={invalidCategories.length > 0} />
+      <p id="blog-category-help" className="dc-linkedin__status">
+        {categories.data ? `Accepted: ${categories.data.join(', ')}.` : 'Loading accepted categories...'}{' '}
+        Use tags for topics such as Dynamics 365. Quick take is a post type, not a category.
+      </p>
+      {categories.data && invalidCategories.length > 0 && <p className="dc-linkedin__error" role="alert">
+        Unsupported categories: {invalidCategories.join(', ')}. Replace them with accepted categories or move them to tags.
+      </p>}
       <label className="dc-linkedin__label" htmlFor="blog-tags">Tags (comma separated)</label>
       <input id="blog-tags" className="dc-linkedin__url" value={value.tags} onChange={set('tags')} />
       <p className="dc-linkedin__status">Save as draft to review it in the blog admin first, or Publish live to post it straight away.</p>

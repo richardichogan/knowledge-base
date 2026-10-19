@@ -18,7 +18,7 @@ import { AI_MAX_TOOL_ITERATIONS, AI_WRAP_UP_ROUND_MIN_MS, SHOW_NOTES_MAX_TOOL_IT
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId, readPastChat, searchReferencedPastChats } from './chatSessionStore.js';
-import { selectRequiredToolChoice } from './toolRouting.js';
+import { focusTools, selectRequiredToolChoice } from './toolRouting.js';
 import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
 import { getCanvas } from '../services/canvasService.js';
 import { buildPeopleContext } from '../services/peopleContext.js';
@@ -26,7 +26,11 @@ import { buildCanvasContext } from '../services/canvasContent.js';
 import { findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../services/diagramContext.js';
 import type { MapChangeProposal } from './mapEdits.js';
 import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
-import { looksLikeMeetingList, importMeetingList, buildTodayScheduleBlock } from '../integrations/ibm/ibmMeetings.js';
+import { looksLikeMeetingList, importMeetingList } from '../integrations/ibm/ibmMeetings.js';
+import { ukClock } from '../sync/ukClock.js';
+
+/** Recent messages that count when deciding whether a follow-up still needs a specialised tool group. */
+const TOOL_FOCUS_HISTORY_MESSAGES = 4;
 
 
 /** Live hooks for a background chat turn. */
@@ -67,7 +71,6 @@ const PAST_CHAT_QUERY_MAX_TERMS = 6;
 const PAST_CHAT_QUERY_MIN_DISTINCT_TERMS = 2;
 const PAST_CHAT_CONTEXT_MAX_MATCHES = 3;
 const PAST_CHAT_CONTEXT_MESSAGES = 3;
-const PEOPLE_CONTEXT_RECENT_USER_MESSAGES = 8;
 const PAST_CHAT_REFERENCE_PATTERN =
   /\b(?:earlier|previous|prior|past|latest)\b[\s\S]{0,35}\b(?:athena\s+)?(?:chat|conversation|discussion)\b|\b(?:we|you)\s+(?:discussed|talked about|covered)\b|\b(?:chat|conversation|discussion)\b[\s\S]{0,70}\b(?:in think|on mobile|on my phone|earlier|before|today)\b|\bwhat we discussed\b/i;
 const PAST_CHAT_QUERY_STOPWORDS = new Set([
@@ -226,9 +229,8 @@ export async function handleConversationTurn(
       console.error('[meetings] import failed:', err);
     }
   }
-  // Today's date and meetings (personal calendar + pasted IBM diary), always.
-  const scheduleBlock = await buildTodayScheduleBlock(db)
-    .catch((err: unknown) => { console.error('[meetings] schedule block failed:', err); return ''; });
+  const clock = ukClock();
+  const dateBlock = `Current UK date: ${clock.day}. Use get_today_schedule to read today's meetings when needed.`;
   const mapBlock = mapId !== undefined && openCanvas === null && pageContext?.type === 'canvas'
     ? `The open canvas (ID ${mapId}) could not be loaded. Tell the user and do not infer contents from its title. For a diagram, read_diagram can retry.`
     : openDiagram !== null ? [
@@ -260,9 +262,9 @@ export async function handleConversationTurn(
     used.screens = (screensBlock.match(/^### /gm) ?? []).length;
   }
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
-  const peopleBlock = await buildPeopleContext(db, [userMessage, ...history.filter(message => message.role === 'user').slice(-PEOPLE_CONTEXT_RECENT_USER_MESSAGES).reverse().map(message => message.content)]);
+  const peopleBlock = await buildPeopleContext(db, [userMessage]);
   const localFolders = toolContext.localFolders ?? [];
-  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, peopleBlock, scheduleBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
@@ -290,11 +292,25 @@ export async function handleConversationTurn(
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
   // The note-edit and map-edit tools are the two largest definitions (about 1,400 tokens between them) and
   // only make sense with a note or canvas open, so they are not sent otherwise.
-  const tools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
+  // Specialised groups (diagram drawing, Discover admin) are only sent when this turn or the last
+  // few messages point at them: fewer, more relevant tools make tool choice more accurate.
+  const focusedTools = focusTools(allTools, {
+    userMessage,
+    recentText: history.slice(-TOOL_FOCUS_HISTORY_MESSAGES).map((message) => message.content).join('\n'),
+    hasOpenDiagram: openDiagram !== null,
+  });
+  const tools = (hooks.readOnlyTools === true ? focusedTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : focusedTools)
     .filter((t) => !briefOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'save_output')
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
+  if (used !== undefined) used.initialSize = {
+    systemChars: baseMessages[0]?.content.length ?? 0,
+    historyChars: baseMessages.slice(1, -1).reduce((total, message) => total + message.content.length, 0),
+    turnChars: baseMessages.at(-1)?.content.length ?? 0,
+    toolSchemaChars: JSON.stringify(tools).length,
+    outputsIndexChars: outputsBlock.length,
+  };
   const requiredFirstTool = selectRequiredToolChoice(
     userMessage,
     tools,

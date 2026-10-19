@@ -5,23 +5,19 @@ import { abortable } from './abortable.js';
 import type { Pool } from 'pg';
 import { downloadBlobAsText } from '../integrations/cms/blobClient.js';
 import { env } from '../config/env.js';
-import { retrieveRagItems, formatRagContext } from './ragRetriever.js';
-import { graphConnectionsFor, formatGraphConnections } from './graphInference.js';
+import { formatRagContext } from './ragRetriever.js';
 import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
 import { IMAGINE_DEMO_BRIEF_SKILL } from './imagineDemoBriefSkill.js';
 import { DISCOVER_APP_GUIDANCE, getDiscoverSources, isDiscoverSourceRequest } from './discoveryContext.js';
-import { retrieveCrossSessionMemory, formatMemoryContext } from './memoryRetriever.js';
+import { formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
 import { loadCurrentProjectContext, formatCurrentProjectContext, type CurrentProjectContext } from './projectContext.js';
 import { embedBatch, cosineSimilarity, isEmbeddingConfigured } from './embeddings.js';
-import { atRiskTasks } from '../services/planNudges.js';
-import { ukClock } from '../sync/ukClock.js';
 import type { AiContext, ConversationMessage, ChatPageContext } from '../types/aiContext.js';
 
 const STATIC_CONTEXT_BLOB = 'config/static-context.md';
-const PROJECT_CONTEXT_BLOB = 'config/project-context.md';
 const CONTEXT_BLOB_TIMEOUT_MS = 5_000;
 
 /**
@@ -231,7 +227,7 @@ const ICA_CAPABILITY_BULLET =
   '- `search_ica`: covers IBM-internal, ibm.com-domain work context (e.g. IBM consulting/delivery ' +
     'projects like IMAGINE, ATOM, ACRE) that cannot flow into search_knowledge_base because it lives outside ' +
     'the Alliance tenant integration. search_ica is NOT an alternative to search_knowledge_base — the two ' +
-    'cover disjoint content. For any question that could touch IBM-internal work, call BOTH tools and ' +
+    'cover disjoint content. When an IBM-internal question needs evidence beyond the supplied source, call BOTH tools and ' +
     'synthesize the combined result into one answer; never present them as two separate lookups or mention ' +
     'which tool/system a fact came from — that is the same "narrating retrieval mechanics" failure called ' +
     'out above for search_knowledge_base.';
@@ -251,12 +247,18 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- `list_tasks`: call this whenever the user asks what tasks/to-dos/work they have, what\'s due, overdue, ' +
     'or outstanding. This is the real Plan board — always use it for task questions instead of ' +
     'search_knowledge_base, which only covers indexed documents/commits/notes, not the task board.',
-  '- `search_knowledge_base`: call this before answering any other question about the user\'s own projects, ' +
-    'activity, or existing content (commits, PRs, issues, notes, emails, calendar). Never call this tool ' +
+  '- `search_knowledge_base`: use this for questions about the user\'s own projects, activity or existing content ' +
+    '(commits, PRs, issues, notes, emails, calendar) when the needed evidence is not already supplied. Never call this tool ' +
     'with the current message alone if it references an established topic without naming it (e.g. a ' +
     'follow-up like "what would that look like?") — reuse the actual project/subject name from earlier in ' +
-    'this conversation as the search term. Do not rely on the auto-retrieved background context alone if ' +
-    'the question needs more detail, and never describe that context to the user as "snippets" or generic ' +
+    'this conversation as the search term. If the supplied document, conversation or current project record ' +
+    'already answers the question, use it directly rather than searching unrelated material. But when he refers ' +
+    'to material that is not in front of you — someone\'s feedback, another call or meeting, a note he says he ' +
+    'has written or added — search for it (no projectId; it is often filed under another client) before ' +
+    'answering. Never answer conditionally ("if X\'s feedback says…") about something you could look up, and ' +
+    'never say you checked or read something unless a tool result in this turn shows it. Other documents, ' +
+    'graph connections and past-chat excerpts are not loaded automatically: fetch them only to fill a gap ' +
+    'or answer an explicit request for comparisons, recall or connections. Never describe the material as "snippets" or generic ' +
     'search results — synthesize it into a real answer. Search again with more specific terms if needed. If ' +
     'a multi-word query returns nothing, retry with just the core keyword (e.g. "imagine" not "project ' +
     'imagine"). Every project has real, extensive activity indexed here — a "not found" result almost ' +
@@ -897,15 +899,12 @@ function resolvePersonaPrompt(persona: string | undefined): string {
 /**
  * Builds the three-layer AI context for a conversation turn.
  *
- * Layer 1 — Static context: user prefs, code standards, identity rules.
- *            Loaded from blob storage. Updated occasionally.
+ * Layer 1 — Static context: editable user profile, prefs and identity rules.
  * Layer 2 — Project context: architecture decisions, active project state.
  *            Loaded fresh on every turn from the saved Projects data.
- * Layer 3 — Dynamic RAG context: top-N relevant items from PostgreSQL FTS
- *            retrieved per turn based on the user query.
+ * Layer 3 — Primary source supplied with this turn. Additional knowledge,
+ *            graph connections and earlier chats are read through tools.
  */
-// Greetings, thanks and one-word acknowledgements don't need the knowledge
-// base searched — skip RAG and cross-session memory for them.
 const SMALL_TALK = /^(hi|hiya|hello|hey|morning|good (morning|afternoon|evening)|thanks|thank you|cheers|ta|ok|okay|great|cool|nice|perfect|lovely|yes|yep|no|nope|bye|goodbye|night)\b[\s,.!?]*(athena|there|all)?[\s,.!?]*$/i;
 
 export function isSmallTalk(message: string): boolean {
@@ -922,22 +921,14 @@ export async function buildAiContext(
 ): Promise<AiContext> {
   const noBackground = persona === 'podcast_show_notes';
   const discoverSourcesRequest = !noBackground && isDiscoverSourceRequest(userQuery, history);
-  const ragQuery = buildRagQuery(userQuery, history);
   const activeProject = currentSessionId !== undefined
     ? await loadActiveSessionProject(db, currentSessionId)
     : null;
 
-  const [staticContext, storedProjectContext, ragItems, memoryItems] = await Promise.all([
-    // Profile now lives in athena_memories (editable in the app); the blob is imported once.
-    // First use seeds it from the built-in "About the user" text plus the old blob file.
-    getProfileText(db, async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].filter((t) => t.trim() !== '').join('\n\n'))
-      .catch(async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].join('\n\n')),
-    loadBlobText(PROJECT_CONTEXT_BLOB),
-    noBackground || discoverSourcesRequest || isSmallTalk(userQuery) ? Promise.resolve([]) : retrieveRagItems(db, ragQuery, activeProject?.id),
-    currentSessionId !== undefined && !noBackground && !discoverSourcesRequest && !isSmallTalk(userQuery)
-      ? retrieveCrossSessionMemory(db, ragQuery, currentSessionId)
-      : Promise.resolve([]),
-  ]);
+  // Import the legacy profile once; current project records replace the old project-context blob.
+  const staticContext = await getProfileText(db, async () =>
+    [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].filter((t) => t.trim() !== '').join('\n\n'))
+    .catch(async () => [USER_PROFILE_BLURB, await loadBlobText(STATIC_CONTEXT_BLOB)].join('\n\n'));
 
   // A project's links should be a list, but older rows stored an empty object — never trust the shape.
   const projectReferences = Array.isArray(activeProject?.links) ? activeProject.links : [];
@@ -973,16 +964,10 @@ export async function buildAiContext(
           'Cross-project reading does not change this conversation\'s project or reassign notes/tasks. ' +
           'Task-board queries and new note filing default to the conversation project unless another is specified.',
       ].filter(Boolean).join('\n');
-  const [projectCatalog, graphConnections] = await Promise.all([
-    !noBackground
-      ? db.query<{ id: string; name: string; importance: string | null; lifecycle_state: string | null; goal: string | null }>(
-        'SELECT id, name, importance, lifecycle_state, goal FROM projects ORDER BY name')
-      : Promise.resolve(null),
-    graphConnectionsFor(db, ragItems).catch((error: unknown) => {
-      console.error('[Athena] Graph connections failed:', error);
-      return [];
-    }),
-  ]);
+  const projectCatalog = !noBackground
+    ? await db.query<{ id: string; name: string; importance: string | null; lifecycle_state: string | null }>(
+      'SELECT id, name, importance, lifecycle_state FROM projects ORDER BY name')
+    : null;
   const catalogContext = projectCatalog && projectCatalog.rows.length > 0
     ? [
         '## Saved projects',
@@ -991,8 +976,7 @@ export async function buildAiContext(
             project.importance !== null && project.importance !== 'normal' ? `${project.importance} importance` : '',
             project.lifecycle_state !== null && project.lifecycle_state !== 'active' ? project.lifecycle_state : '',
           ].filter(Boolean).join(', ');
-          const goal = (project.goal ?? '').trim();
-          return `- ${project.name} (id: ${project.id})${flags !== '' ? ` — ${flags}` : ''}${goal !== '' ? `. Goal: ${goal.length > 160 ? `${goal.slice(0, 157)}…` : goal}` : ''}`;
+          return `- ${project.name} (id: ${project.id})${flags !== '' ? ` — ${flags}` : ''}`;
         }),
         'Projects overlap: something learned for one (a platform, a pattern, a client need) often bears on others. When an answer for one project has implications for another — especially a high-importance one — say so.',
         'When discussing a named project, call get_project_details for its current saved goal, role, ownership, dates and expected outputs. Do not substitute old profile text or memories for current project information.',
@@ -1007,39 +991,17 @@ export async function buildAiContext(
       discoverContext = '## Discover configuration read failed\nThe current subscriptions could not be loaded. Retry get_discover_sources; if unavailable, report that failure and do not claim recommendations are non-duplicates.';
     }
   }
-  const projectContext = [activeProjectContext, catalogContext, storedProjectContext, discoverContext, formatGraphConnections(graphConnections), await atRiskContext(db, history, persona)].filter((block) => block !== '').join('\n\n');
+  const projectContext = [activeProjectContext, catalogContext, discoverContext].filter((block) => block !== '').join('\n\n');
 
   return {
     staticContext,
     projectContext,
     projectReferences,
     activeProjectName: activeProject?.name ?? null,
-    ragItems,
-    ragQuery,
-    memoryItems,
+    ragItems: [],
+    ragQuery: userQuery,
+    memoryItems: [],
   };
-}
-
-/**
- * First turn only: the Plan items he is most likely forgetting, so Athena can raise them once.
- * Later turns skip it so she never nags.
- */
-async function atRiskContext(db: Pool, history: ConversationMessage[], persona?: string): Promise<string> {
-  if (history.length > 0 || (persona !== undefined && persona !== 'general')) return '';
-  try {
-    const items = await atRiskTasks(db, ukClock().day);
-    if (items.length === 0) return '';
-    return [
-      '## Plan items at risk of being forgotten',
-      ...items.map((t) => `- "${t.title}" (task id: ${t.id}) — ${t.reason}`),
-      'If it fits naturally, end your first reply with ONE short line pointing out these items and offering to ' +
-        'reschedule, split or close them. Do not raise them again in this conversation unless he asks. ' +
-        'If his message is urgent or unrelated work, keep the line to a single brief sentence.',
-    ].join('\n');
-  } catch (error) {
-    console.error('[Athena] At-risk tasks failed:', error);
-    return '';
-  }
 }
 
 async function loadActiveSessionProject(
@@ -1052,24 +1014,6 @@ async function loadActiveSessionProject(
   const project = await loadCurrentProjectContext(db, projectId);
   if (project === null) throw new Error(`The conversation's project "${projectId}" no longer exists. Choose another project for this chat.`);
   return project;
-}
-
-/**
- * Builds the text used for auto-RAG retrieval. Using only the latest message
- * misses topic-continuation follow-ups that never repeat the subject by name
- * (e.g. "what does an agentic BPO solution look like?" after an earlier
- * message established "IMAGINE" as the project) — full-text search on that
- * message alone has no way to know to look for IMAGINE content, and falls
- * back to a generic OR-match across unrelated terms. Folding in the user's
- * own last couple of prior messages keeps the established topic in the
- * search query even when the current message doesn't restate it.
- */
-function buildRagQuery(userQuery: string, history: ConversationMessage[]): string {
-  const priorUserMessages = history
-    .filter((message) => message.role === 'user')
-    .slice(-2)
-    .map((message) => message.content);
-  return [...priorUserMessages, userQuery].join(' ');
 }
 
 /**
@@ -1293,6 +1237,9 @@ async function formatPageContext(pageContext: ChatPageContext | undefined, userM
       'background context" below is a separate, automatic search result — it is not part of this document ' +
       'and must not be blended into claims about it unless it is independently and clearly relevant, in ' +
       'which case say explicitly that it comes from a different source.',
+    'This document is not everything he has. If he mentions something it does not contain (another person\'s ' +
+      'feedback, a different call or note), search the knowledge base for it across all projects — never ' +
+      'stand in this document for it.',
   ].filter(Boolean).join('\n');
 }
 

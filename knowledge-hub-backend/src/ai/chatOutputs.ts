@@ -143,33 +143,66 @@ export async function outputsChangedSince(db: Pool, sessionId: string, since: Da
   return rows.map(toSummary);
 }
 
-const OUTPUTS_BLOCK_BUDGET = 30_000;
+const OUTPUT_READ_CHARS = 12_000;
+const MAX_OUTPUT_READ_OFFSET = 2_147_483_646;
+
+export interface ChatOutputPage {
+  id: string;
+  title: string;
+  format: OutputFormat;
+  version: number;
+  content: string;
+  totalChars: number;
+  offset: number;
+  nextOffset: number | null;
+}
+
+export async function readOutputForChat(
+  db: Pool, sessionId: string, outputId: string, offset = 0, expectedVersion?: number,
+): Promise<ChatOutputPage | null> {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_OUTPUT_READ_OFFSET) {
+    throw new Error(`offset must be an integer between 0 and ${MAX_OUTPUT_READ_OFFSET}.`);
+  }
+  const { rows } = await db.query<{ id: string; title: string; format: OutputFormat; version: number; content: string; total_chars: number }>(
+    `SELECT o.id::text, o.title, o.format, v.version,
+       substring(v.content FROM $3::integer + 1 FOR $4::integer) AS content,
+       length(v.content) AS total_chars
+     FROM chat_outputs o
+     JOIN LATERAL (
+       SELECT version, content FROM chat_output_versions
+       WHERE output_id = o.id ORDER BY version DESC LIMIT 1
+     ) v ON true
+     WHERE o.id = $1 AND o.session_id = $2`,
+    [outputId, sessionId, offset, OUTPUT_READ_CHARS],
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  if (expectedVersion !== undefined && row.version !== expectedVersion) {
+    throw new Error('This output changed while being read. Start again at offset 0 before revising it.');
+  }
+  const nextOffset = offset + OUTPUT_READ_CHARS;
+  return {
+    id: row.id, title: row.title, format: row.format, version: row.version,
+    content: row.content, totalChars: row.total_chars, offset,
+    nextOffset: nextOffset < row.total_chars ? nextOffset : null,
+  };
+}
 
 /**
- * The chat's outputs (latest version of each) for Athena's context, so she
- * revises the current text — including the user's own edits.
+ * Metadata only. Bodies are read on demand so unrelated deliverables are not
+ * replayed in every turn; read_output always returns the latest saved version.
  */
 export async function buildOutputsBlock(db: Pool, sessionId: string): Promise<string> {
   const outputs = await listOutputs(db, sessionId);
   if (outputs.length === 0) return '';
   const parts: string[] = [
-    '## Outputs in this chat (the Outputs panel)',
-    'These are the deliverables saved in this chat, latest version of each. To revise one, call save_output with its ' +
-      'output_id and the FULL new content; versions written by "user" are his own edits, so build on them.',
+    '## Outputs in this chat (index only; contents not loaded)',
+    'Before discussing or revising an output, call read_output with its output_id. Read all pages before a full rewrite; ' +
+      'the latest saved version includes the user\'s edits. Never infer its contents from its title or an older reply. ' +
+      'To revise it, call save_output with the same output_id and the FULL new content.',
   ];
-  let budget = OUTPUTS_BLOCK_BUDGET;
   for (const o of outputs) {
-    const latest = await db.query<{ content: string; author: string }>(
-      `SELECT content, author FROM chat_output_versions WHERE output_id = $1 ORDER BY version DESC LIMIT 1`,
-      [o.id],
-    );
-    const v = latest.rows[0];
-    if (v === undefined) continue;
-    const header = `### ${o.title} — output_id ${o.id}, ${o.kind}, v${o.version.toString()} (by ${v.author})`;
-    const body = v.content.length <= budget ? v.content : `${v.content.slice(0, Math.max(0, budget))}\n[…truncated — ask him to open it if you need the rest]`;
-    budget -= body.length;
-    parts.push(header, body);
-    if (budget <= 0) break;
+    parts.push(`### ${o.title} — output_id ${o.id}, ${o.kind}, v${o.version.toString()}`);
   }
   return parts.join('\n\n');
 }

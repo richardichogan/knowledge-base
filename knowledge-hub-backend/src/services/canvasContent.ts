@@ -52,7 +52,7 @@ export async function loadCardText(db: Pool, node: CanvasNode): Promise<CardCont
     }
     case 'ai_session': {
       const r = await db.query<{ role: string; content: string; created_at: string }>(
-        `SELECT role, content, created_at FROM ai_chat_messages WHERE session_id::text = $1 ORDER BY created_at LIMIT $2`,
+        `SELECT role, content, created_at FROM ai_chat_messages WHERE session_id::text = $1 ORDER BY created_at, id LIMIT $2`,
         [node.refId, CHAT_MESSAGE_LIMIT]);
       const text = r.rows.map((m) => `${m.role === 'user' ? 'Richard' : 'Athena'}: ${m.content}`).join('\n\n');
       return { kind: 'Athena chat', title, text, url: null, date: r.rows[r.rows.length - 1]?.created_at ?? null };

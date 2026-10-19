@@ -108,6 +108,6 @@ test('blog prompt asks for the full CMS and social package', () => {
     'Key takeaways', 'Categories', 'Tags', 'LinkedIn post', 'Twitter/X post']) {
     assert.ok(BLOG_PROMPT.includes(field), `missing ${field}`);
   }
-  assert.match(BLOG_PROMPT, /AI & Copilot, Azure, Microsoft 365/);
+  assert.match(BLOG_PROMPT, /AI, Copilot, Microsoft Azure, Bicep/);
   assert.match(BLOG_PROMPT, /Please ensure the image is in high resolution/);
 });

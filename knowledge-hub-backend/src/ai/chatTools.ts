@@ -19,7 +19,8 @@ import { validateNoteEdits, checkEditsAgainstNote, noteHeadings } from './noteEd
 import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
-import { saveOutputVersion, getOutput } from './chatOutputs.js';
+import { saveOutputVersion, getOutput, readOutputForChat } from './chatOutputs.js';
+import { buildTodayScheduleBlock } from '../integrations/ibm/ibmMeetings.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
 export { textToBlocks } from './markdownToNoteBlocks.js';
 import { FoundryClient, type LlmToolDefinition } from './foundryClient.js';
@@ -170,7 +171,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Search terms describing what to look up.' },
-            projectId: { type: 'string', description: 'Optional project filter (e.g. "imagine"). Omit or use an empty string to search all projects, including shared platform knowledge relevant to the client. Use a filter only when the question specifically calls for that project alone.' },
+            projectId: { type: 'string', description: 'Optional project to rank first (e.g. "imagine"). Matches from other projects are still returned, each with its projectId. Omit when looking for something he mentioned (a person, meeting, call, feedback or note) — it is often filed under a different project from the current chat.' },
             limit: { type: 'integer', description: `Max results to return (default ${AI_TOOL_SEARCH_DEFAULT_LIMIT}, max ${AI_TOOL_SEARCH_MAX_LIMIT}).` },
           },
           required: ['query'],
@@ -430,6 +431,30 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           },
           required: ['instruction', 'scope'],
         },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'read_output',
+        description: 'Reads the latest version of one output in THIS chat, including user edits. Use its output_id from the Outputs index. Read before describing or revising it. Returns a bounded page, version and nextOffset; continue with that version as expected_version before rewriting the whole output.',
+        parameters: {
+          type: 'object',
+          properties: {
+            output_id: { type: 'string' },
+            offset: { type: 'integer', minimum: 0, description: 'Start at 0; use nextOffset to continue.' },
+            expected_version: { type: 'integer', minimum: 1, description: 'Required for subsequent pages: the version returned by the first page. If it changed, start again at offset 0.' },
+          },
+          required: ['output_id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_today_schedule',
+        description: 'Reads today\'s recorded personal and pasted IBM meetings, with current UK date/time. Use for questions about today\'s diary, availability, clashes or meeting preparation. The calendar is not loaded automatically; do not infer availability from missing context.',
+        parameters: { type: 'object', properties: {} },
       },
     },
     {
@@ -804,6 +829,21 @@ export async function executeToolCall(
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
     case 'create_spark':          return createSparkFromChat(db, args);
     case 'remember':              return rememberInstruction(db, args, turn.sessionId);
+    case 'get_today_schedule': return { schedule: await buildTodayScheduleBlock(db) };
+    case 'read_output': {
+      if (turn.sessionId === undefined) return { error: 'No chat to read an output from.' };
+      const id = args['output_id'];
+      const offset = args['offset'] ?? 0;
+      const expectedVersion = args['expected_version'];
+      if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return { error: 'Provide an output_id from this chat\'s Outputs index.' };
+      if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0) return { error: 'offset must be a non-negative safe integer.' };
+      if (expectedVersion !== undefined && (typeof expectedVersion !== 'number' || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1)) {
+        return { error: 'expected_version must be a positive safe integer.' };
+      }
+      if (offset > 0 && expectedVersion === undefined) return { error: 'Provide expected_version from the first page before continuing.' };
+      const output = await readOutputForChat(db, turn.sessionId, id, offset, expectedVersion);
+      return output === null ? { error: 'That output was not found in this chat.' } : output;
+    }
     case 'save_output': {
       if (turn.sessionId === undefined) return { error: 'No chat to save the output in.' };
       if (typeof args['content'] !== 'string' || args['content'].trim() === '') return { error: 'content is required.' };
@@ -890,7 +930,14 @@ export async function executeToolCall(
  * topped up with any additional Foundry IQ matches not already present.
  */
 export async function getKnowledgeBaseItems(db: Pool, query: string, limit: number, projectId = '') {
-  const directMatches = await getRagItems(db, query, limit, projectId === '' ? undefined : projectId);
+  // A project filter ranks that project first but never hides real matches
+  // elsewhere: what he refers to is often filed under another client (e.g.
+  // feedback from an IMAGINE meeting discussed in an IKEA chat).
+  const [scoped, everywhere] = await Promise.all([
+    projectId === '' ? Promise.resolve([]) : getRagItems(db, query, limit, projectId),
+    getRagItems(db, query, limit),
+  ]);
+  const directMatches = projectId === '' ? everywhere : interleaveUnique(everywhere, scoped);
   let combined = directMatches;
 
   if (isFoundryIqEnabled()) {
@@ -915,6 +962,17 @@ export async function getKnowledgeBaseItems(db: Pool, query: string, limit: numb
     ...combined,
     ...overviewItems.filter((item) => !seen.has(item.id)),
   ].slice(0, limit);
+}
+
+export function interleaveUnique<T extends { id: string }>(first: T[], second: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (let i = 0; i < Math.max(first.length, second.length); i++) {
+    for (const item of [first[i], second[i]]) {
+      if (item !== undefined && !seen.has(item.id)) { seen.add(item.id); out.push(item); }
+    }
+  }
+  return out;
 }
 
 /**

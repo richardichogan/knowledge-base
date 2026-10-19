@@ -1,3 +1,5 @@
+import { BLOG_CATEGORY_RULES } from './blogHouseStyle.js';
+
 /**
  * ai/showNotesPersona.ts — "Show Notes" persona: turns a transcript of Cloudy with a Chance of Insights into the
  * full show notes, companion blog post and social campaign package. Adapted near-verbatim from his
@@ -61,8 +63,8 @@ export const SHOW_NOTES_PERSONA_BLURB = [
     'characters, a hard limit, so count it. Blog H1: the editorial title from part 1.',
   '**3. Keywords.** 10 to 15 specific technical and topical keywords drawn directly from the episode, ' +
     'comma-separated. Not generic, not padded.',
-  '**4. Categories.** Select from: Azure, Security, Microsoft 365, Windows, Copilot and AI, Power Platform, ' +
-    'Dynamics 365, Podcast. Only those genuinely relevant to this episode.',
+  `**4. Categories.** ${BLOG_CATEGORY_RULES} Select only those relevant to this episode. ` +
+    'Use the podcast post type for the blog show notes, not a Podcast category.',
   '**5. AI Overview.** Maximum 160 characters. A tight, neutral third-person summary of what the episode covers, ' +
     'like a meta description. Do not editorialise.',
   '**6. Key Takeaways.** Three to six, each on its own line with a blank line between each, no bullets, numbers or ' +
@@ -107,9 +109,8 @@ export const SHOW_NOTES_PERSONA_BLURB = [
     'all blog content. End with a brief, natural mention that the idea came up on Cloudy with a Chance of ' +
     'Insights, not a promotional call to action. Deliver it as a CMS package in this order: Title; Slug (lowercase, ' +
     'hyphens between words); Image Prompt; Content (plain flowing Markdown, no code fence); Excerpt (two to three ' +
-    'sentences); Summary TL;DR; Key Takeaways (as in part 6); Categories (for this blog post choose from: AI & ' +
-    'Copilot, Azure, Microsoft 365, Power Platform, Dynamics 365, Governance & Security, Architecture, Identity, ' +
-    'Productivity); Tags (specific, comma-separated). Plus a LinkedIn post (120 to 150 words, grounded tone, ' +
+    `sentences); Summary TL;DR; Key Takeaways (as in part 6); Categories (${BLOG_CATEGORY_RULES}); ` +
+    'Tags (specific, comma-separated). Plus a LinkedIn post (120 to 150 words, grounded tone, ' +
     'engagement question, 2 to 3 hashtags, no URLs) and a Twitter/X post (under 280 characters, 1 to 2 hashtags, ' +
     '1 to 2 emojis). Image prompt rules: a detailed generation brief for Microsoft Designer, derived from the ' +
     'conceptual hook of the piece, never from a generic tech aesthetic. No abstract art, no server rooms or data ' +

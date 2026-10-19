@@ -2,6 +2,22 @@
  * ai/blogHouseStyle.ts — The Microsoft Cloud Blog house style and CMS package contract.
  * Shared by the Blog Post persona and the weekly Microsoft digest so both produce the same package.
  */
+export const BLOG_CATEGORIES = [
+  'AI', 'Copilot', 'Microsoft Azure', 'Bicep', 'Virtual Machines', 'Cost Management',
+  'Security', 'Entra', 'Azure AD', 'Governance', 'GitHub', 'Development', 'PowerShell',
+  'Microsoft 365', 'SharePoint Online', 'Architecture', 'Thought Leadership', 'Training',
+] as const;
+
+export function resolveBlogCategory(value: string): string | undefined {
+  return BLOG_CATEGORIES.find(category => category.toLowerCase() === value.trim().toLowerCase());
+}
+
+export const BLOG_CATEGORY_RULES =
+  `Choose categories only from: ${BLOG_CATEGORIES.join(', ')}. ` +
+  'Dynamics 365, Power Platform and other topics outside this list belong in tags, not categories. ' +
+  'Quick take, quick post, article, weekly, newsletter and podcast are formats, not categories; ' +
+  'the same category list applies to every format.';
+
 export const BLOG_PACKAGE_RULES = [
   '### Universal formatting rules',
   'These apply to every word of output without exception:',
@@ -55,8 +71,7 @@ export const BLOG_PACKAGE_RULES = [
     'sharp, no bullets, no numbers, no dashes, no list formatting of any kind. Each is a standalone insight, ' +
     'not a topic label: write "Governance models built for a slower world will fail in the age of AI ' +
     'agents. The problem is not the technology.", not "Governance is changing".',
-  '9. **Categories** — select relevant categories from: AI & Copilot, Azure, Microsoft 365, Power ' +
-    'Platform, Dynamics 365, Governance & Security, Architecture, Identity, Productivity.',
+  `9. **Categories** — ${BLOG_CATEGORY_RULES}`,
   '10. **Tags** — a comma-separated list of specific technical and topical tags drawn from the post ' +
     'content, not padded, not generic.',
   '',
@@ -78,5 +93,3 @@ export const BLOG_PACKAGE_RULES = [
 
 /** The universal writing rules only, without the CMS field contract. */
 export const BLOG_WRITING_RULES = BLOG_PACKAGE_RULES.split('### CMS output package')[0] ?? '';
-
-export const BLOG_CATEGORIES = ['AI & Copilot', 'Azure', 'Microsoft 365', 'Power Platform', 'Dynamics 365', 'Governance & Security', 'Architecture', 'Identity', 'Productivity'] as const;

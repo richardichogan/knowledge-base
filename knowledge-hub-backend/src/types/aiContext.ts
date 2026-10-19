@@ -64,16 +64,15 @@ export interface AiContext {
   /** Name of the active project, used to identify project-specific questions. */
   activeProjectName: string | null;
   /**
-   * Dynamic RAG context — top-N relevant content items retrieved from
-   * PostgreSQL FTS for the current user query.
+   * Optional background items for prompt assembly. Ordinary conversation
+   * turns leave this empty and retrieve additional sources through tools.
    */
   ragItems: ContentItem[];
   /** The search query the RAG items were retrieved for (used to pick relevant passages). */
   ragQuery: string;
   /**
-   * Cross-session memory — top relevant snippets pulled from OTHER chat
-   * sessions (not the current one), so Athena can recall and cross-reference
-   * earlier, separate conversations, not just the official KB library.
+   * Optional past-conversation excerpts. Ordinary turns leave this empty;
+   * explicit recall is handled separately from automatic background context.
    */
   memoryItems: MemoryItem[];
 }

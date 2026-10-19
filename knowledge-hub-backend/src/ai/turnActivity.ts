@@ -30,6 +30,8 @@ const LABELS: Record<string, string> = {
   propose_map_changes: 'Drafting changes to the canvas',
   remember: 'Saving to memory',
   save_output: 'Saving to Outputs',
+  read_output: 'Reading a saved output',
+  get_today_schedule: 'Reading today\'s meetings',
   forget_memory: 'Updating memory',
   list_memories: 'Checking what I remember',
   add_discover_source: 'Adding a Discover source',

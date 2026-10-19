@@ -92,16 +92,18 @@
 .notes-list-pagination__more {
   min-height: var(--kh-control-height);
   padding: 0.25rem 0.5rem;
-  border: 1px solid var(--cds-border-subtle-01);
+  border: 1px solid var(--cds-border-strong-01);
   border-radius: var(--kh-control-radius);
   background: transparent;
-  color: var(--kh-accent);
+  color: var(--cds-text-secondary);
   font: inherit;
+  font-size: var(--kh-text-body);
   cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
 
   &:hover:not(:disabled) {
-    border-color: var(--kh-accent-border);
-    background: var(--kh-accent-bg);
+    background: var(--cds-layer-hover-01);
+    color: var(--cds-text-primary);
   }
 
   &:focus-visible {

@@ -8,7 +8,7 @@ const source = { title: 'Copilot plugin registry', body: 'Microsoft announced a 
 const words = (n: number) => Array.from({ length: n }, () => 'word').join(' ');
 const reply = (title: string, n: number, extra = '') => JSON.stringify({
   title, excerpt: 'Hook.', summary: 'The registry is an admin story.', content: `<p>${words(n)}${extra}</p>`,
-  keyTakeaways: ['One.', 'Two.', 'Three.'], categories: ['AI & Copilot', 'Quick Take'], tags: ['Copilot'],
+  keyTakeaways: ['One.', 'Two.', 'Three.'], categories: ['AI', 'Copilot', 'Quick Take'], tags: ['Copilot'],
 });
 
 test('quick take is regenerated once when too long, capped to two takeaways and typed as quick', async () => {
@@ -22,7 +22,7 @@ test('quick take is regenerated once when too long, capped to two takeaways and 
   assert.equal(draft.postType, 'quick');
   assert.equal(draft.title, 'Registry is an admin story');
   assert.deepEqual(draft.keyTakeaways, ['One.', 'Two.']);
-  assert.deepEqual(draft.categories, ['AI & Copilot']);
+  assert.deepEqual(draft.categories, ['AI', 'Copilot']);
 });
 
 test('quick take keeps only the source and supplied earlier-post links', async () => {

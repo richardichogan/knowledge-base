@@ -21,7 +21,6 @@ import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } f
 import { DiscoverExplore } from '../components/discover/DiscoverExplore';
 import { DiscoverWatchlists } from '../components/discover/DiscoverWatchlists';
 import { DiscoverInterests } from '../components/discover/DiscoverInterests';
-import { DiscoverParkingAction } from '../components/discover/DiscoverParkingAction';
 import { buildBriefing, readSinceLastLooked } from '../features/discover/discoverInsights';
 import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
@@ -367,7 +366,6 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           </button>
         </div>
       </div>
-      <DiscoverParkingAction item={item} />
     </div>
   );
 };

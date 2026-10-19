@@ -412,11 +412,22 @@ node focuses its details and closing returns focus to the selected control.
 
 Navigation regressions use the same isolated fixture server and Chromium executable as the Today checks below. Run `node tests/run-navigation-browser.mjs` from `knowledge-hub-web` with `TODAY_BROWSER_PATH` set. The fixture covers desktop (1440px), keyboard/focus behaviour, supporting routes, existing management panels, embedded Athena launch and failed supporting services. Mobile coverage is limited to the separate `chat` journey. API/auth requests are blocked. Unit tests run with `node --import tsx/esm --test ../knowledge-hub-web/tests/navigation.test.ts` from the backend folder.
 
+## Blog publishing categories
+
+Blog drafts and publishing share the CMS's accepted category list, exposed to the
+editor through `/api/discover/blog-categories`. It applies to articles and quick
+takes from Discover and Sparks, the blog persona, weekly digests and companion
+blog posts. Unsupported categories are rejected before sending; topics such as
+Dynamics 365 and Power Platform belong in tags. Quick take is `postType: quick`,
+not a category. `BLOG_POSTS_URL` configures the publishing endpoint (default
+`https://themicrosoftcloudblog.com/api/v1/posts/`); category changes do not imply
+a different URL.
+
 ## Newsletter and podcast parking lot
 
 Discover's **Parking lot** keeps articles for a future **Newsletter**, **Podcast**
-or both. Choose **Park for later** on an article (including Saved articles) or in
-Explore, select either or both destinations, then **Save to parking lot**. Entries
+or both. Open an article's **Explore** panel (including Saved articles), choose
+**Park for later**, select either or both destinations, then **Save to parking lot**. Entries
 are stored on the server, appear once even when marked for both, and survive feed
 refreshes. The pool shows the original source, excerpt and link; **Edit parking**
 changes destinations or removes the entry without deleting the article.
@@ -582,6 +593,28 @@ existing diagrams retain their original 1.5 px line weight.
 Athena's optional context-file reads are bounded to five seconds. Background
 chat deadlines and Stop cover context/tool preparation as well as model
 generation; cancelled turns discard late results rather than staying busy.
+
+Athena no longer automatically searches the knowledge base, graph and other
+chats on every message. The supplied source, recent conversation, standing
+instructions and current saved project remain available; extra sources are
+read through tools when the question needs them, including across projects.
+The project catalogue lists identities and status rather than every project's
+goal, and the legacy project-context blob is no longer layered over current
+project records. Unsolicited first-turn task reminders are not injected.
+People context matches names in the current request, not eight earlier turns.
+Today's date is supplied without the diary; `get_today_schedule` reads meetings
+on demand. Saved Outputs contribute an index only; `read_output` reads the
+latest version in this chat in 12,000-character pages before discussion or
+revision. Source documents, user edits and saved data are not shortened or
+deleted by this change. The reply's existing `contextUsed` metadata records
+`initialSize` character counts for the assembled system, history, current
+turn, tool schemas and Outputs index, not their contents or token estimates.
+These counts describe the initial request, not later tool rounds. Diagram
+drawing tools (`create_diagram`, `update_diagram`, about 40% of all tool
+schema text) and Discover admin tools (adding or changing feeds, moving
+articles, the weekly digest) are only offered when the current message, the
+last four messages or an open diagram points at them; reading tools are always
+offered. Model routing is unchanged.
 
 Think action feedback stays within the editor column rather than overlaying
 the side-panel tabs. GitHub metadata groups its publication status, file link

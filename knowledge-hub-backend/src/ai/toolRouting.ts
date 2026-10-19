@@ -24,6 +24,44 @@ const PROJECT_REFERENCE_QUESTION_PATTERN =
   /\b(?:what\s+is|how\s+does|capabilit(?:y|ies)|feature|architecture|positioning|product|platform|framework|current\s+state|latest)\b/i;
 const INTERNAL_RECORD_QUESTION_PATTERN =
   /\b(?:tasks?|to-dos?|work\s+items?|commits?|pull\s+requests?|merge\s+requests?|issues?|notes?|calendar|emails?|activity)\b/i;
+const PERSONAL_SCHEDULE_PATTERN =
+  /\b(?:my|our|today'?s)\s+(?:calendar|diary|schedule|meetings?|appointments?|availability)\b|\bam\s+i\s+(?:free|busy)\b|\bwhat(?:'s|\s+is)\s+on\s+today\b|\bwhat\s+(?:am\s+i\s+doing|do\s+i\s+have)\s+today\b/i;
+// He points at material held somewhere other than the open document ("Robert's feedback", "notes from
+// Dhalia's call", "I've added…", "go find the note"). Answering from the open note alone, or "if…", is wrong.
+const POSSESSIVE = String.raw`\w+(?:['’]s|s['’]?)`;
+const REFERENCED_MATERIAL_PATTERN = new RegExp(String.raw`\b(?:i(?:['’]ve|\s+have)?\s+(?:now\s+|just\s+|already\s+)?(?:provided|added|attached|uploaded|shared|written|captured|saved|included|pasted)\b|${POSSESSIVE}\s+(?:feedback|comments?|input|thoughts|reply|response|write-?up|notes?)\b|feedback\s+from\b|notes?\s+(?:from|on|about)\s+(?:the|my|our|${POSSESSIVE})\s|(?:from|on|in|during)\s+(?:the|my|our|${POSSESSIVE})\s+(?:call|meeting|chat|catch-?up|session|workshop)\b|go\s+(?:and\s+)?(?:find|get|look)\b|find\s+(?:the|my|that|his|her)\s+note|(?:never|don['’]?t|do\s+not)\s+assume\b)`, 'i');
+const OTHER_DAY_PATTERN = /\b(?:tomorrow|yesterday|next|last|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
+const TODAY_REQUEST_PATTERN = /\b(?:today|this\s+(?:morning|afternoon|evening))\b/i;
+
+// Tool groups whose schemas are large or specialised; sent only when the turn could plausibly need them.
+const DIAGRAM_WRITE_TOOLS = new Set(['create_diagram', 'update_diagram']);
+const DIAGRAM_INTENT_PATTERN =
+  /\b(?:diagrams?|draw|drawing|flow\s*-?charts?|swim\s*-?lanes?|lanes?|visuali[sz]e|visual|architecture|sketch|shapes?|connectors?|boxes|legend|footnotes?|agentic|ai[\s-]+flow|governance\s+flow|process\s+(?:map|flow))\b/i;
+const DISCOVER_ADMIN_TOOLS = new Set([
+  'add_discover_source', 'update_discover_source', 'set_discover_item_state', 'inspect_discover_feed', 'create_weekly_microsoft_digest',
+]);
+const DISCOVER_INTENT_PATTERN =
+  /\b(?:discover|feeds?|rss|atom|subscri\w*|sources?|digest|weekly|monday|articles?|shelve\w*|restore|dismiss\w*|park(?:ed|ing)?|later|newsletters?|podcasts?|blog)\b/i;
+
+/**
+ * Withholds specialised tool groups the turn does not need, so the model sees fewer, more relevant
+ * choices and less prompt. Conservative: the current message and recent history both count, so
+ * follow-ups ("add a box to it") still get the tools.
+ */
+export function focusTools(
+  tools: LlmToolDefinition[],
+  turn: { userMessage: string; recentText?: string; hasOpenDiagram?: boolean },
+): LlmToolDefinition[] {
+  const text = `${turn.userMessage}\n${turn.recentText ?? ''}`;
+  const wantsDiagram = turn.hasOpenDiagram === true || DIAGRAM_INTENT_PATTERN.test(text);
+  const wantsDiscover = DISCOVER_INTENT_PATTERN.test(text);
+  return tools.filter((tool) => {
+    const name = tool.function.name;
+    if (DIAGRAM_WRITE_TOOLS.has(name)) return wantsDiagram;
+    if (DISCOVER_ADMIN_TOOLS.has(name)) return wantsDiscover;
+    return true;
+  });
+}
 
 function findToolName(tools: LlmToolDefinition[], predicate: (name: string) => boolean): string | undefined {
   return tools.find((tool) => predicate(tool.function.name.toLowerCase()))?.function.name;
@@ -89,6 +127,11 @@ export function selectRequiredToolChoice(
     }
   }
 
+  if (PERSONAL_SCHEDULE_PATTERN.test(userMessage) && TODAY_REQUEST_PATTERN.test(userMessage) && !OTHER_DAY_PATTERN.test(userMessage)) {
+    const scheduleToolName = findToolName(tools, name => name === 'get_today_schedule');
+    if (scheduleToolName !== undefined) return { type: 'function', function: { name: scheduleToolName } };
+  }
+
   // Asked to draw a new diagram: create it rather than searching existing ones.
   if (DIAGRAM_CREATE_PATTERN.test(userMessage) || AI_FLOW_CREATE_PATTERN.test(userMessage)) {
     const createTool = findToolName(tools, name => name === 'create_diagram');
@@ -106,6 +149,11 @@ export function selectRequiredToolChoice(
     if (fetchToolName !== undefined) {
       return { type: 'function', function: { name: fetchToolName } };
     }
+  }
+
+  if (REFERENCED_MATERIAL_PATTERN.test(userMessage)) {
+    const searchToolName = findToolName(tools, (name) => name === 'search_knowledge_base');
+    if (searchToolName !== undefined) return { type: 'function', function: { name: searchToolName } };
   }
 
   if (INTERNAL_RECORD_QUESTION_PATTERN.test(userMessage)) return undefined;

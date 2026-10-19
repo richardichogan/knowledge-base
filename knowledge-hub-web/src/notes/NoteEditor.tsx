@@ -12,7 +12,7 @@ import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
-import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch } from '@carbon/icons-react';
+import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch, TextBold, TextItalic, ListChecked, ListBulleted, ListNumbered, Quotes } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { noteFilename } from './noteFilename';
@@ -986,6 +986,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             type="button"
             className={`notes-tb-btn${toolbarState.blockType === 'heading' && toolbarState.level === 1 ? ' notes-tb-btn--active' : ''}`}
             title="Heading 1"
+            aria-label="Heading 1"
+            aria-pressed={toolbarState.blockType === 'heading' && toolbarState.level === 1}
             onClick={() => { toggleHeading(1); }}
           >
             H1
@@ -994,6 +996,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             type="button"
             className={`notes-tb-btn${toolbarState.blockType === 'heading' && toolbarState.level === 2 ? ' notes-tb-btn--active' : ''}`}
             title="Heading 2"
+            aria-label="Heading 2"
+            aria-pressed={toolbarState.blockType === 'heading' && toolbarState.level === 2}
             onClick={() => { toggleHeading(2); }}
           >
             H2
@@ -1003,59 +1007,73 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             type="button"
             className={`notes-tb-btn${toolbarState.bold ? ' notes-tb-btn--active' : ''}`}
             title="Bold"
+            aria-label="Bold"
+            aria-pressed={toolbarState.bold}
             onClick={() => { toggleInlineStyle('bold'); }}
           >
-            B
+            <TextBold size={16} />
           </button>
           <button
             type="button"
             className={`notes-tb-btn${toolbarState.italic ? ' notes-tb-btn--active' : ''}`}
             title="Italic"
+            aria-label="Italic"
+            aria-pressed={toolbarState.italic}
             onClick={() => { toggleInlineStyle('italic'); }}
           >
-            I
+            <TextItalic size={16} />
           </button>
           <span className="notes-tb-sep" />
           <button
             type="button"
             className={`notes-tb-btn${toolbarState.blockType === 'checkListItem' ? ' notes-tb-btn--active' : ''}`}
             title="Checklist"
+            aria-label="Checklist"
+            aria-pressed={toolbarState.blockType === 'checkListItem'}
             onClick={() => { toggleBlockType('checkListItem'); }}
           >
-            [ ]
+            <ListChecked size={16} />
           </button>
           <button
             type="button"
             className={`notes-tb-btn${toolbarState.blockType === 'bulletListItem' ? ' notes-tb-btn--active' : ''}`}
             title="Bullet list"
+            aria-label="Bullet list"
+            aria-pressed={toolbarState.blockType === 'bulletListItem'}
             onClick={() => { toggleBlockType('bulletListItem'); }}
           >
-            •—
+            <ListBulleted size={16} />
           </button>
           <button
             type="button"
             className={`notes-tb-btn${toolbarState.blockType === 'numberedListItem' ? ' notes-tb-btn--active' : ''}`}
             title="Numbered list"
+            aria-label="Numbered list"
+            aria-pressed={toolbarState.blockType === 'numberedListItem'}
             onClick={() => { toggleBlockType('numberedListItem'); }}
           >
-            1.—
+            <ListNumbered size={16} />
           </button>
           <span className="notes-tb-sep" />
           <button
             type="button"
             className={`notes-tb-btn${toolbarState.blockType === 'codeBlock' ? ' notes-tb-btn--active' : ''}`}
             title="Code block"
+            aria-label="Code block"
+            aria-pressed={toolbarState.blockType === 'codeBlock'}
             onClick={() => { toggleBlockType('codeBlock'); }}
           >
-            &lt;/&gt;
+            <Code size={16} />
           </button>
           <button
             type="button"
             className={`notes-tb-btn${toolbarState.blockType === 'quote' ? ' notes-tb-btn--active' : ''}`}
             title="Quote"
+            aria-label="Quote"
+            aria-pressed={toolbarState.blockType === 'quote'}
             onClick={() => { toggleBlockType('quote'); }}
           >
-            ❝
+            <Quotes size={16} />
           </button>
           <span className="notes-tb-stats">{wordCount} words · {readingTime} min read</span>
         </div>

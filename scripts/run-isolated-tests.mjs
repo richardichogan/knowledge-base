@@ -29,6 +29,9 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/documentList.test.ts',
   '../knowledge-hub-web/tests/projectOptions.test.ts',
 ] : [
+  'scripts/focused-context.test.ts',
+  'scripts/project-context.test.ts',
+  'scripts/chat-session-store.test.ts',
   'scripts/discover-parking.test.ts',
   'scripts/people.test.ts',
   'scripts/project-parents-migration.test.ts',
@@ -46,6 +49,7 @@ const tests = frontend ? [
   'scripts/plan-review.test.ts',
   'scripts/plan-nudges.test.ts',
   'scripts/blog-quick-take.test.ts',
+  'scripts/blog-publishing.test.ts',
   'scripts/podcast-prep.test.ts',
   'scripts/email-account-connections.test.ts',
   'scripts/alliance-mail.test.ts',

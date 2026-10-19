@@ -97,6 +97,14 @@ export interface ContextUsedApi {
   outputs: number;
   decisions: number;
   screens: number;
+  /** Character counts for the initial model request, not token estimates or source contents. */
+  initialSize?: {
+    systemChars: number;
+    historyChars: number;
+    turnChars: number;
+    toolSchemaChars: number;
+    outputsIndexChars: number;
+  };
 }
 
 /** An output saved or revised in a turn. */

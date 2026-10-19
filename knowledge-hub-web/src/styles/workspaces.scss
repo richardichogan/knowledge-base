@@ -70,24 +70,13 @@
 
 .notes-bottom-toolbar.kh-command-row {
   .notes-tb-btn {
-    min-width: var(--kh-control-height);
+    min-width: var(--kh-control-height-compact);
     padding-inline: 0.375rem;
   }
   .notes-tb-stats {
-    font-size: 0.75rem;
+    font-size: var(--kh-text-meta);
     white-space: nowrap;
   }
-}
-
-.notes-list-arrange.kh-command-row {
-  .notes-list-arrange__sort { flex: 1 1 100%; }
-  .notes-list-filter__select {
-    box-sizing: border-box;
-    height: var(--kh-control-height);
-    min-height: var(--kh-control-height);
-  }
-  .notes-list-arrange__label,
-  .notes-list-arrange__toggle { font-size: 0.75rem; }
 }
 
 @container think-editor (max-width: 480px) {
@@ -95,10 +84,10 @@
   .notes-editor-inner .bn-editor {
     padding-inline: 1.5rem 0.5rem;
 
-    [data-content-type='heading'][data-level='1'] { --level: 24px; }
-    [data-content-type='heading'][data-level='2'] { --level: 20px; }
+    [data-content-type='heading'][data-level='1'] { --level: 1.5rem; }
+    [data-content-type='heading'][data-level='2'] { --level: 1.25rem; }
     > [data-node-type='blockGroup'] > [data-node-type='blockOuter']:first-child [data-content-type='heading'] {
-      font-size: 28px !important;
+      font-size: 1.75rem !important;
     }
   }
   .notes-bottom-toolbar.kh-command-row {

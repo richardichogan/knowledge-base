@@ -12,12 +12,17 @@ import { discoverRankSql } from '../integrations/cms/discoverRank.js';
 import { interestSql } from '../services/discoverInterests.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
 import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
+import { BLOG_CATEGORIES } from '../ai/blogHouseStyle.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { BlueskyPostUnconfirmedError, blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
 import { getDiscoverParking, saveDiscoverParking, removeDiscoverParking, type DiscoverParking } from '../services/discoverParking.js';
 
 export const discoverRouter = Router();
+
+discoverRouter.get('/blog-categories', (_req: Request, res: Response): void => {
+  res.json({ success: true, data: BLOG_CATEGORIES });
+});
 
 export type WorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published' | 'shelved';
 
