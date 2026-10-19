@@ -22,6 +22,34 @@ test('people validate names, text, emails and frequency without coercing invalid
   }
 });
 
+test('seed migration loads the contact report once, with aliases, without overwriting existing people', async () => {
+  const db = new PGlite();
+  await db.exec('CREATE TABLE notes(id UUID PRIMARY KEY,content TEXT,status TEXT DEFAULT \'active\',updated_at TIMESTAMPTZ DEFAULT NOW());');
+  const sql = async (filename: string) => db.exec(await readFile(new URL(`../src/db/migrations/${filename}`, import.meta.url), 'utf8'));
+  for (const filename of ['064_note_list_metadata.sql', '082_note_links.sql', '085_people.sql']) await sql(filename);
+  await db.query(`INSERT INTO people(id,name,emails,notes) VALUES (gen_random_uuid(),'Miha Kralj',ARRAY['miha.kralj@ibm.com'],'Hand-written note')`);
+  await sql('086_people_seed.sql');
+  await sql('086_people_seed.sql');
+  const count = await db.query<{ n: number }>('SELECT count(*)::int AS n FROM people');
+  assert.equal(count.rows[0]?.n, 40);
+  const miha = await db.query<{ notes: string }>(`SELECT notes FROM people WHERE name='Miha Kralj'`);
+  assert.deepEqual(miha.rows, [{ notes: 'Hand-written note' }], 'existing person kept, not duplicated');
+  const pool = getDb();
+  const query = mock.method(pool, 'query', (text: string, args?: unknown[]) => db.query(text, args));
+  try {
+    const [chad] = await listPeople(pool, 'chad.thomas@neudesic.com');
+    assert.equal(chad?.name, 'Chad Thomas');
+    assert.deepEqual(chad?.emails, ['chad.thomas@ibm.com', 'chad.thomas@neudesic.com']);
+    assert.equal(chad?.organisation, 'IBM / Neudesic');
+    assert.equal(chad?.emailCount, 12);
+    const [chris] = await listPeople(pool, 'Chris McGuire');
+    assert.equal(chris?.role, 'your manager');
+    assert.equal(chris?.sourcePeriod, '5 – 19 October 2026');
+    assert.equal((await listPeople(pool, 'anya.keating@reckitt.com'))[0]?.name, 'Anya Keating');
+    assert.equal((await listPeople(pool, 'Celonis'))[0]?.name, 'Jonathan Elwyn');
+  } finally { query.mock.restore(); }
+});
+
 test('persistent people CRUD/import, alias lookup, note mentions, backlinks, previews and chat grounding', async () => {
   const db = new PGlite();
   await db.exec(`

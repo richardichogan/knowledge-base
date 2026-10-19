@@ -14,9 +14,12 @@ organisation. Reimporting replaces the snapshot count, not adds it. Existing
 hand-written notes and roles are kept. Conflicting matches fail the entire
 import rather than silently merging different contacts.
 
-Contact reports are imported into the authenticated backend database. Personal
-contact data is not bundled with the website or committed as seed data.
-Migration `085_people.sql` runs on backend startup.
+Contact reports are imported into the authenticated backend database.
+Migration `085_people.sql` creates the table. Migration `086_people_seed.sql`
+loads the 40 people from *Key Email Contacts – Last 2 Weeks* (5–19 October 2026)
+once, on the next backend startup. It skips anyone already present (matched by
+email or name), so later edits are never overwritten. The contact data lives
+only in the backend database and its migration, not in the website bundle.
 
 ## Mentions
 
