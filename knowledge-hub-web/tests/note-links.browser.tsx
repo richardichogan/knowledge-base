@@ -29,7 +29,9 @@ api.getTaxonomy = async () => ({ success: true, data: [] });
 api.getNoteTags = async () => ({ success: true, data: [] });
 api.getProjects = async () => ({ success: true, data: [] });
 api.getNoteGitHub = async () => ({ success: true, data: null });
-api.getNoteBacklinks = async () => ({ success: true, data: { items: [targets[0]!], hasMore: false } });
+api.getEntityBacklinks = async () => ({ success: true, data: { items: [{ ...targets[0]! }], hasMore: false } });
+api.getUnlinkedNoteMentions = async () => ({ success: true, data: { items: [], hasMore: false } });
+api.getConnections = async () => ({ success: true, data: {} });
 api.getLinkTargets = async (q = '', type, targetId) => {
   if (failSearch) throw new Error('Fixture lookup unavailable');
   return { success: true, data: targets.filter(target => (!type || target.type === type) &&

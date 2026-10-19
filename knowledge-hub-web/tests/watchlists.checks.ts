@@ -14,7 +14,8 @@ async function waitFor(test: () => boolean): Promise<void> {
   throw new Error(`Watchlist fixture timed out: ${document.body.innerText}`);
 }
 function button(text: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === text);
+  const scope = document.querySelector('dialog[open]') ?? document;
+  const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === text);
   check(found, `Missing watchlist button ${text}`);
   return found;
 }
