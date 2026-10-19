@@ -42,7 +42,7 @@ import type {
   CreateUseCaseInput, DraftSpecResult, HandoffInput, HandoffResult, UseCase, UseCaseDetail, UseCasePatch, UseCaseSourceRef,
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
-import type { DiscoverFormat } from '../types/discover';
+import type { DiscoverFormat, DiscoverParking, ParkingSelection } from '../types/discover';
 import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight } from '../types/watchlists';
 import type { BacklinkPage, EntityLinkTarget, EntityLinkType } from '../notes/entityLinks';
 import type { Person, PersonInput } from '../types/people';
@@ -512,6 +512,7 @@ export interface NavAttention { think: number; discover: number; plan: number; b
 
 
 export interface DiscoverItem {
+  parking?: DiscoverParking;
   pickReasons?: string[];
   filteredReason?: string | null;
   id: string;
@@ -1764,6 +1765,24 @@ export class KnowledgeHubApi {
       params: state ? { state } : undefined,
     });
     return r.data;
+  }
+
+  async getDiscoverParkingLot(page = 1, pageSize = 25): Promise<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>> {
+    return (await this.client.get<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>>(
+      '/api/discover/parking-lot', { params: { page, pageSize } },
+    )).data;
+  }
+
+  async getDiscoverParking(id: string): Promise<ApiResponse<DiscoverParking | null>> {
+    return (await this.client.get<ApiResponse<DiscoverParking | null>>(`/api/discover/${id}/parking`)).data;
+  }
+
+  async saveDiscoverParking(id: string, selection: ParkingSelection): Promise<ApiResponse<DiscoverParking>> {
+    return (await this.client.put<ApiResponse<DiscoverParking>>(`/api/discover/${id}/parking`, selection)).data;
+  }
+
+  async removeDiscoverParking(id: string): Promise<ApiResponse<null>> {
+    return (await this.client.delete<ApiResponse<null>>(`/api/discover/${id}/parking`)).data;
   }
 
   async listDiscoveryFeeds(): Promise<ApiResponse<DiscoveryFeed[]>> {

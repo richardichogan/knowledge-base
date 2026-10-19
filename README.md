@@ -104,6 +104,7 @@ and no application dotenv file; they never require production credentials.
 
 `npm run lint` remains the full lint report. `lint:check` rejects new or changed
 violations against explicit source-fingerprinted `.eslint-baseline.json` debt;
+failures print each new violation's file, line and rule directly in the job log.
 it does not claim the old debt is fixed. Do not refresh a baseline to hide a new
 failure. To deliberately reduce debt, fix code and review the generated baseline
 changes using `node ../scripts/check-lint-baseline.mjs --update`.
@@ -117,8 +118,21 @@ for the isolated authentication/editor/export regression set, or select
 rejected. The navigation fixture intentionally fails one deferred loader to
 exercise Retry; only that exact fixture error is excluded from the unexpected
 JavaScript-error gate. Artifact captures use the active emulated browser page.
+Selected journeys all run even if an earlier journey fails; the job still fails
+if any journey fails. CI uploads per-journey screenshots and failure diagnostics
+for seven days. All non-chat journeys run at desktop width only (1440px).
+The separate `chat` journey covers the chat interface at 390px, including
+draft/session recovery and failed sends; it does not run mobile navigation,
+Today, Discover, editor or diagram checks. The viewport-scope regression checks
+run without a browser using `node --test scripts/browser-viewports.test.mjs`.
 The fixture server uses a separate reusable Vite dependency cache, so running
 checks cannot invalidate the normal development server's prebundled modules.
+
+For reliable releases, branch protection should require **Backend checks**,
+**Frontend checks** and **Browser checks** before merging to `main`, without
+administrative bypass. A direct push that starts CI only after landing on `main`
+does not provide that gate. Workflow code does not configure repository protection;
+those settings must be changed separately by an administrator.
 
 Plan has Board and List views (the Calendar view was removed; saved views that
 used it open on the Board). Open use cases also appear on the Board: Candidate
@@ -396,7 +410,21 @@ data from source content, and a truncated graph is explicitly incomplete;
 client-side filtering cannot restore nodes omitted by the server. Selecting a
 node focuses its details and closing returns focus to the selected control.
 
-Navigation regressions use the same isolated fixture server and Chromium executable as the Today checks below. Run `node tests/run-navigation-browser.mjs` from `knowledge-hub-web` with `TODAY_BROWSER_PATH` set. The fixture covers 1440px, 1024px and 390px, keyboard/focus behaviour, supporting routes, existing management panels, embedded Athena launch and failed supporting services. API/auth requests are blocked. Unit tests run with `node --import tsx/esm --test ../knowledge-hub-web/tests/navigation.test.ts` from the backend folder.
+Navigation regressions use the same isolated fixture server and Chromium executable as the Today checks below. Run `node tests/run-navigation-browser.mjs` from `knowledge-hub-web` with `TODAY_BROWSER_PATH` set. The fixture covers desktop (1440px), keyboard/focus behaviour, supporting routes, existing management panels, embedded Athena launch and failed supporting services. Mobile coverage is limited to the separate `chat` journey. API/auth requests are blocked. Unit tests run with `node --import tsx/esm --test ../knowledge-hub-web/tests/navigation.test.ts` from the backend folder.
+
+## Newsletter and podcast parking lot
+
+Discover's **Parking lot** keeps articles for a future **Newsletter**, **Podcast**
+or both. Choose **Park for later** on an article (including Saved articles) or in
+Explore, select either or both destinations, then **Save to parking lot**. Entries
+are stored on the server, appear once even when marked for both, and survive feed
+refreshes. The pool shows the original source, excerpt and link; **Edit parking**
+changes destinations or removes the entry without deleting the article.
+
+Parking is separate from Saved, Planned for blog, Published and Archived. It
+does not publish, schedule, generate drafts or automatically add material to
+podcast preparation. Existing Saved articles are not automatically moved into
+the pool. This first version accepts Discover articles only.
 
 ## Quick LinkedIn posts from Discover
 
@@ -487,7 +515,7 @@ Regression checks: from `knowledge-hub-backend`, run
 The isolated browser fixture needs only Vite on a free port (default 5186);
 from `knowledge-hub-web`, set `TODAY_BROWSER_PATH` to an installed Chromium
 executable and run `node tests\run-discover-browser.mjs`. It uses mock data,
-blocks live API/auth requests and checks desktop/mobile, draft/copy failures,
+blocks live API/auth requests and checks desktop layouts, draft/copy failures,
 source links and dialog behaviour.
 
 ## Athena export to Think
@@ -695,7 +723,7 @@ $env:TODAY_BROWSER_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe
 node tests\run-diagram-browser.mjs
 ```
 
-The diagram fixture blocks live API/auth requests, uses test-only architecture/process data, and verifies full-bounds embedded SVG export and PNG rendering at desktop and mobile widths.
+The diagram fixture blocks live API/auth requests, uses test-only architecture/process data, and verifies full-bounds embedded SVG export and PNG rendering at desktop width only.
 
 Diagram documents and their last 50 saved revisions are stored in PostgreSQL. Saves use optimistic revision checks; a conflicting save reports an error instead of overwriting another session. Dedicated canvas-scoped image rows store PNG/SVG bytes without OCR or new blob containers, credentials or environment variables. Deleting a canvas deletes its diagram and assets. Migration `055_diagram_canvases.sql` runs through the normal startup migration path and preserves existing canvases as Brainstorm.
 
@@ -815,7 +843,7 @@ $env:TODAY_BROWSER_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe
 node tests\run-today-browser.mjs
 ```
 
-The browser runner uses a temporary profile, checks 1440px and 390px layouts, and blocks `/api` and `/auth` requests. It does not require a backend or authenticated production session. A blank initial fixture with an aborted source-module transport request may reload once within the bounded mount wait; JavaScript errors and application assertions are never retried. The fixture covers local loading/failure states, refresh, completion, disclosures and the real popout's prompt/context handoff. It also renders the actual Discover and Think pages with test-only data to compare Today's shared header typography, gutters and divider, Discover body typography and Think note-title typography. Today uses the existing left-aligned page frame, not a separate centred container.
+The browser runner uses a temporary profile, checks desktop layouts at 1440px, and blocks `/api` and `/auth` requests. Only the separate `chat` journey uses a mobile viewport. It does not require a backend or authenticated production session. A blank initial fixture with an aborted source-module transport request may reload once within the bounded mount wait; JavaScript errors and application assertions are never retried. The fixture covers local loading/failure states, refresh, completion, disclosures and the real popout's prompt/context handoff. It also renders the actual Discover and Think pages with test-only data to compare Today's shared header typography, gutters and divider, Discover body typography and Think note-title typography. Today uses the existing left-aligned page frame, not a separate centred container.
 
 ## Repository structure
 

@@ -15,12 +15,14 @@ import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { BlueskyPostUnconfirmedError, blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
+import { getDiscoverParking, saveDiscoverParking, removeDiscoverParking, type DiscoverParking } from '../services/discoverParking.js';
 
 export const discoverRouter = Router();
 
 export type WorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published' | 'shelved';
 
 export interface DiscoverItem {
+  parking?: DiscoverParking;
   id: string;
   sourceId: string;
   title: string;
@@ -229,11 +231,26 @@ discoverRouter.post('/:id/blog-publish', (req: Request, res: Response, next: Nex
   })();
 });
 
-// ── GET /api/discover ─────────────────────────────────────────────────────────
-discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void => {
+discoverRouter.get('/:id/parking', (req: Request, res: Response, next: NextFunction): void => {
+  void getDiscoverParking(getDb(), req.params['id'] ?? '')
+    .then(data => { res.json({ success: true, data }); }).catch(next);
+});
+discoverRouter.put('/:id/parking', (req: Request, res: Response, next: NextFunction): void => {
+  void saveDiscoverParking(getDb(), req.params['id'] ?? '', req.body as unknown)
+    .then(data => { res.json({ success: true, data }); }).catch(next);
+});
+discoverRouter.delete('/:id/parking', (req: Request, res: Response, next: NextFunction): void => {
+  void removeDiscoverParking(getDb(), req.params['id'] ?? '')
+    .then(() => { res.json({ success: true, data: null }); }).catch(next);
+});
+
+// The parking pool shares article hydration but never filters by workflow state.
+const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const db = getDb();
+      const isParking = req.path === '/parking-lot';
+      const parkingJoin = `${isParking ? 'JOIN' : 'LEFT JOIN'} discover_parking pl ON pl.article_id=ci.id`;
       const state = queryText(req.query['state'], 'state', DISCOVER_ENUM_MAX_LENGTH) ?? 'to-review';
       if (!VALID_STATES.some(value => value === state)) throw new ValidationError('Unsupported Discovery state');
       const sort = queryText(req.query['sort'], 'sort', DISCOVER_ENUM_MAX_LENGTH) ?? 'weighted';
@@ -242,7 +259,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         editorial: 'ci.relevance_score DESC NULLS LAST, ci.published_at DESC NULLS LAST, ci.id ASC',
         latest: 'ci.published_at DESC NULLS LAST, ci.id ASC',
       };
-      const order = orders[sort];
+      const order = isParking ? 'pl.parked_at DESC, ci.id ASC' : orders[sort];
       if (!Object.hasOwn(orders, sort) || !order) throw new ValidationError('Unsupported Discovery sort');
       const formatParam = queryText(req.query['format'], 'format', DISCOVER_ENUM_MAX_LENGTH);
       if (formatParam !== undefined && !isContentFormat(formatParam)) throw new ValidationError('Unsupported Discovery format');
@@ -262,7 +279,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       const params: unknown[] = [];
       let p = 1;
 
-      if (!filtered && VALID_STATES.includes(state as WorkflowState)) {
+      if (!isParking && !filtered && VALID_STATES.includes(state as WorkflowState)) {
         conditions.push(`workflow_state = $${p++}`);
         params.push(state);
       }
@@ -274,10 +291,11 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         conditions.push(`title ILIKE $${p++}`);
         params.push(`%${titleFilter.replace(/[\\%_]/g, '\\$&')}%`);
       }
+      if (isParking && filtered) throw new ValidationError('The parking lot is independent of the filtered-out view.');
       if (filtered) {
         conditions.push(`ci.published_at >= NOW()-INTERVAL '7 days'`);
         conditions.push(`(ci.workflow_state IN ('shelved','archived') OR (${interests.factor})=0)`);
-      } else if (state === 'to-review') conditions.push(`(${interests.factor})>0`);
+      } else if (!isParking && state === 'to-review') conditions.push(`(${interests.factor})>0`);
 
       // Ranking for a format lists only articles that suit it, strongest fit first, then by rank.
       if (format !== undefined) conditions.push(`${formatFitSql('ci', format)} >= 1`);
@@ -297,7 +315,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
         = discoverRankSql('ci', `$${halfLifeParamIndex}`);
 
       const [countResult, dataResult] = await Promise.all([
-        db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ci ${where}`, params.slice(0, halfLifeParamIndex - 1)),
+        db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ci ${parkingJoin} ${where}`, params.slice(0, halfLifeParamIndex - 1)),
         db.query<{
           id: string;
           source_id: string;
@@ -318,9 +336,13 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
           project_factor: number;
           rank_computed_at: Date;
           interest_topics: string | null; interest_source: number; saved_factor: number; interest_factor: number;
+          parking: DiscoverParking | null;
         } & Record<`fit_${ContentFormat}`, number>>(
           `SELECT ci.id, ci.source_id, ci.title, ci.url, ci.body, ci.published_at, ci.indexed_at,
                   ci.metadata, ci.workflow_state, ci.relevance_score, ci.relevance_explanation,
+                  CASE WHEN pl.article_id IS NOT NULL THEN
+                    jsonb_build_object('newsletter',pl.newsletter,'podcast',pl.podcast,'parkedAt',pl.parked_at,'updatedAt',pl.updated_at)
+                  END AS parking,
                   array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids,
                   (${rankScoreExpr}) * (${interests.factor}) AS rank_score,
                   ${interests.topics} AS interest_topics, ${interests.source} AS interest_source, ${interests.saved} AS saved_factor,
@@ -330,9 +352,10 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
                   ${CONTENT_FORMATS.map((f) => `${formatFitSql('ci', f)} AS "fit_${f}"`).join(', ')},
                   NOW() AS rank_computed_at
            FROM content_items ci
+           ${parkingJoin}
            LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
            ${where}
-           GROUP BY ci.id
+           GROUP BY ci.id, pl.article_id
            ORDER BY ${format === undefined ? order : `"fit_${format}" DESC, ${order}`}
            LIMIT $${p++} OFFSET $${p}`,
           [...params, pageSize, offset],
@@ -341,6 +364,7 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
 
       const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
       const items: DiscoverItem[] = dataResult.rows.map((row) => ({
+        ...(row.parking ? { parking: row.parking } : {}),
         id: row.id,
         sourceId: row.source_id,
         title: row.title,
@@ -398,7 +422,9 @@ discoverRouter.get('/', (req: Request, res: Response, next: NextFunction): void 
       next(err);
     }
   })();
-});
+};
+discoverRouter.get('/', serveDiscoverFeed);
+discoverRouter.get('/parking-lot', serveDiscoverFeed);
 
 // ── GET /api/discover/sources ─────────────────────────────────────────────────
 discoverRouter.get('/sources', (req: Request, res: Response, next: NextFunction): void => {

@@ -21,7 +21,13 @@ jobs:
           cache-dependency-path: knowledge-hub-backend/package-lock.json
       - run: npm ci
         working-directory: knowledge-hub-backend
-      - run: npm run typecheck && npm run build && npm run lint:check && npm run test:isolated
+      - run: npm run typecheck
+        working-directory: knowledge-hub-backend
+      - run: npm run build
+        working-directory: knowledge-hub-backend
+      - run: npm run lint:check
+        working-directory: knowledge-hub-backend
+      - run: npm run test:isolated
         working-directory: knowledge-hub-backend
   frontend:
     name: Frontend checks
@@ -39,7 +45,13 @@ jobs:
         working-directory: knowledge-hub-backend
       - run: npm ci
         working-directory: knowledge-hub-web
-      - run: npm run typecheck && npm run build && npm run lint:check && npm run test:isolated
+      - run: npm run typecheck
+        working-directory: knowledge-hub-web
+      - run: npm run build
+        working-directory: knowledge-hub-web
+      - run: npm run lint:check
+        working-directory: knowledge-hub-web
+      - run: npm run test:isolated
         working-directory: knowledge-hub-web
   browser:
     name: Browser checks
@@ -57,8 +69,19 @@ jobs:
         working-directory: knowledge-hub-backend
       - run: npm ci
         working-directory: knowledge-hub-web
+      - name: Check browser viewport scope
+        run: node --test scripts/browser-viewports.test.mjs
       - name: Run isolated browser journeys
         working-directory: knowledge-hub-web
         env:
           TODAY_BROWSER_PATH: /usr/bin/google-chrome
-        run: node ../scripts/run-browser-checks.mjs --modes=navigation,discover,today,note-recovery,note-history,markdown-export,note-links,watchlists
+          TODAY_ARTIFACT_DIR: ${{ runner.temp }}/athena-browser-artifacts
+        run: node ../scripts/run-browser-checks.mjs --modes=navigation,discover,today,note-recovery,note-history,markdown-export,note-links,watchlists,chat
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-diagnostics
+          path: ${{ runner.temp }}/athena-browser-artifacts
+          if-no-files-found: ignore
+          retention-days: 7

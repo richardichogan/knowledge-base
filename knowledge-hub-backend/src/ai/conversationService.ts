@@ -62,6 +62,12 @@ const NO_OUTPUTS_PANEL_NOTE = [
 
 /** Output budget for a turn that edits the open note: a long redraft must not be cut off. */
 const NOTE_EDIT_MAX_TOKENS = 14_000;
+const PAST_CHAT_QUERY_MIN_TERM_LENGTH = 3;
+const PAST_CHAT_QUERY_MAX_TERMS = 6;
+const PAST_CHAT_QUERY_MIN_DISTINCT_TERMS = 2;
+const PAST_CHAT_CONTEXT_MAX_MATCHES = 3;
+const PAST_CHAT_CONTEXT_MESSAGES = 3;
+const PEOPLE_CONTEXT_RECENT_USER_MESSAGES = 8;
 const PAST_CHAT_REFERENCE_PATTERN =
   /\b(?:earlier|previous|prior|past|latest)\b[\s\S]{0,35}\b(?:athena\s+)?(?:chat|conversation|discussion)\b|\b(?:we|you)\s+(?:discussed|talked about|covered)\b|\b(?:chat|conversation|discussion)\b[\s\S]{0,70}\b(?:in think|on mobile|on my phone|earlier|before|today)\b|\bwhat we discussed\b/i;
 const PAST_CHAT_QUERY_STOPWORDS = new Set([
@@ -79,9 +85,9 @@ function pastChatSearchQuery(message: string): string | null {
   ].map((pattern) => pattern.exec(message)).find((match) => match?.[1] !== undefined);
   const source = topicMatch?.[1] ?? message;
   const terms = source.toLowerCase().match(/[\p{L}\p{N}-]+/gu)
-    ?.filter((term) => term.length > 2 && !PAST_CHAT_QUERY_STOPWORDS.has(term)) ?? [];
-  const distinctTerms = [...new Set(terms)].slice(0, 6);
-  return distinctTerms.length >= 2 ? distinctTerms.join(' ') : null;
+    ?.filter((term) => term.length >= PAST_CHAT_QUERY_MIN_TERM_LENGTH && !PAST_CHAT_QUERY_STOPWORDS.has(term)) ?? [];
+  const distinctTerms = [...new Set(terms)].slice(0, PAST_CHAT_QUERY_MAX_TERMS);
+  return distinctTerms.length >= PAST_CHAT_QUERY_MIN_DISTINCT_TERMS ? distinctTerms.join(' ') : null;
 }
 
 /** Tools that change something; left out when a turn must only read. */
@@ -151,10 +157,10 @@ export async function handleConversationTurn(
     if (query !== null) {
       hooks.onActivity?.('Finding the earlier conversation');
       const matches = await searchReferencedPastChats(db, query, sessionId);
-      const candidates = matches.filter((match) => !excluded.has(match.sessionId)).slice(0, 3);
+      const candidates = matches.filter((match) => !excluded.has(match.sessionId)).slice(0, PAST_CHAT_CONTEXT_MAX_MATCHES);
       const readQuery = /\bdecision gates?\b/i.test(query) ? `${query} delegation acceptance` : query;
       const excerpts = await Promise.all(candidates.map(async (match) => {
-        const chat = await readPastChat(db, match.sessionId, 3, readQuery);
+        const chat = await readPastChat(db, match.sessionId, PAST_CHAT_CONTEXT_MESSAGES, readQuery);
         if (chat === null || chat.messages.length === 0) return null;
         return {
           match,
@@ -254,7 +260,7 @@ export async function handleConversationTurn(
     used.screens = (screensBlock.match(/^### /gm) ?? []).length;
   }
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
-  const peopleBlock = await buildPeopleContext(db, [userMessage, ...history.filter(message => message.role === 'user').slice(-8).reverse().map(message => message.content)]);
+  const peopleBlock = await buildPeopleContext(db, [userMessage, ...history.filter(message => message.role === 'user').slice(-PEOPLE_CONTEXT_RECENT_USER_MESSAGES).reverse().map(message => message.content)]);
   const localFolders = toolContext.localFolders ?? [];
   const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, peopleBlock, scheduleBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);

@@ -14,6 +14,7 @@ import { IdentityChip, identitiesFor, useIdentity } from '../../identity';
 import { whyPicked } from '../../features/discover/discoverInsights';
 import { UseCaseLauncher } from '../../features/useCases/UseCaseLauncher';
 import { launchFromRef } from '../../features/useCases/useCaseView';
+import { DiscoverParkingAction } from './DiscoverParkingAction';
 
 interface DiscoverExploreProps {
   item: DiscoverItem;
@@ -133,6 +134,11 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
             <ul className="dc-explore__list">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>
           </section>
         )}
+
+        <section className="dc-explore__section">
+          <h3>Keep for later</h3>
+          <DiscoverParkingAction key={item.id} item={item} />
+        </section>
 
         <section className="dc-explore__section">
           <h3>Create from this</h3>

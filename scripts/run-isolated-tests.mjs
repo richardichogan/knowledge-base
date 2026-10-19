@@ -29,6 +29,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/documentList.test.ts',
   '../knowledge-hub-web/tests/projectOptions.test.ts',
 ] : [
+  'scripts/discover-parking.test.ts',
   'scripts/people.test.ts',
   'scripts/project-parents-migration.test.ts',
   'scripts/note-links.test.ts',
@@ -71,23 +72,25 @@ if (frontend) {
   // bundle in memory so isolated runs never leave generated test files behind.
   const require = createRequire(resolve(web, 'package.json'));
   const { build } = require('esbuild');
-  const bundle = await build({
-    absWorkingDir: web,
-    entryPoints: ['tests/note-list.test.tsx'],
-    bundle: true,
-    write: false,
-    platform: 'node',
-    format: 'cjs',
-    define: { 'import.meta.env': '{}' },
-    loader: { '.scss': 'empty' },
-  });
-  const bundled = spawnSync(process.execPath, ['-'], {
-    cwd: web,
-    env,
-    input: bundle.outputFiles[0].text,
-    stdio: ['pipe', 'inherit', 'inherit'],
-    timeout: 30_000,
-  });
-  if (bundled.error) throw bundled.error;
-  if (bundled.status !== 0) process.exitCode = bundled.status ?? 1;
+  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx']) {
+    const bundle = await build({
+      absWorkingDir: web,
+      entryPoints: [entry],
+      bundle: true,
+      write: false,
+      platform: 'node',
+      format: 'cjs',
+      define: { 'import.meta.env': '{}' },
+      loader: { '.scss': 'empty' },
+    });
+    const bundled = spawnSync(process.execPath, ['-'], {
+      cwd: web,
+      env,
+      input: bundle.outputFiles[0].text,
+      stdio: ['pipe', 'inherit', 'inherit'],
+      timeout: 30_000,
+    });
+    if (bundled.error) throw bundled.error;
+    if (bundled.status !== 0) process.exitCode = bundled.status ?? 1;
+  }
 }

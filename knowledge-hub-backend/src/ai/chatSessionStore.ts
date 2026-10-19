@@ -290,7 +290,7 @@ function toSessionListItem(r: SessionListRow): SessionListItem {
 }
 
 /** Chats for the sidebar, pinned first then most recently active; `excludeThink` leaves out chats started from a Think note. */
-export async function listSessions(db: Pool, limit = 50, excludeThink = false): Promise<SessionListItem[]> {
+export async function listSessions(db: Pool, limit = SESSION_SEARCH_DEFAULT_LIMIT, excludeThink = false): Promise<SessionListItem[]> {
   const { rows } = await db.query<SessionListRow>(
     `SELECT ${SESSION_LIST_COLUMNS}
        FROM ai_chat_sessions s
@@ -304,7 +304,7 @@ export async function listSessions(db: Pool, limit = 50, excludeThink = false): 
 }
 
 /** Sidebar search results as full summaries, so matches older than the loaded list still appear. */
-export async function searchSessions(db: Pool, query: string, limit = 50): Promise<SessionListItem[]> {
+export async function searchSessions(db: Pool, query: string, limit = SESSION_SEARCH_DEFAULT_LIMIT): Promise<SessionListItem[]> {
   const ids = await searchSessionIds(db, query, limit);
   if (ids.length === 0) return [];
   const { rows } = await db.query<SessionListRow>(
@@ -335,17 +335,25 @@ const SEARCH_STOPWORDS = new Set([
   'could', 'will', 'would', 'should', 'to', 'of', 'in', 'on', 'at', 'for', 'with', 'and', 'or', 'but', 'not',
   'so', 'if', 'as', 'from', 'about', 'what', 'where', 'when', 'how', 'see', 'chat', 'conversation',
 ]);
+const SESSION_SEARCH_DEFAULT_LIMIT = 50;
+export const PAST_CHAT_SEARCH_DEFAULT_LIMIT = 8;
+export const PAST_CHAT_SEARCH_MAX_LIMIT = 20;
+export const PAST_CHAT_READ_DEFAULT_MESSAGES = 40;
+const CHAT_SEARCH_MIN_TERM_LENGTH = 3;
+const PAST_CHAT_EXCERPT_CHARS = 400;
+const PAST_CHAT_MATCHED_CONTENT_CHARS = 5000;
+const PAST_CHAT_RECENT_CONTENT_CHARS = 2000;
 
 /**
  * Athena's own chat-history search: every saved conversation (main chat,
  * Think-note chats, mobile and desktop alike), matched on title or message
  * text, with the best matching excerpt.
  */
-export async function searchPastChats(db: Pool, query: string, excludeSessionId: string | undefined, limit = 8): Promise<PastChatMatch[]> {
+export async function searchPastChats(db: Pool, query: string, excludeSessionId: string | undefined, limit = PAST_CHAT_SEARCH_DEFAULT_LIMIT): Promise<PastChatMatch[]> {
   const q = query.trim();
   if (q === '') return [];
   const terms = q.split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}-]/gu, '')).filter((w) => w.length > 1 && !SEARCH_STOPWORDS.has(w.toLowerCase()));
-  const orQuery = terms.filter((w) => w.length > 2).join(' | ');
+  const orQuery = terms.filter((w) => w.length >= CHAT_SEARCH_MIN_TERM_LENGTH).join(' | ');
   // A user's question is stronger evidence of the chat's topic than a later
   // assistant answer that may have repeated or misinterpreted it.
   const { rows } = await db.query<{ id: string; title: string | null; updated_at: string; from_think: boolean; message_count: number; excerpt: string | null; excerpt_role: string | null }>(
@@ -383,7 +391,7 @@ export async function searchPastChats(db: Pool, query: string, excludeSessionId:
     fromThink: r.from_think,
     excerptRole: r.excerpt_role ?? 'assistant',
     messageCount: r.message_count,
-    excerpt: (r.excerpt ?? '').slice(0, 400),
+    excerpt: (r.excerpt ?? '').slice(0, PAST_CHAT_EXCERPT_CHARS),
     href: `/chat?session=${encodeURIComponent(r.id)}`,
   }));
 }
@@ -393,20 +401,20 @@ export async function searchReferencedPastChats(db: Pool, query: string, exclude
   const queries = /\bdecision gates?\b/i.test(query)
     ? ['governance gate inbound outbound digital steward', 'delegation acceptance gate', query]
     : [query];
-  const results = await Promise.all(queries.map((candidate) => searchPastChats(db, candidate, excludeSessionId, 8)));
+  const results = await Promise.all(queries.map((candidate) => searchPastChats(db, candidate, excludeSessionId, PAST_CHAT_SEARCH_DEFAULT_LIMIT)));
   const seen = new Set<string>();
   return results.flat().filter((match) => {
     if (seen.has(match.sessionId)) return false;
     seen.add(match.sessionId);
     return true;
-  }).slice(0, 8);
+  }).slice(0, PAST_CHAT_SEARCH_DEFAULT_LIMIT);
 }
 
 /** Reads a saved conversation for Athena (most recent messages last), bounded so it fits in a tool result. */
 export async function readPastChat(
   db: Pool,
   sessionId: string,
-  maxMessages = 40,
+  maxMessages = PAST_CHAT_READ_DEFAULT_MESSAGES,
   query?: string,
 ): Promise<{ title: string; fromThink: boolean; messages: { role: string; content: string; at: string }[] } | null> {
   const session = await db.query<{ title: string | null; from_think: boolean }>(
@@ -415,7 +423,7 @@ export async function readPastChat(
   if (head === undefined) return null;
   const queryTerms = query?.trim().split(/\s+/)
     .map((word) => word.replace(/[^\p{L}\p{N}-]/gu, ''))
-    .filter((word) => word.length > 2 && !SEARCH_STOPWORDS.has(word.toLowerCase())) ?? [];
+    .filter((word) => word.length >= CHAT_SEARCH_MIN_TERM_LENGTH && !SEARCH_STOPWORDS.has(word.toLowerCase())) ?? [];
   const rows = queryTerms.length > 0
     ? (await db.query<{ role: string; content: string; created_at: string }>(
       `WITH ranked AS (
@@ -431,7 +439,7 @@ export async function readPastChat(
           ORDER BY rank DESC, created_at DESC, id DESC LIMIT $2
        ) relevant
        ORDER BY created_at ASC, id ASC`,
-      [sessionId, Math.min(maxMessages, 8), queryTerms],
+      [sessionId, Math.min(maxMessages, PAST_CHAT_SEARCH_DEFAULT_LIMIT), queryTerms],
     )).rows
     : (await db.query<{ role: string; content: string; created_at: string }>(
       `SELECT role, content, created_at FROM (
@@ -445,7 +453,7 @@ export async function readPastChat(
     fromThink: head.from_think,
     messages: rows.map((r) => ({
       role: r.role,
-      content: r.content.slice(0, queryTerms.length > 0 ? 5000 : 2000),
+      content: r.content.slice(0, queryTerms.length > 0 ? PAST_CHAT_MATCHED_CONTENT_CHARS : PAST_CHAT_RECENT_CONTENT_CHARS),
       at: new Date(r.created_at).toISOString(),
     })),
   };

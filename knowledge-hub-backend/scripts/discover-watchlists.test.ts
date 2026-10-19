@@ -49,6 +49,7 @@ async function fixture(): Promise<{ pg: PGlite; db: Pool }> {
   const migration = await readFile(new URL('../src/db/migrations/083_discover_watchlists.sql', import.meta.url), 'utf8');
   await pg.exec(migration);
   await pg.exec(migration);
+  await pg.exec(await readFile(new URL('../src/db/migrations/087_discover_parking.sql', import.meta.url), 'utf8'));
   return { pg, db: pg as unknown as Pool };
 }
 async function article(pg: PGlite, id = articleId, title = 'Example Product announces managed agents', body = 'Example Product announced a capability. Availability is not documented.'): Promise<void> {

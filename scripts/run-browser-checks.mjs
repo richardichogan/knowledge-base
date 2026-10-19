@@ -4,9 +4,9 @@ import { once } from 'node:events';
 import { createServer } from 'node:net';
 
 const web = resolve(import.meta.dirname, '../knowledge-hub-web');
-const allowedModes = ['navigation', 'project-pickers', 'watchlist-projects', 'discover', 'sparks', 'today', 'podcast-prep', 'auth-session', 'auth-callback', 'note-history', 'note-recovery', 'note-popout', 'note-links', 'watchlists', 'markdown-export', 'diagram-theme', 'diagram', 'diagram-properties', 'diagram-drilldown', 'diagram-line-jumps'];
+const allowedModes = ['navigation', 'chat', 'project-pickers', 'watchlist-projects', 'discover', 'sparks', 'today', 'podcast-prep', 'auth-session', 'auth-callback', 'note-history', 'note-recovery', 'note-popout', 'note-links', 'watchlists', 'markdown-export', 'diagram-theme', 'diagram', 'diagram-properties', 'diagram-drilldown', 'diagram-line-jumps'];
 const selection = process.argv.find(argument => argument.startsWith('--modes='));
-const modes = selection === undefined ? ['navigation', 'discover', 'today'] : selection.slice('--modes='.length).split(',');
+const modes = selection === undefined ? ['navigation', 'discover', 'today', 'chat'] : selection.slice('--modes='.length).split(',');
 if (modes.length === 0 || modes.some(mode => !allowedModes.includes(mode))) throw new Error('Select only supported isolated browser fixture modes.');
 const reservation = createServer();
 reservation.listen(5197, '127.0.0.1');
@@ -25,16 +25,23 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   if (!started) throw new Error('Fixture server did not become ready');
+  const failures = [];
   for (const mode of modes) {
     const diagram = mode === 'diagram' || mode === 'diagram-properties' || mode === 'diagram-drilldown' || mode === 'diagram-line-jumps';
     const child = spawn(process.execPath, [resolve(web, diagram ? 'tests/run-diagram-browser.mjs' : 'tests/run-today-browser.mjs')], {
       cwd: web, stdio: 'inherit',
-      env: { ...process.env, ATHENA_BROWSER_CHECKS: mode, TODAY_FIXTURE_URL: `http://127.0.0.1:5197/tests/${mode === 'project-pickers' ? 'navigation' : mode === 'watchlist-projects' ? 'watchlists' : mode}.html`,
+      env: { ...process.env, ATHENA_BROWSER_CHECKS: mode, TODAY_FIXTURE_URL: `http://127.0.0.1:5197/tests/${mode === 'project-pickers' || mode === 'chat' ? 'navigation' : mode === 'watchlist-projects' ? 'watchlists' : mode}.html${mode === 'chat' ? '?chat-only=1' : ''}`,
+        ...(process.env.TODAY_ARTIFACT_DIR ? { TODAY_ARTIFACT_DIR: resolve(process.env.TODAY_ARTIFACT_DIR, mode) } : {}),
         DIAGRAM_FIXTURE_URL: 'http://127.0.0.1:5197/tests/diagram.html' },
     });
     const [code] = await once(child, 'exit');
-    if (code !== 0) throw new Error(`${mode} browser checks failed (${code})`);
+    if (code !== 0) {
+      const failure = `${mode} browser checks failed (${code})`;
+      console.error(failure);
+      failures.push(failure);
+    }
   }
+  if (failures.length > 0) throw new Error(failures.join('\n'));
 } finally {
   if (vite.exitCode === null) {
     const exited = once(vite, 'exit');

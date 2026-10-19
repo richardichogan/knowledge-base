@@ -2,7 +2,7 @@ import type { CfpWorkflowState, DiscoverSort, DiscoverWorkflowState } from '../s
 import { DISCOVER_FORMATS, type DiscoverFormat } from '../types/discover';
 import { parsePlanPreferences, type PlanPreferences } from './planPreferences';
 
-export type DiscoverTab = DiscoverWorkflowState | 'inbox' | 'cfps' | 'watchlists';
+export type DiscoverTab = DiscoverWorkflowState | 'inbox' | 'cfps' | 'watchlists' | 'parking-lot';
 export interface DiscoverPreferences {
   version: 1; kind: 'discover'; tab: DiscoverTab; source: string; title: string;
   sort: DiscoverSort; cfpState: CfpWorkflowState;
@@ -16,7 +16,7 @@ export const DISCOVER_PREFERENCES_KEY = 'kh-discover-preferences-v1';
 export const DEFAULT_DISCOVER_VIEW: DiscoverPreferences = {
   version: 1, kind: 'discover', tab: 'to-review', source: '', title: '', sort: 'weighted', cfpState: 'to_review', format: '',
 };
-const TABS: DiscoverTab[] = ['to-review', 'saved', 'blog', 'archived', 'published', 'shelved', 'inbox', 'cfps', 'watchlists'];
+const TABS: DiscoverTab[] = ['to-review', 'saved', 'blog', 'archived', 'published', 'shelved', 'inbox', 'cfps', 'watchlists', 'parking-lot'];
 const CFP_STATES: CfpWorkflowState[] = ['to_review', 'saved', 'submitted', 'archived'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function text(value: unknown, maximum: number): value is string {

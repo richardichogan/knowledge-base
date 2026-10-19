@@ -1,0 +1,36 @@
+.dc-parking {
+  width: 100%; min-width: 0; color: var(--cds-text-primary); font-size: var(--kh-text-body);
+  &__heading { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .5rem; }
+  &__label { color: var(--kh-accent); font-size: var(--kh-text-meta); margin-right: auto; line-height: 1.5; }
+  &__button {
+    display: inline-flex; align-items: center; justify-content: center; gap: .375rem;
+    min-height: var(--kh-control-height); padding: .375rem .75rem;
+    border: 1px solid var(--cds-border-subtle-01); border-radius: var(--kh-control-radius);
+    background: transparent; color: var(--cds-text-secondary); font: inherit; cursor: pointer;
+    &:hover:not(:disabled) { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); border-color: var(--kh-accent); }
+    &:active:not(:disabled) { background: var(--cds-layer-active-01); }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+    &:disabled { opacity: .45; cursor: not-allowed; }
+    &--primary { color: var(--kh-accent); background: var(--kh-accent-bg); border-color: var(--kh-accent-border); }
+  }
+  &__editor { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--cds-border-subtle-01); }
+  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+  legend { margin-bottom: .5rem; padding: 0; font-weight: 600; font-size: var(--kh-text-body); }
+  &__choices {
+    display: flex; flex-wrap: wrap; gap: .5rem 1.5rem;
+    label { display: inline-flex; align-items: center; gap: .5rem; min-height: var(--kh-control-height); cursor: pointer; }
+    input { accent-color: var(--kh-accent); width: 1rem; height: 1rem; margin: 0; cursor: pointer; }
+    input:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+    label:hover { color: var(--kh-accent); }
+    label:has(input:disabled) { opacity: .45; cursor: not-allowed; input { cursor: not-allowed; } }
+  }
+  &__hint, &__status { font-size: var(--kh-text-meta); color: var(--cds-text-secondary); line-height: 1.6; margin: .5rem 0; overflow-wrap: anywhere; }
+  &__status { text-align: right; }
+  &__actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+}
+.dc-parking-intro { font-size: var(--kh-text-body); line-height: 1.6; color: var(--cds-text-secondary); margin: 0 0 1rem; max-width: 72ch; }
+.dc-parking-excerpt {
+  font-size: var(--kh-text-body); line-height: 1.6; color: var(--cds-text-secondary);
+  margin: 0; overflow-wrap: anywhere; white-space: pre-wrap;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
+}

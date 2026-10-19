@@ -163,7 +163,9 @@ function RecoveryFixture(): React.ReactElement {
 }
 createRoot(document.getElementById('root')!).render(
   <SignInGate><Theme theme="g100"><QueryClientProvider client={queryClient}><AthenaContextProvider>
-    <AppDialogHost /><MemoryRouter><Probe /><Routes><Route path="/chat" element={<AIChatPage standalone />} />
+    <AppDialogHost /><MemoryRouter initialEntries={[new URLSearchParams(window.location.search).has('chat-only') ? '/_chat-remount' : '/']}>
+      <Probe /><Routes><Route path="/chat" element={<AIChatPage standalone />} />
+      <Route path="/_chat-remount" element={null} />
       <Route path="/summary-fixture/:noteId" element={<SummaryFixture />} /><Route path="/" element={<AppShell />}>
       <Route index element={<Overview title="Today" />} />
       <Route path="discover" element={<Overview title="Discover" />} />
@@ -709,7 +711,12 @@ export async function runNavigationChecks(): Promise<string[]> {
   results.push('Supporting service failures do not affect primary navigation or Tools membership');
   results.push(...await runProjectPickerChecks());
   results.push(...await runDataReliabilityChecks(queryClient, go));
+  results.push(...await runChatChecks());
+  return results;
+}
 
+async function runChatChecks(): Promise<string[]> {
+  const results: string[] = [];
   let releaseBriefing = (): void => undefined;
   const delayedBriefing = new Promise<void>((resolve) => { releaseBriefing = resolve; });
   api.getMorningBriefing = async () => {
@@ -730,7 +737,7 @@ export async function runNavigationChecks(): Promise<string[]> {
   await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
   check(window.localStorage.getItem('kh-athena-session-id-standalone') !== 'late-briefing', 'Late morning briefing cannot replace a draft or restored conversation');
   api.getMorningBriefing = async () => success(null);
-  await go('/');
+  await go('/_chat-remount');
   await go('/chat');
   await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText);
   let attemptedSession = '';
@@ -744,11 +751,10 @@ export async function runNavigationChecks(): Promise<string[]> {
   await waitFor(() => attemptedSession !== '' && !selector<HTMLTextAreaElement>('#ai-chat-input').disabled);
   check(selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText, 'Rejected pre-auth send retains full draft');
   check(window.sessionStorage.getItem(`kh-athena-session-id-standalone-draft-${attemptedSession}`) === recoveryText, 'Draft follows the new conversation ID durably');
-  await go('/');
+  await go('/_chat-remount');
   await go('/chat');
   await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText && !selector<HTMLTextAreaElement>('#ai-chat-input').disabled);
   check(window.localStorage.getItem('kh-athena-session-id-standalone') === attemptedSession, 'Remount restores same conversation');
-  await go('/');
   results.push('Failed send keeps chat mounted; draft and new session survive rejected send and remount without auto-resending');
   return results;
 }
@@ -764,7 +770,7 @@ async function verifyChatReload(expected: { sessionId: string; draft: string }):
   check(window.localStorage.getItem('kh-athena-session-id-standalone') === expected.sessionId, 'Actual reload restores the same session ID');
   check(selector<HTMLTextAreaElement>('#ai-chat-input').value === expected.draft, 'Actual reload restores the complete draft');
   check(starts === 0, 'Actual reload does not resend or duplicate the prompt');
-  await go('/');
+  await go('/_chat-remount');
   api.getSessionHistory = async () => ({ success: false, error: { code: 'FIXTURE_AUTH', message: 'Sign-in required' } });
   await go('/chat');
   await waitFor(() => document.querySelector('.ai-history-error') !== null);
@@ -783,7 +789,6 @@ async function verifyChatReload(expected: { sessionId: string; draft: string }):
   selector<HTMLFormElement>('.ai-input-row').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === '');
   check(window.sessionStorage.getItem(`kh-athena-session-id-standalone-draft-${expected.sessionId}`) === null, 'Accepted turn clears the stored draft');
-  await go('/');
   return 'Actual reload preserves draft/session; failed history load is visible and retry restores messages; only server acceptance clears draft';
 }
 
@@ -795,4 +800,4 @@ async function showGraphReview(): Promise<void> {
   [...document.querySelectorAll<HTMLButtonElement>('.graph-controls__chip')].find(control => control.textContent === 'Relationships')!.click();
   await waitFor(() => document.querySelector('.graph-relationships') !== null);
 }
-Object.assign(window, { runNavigationChecks, runProjectPickerChecks, verifyChatReload, showGraphReview });
+Object.assign(window, { runNavigationChecks, runChatChecks, runProjectPickerChecks, verifyChatReload, showGraphReview });

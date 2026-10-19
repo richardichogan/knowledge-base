@@ -21,6 +21,7 @@ import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } f
 import { DiscoverExplore } from '../components/discover/DiscoverExplore';
 import { DiscoverWatchlists } from '../components/discover/DiscoverWatchlists';
 import { DiscoverInterests } from '../components/discover/DiscoverInterests';
+import { DiscoverParkingAction } from '../components/discover/DiscoverParkingAction';
 import { buildBriefing, readSinceLastLooked } from '../features/discover/discoverInsights';
 import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
@@ -43,6 +44,7 @@ interface TabDef {
 const PRIMARY_TABS: TabDef[] = [
   { key: 'to-review',  label: 'For you' },
   { key: 'saved',      label: 'Saved' },
+  { key: 'parking-lot', label: 'Parking lot' },
   { key: 'watchlists', label: 'Watchlists' },
 ];
 
@@ -310,6 +312,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
       {item.relevanceExplanation !== null && (
         <p className="dc-card-synopsis">{item.relevanceExplanation}</p>
       )}
+      {item.parking && item.description && <p className="dc-parking-excerpt">{item.description}</p>}
       {(item.alreadyCovered ?? 0) > 0 && item.coveredBy !== null && item.coveredBy !== undefined && (
         <p className="dc-card-covered" title="Athena found one of your own pieces on this">
           {item.alreadyCovered === 2 ? 'You’ve already covered this' : 'Related to something you’ve written'}: <em>{item.coveredBy}</em>
@@ -364,6 +367,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           </button>
         </div>
       </div>
+      <DiscoverParkingAction item={item} />
     </div>
   );
 };
@@ -401,9 +405,10 @@ export const DiscoverPage: React.FC = () => {
 
   const isInbox = activeTab === 'inbox';
   const isWatchlists = activeTab === 'watchlists';
+  const isParking = activeTab === 'parking-lot';
   const [interestsOpen, setInterestsOpen] = useState(false);
   const isCfps  = activeTab === 'cfps';
-  const workflowState = isInbox ? 'to-review' : activeTab as DiscoverWorkflowState;
+  const workflowState = isInbox || isParking ? 'to-review' : activeTab as DiscoverWorkflowState;
 
   useEffect(() => {
     try {
@@ -418,8 +423,9 @@ export const DiscoverPage: React.FC = () => {
   }
 
   const feedQuery = useQuery({
-    queryKey: ['discover', workflowState, page],
-    queryFn: async () => requireApiSuccess(await api.getDiscoverFeed(workflowState, undefined, page, PAGE_SIZE, undefined, 'weighted')),
+    queryKey: ['discover', isParking ? 'parking-lot' : workflowState, page],
+    queryFn: async () => requireApiSuccess(await (isParking ? api.getDiscoverParkingLot(page, PAGE_SIZE)
+      : api.getDiscoverFeed(workflowState, undefined, page, PAGE_SIZE, undefined, 'weighted'))),
     enabled: !isInbox && !isCfps && !isWatchlists,
   });
 
@@ -505,6 +511,11 @@ export const DiscoverPage: React.FC = () => {
     : (items.find((i) => i.id === exploreItem.id) ?? [...(briefing?.standouts ?? []), ...(briefing?.alsoRelevant ?? [])].find((i) => i.id === exploreItem.id) ?? exploreItem);
   const total: number =
     feedQuery.data?.success ? feedQuery.data.data.total : 0;
+  useEffect(() => {
+    if (isParking && feedQuery.isSuccess && page > 1 && items.length === 0) {
+      setPage(Math.max(1, Math.ceil(total / PAGE_SIZE)));
+    }
+  }, [isParking, feedQuery.isSuccess, page, items.length, total]);
 
   const activeTabDef = STATE_TABS.find((t) => t.key === activeTab) ?? STATE_TABS[0];
   const activeQuery = isCfps ? cfpQuery : isInbox ? emailQuery : feedQuery;
@@ -637,6 +648,7 @@ export const DiscoverPage: React.FC = () => {
       )}
 
       {/* Articles feed */}
+      {isParking && <p className="dc-parking-intro">Material for a future newsletter or podcast. Parking an article does not change its Saved or publishing status, or add it to automatic podcast preparation.</p>}
       {!isInbox && !isCfps && !isWatchlists && (
         <div className="dc-feed dc-feed--discover">
           {feedQuery.isLoading && (
@@ -647,7 +659,8 @@ export const DiscoverPage: React.FC = () => {
 
           {!feedQuery.isLoading && !feedQuery.isError && items.length === 0 && (
             <div className="dc-empty">
-              <p>No articles in <strong>{activeTabDef?.label}</strong>.</p>
+              {isParking ? <p>No articles parked yet. Choose <strong>Park for later</strong> on a Discover article, then Newsletter, Podcast or both.</p>
+                : <p>No articles in <strong>{activeTabDef?.label}</strong>.</p>}
             </div>
           )}
 

@@ -50,7 +50,7 @@ import { retrieveWatchlistRecords } from '../services/discoverWatchlists.js';
 import { getAssetToolDefinitions, isAssetTool, executeAssetTool } from './assetTools.js';
 import { searchKnowledgeGraph as searchGraph } from './graphInference.js';
 import { readPublicPage, readingExcerpt } from '../utils/articleReading.js';
-import { searchPastChats, readPastChat } from './chatSessionStore.js';
+import { searchPastChats, readPastChat, PAST_CHAT_SEARCH_DEFAULT_LIMIT, PAST_CHAT_SEARCH_MAX_LIMIT, PAST_CHAT_READ_DEFAULT_MESSAGES } from './chatSessionStore.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 
@@ -730,7 +730,8 @@ export async function executeToolCall(
     case 'search_past_chats': {
       const query = args['query'];
       if (typeof query !== 'string' || query.trim() === '') return { error: 'Provide a few words from the earlier conversation.' };
-      const limit = typeof args['limit'] === 'number' && Number.isFinite(args['limit']) ? Math.min(Math.max(Math.round(args['limit']), 1), 20) : 8;
+      const limit = typeof args['limit'] === 'number' && Number.isFinite(args['limit'])
+        ? Math.min(Math.max(Math.round(args['limit']), 1), PAST_CHAT_SEARCH_MAX_LIMIT) : PAST_CHAT_SEARCH_DEFAULT_LIMIT;
       const chats = await searchPastChats(db, query, turn.sessionId, limit);
       return chats.length === 0
         ? { chats: [], note: 'No saved chat matched. Try different or fewer distinctive words before telling the user it does not exist.' }
@@ -740,7 +741,7 @@ export async function executeToolCall(
       const id = args['sessionId'];
       if (typeof id !== 'string' || id.trim() === '') return { error: 'Provide a sessionId from search_past_chats.' };
       const query = typeof args['query'] === 'string' ? args['query'].trim() : undefined;
-      const chat = await readPastChat(db, id.trim(), 40, query);
+      const chat = await readPastChat(db, id.trim(), PAST_CHAT_READ_DEFAULT_MESSAGES, query);
       return chat === null ? { error: 'No saved chat with that id.' } : { ...chat, href: `/chat?session=${encodeURIComponent(id.trim())}` };
     }
     case 'get_project_details': {

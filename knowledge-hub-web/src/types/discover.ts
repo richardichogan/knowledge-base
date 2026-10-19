@@ -7,3 +7,6 @@ export const DISCOVER_FORMATS = [
 ] as const;
 
 export type DiscoverFormat = typeof DISCOVER_FORMATS[number]['id'];
+
+export interface ParkingSelection { newsletter: boolean; podcast: boolean }
+export interface DiscoverParking extends ParkingSelection { parkedAt: string; updatedAt: string }

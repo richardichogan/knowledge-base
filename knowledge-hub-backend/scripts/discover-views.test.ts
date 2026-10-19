@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { mock, test } from 'node:test';
 import express from 'express';
 import { PGlite } from '@electric-sql/pglite';
@@ -49,6 +50,7 @@ test('Discovery sorts are stable across filtered pages, factors explain the SQL 
     published_at TIMESTAMPTZ NOT NULL, indexed_at TIMESTAMPTZ DEFAULT NOW(), metadata JSONB DEFAULT '{}',
     workflow_state TEXT DEFAULT 'to-review', relevance_score REAL, relevance_explanation TEXT);
     CREATE TABLE discover_item_tags (discover_item_id UUID, tag_id UUID);`);
+  await db.exec(await readFile(new URL('../src/db/migrations/087_discover_parking.sql', import.meta.url), 'utf8'));
   await db.exec(`CREATE TABLE discover_interest_weights(kind TEXT,term TEXT,weight REAL);`);
   for (let index = 0; index < 107; index++) {
     await db.query(`INSERT INTO content_items (id,source,source_id,title,body,published_at,relevance_score,metadata)

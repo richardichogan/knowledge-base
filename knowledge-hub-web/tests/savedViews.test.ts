@@ -55,3 +55,11 @@ test('Discover Watchlists is a restorable, shareable view without copying a priv
   assert.deepEqual(parseSharedView(url.search, 'discover'), view);
   assert.ok(!url.searchParams.get('view')?.includes('baseline'));
 });
+
+test('Parking lot round-trips independently of article workflow and does not change the default Discover view', () => {
+  const view = { ...DEFAULT_DISCOVER_VIEW, tab: 'parking-lot' as const };
+  assert.deepEqual(parseWorkspaceView(view), view);
+  const url = new URL(sharedViewUrl(new URL('https://example.com/discover'), view));
+  assert.deepEqual(parseSharedView(url.search, 'discover'), view);
+  assert.equal(DEFAULT_DISCOVER_VIEW.tab, 'to-review');
+});

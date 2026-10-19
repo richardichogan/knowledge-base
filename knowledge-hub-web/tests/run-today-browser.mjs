@@ -3,11 +3,13 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { browserWidths } from '../../scripts/browser-viewports.mjs';
 
 const browserPath = process.env.TODAY_BROWSER_PATH;
 assert.ok(browserPath, 'Set TODAY_BROWSER_PATH to an installed Chromium browser executable');
 const fixtureUrl = process.env.TODAY_FIXTURE_URL ?? 'http://localhost:5142/tests/today.html';
 const navigationChecks = process.env.ATHENA_BROWSER_CHECKS === 'navigation';
+const chatChecks = process.env.ATHENA_BROWSER_CHECKS === 'chat';
 const projectPickerChecks = process.env.ATHENA_BROWSER_CHECKS === 'project-pickers';
 const watchlistProjectChecks = process.env.ATHENA_BROWSER_CHECKS === 'watchlist-projects';
 const discoverChecks = process.env.ATHENA_BROWSER_CHECKS === 'discover';
@@ -106,13 +108,14 @@ try {
   await command('Network.enable');
   await command('Log.enable');
   await command('Network.setBlockedURLs', { urls: ['*/api/*', '*/auth/*'] });
-  for (const width of navigationChecks ? [1440, 1024, 390] : [1440, 390]) {
+  for (const width of browserWidths(process.env.ATHENA_BROWSER_CHECKS)) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width === 390 });
     await command('Page.navigate', { url: fixtureUrl });
     let ready = false;
     for (let i = 0; i < 600; i++) {
       ready = await evaluate(navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
+        : chatChecks ? 'typeof window.runChatChecks === "function" && document.querySelector("#navigation-probe") !== null'
         : projectPickerChecks ? 'typeof window.runProjectPickerChecks === "function" && document.querySelector(".kh-header__primary") !== null'
         : watchlistProjectChecks ? 'typeof window.runWatchlistProjectChecks === "function"'
         : noteLinksChecks ? 'typeof window.runNoteLinkChecks === "function" && document.querySelector(".notes-editor-scroll") !== null'
@@ -343,8 +346,8 @@ try {
       console.log(JSON.stringify({ width, checks: [...results, 'Native Escape dismissal and keyboard focus trapping'] }, null, 2));
       continue;
     }
-    if (navigationChecks) {
-      const results = await evaluate('window.runNavigationChecks()');
+    if (navigationChecks || chatChecks) {
+      const results = await evaluate(chatChecks ? 'window.runChatChecks()' : 'window.runNavigationChecks()');
       const recovery = await evaluate(`({
         sessionId: localStorage.getItem('kh-athena-session-id-standalone'),
         draft: sessionStorage.getItem('kh-athena-session-id-standalone-draft-' + localStorage.getItem('kh-athena-session-id-standalone'))
@@ -352,7 +355,9 @@ try {
       await command('Page.reload', { ignoreCache: true });
       let reloaded = false;
       for (let i = 0; i < 300; i++) {
-        reloaded = await evaluate('typeof window.verifyChatReload === "function" && document.querySelector(".kh-header__primary") !== null');
+        reloaded = await evaluate(chatChecks
+          ? 'typeof window.verifyChatReload === "function" && document.querySelector("#navigation-probe") !== null'
+          : 'typeof window.verifyChatReload === "function" && document.querySelector(".kh-header__primary") !== null');
         if (reloaded) break;
         await delay(100);
       }
@@ -363,14 +368,16 @@ try {
       if (process.env.TODAY_ARTIFACT_DIR) {
         await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
         const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `navigation-${width}.png`), Buffer.from(screenshot.data, 'base64'));
-        await evaluate('window.showGraphReview()');
-        const graphScreenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `graph-${width}.png`), Buffer.from(graphScreenshot.data, 'base64'));
-        await evaluate('document.querySelector(\'[aria-label="Search"]\').click()');
-        await delay(100);
-        const paletteScreenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `palette-${width}.png`), Buffer.from(paletteScreenshot.data, 'base64'));
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `${chatChecks ? 'chat' : 'navigation'}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+        if (navigationChecks) {
+          await evaluate('window.showGraphReview()');
+          const graphScreenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+          await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `graph-${width}.png`), Buffer.from(graphScreenshot.data, 'base64'));
+          await evaluate('document.querySelector(\'[aria-label="Search"]\').click()');
+          await delay(100);
+          const paletteScreenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+          await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `palette-${width}.png`), Buffer.from(paletteScreenshot.data, 'base64'));
+        }
       }
       continue;
     }
@@ -427,6 +434,19 @@ try {
       console.log(JSON.stringify({ width, comparedTo: comparison, exactHeaderMatch: referenceStyle }, null, 2));
     }
   }
+} catch (error) {
+  if (process.env.TODAY_ARTIFACT_DIR && socket?.readyState === WebSocket.OPEN) {
+    try {
+      await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+      const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await writeFile(join(process.env.TODAY_ARTIFACT_DIR, 'failure.png'), Buffer.from(screenshot.data, 'base64'));
+      await writeFile(join(process.env.TODAY_ARTIFACT_DIR, 'failure.json'),
+        JSON.stringify({ fixtureUrl, error: String(error), browserErrors, loadDiagnostics }, null, 2));
+    } catch (captureError) {
+      console.error('Could not capture browser failure diagnostics:', captureError);
+    }
+  }
+  throw error;
 } finally {
   socket?.close();
   browser.kill();

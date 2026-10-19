@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { browserWidths } from '../../scripts/browser-viewports.mjs';
 
 const browserPath = process.env.TODAY_BROWSER_PATH;
 assert.ok(browserPath, 'Set TODAY_BROWSER_PATH to an installed Chromium browser executable');
@@ -212,7 +213,7 @@ try {
   });
   await command('Page.enable'); await command('Runtime.enable'); await command('Network.enable');
   await command('Network.setBlockedURLs', { urls: ['*/api/*', '*/auth/*'] });
-  for (const width of [1440, 390]) {
+  for (const width of browserWidths('diagram')) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width === 390 });
     await command('Runtime.evaluate', { expression: 'delete window.runDiagramChecks' });
     await command('Page.navigate', { url: fixtureUrl });
