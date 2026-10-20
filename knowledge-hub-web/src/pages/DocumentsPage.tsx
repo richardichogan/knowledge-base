@@ -547,7 +547,7 @@ export const DocumentsPage: React.FC = () => {
                 accept=".pdf,.docx,.xlsx,.pptx"
                 onChange={handleFileSelect}
                 disabled={uploadLoading}
-                style={{ display: 'none' }}
+                hidden
               />
               <button
                 className="docs-upload-dialog__file-btn"

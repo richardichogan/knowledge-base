@@ -1,0 +1,14 @@
+html.panel-review-page,
+.panel-review-page body,
+.panel-review-page #root { height: auto; overflow: visible; }
+
+.panel-review {
+  padding: 1rem;
+  color: var(--cds-text-primary);
+  &__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+  &__sample { min-width: 0; padding: 1rem; border: 1px solid var(--cds-border-subtle-01); background: var(--cds-layer-01); }
+  &__label { font-size: var(--kh-heading-item); margin: 0 0 1rem; }
+  &__sample p { overflow-wrap: anywhere; }
+  .graph-detail-panel { position: static; width: auto; max-width: none; padding: 0; border: 0; }
+  .docs-viewer__content { padding: 0; }
+}

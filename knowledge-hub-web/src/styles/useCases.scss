@@ -275,7 +275,7 @@
   text-overflow: ellipsis;
 }
 
-.kh-uc-card__age--stalled { color: #f1c21b; }
+.kh-uc-card__age--stalled { color: var(--cds-support-warning); }
 
 // ── Empty state ──
 .kh-uc-empty {
@@ -306,12 +306,10 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: 1rem;
 }
 
 .kh-uc-panel__status {
   margin: 0;
-  padding: 1rem;
   font-size: var(--kh-text-body);
   color: var(--cds-text-secondary);
 }
@@ -341,7 +339,7 @@
 
 .kh-uc-section__title {
   margin: 0 0 0.75rem;
-  font-size: 0.875rem;
+  font-size: var(--kh-heading-label);
   font-weight: 600;
   color: var(--cds-text-primary);
 }
@@ -456,7 +454,7 @@
 }
 
 .kh-uc-mode__hint {
-  grid-column: 2;
+  grid-column: 1 / -1;
   font-size: var(--kh-text-body);
   line-height: 1.45;
   color: var(--cds-text-secondary);

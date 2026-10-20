@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NotePopout } from '../src/notes/NotePopout';
+import { DocumentTitleSync } from '../src/navigation/PageTitle';
 import { NoteEditor } from '../src/notes/NoteEditor';
 import { fromApiNote } from '../src/notes/noteStorage';
 import { getActiveBlockNoteEditor } from '../src/utils/activeBlockNoteEditor';
@@ -51,6 +52,7 @@ function Fixture(): React.ReactElement {
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MemoryRouter initialEntries={reader ? ['/think/notes/popout-note/popout'] : ['/think']}>
+      <DocumentTitleSync />
       <Routes>
         <Route path="/think" element={<Fixture />} />
         <Route path="/think/notes/:noteId/popout" element={<NotePopout />} />
@@ -109,7 +111,7 @@ async function runNotePopoutChecks(): Promise<string[]> {
     editor.insertBlocks([{ type: 'paragraph', content: 'Updated while viewing demo' }], editor.document.at(-1)!, 'after');
     await waitFor(() => child.document.body.textContent?.includes('Updated while viewing demo') === true);
     check(scroll.scrollTop === 450, 'Saved updates preserve reading position');
-    check(child.document.title === 'Demo steps - Think', 'Window title identifies the note');
+    check(child.document.title === 'Demo steps · Think · Athena', `Window title identifies the note (got "${child.document.title}")`);
     localStorage.setItem(FAIL, '1');
     await waitFor(() => child.document.querySelector('.kh-data-notice') !== null);
     check(child.document.body.textContent?.includes('Updated while viewing demo') === true, 'Refresh failure retains the last loaded writing');

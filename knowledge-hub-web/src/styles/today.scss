@@ -165,7 +165,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    color: #f1c21b;
+    color: var(--cds-support-warning);
     text-decoration: none;
 
     &:hover { text-decoration: underline; }

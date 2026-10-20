@@ -81,7 +81,7 @@ export const TodayRankedList: React.FC = () => {
         <div className="today-section-card__header">
           <span className="today-section-card__title">Needs attention</span>
         </div>
-        <InlineLoading description="Loading…" style={{ padding: '12px 16px' }} />
+        <InlineLoading description="Loading…" className="kh-loading-inset" />
       </div>
     );
   }

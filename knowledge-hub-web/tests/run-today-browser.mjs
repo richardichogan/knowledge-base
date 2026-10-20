@@ -17,6 +17,7 @@ const sparkChecks = process.env.ATHENA_BROWSER_CHECKS === 'sparks';
 const podcastPrepChecks = process.env.ATHENA_BROWSER_CHECKS === 'podcast-prep';
 const thinkSearchChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-search';
 const connectionsChecks = process.env.ATHENA_BROWSER_CHECKS === 'connections';
+const panelTypographyChecks = process.env.ATHENA_BROWSER_CHECKS === 'panel-typography';
 const authSessionChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-session';
 const noteCopyChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-copy';
 const noteHistoryChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-history';
@@ -140,6 +141,7 @@ try {
         : discoverChecks ? 'typeof window.runDiscoverChecks === "function" && document.querySelector(".dc-card .dc-action--explore") !== null'
         : sparkChecks ? 'typeof window.runSparkChecks === "function" && document.querySelector(".spark-item__drag") !== null'
         : podcastPrepChecks ? 'typeof window.runPodcastPrepChecks === "function" && document.querySelector(".podcast-prep-notification") !== null'
+        : panelTypographyChecks ? 'typeof window.runPanelTypographyChecks === "function" && document.querySelector(".panel-review") !== null'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
         : notePopoutChecks ? 'typeof window.runNotePopoutChecks === "function" && document.querySelector(".notes-popout-btn") !== null'
@@ -153,6 +155,25 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, readyState: document.readyState, text: document.body.innerText })')}\n${loadDiagnostics.join('\n')}`);
+    if (panelTypographyChecks) {
+      const results = await evaluate('window.runPanelTypographyChecks()');
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      if (process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        const screenshot = await command('Page.captureScreenshot', { format: 'png' });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `panels-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+        await evaluate('document.querySelector(".dc-explore__close").click()');
+        await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        const metrics = await command('Page.getLayoutMetrics');
+        const gallery = await command('Page.captureScreenshot', {
+          format: 'png', captureBeyondViewport: true,
+          clip: { x: 0, y: 0, width: metrics.cssContentSize.width, height: metrics.cssContentSize.height, scale: 1 },
+        });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `panel-gallery-${width}.png`), Buffer.from(gallery.data, 'base64'));
+      }
+      console.log(JSON.stringify({ width, checks: results }, null, 2));
+      continue;
+    }
     if (projectPickerChecks || watchlistProjectChecks) {
       const results = await evaluate(projectPickerChecks ? 'window.runProjectPickerChecks()' : 'window.runWatchlistProjectChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));

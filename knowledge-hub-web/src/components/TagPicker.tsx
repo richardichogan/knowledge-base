@@ -106,7 +106,6 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
       className="tag-picker-dropdown"
       ref={dropdownRef}
       style={{
-        position: 'fixed',
         left: pos.left,
         ...(pos.direction === 'up'
           ? { bottom: pos.bottom }

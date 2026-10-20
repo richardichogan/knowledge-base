@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { NoteEditor } from '../src/notes/NoteEditor';
 import { getActiveBlockNoteEditor } from '../src/utils/activeBlockNoteEditor';
 import { api } from '../src/services/api';
@@ -37,20 +38,27 @@ export async function checkDiagramFromNote(client: QueryClient, waitFor: (predic
   const root = createRoot(host);
   let phase = 'mounting note editor';
   try {
-    root.render(<QueryClientProvider client={client}><NoteEditor doc={doc} onSaved={() => undefined} onCreateDiagram={async (id) => { source = id; }} /></QueryClientProvider>);
+    root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/think']}><NoteEditor doc={doc} onSaved={() => undefined} onCreateDiagram={async (id) => { source = id; }} /></MemoryRouter></QueryClientProvider>);
     await waitFor(() => getActiveBlockNoteEditor() !== null && host.querySelector('.bn-editor') !== null);
     const editor = getActiveBlockNoteEditor()!;
     editor.updateBlock(editor.document[0]!, { content: 'Updated process details for the linked diagram' });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    const create = [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Create diagram'));
-    if (create === undefined) throw new Error('Note toolbar must expose Create diagram');
+    const create = async (): Promise<void> => {
+      const actions = host.querySelector<HTMLButtonElement>('button[aria-label="Note actions"]');
+      if (actions === null) throw new Error('Note toolbar must expose its actions menu');
+      actions.click();
+      await waitFor(() => host.querySelector('[role="menu"]') !== null);
+      const linkedDiagram = host.querySelector<HTMLButtonElement>('button[title="Create an editable diagram linked to this note"]');
+      if (linkedDiagram === null) throw new Error('Note actions must expose Linked diagram');
+      linkedDiagram.click();
+    };
     phase = 'blocking creation after a failed save';
-    create.click();
+    await create();
     await waitFor(() => host.textContent?.includes('Save failed') === true);
     if (source !== null) throw new Error('Failed note save must not navigate away or create a diagram');
     rejectSave = false;
     phase = 'creating from the saved note';
-    create.click();
+    await create();
     await waitFor(() => source !== null);
     if (source !== doc.id || !savedContent.includes('Updated process details for the linked diagram')) throw new Error('Create diagram must save note edits before passing the source note ID');
   } catch (err) {

@@ -38,8 +38,8 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
           onClick={() => { setExpanded((current) => !current); }}
           aria-expanded={expanded}
         >
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           <span className="collapsible-section__label">{label}</span>
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
         {headerAdornment && (
           <div className="collapsible-section__header-adornment">{headerAdornment}</div>

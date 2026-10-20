@@ -42,7 +42,7 @@ export function DiagramDescriptionEditor({ value, onChange, onFocus }: {
         format(event.key.toLowerCase() === 'b' ? 'bold' : 'italic');
       }} />
     {value !== '' && <div className="dg-description__preview" aria-label="Formatted description preview">
-      {descriptionRuns(value).map((run, index) => <span key={index} style={{ fontWeight: run.bold ? 600 : undefined, fontStyle: run.italic ? 'italic' : undefined }}>{run.text}</span>)}
+      {descriptionRuns(value).map((run, index) => <span key={index} className={`${run.bold ? 'dg-description-run--bold' : ''}${run.italic ? ' dg-description-run--italic' : ''}`}>{run.text}</span>)}
     </div>}
     <p className="dg-properties__hint">Formatting is saved as Markdown: **bold** and *italic*. Preview shown above.</p>
   </div>;

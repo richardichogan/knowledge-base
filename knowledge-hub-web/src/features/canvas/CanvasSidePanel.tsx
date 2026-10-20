@@ -123,7 +123,6 @@ export const CanvasSuggestionsTab: React.FC<SuggestionsProps> = ({ canvasId, nod
                 e.dataTransfer.effectAllowed = 'copy';
               }}
             >
-              <span className="mm-suggest__icon" title={KIND_LABEL[s.kind]}><Icon size={16} /></span>
               <div className="mm-suggest__body">
                 <p className="mm-suggest__title">{s.title}</p>
                 <p className="mm-suggest__meta">
@@ -131,6 +130,7 @@ export const CanvasSuggestionsTab: React.FC<SuggestionsProps> = ({ canvasId, nod
                 </p>
                 {s.excerpt !== '' && <p className="mm-suggest__excerpt">{s.excerpt}</p>}
               </div>
+              <span className="mm-suggest__icon" title={KIND_LABEL[s.kind]}><Icon size={16} /></span>
               <button type="button" className="mm-icon-btn mm-suggest__add" title="Add, connected to the selected card" aria-label={`Add ${s.title}`} onClick={() => { onAdd(s); }}>
                 <Add size={16} />
               </button>

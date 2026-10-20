@@ -287,8 +287,8 @@ async function runDiagramAppearanceChecks(): Promise<string[]> {
   field.blur();
   const preview = window.document.querySelector('.dg-description__preview')!;
   check(preview.textContent === 'Owner: Operations', 'Description preview hides formatting markers');
-  check(preview.querySelector<HTMLElement>('span')!.style.fontWeight === '600', 'Bold selection is visible');
-  check([...preview.querySelectorAll<HTMLElement>('span')].some(span => span.style.fontStyle === 'italic'), 'Italic shortcut is visible');
+  check(getComputedStyle(preview.querySelector<HTMLElement>('span')!).fontWeight === '600', 'Bold selection is visible');
+  check([...preview.querySelectorAll<HTMLElement>('span')].some(span => getComputedStyle(span).fontStyle === 'italic'), 'Italic shortcut is visible');
   await waitFor(() => snapshot.document.nodes.some(node => node.id === workforce.id && node.description === '**Owner**: *Operations*'));
   clickButton('Add footnote');
   await waitFor(() => window.document.querySelector('.dg-noteblock tspan[font-style="italic"]') !== null);
@@ -897,12 +897,12 @@ async function runDiagramChecks(): Promise<string[]> {
   descriptionField.setSelectionRange(0, 13);
   clickButton('Bold description');
   await waitFor(() => window.document.querySelector('.dg-description__preview span')?.textContent === 'Process owner');
-  check(window.document.querySelector<HTMLElement>('.dg-description__preview span')!.style.fontWeight === '600',
+  check(getComputedStyle(window.document.querySelector<HTMLElement>('.dg-description__preview span')!).fontWeight === '600',
     'Bold button formats selected description text in the preview');
   await waitFor(() => snapshot.document.nodes.some(n => n.description?.startsWith('**Process owner**') === true));
   descriptionField.setSelectionRange(19, 29);
   descriptionField.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, bubbles: true }));
-  await waitFor(() => [...window.document.querySelectorAll<HTMLElement>('.dg-description__preview span')].some(span => span.style.fontStyle === 'italic' && span.textContent === 'Operations'));
+  await waitFor(() => [...window.document.querySelectorAll<HTMLElement>('.dg-description__preview span')].some(span => getComputedStyle(span).fontStyle === 'italic' && span.textContent === 'Operations'));
   await waitFor(() => snapshot.document.nodes.some(n => n.description?.includes('*Operations*') === true));
   await setProperty('Shape or connector description', 'Process owner: Operations\nOutput: approved request');
   await waitFor(() => snapshot.document.nodes.some(n => n.description?.startsWith('Process owner: Operations') === true));
@@ -1078,8 +1078,10 @@ async function runDiagramChecks(): Promise<string[]> {
       const group = window.document.querySelector(`g.dg-node[data-id="${headingNode.id}"]`)!;
       const dividerY = Number(group.querySelector('.dg-node__divider')!.getAttribute('y1'));
       check(dividerY - current.y === Math.ceil(size * 2.25 + 12), 'Divider grows for two title lines at the selected font size');
-      const lines = [...group.querySelectorAll('text tspan')];
+      const lines = [...group.querySelectorAll('text > tspan')];
       check(lines.length === 2, 'Container header retains both title lines');
+      check(lines[0]!.textContent === 'Imagine' && lines[1]!.textContent === 'Operations',
+        'Container header displays the complete title in order');
       check(Number(lines[0]!.getAttribute('y')) - size / 2 >= current.y,
         'Heading remains below the container top');
       check(Number(lines[1]!.getAttribute('y')) + size / 2 <= dividerY - 5,

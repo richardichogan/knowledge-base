@@ -51,7 +51,7 @@ const ThinkPage: React.FC = () => <NotesPage />;
 const App: React.FC = () => {
   return (
     <SignInGate>
-      <Theme theme="g100" as="div" style={{ minHeight: '100vh' }}>
+      <Theme theme="g100" as="div" className="kh-app">
         <AppDialogHost />
         <LocalFolderSync />
         <AthenaContextProvider>

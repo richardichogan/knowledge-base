@@ -2360,7 +2360,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 <p className="dg-present__step">{presentStep?.number !== null && presentStep?.number !== undefined ? `Note ${presentStep.number}` : 'Step'} · {presenting.index + 1} of {presenting.steps.length}</p>
                 {presentStep !== null && presentStep.title !== '' && <h3 className="dg-present__title">{presentStep.title}</h3>}
                 {presentStep !== null && presentStep.text !== '' && <p className="dg-present__text">{descriptionRuns(presentStep.text).map((run, index) =>
-                  <span key={index} style={{ fontWeight: run.bold ? 600 : undefined, fontStyle: run.italic ? 'italic' : undefined }}>{run.text}</span>)}</p>}
+                  <span key={index} className={`${run.bold ? 'dg-description-run--bold' : ''}${run.italic ? ' dg-description-run--italic' : ''}`}>{run.text}</span>)}</p>}
               </div>
               <div className="dg-present__controls">
                 <IconBtn label="Previous (←)" disabled={presenting.index === 0} onClick={() => { stepPresentation(-1); }}><ChevronLeft size={16} /></IconBtn>

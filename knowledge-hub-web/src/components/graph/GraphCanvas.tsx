@@ -233,7 +233,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {...(containerRef.current?.clientHeight !== undefined && { height: containerRef.current.clientHeight })}
       />
       {/* TooltipHost owns its own state — only it re-renders on hover, not GraphCanvas */}
-      <div className="graph-tooltip-wrap" ref={tooltipRef} style={{ display: 'none' }}>
+      <div className="graph-tooltip-wrap" ref={tooltipRef}>
         <TooltipHost ref={tooltipHostRef} edges={edges} />
       </div>
     </div>

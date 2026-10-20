@@ -41,14 +41,6 @@ const COLUMNS: { id: TaskStatus; label: string }[] = [
 
 export type TasksView = 'board' | 'focus';
 
-// Left-stripe colour per priority
-const PRIORITY_BORDER: Record<TaskPriority, string> = {
-  urgent: '#fa4d56',
-  high:   '#f1c21b',
-  normal: '#4589ff',
-  low:    '#6f6f6f',
-};
-
 const PRIORITY_LABEL: Record<TaskPriority, string> = {
   urgent: 'Urgent',
   high:   'High',
@@ -168,8 +160,7 @@ const TaskCard: React.FC<{
   const originTo = origin ? originHref(origin) : null;
   return (
     <article
-      className={`kb-card${dragging ? ' kb-card--dragging' : ''}${done ? ' kb-card--done' : ''}`}
-      style={{ borderLeftColor: done ? 'transparent' : PRIORITY_BORDER[task.priority] }}
+      className={`kb-card kh-priority--${task.priority}${dragging ? ' kb-card--dragging' : ''}${done ? ' kb-card--done' : ''}`}
       title={done ? undefined : `${PRIORITY_LABEL[task.priority]} priority`}
       draggable={!busy}
       aria-busy={busy}
@@ -302,7 +293,7 @@ const InboxTray: React.FC<{
             const origin = task.origin ?? null;
             const originTo = origin ? originHref(origin) : null;
             return (
-              <li key={task.id} className="kb-inbox-card" aria-busy={busy} style={{ borderLeftColor: PRIORITY_BORDER[task.priority] }}>
+              <li key={task.id} className={`kb-inbox-card kh-priority--${task.priority}`} aria-busy={busy}>
                 <button type="button" className="kb-inbox-card__title" disabled={busy} onClick={() => { onEdit(task); }}>{task.title}</button>
                 {task.body !== '' && <p className="kb-inbox-card__body">{task.body}</p>}
                 <p className="kb-inbox-card__meta">

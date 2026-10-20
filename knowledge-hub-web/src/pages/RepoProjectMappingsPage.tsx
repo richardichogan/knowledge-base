@@ -65,7 +65,7 @@ export const RepoProjectMappingsPage: React.FC = () => {
           <span className="today-section-card__title">Repo → project mappings</span>
         </div>
 
-        {configQuery.isLoading && <InlineLoading description="Loading repo mappings…" style={{ padding: '12px 16px' }} />}
+        {configQuery.isLoading && <InlineLoading description="Loading repo mappings…" className="kh-loading-inset" />}
 
         {!configQuery.isLoading && (config?.repos.length ?? 0) === 0 && (
           <p className="today-github-empty">No connected repos found in current sync configuration.</p>

@@ -61,7 +61,7 @@ export const NotesPage: React.FC = () => {
         </div>
       </div>
 
-      <Tile style={{ marginBottom: '1.5rem' }}>
+      <Tile className="note-compose">
         <TextArea
           id="note-input"
           labelText="New note"
@@ -75,7 +75,7 @@ export const NotesPage: React.FC = () => {
             kind={feedback.ok ? 'success' : 'error'}
             title={feedback.msg}
             lowContrast
-            style={{ marginTop: '0.75rem' }}
+            className="note-compose__feedback"
             onClose={() => setFeedback(null)}
           />
         )}
