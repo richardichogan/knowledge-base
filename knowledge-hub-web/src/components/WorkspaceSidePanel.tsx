@@ -86,7 +86,8 @@ export function WorkspaceSidePanel({
             <SidePanelOpen size={16} className="think-side-strip__icon" />
           </button>
           {status !== undefined && <span className={`think-athena-status__dot${status === 'busy' ? ' think-athena-status__dot--busy' : ''}`}
-            title={status === 'busy' ? 'Athena is thinking…' : 'Athena ready'} />}
+            role="img" aria-label={status === 'busy' ? 'Athena is generating a reply' : 'Athena is idle'}
+            title={status === 'busy' ? 'Generating a reply' : 'Idle — this is activity, not save or sync status'} />}
         </div>
       ) : (
         <PaneResizer width={width} onResize={onResize} side="right" label={`Resize ${label.toLowerCase()}`} />

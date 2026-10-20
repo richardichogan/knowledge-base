@@ -11,6 +11,7 @@ export interface LocalFolder {
   id: string;
   name: string;
   path: string;
+  source?: 'daily-insights';
 }
 
 export interface FolderStore {
@@ -98,16 +99,19 @@ export class FolderRegistry {
     return [...(await this.load()).folders];
   }
 
-  public async add(folderPath: string): Promise<LocalFolder> {
+  public async add(folderPath: string, source?: 'daily-insights'): Promise<LocalFolder> {
     const store = await this.load();
     const path = resolve(folderPath);
     const stat = await fs.stat(path);
     if (!stat.isDirectory()) throw new Error(`"${path}" is not a folder.`);
     const existing = store.folders.find((f) => comparablePath(f.path) === comparablePath(path));
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      if (source !== undefined) { existing.source = source; await this.save(); }
+      return existing;
+    }
     const overlap = store.folders.find((f) => isWithin(path, f.path) || isWithin(f.path, path));
     if (overlap !== undefined) throw new Error(`"${path}" overlaps "${overlap.path}", which Athena already uses. Remove that one first.`);
-    const folder: LocalFolder = { id: randomUUID(), name: basename(path) || path, path };
+    const folder: LocalFolder = { id: randomUUID(), name: basename(path) || path, path, ...(source === undefined ? {} : { source }) };
     store.folders.push(folder);
     await this.save();
     return folder;

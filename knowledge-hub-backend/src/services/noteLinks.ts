@@ -58,17 +58,39 @@ export async function findLinkTargets(db: Pool, query: string, type?: LinkType, 
   return result.rows.map(row => ({ type: row.type, id: row.id, title: row.title, href: linkHref(row.type, row.id, row.url) }));
 }
 
+const MAX_AUTOMATIC_LINKS = 8;
+const MIN_DISTINCTIVE_TITLE_LENGTH = 5;
+
 export async function suggestLinkTargets(db: Pool, writing: string, exclude?: string): Promise<LinkTarget[]> {
-  const { rows } = await db.query<TargetRow>(
+  const { rows } = await db.query<TargetRow & { title_count: string | number }>(
     `WITH targets AS (${TARGETS})
-     SELECT type,id,title,url FROM targets
+     SELECT type,id,title,url,COUNT(*) OVER (PARTITION BY lower(trim(title))) AS title_count FROM targets
      WHERE length(trim(title)) >= 2 AND strpos(lower($1), lower(trim(title))) > 0
        AND NOT (type='note' AND id=COALESCE($2,''))
-     ORDER BY length(title) DESC, type, id`, [writing, exclude ?? null]);
+     ORDER BY length(title) DESC, type, id LIMIT 100`, [writing, exclude ?? null]);
   return rows.filter(row => {
+    const title = row.title.trim();
+    if (!isDistinctiveLinkTitle(title) || Number(row.title_count) !== 1) return false;
     const escaped = row.title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'iu').test(writing);
-  }).map(row => ({ type: row.type, id: row.id, title: row.title.trim(), href: linkHref(row.type, row.id, row.url) }));
+  }).slice(0, MAX_AUTOMATIC_LINKS).map(row => ({ type: row.type, id: row.id, title: row.title.trim(), href: linkHref(row.type, row.id, row.url) }));
+}
+
+const GENERIC_LINK_TITLES = new Set([
+  'review', 'reviews', 'note', 'notes', 'new note', 'untitled', 'untitled note',
+  'task', 'tasks', 'new task', 'meeting', 'meetings', 'project', 'projects',
+  'summary', 'overview', 'update', 'updates', 'draft', 'test', 'testing',
+  'plan', 'planning', 'research', 'spec', 'specification', 'description',
+  'action', 'actions', 'follow up', 'follow-up', 'todo', 'to do', 'done', 'general',
+  'status', 'progress', 'discussion', 'agenda', 'minutes', 'decision', 'decisions',
+  'email', 'document', 'documents', 'specs',
+]);
+
+/** Manual linking remains unrestricted; unsolicited matches must be distinctive. */
+export function isDistinctiveLinkTitle(title: string): boolean {
+  const cleaned = title.trim().replace(/\s+/g, ' ');
+  return !GENERIC_LINK_TITLES.has(cleaned.toLocaleLowerCase())
+    && (cleaned.length >= MIN_DISTINCTIVE_TITLE_LENGTH || /^[A-Z][A-Z0-9]{2,}$/.test(cleaned));
 }
 
 export async function entityBacklinks(db: Pool, type: LinkType, id: string, offset: number): Promise<{ items: LinkTarget[]; hasMore: boolean }> {

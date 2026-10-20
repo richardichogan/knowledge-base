@@ -19,12 +19,16 @@ directly from that page; restored forms highlight and focus blocking fields.
 Archived projects are excluded from new selections, while existing selections
 are preserved.
 
-The analysis report groups findings by competitor, showing what they are doing,
-the specific field, evidenced Microsoft involvement and impact on the user's
-projects. There are no suggested responses. Per owner direction, there are no report filters,
-Create use case actions, or per-finding Evidence & uncertainty sections. Saved
-citations remain available in the report's research sources. Coverage gaps are explicit, research
-configuration is secondary, and older runs are collapsed. The report and controls
+The report leads with **What you need to know now**: up to five saved developments
+distributed across companies, the date and coverage of the latest check, repeated
+fields and project implications. **Company by company** keeps one company's
+findings in view at a time, with keyboard-accessible company tabs. Each finding
+shows what changed and why it matters, with provenance, Microsoft involvement,
+uncertainty and project detail available on demand alongside its own citations.
+There are no suggested responses, report filters or Create use case actions.
+No meaningful change, incomplete coverage, no evidence, failed checks and stale
+checks remain distinct; silence is not reported as reassurance. Research
+configuration and monitoring history are secondary and collapsed. The report and controls
 use Athena's shared Carbon surfaces, teal accent, typography, spacing and control
 tokens rather than a separate blue visual theme. Existing analysis text is
 preserved, not rewritten by the presentation layer.
@@ -35,8 +39,8 @@ by importance and priority). Microsoft involvement must be explicit in the
 competitor's sources. Project impact must relate to supplied project capabilities,
 not merely a shared AI theme. Older reports retain their original findings and
 explicitly mark Microsoft involvement as not separately assessed.
-The monitoring brief is collapsed so the latest analysis appears first. On wide
-screens, a right-hand **What this means for my projects** column groups structured
+The monitoring brief is collapsed so the latest analysis appears first.
+**What this means for my projects** groups structured
 assessments by saved project, linking each implication back to its finding.
 Confirmed overlap, possible relevance and insufficient context are distinguished;
 differentiation requires support from both project context and competitor sources,

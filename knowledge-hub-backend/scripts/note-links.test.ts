@@ -4,7 +4,7 @@ import { mock, test } from 'node:test';
 import express from 'express';
 import { PGlite } from '@electric-sql/pglite';
 import { getDb } from '../src/db/db.js';
-import { findLinkTargets, noteBacklinks, resolveNoteLinks } from '../src/services/noteLinks.js';
+import { findLinkTargets, noteBacklinks, resolveNoteLinks, suggestLinkTargets, isDistinctiveLinkTitle } from '../src/services/noteLinks.js';
 import { noteLinksRouter } from '../src/routes/noteLinks.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { noteMarkdown } from '../src/services/noteMarkdown.js';
@@ -14,6 +14,28 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')
 const mention = (n: number) => ({ type: 'noteMention', props: { noteId: id(n) } });
 const writing = (title: string, content: unknown[]) => JSON.stringify({
   title, contentType: 'note', contentJson: JSON.stringify(content),
+});
+
+test('proactive links suppress generic and ambiguous titles without disabling manual linking', async () => {
+  for (const title of ['Review', 'Summary', 'Untitled note', 'Task', '  Notes  ', 'Update', 'Spec']) {
+    assert.equal(isDistinctiveLinkTitle(title), false, title);
+  }
+  assert.equal(isDistinctiveLinkTitle('IMAGINE'), true);
+  assert.equal(isDistinctiveLinkTitle('IBM'), true);
+  const pool = getDb();
+  const query = mock.method(pool, 'query', async () => ({ rows: [
+    { type: 'task', id: id(1), title: 'Review', url: null, title_count: 1 },
+    { type: 'note', id: id(2), title: 'Imagine architecture', url: null, title_count: 1 },
+    { type: 'note', id: id(3), title: 'Release checklist', url: null, title_count: 2 },
+    { type: 'task', id: id(4), title: 'Release checklist', url: null, title_count: 2 },
+    { type: 'project', id: 'ibm', title: 'IBM', url: null, title_count: 1 },
+  ] }));
+  try {
+    const result = await suggestLinkTargets(pool, 'Review the Imagine architecture and Release checklist for IBM.');
+    assert.deepEqual(result.map(item => item.title), ['Imagine architecture', 'IBM']);
+    assert.equal(result[0]?.href, `/think?noteId=${id(2)}`);
+    assert.equal((await suggestLinkTargets(pool, 'xImagine architecturex')).length, 0, 'word boundaries still apply');
+  } finally { query.mock.restore(); }
 });
 
 test('entity link search, atomic derived backlinks, nested content, rename/deletion and exports', async () => {
@@ -61,6 +83,11 @@ test('entity link search, atomic derived backlinks, nested content, rename/delet
     assert.equal((await findLinkTargets(pool, 'Target', undefined, undefined, id(1))).some(item => item.id === id(1)), false);
     assert.equal((await findLinkTargets(pool, '%')).length, 0, 'SQL wildcards are literal');
     assert.equal((await findLinkTargets(pool, "' OR TRUE --")).length, 0);
+    assert.equal((await suggestLinkTargets(pool, 'Read the Target project now.'))[0]?.id, 'target-project');
+    await db.query("INSERT INTO tasks(id,title) VALUES($1,'Review'),($2,'Target project')", [id(40), id(41)]);
+    assert.ok((await suggestLinkTargets(pool, 'Review the Target project now.'))
+      .every(item => !['Review', 'Target project'].includes(item.title)), 'generic and duplicate destinations are not suggested');
+    assert.equal((await findLinkTargets(pool, 'Review'))[0]?.id, id(40), 'manual search still offers generic titles');
     const nested = writing('Source', [{ type: 'table', content: { rows: [{ cells: [{ content: [mention(1), mention(1),
       { type: 'entityMention', props: { entityType: 'project', entityId: 'target-project' } }] }] }] },
       children: [{ type: 'paragraph', content: [mention(1)] }] }]);

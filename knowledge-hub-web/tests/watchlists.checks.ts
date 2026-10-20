@@ -194,8 +194,24 @@ export async function runWatchlistChecks(queryClient: QueryClient): Promise<stri
   await waitFor(() => document.querySelector('#watchlist-form') === null && document.querySelector('.dw-detail') !== null);
   check(saved[0]?.config.entities.length === 1 && saved[0]?.config.entities[0]?.name === 'Chosen Product' && saved[0]?.config.sourceIds[0] === sourceId, 'Blank competitor rows are ignored and configured entities persist');
   check(document.body.innerText.includes('saved') && !document.body.innerText.includes('Unsaved draft'), 'Saved watchlist replaces its retained draft');
-  const brief = [...document.querySelectorAll<HTMLDetailsElement>('.dw-detail > details')].find(detail => detail.querySelector('summary')?.textContent === 'Monitoring brief');
-  check(brief && !brief.open, 'Long monitoring brief is collapsed above the latest analysis');
+  const nowSection = (): HTMLElement => document.querySelector<HTMLElement>('.dw-now')!;
+  const tab = (name: string): HTMLButtonElement => {
+    const found = [...document.querySelectorAll<HTMLButtonElement>('.dw-company-tab')].find(t => t.querySelector('.dw-company-tab__name')?.textContent === name);
+    check(found, `Missing company tab ${name}`);
+    return found;
+  };
+  const setup = (summary: string): HTMLDetailsElement => {
+    const found = [...document.querySelectorAll<HTMLDetailsElement>('.dw-setup > details')].find(d => d.querySelector('summary')?.textContent?.startsWith(summary));
+    check(found, `Missing setup section ${summary}`);
+    return found;
+  };
+  await waitFor(() => nowSection()?.innerText.includes('No checks yet') === true);
+  check(nowSection().querySelector('h4')?.textContent === 'What you need to know now' && nowSection().innerText.includes('No checks yet'), 'A new watchlist leads with an honest empty briefing');
+  check(tab('Chosen Product').innerText.includes('Not checked yet') && tab('Chosen Product').getAttribute('aria-selected') === 'true', 'Configured companies are listed before their first check');
+  check(!setup('Monitoring brief').open, 'Monitoring setup is collapsed below the briefing');
+  check(nowSection().compareDocumentPosition(document.querySelector('.dw-companies')!) & Node.DOCUMENT_POSITION_FOLLOWING
+    && document.querySelector('.dw-companies')!.compareDocumentPosition(document.querySelector('.dw-setup')!) & Node.DOCUMENT_POSITION_FOLLOWING,
+  'Briefing comes first, then the company breakdown, then setup and history');
   checks.push('Watchlist validation, draft recovery, blank-row normalization and duplicate-submit protection preserve entries through a failed save');
 
   const runNow = button('Run now');
@@ -205,22 +221,27 @@ export async function runWatchlistChecks(queryClient: QueryClient): Promise<stri
   check(runCalls === 1, 'Concurrent run clicks are locked');
   failRun = false;
   button('Run now').click();
-  await waitFor(() => document.querySelector('.dw-finding') !== null);
-  check(document.body.innerText.includes('Announced capability') && document.body.innerText.includes('Azure is explicitly named'), 'Claim kind and Microsoft involvement are visible');
+  await waitFor(() => document.querySelector('.dw-now__item') !== null);
+  const item = document.querySelector<HTMLElement>('.dw-now__item')!;
+  check(item.innerText.includes('Chosen Product · Announced capability') && item.innerText.includes('Newly observed capability')
+    && item.innerText.includes('Challenges the explicit comparison.'), 'Now section states the company, claim kind, change and why it matters');
+  check(nowSection().innerText.includes('One newly observed announcement') && nowSection().innerText.includes('Meaningful changes'), 'Now section carries the stored summary and status');
+  check(tab('Chosen Product').innerText.includes('1 development') && tab('Chosen Product').getAttribute('aria-selected') === 'true', 'Company with developments is selected');
   const rail = document.querySelector<HTMLElement>('.dw-project-insights');
-  check(rail?.innerText.includes('IMAGINE') && rail.innerText.includes('Possible relevance'), 'Right column groups grounded project implications and labels inference');
-  check(rail.querySelector('a')?.hash === `#finding-${runs[0]?.id}-finding-id`, 'Project implication links to the exact competitor finding');
-  const layout = document.querySelector('.dw-report-layout')!;
-  check(getComputedStyle(layout).display === 'grid', 'Analysis uses an intentional grid layout');
-  if (window.innerWidth >= 1280) check(rail.getBoundingClientRect().left > document.querySelector('.dw-finding')!.getBoundingClientRect().right, 'Project implications occupy the right-hand space');
-  check(!document.body.innerText.includes('Suggested response') && !document.body.innerText.includes('→ Use case'), 'No rejected suggested response or use-case action');
-  check(document.querySelector('.dw-evidence a')?.getAttribute('href') === 'https://example.com/evidence', 'Finding links to evidence');
-  const researchSources = document.querySelector<HTMLDetailsElement>('.dw-evidence')?.closest('details');
-  check(researchSources && !researchSources.open, 'Research sources remain collapsed by default');
-  researchSources.open = true;
-  check(researchSources.innerText.includes('syndicated copies counted once'), 'Syndication is not corroboration');
-  researchSources.open = false;
-  checks.push('Competitor activity, field, Microsoft involvement and a linked project-impact column without rejected actions');
+  check(rail?.innerText.includes('IMAGINE') && rail.innerText.includes('Possible relevance'), 'Briefing groups grounded project implications and labels inference');
+  const findingId = `finding-${runs[0]?.id}-finding-id`;
+  const finding = document.getElementById(findingId)!;
+  check(finding && !finding.querySelector('details')!.open && !finding.innerText.includes('Azure is explicitly named'), 'Finding detail is progressive');
+  rail.querySelector<HTMLButtonElement>('.dw-link-button')!.click();
+  await waitFor(() => document.activeElement === finding && finding.querySelector('details')!.open);
+  check(finding.innerText.includes('Azure is explicitly named') && finding.innerText.includes('Not proof of availability.')
+    && finding.innerText.includes('IMAGINE · Possible relevance'), 'Opened finding shows Microsoft involvement, caveats and project impact');
+  check(finding.querySelector('.dw-evidence a')?.getAttribute('href') === 'https://example.com/evidence'
+    && finding.innerText.includes('syndicated copies counted once'), 'Each finding cites its own sources; syndication is not corroboration');
+  check(!document.body.innerText.includes('Suggested response') && !document.body.innerText.includes('Check supporting documentation.')
+    && !document.body.innerText.includes('→ Use case'), 'No rejected suggested response or use-case action');
+  check(!setup('Scope and sources').open, 'Full research sources remain collapsed by default');
+  checks.push('Now briefing, selected company breakdown, progressive finding detail with per-finding citations and project links');
 
   button('Edit watchlist').click();
   await waitFor(() => document.querySelector('#watchlist-form') !== null);
@@ -232,27 +253,71 @@ export async function runWatchlistChecks(queryClient: QueryClient): Promise<stri
   await waitFor(() => document.querySelector('#watchlist-form') === null && saved[0]?.baselineVersion === 2);
   check(button('Run now').disabled, 'Paused watchlists cannot run');
   check(runs[0]?.baselineVersion === 1 && runs[0]?.baseline.text === 'Private original proposition', 'Old dated run retains the original comparison version');
-  const baselineDetails = [...document.querySelectorAll<HTMLDetailsElement>('.dw-detail > details')].find(detail => detail.querySelector('summary')?.textContent?.includes('Comparison context'))!;
+  const baselineDetails = setup('Comparison context');
   baselineDetails.open = true;
   await waitFor(() => baselineDetails.innerText.includes('Version 2') && baselineDetails.innerText.includes('Version 1'));
   failHistory = true;
   await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
   await waitFor(() => document.body.innerText.includes('Watchlist history unavailable'));
-  check(document.querySelector('.dw-finding') !== null, 'Unavailable refresh does not erase saved findings');
+  check(document.querySelector('.dw-finding') !== null && document.querySelector('.dw-now__item') !== null, 'Unavailable refresh does not erase saved findings');
   failHistory = false;
   button('Retry').click();
   await waitFor(() => !document.body.innerText.includes('Watchlist history unavailable'));
   const recorded = runs[0]!;
-  runs = [recorded, { ...recorded, id: 'quiet-run', status: 'no_meaningful_change', findings: [], evidence: [],
-    summary: 'No new meaningful change in checked feeds.', coverage: { ...recorded.coverage, matched: 0, uniqueEvents: 0 } },
-  { ...recorded, id: 'uncovered-run', status: 'insufficient_coverage', findings: [], evidence: [],
-    summary: 'Feeds unavailable; no conclusion about market change.', coverage: { ...recorded.coverage, sourcesHealthy: 0, missingEntities: ['Chosen Product'] } }];
+  const quiet: WatchRun = { ...recorded, id: 'quiet-run', status: 'no_meaningful_change', findings: [], evidence: [],
+    summary: 'No new meaningful change in checked feeds.', coverage: { ...recorded.coverage, matched: 0, uniqueEvents: 0 } };
+  const uncovered: WatchRun = { ...recorded, id: 'uncovered-run', status: 'insufficient_coverage', findings: [], evidence: [],
+    summary: 'Feeds unavailable; no conclusion about market change.', coverage: { ...recorded.coverage, sourcesHealthy: 0, missingEntities: ['Chosen Product'] } };
+  runs = [recorded, quiet, uncovered];
   await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
   await waitFor(() => document.querySelector('.dw-run--no_meaningful_change') !== null && document.querySelector('.dw-run--insufficient_coverage') !== null);
+  check(!setup('Earlier checks').open && setup('Earlier checks').querySelector('summary')!.textContent === 'Earlier checks (2)', 'Earlier checks are collapsed and counted');
   check(document.querySelector('.dw-run--no_meaningful_change')!.textContent!.includes('No meaningful change')
     && document.querySelector('.dw-run--insufficient_coverage')!.textContent!.includes('no conclusion'), 'Saved quiet weeks are visibly distinct from unavailable coverage');
+  runs = [quiet, recorded];
+  await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
+  await waitFor(() => tab('Chosen Product').innerText.includes('No meaningful change found'));
+  check(nowSection().innerText.includes('No meaningful change') && document.querySelector('.dw-now__item') === null, 'A quiet latest check is stated without stale developments');
+  runs = [uncovered, recorded];
+  await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
+  await waitFor(() => tab('Chosen Product').innerText.includes('No evidence found'));
+  check(nowSection().innerText.includes('Coverage was incomplete') && document.querySelector('.dw-company__note--missing')?.textContent?.includes('not proof of no activity'),
+    'Missing evidence is distinguished from no change in the briefing and the company');
+  runs = [{ ...recorded, id: 'failed-run', status: 'failed', findings: [], evidence: [], summary: 'Search provider unavailable.' }, recorded];
+  await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
+  await waitFor(() => nowSection().innerText.includes('failed: Search provider unavailable.'));
+  check(nowSection().innerText.includes('Showing the last completed check') && document.querySelector('.dw-now__item') !== null, 'A failed latest check keeps the last completed briefing, labelled');
+  const old = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  runs = [{ ...recorded, startedAt: old, completedAt: old }];
+  await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
+  await waitFor(() => nowSection().innerText.includes('This briefing is 30 days old'));
+  checks.push('Version history retains baselines, pause disables execution, failed history retains evidence, and quiet, missing, failed and stale checks differ');
+
+  const finding2 = (entity: string, n: number, field: string): WatchRun['findings'][number] => ({ ...recorded.findings[0]!, id: `${entity}-${n}`, entity,
+    changed: `${entity} change ${n}`, field, projectAssessments: [] });
+  runs = [{ ...recorded, id: 'multi-run', config: { ...recorded.config, entities: ['Chosen Product', 'Second Co', 'Third Co', 'Fourth Co'].map(name => ({ name, relationship: 'competitor' as const })) },
+    coverage: { ...recorded.coverage, missingEntities: ['Fourth Co'] },
+    findings: [1, 2, 3, 4].map(n => finding2('Chosen Product', n, n === 1 ? 'Claims processing' : `Field ${n}`))
+      .concat([1, 2, 3].map(n => finding2('Second Co', n, n === 1 ? 'Claims processing' : `Other ${n}`))) }];
+  await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
+  await waitFor(() => document.querySelectorAll('.dw-now__item').length === 5);
+  check(JSON.stringify([...document.querySelectorAll('.dw-now__headline')].map(h => h.textContent))
+    === JSON.stringify(['Chosen Product change 1', 'Second Co change 1', 'Chosen Product change 2', 'Second Co change 2', 'Chosen Product change 3']),
+  'Briefing is bounded and takes one development per company first in watchlist order');
+  check(nowSection().innerText.includes('Showing 5 of 7') && nowSection().innerText.includes('Claims processing · Chosen Product, Second Co'), 'Briefing discloses its bound and cross-company fields');
+  check(tab('Third Co').innerText.includes('No meaningful change found') && tab('Fourth Co').innerText.includes('No evidence found'), 'Each company states its own coverage outcome');
+  check(document.querySelectorAll('.dw-company .dw-finding').length === 4, 'Only the selected company is expanded');
+  tab('Chosen Product').focus();
+  tab('Chosen Product').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  await waitFor(() => document.activeElement === tab('Second Co') && tab('Second Co').getAttribute('aria-selected') === 'true');
+  check(document.querySelectorAll('.dw-company .dw-finding').length === 3 && tab('Chosen Product').tabIndex === -1, 'Arrow keys move company selection with a roving tab stop');
+  tab('Second Co').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+  await waitFor(() => document.activeElement === tab('Fourth Co'));
+  check(document.querySelector('.dw-company')!.textContent!.includes('No evidence was found for Fourth Co'), 'Selecting a company without evidence explains the gap');
+  [...document.querySelectorAll<HTMLButtonElement>('.dw-now__item .dw-link-button')][1]!.click();
+  await waitFor(() => tab('Second Co').getAttribute('aria-selected') === 'true' && document.activeElement?.id === 'finding-multi-run-Second_Co-1');
   check(document.documentElement.scrollWidth <= window.innerWidth, 'Watchlist layout fits desktop and mobile viewport');
-  checks.push('Version history retains baselines, pause disables execution, failed history retains evidence, and quiet weeks differ from missing coverage');
+  checks.push('Many companies stay bounded: round-robin briefing, per-company outcomes, keyboard tabs and briefing-to-company navigation');
 
   button('Interests').click();
   await waitFor(() => document.querySelector('dialog[open]') !== null);

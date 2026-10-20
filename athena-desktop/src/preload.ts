@@ -14,6 +14,7 @@ if (athenaOrigin !== '' && window.location.origin === athenaOrigin) {
     device: () => ipcRenderer.invoke('athena:device'),
     listFolders: () => ipcRenderer.invoke('athena:list-folders'),
     addFolder: () => ipcRenderer.invoke('athena:add-folder'),
+    addDailyInsights: () => ipcRenderer.invoke('athena:add-daily-insights'),
     removeFolder: (id: string) => ipcRenderer.invoke('athena:remove-folder', id),
     scan: () => ipcRenderer.invoke('athena:scan'),
     readFile: (path: string) => ipcRenderer.invoke('athena:read-file', path),

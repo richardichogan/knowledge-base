@@ -28,6 +28,48 @@ chat window is open, one opens on that chat.
 
 Only the folders you add are reachable. Paths are checked after resolving symlinks and junctions, so a link can't reach outside a folder.
 
+## M365 Daily Insights
+
+In Library → **Folders on this PC**, choose **Add Daily Insights** and select the
+folder M365 Copilot writes into. This explicitly enables structured capture for
+that folder; ordinary folder indexing still never creates tasks. Richard's
+specifically authorised `C:\Users\RichardHogan\OneDrive - IBM\Daily Insights`
+folder can also be registered using the existing **Add folder** button, including
+on desktop 0.1.3. No other folder named “Daily Insights” is implicitly enabled.
+
+Keep reports named `Daily-Briefing-YYYY-MM-DD.md`, with the matching
+`# Morning briefing: Tuesday, 20 October 2026` heading, a
+`### Today's meetings` Markdown table, and a
+`## Part 2: Yesterday, what I learned (Monday, 19 October)` heading. Explicit
+`**Task: ...**` blocks need Project, Owner, Due and Source bullet fields.
+
+- All new reports are processed oldest first, so an offline gap is caught up
+  and the latest report is not missed. Same-day corrections replace that day's
+  imported diary entries and yesterday's knowledge document.
+- Only Richard-owned explicit tasks are added to Plan's inbox. Exact deadlines
+  become dates; “this week”, “overdue”, “before the meeting” and other vague
+  deadlines remain verbatim in the task with a review warning, never guessed.
+- Tasks deduplicate across reports. Completed, archived, deleted, manually
+  created and user-edited tasks are preserved; removing an action from a report
+  does not delete a task.
+- Meeting times use Europe/London (BST/GMT); free-time rows aren't meetings.
+  Yesterday's knowledge is saved as a dated Library Markdown document, retaining
+  source provenance. The original local files are **never deleted**.
+- The capture endpoint (`POST /api/capture/daily-insights`) has its own durable
+  transaction/receipt, separate from upload indexing. Failed captures retry on
+  the next sync even if the original file is already indexed. Sync runs on
+  startup, filesystem changes, **Sync now**, and every minute while Desktop is open.
+- Library shows processed report dates, task/diary counts and deadline/project
+  review warnings. Failure details are under **sync issues**.
+
+The backend needs migration `088_daily_insights.sql`, applied by the existing
+startup migration runner when an approved deployment occurs. Do not manually
+run it against production for validation. The named source picker requires a
+rebuilt/reinstalled desktop executable (`npm run dist`); the exact authorised
+path fallback works with the existing executable after the web/backend changes
+are deployed. A browser/PWA or cloud backend cannot read this PC's files.
+The Alliance OneDrive configuration is not involved or changed.
+
 ## Develop
 
 ```

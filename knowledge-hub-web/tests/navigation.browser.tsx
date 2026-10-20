@@ -66,6 +66,11 @@ api.getSessionHistory = async (sessionId) => success({ sessionId, messages: [], 
 api.getSessionTurn = async () => success(null);
 api.listAlternates = async () => success([]);
 api.listExclusions = async () => success([]);
+api.getChatMentionTargets = async () => success([
+  { type: 'note', id: '00000000-0000-4000-8000-000000000001', title: 'Feature specification', href: '/think?noteId=00000000-0000-4000-8000-000000000001', detail: 'spec' },
+  { type: 'document', id: '00000000-0000-4000-8000-000000000002', title: 'Architecture source', href: '/library?contentItemId=00000000-0000-4000-8000-000000000002', detail: 'user-upload' },
+  { type: 'person', id: '00000000-0000-4000-8000-000000000003', title: 'Richard Hogan', href: '/people?personId=00000000-0000-4000-8000-000000000003', detail: 'IBM' },
+]);
 api.listChatOutputs = async () => success([]);
 api.listChatScreens = async () => success([]);
 api.getChatDecisions = async () => success({ tracking: { enabled: false, explicit: null, personaDefault: false }, decisions: [] });
@@ -104,6 +109,7 @@ api.getGraph = async () => success({ nodes: [], edges: [], stats: {
 } });
 api.getDocumentLibrary = async () => success([{
   id: 'fixture-doc', title: 'Navigation source fixture', type: 'doc', repo: 'fixture/repo',
+  contentItemId: '00000000-0000-4000-8000-000000000002',
   path: 'README.md', sourceLabel: 'Fixture', projectId: 'personal',
   htmlUrl: 'https://example.com/README.md', size: 40, tags: [], taxonomyTagIds: [],
 }]);
@@ -438,6 +444,11 @@ export async function runNavigationChecks(): Promise<string[]> {
   await go('/library');
   await waitFor(() => document.querySelector('.page-title')?.textContent === 'Sources');
   check(selector('.kh-tools-location').textContent === 'Tools / Sources', 'Sources secondary label');
+  await go('/library?contentItemId=00000000-0000-4000-8000-000000000002');
+  await waitFor(() => document.querySelector('.docs-viewer__filename')?.textContent === 'README.md');
+  await go('/library?contentItemId=00000000-0000-4000-8000-000000000099');
+  await waitFor(() => document.querySelector('.docs-viewer__empty')?.textContent?.includes('no longer available') === true);
+  await go('/library');
   results.push('Existing tag/mapping panels and direct Sources/Memory/Graph/settings routes preserved');
 
   const scheduledDate = localDateKey(new Date());
@@ -711,8 +722,53 @@ export async function runNavigationChecks(): Promise<string[]> {
   results.push('Supporting service failures do not affect primary navigation or Tools membership');
   results.push(...await runProjectPickerChecks());
   results.push(...await runDataReliabilityChecks(queryClient, go));
+  results.push(...await runEmbeddedChatChecks());
   results.push(...await runChatChecks());
   return results;
+}
+
+async function runEmbeddedChatChecks(): Promise<string[]> {
+  const previousLookup = api.getSessionIdForNote;
+  const previousHistory = api.getSessionHistory;
+  api.getSessionIdForNote = async () => success({ sessionId: 'embedded-thread-fixture' });
+  api.getSessionHistory = async sessionId => sessionId === 'embedded-thread-fixture' ? success({
+    sessionId, projectId: null, messages: [
+      { role: 'user', content: 'Compare this saved specification with the existing implementation. '.repeat(5), timestamp: new Date().toISOString() },
+      { role: 'assistant', content: '## Delivery scope\n\nUse verified sources and preserve existing behaviour.\n\n- Bounded implementation\n- Observable acceptance criteria', timestamp: new Date().toISOString() },
+    ],
+  }) : previousHistory(sessionId);
+  await go('/think/fixture-note');
+  await waitFor(() => document.querySelector('#think-side-tab-athena') !== null);
+  selector<HTMLButtonElement>('[aria-label="Open Athena"]').click();
+  await waitFor(() => document.querySelector('.think-athena-panel textarea') !== null);
+  const narrow = selector<HTMLTextAreaElement>('.think-athena-panel textarea');
+  narrow.focus();
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(narrow, '@spec');
+  narrow.dispatchEvent(new Event('input', { bubbles: true }));
+  await waitFor(() => document.querySelector('.people-mentions__item') !== null);
+  const menu = selector('.people-mentions');
+  const optionBounds = selector('.people-mentions__item').getBoundingClientRect();
+  check(menu.contains(document.elementFromPoint(optionBounds.left + 20, optionBounds.top + 10)),
+    'Mentions are visible above the Think drawer rather than clipped behind it');
+  selector<HTMLButtonElement>('.people-mentions__item').click();
+  await waitFor(() => narrow.value.includes('@[Feature specification](/think?noteId='));
+  const surface = selector('.think-athena-panel .ai-conversation');
+  await waitFor(() => document.querySelector('.think-athena-panel .ai-bubble--ai') !== null);
+  check(getComputedStyle(selector('.think-athena-panel .ai-bubble-text--md')).fontSize === '15px',
+    'Narrow replies use the shared standalone typography');
+  check(getComputedStyle(selector('.think-athena-panel .ai-bubble--ai')).borderLeftWidth === '0px',
+    'Narrow replies retain plain prose rather than a separate striped card design');
+  const composerBounds = selector('.think-athena-panel .ai-composer').getBoundingClientRect();
+  check(composerBounds.bottom <= surface.getBoundingClientRect().bottom + 1, 'Long restored history keeps the composer visible');
+  check(surface.scrollWidth <= surface.clientWidth + 1, `Shared narrow conversation has no horizontal overflow: ${JSON.stringify(
+    [surface, ...surface.querySelectorAll<HTMLElement>('*')].filter(element => element.scrollWidth > surface.clientWidth + 1)
+      .map(element => ({ class: element.className, width: element.clientWidth, scroll: element.scrollWidth, minWidth: getComputedStyle(element).minWidth, gutter: getComputedStyle(element).getPropertyValue('--ai-gutter') })),
+  )}`);
+  check(document.querySelector('.think-athena-panel [aria-label="Action for this message"] option[value="spec"]') !== null,
+    'Spec is available in the Think panel as well as standalone');
+  api.getSessionIdForNote = previousLookup;
+  api.getSessionHistory = previousHistory;
+  return ['Think uses the shared composer and Spec action; saved-note mentions remain visible above its drawer'];
 }
 
 async function runChatChecks(): Promise<string[]> {
@@ -731,6 +787,29 @@ async function runChatChecks(): Promise<string[]> {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, text);
     input.dispatchEvent(new Event('input', { bubbles: true }));
   };
+  const input = selector<HTMLTextAreaElement>('#ai-chat-input');
+  input.focus();
+  editDraft('@spec');
+  await waitFor(() => document.querySelector('.people-mentions__item')?.textContent?.includes('Feature specification') === true);
+  const menu = selector('.people-mentions');
+  const bounds = menu.getBoundingClientRect();
+  check(bounds.left >= 0 && bounds.right <= window.innerWidth && bounds.top >= 0 && bounds.bottom <= window.innerHeight,
+    'Mention picker stays within viewport');
+  const firstOption = selector('.people-mentions__item').getBoundingClientRect();
+  check(menu.contains(document.elementFromPoint(firstOption.left + 20, firstOption.top + 10)), 'Mention picker is not clipped or covered');
+  key(input, 'ArrowDown');
+  await waitFor(() => document.querySelector('.people-mentions__item[aria-selected="true"]')?.textContent?.includes('Architecture source') === true);
+  key(input, 'Enter');
+  await waitFor(() => input.value.includes('@[Architecture source](/library?contentItemId='));
+  check(document.querySelector('.people-mentions') === null, 'Keyboard choice closes the document picker without sending');
+  editDraft('/spec Implement this feature');
+  await waitFor(() => selector<HTMLSelectElement>('[aria-label="Action for this message"]').value === 'spec');
+  check(selector('.ai-conversation') !== null, 'Standalone uses the shared conversation surface');
+  editDraft('@rich');
+  await waitFor(() => document.querySelector('.people-mentions__item') !== null);
+  key(input, 'Escape');
+  await waitFor(() => document.querySelector('.people-mentions') === null);
+  results.push('Document, note and person mentions share a visible keyboard picker; /spec selects the agent-ready action');
   editDraft(recoveryText);
   await waitFor(() => selector<HTMLTextAreaElement>('#ai-chat-input').value === recoveryText);
   releaseBriefing();
@@ -778,10 +857,12 @@ async function verifyChatReload(expected: { sessionId: string; draft: string }):
   check(document.querySelector('.ai-starters') === null, 'Failed restoration is not presented as a new empty chat');
   api.getSessionHistory = async (sessionId) => success({
     sessionId, projectId: null,
-    messages: [{ role: 'user', content: 'Previously saved conversation', timestamp: new Date().toISOString() }],
+    messages: [{ role: 'user', content: 'Previously saved conversation with @[Architecture source](/library?contentItemId=00000000-0000-4000-8000-000000000002)', timestamp: new Date().toISOString() }],
   });
   selector<HTMLButtonElement>('.ai-history-error button').click();
   await waitFor(() => document.querySelector('.ai-history-error') === null && document.body.textContent?.includes('Previously saved conversation') === true);
+  check(document.querySelector('.ai-bubble a[href="/library?contentItemId=00000000-0000-4000-8000-000000000002"]') !== null,
+    'Restored document mentions remain readable internal links');
   check(selector<HTMLTextAreaElement>('#ai-chat-input').value === expected.draft, 'Retry restores server conversation without changing the draft');
   // Acceptance, not clicking Send, is the point at which a draft can be cleared.
   api.startChatTurn = async (request) => success({ turnId: 'accepted-fixture-turn', sessionId: request.sessionId! });

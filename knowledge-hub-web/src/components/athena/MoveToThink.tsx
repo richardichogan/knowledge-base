@@ -17,9 +17,11 @@ interface MoveToThinkProps {
   variant?: 'header' | 'inline';
   /** The older "summary + transcript" export. */
   onExportSummary: () => void;
+  /** A note-linked panel must keep its conversation linked to the original note. */
+  linkConversation?: boolean;
 }
 
-export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, disabled, variant = 'header', onExportSummary }) => {
+export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, disabled, variant = 'header', onExportSummary, linkConversation = true }) => {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<'spec' | 'summary'>('spec');
@@ -43,11 +45,16 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
       if (!draft.success) throw new Error(draft.error.message);
       setBusy('Creating the note…');
       const { markdownToNoteBlocks } = await import('../../notes/markdownToBlocks');
-      const note = await createNote({ title: draft.data.title, contentType: 'note', contentJson: JSON.stringify(markdownToNoteBlocks(draft.data.markdown)) }, projectId !== '' ? projectId : undefined);
+      const note = await createNote({ title: draft.data.title, contentType: 'spec', contentJson: JSON.stringify(markdownToNoteBlocks(draft.data.markdown)) }, projectId !== '' ? projectId : undefined);
       if (note === null) throw new Error('The note could not be saved.');
       savedTitle = note.title;
       void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      if (!linkConversation) {
+        setOpen(false);
+        await alertDialog(`"${note.title}" has been saved to Think. This chat stays linked to your original note.`, { title: 'Saved to Think', tone: 'success' });
+        return;
+      }
       const linked = await api.linkSessionToNote(sessionId, note.id, draft.data.title);
       if (!linked.success) {
         setOpen(false);
@@ -85,8 +92,8 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
           <label className="ai-move__option">
             <input type="radio" name="move-kind" checked={kind === 'spec'} onChange={() => { setKind('spec'); }} disabled={busy !== null} />
             <span>
-              <strong>Spec note</strong>
-              <span className="ai-move__hint">A structured first draft from this conversation: what you&rsquo;ve established, decisions, open questions, sources. Saved to Think; your chat stays here.</span>
+              <strong>Agent-ready specification</strong>
+              <span className="ai-move__hint">Requirements, scope, implementation boundaries, acceptance criteria and verification. Unresolved decisions are marked as blockers. Saved as a Technical spec in Think; your chat stays here.</span>
             </span>
           </label>
           <label className="ai-move__option">

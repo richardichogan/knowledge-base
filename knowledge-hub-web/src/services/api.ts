@@ -629,6 +629,10 @@ export class KnowledgeHubApi {
 
   // ─── Search ───────────────────────────────────────────────────────────────
 
+  async getChatMentionTargets(q = ''): Promise<ApiResponse<import('../chat/mentions').ChatMentionTarget[]>> {
+    return (await this.client.get<ApiResponse<import('../chat/mentions').ChatMentionTarget[]>>('/api/ai/mention-targets', { params: { q } })).data;
+  }
+
   async getPeople(q = ''): Promise<ApiResponse<Person[]>> {
     return (await this.client.get<ApiResponse<Person[]>>('/api/people', { params: { q } })).data;
   }
@@ -1658,6 +1662,16 @@ export class KnowledgeHubApi {
   /** What has been indexed from one PC's folders. */
   async getLocalIndex(deviceId: string): Promise<ApiResponse<LocalIndexEntry[]>> {
     return (await this.client.get<ApiResponse<LocalIndexEntry[]>>('/api/documents/local-index', { params: { deviceId } })).data;
+  }
+
+  async captureDailyInsights(input: { filename: string; text: string; sourcePath: string; sourceModifiedAt: string }): Promise<ApiResponse<{
+    date: string; knowledgeDate: string; tasksCreated: number; tasksUpdated: number;
+    tasksPreserved: number; meetings: number; warnings: string[]; unchanged: boolean;
+  }>> {
+    return (await this.client.post<ApiResponse<{
+      date: string; knowledgeDate: string; tasksCreated: number; tasksUpdated: number;
+      tasksPreserved: number; meetings: number; warnings: string[]; unchanged: boolean;
+    }>>('/api/capture/daily-insights', input)).data;
   }
 
   /** Indexes (or re-indexes) one file from a folder on this PC; unchanged files are skipped by the server. */

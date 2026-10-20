@@ -10,7 +10,7 @@
  * server-persisted, and drives system-prompt and model routing on the backend.
  */
 
-export type ComposerAction = 'draft' | 'critique' | 'code' | 'task' | 'note';
+export type ComposerAction = 'draft' | 'critique' | 'code' | 'task' | 'note' | 'spec';
 
 export interface ComposerProject {
   id: string;
@@ -44,7 +44,7 @@ interface BuildIntentOptions {
   actionOverride?: ComposerAction | 'none' | null;
 }
 
-export const COMPOSER_ACTIONS: ComposerAction[] = ['draft', 'critique', 'code', 'task', 'note'];
+export const COMPOSER_ACTIONS: ComposerAction[] = ['draft', 'critique', 'code', 'task', 'note', 'spec'];
 
 export const COMPOSER_ACTION_LABELS: Record<ComposerAction, string> = {
   draft: 'Draft',
@@ -52,6 +52,7 @@ export const COMPOSER_ACTION_LABELS: Record<ComposerAction, string> = {
   code: 'Code',
   task: 'Task',
   note: 'Note',
+  spec: 'Spec',
 };
 
 /**
@@ -66,10 +67,12 @@ const ACTION_DIRECTIVES: Record<ComposerAction, string> = {
   code: 'answer with working code plus a brief explanation',
   task: 'treat this as an actionable task to capture',
   note: 'treat this as material to capture as a Think note',
+  spec: 'produce an implementation specification for a coding agent, not code. Read the referenced documents and project context first and cite the sources. Include the goal, explicit scope and non-goals, confirmed requirements with stable IDs, existing architecture and exact files or interfaces only where verified, data contracts and migrations, permissions and security, error and edge-case behaviour, bounded implementation steps and dependencies, observable acceptance criteria mapped to requirements, tests and verification commands, deployment and rollback, and a definition of done. Separate confirmed decisions from assumptions. Mark missing evidence and unresolved decisions as blockers; never invent repository details, dates or user approval. End with an autonomous-agent handoff specifying allowed changes, forbidden changes, stop conditions and whether the spec is ready to execute',
 };
 
 /** Ordered most-specific first — the first pattern to match wins. */
 const ACTION_PATTERNS: Array<{ action: ComposerAction; pattern: RegExp }> = [
+  { action: 'spec', pattern: /\b(?:create|write|draft|prepare|make)\b[\s\S]{0,40}\b(?:specification|technical spec|agent-ready spec|coding-agent spec)\b/i },
   { action: 'task', pattern: /\b(add a task|action item|to-?do|remind me to|task board|taskboard)\b/i },
   { action: 'critique', pattern: /\b(critique|poke holes|tear apart|sanity check|challenge this|weak points|feedback on)\b/i },
   { action: 'code', pattern: /\b(refactor|stack trace|typescript|javascript|regex|compile error|unit test|this function|code sample)\b/i },

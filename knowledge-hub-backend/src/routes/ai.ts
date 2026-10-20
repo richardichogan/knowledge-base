@@ -8,9 +8,10 @@ import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationM
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { draftSpecFromSession } from '../ai/specDraft.js';
+import { chatMentionTargets, resolveChatReferences } from '../ai/chatReferences.js';
 import { getOutputsForThink } from '../ai/thinkOutputExport.js';
 import { outputsChangedSince, moveDeliverableToOutputs, removeSavedCopiesFromReply } from '../ai/chatOutputs.js';
-import { emptyContextUsed, type ContextUsed } from '../ai/contextUsage.js';
+import { emptyContextUsed, getExcludedSources, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
 import { findModelChoice, PERSONA_MODELS } from '../ai/modelChoices.js';
 import { deleteSessionScreenBlobs, reviewScreens, screensToShow } from '../ai/chatScreens.js';
@@ -30,6 +31,17 @@ import type { ApiSuccess } from '../types/apiResponse.js';
 import type { AiModel, ChatPageContext, WriteActionType, WriteActionPayload } from '../types/aiContext.js';
 
 const router = Router();
+const MAX_MENTION_QUERY_CHARS = 200;
+
+router.get('/mention-targets', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const q = req.query['q'] ?? '';
+      if (typeof q !== 'string' || q.length > MAX_MENTION_QUERY_CHARS) throw new ValidationError('Mention search must be at most 200 characters.');
+      res.json({ success: true, data: await chatMentionTargets(getDb(), q) });
+    } catch (error) { next(error); }
+  })();
+});
 
 /**
  * POST /api/ai/chat
@@ -171,6 +183,12 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const localFolders = parseLocalFolders(requestedLocalFolders);
   const openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
   const contextUsed = emptyContextUsed();
+  const referenced = await resolveChatReferences(db, [
+    ...fullHistory.filter(item => item.role === 'user').map(item => item.content),
+    message,
+  ], new Set((await getExcludedSources(db, effectiveSessionId)).map(source => source.id)));
+  hooks = { ...hooks, referenceBlock: referenced.block };
+  contextUsed.found.push(...referenced.sources);
   // Show Notes works from a whole transcript over several turns (and revisions afterwards), so the document it
   // is shown is kept in the chat once; every other persona stores only a marker (see below). When the chat
   // already holds it, the copy in view is not sent a second time.

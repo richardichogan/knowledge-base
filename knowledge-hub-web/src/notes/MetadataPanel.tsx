@@ -224,7 +224,9 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
               onClick={() => { setTab(t.id); }}
             >
               {t.id === 'athena' && (
-                <span className={`think-athena-status__dot${athenaBusy ? ' think-athena-status__dot--busy' : ''}`} />
+                <span className={`think-athena-status__dot${athenaBusy ? ' think-athena-status__dot--busy' : ''}`}
+                  role="img" aria-label={athenaBusy ? 'Athena is generating a reply' : 'Athena is idle'}
+                  title={athenaBusy ? 'Generating a reply' : 'Idle — this is activity, not save or sync status'} />
               )}
               {t.label}
             </button>

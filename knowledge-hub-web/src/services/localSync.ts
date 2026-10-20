@@ -7,6 +7,19 @@ import { api } from './api';
 import { describeApiError, requireApiData } from './apiError';
 import type { ApiResponse } from '../types/apiResponse';
 import { desktopErrorMessage, getDesktop, type DesktopSkippedFile } from '../types/desktop';
+import { dailyInsightsFiles } from './dailyInsightsSource';
+
+export interface DailyInsightsSyncReport {
+  path: string;
+  date: string;
+  knowledgeDate: string;
+  tasksCreated: number;
+  tasksUpdated: number;
+  tasksPreserved: number;
+  meetings: number;
+  warnings: string[];
+  unchanged: boolean;
+}
 
 export interface LocalSyncProblem {
   path: string;
@@ -26,11 +39,12 @@ export interface LocalSyncStatus {
   /** Files that failed to upload or remove, and a sync-level error. */
   problems: LocalSyncProblem[];
   error: string | null;
+  dailyInsights: DailyInsightsSyncReport[];
 }
 
 const UPLOAD_CONCURRENCY = 3;
 
-let status: LocalSyncStatus = { running: false, progress: null, lastSyncAt: null, indexed: 0, uploaded: 0, removed: 0, skipped: [], problems: [], error: null };
+let status: LocalSyncStatus = { running: false, progress: null, lastSyncAt: null, indexed: 0, uploaded: 0, removed: 0, skipped: [], problems: [], error: null, dailyInsights: [] };
 const listeners = new Set<() => void>();
 let again = false;
 let started = false;
@@ -80,6 +94,27 @@ export async function syncLocalFolders(): Promise<void> {
   try {
     const { deviceId, deviceName } = await desktop.device();
     const scan = await desktop.scan();
+    const folders = await desktop.listFolders();
+    const reports: DailyInsightsSyncReport[] = [];
+    let captured = false;
+    // Always retry structured capture, even when the upload index already has this hash.
+    // The server's transactional ledger, not this browser, owns durable deduplication.
+    for (const file of dailyInsightsFiles(scan.files, folders)) {
+      set({ progress: `Processing Daily Insights: ${file.path.split('\\').pop() ?? file.path}` });
+      try {
+        if (file.size > 1_000_000) throw new Error('Daily Insights report exceeds the capture size limit');
+        const text = await desktop.readText(file.path);
+        if (text === null) throw new Error('Report disappeared while syncing; will retry');
+        const filename = file.path.split('\\').pop() ?? '';
+        const result = await apiCall(() => api.captureDailyInsights({ filename, text, sourcePath: file.path, sourceModifiedAt: file.modifiedAt }));
+        reports.push({ path: file.path, ...result });
+        captured ||= !result.unchanged;
+      } catch (err) {
+        problems.push({ path: file.path, message: `Daily Insights capture failed (will retry): ${desktopErrorMessage(err)}` });
+      }
+    }
+    set({ dailyInsights: reports, problems });
+    if (captured) onSynced?.();
     const indexed = await apiCall(() => api.getLocalIndex(deviceId));
     const byKey = new Map(indexed.map((e) => [e.localKey, e]));
     const changed = scan.files.filter((f) => byKey.get(f.localKey)?.localHash !== f.hash);
@@ -143,8 +178,11 @@ export function startLocalSync(afterSync: () => void): () => void {
   started = true;
   void syncLocalFolders();
   const stop = desktop.onFilesChanged(() => { void syncLocalFolders(); });
+  // Watch events can be missed by OneDrive; failures also need retries without a file edit.
+  const timer = window.setInterval(() => { void syncLocalFolders(); }, 60_000);
   return () => {
     stop();
+    window.clearInterval(timer);
     started = false;
   };
 }

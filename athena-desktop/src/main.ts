@@ -151,6 +151,20 @@ function handle<A extends unknown[], R>(channel: string, fn: (...args: A) => Pro
 function registerIpc(): void {
   handle('athena:device', async () => ({ deviceId: (await registry.load()).deviceId, deviceName: hostname() }));
   handle('athena:list-folders', () => registry.folders());
+  handle('athena:add-daily-insights', async () => {
+    const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    const options: Electron.OpenDialogOptions = {
+      title: 'Choose the M365 Daily Insights folder (creates tasks, diary and knowledge)',
+      defaultPath: join(app.getPath('home'), 'OneDrive - IBM', 'Daily Insights'),
+      properties: ['openDirectory'],
+    };
+    const picked = owner === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(owner, options);
+    const chosen = picked.filePaths[0];
+    if (picked.canceled || chosen === undefined) return null;
+    const folder = await registry.add(chosen, 'daily-insights');
+    watchFolders(await registry.folders());
+    return folder;
+  });
   handle('athena:add-folder', async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
     const options: Electron.OpenDialogOptions = { title: 'Choose a folder for Athena', properties: ['openDirectory'] };

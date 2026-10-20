@@ -8,6 +8,7 @@ export interface DesktopFolder {
   id: string;
   name: string;
   path: string;
+  source?: 'daily-insights';
 }
 
 export interface DesktopFileInfo {
@@ -30,6 +31,8 @@ export interface AthenaDesktopBridge {
   listFolders(): Promise<DesktopFolder[]>;
   /** Opens a folder picker; null when cancelled. */
   addFolder(): Promise<DesktopFolder | null>;
+  /** Explicit opt-in to structured M365 report capture. Requires rebuilt desktop. */
+  addDailyInsights?(): Promise<DesktopFolder | null>;
   removeFolder(id: string): Promise<DesktopFolder | null>;
   scan(): Promise<{ files: DesktopFileInfo[]; skipped: DesktopSkippedFile[] }>;
   readFile(path: string): Promise<{ name: string; path: string; data: Uint8Array }>;

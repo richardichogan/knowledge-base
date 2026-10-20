@@ -81,7 +81,7 @@ export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, o
           </ul>
           {used.found.length > 0 && (
             <>
-              <div className="ai-used__group">Found by searching</div>
+              <div className="ai-used__group">Sources read, including @mentions</div>
               <ul className="ai-used__list">{used.found.map(row)}</ul>
             </>
           )}

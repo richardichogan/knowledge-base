@@ -10,8 +10,34 @@ import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { ContentItem } from '../types/contentItem.js';
 import { looksLikeMeetingList, importMeetingList } from '../integrations/ibm/ibmMeetings.js';
+import { captureDailyInsights } from '../services/dailyInsights.js';
 
 const router = Router();
+const DAILY_INSIGHTS_MAX_CHARS = 250_000;
+const SOURCE_PATH_MAX_CHARS = 2048;
+
+router.post('/daily-insights', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const { filename, text, sourcePath, sourceModifiedAt } = req.body as {
+        filename?: unknown; text?: unknown; sourcePath?: unknown; sourceModifiedAt?: unknown;
+      };
+      if (typeof filename !== 'string' || !/^Daily-Briefing-\d{4}-\d{2}-\d{2}\.md$/i.test(filename)
+        || typeof text !== 'string' || text.length === 0 || text.length > DAILY_INSIGHTS_MAX_CHARS
+        || typeof sourcePath !== 'string' || sourcePath.length > SOURCE_PATH_MAX_CHARS
+        || typeof sourceModifiedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(sourceModifiedAt)
+        || !Number.isFinite(Date.parse(sourceModifiedAt))) {
+        throw new ValidationError('Expected a dated Daily Briefing Markdown file (maximum 250,000 characters)', { filename: 'daily briefing', text: 'required' });
+      }
+      // Validate the entire report before acquiring a database connection.
+      const { parseDailyInsights } = await import('../services/dailyInsightsParser.js');
+      try { parseDailyInsights(filename, text); }
+      catch (error) { throw new ValidationError(error instanceof Error ? error.message : 'Invalid daily briefing', { text: 'invalid briefing' }); }
+      const result = await captureDailyInsights(getDb(), filename, text, sourcePath, sourceModifiedAt);
+      res.status(HTTP_STATUS.OK).json({ success: true, data: result });
+    } catch (error) { next(error); }
+  })();
+});
 
 /**
  * POST /api/capture/task

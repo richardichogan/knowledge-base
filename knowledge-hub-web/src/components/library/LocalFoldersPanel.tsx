@@ -24,7 +24,7 @@ export function useLocalSyncStatus(): ReturnType<typeof getLocalSyncStatus> {
 /** Mounted once at the app root: keeps local folders indexed while Athena Desktop is open. */
 export const LocalFolderSync: React.FC = () => {
   const qc = useQueryClient();
-  useEffect(() => startLocalSync(() => { void qc.invalidateQueries({ queryKey: ['documents-library'] }); }), [qc]);
+  useEffect(() => startLocalSync(() => { void qc.invalidateQueries(); }), [qc]);
   return null;
 };
 
@@ -74,6 +74,17 @@ export const LocalFoldersPanel: React.FC = () => {
     }
   }
 
+  async function addDailyInsights(): Promise<void> {
+    if (desktop?.addDailyInsights === undefined) return;
+    setError(null);
+    try {
+      const added = await desktop.addDailyInsights();
+      if (added === null) return;
+      await reload();
+      void syncLocalFolders();
+    } catch (err) { setError(desktopErrorMessage(err)); }
+  }
+
   const issueCount = status.problems.length + status.skipped.length;
   const summary = status.running
     ? status.progress ?? 'Syncing…'
@@ -89,7 +100,7 @@ export const LocalFoldersPanel: React.FC = () => {
         <span className="local-folders__detail" role="status">{summary}</span>
         {issueCount > 0 && !status.running && (
           <button type="button" className="local-folders__issues" onClick={() => { setDetailsOpen((v) => !v); }} aria-expanded={detailsOpen}>
-            {issueCount.toString()} file{issueCount === 1 ? '' : 's'} not indexed {detailsOpen ? '▴' : '▾'}
+            {issueCount.toString()} sync issue{issueCount === 1 ? '' : 's'} {detailsOpen ? '▴' : '▾'}
           </button>
         )}
         <span className="local-folders__spacer" />
@@ -97,9 +108,30 @@ export const LocalFoldersPanel: React.FC = () => {
           {status.running ? 'Syncing…' : 'Sync now'}
         </button>
         <button type="button" className="kb-import-btn" onClick={() => { void add(); }}>Add folder</button>
+        {desktop.addDailyInsights !== undefined && (
+          <button type="button" className="kb-import-btn" onClick={() => { void addDailyInsights(); }}>Add Daily Insights</button>
+        )}
       </div>
 
       {error !== null && <p className="local-folders__error" role="alert">{error}</p>}
+      <p className="local-folders__capture-help">
+        Daily Insights: use “Add Daily Insights” to authorise a report folder. The specifically authorised
+        C:\Users\RichardHogan\OneDrive - IBM\Daily Insights folder also works through “Add folder”.
+        Dated Markdown reports create explicit Richard-owned tasks, today’s diary and yesterday’s knowledge.
+        Original files are retained. Sync and retries run while Athena Desktop is open.
+      </p>
+      {status.dailyInsights.length > 0 && (
+        <ul className="local-folders__captures" aria-label="Daily Insights capture status">
+          {status.dailyInsights.map(report => (
+            <li key={report.path} className="local-folders__capture">
+              <strong>{report.date}: {report.unchanged ? 'processed, up to date' : 'processed'}</strong>
+              <span>{report.meetings} diary entries; knowledge dated {report.knowledgeDate};
+                {' '}{report.tasksCreated} tasks created, {report.tasksUpdated} updated, {report.tasksPreserved} preserved in this report’s last import.</span>
+              {report.warnings.map((warning, index) => <span key={index} className="local-folders__capture-warning">{warning}</span>)}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {folders !== null && folders.length === 0 && (
         <p className="local-folders__empty">Add a folder and Athena will index its PDF, Word, PowerPoint, Excel, CSV, Markdown and text files, read them in chat, and propose changes you can apply.</p>
@@ -109,7 +141,7 @@ export const LocalFoldersPanel: React.FC = () => {
         <ul className="local-folders__list">
           {folders.map((f) => (
             <li key={f.id} className="local-folders__folder">
-              <span className="local-folders__name">{f.name}</span>
+              <span className="local-folders__name">{f.name}{f.source === 'daily-insights' ? ' · Daily Insights capture' : ''}</span>
               <code className="local-folders__path" title={f.path}>{f.path}</code>
               <button type="button" className="local-folders__remove" onClick={() => { void remove(f); }} aria-label={`Stop using ${f.name}`}>Remove</button>
             </li>

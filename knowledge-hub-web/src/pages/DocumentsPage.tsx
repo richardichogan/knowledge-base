@@ -80,6 +80,7 @@ export const DocumentsPage: React.FC = () => {
   const selectDocument = useCallback((id: string | null) => {
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
+      next.delete('contentItemId');
       if (id === null) next.delete('docId');
       else next.set('docId', id);
       return next;
@@ -154,7 +155,8 @@ export const DocumentsPage: React.FC = () => {
     });
   }
 
-  const selectedDoc = findDocument(allDocs, selectedId);
+  const selectedDoc = findDocument(allDocs, selectedId)
+    ?? allDocs.find(doc => doc.contentItemId === searchParams.get('contentItemId')) ?? null;
   const selectedDocIsUpload = selectedDoc?.repo === 'kb-uploads';
   const selectedDocIsOneDrive = selectedDoc?.repo === 'onedrive';
 
@@ -361,7 +363,9 @@ export const DocumentsPage: React.FC = () => {
           {selectedDoc === null && (
             <div className="docs-viewer__empty">
               <Document size={48} />
-              <p>Select a document to read it</p>
+              <p>{!libraryPending && libraryError === null && searchParams.has('contentItemId')
+                ? 'This mentioned document is no longer available in the Library. Select another source.'
+                : 'Select a document to read it'}</p>
             </div>
           )}
 

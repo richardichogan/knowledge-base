@@ -7,6 +7,31 @@
 The browser favicon and installable-app icons use the teal Athena "A". Their
 versioned URLs prevent browsers from retaining the former KH icon after an update.
 
+Athena uses the same conversation, message and composer styling in standalone
+chat, floating chat and the Think/Library side panels. Context and note-linked
+conversation identities remain distinct. Type **@** to choose a person, project,
+saved Think note (including specifications) or indexed Library document.
+Document references use saved IDs, resolve current server-side content on each
+turn, respect the chat's excluded sources, and remain available for follow-up
+questions. Up to five sources are included per turn; long sources are explicitly
+labelled as clipped. The Used sources line lets you inspect or exclude them.
+
+Choose **Spec** in the message action selector, or begin with `/spec`, for a
+grounded coding-agent specification: scope/non-goals, requirements, bounded
+implementation steps, acceptance criteria, verification, rollout and stop
+conditions. Missing facts and unresolved decisions must be identified as blockers,
+not invented. **Save to Think → Agent-ready specification** creates a Spec note
+from the conversation and its saved-document references. Exporting from a
+note-linked panel does not move the conversation away from its original note.
+The small dot beside Athena reports activity only: grey means idle; pulsing teal
+means generating a reply. It does not indicate saving, sync or connectivity.
+
+Proactive link suggestions omit generic labels such as "Review" and ambiguous
+same-title destinations. Click the suggested title to preview its actual target
+before linking. Manual search still allows those targets when deliberately chosen.
+For M365 reports from the local **Daily Insights** folder, see the
+[desktop capture setup and safety rules](athena-desktop/README.md).
+
 Microsoft sign-in renews silently where possible. When interactive sign-in is
 required, Athena shows a session-expired dialog with a **Re-authenticate** button
 instead of refreshing or redirecting unexpectedly. User-initiated re-authentication

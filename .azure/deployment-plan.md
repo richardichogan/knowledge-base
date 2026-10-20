@@ -2,6 +2,35 @@
 
 **Status:** Validated
 
+**Approval scope:** the validation and deployment result below cover production
+release `c235cf8` only. Subsequent chat, Daily Insights, competitor presentation,
+mention/link and Spec changes are not deployed under this approval. They require
+a separate matching backend/frontend rollout, including additive migration 088.
+The desktop 0.1.4 installer was built locally with publishing disabled.
+
+**Current approved release (2026-10-20, panel alignment and CSS cleanup):**
+User requested deployment of `c235cf8`. Frontend-only application update to the
+existing `kh-prod-web` Static Web App in `rg-knowledge-hub-prod`, subscription
+Alliance Tenant Reporting, West Europe. Existing AZCLI/SWA recipe; no resource
+provisioning, backend image, migrations, roles, identity or secrets change.
+Rollback by redeploying the previous frontend build.
+
+**Validation proof (2026-10-20):**
+Fetched origin and merged origin/main (already up to date). Both applications
+passed `npx tsc --noEmit`; frontend `npm run build` passed. The completed release
+passed 22 browser modes (two screenshot timeouts passed on rerun) and 114 frontend
+unit tests. `az account show` confirmed the existing production subscription;
+`az staticwebapp show` confirmed the existing West Europe app and default host.
+Infrastructure compilation, what-if, Docker build and RBAC changes are not
+applicable to this frontend-only static asset release.
+
+**Deployment result (2026-10-20, panel alignment and CSS cleanup):**
+Pushed `c235cf8` to the feature branch and main. Static Web Apps production
+deployment succeeded. Both https://athena.themicrosoftcloudblog.com and
+https://nice-mud-0f780fb03.7.azurestaticapps.net serve
+`/assets/index-CuFFl9Tu.js`, with SHA-256 identical to the locally validated
+build. Backend image and all infrastructure remain unchanged.
+
 **Current approved release (2026-10-19 14:58 BST, People and dark context menu):**
 User explicitly requested deployment of the completed branch through `e733777`.
 Deploy the existing backend as v215 (currently v214) and the matching website.

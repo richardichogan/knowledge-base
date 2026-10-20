@@ -6,6 +6,9 @@ const backend = resolve(import.meta.dirname, '../knowledge-hub-backend');
 const web = resolve(import.meta.dirname, '../knowledge-hub-web');
 const frontend = process.argv.includes('--frontend');
 const tests = frontend ? [
+  '../knowledge-hub-web/tests/composerIntent.test.ts',
+  '../knowledge-hub-web/tests/dailyInsightsSource.test.ts',
+  '../knowledge-hub-web/tests/localSyncDailyInsights.test.ts',
   '../knowledge-hub-web/tests/people.test.ts',
   '../knowledge-hub-web/tests/entityLinks.test.ts',
   '../knowledge-hub-web/tests/commandPaletteItems.test.ts',
@@ -33,6 +36,8 @@ const tests = frontend ? [
   'scripts/focused-context.test.ts',
   'scripts/project-context.test.ts',
   'scripts/chat-session-store.test.ts',
+  'scripts/chat-references.test.ts',
+  'scripts/daily-insights.test.ts',
   'scripts/discover-parking.test.ts',
   'scripts/people.test.ts',
   'scripts/project-parents-migration.test.ts',

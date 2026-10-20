@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { requireApiData } from '../../services/apiError';
@@ -201,152 +201,352 @@ const WatchlistForm: React.FC<{ existing: Watchlist | null; onClose: () => void;
 };
 
 const reportDate = (value: string): string => new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const IMPACT_LABELS = {
+  'confirmed-overlap': 'Confirmed overlap', 'possible-relevance': 'Possible relevance', 'insufficient-context': 'Not enough information',
+} as const;
+const BRIEFING_STATUSES = new Set<WatchRunStatus>(['changes', 'no_meaningful_change', 'insufficient_coverage']);
+const STALE_AFTER_DAYS = { daily: 2, weekly: 14 } as const;
+const NOW_LIMIT = 5;
+const PROJECT_LIMIT = 4;
+const PROJECT_ITEM_LIMIT = 2;
+const SUMMARY_CLAMP = 560;
+const DAY = 86_400_000;
 
-const RunRecord: React.FC<{ run: WatchRun }> = ({ run }) => {
-  const entities = [...new Set([...run.config.entities.map(e => e.name), ...run.findings.map(f => f.entity)])];
-  const withoutFindings = entities.filter(name => !run.findings.some(f => f.entity === name));
-  const patterns = [...new Set(run.findings.flatMap(f => f.field ? [f.field] : []))]
-    .map(field => ({ field, competitors: [...new Set(run.findings.filter(f => f.field === field).map(f => f.entity))] }))
-    .filter(pattern => pattern.competitors.length > 1);
-  const assessments = run.findings.flatMap(f => (f.projectAssessments ?? []).map(assessment => ({ ...assessment, finding: f })));
-  const projectIds = [...new Set(assessments.map(assessment => assessment.projectId))];
-  return <article className={`dw-run dw-run--${run.status}`} aria-label={`Analysis from ${reportDate(run.startedAt)}`}>
-    <header className="dw-row">
-      <h4>Analysis · {reportDate(run.startedAt)}</h4>
-      <span className={`dw-run__status dw-run__status--${run.status}`}>{STATUS[run.status]}</span>
-    </header>
-    <p className="dw-hint">Evidence from {reportDate(run.windowStart)} to {reportDate(run.startedAt)} · {run.findings.length} findings · {run.coverage.uniqueEvents} unique events</p>
-    <section className="dw-run__overview" aria-label="Analysis summary">
-      <h5>Summary</h5>
-      <p className="dw-summary">{run.summary || (run.status === 'running' ? 'Monitoring in progress…' : 'No summary was recorded for this run.')}</p>
-    </section>
-    {(run.coverage.missingEntities.length > 0 || run.coverage.truncated || (run.coverage.webFailures ?? 0) > 0) && <p className="dw-run__warning">
-      Coverage is incomplete.
-      {run.coverage.missingEntities.length > 0 && ` No evidence found for: ${run.coverage.missingEntities.join(', ')}.`}
-      {(run.coverage.webFailures ?? 0) > 0 && ` ${run.coverage.webFailures} web searches failed.`}
-      {run.coverage.truncated && ' The evidence limit was reached.'} Missing evidence does not mean no change.
-    </p>}
-    <div className="dw-report-layout">
-    <div className="dw-report-layout__activity">
-    {run.findings.length > 0 && <>
-      {entities.map(name => {
-        const findings = run.findings.filter(f => f.entity === name);
-        if (!findings.length) return null;
-        return <section className="dw-competitor" aria-label={`${name} findings`} key={name}>
-          <header className="dw-competitor__header"><h5>{name}</h5><span>{findings.length} {findings.length === 1 ? 'finding' : 'findings'}</span></header>
-          {findings.map(f => <section className="dw-finding" key={f.id} id={`finding-${run.id}-${f.id}`}>
-            <h6 className="dw-finding__title">{f.changed}</h6>
-            <p className="dw-finding__meta">{CLAIM_LABELS[f.kind]}</p>
-            <dl className="dw-finding__implications">
-              <div><dt>Field</dt><dd>{f.field || `Monitored criterion: ${f.criterion}`}</dd></div>
-              <div><dt>Microsoft involvement</dt><dd>{f.microsoftInvolvement || 'Not separately assessed in this saved analysis.'}</dd></div>
-            </dl>
-          </section>)}
-        </section>;
-      })}
-    </>}
-    {withoutFindings.length > 0 && run.status !== 'running' && <p className="dw-hint">
-      No supported findings recorded for {withoutFindings.join(', ')}. This is not proof of no activity.
-    </p>}
-    </div>
-    {run.findings.length > 0 && <aside className="dw-project-insights" aria-label="What this means for my projects">
-      <h5>What this means for my projects</h5>
-      {projectIds.map(projectId => {
-        const items = assessments.filter(assessment => assessment.projectId === projectId);
-        return <section className="dw-project-insights__group" key={projectId}>
-          <h6>{items[0]?.projectName}</h6>
-          {items.map(item => <div className="dw-project-insights__item" key={`${item.finding.id}-${projectId}`}>
-            <a href={`#finding-${run.id}-${item.finding.id}`}>{item.finding.entity} · {item.finding.field || item.finding.criterion}</a>
-            <span className="dw-project-insights__relationship">{{
-              'confirmed-overlap': 'Confirmed overlap',
-              'possible-relevance': 'Possible relevance',
-              'insufficient-context': 'Not enough information',
-            }[item.relationship]}</span>
-            <p>{item.impact}</p>
-          </div>)}
-        </section>;
-      })}
-      {run.findings.filter(f => !f.projectAssessments?.length).map(f => <div className="dw-project-insights__item" key={f.id}>
-        <a href={`#finding-${run.id}-${f.id}`}>{f.entity} · {f.field || f.criterion}</a>
-        <p>{f.projectImpact || f.matters}</p>
-        <span className="dw-hint">Saved assessment · project-by-project comparison was not recorded.</span>
-      </div>)}
-      {patterns.length > 0 && <section className="dw-project-insights__group">
-        <h6>Across competitors</h6>
-        {patterns.map(pattern => <p key={pattern.field}><strong>{pattern.field}</strong><br />Activity reported by {pattern.competitors.join(', ')}.</p>)}
-      </section>}
-    </aside>}
-    </div>
-    <details className="dw-details"><summary>Research scope &amp; comparison context</summary>
-      <dl className="dw-scope">
-        <dt>Monitoring question</dt><dd>{run.config.question}</dd>
-        <dt>Comparison criteria</dt><dd>{run.config.criteria.join(' · ')}</dd>
-        <dt>Competitors and references</dt><dd>{run.config.entities.map(e => `${e.name} (${e.relationship})`).join(', ')}</dd>
-        <dt>Comparison context · version {run.baselineVersion}</dt><dd className="dw-pre">{run.baseline.text || 'No manual comparison text was recorded.'}</dd>
-        <dt>Coverage</dt><dd>
-          {run.coverage.webSearches ? `${run.coverage.webSearches - (run.coverage.webFailures ?? 0)}/${run.coverage.webSearches} web searches succeeded. ` : ''}
-          {run.coverage.sourcesChecked > 0 && `${run.coverage.sourcesHealthy}/${run.coverage.sourcesChecked} Discover sources healthy. `}
-          {run.coverage.uniqueEvents} unique events.
-        </dd>
+type Finding = WatchRun['findings'][number];
+type CompanyState = 'changes' | 'quiet' | 'incomplete' | 'missing' | 'unchecked';
+interface Company { name: string; relationship: WatchRelationship | null; findings: Finding[]; state: CompanyState; label: string }
+
+const count = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+const findingAnchor = (run: WatchRun, finding: Finding): string => `finding-${run.id}-${finding.id}`.replace(/[^\w-]/g, '_');
+const relationshipLabel = (relationship: WatchRelationship): string => relationship.replace(/-/g, ' ');
+
+function coverageGaps(run: WatchRun): string[] {
+  const failures = run.coverage.webFailures ?? 0;
+  return [
+    ...(run.coverage.missingEntities.length ? [`No evidence was found for ${run.coverage.missingEntities.join(', ')}.`] : []),
+    ...(failures > 0 ? [`${count(failures, 'web search', 'web searches')} failed.`] : []),
+    ...(run.coverage.truncated ? ['The evidence limit was reached, so some material was not read.'] : []),
+  ];
+}
+
+function companyStates(watchlist: Watchlist, run: WatchRun | undefined): Company[] {
+  const relationships = new Map<string, WatchRelationship>();
+  [...watchlist.config.entities, ...(run?.config.entities ?? [])].forEach(e => { if (!relationships.has(e.name)) relationships.set(e.name, e.relationship); });
+  const names = [...new Set([...watchlist.config.entities.map(e => e.name), ...(run?.config.entities.map(e => e.name) ?? []), ...(run?.findings.map(f => f.entity) ?? [])])];
+  const incomplete = !!run && (run.status === 'insufficient_coverage' || run.coverage.truncated || (run.coverage.webFailures ?? 0) > 0);
+  return names.map(name => {
+    const findings = run?.findings.filter(f => f.entity === name) ?? [];
+    const base = { name, relationship: relationships.get(name) ?? null, findings };
+    if (findings.length) return { ...base, state: 'changes', label: count(findings.length, 'development') };
+    if (!run || !run.config.entities.some(e => e.name === name)) return { ...base, state: 'unchecked', label: 'Not checked yet' };
+    if (run.coverage.missingEntities.includes(name)) return { ...base, state: 'missing', label: 'No evidence found' };
+    if (incomplete) return { ...base, state: 'incomplete', label: 'No change found · coverage incomplete' };
+    return { ...base, state: 'quiet', label: 'No meaningful change found' };
+  });
+}
+
+// Breadth before depth: one development per company in watchlist order. Athena does not rank findings.
+function keyDevelopments(companies: Company[]): Finding[] {
+  const picked: Finding[] = [];
+  for (let round = 0; picked.length < NOW_LIMIT; round++) {
+    const next = companies.flatMap(c => c.findings.slice(round, round + 1));
+    if (!next.length) break;
+    picked.push(...next.slice(0, NOW_LIMIT - picked.length));
+  }
+  return picked;
+}
+
+const FindingSources: React.FC<{ run: WatchRun; finding: Finding }> = ({ run, finding }) => {
+  const sources = [...new Set(finding.evidenceIds)].flatMap(id => run.evidence.filter(e => e.id === id));
+  if (!sources.length) return <p className="dw-hint">No source link was saved for this development.</p>;
+  return <ul className="dw-evidence" aria-label="Sources">{sources.map(e => <li key={e.id}><a href={e.url} target="_blank" rel="noreferrer">{e.title}</a>
+    <span className="dw-evidence__meta">{reportDate(e.publishedAt)}{e.syndicatedIds.length > 0 && ` · ${e.syndicatedIds.length} syndicated copies counted once`}</span>
+  </li>)}</ul>;
+};
+
+const FindingItem: React.FC<{ run: WatchRun; finding: Finding; open: boolean; onToggle: (open: boolean) => void }> = ({ run, finding, open, onToggle }) => {
+  const anchor = findingAnchor(run, finding);
+  const sourceCount = new Set(finding.evidenceIds).size;
+  return <article className="dw-finding" id={anchor} tabIndex={-1} aria-labelledby={`${anchor}-title`}>
+    <p className="dw-finding__meta">{CLAIM_LABELS[finding.kind]} · {finding.field || finding.criterion}</p>
+    <h6 className="dw-finding__title" id={`${anchor}-title`}>{finding.changed}</h6>
+    {finding.matters && <p className="dw-finding__matters"><span className="dw-label">Why it matters</span>{finding.matters}</p>}
+    <details className="dw-details" open={open} onToggle={e => onToggle(e.currentTarget.open)}>
+      <summary>Detail and {count(sourceCount, 'source')}</summary>
+      <dl className="dw-facts">
+        {finding.uncertainty && <div><dt>Not yet established</dt><dd>{finding.uncertainty}</dd></div>}
+        <div><dt>Microsoft involvement</dt><dd>{finding.microsoftInvolvement || 'Not separately assessed in this saved analysis.'}</dd></div>
+        <div><dt>Project impact</dt><dd>
+          {finding.projectAssessments?.length ? <ul className="dw-impacts">{finding.projectAssessments.map(a => <li key={a.projectId}>
+            <span className="dw-impacts__project">{a.projectName} · {IMPACT_LABELS[a.relationship]}</span>{a.impact}
+          </li>)}</ul>
+            : finding.projectImpact ? <>{finding.projectImpact}<span className="dw-impacts__note">Saved assessment · project-by-project comparison was not recorded.</span></>
+              : 'No project impact was recorded.'}
+        </dd></div>
       </dl>
-      {run.baseline.links.map(link => <a key={link} href={link} target="_blank" rel="noreferrer">{link}</a>)}
+      <FindingSources run={run} finding={finding} />
     </details>
-    {run.evidence.length > 0 && <details className="dw-details"><summary>All research sources ({run.evidence.length} unique events)</summary>
-      <ul className="dw-evidence">{run.evidence.map(e => <li key={e.id}><a href={e.url} target="_blank" rel="noreferrer">{e.title}</a>
-        <span className="dw-evidence__meta">{reportDate(e.publishedAt)}{e.syndicatedIds.length > 0 && ` · ${e.syndicatedIds.length} syndicated copies counted once`}</span>
-      </li>)}</ul>
-    </details>}
   </article>;
+};
+
+const useOpenSet = (): [Set<string>, (id: string, open: boolean) => void] => {
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const toggle = (id: string, value: boolean): void => setOpen(previous => {
+    if (previous.has(id) === value) return previous;
+    const next = new Set(previous);
+    if (value) next.add(id); else next.delete(id);
+    return next;
+  });
+  return [open, toggle];
+};
+
+const NowSection: React.FC<{
+  watchlist: Watchlist; latest: WatchRun | undefined; briefing: WatchRun | undefined; companies: Company[]; running: boolean; loading: boolean;
+  onOpen: (finding: Finding) => void;
+}> = ({ watchlist, latest, briefing, companies, running, loading, onOpen }) => {
+  const [fullSummary, setFullSummary] = useState(false);
+  const summaryId = useId();
+  const developments = keyDevelopments(companies);
+  const total = briefing?.findings.length ?? 0;
+  const gaps = briefing ? coverageGaps(briefing) : [];
+  const ageDays = briefing ? Math.floor((Date.now() - new Date(briefing.completedAt ?? briefing.startedAt).getTime()) / DAY) : 0;
+  const stale = !!briefing && ageDays > STALE_AFTER_DAYS[watchlist.config.cadence];
+  const patterns = briefing ? [...new Set(briefing.findings.flatMap(f => f.field ? [f.field] : []))]
+    .map(field => ({ field, companies: [...new Set(briefing.findings.filter(f => f.field === field).map(f => f.entity))] }))
+    .filter(pattern => pattern.companies.length > 1) : [];
+  const assessments = briefing?.findings.flatMap(f => (f.projectAssessments ?? []).map(a => ({ ...a, finding: f }))) ?? [];
+  const projects = [...new Set(assessments.map(a => a.projectId))].map(id => assessments.filter(a => a.projectId === id));
+  const tally = (['changes', 'quiet', 'incomplete', 'missing', 'unchecked'] as const).map(state => ({ state, n: companies.filter(c => c.state === state).length }))
+    .filter(t => t.n > 0).map(t => ({ ...t, text: {
+      changes: `${t.n} with developments`, quiet: `${t.n} with no meaningful change`, incomplete: `${t.n} with incomplete coverage`,
+      missing: `${t.n} with no evidence found`, unchecked: `${t.n} not checked yet`,
+    }[t.state] }));
+  const summary = briefing?.summary.trim() ?? '';
+  const longSummary = summary.length > SUMMARY_CLAMP;
+  const projectGroup = (items: typeof assessments): React.ReactNode => <section className="dw-project-insights__group" key={items[0]!.projectId}>
+    <h6>{items[0]!.projectName}</h6>
+    <ul className="dw-plain-list">{items.slice(0, PROJECT_ITEM_LIMIT).map(item => <li className="dw-project-insights__item" key={`${item.finding.id}-${item.projectId}`}>
+      <span className="dw-project-insights__relationship">{IMPACT_LABELS[item.relationship]}</span>
+      <p>{item.impact}</p>
+      <button type="button" className="dw-link-button" onClick={() => onOpen(item.finding)}>{item.finding.entity} · {item.finding.field || item.finding.criterion}</button>
+    </li>)}</ul>
+    {items.length > PROJECT_ITEM_LIMIT && <p className="dw-hint">{count(items.length - PROJECT_ITEM_LIMIT, 'more implication')} in the company breakdown.</p>}
+  </section>;
+
+  return <section className="dw-now" aria-labelledby={`${summaryId}-title`}>
+    <h4 id={`${summaryId}-title`}>What you need to know now</h4>
+    {loading && <p className="dw-hint" role="status">Loading the latest check…</p>}
+    {running && <p className="dw-notice" role="status">A check is running. This briefing will update when it finishes.</p>}
+    {latest?.status === 'failed' && <p className="dw-notice dw-notice--error">
+      The latest check on {reportDate(latest.startedAt)} failed{latest.summary ? `: ${latest.summary}` : '.'} {briefing ? `Showing the last completed check from ${reportDate(briefing.startedAt)}.` : 'There is no completed check to show yet.'}
+    </p>}
+    {!loading && !briefing && !running && latest?.status !== 'failed' && <p className="dw-empty">
+      No checks yet. Choose Run now to search for developments, or wait for the next scheduled check. Missing evidence is not the same as no meaningful change.
+    </p>}
+    {briefing && <>
+      <p className="dw-now__asof">
+        <span className={`dw-run__status dw-run__status--${briefing.status}`}>{STATUS[briefing.status]}</span>
+        <span>Check on {reportDate(briefing.startedAt)} · evidence from {reportDate(briefing.windowStart)} to {reportDate(briefing.startedAt)}</span>
+      </p>
+      {stale && <p className="dw-notice dw-notice--warning">
+        This briefing is {count(ageDays, 'day')} old. {watchlist.config.paused ? 'Monitoring is paused, so it is not being refreshed.' : `A ${watchlist.config.cadence} check was expected sooner; run now for current information.`}
+      </p>}
+      {gaps.length > 0 && <p className="dw-notice dw-notice--warning dw-run__warning">Coverage was incomplete. {gaps.join(' ')} Missing evidence does not mean no change.</p>}
+      {summary ? <>
+        <p id={summaryId} className={`dw-summary dw-now__summary${longSummary && !fullSummary ? ' dw-now__summary--clamped' : ''}`}>{summary}</p>
+        {longSummary && <button type="button" className="dw-link-button" aria-expanded={fullSummary} aria-controls={summaryId}
+          onClick={() => setFullSummary(v => !v)}>{fullSummary ? 'Show less' : 'Show full summary'}</button>}
+      </> : <p className="dw-hint">No summary was recorded for this check.</p>}
+      <p className="dw-now__tally">{count(companies.length, 'company', 'companies')}: {tally.map(t => t.text).join(' · ')}</p>
+      {developments.length > 0 && <section className="dw-now__block" aria-label="Key developments">
+        <h5>Key developments</h5>
+        <p className="dw-hint">{total > developments.length ? `Showing ${developments.length} of ${total}: ` : ''}one per company first, in your watchlist order. Every development is in the company breakdown.</p>
+        <ol className="dw-now__list">{developments.map(f => <li className="dw-now__item" key={f.id}>
+          <p className="dw-now__company">{f.entity} · {CLAIM_LABELS[f.kind]}</p>
+          <p className="dw-now__headline">{f.changed}</p>
+          {f.matters && <p className="dw-now__matters">{f.matters}</p>}
+          <button type="button" className="dw-link-button" onClick={() => onOpen(f)}>Detail and {count(new Set(f.evidenceIds).size, 'source')} in {f.entity}</button>
+        </li>)}</ol>
+      </section>}
+      {patterns.length > 0 && <section className="dw-now__block" aria-label="Seen across several companies">
+        <h5>Seen across several companies</h5>
+        <ul className="dw-plain-list dw-now__patterns">{patterns.map(p => <li key={p.field}><strong>{p.field}</strong> · {p.companies.join(', ')}</li>)}</ul>
+      </section>}
+      {projects.length > 0 && <section className="dw-now__block dw-project-insights" aria-label="What this means for my projects">
+        <h5>What this means for my projects</h5>
+        {projects.slice(0, PROJECT_LIMIT).map(projectGroup)}
+        {projects.length > PROJECT_LIMIT && <details className="dw-details"><summary>{count(projects.length - PROJECT_LIMIT, 'more project')}</summary>
+          {projects.slice(PROJECT_LIMIT).map(projectGroup)}
+        </details>}
+      </section>}
+    </>}
+  </section>;
+};
+
+const COMPANY_NOTE: Record<CompanyState, (name: string, date: string | null) => string> = {
+  changes: (_, date) => `Developments recorded in the check on ${date}.`,
+  quiet: (name, date) => `No meaningful change was found for ${name} in the check on ${date}.`,
+  incomplete: (_, date) => `No development was recorded in the check on ${date}, but coverage was incomplete, so this is not proof of no change.`,
+  missing: (name, date) => `No evidence was found for ${name} in the check on ${date}. This is not proof of no activity.`,
+  unchecked: (name, date) => date ? `${name} was not part of the check on ${date}. Run now to include it.` : `${name} has not been checked yet.`,
+};
+
+const CompanyBreakdown: React.FC<{
+  run: WatchRun | undefined; companies: Company[]; selected: Company; onSelect: (name: string) => void;
+  openIds: Set<string>; onToggle: (id: string, open: boolean) => void;
+}> = ({ run, companies, selected, onSelect, openIds, onToggle }) => {
+  const base = useId();
+  const tabs = useRef<Array<HTMLButtonElement | null>>([]);
+  const index = companies.indexOf(selected);
+  const onKeyDown = (event: React.KeyboardEvent, current: number): void => {
+    const last = companies.length - 1;
+    const target = { ArrowDown: current + 1, ArrowRight: current + 1, ArrowUp: current - 1, ArrowLeft: current - 1, Home: 0, End: last }[event.key];
+    if (target === undefined) return;
+    event.preventDefault();
+    const next = (target + companies.length) % companies.length;
+    onSelect(companies[next]!.name);
+    tabs.current[next]?.focus();
+  };
+  return <section className="dw-companies" aria-labelledby={`${base}-title`}>
+    <h4 id={`${base}-title`}>Company by company</h4>
+    <div className="dw-companies__layout">
+      <div role="tablist" aria-label="Companies" aria-orientation="vertical" className="dw-company-tabs">
+        {companies.map((company, i) => <button type="button" role="tab" key={company.name} id={`${base}-tab-${i}`} ref={el => { tabs.current[i] = el; }}
+          aria-selected={i === index} aria-controls={`${base}-panel`} tabIndex={i === index ? 0 : -1}
+          className={`dw-company-tab dw-company-tab--${company.state}`} onClick={() => onSelect(company.name)} onKeyDown={e => onKeyDown(e, i)}>
+          <span className="dw-company-tab__name">{company.name}</span>
+          <span className="dw-company-tab__state">{company.label}</span>
+        </button>)}
+      </div>
+      <section role="tabpanel" id={`${base}-panel`} aria-labelledby={`${base}-tab-${index}`} tabIndex={0} className="dw-company">
+        <header className="dw-company__header">
+          <h5>{selected.name}</h5>
+          {selected.relationship && <span className="dw-badge">{relationshipLabel(selected.relationship)}</span>}
+        </header>
+        <p className={`dw-company__note dw-company__note--${selected.state}`}>{COMPANY_NOTE[selected.state](selected.name, run ? reportDate(run.startedAt) : null)}</p>
+        {run && selected.findings.map(f => <FindingItem key={f.id} run={run} finding={f}
+          open={openIds.has(findingAnchor(run, f))} onToggle={open => onToggle(findingAnchor(run, f), open)} />)}
+      </section>
+    </div>
+  </section>;
+};
+
+const HistoryRun: React.FC<{ run: WatchRun }> = ({ run }) => {
+  const [openIds, toggle] = useOpenSet();
+  const gaps = coverageGaps(run);
+  const names = [...new Set(run.findings.map(f => f.entity))];
+  return <details className={`dw-details dw-history-entry dw-run dw-run--${run.status}`}>
+    <summary>{reportDate(run.startedAt)} · {STATUS[run.status]} · {count(run.findings.length, 'development')}</summary>
+    <p className="dw-summary">{run.summary || (run.status === 'running' ? 'Monitoring in progress…' : 'No summary was recorded for this check.')}</p>
+    {gaps.length > 0 && <p className="dw-notice dw-notice--warning dw-run__warning">Coverage was incomplete. {gaps.join(' ')} Missing evidence does not mean no change.</p>}
+    {names.map(name => <section className="dw-history-company" key={name} aria-label={`${name} developments`}>
+      <p className="dw-history-company__name">{name}</p>
+      {run.findings.filter(f => f.entity === name).map(f => <FindingItem key={f.id} run={run} finding={f}
+        open={openIds.has(f.id)} onToggle={open => toggle(f.id, open)} />)}
+    </section>)}
+  </details>;
 };
 
 const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void }> = ({ watchlist, onEdit }) => {
   const client = useQueryClient();
   const runPending = useRef(false);
   const [historyPage, setHistoryPage] = useState(1);
-  const history = useQuery({ queryKey: ['watchlist-runs', watchlist.id, historyPage], queryFn: async () => requireApiData(await api.getWatchlistRuns(watchlist.id, historyPage)),
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [openIds, toggleOpen] = useOpenSet();
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  const fetchRuns = (page: number) => async () => requireApiData(await api.getWatchlistRuns(watchlist.id, page));
+  const recent = useQuery({ queryKey: ['watchlist-runs', watchlist.id, 1], queryFn: fetchRuns(1),
     refetchInterval: query => query.state.data?.some(r => r.status === 'running') ? 5000 : false });
+  const older = useQuery({ queryKey: ['watchlist-runs', watchlist.id, historyPage], queryFn: fetchRuns(historyPage), enabled: historyPage > 1 });
   const baselines = useQuery({ queryKey: ['watchlists', watchlist.id, 'baselines', watchlist.baselineVersion],
     queryFn: async () => requireApiData(await api.getWatchlistBaselines(watchlist.id)) });
   const run = useMutation({
     mutationFn: async () => requireApiData(await api.runWatchlist(watchlist.id)),
     onSettled: () => { runPending.current = false; setHistoryPage(1); void client.invalidateQueries({ queryKey: ['watchlists'] }); void client.invalidateQueries({ queryKey: ['watchlist-runs', watchlist.id] }); },
   });
-  const running = run.isPending || watchlist.lastRun?.status === 'running' || history.data?.some(r => r.status === 'running');
+  const runs = recent.data ?? [];
+  const latest = runs.find(r => r.status !== 'running');
+  const briefing = runs.find(r => BRIEFING_STATUSES.has(r.status));
+  const running = run.isPending || watchlist.lastRun?.status === 'running' || runs.some(r => r.status === 'running');
+  const companies = companyStates(watchlist, briefing);
+  const selected = companies.find(c => c.name === selectedName) ?? companies.find(c => c.findings.length) ?? companies[0];
+  const history = historyPage === 1 ? recent : older;
+  const earlier = (history.data ?? []).filter(r => r.status !== 'running' && (historyPage > 1 || r.id !== briefing?.id));
+  useEffect(() => {
+    if (!focusTarget) return;
+    const target = document.getElementById(focusTarget);
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
+    target?.focus({ preventScroll: true });
+    setFocusTarget(null);
+  }, [focusTarget]);
+  const openFinding = (finding: Finding): void => {
+    if (!briefing) return;
+    const anchor = findingAnchor(briefing, finding);
+    setSelectedName(finding.entity);
+    toggleOpen(anchor, true);
+    setFocusTarget(anchor);
+  };
   return <section className="dw-detail" aria-label={watchlist.config.name}>
-    <header className="dw-row"><h3>{watchlist.config.name}</h3><div className="dw-actions">
-      <button type="button" className="dw-button" onClick={onEdit}>Edit watchlist</button>
-      <button type="button" className="dw-button dw-button--primary" disabled={watchlist.config.paused || running}
-        onClick={() => { if (!runPending.current) { runPending.current = true; run.mutate(); } }}>{running ? 'Monitoring…' : 'Run now'}</button>
-    </div></header>
-    <p className="dw-hint">{watchlist.config.paused ? 'Paused' : `${watchlist.config.cadence} · next due ${date(watchlist.nextRunAt)}`}</p>
-    <div className="dw-entities">{watchlist.config.entities.map(e => <span className="dw-badge" key={e.name}>{e.name} · {e.relationship.replace(/-/g, ' ')}</span>)}</div>
-    <details className="dw-details"><summary>Monitoring brief</summary>
-      <p className="dw-summary">{watchlist.config.question}</p>
-      {watchlist.config.description && <p className="dw-hint">{watchlist.config.description}</p>}
-    </details>
-    <details className="dw-details"><summary>Comparison context &amp; version history</summary>
-      <p className="dw-pre">{watchlist.config.baseline.text}</p>
-      {baselines.isError && <DataNotice title="Comparison history unavailable" error={baselines.error} />}
-      {baselines.data?.map(b => <details className="dw-details" key={b.version}><summary>Version {b.version} · {date(b.createdAt)}</summary>
-        <p className="dw-pre">{b.baseline.text}</p>
-        {b.baseline.links.map(link => <a href={link} key={link} target="_blank" rel="noreferrer">{link}</a>)}
-      </details>)}
-    </details>
-    {watchlist.config.projectIds.length > 0 && <p className="dw-hint">Linked projects: {watchlist.config.projectIds.map((id, i) => <React.Fragment key={id}>{i > 0 && ', '}<a href={`/projects?projectId=${encodeURIComponent(id)}`}>{id}</a></React.Fragment>)}</p>}
-    <h3 className="dw-history-title">{historyPage === 1 ? 'Latest analysis' : 'Earlier analyses'}</h3>
+    <header className="dw-row"><div><h3>{watchlist.config.name}</h3>
+      <p className="dw-hint">{watchlist.config.paused ? 'Paused' : `${watchlist.config.cadence === 'daily' ? 'Daily' : 'Weekly'} checks · next due ${date(watchlist.nextRunAt)}`}</p></div>
+      <div className="dw-actions">
+        <button type="button" className="dw-button" onClick={onEdit}>Edit watchlist</button>
+        <button type="button" className="dw-button dw-button--primary" disabled={watchlist.config.paused || running}
+          onClick={() => { if (!runPending.current) { runPending.current = true; run.mutate(); } }}>{running ? 'Monitoring…' : 'Run now'}</button>
+      </div></header>
     {run.isError && <DataNotice title="Monitoring could not start" error={run.error} />}
-    {history.isError && <DataNotice title="Watchlist history unavailable" error={history.error} onRetry={() => { void history.refetch(); }} />}
-    {history.isLoading && <p className="dw-hint" role="status">Loading history…</p>}
-    {history.data?.length === 0 && <p className="dw-empty">No analyses yet. Choose Run now to search for competitor developments, or wait for the next scheduled run. Missing evidence is not the same as no meaningful change.</p>}
-    {history.data?.map((r, index) => index === 0 ? <RunRecord key={r.id} run={r} /> :
-      <details className="dw-details dw-history-entry" key={r.id}><summary>{reportDate(r.startedAt)} · {STATUS[r.status]} · {r.findings.length} findings</summary>
-        <RunRecord run={r} />
-      </details>)}
-    {(historyPage > 1 || history.data?.length === 100) && <div className="dw-actions" aria-label="Watchlist history pages">
-      <button type="button" className="dw-button" disabled={historyPage === 1 || history.isLoading} onClick={() => setHistoryPage(p => p - 1)}>Newer runs</button>
-      <span className="dw-hint">History page {historyPage}</span>
-      <button type="button" className="dw-button" disabled={history.data?.length !== 100 || history.isLoading} onClick={() => setHistoryPage(p => p + 1)}>Older runs</button>
-    </div>}
+    {recent.isError && <DataNotice title="Watchlist history unavailable" error={recent.error} onRetry={() => { void recent.refetch(); }} />}
+    <NowSection watchlist={watchlist} latest={latest} briefing={briefing} companies={companies} running={running}
+      loading={recent.isLoading} onOpen={openFinding} />
+    {selected && <CompanyBreakdown run={briefing} companies={companies} selected={selected} onSelect={setSelectedName}
+      openIds={openIds} onToggle={toggleOpen} />}
+    <section className="dw-setup" aria-label="Monitoring setup and history">
+      <h4>Monitoring setup and history</h4>
+      <details className="dw-details"><summary>Monitoring brief</summary>
+        <p className="dw-summary">{watchlist.config.question}</p>
+        {watchlist.config.description && <p className="dw-hint">{watchlist.config.description}</p>}
+        <dl className="dw-scope">
+          <dt>Comparison criteria</dt><dd>{watchlist.config.criteria.join(' · ')}</dd>
+          <dt>Companies and references</dt><dd>{watchlist.config.entities.map(e => `${e.name} (${relationshipLabel(e.relationship)})`).join(', ')}</dd>
+          {watchlist.config.projectIds.length > 0 && <><dt>Linked projects</dt><dd>{watchlist.config.projectIds.map((id, i) => <React.Fragment key={id}>{i > 0 && ', '}<a href={`/projects?projectId=${encodeURIComponent(id)}`}>{id}</a></React.Fragment>)}</dd></>}
+        </dl>
+      </details>
+      <details className="dw-details"><summary>Comparison context &amp; version history</summary>
+        <p className="dw-pre">{watchlist.config.baseline.text || 'No manual comparison text. Athena uses saved project information.'}</p>
+        {baselines.isError && <DataNotice title="Comparison history unavailable" error={baselines.error} />}
+        {baselines.data?.map(b => <details className="dw-details" key={b.version}><summary>Version {b.version} · {date(b.createdAt)}</summary>
+          <p className="dw-pre">{b.baseline.text}</p>
+          {b.baseline.links.map(link => <a href={link} key={link} target="_blank" rel="noreferrer">{link}</a>)}
+        </details>)}
+      </details>
+      {briefing && <details className="dw-details"><summary>Scope and sources of the check on {reportDate(briefing.startedAt)}</summary>
+        <dl className="dw-scope">
+          <dt>Monitoring question</dt><dd>{briefing.config.question}</dd>
+          <dt>Comparison context · version {briefing.baselineVersion}</dt><dd className="dw-pre">{briefing.baseline.text || 'No manual comparison text was recorded.'}</dd>
+          <dt>Coverage</dt><dd>
+            {briefing.coverage.webSearches ? `${briefing.coverage.webSearches - (briefing.coverage.webFailures ?? 0)}/${briefing.coverage.webSearches} web searches succeeded. ` : ''}
+            {briefing.coverage.sourcesChecked > 0 && `${briefing.coverage.sourcesHealthy}/${briefing.coverage.sourcesChecked} Discover sources healthy. `}
+            {count(briefing.coverage.uniqueEvents, 'unique event')}.
+          </dd>
+        </dl>
+        {briefing.baseline.links.map(link => <a key={link} href={link} target="_blank" rel="noreferrer">{link}</a>)}
+        {briefing.evidence.length > 0 && <ul className="dw-evidence" aria-label="All sources">{briefing.evidence.map(e => <li key={e.id}><a href={e.url} target="_blank" rel="noreferrer">{e.title}</a>
+          <span className="dw-evidence__meta">{reportDate(e.publishedAt)}{e.syndicatedIds.length > 0 && ` · ${e.syndicatedIds.length} syndicated copies counted once`}</span>
+        </li>)}</ul>}
+      </details>}
+      <details className="dw-details dw-history"><summary>Earlier checks{historyPage === 1 ? ` (${earlier.length}${runs.length === 100 ? '+' : ''})` : ''}</summary>
+        {older.isError && <DataNotice title="Earlier checks unavailable" error={older.error} onRetry={() => { void older.refetch(); }} />}
+        {history.isLoading && <p className="dw-hint" role="status">Loading earlier checks…</p>}
+        {!history.isLoading && earlier.length === 0 && <p className="dw-hint">No earlier checks on this page.</p>}
+        {earlier.map(r => <HistoryRun key={r.id} run={r} />)}
+        {(historyPage > 1 || runs.length === 100) && <div className="dw-actions" aria-label="Watchlist history pages">
+          <button type="button" className="dw-button" disabled={historyPage === 1 || history.isLoading} onClick={() => setHistoryPage(p => p - 1)}>Newer checks</button>
+          <span className="dw-hint">History page {historyPage}</span>
+          <button type="button" className="dw-button" disabled={history.data?.length !== 100 || history.isLoading} onClick={() => setHistoryPage(p => p + 1)}>Older checks</button>
+        </div>}
+      </details>
+    </section>
   </section>;
 };
 

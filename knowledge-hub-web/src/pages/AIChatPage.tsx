@@ -14,7 +14,7 @@ import {
   Tile,
   InlineLoading,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Export, Copy, View, OverflowMenuHorizontal, Document as DocumentIcon, Compare } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
@@ -61,7 +61,7 @@ import { LocalFileWriteCard } from '../components/athena/LocalFileWriteCard';
 import { desktopErrorMessage, getDesktop } from '../types/desktop';
 import { briefingSeenToday, markBriefingSeen } from '../utils/morningBriefing';
 import { PERSONAS, getPersona } from '../components/athena/personas';
-import { PeopleMentionSuggestions } from '../people/PeopleMentionSuggestions';
+import { ChatMentionSuggestions } from '../chat/ChatMentionSuggestions';
 import { PeopleMessageText } from '../people/PeopleMessageText';
 
 type AthenaThinkContentType = Extract<ContentType, 'blog' | 'newsletter'>;
@@ -1774,12 +1774,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     void handleProjectChange(nextProjectId);
   }
 
-  // Persona chip (every surface) + "more" menu (Think side panel, which has
-  // no top icon row).
   const activePersona = getPersona(persona);
   const PersonaChipIcon = activePersona.Icon;
-  const canExportChat = messages.length > 0 && sessionId !== null && !isExporting && !chatMutation.isPending;
-  const canStartNewChat = messages.length > 0 && !chatMutation.isPending;
 
   const composerChipBar = (
     <div className="kh-composer-chips">
@@ -1879,52 +1875,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       </div>
       )}
 
-      {isNoteLinkedPanel && (
-        <div className="kh-composer-chip kh-composer-chip--more" title="More">
-          <OverflowMenuHorizontal size={14} className="kh-composer-chip__icon" />
-          <select
-            className="kh-composer-chip__select"
-            aria-label="More chat actions"
-            value=""
-            onChange={(event) => {
-              const choice = event.target.value;
-              if (choice === 'export') handleExportToThink();
-              else if (choice === 'new') handleNewChat();
-              else if (choice === 'voice') { stopTts(); setVoiceOutputOn((v) => !v); }
-            }}
-          >
-            <option value="" disabled>More…</option>
-            <option value="new" disabled={!canStartNewChat}>New chat</option>
-            <option value="export" disabled={!canExportChat}>{isExporting ? 'Saving to Think…' : 'Export chat to Think'}</option>
-            <option value="voice">{voiceOutputOn ? 'Turn voice replies off' : 'Turn voice replies on'}</option>
-          </select>
-        </div>
-      )}
-
       {projectError !== null && <span className="kh-composer-chips__error" role="alert">{projectError}</span>}
     </div>
   );
 
   const actionButtons = (
     <>
-      {messages.length > 0 && sessionId !== null && !isNoteLinkedPanel && (
+      {messages.length > 0 && sessionId !== null && (
         <MoveToThink
           sessionId={sessionId}
           projectId={activeProjectId}
           disabled={isExporting || chatMutation.isPending}
           onExportSummary={handleExportToThink}
-        />
-      )}
-      {messages.length > 0 && sessionId !== null && isNoteLinkedPanel && (
-        <Button
-          size="sm"
-          kind="ghost"
-          hasIconOnly
-          renderIcon={Export}
-          iconDescription={isExporting ? 'Saving to Think…' : 'Export chat to Think'}
-          tooltipPosition="bottom"
-          onClick={handleExportToThink}
-          disabled={isExporting || chatMutation.isPending}
+          linkConversation={!isNoteLinkedPanel}
         />
       )}
       {messages.length > 0 && !standalone && (
@@ -2009,14 +1972,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </div>
         </div>
       )}
-      {!standalone && !isNoteLinkedPanel && (
+      {!standalone && (
         <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact' : 'ai-new-chat-row'}>
           <div className="ai-new-chat-row__actions">
             {actionButtons}
           </div>
         </div>
       )}
-      <div className={standalone ? 'ai-chat-standalone__body' : compact ? 'ai-chat-compact__body' : ''}>
+      <div className={`ai-conversation${standalone ? ' ai-chat-standalone__body' : compact ? ' ai-chat-compact__body' : ''}`}>
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
             <p className="ai-action-desc">{action.description}</p>
@@ -2362,7 +2325,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             onChange={handleFileSelected}
           />
           <div className="ai-input-field">
-            <PeopleMentionSuggestions input={input} textarea={textareaRef} onChange={value => { hasUserWorkRef.current = true; setInput(value); }} />
+            <ChatMentionSuggestions input={input} textarea={textareaRef} onChange={value => { hasUserWorkRef.current = true; setInput(value); }} onProject={handleProjectChipChange} />
             <Button
               type="button"
               kind="ghost"
@@ -2438,9 +2401,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             />
           )}
         </form>
-        {standalone && !isMobile && (
-          <p className="ai-composer__hint">Enter to send · Shift+Enter for a new line · ↑ to edit your last message</p>
-        )}
+        <p className="ai-composer__hint">@ reference people, projects or documents · /spec create a specification</p>
         </div>
       </div>
       </div>

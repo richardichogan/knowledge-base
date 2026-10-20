@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { BlockNoteEditor } from '@blocknote/core';
 import { api } from '../services/api';
 import { requireApiData } from '../services/apiError';
 import { ENTITY_LINK_LABELS, type EntityLinkTarget } from './entityLinks';
 import type { editorSchema } from './editorSchema';
+import { openLinkPreview } from './linkPreview';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
 interface TextRun { text: string; from: number }
@@ -124,7 +126,10 @@ export function LinkSuggestionBar({ editor, noteId, disabled }: {
     {error && <span role="alert">{error} <button type="button" onClick={() => { setRetry(value => value + 1); }}>Retry</button></span>}
     {suggestions.length > 0 && <span className="note-link-suggest__label">Unlinked mentions</span>}
     {suggestions.map(({ target, matches }) => <span key={targetKey(target)} className="note-link-suggest__item">
-      <span><strong>{target.title}</strong> · {ENTITY_LINK_LABELS[target.type]} · {matches.length}×</span>
+      <span><Link to={target.href} title={`Preview ${ENTITY_LINK_LABELS[target.type]}: ${target.title} (${target.href})`}
+        onClick={event => {
+          if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && openLinkPreview(target)) event.preventDefault();
+        }}><strong>{target.title}</strong></Link> · {ENTITY_LINK_LABELS[target.type]} · {matches.length}×</span>
       <button type="button" onClick={() => { linkOccurrences(editor, target, false); }}>Link</button>
       {matches.length > 1 && <button type="button" onClick={() => { linkOccurrences(editor, target, true); }}>Link all</button>}
       <button type="button" aria-label={`Dismiss ${ENTITY_LINK_LABELS[target.type]} ${target.title}`} onClick={() => {

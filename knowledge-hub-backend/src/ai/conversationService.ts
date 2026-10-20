@@ -53,6 +53,8 @@ export interface TurnHooks {
   screenImages?: Array<{ label: string; url: string }>;
   /** This view shows no Outputs panel: deliverables go in the reply, not save_output. */
   noOutputsPanel?: boolean;
+  /** Saved documents resolved from explicit @mentions, independently of automatic retrieval. */
+  referenceBlock?: string;
 }
 
 const NO_OUTPUTS_PANEL_NOTE = [
@@ -264,7 +266,7 @@ export async function handleConversationTurn(
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
   const peopleBlock = await buildPeopleContext(db, [userMessage]);
   const localFolders = toolContext.localFolders ?? [];
-  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);

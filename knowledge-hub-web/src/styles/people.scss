@@ -78,6 +78,8 @@
   border: 1px solid var(--cds-border-strong-01); border-radius: var(--kh-radius-md);
   background: var(--cds-layer-01, #262626); color: var(--cds-text-primary);
   box-shadow: 0 8px 24px #0008; font-size: var(--kh-text-body); line-height: 1.5;
+  &--floating { position: fixed; bottom: auto; margin: 0; padding: 0; }
+  &--above { transform: translateY(-100%); }
   &__heading { padding: 0.625rem 0.75rem; color: var(--cds-text-secondary); font-size: var(--kh-text-meta); border-bottom: 1px solid var(--cds-border-subtle-01); }
   p { padding: 0.75rem; margin: 0; color: var(--cds-text-secondary); }
   button { font: inherit; color: var(--cds-text-primary); background: transparent; cursor: pointer; border: 0; padding: 0.5rem; }

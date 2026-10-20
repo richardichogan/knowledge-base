@@ -1,7 +1,7 @@
 {
   "name": "athena-desktop",
   "productName": "Athena",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Athena desktop app: the Athena web app plus access to folders on this PC.",
   "main": "build/src/main.js",
@@ -12,7 +12,7 @@
     "start": "npm run build && electron .",
     "start:chat": "npm run build && electron . --chat",
     "start:local": "npm run build && cross-env ATHENA_URL=http://localhost:5173 electron .",
-    "test": "npm run build && node --test build/test/desktop.test.js",
+    "test": "npm run build && node --test build/test/desktop.test.js build/test/dailyInsights.test.js",
     "test:navigation": "npm run build && node test/run-navigation.cjs",
     "dist": "npm run build && electron-builder --win nsis",
     "release": "npm run build && electron-builder --win nsis --publish always"
