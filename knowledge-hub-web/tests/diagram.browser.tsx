@@ -670,6 +670,10 @@ async function runDiagramChecks(): Promise<string[]> {
   clickButton('Athena');
   await waitFor(() => window.document.querySelector('.dg-athena .think-athena-panel') !== null);
   await waitFor(() => athenaLinkedId === `map:${canvasId}`);
+  const athenaToolbar = window.document.querySelector<HTMLElement>('.dg-athena .ai-new-chat-row--compact')!;
+  const athenaActions = athenaToolbar.querySelector<HTMLElement>('.ai-new-chat-row__actions')!;
+  check(Math.abs(athenaToolbar.getBoundingClientRect().right - athenaActions.getBoundingClientRect().right) < 1,
+    'Diagram embedded Athena actions align to the right even before Save to Think is available');
   check(window.document.querySelector('.dg-athena')?.textContent?.includes('Enterprise architecture / process flow') === true,
     'Athena receives the current diagram context and linked conversation');
   check(window.document.documentElement.scrollWidth <= innerWidth + 1, 'Diagram Athena panel must not overflow on mobile');

@@ -766,9 +766,28 @@ async function runEmbeddedChatChecks(): Promise<string[]> {
   )}`);
   check(document.querySelector('.think-athena-panel [aria-label="Action for this message"] option[value="spec"]') !== null,
     'Spec is available in the Think panel as well as standalone');
+  const toolbar = selector('.think-athena-panel .ai-new-chat-row--compact');
+  const actions = selector('.think-athena-panel .ai-new-chat-row__actions');
+  const previousWidth = toolbar.style.width;
+  for (const width of [280, 400]) {
+    toolbar.style.width = `${width}px`;
+    const style = getComputedStyle(toolbar);
+    const edge = toolbar.getBoundingClientRect().right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth);
+    check(Math.abs(actions.getBoundingClientRect().right - edge) < 1,
+      `Embedded chat actions align to the right at ${width}px`);
+    check(toolbar.scrollWidth <= toolbar.clientWidth + 1, 'Embedded chat actions remain inside the toolbar');
+    const buttons = [...actions.querySelectorAll<HTMLButtonElement>('button')];
+    check(buttons.length >= 3, 'Populated conversation exercises Save to Think, restart and sound controls');
+    for (let index = 1; index < buttons.length; index++) {
+      check(buttons[index]!.getBoundingClientRect().left >= buttons[index - 1]!.getBoundingClientRect().left,
+        'Visual button order follows DOM and keyboard order');
+    }
+  }
+  toolbar.style.width = previousWidth;
   api.getSessionIdForNote = previousLookup;
   api.getSessionHistory = previousHistory;
-  return ['Think uses the shared composer and Spec action; saved-note mentions remain visible above its drawer'];
+  return ['Think uses the shared composer and Spec action; saved-note mentions remain visible above its drawer',
+    'Embedded Save to Think, restart and sound controls align right at narrow and wide panel widths without reordering'];
 }
 
 async function runChatChecks(): Promise<string[]> {
