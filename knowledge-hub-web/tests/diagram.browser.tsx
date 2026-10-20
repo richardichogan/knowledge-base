@@ -54,6 +54,8 @@ const doc: DiagramDocument = {
 let snapshot: DiagramSnapshot = { revision: 0, document: structuredClone(doc) };
 let saves = 0;
 let conflict = false;
+let failSave = false;
+let saveGate: Promise<void> | null = null;
 const children = new Map<string, DiagramSnapshot>();
 const drilldownLinks = new Map<string, { nodeId: string; canvasId: string; title: string }>();
 let failDrilldown = false;
@@ -82,6 +84,8 @@ api.saveDiagram = async (_id, revision, document) => {
     children.set(_id, saved);
     return success(structuredClone(saved));
   }
+  if (saveGate) await saveGate;
+  if (failSave) throw new Error('Fixture save unavailable');
   if (conflict || revision !== snapshot.revision) throw Object.assign(new Error('Another session updated this diagram'), { isAxiosError: true, response: { status: 409 } });
   snapshot = { revision: revision + 1, document: structuredClone(document) }; saves++;
   return success(structuredClone(snapshot));
@@ -346,6 +350,57 @@ async function runDiagramAppearanceChecks(): Promise<string[]> {
 }
 async function runDiagramPropertiesChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector('select[aria-label="Diagram project"]') !== null);
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
+  const toolbarLayout = (): DOMRect[] => [...window.document.querySelectorAll('.dg-header__toolbar button')]
+    .map(button => button.getBoundingClientRect());
+  const savedLayout = toolbarLayout();
+  const assertStableToolbar = (state: string): void => {
+    const current = toolbarLayout();
+    check(current.length === savedLayout.length, `${state}: toolbar controls retained`);
+    current.forEach((rect, index) => {
+      const original = savedLayout[index]!;
+      check(Math.abs(rect.left - original.left) < 0.5 && Math.abs(rect.top - original.top) < 0.5,
+        `${state}: toolbar button ${index} must not move during autosave`);
+    });
+    const status = window.document.querySelector('.dg-status-group')!.getBoundingClientRect();
+    check(status.width === 16 && status.height === 16, `${state}: save indicator has a fixed icon-only footprint`);
+  };
+  const toggleGrid = (): void => {
+    const button = window.document.querySelector<HTMLButtonElement>('.dg-header button[aria-label*="grid"]')!;
+    button.click();
+  };
+  let releaseSave!: () => void;
+  saveGate = new Promise<void>(resolve => { releaseSave = resolve; });
+  toggleGrid();
+  await waitFor(() => window.document.querySelector('.dg-status--pending') !== null);
+  assertStableToolbar('Unsaved changes');
+  await waitFor(() => window.document.querySelector('.dg-status--saving') !== null);
+  assertStableToolbar('Saving');
+  check(window.document.querySelector('.dg-status')!.getAttribute('title') === 'Saving…', 'Icon-only save state retains a descriptive tooltip');
+  releaseSave();
+  saveGate = null;
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
+  assertStableToolbar('Saved');
+  failSave = true;
+  toggleGrid();
+  await waitFor(() => window.document.querySelector('.dg-status--error') !== null);
+  assertStableToolbar('Save error');
+  check(window.document.querySelector('.dg-banner--error')?.getAttribute('role') === 'alert', 'Save failure remains visibly actionable outside the icon');
+  failSave = false;
+  clickButton('Retry');
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
+  conflict = true;
+  toggleGrid();
+  await waitFor(() => window.document.querySelector('.dg-status--conflict') !== null);
+  assertStableToolbar('Save conflict');
+  check(window.document.querySelector('.dg-banner--warning')?.getAttribute('role') === 'alert', 'Save conflict remains visibly actionable outside the icon');
+  conflict = false;
+  clickButton('Keep my version');
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
+  toggleGrid();
+  await waitFor(() => window.document.querySelector('.dg-status--saved') === null);
+  await waitFor(() => window.document.querySelector('.dg-status--saved') !== null);
+  assertStableToolbar('Recovered and restored');
   const properties = window.document.querySelector<HTMLElement>('.dg-properties')!;
   const projectSelect = properties.querySelector<HTMLSelectElement>('select[aria-label="Diagram project"]')!;
   await waitFor(() => projectSelect.querySelectorAll('optgroup').length === 4);

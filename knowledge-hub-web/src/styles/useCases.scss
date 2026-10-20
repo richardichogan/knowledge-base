@@ -339,7 +339,8 @@
 
 .kh-uc-section__title {
   margin: 0 0 0.75rem;
-  font-size: var(--kh-heading-label);
+  font-size: var(--kh-section-title);
+  line-height: 1.4;
   font-weight: 600;
   color: var(--cds-text-primary);
 }

@@ -160,6 +160,7 @@ try {
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       if (process.env.TODAY_ARTIFACT_DIR) {
         await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        await command('Page.bringToFront');
         const screenshot = await command('Page.captureScreenshot', { format: 'png' });
         await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `panels-${width}.png`), Buffer.from(screenshot.data, 'base64'));
         await evaluate('document.querySelector(".dc-explore__close").click()');

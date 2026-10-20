@@ -3079,21 +3079,18 @@ function Swatches({ label, colours, value, onPick }: { label: string; colours: r
 
 function SaveIndicator({ status, uploading }: { status: SaveStatus; uploading: number }): React.ReactElement {
   const text: Record<SaveStatus, string> = { saved: 'Saved', pending: 'Unsaved changes', saving: 'Saving…', error: 'Not saved', conflict: 'Conflict — not saved' };
+  const uploadingNow = uploading > 0 && status !== 'error' && status !== 'conflict';
+  const label = uploadingNow ? `Uploading ${uploading} image${uploading === 1 ? '' : 's'}…` : text[status];
   return (
     <span className="dg-status-group">
-      <span className={`dg-status dg-status--${status}`} role="status" aria-live="polite" title={text[status]}>
-        {status === 'saved' && <CheckmarkFilled size={16} className="dg-status__icon" />}
-        {status === 'pending' && <span className="dg-status__dot" aria-hidden="true" />}
-        {status === 'saving' && <InProgress size={16} className="dg-status__icon dg-spin" />}
+      <span className={`dg-status dg-status--${uploadingNow ? 'saving' : status}`} role="status" aria-live="polite" title={label}>
+        {status === 'saved' && !uploadingNow && <CheckmarkFilled size={16} className="dg-status__icon" />}
+        {status === 'pending' && !uploadingNow && <span className="dg-status__dot" aria-hidden="true" />}
+        {(status === 'saving' || uploadingNow) && <InProgress size={16} className="dg-status__icon dg-spin" />}
         {status === 'error' && <ErrorFilled size={16} className="dg-status__icon" />}
         {status === 'conflict' && <WarningAlt size={16} className="dg-status__icon" />}
-        <span className="dg-status__text">{text[status]}</span>
+        <span className="dg-status__text">{label}</span>
       </span>
-      {uploading > 0 && (
-        <span className="dg-status dg-status--saving" role="status">
-          <InProgress size={16} className="dg-status__icon dg-spin" /> Uploading {uploading} image{uploading === 1 ? '' : 's'}…
-        </span>
-      )}
     </span>
   );
 }

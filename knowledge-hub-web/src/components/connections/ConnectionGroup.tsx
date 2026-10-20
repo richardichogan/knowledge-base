@@ -29,8 +29,8 @@ export const ConnectionGroup: React.FC<ConnectionGroupProps> = ({ edgeType, edge
   const visible = expanded ? edges : edges.slice(0, DEFAULT_VISIBLE);
 
   return (
-    <div className="conn-group">
-      <p className="conn-group__label">{label}</p>
+    <section className="conn-group" aria-label={label}>
+      <h3 className="conn-group__label">{label}</h3>
       {visible.map((edge) => (
         <ConnectionItem key={edge.edgeId} edge={edge} onClick={() => { onItemClick(edge); }} />
       ))}
@@ -39,6 +39,6 @@ export const ConnectionGroup: React.FC<ConnectionGroupProps> = ({ edgeType, edge
           Show all ({edges.length})
         </button>
       )}
-    </div>
+    </section>
   );
 };

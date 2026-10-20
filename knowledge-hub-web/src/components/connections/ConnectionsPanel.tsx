@@ -75,6 +75,7 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ refId, refTy
 
   const body = (
     <div className="conn-panel__body">
+      {headerless && <h2 className="conn-panel__heading">Related items</h2>}
       <p className="conn-panel__intro">Related notes, tasks, Discover items and GitHub activity, connected by shared context or an explicit link.</p>
       {isLoading && <p className="conn-panel__loading">Loading connections…</p>}
 
@@ -103,7 +104,7 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ refId, refTy
         onClick={() => { setCollapsed((v) => !v); }}
         aria-expanded={!collapsed ? 'true' : 'false'}
       >
-        <span className="conn-panel__title">CONNECTIONS{totalCount > 0 ? ` · ${totalCount}` : ''}</span>
+        <span className="conn-panel__title">Connections{totalCount > 0 ? ` · ${totalCount}` : ''}</span>
         <span className="conn-panel__chevron">{collapsed ? '▸' : '▾'}</span>
       </button>
       {!collapsed && body}
