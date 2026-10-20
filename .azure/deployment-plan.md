@@ -28,6 +28,24 @@ Bicep compilation, what-if, provisioning and new RBAC grants are not applicable.
 User unavailable for redundant target confirmation; proceed only with the
 explicitly requested existing production target documented in the runbook.
 
+**Deployment result (2026-10-20, current release):**
+Source `09d9b83c0d7a45affdf1a9b6a9a540c15b65ee0d` was pushed to the
+feature branch and main. ACR run `ca6v` built backend v218, digest
+`sha256:8e64d3cc96e1e082637b20b62475cc02f4730e71aad8748672288d92d7e48e0f`.
+Revision `kh-prod-api-vnet--0000215` is Healthy / RunningAtMaxScale with
+100% traffic and provisioning Succeeded. Startup applied
+`088_daily_insights.sql`, completed migrations, warmed 8/8 connections and
+confirmed all 123 notes already indexed. Live registry-role query returned
+no assignments; existing secret-based registry configuration is unchanged.
+Static Web Apps production deployment succeeded. Both
+https://athena.themicrosoftcloudblog.com and
+https://nice-mud-0f780fb03.7.azurestaticapps.net returned HTTP 200 and serve
+`/assets/index-CQtaVMu6.js` with SHA-256
+`37709d9f3901d929b96aae3d97c39210dcaac201727adae30ef2b31d85664792`,
+identical to the validated local production build.
+Desktop installer installation/publication and a live Daily Insights import
+were not performed as part of this website/backend deployment.
+
 **Previous approval scope:** the validation and deployment result below cover production
 release `c235cf8` only. Subsequent chat, Daily Insights, competitor presentation,
 mention/link and Spec changes are not deployed under this approval. They require
