@@ -2,6 +2,35 @@
 
 **Status:** Validated
 
+**Current approved release (2026-10-20 13:39 BST, intelligence usability):**
+User explicitly requested deployment of `923dcd6`, including embedded Athena
+action alignment `030869f`. Reuse existing production targets: backend
+`kh-prod-api-vnet` in UK South and frontend `kh-prod-web` in West Europe,
+resource group `rg-knowledge-hub-prod`, subscription Alliance Tenant Reporting
+(`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`). Existing application-only AZCLI/SWA
+recipe; backend v218 advances to unused v219. No migrations, dependencies,
+provisioning, identity, registry credential, RBAC or environment changes.
+Rollback to v218 and its matching frontend bundle. No desktop release.
+
+**Section 7: Validation proof (2026-10-20, intelligence usability):**
+- Fetched origin and merged origin/main: already up to date at `923dcd6`.
+- Both applications passed `npx tsc --noEmit` and `npm run build` after sync.
+- Matching source passed 199 backend tests and 122 frontend tests, frontend
+  fixture type checks and lint non-regression. Isolated watchlist checks passed
+  saved-history compatibility, five relevance states, citation navigation,
+  actual scroll-owner stickiness, 70/30 columns, 72ch measure and 768/390px
+  container stacking. Project picker regressions passed.
+- Azure CLI confirmed the subscription, healthy existing resource group and
+  Container Apps environment, backend v218 with identity None and existing
+  secret-based registry authentication, and existing Static Web App hostname.
+- Dockerfile and lockfile verified. ACR remote build compiles and validates the
+  container before any revision update. v219 does not already exist.
+- No infrastructure changes: Bicep compilation, template validation, what-if,
+  provisioning, policy changes and new role grants are not applicable.
+  Managed-identity AcrPull propagation gate is not applicable to this app.
+- User unavailable for redundant target confirmation; proceed solely with the
+  explicitly requested existing production targets in the repository runbook.
+
 **Current approved release (2026-10-20 12:06 BST):**
 User explicitly requested deployment of the current release through `8d7b3ae`.
 Deploy the matching backend and frontend, including chat consistency, document
