@@ -183,6 +183,17 @@ try {
     }
     if (noteLinksChecks || watchlistChecks) {
       const results = await evaluate(noteLinksChecks ? 'window.runNoteLinkChecks()' : 'window.runWatchlistChecks()');
+      if (watchlistChecks && process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        await evaluate('window.prepareWatchlistReview()');
+        for (const [name, selector] of [['briefing', '.dw-intelligence'], ['impact', '.dw-project-insights']]) {
+          await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:"start"})`);
+          await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+          await command('Page.bringToFront');
+          const image = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+          await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `intelligence-${name}-${width}.png`), Buffer.from(image.data, 'base64'));
+        }
+      }
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;
@@ -470,6 +481,7 @@ try {
   if (process.env.TODAY_ARTIFACT_DIR && socket?.readyState === WebSocket.OPEN) {
     try {
       await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+      await command('Page.bringToFront');
       const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       await writeFile(join(process.env.TODAY_ARTIFACT_DIR, 'failure.png'), Buffer.from(screenshot.data, 'base64'));
       await writeFile(join(process.env.TODAY_ARTIFACT_DIR, 'failure.json'),

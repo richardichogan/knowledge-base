@@ -223,12 +223,15 @@ export async function runWatchlistChecks(queryClient: QueryClient): Promise<stri
   button('Run now').click();
   await waitFor(() => document.querySelector('.dw-now__item') !== null);
   const item = document.querySelector<HTMLElement>('.dw-now__item')!;
-  check(item.innerText.includes('Chosen Product · Announced capability') && item.innerText.includes('Newly observed capability')
+  check(item.innerText.includes('Chosen Product · Claims processing') && item.innerText.includes('Newly observed capability')
     && item.innerText.includes('Challenges the explicit comparison.'), 'Now section states the company, claim kind, change and why it matters');
   check(nowSection().innerText.includes('One newly observed announcement') && nowSection().innerText.includes('Meaningful changes'), 'Now section carries the stored summary and status');
   check(tab('Chosen Product').innerText.includes('1 development') && tab('Chosen Product').getAttribute('aria-selected') === 'true', 'Company with developments is selected');
   const rail = document.querySelector<HTMLElement>('.dw-project-insights');
-  check(rail?.innerText.includes('IMAGINE') && rail.innerText.includes('Possible relevance'), 'Briefing groups grounded project implications and labels inference');
+  check(rail && rail.innerText.includes('IMAGINE') && rail.innerText.includes('Possible relevance'), 'Briefing groups grounded project implications and labels inference');
+  check(rail?.innerText.includes('saved overlap assessment') && !rail.innerText.includes('Medium relevance')
+    && document.querySelector('.dw-rail')?.textContent?.includes('No evidence-grounded watch signals were saved'),
+  'Legacy overlap certainty is never silently relabelled as material relevance or invented watch signals');
   const findingId = `finding-${runs[0]?.id}-finding-id`;
   const finding = document.getElementById(findingId)!;
   check(finding && !finding.querySelector('details')!.open && !finding.innerText.includes('Azure is explicitly named'), 'Finding detail is progressive');
@@ -281,8 +284,14 @@ export async function runWatchlistChecks(queryClient: QueryClient): Promise<stri
   runs = [uncovered, recorded];
   await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
   await waitFor(() => tab('Chosen Product').innerText.includes('No evidence found'));
-  check(nowSection().innerText.includes('Coverage was incomplete') && document.querySelector('.dw-company__note--missing')?.textContent?.includes('not proof of no activity'),
+  check(nowSection().innerText.includes('Coverage incomplete') && document.querySelector('.dw-company__note--missing')?.textContent?.includes('not proof of no activity'),
     'Missing evidence is distinguished from no change in the briefing and the company');
+  check(!document.querySelector<HTMLDetailsElement>('.dw-coverage')!.open, 'Detailed coverage mechanics start collapsed');
+  document.querySelector<HTMLButtonElement>('.dw-rail [aria-label="Coverage summary"] button')!.click();
+  await waitFor(() => document.querySelector<HTMLDetailsElement>('.dw-coverage')!.open && document.activeElement?.classList.contains('dw-coverage') === true);
+  check(nowSection().innerText.includes('Coverage was incomplete') && nowSection().innerText.includes('No evidence was found for Chosen Product'),
+    'Rail coverage link expands and focuses the honest missing-evidence detail');
+  document.querySelector<HTMLDetailsElement>('.dw-coverage')!.querySelector<HTMLElement>('summary')!.click();
   runs = [{ ...recorded, id: 'failed-run', status: 'failed', findings: [], evidence: [], summary: 'Search provider unavailable.' }, recorded];
   await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
   await waitFor(() => nowSection().innerText.includes('failed: Search provider unavailable.'));
@@ -318,6 +327,96 @@ export async function runWatchlistChecks(queryClient: QueryClient): Promise<stri
   await waitFor(() => tab('Second Co').getAttribute('aria-selected') === 'true' && document.activeElement?.id === 'finding-multi-run-Second_Co-1');
   check(document.documentElement.scrollWidth <= window.innerWidth, 'Watchlist layout fits desktop and mobile viewport');
   checks.push('Many companies stay bounded: round-robin briefing, per-company outcomes, keyboard tabs and briefing-to-company navigation');
+
+  const relevanceStates = ['high', 'medium', 'low', 'no-material-impact', 'insufficient-evidence'] as const;
+  const intelligence: WatchRun = { ...recorded, id: 'intelligence-review', summary: 'Chosen Product announced managed claims agents. The capability intersects with IMAGINE’s claims workflow, but published delivery documentation is still needed to establish availability.',
+    evidence: recorded.evidence.map(e => ({ ...e, publishedAt: old })),
+    findings: [{ ...recorded.findings[0]!, headline: 'Managed claims agents announced',
+      evidenceHighlight: { text: 'The source describes managed agents for claims processing.', evidenceIds: [articleId] },
+      watchNext: { statement: 'Whether delivery documentation establishes availability and deployment requirements.', evidenceIds: [articleId] },
+      projectAssessments: relevanceStates.map((relevance, index) => ({
+        projectId: `project-${index}`, projectName: ['IMAGINE', 'Claims pilot', 'Research', 'Personal learning', 'Unspecified project'][index]!,
+        relevance, impact: [
+          'Claims agents intersect directly with IMAGINE’s saved claims-processing goal; delivery remains unconfirmed.',
+          'The documented claims workflow intersects with the pilot; the deployment model remains unclear.',
+          'Only the documented agent-orchestration element intersects with the research scope.',
+          'This project concerns personal study, not claims processing; no material intersection is identified.',
+          'Project context is too limited to establish the relevance of the claimed capability.',
+        ][index]!,
+        ...(index === 0 ? { watchNext: 'Whether public documentation establishes the delivery model.' } : {}),
+      })),
+    }],
+  };
+  const showIntelligence = async (): Promise<void> => {
+    runs = [intelligence, recorded];
+    await queryClient.invalidateQueries({ queryKey: ['watchlist-runs'] });
+    await waitFor(() => document.querySelector('.dw-now__headline')?.textContent === 'Managed claims agents announced');
+    document.querySelector<HTMLElement>('.watchlists')!.scrollTop = 0;
+  };
+  await showIntelligence();
+  const impactDetails = document.querySelector<HTMLDetailsElement>('.dw-project-insights > details')!;
+  impactDetails.open = true;
+  check(document.querySelector('.dw-now__lead')!.textContent === '1 competitor development worth your attention', 'Lead count comes from the saved findings');
+  check(['High relevance', 'Medium relevance', 'Low relevance', 'No material impact identified', 'Insufficient evidence']
+    .every(label => document.querySelector('.dw-project-insights')!.textContent!.includes(label)), 'All five material relevance meanings remain distinct');
+  check(nowSection().innerText.indexOf(intelligence.summary) < nowSection().innerText.indexOf('Meaningful changes'),
+    'Intelligence synthesis precedes coverage mechanics');
+  check(document.querySelector('.dw-now__evidence')?.textContent?.includes('The source describes managed agents')
+    && document.querySelector('.dw-rail [aria-label="Watch next"]')?.textContent?.includes('Whether delivery documentation'),
+    'Saved evidence and monitoring signals appear in their intended reading positions');
+  check(!document.querySelector('.dw-now__headline')!.textContent!.includes('Newly observed'), 'Signal headline is not overwritten with observation boilerplate');
+  document.querySelector<HTMLButtonElement>('.dw-rail__project')!.click();
+  await waitFor(() => document.activeElement?.classList.contains('dw-project-insights__group') === true);
+  check(document.activeElement?.textContent?.includes('IMAGINE'), 'Compact impact links focus their corresponding detailed project assessment');
+  document.querySelector<HTMLButtonElement>('.dw-rail [aria-label="Watch next"] button')!.click();
+  const enrichedFinding = document.getElementById('finding-intelligence-review-finding-id')!;
+  await waitFor(() => document.activeElement === enrichedFinding && enrichedFinding.querySelector('details')!.open);
+  check(enrichedFinding.innerText.includes(new Date(old).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })),
+    'Source publication date stays historical even when the observation is current');
+  const scrollOwner = document.querySelector<HTMLElement>('.watchlists')!;
+  const grid = document.querySelector<HTMLElement>('.dw-intelligence')!;
+  const main = document.querySelector<HTMLElement>('.dw-intelligence__main')!;
+  const context = document.querySelector<HTMLElement>('.dw-rail')!;
+  const mainWidth = main.getBoundingClientRect().width;
+  const proportion = mainWidth / (mainWidth + context.getBoundingClientRect().width);
+  check(proportion >= .68 && proportion <= .72, `Intelligence uses 68–72% of desktop columns (actual ${proportion})`);
+  const summaryStyle = getComputedStyle(document.querySelector('.dw-now__summary')!);
+  const measuringCanvas = document.createElement('canvas');
+  const measurement = measuringCanvas.getContext('2d')!;
+  measurement.font = `${summaryStyle.fontSize} ${summaryStyle.fontFamily}`;
+  check(document.querySelector('.dw-now__summary')!.getBoundingClientRect().width <= measurement.measureText('0').width * 72 + 2,
+    'Summary text is bounded to 72 characters, not stretched across the viewport');
+  scrollOwner.scrollTop += grid.getBoundingClientRect().top - scrollOwner.getBoundingClientRect().top + 350;
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  check(scrollOwner.scrollTop > 0 && Math.abs(context.getBoundingClientRect().top - scrollOwner.getBoundingClientRect().top - 16) < 2,
+    'Context rail sticks inside the actual application scroll owner');
+  document.querySelector<HTMLElement>('.dw-project-insights')!.scrollIntoView({ block: 'start' });
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  check(Math.abs(context.getBoundingClientRect().top - scrollOwner.getBoundingClientRect().top - 16) < 2,
+    'Context stays visible while reading the detailed project implications');
+  const sizeRule = document.createElement('style');
+  document.head.append(sizeRule);
+  for (const width of [768, 390]) {
+    sizeRule.textContent = `.watchlists { width: ${width}px; }`;
+    scrollOwner.scrollTop = 0;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    check(context.getBoundingClientRect().top >= main.getBoundingClientRect().bottom - 1 && getComputedStyle(context).position === 'static',
+      `Context stacks below the main content at ${width}px container width`);
+    const edge = scrollOwner.getBoundingClientRect().left + scrollOwner.clientWidth - parseFloat(getComputedStyle(scrollOwner).paddingRight);
+    const overflow = [...scrollOwner.querySelectorAll<HTMLElement>('*')].filter(e => e.getBoundingClientRect().right > edge + 1)
+      .slice(0, 8).map(e => `${e.tagName}.${e.className}: ${e.getBoundingClientRect().width.toFixed(0)}px`).join(', ');
+    check(scrollOwner.scrollWidth <= scrollOwner.clientWidth + 1, `Narrow ${width}px briefing has no horizontal overflow (${scrollOwner.scrollWidth}/${scrollOwner.clientWidth}; grid ${grid.scrollWidth}/${grid.clientWidth}): ${overflow}`);
+  }
+  sizeRule.remove();
+  scrollOwner.scrollTop = 0;
+  impactDetails.open = false;
+  checks.push('Structured intelligence leads with supported headlines and evidence, five distinct project relevance states, linked watch signals and honest publication dates',
+    'Measured 70/30 desktop columns, 72ch summary measure, real scroll-owner stickiness and stacked 768/390px containers without overflow');
+  Object.assign(window, { prepareWatchlistReview: async () => {
+    button('Watchlists').click();
+    await showIntelligence();
+    return true;
+  } });
 
   button('Interests').click();
   await waitFor(() => document.querySelector('dialog[open]') !== null);

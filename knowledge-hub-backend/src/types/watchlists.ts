@@ -32,17 +32,25 @@ export interface WatchEvidence {
   id: string; title: string; url: string; publishedAt: string; excerpt: string;
   eventKey: string; syndicatedIds: string[]; entities: string[];
 }
+export type WatchProjectAssessment = {
+  projectId: string; projectName: string; impact: string; watchNext?: string;
+} & ({
+  relationship: 'confirmed-overlap' | 'possible-relevance' | 'insufficient-context';
+  relevance?: never;
+} | {
+  relevance: 'high' | 'medium' | 'low' | 'no-material-impact' | 'insufficient-evidence';
+  relationship?: 'confirmed-overlap' | 'possible-relevance' | 'insufficient-context';
+});
 export interface WatchFinding {
   entity: string; criterion: string; kind: WatchClaimKind;
   changed: string; matters: string; uncertainty: string; response: string; evidenceIds: string[];
   field?: string;
   microsoftInvolvement?: string;
   projectImpact?: string;
-  projectAssessments?: Array<{
-    projectId: string; projectName: string;
-    relationship: 'confirmed-overlap' | 'possible-relevance' | 'insufficient-context';
-    impact: string;
-  }>;
+  headline?: string;
+  evidenceHighlight?: { text: string; evidenceIds: string[] };
+  watchNext?: { statement: string; evidenceIds: string[] };
+  projectAssessments?: WatchProjectAssessment[];
 }
 export interface WatchCoverage {
   matched: number; uniqueEvents: number; sourcesChecked: number; sourcesHealthy: number;

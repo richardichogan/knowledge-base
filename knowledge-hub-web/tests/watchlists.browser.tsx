@@ -30,7 +30,7 @@ api.getDiscoverFeed = async () => ok({ items: [{
 
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={client}><MemoryRouter><AthenaContextProvider>
-    <AppDialogHost /><div className="kh-content watchlists"><DiscoverPage /></div>
+    <AppDialogHost /><div className="kh-shell"><div className="kh-content watchlists"><DiscoverPage /></div></div>
   </AthenaContextProvider></MemoryRouter></QueryClientProvider>,
 );
 Object.assign(window, { runWatchlistProjectChecks: () => runWatchlistProjectChecks(client), runWatchlistChecks: async () => {

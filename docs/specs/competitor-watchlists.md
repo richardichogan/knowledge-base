@@ -19,9 +19,12 @@ directly from that page; restored forms highlight and focus blocking fields.
 Archived projects are excluded from new selections, while existing selections
 are preserved.
 
-The report leads with **What you need to know now**: up to five saved developments
-distributed across companies, the date and coverage of the latest check, repeated
-fields and project implications. **Company by company** keeps one company's
+The report leads with **What you need to know now**: a count of saved developments
+and evidence-grounded synthesis, followed by up to five developments distributed
+across companies, repeated fields and project implications. Coverage is supporting
+metadata below the synthesis, with missing-entity warnings, source health and dated
+evidence windows behind **View coverage details**. Observation dates never imply
+that an event or publication is recent. **Company by company** keeps one company's
 findings in view at a time, with keyboard-accessible company tabs. Each finding
 shows what changed and why it matters, with provenance, Microsoft involvement,
 uncertainty and project detail available on demand alongside its own citations.
@@ -40,14 +43,40 @@ competitor's sources. Project impact must relate to supplied project capabilitie
 not merely a shared AI theme. Older reports retain their original findings and
 explicitly mark Microsoft involvement as not separately assessed.
 The monitoring brief is collapsed so the latest analysis appears first.
-**What this means for my projects** groups structured
+**Impact on your work** groups structured
 assessments by saved project, linking each implication back to its finding.
-Confirmed overlap, possible relevance and insufficient context are distinguished;
+New analyses explicitly distinguish high, medium and low material relevance,
+no material impact identified, and insufficient evidence. These are not a
+relabelling of the existing confirmed-overlap, possible-relevance and
+insufficient-context relationships. An absent assessment does not establish no
+impact. Each supplied project is assessed at least once across a nonempty report,
+not repeatedly against every finding. High-relevance assessments lead the project
+section; company developments retain their existing breadth-first order.
+Confirmed overlap, possible relevance and insufficient context remain distinct;
 differentiation requires support from both project context and competitor sources,
 not invented scores or assumptions. Repeated fields across competitors are
 listed only when multiple competitors have findings in that field. Narrow
-layouts put implications below activity. Historical findings without structured
+layouts retain the reading order. Historical findings without structured
 project assessments keep their original impact text and are labelled accordingly.
+
+On wide containers the reading column uses approximately 70% of the available
+space, with prose bounded to 72ch. A sticky context rail uses the remainder for
+compact project explanations linking to the full assessment, **Watch next**, and
+coverage counts. It sticks inside the application's scrolling content pane and
+stacks below the main content in narrower containers. Typography and separators
+distinguish signal, evidence and interpretation without nested cards.
+
+This reuses the existing monitoring run, evidence collection, project context,
+JSON finding storage, history and knowledge retrieval. The same model call and
+output budget produce optional concise headlines, evidence highlights with
+finding-specific citations, and evidence-grounded watch signals. A watch signal
+identifies evidence to monitor, not a prediction, task or competitive-response
+recommendation. Optional project watch signals inherit their finding's evidence.
+The parser bounds the new text and rejects invalid project identities, relevance
+states and citations outside the finding. Historical reports are neither rewritten
+nor automatically rerun: their original change text and overlap labels remain,
+with missing structured content explicitly identified. No second ingestion or
+analysis pipeline, render-time model call, new dependency or migration is needed.
 
 ## Summary
 

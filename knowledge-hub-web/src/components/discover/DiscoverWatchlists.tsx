@@ -204,10 +204,21 @@ const reportDate = (value: string): string => new Date(value).toLocaleDateString
 const IMPACT_LABELS = {
   'confirmed-overlap': 'Confirmed overlap', 'possible-relevance': 'Possible relevance', 'insufficient-context': 'Not enough information',
 } as const;
+const RELEVANCE_LABELS = {
+  high: 'High relevance', medium: 'Medium relevance', low: 'Low relevance',
+  'no-material-impact': 'No material impact identified', 'insufficient-evidence': 'Insufficient evidence',
+} as const;
+type ProjectAssessment = NonNullable<WatchRun['findings'][number]['projectAssessments']>[number];
+const assessmentLabel = (assessment: ProjectAssessment): string => assessment.relevance
+  ? RELEVANCE_LABELS[assessment.relevance] : `${IMPACT_LABELS[assessment.relationship]} · saved overlap assessment`;
+const RELEVANCE_ORDER = ['high', 'medium', 'low', 'no-material-impact', 'insufficient-evidence', undefined];
+const compareAssessments = (a: ProjectAssessment, b: ProjectAssessment): number =>
+  RELEVANCE_ORDER.indexOf(a.relevance) - RELEVANCE_ORDER.indexOf(b.relevance);
 const BRIEFING_STATUSES = new Set<WatchRunStatus>(['changes', 'no_meaningful_change', 'insufficient_coverage']);
 const STALE_AFTER_DAYS = { daily: 2, weekly: 14 } as const;
 const NOW_LIMIT = 5;
 const PROJECT_LIMIT = 4;
+const RAIL_PROJECT_LIMIT = 3;
 const PROJECT_ITEM_LIMIT = 2;
 const SUMMARY_CLAMP = 560;
 const DAY = 86_400_000;
@@ -246,12 +257,12 @@ function companyStates(watchlist: Watchlist, run: WatchRun | undefined): Company
 }
 
 // Breadth before depth: one development per company in watchlist order. Athena does not rank findings.
-function keyDevelopments(companies: Company[]): Finding[] {
+function keyDevelopments(companies: Company[], limit = NOW_LIMIT): Finding[] {
   const picked: Finding[] = [];
-  for (let round = 0; picked.length < NOW_LIMIT; round++) {
+  for (let round = 0; picked.length < limit; round++) {
     const next = companies.flatMap(c => c.findings.slice(round, round + 1));
     if (!next.length) break;
-    picked.push(...next.slice(0, NOW_LIMIT - picked.length));
+    picked.push(...next.slice(0, limit - picked.length));
   }
   return picked;
 }
@@ -269,16 +280,19 @@ const FindingItem: React.FC<{ run: WatchRun; finding: Finding; open: boolean; on
   const sourceCount = new Set(finding.evidenceIds).size;
   return <article className="dw-finding" id={anchor} tabIndex={-1} aria-labelledby={`${anchor}-title`}>
     <p className="dw-finding__meta">{CLAIM_LABELS[finding.kind]} · {finding.field || finding.criterion}</p>
-    <h6 className="dw-finding__title" id={`${anchor}-title`}>{finding.changed}</h6>
+    <h6 className="dw-finding__title" id={`${anchor}-title`}>{finding.headline ?? finding.changed}</h6>
+    {finding.evidenceHighlight && <p className="dw-finding__evidence">{finding.evidenceHighlight.text}</p>}
     {finding.matters && <p className="dw-finding__matters"><span className="dw-label">Why it matters</span>{finding.matters}</p>}
     <details className="dw-details" open={open} onToggle={e => onToggle(e.currentTarget.open)}>
       <summary>Detail and {count(sourceCount, 'source')}</summary>
       <dl className="dw-facts">
+        <div><dt>Saved observation</dt><dd>{finding.changed}</dd></div>
         {finding.uncertainty && <div><dt>Not yet established</dt><dd>{finding.uncertainty}</dd></div>}
         <div><dt>Microsoft involvement</dt><dd>{finding.microsoftInvolvement || 'Not separately assessed in this saved analysis.'}</dd></div>
         <div><dt>Project impact</dt><dd>
           {finding.projectAssessments?.length ? <ul className="dw-impacts">{finding.projectAssessments.map(a => <li key={a.projectId}>
-            <span className="dw-impacts__project">{a.projectName} · {IMPACT_LABELS[a.relationship]}</span>{a.impact}
+            <span className="dw-impacts__project">{a.projectName} · {assessmentLabel(a)}</span>{a.impact}
+            {a.watchNext && <span className="dw-impacts__note">Watch: {a.watchNext}</span>}
           </li>)}</ul>
             : finding.projectImpact ? <>{finding.projectImpact}<span className="dw-impacts__note">Saved assessment · project-by-project comparison was not recorded.</span></>
               : 'No project impact was recorded.'}
@@ -303,8 +317,10 @@ const useOpenSet = (): [Set<string>, (id: string, open: boolean) => void] => {
 const NowSection: React.FC<{
   watchlist: Watchlist; latest: WatchRun | undefined; briefing: WatchRun | undefined; companies: Company[]; running: boolean; loading: boolean;
   onOpen: (finding: Finding) => void;
-}> = ({ watchlist, latest, briefing, companies, running, loading, onOpen }) => {
+  children: React.ReactNode;
+}> = ({ watchlist, latest, briefing, companies, running, loading, onOpen, children }) => {
   const [fullSummary, setFullSummary] = useState(false);
+  const [coverageOpen, setCoverageOpen] = useState(false);
   const summaryId = useId();
   const developments = keyDevelopments(companies);
   const total = briefing?.findings.length ?? 0;
@@ -315,25 +331,40 @@ const NowSection: React.FC<{
     .map(field => ({ field, companies: [...new Set(briefing.findings.filter(f => f.field === field).map(f => f.entity))] }))
     .filter(pattern => pattern.companies.length > 1) : [];
   const assessments = briefing?.findings.flatMap(f => (f.projectAssessments ?? []).map(a => ({ ...a, finding: f }))) ?? [];
-  const projects = [...new Set(assessments.map(a => a.projectId))].map(id => assessments.filter(a => a.projectId === id));
+  const projects = [...new Set(assessments.map(a => a.projectId))]
+    .map(id => assessments.filter(a => a.projectId === id).sort(compareAssessments))
+    .sort((a, b) => compareAssessments(a[0]!, b[0]!));
   const tally = (['changes', 'quiet', 'incomplete', 'missing', 'unchecked'] as const).map(state => ({ state, n: companies.filter(c => c.state === state).length }))
     .filter(t => t.n > 0).map(t => ({ ...t, text: {
       changes: `${t.n} with developments`, quiet: `${t.n} with no meaningful change`, incomplete: `${t.n} with incomplete coverage`,
       missing: `${t.n} with no evidence found`, unchecked: `${t.n} not checked yet`,
     }[t.state] }));
-  const summary = briefing?.summary.trim() ?? '';
+  const summary = (briefing?.summary ?? '').replace(/^Coverage incomplete \([^)]*\)\.\s*/, '').trim();
   const longSummary = summary.length > SUMMARY_CLAMP;
-  const projectGroup = (items: typeof assessments): React.ReactNode => <section className="dw-project-insights__group" key={items[0]!.projectId}>
+  const watches = keyDevelopments(companies, total).filter(f => f.watchNext).slice(0, 3);
+  const focusSection = (id: string): void => {
+    requestAnimationFrame(() => {
+      const target = document.getElementById(id);
+      target?.scrollIntoView({ block: 'start', behavior: 'auto' });
+      target?.focus({ preventScroll: true });
+    });
+  };
+  const showCoverage = (): void => { setCoverageOpen(true); focusSection(`${summaryId}-coverage`); };
+  const projectGroup = (items: typeof assessments, index: number): React.ReactNode => <section
+    className="dw-project-insights__group" key={items[0]!.projectId} id={`${summaryId}-project-${index}`} tabIndex={-1}>
     <h6>{items[0]!.projectName}</h6>
     <ul className="dw-plain-list">{items.slice(0, PROJECT_ITEM_LIMIT).map(item => <li className="dw-project-insights__item" key={`${item.finding.id}-${item.projectId}`}>
-      <span className="dw-project-insights__relationship">{IMPACT_LABELS[item.relationship]}</span>
+      <span className={`dw-project-insights__relationship${item.relevance === 'insufficient-evidence' ? ' dw-project-insights__relationship--uncertain' : ''}`}>{assessmentLabel(item)}</span>
       <p>{item.impact}</p>
+      {item.watchNext && <p><span className="dw-label">Watch</span>{item.watchNext}</p>}
       <button type="button" className="dw-link-button" onClick={() => onOpen(item.finding)}>{item.finding.entity} · {item.finding.field || item.finding.criterion}</button>
     </li>)}</ul>
     {items.length > PROJECT_ITEM_LIMIT && <p className="dw-hint">{count(items.length - PROJECT_ITEM_LIMIT, 'more implication')} in the company breakdown.</p>}
   </section>;
 
-  return <section className="dw-now" aria-labelledby={`${summaryId}-title`}>
+  return <div className={`dw-intelligence${briefing ? '' : ' dw-intelligence--empty'}`}>
+    <div className="dw-intelligence__main">
+    <section className="dw-now" aria-labelledby={`${summaryId}-title`}>
     <h4 id={`${summaryId}-title`}>What you need to know now</h4>
     {loading && <p className="dw-hint" role="status">Loading the latest check…</p>}
     {running && <p className="dw-notice" role="status">A check is running. This briefing will update when it finishes.</p>}
@@ -344,27 +375,41 @@ const NowSection: React.FC<{
       No checks yet. Choose Run now to search for developments, or wait for the next scheduled check. Missing evidence is not the same as no meaningful change.
     </p>}
     {briefing && <>
-      <p className="dw-now__asof">
-        <span className={`dw-run__status dw-run__status--${briefing.status}`}>{STATUS[briefing.status]}</span>
-        <span>Check on {reportDate(briefing.startedAt)} · evidence from {reportDate(briefing.windowStart)} to {reportDate(briefing.startedAt)}</span>
-      </p>
-      {stale && <p className="dw-notice dw-notice--warning">
-        This briefing is {count(ageDays, 'day')} old. {watchlist.config.paused ? 'Monitoring is paused, so it is not being refreshed.' : `A ${watchlist.config.cadence} check was expected sooner; run now for current information.`}
-      </p>}
-      {gaps.length > 0 && <p className="dw-notice dw-notice--warning dw-run__warning">Coverage was incomplete. {gaps.join(' ')} Missing evidence does not mean no change.</p>}
+      <p className="dw-now__lead">{total > 0 ? `${count(total, 'competitor development')} worth your attention`
+        : briefing.status === 'no_meaningful_change' ? 'No meaningful change identified in the collected evidence'
+          : 'Not enough evidence for a development briefing'}</p>
       {summary ? <>
         <p id={summaryId} className={`dw-summary dw-now__summary${longSummary && !fullSummary ? ' dw-now__summary--clamped' : ''}`}>{summary}</p>
         {longSummary && <button type="button" className="dw-link-button" aria-expanded={fullSummary} aria-controls={summaryId}
           onClick={() => setFullSummary(v => !v)}>{fullSummary ? 'Show less' : 'Show full summary'}</button>}
       </> : <p className="dw-hint">No summary was recorded for this check.</p>}
-      <p className="dw-now__tally">{count(companies.length, 'company', 'companies')}: {tally.map(t => t.text).join(' · ')}</p>
+      <p className="dw-now__tally">
+        <span className={`dw-run__status dw-run__status--${briefing.status}`}>{briefing.status === 'insufficient_coverage' ? 'Coverage incomplete' : STATUS[briefing.status]}</span>
+        {' · '}{count(companies.length, 'company monitored', 'companies monitored')} · {tally.map(t => t.text).join(' · ')}
+      </p>
+      <details className="dw-details dw-coverage" id={`${summaryId}-coverage`} tabIndex={-1}
+        open={coverageOpen} onToggle={event => { setCoverageOpen(event.currentTarget.open); }}>
+        <summary>View coverage details</summary>
+        <p className="dw-hint">Observed in this review on {reportDate(briefing.startedAt)} · evidence window {reportDate(briefing.windowStart)} to {reportDate(briefing.startedAt)}.
+          Observation date is not the publication or event date.</p>
+        {gaps.length > 0 && <p className="dw-hint">Coverage was incomplete. {gaps.join(' ')}</p>}
+        <p className="dw-hint">Missing evidence does not mean nothing changed. Company outcomes reflect this saved review, not continuous market coverage.</p>
+        {briefing.coverage.sourcesChecked > 0 && <p className="dw-hint">{briefing.coverage.sourcesHealthy}/{briefing.coverage.sourcesChecked} Discover sources healthy.</p>}
+        {!!briefing.coverage.webSearches && <p className="dw-hint">{briefing.coverage.webSearches - (briefing.coverage.webFailures ?? 0)}/{briefing.coverage.webSearches} web searches succeeded.</p>}
+      </details>
+      {stale && <p className="dw-notice dw-notice--warning">
+        This briefing is {count(ageDays, 'day')} old. {watchlist.config.paused ? 'Monitoring is paused, so it is not being refreshed.' : `A ${watchlist.config.cadence} check was expected sooner; run now for current information.`}
+      </p>}
       {developments.length > 0 && <section className="dw-now__block" aria-label="Key developments">
         <h5>Key developments</h5>
-        <p className="dw-hint">{total > developments.length ? `Showing ${developments.length} of ${total}: ` : ''}one per company first, in your watchlist order. Every development is in the company breakdown.</p>
+        {developments.some(f => !f.headline) && <p className="dw-hint">Earlier saved analysis is shown as recorded; concise headlines and evidence highlights were not separately saved.</p>}
+        {total > developments.length && <p className="dw-hint">Showing {developments.length} of {total} developments</p>}
         <ol className="dw-now__list">{developments.map(f => <li className="dw-now__item" key={f.id}>
-          <p className="dw-now__company">{f.entity} · {CLAIM_LABELS[f.kind]}</p>
-          <p className="dw-now__headline">{f.changed}</p>
-          {f.matters && <p className="dw-now__matters">{f.matters}</p>}
+          <p className="dw-now__company">{f.entity} · {f.field || CLAIM_LABELS[f.kind]}</p>
+          <h6 className="dw-now__headline">{f.headline ?? f.changed}</h6>
+          {f.evidenceHighlight && <p className="dw-now__evidence"><span className="dw-label">Key evidence</span>{f.evidenceHighlight.text}</p>}
+          {f.matters && <p className="dw-now__matters"><span className="dw-label">Why it matters</span>{f.matters}</p>}
+          <p className="dw-now__observed">{CLAIM_LABELS[f.kind]} · Observed in this review · {reportDate(briefing.startedAt)}</p>
           <button type="button" className="dw-link-button" onClick={() => onOpen(f)}>Detail and {count(new Set(f.evidenceIds).size, 'source')} in {f.entity}</button>
         </li>)}</ol>
       </section>}
@@ -372,15 +417,48 @@ const NowSection: React.FC<{
         <h5>Seen across several companies</h5>
         <ul className="dw-plain-list dw-now__patterns">{patterns.map(p => <li key={p.field}><strong>{p.field}</strong> · {p.companies.join(', ')}</li>)}</ul>
       </section>}
-      {projects.length > 0 && <section className="dw-now__block dw-project-insights" aria-label="What this means for my projects">
-        <h5>What this means for my projects</h5>
+      <section className="dw-now__block dw-project-insights" aria-label="Impact on your work" id={`${summaryId}-projects`} tabIndex={-1}>
+        <h5>Impact on your work</h5>
+        {projects.length === 0 && <p className="dw-hint">No project-by-project assessment was saved. This does not establish that there is no impact.</p>}
         {projects.slice(0, PROJECT_LIMIT).map(projectGroup)}
         {projects.length > PROJECT_LIMIT && <details className="dw-details"><summary>{count(projects.length - PROJECT_LIMIT, 'more project')}</summary>
-          {projects.slice(PROJECT_LIMIT).map(projectGroup)}
+          {projects.slice(PROJECT_LIMIT).map((items, index) => projectGroup(items, index + PROJECT_LIMIT))}
         </details>}
-      </section>}
+      </section>
     </>}
-  </section>;
+    </section>
+    {children}
+    </div>
+    {briefing && <aside className="dw-rail" aria-label="Personal intelligence context">
+      <section className="dw-rail__section" aria-label="Project impact summary">
+        <h5>Impact on your work</h5>
+        {projects.length === 0 && <p className="dw-hint">Project impact has not been assessed in this saved review.</p>}
+        {projects.slice(0, RAIL_PROJECT_LIMIT).map((items, index) => <button type="button" className="dw-rail__project" key={items[0]!.projectId}
+          onClick={() => focusSection(`${summaryId}-project-${index}`)}>
+          <strong>{items[0]!.projectName}</strong>
+          <span className="dw-rail__relevance">{[...new Set(items.map(assessmentLabel))].join(' / ')}</span>
+          <span className="dw-rail__reason">{items[0]!.impact}</span>
+          <span className="dw-rail__link">View assessment{items.length > 1 ? 's' : ''}</span>
+        </button>)}
+        {projects.length > RAIL_PROJECT_LIMIT && <button type="button" className="dw-link-button"
+          onClick={() => focusSection(`${summaryId}-projects`)}>All {projects.length} project assessments</button>}
+      </section>
+      <section className="dw-rail__section" aria-label="Watch next">
+        <h5>Watch next</h5>
+        {watches.length === 0 && <p className="dw-hint">No evidence-grounded watch signals were saved for this review.</p>}
+        <ul className="dw-plain-list">{watches.map(f => <li className="dw-rail__watch" key={f.id}>
+          <strong>{f.entity}</strong><p>{f.watchNext!.statement}</p>
+          <button type="button" className="dw-link-button" onClick={() => onOpen(f)}>Supporting evidence</button>
+        </li>)}</ul>
+      </section>
+      <section className="dw-rail__section" aria-label="Coverage summary">
+        <h5>Coverage</h5>
+        <p className="dw-hint">{count(companies.length, 'company monitored', 'companies monitored')}</p>
+        <ul className="dw-plain-list dw-rail__coverage">{tally.map(t => <li key={t.state}>{t.text}</li>)}</ul>
+        <button type="button" className="dw-link-button" onClick={showCoverage}>View coverage details</button>
+      </section>
+    </aside>}
+  </div>;
 };
 
 const COMPANY_NOTE: Record<CompanyState, (name: string, date: string | null) => string> = {
@@ -498,9 +576,10 @@ const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void }> = 
     {run.isError && <DataNotice title="Monitoring could not start" error={run.error} />}
     {recent.isError && <DataNotice title="Watchlist history unavailable" error={recent.error} onRetry={() => { void recent.refetch(); }} />}
     <NowSection watchlist={watchlist} latest={latest} briefing={briefing} companies={companies} running={running}
-      loading={recent.isLoading} onOpen={openFinding} />
+      loading={recent.isLoading} onOpen={openFinding}>
     {selected && <CompanyBreakdown run={briefing} companies={companies} selected={selected} onSelect={setSelectedName}
       openIds={openIds} onToggle={toggleOpen} />}
+    </NowSection>
     <section className="dw-setup" aria-label="Monitoring setup and history">
       <h4>Monitoring setup and history</h4>
       <details className="dw-details"><summary>Monitoring brief</summary>

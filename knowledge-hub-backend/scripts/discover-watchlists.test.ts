@@ -10,7 +10,8 @@ import { discoverRouter } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { getToolDefinitions, executeToolCall } from '../src/ai/chatTools.js';
 import { listWatchlists, saveWatchlist, runWatchlist, watchlistHistory, parseWatchlist, parseWatchAnalysis,
-  evidenceGroups, runDueWatchlists, retrieveWatchlistRecords, matchesEntity } from '../src/services/discoverWatchlists.js';
+  evidenceGroups, runDueWatchlists, retrieveWatchlistRecords, matchesEntity, analyzeWatchEvidence } from '../src/services/discoverWatchlists.js';
+import { FoundryClient } from '../src/ai/foundryClient.js';
 import { saveInterestWeight, parseInterestWeight } from '../src/services/discoverInterests.js';
 import type { WatchlistInput, WatchFinding, WatchRun, Watchlist } from '../src/types/watchlists.js';
 
@@ -29,6 +30,15 @@ const finding = (id = articleId): WatchFinding => ({
   entity: 'Example Product', criterion: 'Availability', kind: 'announced-capability', changed: 'Newly observed product announcement',
   matters: 'Challenges an assumption in the private baseline.', uncertainty: 'An announcement does not establish general availability.',
   response: 'Validate documentation before changing our proposition.', evidenceIds: [id],
+});
+const enrichedFinding = (): WatchFinding => ({
+  ...finding(), headline: 'Managed claims agents announced',
+  field: 'Claims processing', microsoftInvolvement: 'Not established in the collected sources',
+  projectImpact: 'Specific claims capability intersection; availability unconfirmed.',
+  evidenceHighlight: { text: 'The announcement describes managed claims agents.', evidenceIds: [articleId] },
+  watchNext: { statement: 'Whether supporting documentation establishes availability.', evidenceIds: [articleId] },
+  projectAssessments: [{ projectId: 'project-a', projectName: 'IMAGINE', relevance: 'medium',
+    impact: 'Claims agents intersect with the saved claims-processing goal; delivery remains unconfirmed.' }],
 });
 async function fixture(): Promise<{ pg: PGlite; db: Pool }> {
   const pg = new PGlite();
@@ -100,6 +110,61 @@ test('focused findings require structured fields and validate grounded project i
   assert.equal(parseWatchAnalysis(JSON.stringify({ summary: 'Legacy', findings: [finding()] }), config(), evidence).findings[0]?.projectAssessments, undefined);
 });
 
+test('intelligence fields preserve five impact meanings and require bounded finding-specific citations', () => {
+  const evidence = evidenceGroups([{ id: articleId, title: 'Example Product announces agents', body: 'Public statement',
+    url: 'https://example.com/news', published_at: new Date(), metadata: {} }], config());
+  evidence.push({ ...evidence[0]!, id: secondId });
+  const projects = [{ id: 'project-a', name: 'IMAGINE', information: 'Claims agents', sources: [] }];
+  const parse = (value: unknown, enriched = true) => parseWatchAnalysis(JSON.stringify({ summary: 'Claims capability announced; availability is unconfirmed.', findings: [value] }),
+    config(), evidence, true, projects, enriched).findings[0]!;
+  for (const relevance of ['high', 'medium', 'low', 'no-material-impact', 'insufficient-evidence']) {
+    const f = enrichedFinding();
+    const result = parse({ ...f, projectAssessments: [{ ...f.projectAssessments![0], projectName: 'Spoofed', relevance }] });
+    assert.equal(result.projectAssessments?.[0]?.relevance, relevance);
+    assert.equal(result.projectAssessments?.[0]?.projectName, 'IMAGINE');
+    assert.equal(result.projectAssessments?.[0]?.relationship, undefined, 'Do not invent overlap certainty for a relevance assessment');
+    assert.deepEqual(result.evidenceHighlight, f.evidenceHighlight);
+    assert.deepEqual(result.watchNext, f.watchNext);
+  }
+  for (const patch of [
+    { headline: '' }, { headline: 'x'.repeat(161) }, { evidenceHighlight: undefined },
+    { evidenceHighlight: { text: 'Unsupported source', evidenceIds: [secondId] } },
+    { evidenceHighlight: { text: 'x'.repeat(501), evidenceIds: [articleId] } },
+    { watchNext: { statement: 'Unsupported watch', evidenceIds: [] } },
+    { watchNext: { statement: 'Unsupported watch', evidenceIds: [secondId] } },
+    { projectAssessments: [{ projectId: 'project-a', relevance: 'very-high', impact: 'Invalid enum' }] },
+    { projectAssessments: [] },
+  ]) assert.throws(() => parse({ ...enrichedFinding(), ...patch }));
+  assert.equal(parse({ ...enrichedFinding(), watchNext: undefined }).watchNext, undefined);
+  assert.throws(() => parse({ ...enrichedFinding(), projectAssessments: [{ projectId: 'project-a', impact: 'No state' }] }, false));
+  assert.equal(parseWatchAnalysis(JSON.stringify({ summary: 'No meaningful change.', findings: [] }), config(), evidence, true, projects, true).findings.length, 0);
+  const moreProjects = [...projects, { ...projects[0]!, id: 'project-b', name: 'Other project' }];
+  assert.equal(parseWatchAnalysis(JSON.stringify({ summary: 'Grounded synthesis', findings: [enrichedFinding(), {
+    ...enrichedFinding(), projectAssessments: [{ projectId: 'project-b', projectName: 'Other project', relevance: 'no-material-impact',
+      impact: 'Different documented goals and workflow, with no material intersection identified.' }],
+  }] }), config(), evidence, true, moreProjects, true).findings.length, 2, 'Assess projects once across the report, not on every finding');
+});
+
+test('the existing single analysis call generates concise grounded intelligence without a new pipeline or budget increase', async () => {
+  const evidence = evidenceGroups([{ id: articleId, title: 'Example Product announces agents', body: 'Public statement',
+    url: 'https://example.com/news', published_at: new Date(), metadata: {} }], config());
+  const projects = [{ id: 'project-a', name: 'IMAGINE', information: 'Private claims context', sources: [] }];
+  const chat = mock.method(FoundryClient.prototype, 'chat', async (model, messages, budget) => {
+    assert.equal(model, 'standard');
+    assert.equal(budget, 7000);
+    assert.match(messages[0]!.content, /Observation in this review is NOT proof of publication\/event recency/);
+    assert.match(messages[0]!.content, /never predictions/);
+    assert.match(messages[0]!.content, /Never use low or no-material-impact for missing information/);
+    assert.match(messages[1]!.content, /Private claims context/);
+    return JSON.stringify({ summary: 'Claims agents announced; availability remains unconfirmed.', findings: [enrichedFinding()] });
+  });
+  try {
+    const result = await analyzeWatchEvidence(config(), evidence, [], projects);
+    assert.equal(result.findings[0]?.headline, enrichedFinding().headline);
+    assert.equal(chat.mock.callCount(), 1);
+  } finally { chat.mock.restore(); }
+});
+
 test('versioned baseline edits are atomic, optimistic and private; historical runs retain original question and baseline', async () => {
   const { pg, db } = await fixture();
   try {
@@ -113,8 +178,9 @@ test('versioned baseline edits are atomic, optimistic and private; historical ru
       assert.equal(projects?.[0]?.name, 'IMAGINE');
       assert.match(projects?.[0]?.information ?? '', /Claims processing/);
       entered(); await gate;
-      return { summary: 'Supported new observation', findings: [{ ...finding(), projectAssessments: [{
+      return { summary: 'Supported new observation', findings: [{ ...enrichedFinding(), projectAssessments: [{
         projectId: 'project-a', projectName: 'IMAGINE', relationship: 'possible-relevance', impact: 'Potential claims overlap',
+        relevance: 'medium', watchNext: 'Whether public delivery documentation establishes the deployment model.',
       }] }] };
     });
     await started;
@@ -133,6 +199,9 @@ test('versioned baseline edits are atomic, optimistic and private; historical ru
     const history = await watchlistHistory(db, initial.id);
     assert.equal(history[0]?.baselineVersion, 1);
     assert.equal(history[0]?.findings[0]?.projectAssessments?.[0]?.projectName, 'IMAGINE', 'Structured project implications survive persistence');
+    assert.equal(history[0]?.findings[0]?.projectAssessments?.[0]?.relevance, 'medium');
+    assert.deepEqual(history[0]?.findings[0]?.evidenceHighlight, enrichedFinding().evidenceHighlight);
+    assert.deepEqual(history[0]?.findings[0]?.watchNext, enrichedFinding().watchNext);
     assert.equal((await pg.query('SELECT * FROM discover_watchlist_baselines')).rows.length, 2);
     assert.ok(Date.parse((await listWatchlists(db))[0]!.nextRunAt) <= Date.now(), 'finishing an old-config run must not defer the newly edited question for a week');
     const publicRows = (await pg.query<{ title: string; body: string; metadata: unknown }>('SELECT title,body,metadata FROM content_items')).rows;
@@ -141,6 +210,7 @@ test('versioned baseline edits are atomic, optimistic and private; historical ru
     assert.equal(unchanged.baselineVersion, 2, 'non-baseline edit does not create a duplicate baseline');
     const saved = await retrieveWatchlistRecords(db, { watchlistId: initial.id, from: '2000-01-01', to: '2099-01-01' }) as { runs: WatchRun[] };
     assert.equal(saved.runs[0]?.evidence[0]?.url, `https://news.example/${articleId}`);
+    assert.equal(saved.runs[0]?.findings[0]?.headline, enrichedFinding().headline, 'Existing knowledge retrieval keeps structured intelligence');
   } finally { await pg.close(); }
 });
 
