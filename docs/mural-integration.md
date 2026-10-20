@@ -24,7 +24,12 @@ Shapes, text, connector labels, footnotes and colour-key entries become native
 editable Mural objects. The backend creates shapes first and connects arrows
 using the returned Mural widget IDs (`startRefId` / `endRefId`).
 Containers and swimlanes become native areas, expanded; nested area coordinates
-are translated to parent-relative positions. Descriptions and AI-step summaries
+are translated to parent-relative positions. Their built-in Mural titles are hidden;
+editable text objects retain Athena's header positions inside their parent areas.
+Exported boxes use transparent backgrounds rather than copying saved dark fills,
+and pale label text becomes dark for readability on the board. Borders keep their
+saved colours; Athena's original diagram and other export formats are unchanged.
+Descriptions and AI-step summaries
 are retained as widget instructions. Individual icons remain separate images,
 not editable vector paths; the diagram itself is never flattened.
 

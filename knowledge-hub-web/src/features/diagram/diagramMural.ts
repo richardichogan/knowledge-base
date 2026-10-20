@@ -5,6 +5,7 @@ import { footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOT
 import { descriptionPlainText } from './diagramDescription';
 import { DIAGRAM_CALLOUTS } from './diagramCallouts';
 import { aiStepSummary } from './diagramAiFlowBadges';
+import { diagramTextLayout } from './diagramText';
 
 const colour = (value: string): string => {
   if (value === 'none' || value === 'transparent' || !value) return '#FFFFFF00';
@@ -18,6 +19,12 @@ const SHAPES: Partial<Record<DiagramNode['kind'], string>> = {
   process: 'rounded_square', decision: 'rhombus_smart', terminator: 'terminator', document: 'document', image: 'rectangle',
 };
 const ARROWS = { right: 'arrow_right', left: 'arrow_left', up: 'arrow_top', down: 'arrow_down', 'left-right': 'arrow_left_right', 'up-down': 'arrow_left_right' } as const;
+
+function boardInk(value: string): string {
+  const hex = colour(value);
+  const rgb = [1, 3, 5].map(offset => parseInt(hex.slice(offset, offset + 2), 16));
+  return Math.min(...rgb) >= 160 ? '#161616FF' : hex;
+}
 
 async function assetPng(blob: Blob): Promise<string> {
   const url = URL.createObjectURL(blob);
@@ -67,8 +74,8 @@ export async function diagramMural(doc: DiagramDocument, assets: ReadonlyMap<str
       shape: n.kind === 'arrow' ? ARROWS[n.arrowDirection ?? 'right'] : SHAPES[n.kind] ?? '',
       text, ...point(n), width: n.width, height: n.height,
       parentId: n.parentId !== null && ['container', 'swimlane'].includes(byId.get(n.parentId)?.kind ?? '') ? n.parentId : null,
-      fill: colour(n.fill), stroke: colour(n.stroke), strokeWidth: Math.min(7, Math.max(1, n.strokeWidth ?? 1.5)),
-      dotted: n.strokeStyle === 'dotted', textColor: colour(n.textColor), fontSize: n.fontSize,
+      fill: '#FFFFFF00', stroke: colour(n.stroke), strokeWidth: Math.min(7, Math.max(1, n.strokeWidth ?? 1.5)),
+      dotted: n.strokeStyle === 'dotted', textColor: boardInk(n.textColor), fontSize: n.fontSize,
       align: n.textAlign ?? (isArea ? 'left' : 'center') };
     if (n.kind === 'arrow' && n.arrowDirection === 'up-down') {
       object.rotation = 90;
@@ -76,6 +83,16 @@ export async function diagramMural(doc: DiagramDocument, assets: ReadonlyMap<str
       object.x += (n.width - n.height) / 2; object.y += (n.height - n.width) / 2;
     }
     objects.push(object);
+    if (isArea && text.trim()) {
+      const layout = diagramTextLayout({ ...n, label: text });
+      const width = Math.max(1, layout.rotation ? n.height - 16 : n.width - 20);
+      const height = Math.max(1, n.fontSize * 1.25 * layout.lines.length);
+      const x = layout.x - (layout.anchor === 'middle' ? width / 2 : layout.anchor === 'end' ? width : 0);
+      objects.push({ ...object, id: `${n.id}-title`, type: 'textbox', shape: '', text: layout.lines.join('\n'),
+        x: x + dx, y: layout.y + dy - height / 2, width, height, parentId: n.id,
+        stroke: '#FFFFFF00', align: layout.anchor === 'middle' ? 'center' : layout.anchor === 'end' ? 'right' : 'left',
+        rotation: layout.rotation ? 270 : 0 });
+    }
     if (n.assetId !== null) {
       let image = images.get(n.assetId);
       if (!image) {

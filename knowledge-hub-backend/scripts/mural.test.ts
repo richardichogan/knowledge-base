@@ -140,7 +140,10 @@ test('Native Mural creates areas before children, resolves real IDs, attaches ar
       const url = String(input); calls.push(url);
       if (!init?.body) return Response.json({ value: { id: 'board' } });
       const body: unknown = JSON.parse(String(init.body));
-      if (url.endsWith('/area')) return Response.json({ value: { id: 'mural-area' } });
+      if (url.endsWith('/area')) {
+        assert.equal((body as Record<string, unknown>).showTitle, false);
+        return Response.json({ value: { id: 'mural-area' } });
+      }
       if (url.endsWith('/shape')) {
         const shape = (body as Array<Record<string, unknown>>)[0]!;
         shapeCount++;
@@ -151,6 +154,11 @@ test('Native Mural creates areas before children, resolves real IDs, attaches ar
         const box = (body as Array<Record<string, unknown>>)[0]!;
         assert.ok(String(box.text).includes('&lt;script&gt;'));
         assert.ok(!String(box.text).includes('<script>'));
+        assert.equal(box.parentId, 'mural-area');
+        assert.equal(box.x, 10);
+        assert.equal(box.y, 6);
+        assert.equal(box.rotation, 270);
+        assert.equal((box.style as Record<string, unknown>).backgroundColor, '#FFFFFF00');
         return Response.json({ value: [{ id: 'mural-text' }] });
       }
       if (url.endsWith('/arrow')) {
@@ -163,7 +171,9 @@ test('Native Mural creates areas before children, resolves real IDs, attaches ar
       }
       throw new Error(`Unexpected native write: ${url}`);
     };
-    assert.deepEqual(await exportMuralDiagram(pool, nativeDiagram()), { boardUrl, objects: 4, connectors: 1 });
+    const diagram = nativeDiagram();
+    Object.assign(diagram.objects[3]!, { parentId: 'area', x: 110, y: 106, rotation: 270, fill: '#FFFFFF00' });
+    assert.deepEqual(await exportMuralDiagram(pool, diagram), { boardUrl, objects: 4, connectors: 1 });
     assert.ok(calls[1]!.endsWith('/area'));
     assert.equal(calls.filter(c => c.endsWith('/arrow')).length, 1);
     assert.ok(!calls.some(c => c.endsWith('/image')));

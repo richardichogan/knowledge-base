@@ -151,13 +151,13 @@ export async function exportMuralDiagram(db: Pool, input: unknown): Promise<{ bo
         let response: Record<string, unknown>;
         writes++;
         if (o.type === 'area') {
-          response = await apiJson(token, `${path}/widgets/area`, { ...common, layout: 'free', showTitle: true,
+          response = await apiJson(token, `${path}/widgets/area`, { ...common, layout: 'free', showTitle: false,
             style: { backgroundColor: o.fill, borderColor: o.stroke, borderStyle: o.dotted ? 'dotted' : 'solid', borderWidth: o.strokeWidth, titleFontSize: o.fontSize } });
         } else if (o.type === 'shape') {
           response = await apiJson(token, `${path}/widgets/shape`, [{ ...common, rotation: o.rotation, shape: o.shape, text: o.text,
             style: { backgroundColor: o.fill, borderColor: o.stroke, borderStyle: o.dotted ? 'dotted' : 'solid', borderWidth: o.strokeWidth, fontColor: o.textColor } }]);
         } else if (o.type === 'textbox') {
-          response = await apiJson(token, `${path}/widgets/textbox`, [{ ...common, text: `<span style="color: ${o.textColor.slice(0, RGB_HEX_LENGTH)}">${html(o.text)}</span>`,
+          response = await apiJson(token, `${path}/widgets/textbox`, [{ ...common, rotation: o.rotation, text: `<span style="color: ${o.textColor.slice(0, RGB_HEX_LENGTH)}">${html(o.text)}</span>`,
             style: { backgroundColor: o.fill, font: 'proxima-nova', fontSize: o.fontSize, textAlign: o.align } }]);
         } else {
           const asset = objectResponse((await apiJson(token, `${path}/assets`, { fileExtension: 'png' })).value);
