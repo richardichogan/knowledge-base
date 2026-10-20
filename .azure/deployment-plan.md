@@ -31,6 +31,24 @@ Rollback to v218 and its matching frontend bundle. No desktop release.
 - User unavailable for redundant target confirmation; proceed solely with the
   explicitly requested existing production targets in the repository runbook.
 
+**Deployment result (2026-10-20, intelligence usability):**
+Release source `f4451f0` was pushed to the feature branch and main. ACR run
+`ca6w` successfully built v219 from `#main:knowledge-hub-backend`, digest
+`sha256:437e64d6504934b2589e4f76f59fcec2e3c6f079f5b0b7196c65b0bcb93ea231`.
+Revision `kh-prod-api-vnet--0000216` is Healthy / RunningAtMaxScale with 100%
+traffic and provisioning Succeeded. Startup completed migrations, warmed 8/8
+connections, and confirmed all 124 notes already indexed. No migration/config
+errors appeared. Existing identity None and secret-based registry configuration
+were preserved; live registry role query returned no assignments.
+Static Web Apps production deployment succeeded. Both
+https://athena.themicrosoftcloudblog.com and
+https://nice-mud-0f780fb03.7.azurestaticapps.net returned HTTP 200 and serve
+`/assets/index-yE3jyEb9.js`, SHA-256
+`238e222bc8ce4b09c722987d50ec26f47dc767de3970a463d2f3c0827102b856`,
+identical to the validated local frontend build. Existing saved reports were
+not rewritten or manually rerun; richer analysis is produced on normal future
+monitoring runs. No desktop installer was built, installed or published.
+
 **Current approved release (2026-10-20 12:06 BST):**
 User explicitly requested deployment of the current release through `8d7b3ae`.
 Deploy the matching backend and frontend, including chat consistency, document
