@@ -1,6 +1,34 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Ready for Validation
+**Status:** Validated
+
+**Section 7: Validation proof (2026-10-20 17:05 BST, Mural integration):**
+- Release implementation `ee14536`; fetched origin and merged origin/main:
+  already up to date. Both applications passed `npx tsc --noEmit` and
+  `npm run build` after sync. Final targeted Mural tests: 7/7 passed; full
+  isolated suites previously passed 206 backend and 122 frontend tests.
+  Browser fixture typecheck passed with strict settings.
+- Chromium Mural checks passed at 1440, 768 and 390px: real PNG rendering,
+  explicit image-only disclosure, chosen destination/result links, no
+  automatic retries, errors, disconnected guards, masked/cleared credentials
+  and no horizontal page overflow. New backend lint is clean.
+- Azure CLI 2.77.0 is authenticated to the established Alliance Tenant
+  Reporting subscription. Existing resource group and `kh-prod-env-vnet`
+  are Succeeded. Existing backend is v219, identity None, secret-based ACR
+  auth preserved. Frontend hostname/West Europe location confirmed.
+- v220 tag does not exist. Dockerfile and package-lock.json confirmed.
+  ACR remote build must succeed before revision update; it compiles the
+  production image from pushed main. No local production database was used.
+- No infrastructure/identity/RBAC/dependency/migration/environment changes:
+  Bicep compilation, template validation, what-if, policy mutation,
+  provisioning and managed-identity AcrPull propagation are not applicable.
+- Azure MCP resource lookup failed with a credential tenant mismatch;
+  authenticated Azure CLI independently confirmed the correct target.
+  User unavailable for redundant target confirmation; continue under their
+  explicit request to add the integration and deploy existing production.
+- Rollback: backend v219 plus its matching frontend. Existing exported images
+  are additive and no user board content is removed. Real-account OAuth and
+  export verification requires the user's secret/consent after deployment.
 
 **Mural integration release (2026-10-20):**
 - Add Mural credential setup and OAuth connection to existing Sources / Integrations.
