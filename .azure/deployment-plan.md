@@ -2,7 +2,33 @@
 
 **Status:** Validated
 
-**Approval scope:** the validation and deployment result below cover production
+**Current approved release (2026-10-20 12:06 BST):**
+User explicitly requested deployment of the current release through `8d7b3ae`.
+Deploy the matching backend and frontend, including chat consistency, document
+mentions, agent-ready Spec, Daily Insights processing, competitor briefing,
+link relevance, restored panel hierarchy/list indentation and stable autosave.
+Existing AZCLI application-only recipe; backend v217 advances to v218.
+Additive migration 088 runs at backend startup. Existing resources, regions,
+registry credentials, identities, RBAC, secrets and environment remain unchanged.
+Desktop 0.1.4 remains a locally built installer, not silently installed or published.
+Rollback uses v217 and the previous frontend; retain additive migration data.
+
+**Validation proof (2026-10-20, current release):**
+Fetched origin and merged origin/main: already up to date. Both applications
+passed `npx tsc --noEmit` and `npm run build` after sync. Earlier matching-source
+checks passed 197 backend tests and 122 frontend tests; isolated browser checks
+covered panel typography at 1440/768/390, actual diagram autosave lifecycle,
+diagram regression, note links and chat. Azure CLI confirmed subscription
+`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28` (Alliance Tenant Reporting),
+existing backend v217, identity None and existing registry configuration;
+Static Web App remains West Europe at its existing hostname.
+Dockerfile and lockfile are present; ACR remote build compiles the container
+before any revision update. No infrastructure template or policy changes:
+Bicep compilation, what-if, provisioning and new RBAC grants are not applicable.
+User unavailable for redundant target confirmation; proceed only with the
+explicitly requested existing production target documented in the runbook.
+
+**Previous approval scope:** the validation and deployment result below cover production
 release `c235cf8` only. Subsequent chat, Daily Insights, competitor presentation,
 mention/link and Spec changes are not deployed under this approval. They require
 a separate matching backend/frontend rollout, including additive migration 088.
