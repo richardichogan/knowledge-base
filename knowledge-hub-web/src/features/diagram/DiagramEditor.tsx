@@ -51,7 +51,8 @@ import { DiagramDescriptionEditor } from './DiagramDescriptionEditor';
 import { descriptionPlainText, descriptionRuns, formatDescription, styledLines } from './diagramMarkdown';
 import { DIAGRAM_FILLS as FILLS, DIAGRAM_STROKES as STROKES, DIAGRAM_TEXT_COLOURS as TEXT_COLOURS, IBM_COLOURS } from './diagramPalette';
 import { DiagramDrilldown } from './DiagramDrilldown';
-import { exportDiagram, diagramExportBlob, type DiagramExportFormat } from './diagramExport';
+import { exportDiagram, type DiagramExportFormat } from './diagramExport';
+import { diagramMural } from './diagramMural';
 import { MURAL_QUERY, loadMuralStatus } from '../../components/MuralIntegration';
 import { Link } from 'react-router-dom';
 import {
@@ -1218,11 +1219,14 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     try {
       const options = { footnotes: exportFootnotes, legend: exportLegend && cur.legend?.visible === true, name: canvas?.title };
       if (exportFormat === 'mural') {
-        const image = await diagramExportBlob(cur, map, 'png', exportBg, exportGrid, options);
-        const response = await api.exportMuralImage(image, muralBoardUrl ?? muralQuery.data?.boardUrl ?? '', (canvas?.title ?? 'Athena diagram').slice(0, 300));
+        const payload = await diagramMural(cur, map, {
+          boardUrl: muralBoardUrl ?? muralQuery.data?.boardUrl ?? '', title: (canvas?.title ?? 'Athena diagram').slice(0, 300),
+          footnotes: exportFootnotes, legend: exportLegend && cur.legend?.visible === true,
+        });
+        const response = await api.exportMuralDiagram(payload);
         if (!response.success) throw new Error(response.error.message);
         setMuralResult(response.data.boardUrl);
-        notify('info', 'Diagram image added to Mural. Shapes remain editable in Athena, not in the exported image.', { key: 'export' });
+        notify('info', `Added ${response.data.objects} editable objects and ${response.data.connectors} connectors to Mural.`, { key: 'export' });
       } else {
         await exportDiagram(cur, map, exportFormat, exportBg, exportGrid, options);
         setMenu(null);
@@ -2036,13 +2040,18 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               <Download size={16} /> Export
             </button>
             {menu === 'export' && (
-              <div className="dg-popover dg-popover--end" role="dialog" aria-label="Export diagram">
+              <div className="dg-popover dg-popover--end dg-export" role="dialog" aria-label="Export diagram">
+                <div className="dg-export__header">
+                  <h2 className="dg-export__title">Export diagram</h2>
+                  <IconBtn label="Close export" onClick={() => { setMenu(null); }}><Close size={16} /></IconBtn>
+                </div>
                 <section className="dg-popover__section">
                   <h3 className="dg-popover__heading">Format</h3>
-                  <Segmented value={exportFormat} onChange={value => { setExportFormat(value); setMuralResult(''); }} options={[{ value: 'png', label: 'PNG' }, { value: 'svg', label: 'SVG' }, { value: 'drawio', label: 'draw.io' }, { value: 'mural', label: 'Mural image' }]} label="Export format" />
+                  <Segmented value={exportFormat} onChange={value => { setExportFormat(value); setMuralResult(''); }} options={[{ value: 'png', label: 'PNG' }, { value: 'svg', label: 'SVG' }, { value: 'drawio', label: 'draw.io' }, { value: 'mural', label: 'Mural' }]} label="Export format" />
                   {exportFormat === 'drawio' && <p className="dg-popover__hint">An editable file for draw.io (diagrams.net). Shapes, connectors, groups and icons stay editable; footnotes and the key come across as shapes.</p>}
                   {exportFormat === 'mural' && <div className="mural-integration">
-                    <p className="dg-popover__hint">Adds one PNG image at (100, 100) on the chosen board. Shapes and connectors are not individually editable in Mural. Each export adds a new image; it does not update earlier exports.</p>
+                    <p className="dg-export__description">Continue editing in Mural with native shapes, text and attached connectors.</p>
+                    <p className="dg-popover__hint">Groups and swimlanes become areas, exported expanded. Icons stay separate images. Mural may adjust fonts, shape borders and routing; line jumps are not transferred. Each export adds a new copy, not a synced diagram.</p>
                     {muralQuery.isPending && <p className="dg-popover__hint" role="status">Checking Mural connection...</p>}
                     {muralQuery.isError && <p className="connection-tokens__error" role="alert">Could not check Mural. <button type="button" className="dg-text-btn" onClick={() => { void muralQuery.refetch(); }}>Retry</button></p>}
                     {!muralQuery.data?.connected && <p className="dg-popover__hint"><Link to="/my-work?sync=1">Set up or reconnect Mural in Sources / Integrations</Link></p>}
@@ -2050,10 +2059,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                       <input type="url" value={muralBoardUrl ?? muralQuery.data.boardUrl} disabled={exporting} maxLength={2048}
                         onChange={event => { setMuralBoardUrl(event.target.value); setMuralResult(''); }} />
                     </label>}
-                    {muralResult && <p className="dg-popover__hint mural-integration__result" role="status">Image exported. <a href={muralResult} target="_blank" rel="noreferrer">Open board in Mural</a></p>}
+                    {muralResult && <p className="dg-popover__hint mural-integration__result" role="status">Editable diagram exported. <a href={muralResult} target="_blank" rel="noreferrer">Open board in Mural</a></p>}
                   </div>}
                 </section>
-                {exportFormat !== 'drawio' && <section className="dg-popover__section">
+                {exportFormat !== 'drawio' && exportFormat !== 'mural' && <section className="dg-popover__section">
                   <h3 className="dg-popover__heading">Background</h3>
                   <Segmented value={exportBg} onChange={setExportBg} options={[{ value: 'white', label: 'White' }, { value: 'transparent', label: 'Transparent' }]} label="Export background" />
                   <label className="dg-check">
@@ -2073,7 +2082,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   </label>
                 </section>
                 <button type="button" className="dg-primary-btn" disabled={exporting || doc.nodes.length === 0 || (exportFormat === 'mural' && (!muralQuery.data?.connected || !(muralBoardUrl ?? muralQuery.data.boardUrl).trim()))} onClick={() => { void runExport(); }}>
-                  {exporting ? <><InProgress size={16} className="dg-spin" /> Exporting…</> : <><Download size={16} /> {exportFormat === 'mural' ? 'Send image to Mural' : `Export ${exportFormat === 'drawio' ? 'draw.io' : exportFormat.toUpperCase()}`}</>}
+                  {exporting ? <><InProgress size={16} className="dg-spin" /> Exporting…</> : <><Download size={16} /> {exportFormat === 'mural' ? 'Send editable diagram to Mural' : `Export ${exportFormat === 'drawio' ? 'draw.io' : exportFormat.toUpperCase()}`}</>}
                 </button>
                 {doc.nodes.length === 0 && <p className="dg-popover__hint">Add something to the diagram to export it.</p>}
               </div>

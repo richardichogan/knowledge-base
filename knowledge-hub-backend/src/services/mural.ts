@@ -134,7 +134,7 @@ export async function startMuralAuth(pool: Pool, userId: string): Promise<string
   });
 }
 
-async function request(url: string, init: RequestInit): Promise<Response> {
+export async function request(url: string, init: RequestInit): Promise<Response> {
   try { return await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(TIMEOUT) }); }
   catch { throw new IntegrationError('mural', 'Could not reach Mural. The request may have timed out; check the destination before retrying an export.'); }
 }
@@ -189,7 +189,7 @@ export async function disconnectMural(db: Pool): Promise<void> {
   });
 }
 
-async function withToken<T>(db: Pool, operation: (token: string) => Promise<T>): Promise<T> {
+export async function withToken<T>(db: Pool, operation: (token: string) => Promise<T>): Promise<T> {
   // Serialise rotating refresh tokens across replicas without holding a connection during export.
   const tokens = await locked(db, async connection => {
     const result = await connection.query<{ last_cursor: string }>('SELECT last_cursor FROM sync_state WHERE source = $1 FOR UPDATE', [AUTH]);
@@ -206,7 +206,7 @@ async function withToken<T>(db: Pool, operation: (token: string) => Promise<T>):
   return operation(tokens.accessToken);
 }
 
-async function apiJson(token: string, path: string, body?: unknown): Promise<Record<string, unknown>> {
+export async function apiJson(token: string, path: string, body?: unknown): Promise<Record<string, unknown>> {
   const response = await request(`${API}${path}`, { method: body === undefined ? 'GET' : 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });

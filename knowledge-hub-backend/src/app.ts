@@ -81,6 +81,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   // Raw binary for image uploads — MUST come before express.json so binary bodies aren't parsed as JSON
   app.use('/api/images', express.raw({ type: '*/*', limit: '20mb' }));
   app.use('/api/integrations/mural/export', mapBodyErrors(express.raw({ type: 'image/png', limit: '20mb' })));
+  app.use('/api/integrations/mural/export-diagram', mapBodyErrors(express.json({ limit: '30mb' })));
   // Voice audio travels as base64 JSON (see voiceRoutes.ts) — a ~30s WAV clip
   // base64-encodes to several MB, well past the default 1mb JSON limit.
   app.use('/api/voice', express.json({ limit: '20mb' }));

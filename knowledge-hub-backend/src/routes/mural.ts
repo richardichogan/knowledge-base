@@ -4,6 +4,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { getDb } from '../db/db.js';
 import { ValidationError } from '../types/errors.js';
 import { muralStatus, saveMuralConfig, startMuralAuth, finishMuralAuth, disconnectMural, exportMuralImage } from '../services/mural.js';
+import { exportMuralDiagram } from '../services/muralDiagram.js';
 
 const router = Router();
 function handler(run: (req: Request) => Promise<unknown>) {
@@ -24,4 +25,5 @@ router.post('/export', handler(req => {
   if (!Buffer.isBuffer(req.body)) throw new ValidationError('Send a PNG image.');
   return exportMuralImage(getDb(), req.body, req.query['boardUrl'], req.query['title']);
 }));
+router.post('/export-diagram', handler(req => exportMuralDiagram(getDb(), req.body)));
 export { router as muralRouter };

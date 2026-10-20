@@ -8,10 +8,23 @@ const {
   muralBoard, muralUploadUrl, pngDimensions, muralStatus, saveMuralConfig, startMuralAuth,
   finishMuralAuth, disconnectMural, exportMuralImage, MURAL_REDIRECT, MURAL_CLIENT_ID,
 } = await import('../src/services/mural.js');
+const { exportMuralDiagram, validateMuralDiagram } = await import('../src/services/muralDiagram.js');
 
 const boardUrl = 'https://app.mural.co/t/athena5676/m/athena5676/1792510867260';
 const secret = 'fixture-mural-secret-not-real';
 const config = { clientId: MURAL_CLIENT_ID, secret, boardUrl };
+
+function nativeDiagram() {
+  const base = { shape: 'rectangle', text: 'Editable <label>', x: 120, y: 140, width: 160, height: 80, parentId: null,
+    fill: '#FFFFFFFF', stroke: '#161616FF', strokeWidth: 2, dotted: false, textColor: '#161616FF', fontSize: 14, align: 'center' };
+  return { boardUrl, title: 'Native diagram', objects: [
+    { ...base, id: 'child', type: 'shape', parentId: 'area' },
+    { ...base, id: 'area', type: 'area', x: 100, y: 100, width: 600, height: 300 },
+    { ...base, id: 'target', type: 'shape', x: 800 },
+    { ...base, id: 'text', type: 'textbox', text: '<script>alert("x")</script>', y: 500 },
+  ], connectors: [{ id: 'edge', sourceId: 'child', targetId: 'target', points: [{ x: 280, y: 180 }, { x: 800, y: 180 }],
+    route: 'orthogonal', arrows: 'start', stroke: '#161616FF', strokeWidth: 2, dashed: true, text: 'Editable edge', fontSize: 12, label: { x: 540, y: 180 } }] };
+}
 
 async function fixture() {
   const db = new PGlite();
@@ -59,6 +72,123 @@ test('Mural asset upload URLs allow only HTTPS Azure Blob storage and reject cre
     'https://user:pass@fixture.blob.core.windows.net/x', 'https://fixture.blob.core.windows.net:444/x']) {
     assert.throws(() => muralUploadUrl(value));
   }
+});
+
+test('Native Mural validates the full diagram, hierarchy, IDs, colours and limits before writing', () => {
+  assert.equal(validateMuralDiagram(nativeDiagram()).objects.length, 4);
+  const standalone = nativeDiagram();
+  standalone.objects = [];
+  const line = standalone.connectors[0]!;
+  assert.equal(validateMuralDiagram({ ...standalone, connectors: [{ ...line, sourceId: null, targetId: null }] }).connectors.length, 1);
+  for (const mutate of [
+    (d: ReturnType<typeof nativeDiagram>) => { d.objects[0]!.parentId = 'child'; },
+    (d: ReturnType<typeof nativeDiagram>) => { d.connectors[0]!.sourceId = 'missing'; },
+    (d: ReturnType<typeof nativeDiagram>) => { d.objects[0]!.width = NaN; },
+    (d: ReturnType<typeof nativeDiagram>) => { d.objects[0]!.fill = 'red'; },
+    (d: ReturnType<typeof nativeDiagram>) => { d.objects[0]!.shape = 'invalid'; },
+    (d: ReturnType<typeof nativeDiagram>) => { d.objects[0]!.id = 'area'; },
+    (d: ReturnType<typeof nativeDiagram>) => { d.objects = Array.from({ length: 201 }, () => d.objects[0]!); },
+  ]) {
+    const diagram = nativeDiagram(); mutate(diagram);
+    assert.throws(() => validateMuralDiagram(diagram));
+  }
+});
+
+test('Native Mural uploads only individual icons and never forwards OAuth to asset storage', async () => {
+  const { pool, db } = await fixture(); const original = globalThis.fetch;
+  try {
+    await saveMuralConfig(pool, config);
+    globalThis.fetch = async () => tokenResponse();
+    await finishMuralAuth(pool, 'richard', { state: new URL(await startMuralAuth(pool, 'richard')).searchParams.get('state'), code: 'fixture' });
+    const icon = { ...nativeDiagram().objects[0]!, id: 'icon', parentId: null, type: 'image', image: `data:image/png;base64,${png().toString('base64')}` };
+    const diagram = { ...nativeDiagram(), objects: [icon], connectors: [] };
+    let widgets = 0; let failUpload = false;
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/assets')) return Response.json({ value: { url: 'https://fixture.blob.core.windows.net/icon.png?sig=fixture', name: 'icon.png' } });
+      if (url.includes('.blob.core.windows.net')) {
+        assert.equal(init?.method, 'PUT');
+        assert.ok(!JSON.stringify(init?.headers).includes('fixture-access-token'));
+        assert.deepEqual(Buffer.from(init?.body as Uint8Array), png());
+        return new Response('', { status: failUpload ? 403 : 201 });
+      }
+      if (url.endsWith('/image')) {
+        widgets++;
+        assert.equal(JSON.parse(String(init?.body)).name, 'icon.png');
+        return Response.json({ value: { id: 'native-icon' } });
+      }
+      return Response.json({ value: { id: 'board' } });
+    };
+    assert.deepEqual(await exportMuralDiagram(pool, diagram), { boardUrl, objects: 1, connectors: 0 });
+    failUpload = true;
+    await assert.rejects(exportMuralDiagram(pool, diagram), /Icon upload failed.*Some objects may already exist/);
+    assert.equal(widgets, 1);
+    await assert.rejects(exportMuralDiagram(pool, { ...diagram, objects: [{ ...icon, image: 'data:image/png;base64,bm90IHBuZw==' }] }), /PNG/);
+  } finally { globalThis.fetch = original; await db.close(); }
+});
+
+test('Native Mural creates areas before children, resolves real IDs, attaches arrows and escapes editable text', async () => {
+  const { pool, db } = await fixture();
+  const original = globalThis.fetch;
+  try {
+    await saveMuralConfig(pool, config);
+    globalThis.fetch = async () => tokenResponse();
+    await finishMuralAuth(pool, 'richard', { state: new URL(await startMuralAuth(pool, 'richard')).searchParams.get('state'), code: 'fixture' });
+    const calls: string[] = [];
+    let shapeCount = 0;
+    globalThis.fetch = async (input, init) => {
+      const url = String(input); calls.push(url);
+      if (!init?.body) return Response.json({ value: { id: 'board' } });
+      const body: unknown = JSON.parse(String(init.body));
+      if (url.endsWith('/area')) return Response.json({ value: { id: 'mural-area' } });
+      if (url.endsWith('/shape')) {
+        const shape = (body as Array<Record<string, unknown>>)[0]!;
+        shapeCount++;
+        if (shapeCount === 1) { assert.equal(shape.parentId, 'mural-area'); assert.equal(shape.x, 20); assert.equal(shape.y, 40); }
+        return Response.json({ value: [{ id: shapeCount === 1 ? 'mural-child' : 'mural-target' }] });
+      }
+      if (url.endsWith('/textbox')) {
+        const box = (body as Array<Record<string, unknown>>)[0]!;
+        assert.ok(String(box.text).includes('&lt;script&gt;'));
+        assert.ok(!String(box.text).includes('<script>'));
+        return Response.json({ value: [{ id: 'mural-text' }] });
+      }
+      if (url.endsWith('/arrow')) {
+        const arrow = body as Record<string, unknown>;
+        assert.equal(arrow.startRefId, 'mural-target'); assert.equal(arrow.endRefId, 'mural-child');
+        assert.equal(arrow.tip, 'single'); assert.equal(arrow.arrowType, 'orthogonal');
+        assert.deepEqual(arrow.points, [{ x: 520, y: 0 }, { x: 0, y: 0 }]);
+        assert.ok(JSON.stringify(arrow.label).includes('Editable edge'));
+        return Response.json({ value: { id: 'mural-arrow' } });
+      }
+      throw new Error(`Unexpected native write: ${url}`);
+    };
+    assert.deepEqual(await exportMuralDiagram(pool, nativeDiagram()), { boardUrl, objects: 4, connectors: 1 });
+    assert.ok(calls[1]!.endsWith('/area'));
+    assert.equal(calls.filter(c => c.endsWith('/arrow')).length, 1);
+    assert.ok(!calls.some(c => c.endsWith('/image')));
+  } finally { globalThis.fetch = original; await db.close(); }
+});
+
+test('Native Mural rejects invalid exports before network access and reports partial writes without retries', async () => {
+  const { pool, db } = await fixture(); const original = globalThis.fetch;
+  try {
+    let calls = 0;
+    globalThis.fetch = async () => { calls++; throw new Error('Must not fetch'); };
+    await assert.rejects(exportMuralDiagram(pool, { ...nativeDiagram(), objects: [] }));
+    assert.equal(calls, 0);
+    await saveMuralConfig(pool, config);
+    globalThis.fetch = async () => tokenResponse();
+    await finishMuralAuth(pool, 'richard', { state: new URL(await startMuralAuth(pool, 'richard')).searchParams.get('state'), code: 'fixture' });
+    globalThis.fetch = async (input) => {
+      calls++;
+      if (String(input).endsWith('/area')) return Response.json({ value: { id: 'created-area' } });
+      if (String(input).endsWith('/shape')) return new Response('', { status: 403 });
+      return Response.json({ value: { id: 'board' } });
+    };
+    await assert.rejects(exportMuralDiagram(pool, nativeDiagram()), /Some objects may already exist.*Nothing was automatically retried/);
+    assert.equal(calls, 3);
+  } finally { globalThis.fetch = original; await db.close(); }
 });
 
 test('Mural credentials are encrypted, write-only, retained on blank edit and validated', async () => {

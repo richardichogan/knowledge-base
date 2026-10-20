@@ -423,6 +423,55 @@ $dg-ink: #f4f4f4;
   > span:not(:first-child) { margin-top: 0.5rem; }
 }
 
+.dg-export {
+  width: 23rem;
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 7rem);
+  overflow-y: auto;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: var(--kh-radius-md);
+  background: var(--cds-layer-01);
+  border-color: var(--cds-border-strong-01);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+
+  &__header { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+  &__title { margin: 0; font-size: var(--kh-panel-title); font-weight: 600; line-height: 1.4; }
+  &__description { margin: 0; font-size: var(--kh-text-body); line-height: 1.5; color: var(--cds-text-primary); }
+  .dg-popover__section { gap: 0.625rem; }
+  .dg-popover__heading { font-size: var(--kh-section-title); letter-spacing: normal; color: var(--cds-text-primary); }
+  .dg-popover__hint { font-size: var(--kh-text-body); line-height: 1.5; }
+  .dg-segment { display: flex; width: 100%; border-radius: var(--kh-radius-sm); overflow: hidden; }
+  .dg-segment__option { min-width: 0; padding: 0 0.5rem; }
+  .mural-integration { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+  .mural-integration__field { color: var(--cds-text-secondary); font-size: var(--kh-heading-label); }
+  .mural-integration__field input { border-radius: var(--kh-radius-sm); color: var(--cds-text-primary); font-size: var(--kh-text-body); }
+  .mural-integration__field input:hover:not(:disabled) { border-color: var(--kh-accent); }
+  .mural-integration__result { padding-top: 0.75rem; border-top: 1px solid var(--cds-border-subtle-01); color: var(--cds-support-success); }
+  .dg-primary-btn {
+    min-height: 2.5rem;
+    height: auto;
+    padding: 0.625rem 0.75rem;
+    border-radius: var(--kh-radius-sm);
+    color: var(--cds-text-inverse, #161616);
+    font-weight: 600;
+    &:active:not(:disabled) { filter: brightness(0.9); }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+    &:disabled { color: var(--cds-text-disabled); }
+  }
+}
+
+@container dg-header (max-width: 700px) {
+  .dg-export {
+    position: fixed;
+    top: 7.5rem;
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+    max-height: calc(100dvh - 8.5rem);
+  }
+}
+
 .dg-callout {
   &__icon { fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
   &__type { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-weight: 600; user-select: none; }

@@ -18,21 +18,33 @@ destination board. OAuth uses S256 PKCE, a ten-minute, single-use state bound
 to the authenticated Athena user, and encrypted rotating refresh tokens.
 Configuration and token updates are serialised across backend replicas.
 
-Open a Think diagram -> Export -> Mural image. Check the destination board,
-background, grid and annotation options, then click Send image to Mural.
-The browser renders through the existing PNG exporter and the backend uploads
-to Mural's asset storage before creating an image widget. No automatic sync
-or export occurs. Each click adds a new image at (100, 100), without deleting
-or updating any existing board content. Move previous images in Mural if needed.
-The result provides a link to open the board.
+Open a Think diagram -> Export -> Mural. Check the destination board and
+annotation options, then click Send editable diagram to Mural.
+Shapes, text, connector labels, footnotes and colour-key entries become native
+editable Mural objects. The backend creates shapes first and connects arrows
+using the returned Mural widget IDs (`startRefId` / `endRefId`).
+Containers and swimlanes become native areas, expanded; nested area coordinates
+are translated to parent-relative positions. Descriptions and AI-step summaries
+are retained as widget instructions. Individual icons remain separate images,
+not editable vector paths; the diagram itself is never flattened.
 
-This release exports **one image**, not native editable shapes. It preserves
-the selected diagram rendering, including connectors and loaded icons.
-Native attached connector creation has not been established in Mural's
-documented public API, so this release does not claim editable native export.
-Existing PNG, SVG and editable draw.io downloads are unchanged.
-PNG limits: 20 MiB upload, 16,384 pixels per side, 64 megapixels total.
+No automatic sync or export occurs. Each click adds a new copy, with the content
+origin positioned at (100, 100), without deleting or updating existing content.
+The result links to the board. Mural may adjust shape typography, alignment,
+border styling and routing; automatic line jumps are not transferred. Dashed
+shape borders become solid (dotted borders remain dotted). Connector arrowheads,
+routes, endpoint attachments and labels use Mural's native arrow model.
+The source remains editable independently in Athena; changes do not sync back.
+Existing PNG, SVG and editable draw.io downloads are unchanged. The earlier
+image-upload API remains available for compatibility but is not the diagram UI's
+Mural export path.
+
+Native export validates all objects before writing. Limit: 200 objects in total,
+including connectors, icons and selected annotations, with 20 MiB of icon PNGs.
 Images still loading cause an explicit error instead of an incomplete export.
+Requests are sequential to bind each returned object ID unambiguously; exports
+may take longer on large diagrams. External writes are never retried. On any
+partial failure, inspect the board before retrying: some objects may exist.
 
 The board URL field accepts normal app.mural.co individual board URLs,
 not workspace lists or visitor routes. Share-token suffixes and queries are
@@ -42,7 +54,7 @@ This version intentionally uses a board URL rather than requesting workspace
 and room access to build another picker.
 
 Disconnect removes Athena's saved OAuth tokens and pending sign-ins but keeps
-app settings and existing exported images. Revoke the app in Mural as well
+app settings and existing exported objects. Revoke the app in Mural as well
 to withdraw provider-side consent. Changing client credentials invalidates
 the existing Athena connection. A saved connection indicates prior consent,
 not a live permission check; export reports expired/revoked access explicitly.
@@ -59,3 +71,7 @@ References:
 - https://developers.mural.co/public/docs/oauth
 - https://developers.mural.co/public/docs/how-to-upload-an-image-to-a-mural
 - https://developers.mural.co/public/reference/createimage
+- https://developers.mural.co/public/reference/createshapewidget
+- https://developers.mural.co/public/reference/createarrow
+- https://developers.mural.co/public/reference/createarea
+- https://developers.mural.co/public/reference/createtextbox

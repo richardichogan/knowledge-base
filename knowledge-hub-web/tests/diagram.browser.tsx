@@ -31,12 +31,13 @@ api.getMuralStatus = async () => success({
   connected: muralConnected, boardUrl: muralBoard,
   redirectUrl: 'https://athena.themicrosoftcloudblog.com/integrations/mural/callback',
 });
-api.exportMuralImage = async (image, board, title) => {
+api.exportMuralDiagram = async diagram => {
   muralExports++;
-  check(image.type === 'image/png' && image.size > 100, 'Mural receives a rendered PNG');
-  check(board === muralBoard && title.includes('Enterprise'), 'Mural receives the chosen board and title');
+  check(diagram.objects.some(o => o.type === 'shape') && diagram.connectors.length > 0, 'Mural receives native objects and connectors, not a flattened image');
+  check(diagram.objects.some(o => o.type === 'image' && o.image?.startsWith('data:image/png;base64,')), 'Icons are individual PNG objects');
+  check(diagram.boardUrl === muralBoard && diagram.title.includes('Enterprise'), 'Mural receives the chosen board and title');
   if (failMuralExport) return { success: false, error: { code: 'TEST', message: 'Mural write permission denied' } };
-  return success({ boardUrl: muralBoard });
+  return success({ boardUrl: muralBoard, objects: diagram.objects.length, connectors: diagram.connectors.length });
 };
 api.saveMuralConfig = async input => {
   check(input.secret === 'fixture-client-secret', 'Setup sends the entered client secret');
@@ -287,22 +288,30 @@ async function runDiagramMuralChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector('.dg-header') !== null);
   clickButton('Export');
   await waitFor(() => window.document.querySelector('[aria-label="Export diagram"]') !== null);
-  clickButton('Mural image');
+  clickButton('Mural');
   await waitFor(() => window.document.querySelector('.mural-integration__field input') !== null);
-  check(window.document.querySelector('[aria-label="Export diagram"]')!.textContent!.includes('not individually editable'), 'Export explicitly discloses flattened image');
-  clickButton('Send image to Mural');
+  check(window.document.querySelector('[aria-label="Export diagram"]')!.textContent!.includes('native shapes'), 'Export describes editable native objects');
+  check(!window.document.querySelector('[aria-label="Export diagram"]')!.textContent!.includes('Background'), 'Native export does not show irrelevant image background settings');
+  const panel = window.document.querySelector('.dg-export')!;
+  const panelRect = panel.getBoundingClientRect();
+  check(panelRect.left >= 0 && panelRect.right <= window.innerWidth, 'The entire export panel stays inside the viewport, including narrow overflowing toolbars');
+  check(panelRect.top >= 0 && panelRect.bottom <= window.innerHeight, 'The export panel is visible vertically, not positioned below the viewport');
+  check(getComputedStyle(panel).borderRadius === '4px', 'Export panel uses the Athena panel radius');
+  const action = panel.querySelector('.dg-primary-btn')!;
+  check(getComputedStyle(action).color !== 'rgb(255, 255, 255)', 'Primary export action uses contrasting dark text on Athena accent');
+  clickButton('Send editable diagram to Mural');
   await waitFor(() => window.document.querySelector('.mural-integration__result') !== null);
-  check(muralExports === 1, 'One click sends one image');
+  check(muralExports === 1, 'One click sends one native diagram');
   check(window.document.querySelector<HTMLAnchorElement>('.mural-integration__result a')!.href === muralBoard, 'Successful export links to the board');
   failMuralExport = true;
-  clickButton('Send image to Mural');
+  clickButton('Send editable diagram to Mural');
   await waitFor(() => document.body.textContent!.includes('Mural write permission denied'));
   check(muralExports === 2, 'No automatic retries of external writes');
   failMuralExport = false;
   muralConnected = false;
   await queryClient.invalidateQueries({ queryKey: ['mural-integration'] });
   await waitFor(() => document.body.textContent!.includes('Set up or reconnect Mural'));
-  check([...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Send image to Mural')!.disabled, 'Disconnected exports are disabled');
+  check([...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Send editable diagram to Mural')!.disabled, 'Disconnected exports are disabled');
   check(document.documentElement.scrollWidth <= innerWidth, 'Diagram Mural menu does not overflow the viewport');
   muralConfigured = false;
   queryClient.removeQueries({ queryKey: ['mural-integration'] });
@@ -325,7 +334,12 @@ async function runDiagramMuralChecks(): Promise<string[]> {
   muralConnected = true; muralConfigured = true;
   queryClient.removeQueries({ queryKey: ['mural-integration'] });
   mountEditor();
-  return ['PNG render and board destination', 'single-write export and result link', 'image-only disclosure', 'explicit errors without retries', 'disconnected guard', 'masked credential setup and clearing', 'responsive setup and export menu'];
+  await waitFor(() => window.document.querySelector('.dg-header') !== null);
+  clickButton('Export');
+  await waitFor(() => window.document.querySelector('[aria-label="Export diagram"]') !== null);
+  clickButton('Mural');
+  await waitFor(() => window.document.querySelector('.mural-integration__field input') !== null);
+  return ['Native editable shapes, icons and attached connector payload', 'single-write export and result link', 'Athena-branded panel and contrasting action', 'explicit errors without retries', 'disconnected guard', 'masked credential setup and clearing', 'responsive setup and export menu'];
 }
 
 async function runDiagramAppearanceChecks(): Promise<string[]> {

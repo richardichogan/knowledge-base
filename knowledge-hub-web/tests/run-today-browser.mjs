@@ -305,6 +305,11 @@ try {
         await evaluate('window.cancelSparkDrag()');
       }
       const results = await evaluate(muralChecks ? 'window.runDiagramMuralChecks()' : sparkChecks ? 'window.runSparkChecks()' : notePopoutChecks ? 'window.runNotePopoutChecks()' : thinkSaveChecks ? 'window.runThinkSaveChecks()' : markdownExportChecks ? 'window.runMarkdownExportChecks()' : imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
+      if (muralChecks && process.env.TODAY_ARTIFACT_DIR) {
+        await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
+        const image = await command('Page.captureScreenshot', { format: 'png' });
+        await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `mural-export-${width}.png`), Buffer.from(image.data, 'base64'));
+      }
       if (sparkChecks && width !== 390) {
         for (const source of ['.spark-item__drag', '.spark-panel__loose .spark-item__body']) {
           await evaluate('window.resetNativeSparkDrag()');

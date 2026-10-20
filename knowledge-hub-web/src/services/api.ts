@@ -614,6 +614,10 @@ export interface BlogDraft {
 }
 
 export class KnowledgeHubApi {
+  async exportMuralDiagram(diagram: import('../types/mural').MuralDiagramExport): Promise<ApiResponse<{ boardUrl: string; objects: number; connectors: number }>> {
+    return (await this.client.post<ApiResponse<{ boardUrl: string; objects: number; connectors: number }>>(
+      '/api/integrations/mural/export-diagram', diagram, { timeout: 600_000 })).data;
+  }
   async getMuralStatus(): Promise<ApiResponse<MuralStatus>> {
     return (await this.client.get<ApiResponse<MuralStatus>>('/api/integrations/mural')).data;
   }
