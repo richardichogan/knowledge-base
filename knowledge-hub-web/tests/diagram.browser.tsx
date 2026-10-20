@@ -26,6 +26,10 @@ let muralConnected = true;
 let muralConfigured = true;
 let failMuralExport = false;
 let muralExports = 0;
+let sharedEmails = 0;
+api.getShareEmailStatus = async () => success({ configured: false, username: '', replyTo: '',
+  from: 'share@athena.themicrosoftcloudblog.com', host: 'mail-eu.smtp2go.com', port: 2525 });
+api.sendShareEmail = async () => { sharedEmails++; throw new Error('Diagram exports must never automatically send email'); };
 api.getMuralStatus = async () => success({
   clientId: 'a10cd14e-6000-4e86-8c23-ce3388057959', configured: muralConfigured,
   connected: muralConnected, boardUrl: muralBoard,
@@ -748,6 +752,35 @@ async function runDiagramDrilldownChecks(): Promise<string[]> {
         'Parent selection, document and viewport remain intact', 'Popup fits desktop and mobile'];
 }
 async function runDiagramChecks(): Promise<string[]> {
+  await waitFor(() => window.document.querySelector('.dg-editor') !== null);
+  const root = window.document.querySelector<HTMLElement>('.dg-editor')!;
+  const beforeShare = snapshot.document.nodes.length;
+  root.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }));
+  await waitFor(() => window.document.querySelectorAll('.dg-node--selected').length > 0);
+  clickButton('Export');
+  await waitFor(() => window.document.querySelector('[aria-label="Export diagram"]') !== null);
+  clickButton('Share draw.io attachment by email');
+  await waitFor(() => window.document.querySelector('.share-email') !== null);
+  check(window.document.querySelector('.share-email')!.textContent!.includes('.drawio'), 'Real diagram export opens a reviewed draw.io attachment');
+  const cancel = [...window.document.querySelectorAll<HTMLButtonElement>('.share-email-modal button')].find(b => b.textContent?.trim() === 'Cancel')!;
+  cancel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+  await delay(50);
+  check(window.document.querySelectorAll('g.dg-node').length === beforeShare, 'Modal keyboard events cannot delete selected diagram shapes');
+  cancel.click();
+  await waitFor(() => window.document.querySelector('.share-email') === null);
+  clickButton('Export');
+  await waitFor(() => window.document.querySelector('[aria-label="Export diagram"]') !== null);
+  clickButton('Mural');
+  await waitFor(() => window.document.querySelector('.mural-integration__field input') !== null);
+  clickButton('Send editable diagram to Mural');
+  await waitFor(() => window.document.querySelector('.mural-integration__result') !== null);
+  clickButton('Share Mural link by email');
+  await waitFor(() => window.document.querySelector('.share-email') !== null);
+  check(window.document.querySelector<HTMLAnchorElement>('.share-email__content a')?.href === muralBoard, 'Real Mural export shares the returned board URL');
+  check(sharedEmails === 0, 'Preparing a Mural link or draw.io attachment never sends email');
+  [...window.document.querySelectorAll<HTMLButtonElement>('.share-email-modal button')].find(b => b.textContent?.trim() === 'Cancel')!.click();
+  await waitFor(() => window.document.querySelector('.share-email') === null);
+  root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   check(getComputedStyle(window.document.querySelector('.dg-sheet')!).backgroundColor === 'rgb(22, 22, 22)', 'Diagram sheet must match the dark Athena theme');
   check(window.document.querySelector('.dg-edge__line')?.getAttribute('stroke') === '#c6c6c6', 'Existing dark connectors remain visible on the dark sheet');
   check(snapshot.document.edges[0]?.stroke === '#333333', 'Editor theme must not mutate saved connector colours');
@@ -1314,7 +1347,8 @@ async function runDiagramChecks(): Promise<string[]> {
   check(window.document.documentElement.scrollWidth <= innerWidth + 1, 'No page horizontal overflow');
   const { checkDiagramFromNote } = await import('./diagramNoteCreation.browser');
   await checkDiagramFromNote(queryClient, waitFor);
-  return ['Diagram Athena opens with canvas context and per-diagram conversation at desktop/mobile widths',
+  return ['Manual draw.io attachment and exported Mural-link sharing; composer keyboard isolation',
+    'Diagram Athena opens with canvas context and per-diagram conversation at desktop/mobile widths',
     'Short pending chats have no scroll range; long chats scroll and panel resizing updates overflow',
     'Representative architecture and process flow render', 'SVG export full bounds, embedded icon and bidirectional arrows',
     'PNG rasterisation with embedded SVG icon', 'Escaped labels and explicit missing-asset errors',

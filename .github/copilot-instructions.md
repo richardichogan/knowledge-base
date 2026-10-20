@@ -13,7 +13,7 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 
 - **Never use `head` or `tail` to truncate command output.** Run the full command or use `grep` to filter specifically.
 - **Never use `curl` to test endpoints.** If an endpoint needs testing, use the existing API client or logs.
-- **Never run full test suites (full unit, full browser, CI-equivalent runs) during development.** After each change run only `tsc --noEmit` plus the targeted tests for the feature being built and tests for directly affected code. Run the full suites only once, immediately before a push/merge or deployment, and only after the feature is complete.
+- **Never run full test suites (full unit, full browser, CI-equivalent runs) unless preparing an explicitly requested deployment.** A commit, push or merge alone is NOT permission to run full suites. During development, run only required `tsc --noEmit` checks and narrowly targeted tests for the changed feature or directly affected code. For a deployment, run full suites once after the feature is complete; rerun only failed or affected checks unless new evidence requires broader coverage.
 - **Mobile browser testing is for the chat interface only.** All other browser journeys (including navigation, Today, Discover, notes and diagrams) must be desktop-only. Do not launch a local browser without explicit user permission.
 - **Finish the requested feature before testing broadly or verifying in the browser.** Do not get sidetracked into extra checks while the feature is incomplete.
 - **Never pipe to `| cat`** just to disable a pager — use `--no-pager` flags where available (e.g. `git --no-pager`).
@@ -33,6 +33,18 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 
 - Always run `tsc --noEmit` after changes to both `knowledge-hub-web` and `knowledge-hub-backend` before declaring work done.
 - Never deploy to production without an explicit instruction from the user to do so.
+
+---
+
+## Token and Execution Budget — STRICT RULES
+
+- Treat tokens, tool calls and execution time as the user's money. Use the smallest scope that fully delivers the requested outcome.
+- Do not launch agents or parallel work speculatively. Prefer direct, focused work; delegate only when explicitly requested or required.
+- Read only relevant files and ranges. Reuse evidence already gathered; do not repeat scans, checks or builds without a concrete reason.
+- Do not run production builds outside an explicitly requested deployment unless the requested task specifically requires build verification.
+- Avoid open-ended review, browser verification and polishing loops. Stop once the requested outcome is implemented and sufficiently verified.
+- Keep responses concise. Report the result, material uncertainty or blocker; omit repetitive narration and unsolicited extras.
+- If substantial extra work is needed beyond the request, ask before spending resources on it.
 
 ---
 

@@ -76,7 +76,7 @@ jobs:
         env:
           TODAY_BROWSER_PATH: /usr/bin/google-chrome
           TODAY_ARTIFACT_DIR: ${{ runner.temp }}/athena-browser-artifacts
-        run: node ../scripts/run-browser-checks.mjs --modes=navigation,discover,today,note-recovery,note-history,markdown-export,note-links,watchlists,chat
+        run: node ../scripts/run-browser-checks.mjs --modes=navigation,discover,today,note-recovery,note-history,markdown-export,note-links,watchlists,chat,share-email
       - name: Upload browser diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

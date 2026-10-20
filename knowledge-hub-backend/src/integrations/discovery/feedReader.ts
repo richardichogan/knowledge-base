@@ -176,7 +176,8 @@ export async function readFeed(feedUrl: string): Promise<FeedArticle[]> {
     const url = cleanUrl(linkOf(item));
     const title = decodeEntities(textOf(item['title'])).replace(/\s+/g, ' ').trim();
     if (url === '' || !/^https?:\/\//i.test(url) || title === '') continue;
-    const body = textOf(item['description']) || textOf(item['summary']) || textOf(item['content:encoded']) || textOf(item['content']);
+    const media = item['media:group'] as Record<string, unknown> | undefined;
+    const body = textOf(item['description']) || textOf(item['summary']) || textOf(item['content:encoded']) || textOf(item['content']) || textOf(media?.['media:description']);
     articles.push({
       title,
       url,

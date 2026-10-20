@@ -33,6 +33,7 @@ const noteGitHubChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-github';
 const diagramThemeChecks = process.env.ATHENA_BROWSER_CHECKS === 'diagram-theme';
 const noteLinksChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-links';
 const watchlistChecks = process.env.ATHENA_BROWSER_CHECKS === 'watchlists';
+const shareEmailChecks = process.env.ATHENA_BROWSER_CHECKS === 'share-email';
 const profile = await mkdtemp(join(tmpdir(), 'athena-today-check-'));
 const browser = spawn(browserPath, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -125,7 +126,8 @@ try {
     await command('Page.navigate', { url: fixtureUrl });
     let ready = false;
     for (let i = 0; i < 600; i++) {
-      ready = await evaluate(navigationChecks
+      ready = await evaluate(shareEmailChecks ? 'typeof window.runShareEmailChecks === "function"'
+        : navigationChecks
         ? 'typeof window.runNavigationChecks === "function" && document.querySelector(".kh-header__primary") !== null'
         : chatChecks ? 'typeof window.runChatChecks === "function" && document.querySelector("#navigation-probe") !== null'
         : projectPickerChecks ? 'typeof window.runProjectPickerChecks === "function" && document.querySelector(".kh-header__primary") !== null'
@@ -157,6 +159,12 @@ try {
       await delay(100);
     }
     assert.ok(ready, `Fixture did not mount at ${width}px: ${browserErrors.join('\n') || await evaluate('JSON.stringify({ url: location.href, readyState: document.readyState, text: document.body.innerText })')}\n${loadDiagnostics.join('\n')}`);
+    if (shareEmailChecks) {
+      const results = await evaluate('window.runShareEmailChecks()');
+      assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+      console.log(JSON.stringify({ width, checks: results }, null, 2));
+      continue;
+    }
     if (panelTypographyChecks) {
       const results = await evaluate('window.runPanelTypographyChecks()');
       assert.equal(browserErrors.length, 0, browserErrors.join('\n'));

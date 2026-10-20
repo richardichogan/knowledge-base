@@ -516,6 +516,7 @@ export interface NavAttention { think: number; discover: number; plan: number; b
 
 
 export interface DiscoverItem {
+  contentBasis?: 'description-only';
   parking?: DiscoverParking;
   pickReasons?: string[];
   filteredReason?: string | null;
@@ -620,6 +621,18 @@ export class KnowledgeHubApi {
   }
   async getMuralStatus(): Promise<ApiResponse<MuralStatus>> {
     return (await this.client.get<ApiResponse<MuralStatus>>('/api/integrations/mural')).data;
+  }
+  async getShareEmailStatus(): Promise<ApiResponse<import('../types/shareEmail').ShareEmailStatus>> {
+    return (await this.client.get<ApiResponse<import('../types/shareEmail').ShareEmailStatus>>('/api/integrations/share-email')).data;
+  }
+  async saveShareEmailConfig(input: { username: string; password: string; replyTo: string }): Promise<ApiResponse<import('../types/shareEmail').ShareEmailStatus>> {
+    return (await this.client.put<ApiResponse<import('../types/shareEmail').ShareEmailStatus>>('/api/integrations/share-email', input)).data;
+  }
+  async verifyShareEmailConfig(): Promise<ApiResponse<{ verified: true }>> {
+    return (await this.client.post<ApiResponse<{ verified: true }>>('/api/integrations/share-email/verify', {}, { timeout: 120_000 })).data;
+  }
+  async sendShareEmail(input: import('../types/shareEmail').ShareEmailInput): Promise<ApiResponse<import('../types/shareEmail').ShareEmailResult>> {
+    return (await this.client.post<ApiResponse<import('../types/shareEmail').ShareEmailResult>>('/api/integrations/share-email/send', input, { timeout: 120_000 })).data;
   }
   async saveMuralConfig(input: { clientId: string; secret: string; boardUrl: string }): Promise<ApiResponse<MuralStatus>> {
     return (await this.client.put<ApiResponse<MuralStatus>>('/api/integrations/mural', input)).data;
@@ -1835,10 +1848,20 @@ export class KnowledgeHubApi {
     return (await this.client.get<ApiResponse<DiscoveryFeed[]>>('/api/discover/feeds')).data;
   }
 
+  async addDiscoveryVideo(url: string): Promise<ApiResponse<{ id: string; title: string; isNew: boolean }>> {
+    try {
+      return (await this.client.post<ApiResponse<{ id: string; title: string; isNew: boolean }>>('/api/discover/videos', { url }, { timeout: 60_000 })).data;
+    } catch (err) {
+      const body = (err as { response?: { data?: ApiResponse<never> } }).response?.data;
+      if (body !== undefined) return body;
+      throw err;
+    }
+  }
+
   /** Adds a feed; the server checks the address first and says if it isn't a working feed. */
   async addDiscoveryFeed(feed: { title: string; feedUrl: string; groupName: string }): Promise<ApiResponse<DiscoveryFeed & { itemsInFeed: number }>> {
     try {
-      return (await this.client.post<ApiResponse<DiscoveryFeed & { itemsInFeed: number }>>('/api/discover/feeds', feed)).data;
+      return (await this.client.post<ApiResponse<DiscoveryFeed & { itemsInFeed: number }>>('/api/discover/feeds', feed, { timeout: 60_000 })).data;
     } catch (err) {
       const body = (err as { response?: { data?: ApiResponse<never> } }).response?.data;
       if (body !== undefined) return body;

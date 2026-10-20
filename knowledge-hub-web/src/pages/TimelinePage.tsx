@@ -22,6 +22,7 @@ import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { EmailAccountConnections } from '../components/EmailAccountConnections';
 import { ConnectionTokens } from '../components/ConnectionTokens';
 import { MuralIntegration } from '../components/MuralIntegration';
+import { ShareEmailSettings } from '../components/ShareEmailSettings';
 import { useLocation } from 'react-router-dom';
 import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
 import { pollSyncRun } from '../services/syncPolling';
@@ -399,6 +400,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
         {syncPanelOpen && (
           <div className="tl-sync-panel">
             <MuralIntegration />
+            <ShareEmailSettings />
             <ConnectionTokens />
             <EmailAccountConnections />
             {sourcesError !== null && <DataNotice title="Source status is unavailable" error={sourcesError} onRetry={() => { void retrySources(); }} />}

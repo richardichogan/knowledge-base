@@ -44,6 +44,11 @@ Existing PNG, SVG and editable draw.io downloads are unchanged. The earlier
 image-upload API remains available for compatibility but is not the diagram UI's
 Mural export path.
 
+After export, **Share Mural link by email** opens a manual review-and-send
+composer. The Export menu also supports emailing a draw.io attachment without
+exporting to Mural. Neither action sends automatically; see
+[SMTP2GO sharing](email-sharing.md) for sender setup and access requirements.
+
 Native export validates all objects before writing. Limit: 200 objects in total,
 including connectors, icons and selected annotations, with 20 MiB of icon PNGs.
 Images still loading cause an explicit error instead of an incomplete export.

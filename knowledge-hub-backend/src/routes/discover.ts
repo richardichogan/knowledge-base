@@ -17,6 +17,8 @@ import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { BlueskyPostUnconfirmedError, blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
 import { getDiscoverParking, saveDiscoverParking, removeDiscoverParking, type DiscoverParking } from '../services/discoverParking.js';
+import { resolveDiscoveryFeed, readYouTubeVideo } from '../integrations/discovery/youtube.js';
+import { upsertContentItem } from '../db/queries.js';
 
 export const discoverRouter = Router();
 
@@ -27,6 +29,7 @@ discoverRouter.get('/blog-categories', (_req: Request, res: Response): void => {
 export type WorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published' | 'shelved';
 
 export interface DiscoverItem {
+  contentBasis?: 'description-only';
   parking?: DiscoverParking;
   id: string;
   sourceId: string;
@@ -87,6 +90,7 @@ const DISCOVER_PAGE_SIZE_MAX = 100;
 const DISCOVER_ENUM_MAX_LENGTH = 32;
 const BLOG_RELATED_SOURCE_CHARS = 2000;
 const BLUESKY_REQUEST_MAX_CHARS = 2000;
+const VIDEO_URL_MAX_CHARS = 2048;
 const DISCOVER_FILTER_MAX_LENGTH = 256;
 const DISCOVER_BOOLEAN_MAX_LENGTH = 5;
 const RANK_FACTOR_PRECISION = 2;
@@ -412,6 +416,7 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
         alreadyCovered: typeof row.metadata['alreadyCovered'] === 'number' ? row.metadata['alreadyCovered'] : null,
         coveredBy: typeof row.metadata['coveredBy'] === 'string' && row.metadata['coveredBy'] !== '' ? row.metadata['coveredBy'] : null,
         sourceGroup: typeof row.metadata['sourceGroup'] === 'string' ? row.metadata['sourceGroup'] : null,
+        ...(row.metadata['contentBasis'] === 'description-only' ? { contentBasis: 'description-only' as const } : {}),
         shelvedAt: typeof row.metadata['shelvedAt'] === 'string' ? row.metadata['shelvedAt'] : null,
         shelvedReason: typeof row.metadata['shelvedReason'] === 'string' ? row.metadata['shelvedReason'] : null,
         formatFit: Object.fromEntries(CONTENT_FORMATS.map((f) => [f, Number(row[`fit_${f}`])])) as FormatFit,
@@ -529,17 +534,41 @@ discoverRouter.get('/feeds', (_req: Request, res: Response, next: NextFunction):
   })();
 });
 
+discoverRouter.post('/videos', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const raw: unknown = (req.body as { url?: unknown }).url;
+      if (typeof raw !== 'string' || raw.length > VIDEO_URL_MAX_CHARS) throw new ValidationError('Enter a YouTube video URL.');
+      const video = await readYouTubeVideo(raw);
+      const discoveredAt = new Date().toISOString();
+      const result = await upsertContentItem(getDb(), {
+        source: 'discovered-article', sourceId: `youtube-${video.videoId}`, title: video.title,
+        summary: `YouTube - ${video.channel} - description only`, body: video.summary,
+        publishedAt: (video.publishedAt ?? new Date()).toISOString(), url: video.url, projectContext: 'msft-blog',
+        tags: [video.channel], metadata: {
+          sourceTitle: video.channel, sourceGroup: 'YouTube', contentKind: 'youtube-video', videoId: video.videoId,
+          durationSeconds: video.durationSeconds, contentBasis: 'description-only', transcriptStatus: 'not-retrieved',
+          discoveredAt, status: 'new',
+        },
+      });
+      res.status(result.isNew ? HTTP_STATUS.CREATED : HTTP_STATUS.OK).json({ success: true, data: { id: result.id, title: video.title, isNew: result.isNew } });
+    } catch (err) { next(err); }
+  })();
+});
+
 // ── POST /api/discover/feeds — add a source (checked first, so a bad address is reported straight away) ──
 discoverRouter.post('/feeds', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const { title, feedUrl, groupName } = feedBody(req);
+      const { title, feedUrl: submittedUrl, groupName } = feedBody(req);
+      let feedUrl = submittedUrl;
       if (title === '' || !/^https?:\/\//i.test(feedUrl)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'A name and an http(s) feed address are needed.' } });
         return;
       }
       let articles;
       try {
+        feedUrl = await resolveDiscoveryFeed(feedUrl);
         articles = await readFeed(feedUrl);
       } catch (err) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_FEED', message: `That address didn't work as a feed: ${err instanceof Error ? err.message : String(err)}` } });

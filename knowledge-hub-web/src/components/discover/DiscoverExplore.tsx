@@ -85,9 +85,10 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
         <h2 id="dc-explore-title" className="dc-explore__title">{item.title}</h2>
         {item.url !== null && (
           <a className="dc-explore__source-link" href={item.url} target="_blank" rel="noreferrer">
-            Read the original <Launch size={16} />
+            {item.contentBasis === 'description-only' ? 'Watch the video' : 'Read the original'} <Launch size={16} />
           </a>
         )}
+        {item.contentBasis === 'description-only' && <p className="dc-explore__hint">YouTube video: description only. No transcript has been retrieved; spoken claims and timestamps have not been verified.</p>}
 
         <section className="dc-explore__section">
           <h3>Why it matters</h3>
@@ -108,7 +109,7 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
             openAthena(anglePrompt(item), {
               type: 'discover item',
               title: item.title,
-              detail: [item.sourceTitle, item.relevanceExplanation ?? '', item.sparkReason ?? '', item.url ?? ''].filter(Boolean).join(' | '),
+              detail: [item.sourceTitle, item.contentBasis === 'description-only' ? 'YouTube description only; no transcript. Do not infer spoken claims, quotes or timestamps.' : '', item.relevanceExplanation ?? '', item.sparkReason ?? '', item.url ?? ''].filter(Boolean).join(' | '),
             });
             onClose();
           }}>

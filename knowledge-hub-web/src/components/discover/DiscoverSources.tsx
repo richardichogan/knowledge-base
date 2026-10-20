@@ -11,7 +11,7 @@ import { api } from '../../services/api';
 import { confirmDialog, alertDialog } from '../../services/appDialogs';
 import type { DiscoveryFeed } from '../../services/api';
 
-const GROUPS = ['Microsoft', 'GitHub', 'IBM', 'Google', 'AWS', 'OpenAI', 'Analysts and media', 'Other'];
+const GROUPS = ['Microsoft', 'GitHub', 'IBM', 'Google', 'AWS', 'OpenAI', 'YouTube', 'Analysts and media', 'Other'];
 
 function ago(iso: string | null): string {
   if (iso === null) return 'never';
@@ -28,6 +28,8 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
   const [feedUrl, setFeedUrl] = useState('');
   const [group, setGroup] = useState('Other');
   const [adding, setAdding] = useState(false);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [addingVideo, setAddingVideo] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
 
   const feeds = useQuery({
@@ -44,18 +46,35 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
     e.preventDefault();
     setAdding(true);
     setMessage(null);
-    const r = await api.addDiscoveryFeed({ title: title.trim(), feedUrl: feedUrl.trim(), groupName: group });
-    setAdding(false);
-    if (!r.success) { setMessage({ text: r.error.message, error: true }); return; }
-    setTitle(''); setFeedUrl('');
-    setMessage({ text: `Added “${r.data.title}” — ${r.data.itemsInFeed.toString()} articles in its feed. They appear after the next check.`, error: false });
-    refresh();
+    try {
+      const r = await api.addDiscoveryFeed({ title: title.trim(), feedUrl: feedUrl.trim(), groupName: group });
+      if (!r.success) { setMessage({ text: r.error.message, error: true }); return; }
+      setTitle(''); setFeedUrl('');
+      setMessage({ text: `Added “${r.data.title}” — ${r.data.itemsInFeed.toString()} items in its feed. They appear after the next check.`, error: false });
+      refresh();
+    } catch { setMessage({ text: 'Could not add this source. Check your connection and try again.', error: true }); }
+    finally { setAdding(false); }
+  }
+
+  async function addVideo(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    setAddingVideo(true);
+    setMessage(null);
+    try {
+      const r = await api.addDiscoveryVideo(videoUrl.trim());
+      if (!r.success) { setMessage({ text: r.error.message, error: true }); return; }
+      setVideoUrl('');
+      setMessage({ text: `${r.data.isNew ? 'Added' : 'Already in Discover:'} “${r.data.title}”. Description only; no transcript retrieved.`, error: false });
+      void queryClient.invalidateQueries({ queryKey: ['discover'] });
+      void queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
+    } catch { setMessage({ text: 'Could not import the video. Check your connection and try again.', error: true }); }
+    finally { setAddingVideo(false); }
   }
 
   return (
     <section className="dc-sources" aria-label="Discovery sources">
       <div className="dc-sources__head">
-        <h2 className="dc-sources__title">Where Athena looks for articles</h2>
+        <h2 className="dc-sources__title">Where Athena looks for articles and videos</h2>
         <button type="button" className="dc-sources__btn" onClick={() => { void api.checkDiscoveryFeeds().then(() => { setMessage({ text: 'Checking every source now — new articles appear in a minute or two.', error: false }); window.setTimeout(refresh, 4_000); }); }}>
           <Renew size={14} aria-hidden="true" /> Check now
         </button>
@@ -95,11 +114,16 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
 
       <form className="dc-sources__add" onSubmit={(e) => { void add(e); }}>
         <input className="dc-sources__input" placeholder="Name, e.g. Anthropic News" value={title} onChange={(e) => { setTitle(e.target.value); }} aria-label="Source name" required />
-        <input className="dc-sources__input dc-sources__input--wide" placeholder="Feed address (RSS or Atom), https://…" value={feedUrl} onChange={(e) => { setFeedUrl(e.target.value); }} aria-label="Feed address" required />
+        <input className="dc-sources__input dc-sources__input--wide" placeholder="RSS, Atom or YouTube channel URL" value={feedUrl} onChange={(e) => { setFeedUrl(e.target.value); }} aria-label="Feed address or YouTube channel URL" required />
         <select className="dc-sources__input" value={group} onChange={(e) => { setGroup(e.target.value); }} aria-label="Group">
           {GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
         <button type="submit" className="dc-sources__btn dc-sources__btn--primary" disabled={adding || title.trim() === '' || feedUrl.trim() === ''}>{adding ? 'Checking…' : 'Add source'}</button>
+      </form>
+      <p className="dc-sources__msg">For ongoing discovery, add a channel URL such as youtube.com/@MicrosoftAzure above. Then use Check now. To import one video, paste its URL below.</p>
+      <form className="dc-sources__add" onSubmit={(e) => { void addVideo(e); }}>
+        <input className="dc-sources__input dc-sources__input--wide" type="url" placeholder="https://www.youtube.com/watch?v=…" value={videoUrl} onChange={(e) => { setVideoUrl(e.target.value); }} aria-label="YouTube video URL" required />
+        <button type="submit" className="dc-sources__btn dc-sources__btn--primary" disabled={addingVideo || !videoUrl.trim()}>{addingVideo ? 'Importing…' : 'Add video'}</button>
       </form>
       {message !== null && <p className={`dc-sources__msg${message.error ? ' dc-sources__msg--error' : ''}`} role="status">{message.text}</p>}
     </section>

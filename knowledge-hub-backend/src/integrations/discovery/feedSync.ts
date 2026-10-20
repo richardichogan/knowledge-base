@@ -14,6 +14,7 @@ import { env } from '../../config/env.js';
 import { readFeed, fetchPageDescription } from './feedReader.js';
 import { scoreUnscored } from '../cms/discoveredArticlesSync.js';
 import { runProjectFitPass, PROJECT_PROTECT_BOOST } from './projectFit.js';
+import { youtubeVideoId } from './youtube.js';
 
 const SYNC_STATE_KEY = 'discovered-articles';
 /** Only articles published this recently are filed — also bounds a brand-new source's first fetch. */
@@ -92,12 +93,13 @@ async function checkSource(db: Pool, source: SourceRow): Promise<number> {
 
   const discoveredAt = new Date().toISOString();
   for (const a of fresh) {
+    const videoId = youtubeVideoId(a.url);
     await upsertContentItem(db, {
       source: 'discovered-article',
       sourceId: `feed-${createHash('sha1').update(a.url).digest('hex').slice(0, 24)}`,
       title: a.title,
       summary: `via ${source.title} · discovered ${discoveredAt.slice(0, 10)}`,
-      body: a.summary,
+      body: videoId ? `YouTube video - description only; no transcript retrieved.\n\n${a.summary || 'No description provided.'}` : a.summary,
       publishedAt: a.publishedAt.toISOString(),
       url: a.url,
       projectContext: 'msft-blog',
@@ -109,6 +111,7 @@ async function checkSource(db: Pool, source: SourceRow): Promise<number> {
         sourceId: source.id,
         sourceGroup: source.group_name,
         status: 'new',
+        ...(videoId ? { contentKind: 'youtube-video', videoId, contentBasis: 'description-only', transcriptStatus: 'not-retrieved' } : {}),
       },
       tags: [source.title],
     });

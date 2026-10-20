@@ -6,7 +6,7 @@ import { once } from 'node:events';
 import { createServer } from 'node:net';
 
 const web = resolve(import.meta.dirname, '../knowledge-hub-web');
-const allowedModes = ['panel-typography', 'navigation', 'chat', 'project-pickers', 'watchlist-projects', 'discover', 'sparks', 'today', 'podcast-prep', 'auth-session', 'auth-callback', 'note-history', 'note-recovery', 'note-popout', 'note-links', 'watchlists', 'markdown-export', 'diagram-theme', 'diagram', 'diagram-properties', 'diagram-drilldown', 'diagram-line-jumps'];
+const allowedModes = ['share-email', 'panel-typography', 'navigation', 'chat', 'project-pickers', 'watchlist-projects', 'discover', 'sparks', 'today', 'podcast-prep', 'auth-session', 'auth-callback', 'note-history', 'note-recovery', 'note-popout', 'note-links', 'watchlists', 'markdown-export', 'diagram-theme', 'diagram', 'diagram-properties', 'diagram-drilldown', 'diagram-line-jumps'];
 const selection = process.argv.find(argument => argument.startsWith('--modes='));
 const modes = selection === undefined ? ['navigation', 'discover', 'today', 'chat'] : selection.slice('--modes='.length).split(',');
 if (modes.length === 0 || modes.some(mode => !allowedModes.includes(mode))) throw new Error('Select only supported isolated browser fixture modes.');

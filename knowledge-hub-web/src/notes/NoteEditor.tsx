@@ -11,6 +11,8 @@ import '@blocknote/mantine/style.css';
 import { toPng } from 'html-to-image';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal, GitHubConflictModal } from './GitHubModal';
+import { ShareEmailModal } from '../components/ShareEmailModal';
+import type { ShareEmailContent } from '../types/shareEmail';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
 import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch, TextBold, TextItalic, ListChecked, ListBulleted, ListNumbered, Quotes } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
@@ -135,6 +137,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [emailContent, setEmailContent] = useState<ShareEmailContent | null>(null);
   const [buildDialogOpen, setBuildDialogOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -899,6 +902,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                   </button>
                 </li>
                 <li role="menuitem">
+                  <button type="button" className="kb-menu__item" disabled={!publication}
+                    title={publication ? 'Email the published GitHub link; recipients need repository access' : 'Publish this note to GitHub before sharing its link'}
+                    onClick={() => {
+                      if (publication) { setEmailContent({ title: publicationTitle, url: publication.url }); setExportMenuOpen(false); }
+                    }}>
+                    <Launch size={16} /> Share GitHub note by email
+                  </button>
+                </li>
+                <li role="menuitem">
                   <button type="button" className="kb-menu__item" title="Turn this note into a build spec for GitHub cloud coding agents"
                     onClick={() => { setExportMenuOpen(false); setBuildDialogOpen(true); }}>
                     <Code size={16} /> Send to Build
@@ -1124,6 +1136,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       </fieldset>
 
       {buildDialogOpen && <SendToBuildDialog source={{ kind: 'note', noteId: doc.id }} onClose={() => { setBuildDialogOpen(false); }} />}
+      {emailContent && <ShareEmailModal content={emailContent} onClose={() => { setEmailContent(null); }} />}
       <GitHubModal
         open={githubModalOpen}
         defaultFilePath={defaultFilePath}

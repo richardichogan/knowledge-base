@@ -11,6 +11,7 @@ import { timelineRouter } from './routes/timeline.js';
 import { searchRouter } from './routes/search.js';
 import { sourcesRouter } from './routes/sources.js';
 import { muralRouter } from './routes/mural.js';
+import { shareEmailRouter } from './routes/shareEmail.js';
 import { aiRouter } from './routes/ai.js';
 import { chatPanelRouter } from './routes/chatPanel.js';
 import { tasksRouter } from './routes/tasks.js';
@@ -82,6 +83,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/images', express.raw({ type: '*/*', limit: '20mb' }));
   app.use('/api/integrations/mural/export', mapBodyErrors(express.raw({ type: 'image/png', limit: '20mb' })));
   app.use('/api/integrations/mural/export-diagram', mapBodyErrors(express.json({ limit: '30mb' })));
+  app.use('/api/integrations/share-email/send', mapBodyErrors(express.json({ limit: '9mb' })));
   // Voice audio travels as base64 JSON (see voiceRoutes.ts) — a ~30s WAV clip
   // base64-encodes to several MB, well past the default 1mb JSON limit.
   app.use('/api/voice', express.json({ limit: '20mb' }));
@@ -137,6 +139,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/search', searchRouter);
   app.use('/api/sources', sourcesRouter);
   app.use('/api/integrations/mural', muralRouter);
+  app.use('/api/integrations/share-email', shareEmailRouter);
   app.use('/api/ai', aiRouter);
   app.use('/api/ai', chatPanelRouter);
   app.use('/api/voice', voiceRouter);

@@ -34,6 +34,18 @@ Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
 const now = new Date().toISOString();
 api.getTaxonomy = async () => success([]);
 api.getDiscoverSources = async () => success([]);
+api.listDiscoveryFeeds = async () => success([]);
+let addedChannel = '';
+let addedVideo = '';
+api.addDiscoveryFeed = async data => {
+  addedChannel = data.feedUrl;
+  return success({ id: 'youtube-channel', title: data.title, feedUrl: data.feedUrl, groupName: data.groupName,
+    isActive: true, lastCheckedAt: null, lastSuccessAt: null, lastError: null, lastNewCount: 0, articlesFound: 0, itemsInFeed: 15 });
+};
+api.addDiscoveryVideo = async url => {
+  addedVideo = url;
+  return success({ id: 'youtube-video', title: 'Agentic borders', isNew: true });
+};
 api.getDiscoverFeed = async () => {
   return success({ items: [{
   id: articleId, sourceId: 'test', title: 'A public cloud management announcement', url: 'https://example.com/news',
@@ -104,6 +116,27 @@ function openList(key: string): void {
 export async function runDiscoverChecks(): Promise<string[]> {
   const checks: string[] = [];
   await waitFor(() => document.querySelector('.dc-card .dc-action--explore') !== null);
+  click('Sources');
+  await waitFor(() => document.querySelector('.dc-sources') !== null);
+  const setInput = (label: string, value: string): void => {
+    const input = el<HTMLInputElement>(`input[aria-label="${label}"]`);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  setInput('Source name', 'Microsoft Azure');
+  setInput('Feed address or YouTube channel URL', 'https://www.youtube.com/@MicrosoftAzure');
+  await waitFor(() => ![...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Add source')!.disabled);
+  click('Add source');
+  await waitFor(() => document.querySelector('.dc-sources__msg[role="status"]')?.textContent?.includes('15 items') === true);
+  check(addedChannel === 'https://www.youtube.com/@MicrosoftAzure', 'Sources accepts a normal channel URL');
+  setInput('YouTube video URL', 'https://youtu.be/O9nqK23LRbA');
+  await waitFor(() => ![...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Add video')!.disabled);
+  click('Add video');
+  await waitFor(() => document.querySelector('.dc-sources__msg[role="status"]')?.textContent?.includes('no transcript retrieved') === true);
+  check(addedVideo === 'https://youtu.be/O9nqK23LRbA', 'Individual video import uses the supplied URL');
+  el<HTMLButtonElement>('[aria-label="Close sources"]').click();
+  await waitFor(() => document.querySelector('.dc-sources') === null);
+  checks.push('Normal channel URL and individual YouTube video import with explicit description-only status');
   const card = document.querySelector<HTMLElement>('.dc-card')!;
   check(card.querySelector('.dc-card-title')?.textContent === 'A public cloud management announcement', 'Card shows the article title');
   check(card.querySelector('.dc-card-synopsis')?.textContent === 'A useful enterprise IT update.', 'Card shows Athena\'s synopsis');

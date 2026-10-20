@@ -51,7 +51,9 @@ import { DiagramDescriptionEditor } from './DiagramDescriptionEditor';
 import { descriptionPlainText, descriptionRuns, formatDescription, styledLines } from './diagramMarkdown';
 import { DIAGRAM_FILLS as FILLS, DIAGRAM_STROKES as STROKES, DIAGRAM_TEXT_COLOURS as TEXT_COLOURS, IBM_COLOURS } from './diagramPalette';
 import { DiagramDrilldown } from './DiagramDrilldown';
-import { exportDiagram, type DiagramExportFormat } from './diagramExport';
+import { exportDiagram, diagramExportBlob, exportFileName, type DiagramExportFormat } from './diagramExport';
+import { ShareEmailModal } from '../../components/ShareEmailModal';
+import type { ShareEmailContent } from '../../types/shareEmail';
 import { diagramMural } from './diagramMural';
 import { MURAL_QUERY, loadMuralStatus } from '../../components/MuralIntegration';
 import { Link } from 'react-router-dom';
@@ -342,6 +344,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [exportFormat, setExportFormat] = useState<DiagramExportFormat | 'mural'>('png');
   const [muralBoardUrl, setMuralBoardUrl] = useState<string | null>(null);
   const [muralResult, setMuralResult] = useState('');
+  const [emailContent, setEmailContent] = useState<ShareEmailContent | null>(null);
   const muralQuery = useQuery({ queryKey: MURAL_QUERY, queryFn: loadMuralStatus, enabled: menu === 'export', staleTime: 0 });
   const [exportBg, setExportBg] = useState<'white' | 'transparent'>('white');
   const [exportGrid, setExportGrid] = useState(false);
@@ -1201,7 +1204,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     });
   }
 
-  async function runExport(): Promise<void> {
+  async function runExport(shareDrawio = false): Promise<void> {
     if (exporting) return;
     const cur = docRef.current;
     const ids = [...new Set(cur.nodes.flatMap((n) => (n.assetId === null ? [] : [n.assetId])))];
@@ -1218,7 +1221,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     setMuralResult('');
     try {
       const options = { footnotes: exportFootnotes, legend: exportLegend && cur.legend?.visible === true, name: canvas?.title };
-      if (exportFormat === 'mural') {
+      if (shareDrawio) {
+        const blob = await diagramExportBlob(cur, map, 'drawio', 'transparent', false, options);
+        if (blob.size > 4 * 1024 * 1024) throw new Error('The draw.io email attachment exceeds 4 MiB. Export a smaller diagram.');
+        setEmailContent({ title: canvas?.title ?? 'Athena diagram',
+          attachment: { filename: exportFileName(canvas?.title, 'drawio'), xml: await blob.text() } });
+        setMenu(null);
+      } else if (exportFormat === 'mural') {
         const payload = await diagramMural(cur, map, {
           boardUrl: muralBoardUrl ?? muralQuery.data?.boardUrl ?? '', title: (canvas?.title ?? 'Athena diagram').slice(0, 300),
           footnotes: exportFootnotes, legend: exportLegend && cur.legend?.visible === true,
@@ -1926,7 +1935,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 );
   };
 
-  return (
+  return (<>
+    {emailContent && <ShareEmailModal content={emailContent} onClose={() => { setEmailContent(null); }} />}
     <div
       ref={rootRef}
       className={`dg-editor${presenting !== null ? ' dg-editor--presenting' : ''}`}
@@ -2059,7 +2069,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                       <input type="url" value={muralBoardUrl ?? muralQuery.data.boardUrl} disabled={exporting} maxLength={2048}
                         onChange={event => { setMuralBoardUrl(event.target.value); setMuralResult(''); }} />
                     </label>}
-                    {muralResult && <p className="dg-popover__hint mural-integration__result" role="status">Editable diagram exported. <a href={muralResult} target="_blank" rel="noreferrer">Open board in Mural</a></p>}
+                    {muralResult && <>
+                      <p className="dg-popover__hint mural-integration__result" role="status">Editable diagram exported. <a href={muralResult} target="_blank" rel="noreferrer">Open board in Mural</a></p>
+                      <button type="button" className="dg-text-btn" onClick={() => {
+                        setEmailContent({ title: canvas?.title ?? 'Athena diagram', url: muralResult }); setMenu(null);
+                      }}>Share Mural link by email</button>
+                    </>}
                   </div>}
                 </section>
                 {exportFormat !== 'drawio' && exportFormat !== 'mural' && <section className="dg-popover__section">
@@ -2085,6 +2100,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   {exporting ? <><InProgress size={16} className="dg-spin" /> Exporting…</> : <><Download size={16} /> {exportFormat === 'mural' ? 'Send editable diagram to Mural' : `Export ${exportFormat === 'drawio' ? 'draw.io' : exportFormat.toUpperCase()}`}</>}
                 </button>
                 {doc.nodes.length === 0 && <p className="dg-popover__hint">Add something to the diagram to export it.</p>}
+                <button type="button" className="dg-text-btn" disabled={exporting || doc.nodes.length === 0} onClick={() => { void runExport(true); }}>
+                  Share draw.io attachment by email
+                </button>
               </div>
             )}
           </div>
@@ -2721,7 +2739,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           rootRef.current?.focus({ preventScroll: true });
         }} />}
     </div>
-  );
+  </>);
 };
 
 function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onEdgeStyleChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange, onArrowDirectionChange }: {
