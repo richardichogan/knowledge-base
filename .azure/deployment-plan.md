@@ -2,6 +2,28 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-20 17:14 BST, Mural integration):**
+- Source `297730a` pushed to the feature branch and main. ACR run `ca6x`
+  built v220 successfully from `#main:knowledge-hub-backend`; digest
+  `sha256:0614bd5bf171f68bd86b63f6684b9ed31f581ade40133d15f8db961515cea224`.
+- New revision `kh-prod-api-vnet--0000217` is Healthy / RunningAtMaxScale,
+  provisioning Succeeded, and receives 100% of traffic. v219 is no longer
+  active. Application logs show normal authenticated reads and successful
+  Daily Insights requests after deployment.
+- Matching Static Web Apps production deployment succeeded. Both public
+  domains return HTTP 200 and serve `/assets/index-CA1Tp849.js`, SHA-256
+  `b1ba54f138ce1ea0fc96729239b0d8c5f26660dedc9a0d6cc669d376f31a25be`,
+  identical to the validated local build. The registered callback path
+  serves the SPA with HTTP 200 on both domains.
+- Existing registry identity None/secret authentication is unchanged; live
+  registry scope role lookup returned no assignments. No Azure resources,
+  secrets, environment variables, migrations or dependencies were added.
+- Production browser reaches the Microsoft sign-in gate. User must sign in,
+  enter the Mural client secret in Sources / Integrations, and consent before
+  the real-account export can be verified. No private diagram or credentials
+  were sent to Mural during implementation/testing.
+- Isolated preview server stopped. No desktop installer release.
+
 **Section 7: Validation proof (2026-10-20 17:05 BST, Mural integration):**
 - Release implementation `ee14536`; fetched origin and merged origin/main:
   already up to date. Both applications passed `npx tsc --noEmit` and
