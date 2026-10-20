@@ -1,6 +1,36 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Ready for Validation
+
+**Mural integration release (2026-10-20):**
+- Add Mural credential setup and OAuth connection to existing Sources / Integrations.
+- Implement the registered `/integrations/mural/callback` route with secure
+  server-side credential/token storage, state validation and refresh handling.
+- Add explicit one-way PNG image export to a user-entered Mural board URL.
+  Preserve existing full rendering, annotations and icons; label it as a
+  single image, not editable shapes. Existing draw.io export remains unchanged.
+  Native attached connectors are not documented in the public API, so native
+  editable export is deferred rather than silently losing connectors.
+- Reuse existing production resources and AZCLI/SWA deployment recipe.
+  No new infrastructure is planned. Confirm implementation scope after inspecting
+  current integration/export patterns and Mural object support.
+- User explicitly requested implementation/deployment; unavailable for the
+  format clarification. Proceed with the bounded image-only option, clearly
+  disclosed at export time. No external writes until the user clicks export.
+- Reuse Alliance Tenant Reporting (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`),
+  UK South backend and West Europe frontend. No region/provisioning changes.
+- Run isolated regression checks, both application typechecks/builds, then
+  azure-validate and azure-deploy before publishing to the established targets.
+- Implemented encrypted, write-only setup, authenticated callback, S256 PKCE,
+  expiring user-bound one-use state, serialised token refresh and explicit
+  PNG image export. No migrations or dependencies.
+- 206 backend isolated tests and 122 frontend isolated tests passed. Targeted
+  Mural browser checks passed at 1440, 768 and 390 pixels, including actual
+  PNG rendering/upload dispatch, no silent retries, disconnected guards,
+  error feedback, masked/cleared secrets and no horizontal overflow.
+- Both app typechecks/builds passed during implementation; repeat after
+  pre-deploy main sync. New backend files are lint clean; four existing
+  diagram frontend lint findings are unchanged.
 
 **Current approved release (2026-10-20 13:39 BST, intelligence usability):**
 User explicitly requested deployment of `923dcd6`, including embedded Athena

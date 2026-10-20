@@ -225,12 +225,16 @@ function download(blob: Blob, fileName: string): void {
 }
 
 export async function exportDiagram(document: DiagramDocument, assets: Map<string, Blob>, format: DiagramExportFormat, background: 'white' | 'transparent', includeGrid = false, options: DiagramExportOptions = {}): Promise<void> {
+  const blob = await diagramExportBlob(document, assets, format, background, includeGrid, options);
+  download(blob, exportFileName(options.name, format));
+}
+
+export async function diagramExportBlob(document: DiagramDocument, assets: Map<string, Blob>, format: DiagramExportFormat, background: 'white' | 'transparent', includeGrid = false, options: DiagramExportOptions = {}): Promise<Blob> {
   if (format === 'drawio') {
     const images = new Map<string, string>();
     for (const [id, blob] of assets) images.set(id, await readDataUrl(blob));
     const xml = diagramDrawioXml(document, images, options);
-    download(new Blob([xml], { type: 'application/xml' }), exportFileName(options.name, format));
-    return;
+    return new Blob([xml], { type: 'application/xml' });
   }
   const { svg, width, height } = await buildSvg(document, assets, background, includeGrid, options);
   let blob = new Blob([svg], { type: 'image/svg+xml' });
@@ -256,5 +260,5 @@ export async function exportDiagram(document: DiagramDocument, assets: Map<strin
       });
     } finally { URL.revokeObjectURL(url); }
   }
-  download(blob, exportFileName(options.name, format));
+  return blob;
 }

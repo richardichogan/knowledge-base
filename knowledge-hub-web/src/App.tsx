@@ -19,6 +19,7 @@ import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom';
 import { Theme } from '@carbon/react';
 import { AppShell } from './components/AppShell';
 import { SignInGate } from './components/SignInGate';
+import { MuralCallback } from './components/MuralIntegration';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { GlobalContextMenuProvider } from './context/GlobalContextMenu';
 import { AthenaContextProvider } from './context/AthenaContext';
@@ -60,6 +61,7 @@ const App: React.FC = () => {
             <DocumentTitleSync />
             <GlobalContextMenuProvider>
             <Routes>
+              <Route path="/integrations/mural/callback" element={<MuralCallback />} />
               <Route path="/autocue/*" element={<AutocueApp />} />
               {/* Standalone full-screen chat, no sidebar/nav — for use as a
                   desktop PWA shortcut (Edge/Chrome "install as app"). */}

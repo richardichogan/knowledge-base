@@ -1,0 +1,18 @@
+.mural-integration {
+  &__url { display: block; overflow-wrap: anywhere; color: var(--cds-text-primary); }
+  &__field { display: grid; gap: 0.5rem; font-size: var(--kh-text-body, 0.875rem); }
+  &__field input {
+    box-sizing: border-box; width: 100%; min-width: 0; padding: 0.625rem; font: inherit;
+    color: var(--cds-text-primary); background: var(--cds-field-01); border: 1px solid var(--cds-border-strong-01);
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+  &__result { overflow-wrap: anywhere; }
+  a {
+    color: var(--cds-link-primary); text-decoration: underline;
+    &:hover { color: var(--cds-link-primary-hover); }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  }
+  &--callback { width: min(100%, 48rem); margin: 2rem auto; padding: 1.5rem; box-sizing: border-box; }
+  &--callback h1 { font-size: var(--kh-panel-title, 1.5rem); font-weight: 600; margin: 0 0 1rem; }
+}

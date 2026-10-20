@@ -33,6 +33,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/documentList.test.ts',
   '../knowledge-hub-web/tests/projectOptions.test.ts',
 ] : [
+  'scripts/mural.test.ts',
   'scripts/focused-context.test.ts',
   'scripts/project-context.test.ts',
   'scripts/chat-session-store.test.ts',

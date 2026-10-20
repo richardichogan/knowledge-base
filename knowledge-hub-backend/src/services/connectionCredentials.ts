@@ -30,7 +30,7 @@ function encryptionKey(): Buffer {
   return createHash('sha256').update(`athena-connection-credentials:${secret}`).digest();
 }
 
-function encrypt(name: CredentialName, value: string): string {
+export function encryptConnectionValue(name: string, value: string): string {
   const iv = randomBytes(GCM_NONCE_BYTES);
   const cipher = createCipheriv('aes-256-gcm', encryptionKey(), iv);
   cipher.setAAD(Buffer.from(name));
@@ -38,7 +38,7 @@ function encrypt(name: CredentialName, value: string): string {
   return Buffer.concat([iv, cipher.getAuthTag(), data]).toString('base64');
 }
 
-function decrypt(name: CredentialName, encoded: string): string {
+export function decryptConnectionValue(name: string, encoded: string): string {
   try {
     const raw = Buffer.from(encoded, 'base64');
     const decipher = createDecipheriv('aes-256-gcm', encryptionKey(), raw.subarray(0, GCM_NONCE_BYTES));
@@ -57,7 +57,7 @@ export async function loadConnectionCredentials(db: Pool): Promise<void> {
   const values = new Map<CredentialName, string>();
   for (const entry of connectionCredentials) {
     const row = result.rows.find((r) => r.source === `${PREFIX}${entry.id}`);
-    if (row !== undefined) values.set(entry.envKey, decrypt(entry.envKey, row.last_cursor));
+    if (row !== undefined) values.set(entry.envKey, decryptConnectionValue(entry.envKey, row.last_cursor));
   }
   replaceCredentialValues(values);
 }
@@ -112,7 +112,7 @@ export async function updateConnectionCredential(db: Pool, id: string, input: un
     throw new ValidationError('Enter a non-empty token or API key (maximum 8,192 characters, no line breaks).');
   }
   const value = input.trim();
-  const encrypted = encrypt(entry.envKey, value);
+  const encrypted = encryptConnectionValue(entry.envKey, value);
   const verified = await checkToken(id, value);
   await db.query(
     `INSERT INTO sync_state (source, last_cursor, item_count, updated_at)

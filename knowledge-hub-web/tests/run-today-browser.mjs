@@ -17,6 +17,7 @@ const sparkChecks = process.env.ATHENA_BROWSER_CHECKS === 'sparks';
 const podcastPrepChecks = process.env.ATHENA_BROWSER_CHECKS === 'podcast-prep';
 const thinkSearchChecks = process.env.ATHENA_BROWSER_CHECKS === 'think-search';
 const connectionsChecks = process.env.ATHENA_BROWSER_CHECKS === 'connections';
+const muralChecks = process.env.ATHENA_BROWSER_CHECKS === 'mural';
 const panelTypographyChecks = process.env.ATHENA_BROWSER_CHECKS === 'panel-typography';
 const authSessionChecks = process.env.ATHENA_BROWSER_CHECKS === 'auth-session';
 const noteCopyChecks = process.env.ATHENA_BROWSER_CHECKS === 'note-copy';
@@ -142,6 +143,7 @@ try {
         : sparkChecks ? 'typeof window.runSparkChecks === "function" && document.querySelector(".spark-item__drag") !== null'
         : podcastPrepChecks ? 'typeof window.runPodcastPrepChecks === "function" && document.querySelector(".podcast-prep-notification") !== null'
         : panelTypographyChecks ? 'typeof window.runPanelTypographyChecks === "function" && document.querySelector(".panel-review") !== null'
+        : muralChecks ? 'typeof window.runDiagramMuralChecks === "function"'
         : connectionsChecks ? 'typeof window.runConnectionsChecks === "function" && document.querySelector(".conn-panel") !== null'
         : authSessionChecks ? 'typeof window.runAuthSessionChecks === "function" && document.querySelector("dialog") !== null'
         : notePopoutChecks ? 'typeof window.runNotePopoutChecks === "function" && document.querySelector(".notes-popout-btn") !== null'
@@ -293,7 +295,7 @@ try {
       console.log(JSON.stringify({ width, checks: results }, null, 2));
       continue;
     }
-    if (sparkChecks || thinkSaveChecks || thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks || noteHistoryChecks || notePopoutChecks || authCallbackChecks || imagineBriefChecks || markdownExportChecks) {
+    if (muralChecks || sparkChecks || thinkSaveChecks || thinkSearchChecks || connectionsChecks || authSessionChecks || noteCopyChecks || noteHistoryChecks || notePopoutChecks || authCallbackChecks || imagineBriefChecks || markdownExportChecks) {
       if (sparkChecks && process.env.TODAY_ARTIFACT_DIR) {
         await mkdir(process.env.TODAY_ARTIFACT_DIR, { recursive: true });
         await evaluate('window.prepareSparkDrag()');
@@ -302,7 +304,7 @@ try {
         await writeFile(join(process.env.TODAY_ARTIFACT_DIR, `sparks-drag-${width}.png`), Buffer.from(image.data, 'base64'));
         await evaluate('window.cancelSparkDrag()');
       }
-      const results = await evaluate(sparkChecks ? 'window.runSparkChecks()' : notePopoutChecks ? 'window.runNotePopoutChecks()' : thinkSaveChecks ? 'window.runThinkSaveChecks()' : markdownExportChecks ? 'window.runMarkdownExportChecks()' : imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
+      const results = await evaluate(muralChecks ? 'window.runDiagramMuralChecks()' : sparkChecks ? 'window.runSparkChecks()' : notePopoutChecks ? 'window.runNotePopoutChecks()' : thinkSaveChecks ? 'window.runThinkSaveChecks()' : markdownExportChecks ? 'window.runMarkdownExportChecks()' : imagineBriefChecks ? 'window.runImagineBriefChecks()' : authCallbackChecks ? 'window.runAuthCallbackChecks()' : noteHistoryChecks ? 'window.runNoteHistoryChecks()' : noteCopyChecks ? 'window.runNoteCopyChecks()' : authSessionChecks ? 'window.runAuthSessionChecks()' : connectionsChecks ? 'window.runConnectionsChecks()' : 'window.runThinkSearchChecks()');
       if (sparkChecks && width !== 390) {
         for (const source of ['.spark-item__drag', '.spark-panel__loose .spark-item__body']) {
           await evaluate('window.resetNativeSparkDrag()');

@@ -10,6 +10,7 @@ import { authenticate } from './middleware/auth.js';
 import { timelineRouter } from './routes/timeline.js';
 import { searchRouter } from './routes/search.js';
 import { sourcesRouter } from './routes/sources.js';
+import { muralRouter } from './routes/mural.js';
 import { aiRouter } from './routes/ai.js';
 import { chatPanelRouter } from './routes/chatPanel.js';
 import { tasksRouter } from './routes/tasks.js';
@@ -79,6 +80,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   // ── Body parsing ──────────────────────────────────────────────────────────
   // Raw binary for image uploads — MUST come before express.json so binary bodies aren't parsed as JSON
   app.use('/api/images', express.raw({ type: '*/*', limit: '20mb' }));
+  app.use('/api/integrations/mural/export', mapBodyErrors(express.raw({ type: 'image/png', limit: '20mb' })));
   // Voice audio travels as base64 JSON (see voiceRoutes.ts) — a ~30s WAV clip
   // base64-encodes to several MB, well past the default 1mb JSON limit.
   app.use('/api/voice', express.json({ limit: '20mb' }));
@@ -133,6 +135,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/timeline', timelineRouter);
   app.use('/api/search', searchRouter);
   app.use('/api/sources', sourcesRouter);
+  app.use('/api/integrations/mural', muralRouter);
   app.use('/api/ai', aiRouter);
   app.use('/api/ai', chatPanelRouter);
   app.use('/api/voice', voiceRouter);

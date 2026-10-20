@@ -49,6 +49,10 @@ import type { Person, PersonInput } from '../types/people';
 
 export { DISCOVER_FORMATS, type DiscoverFormat } from '../types/discover';
 
+export interface MuralStatus {
+  clientId: string; configured: boolean; connected: boolean; boardUrl: string; redirectUrl: string;
+}
+
 export type ProjectRegisterKind = 'question' | 'risk' | 'issue';
 export interface ProjectRegisterItem {
   id: string; projectId: string; kind: ProjectRegisterKind; title: string; detail: string;
@@ -610,6 +614,26 @@ export interface BlogDraft {
 }
 
 export class KnowledgeHubApi {
+  async getMuralStatus(): Promise<ApiResponse<MuralStatus>> {
+    return (await this.client.get<ApiResponse<MuralStatus>>('/api/integrations/mural')).data;
+  }
+  async saveMuralConfig(input: { clientId: string; secret: string; boardUrl: string }): Promise<ApiResponse<MuralStatus>> {
+    return (await this.client.put<ApiResponse<MuralStatus>>('/api/integrations/mural', input)).data;
+  }
+  async connectMural(): Promise<ApiResponse<{ url: string }>> {
+    return (await this.client.post<ApiResponse<{ url: string }>>('/api/integrations/mural/connect')).data;
+  }
+  async finishMuralAuth(input: { code: string; state: string }): Promise<ApiResponse<{ connected: boolean }>> {
+    return (await this.client.post<ApiResponse<{ connected: boolean }>>('/api/integrations/mural/callback', input, { timeout: 60_000 })).data;
+  }
+  async disconnectMural(): Promise<ApiResponse<{ connected: boolean }>> {
+    return (await this.client.delete<ApiResponse<{ connected: boolean }>>('/api/integrations/mural/connection')).data;
+  }
+  async exportMuralImage(image: Blob, boardUrl: string, title: string): Promise<ApiResponse<{ boardUrl: string }>> {
+    return (await this.client.post<ApiResponse<{ boardUrl: string }>>('/api/integrations/mural/export', image, {
+      params: { boardUrl, title }, headers: { 'Content-Type': 'image/png' }, timeout: 150_000,
+    })).data;
+  }
   private readonly client: AxiosInstance;
 
   constructor(baseURL = BASE_URL) {

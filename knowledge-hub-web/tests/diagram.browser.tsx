@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { DiagramEditor } from '../src/features/diagram/DiagramEditor';
 import { GlobalContextMenuProvider } from '../src/context/GlobalContextMenu';
 import { api } from '../src/services/api';
+import { MuralIntegration } from '../src/components/MuralIntegration';
 import type { ApiResponse } from '../src/types';
 import { emptyDiagram, type DiagramDocument, type DiagramNode, type DiagramSnapshot } from '../src/features/diagram/diagramTypes';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
@@ -20,6 +21,30 @@ import '../src/styles/global.scss';
 
 const success = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+const muralBoard = 'https://app.mural.co/t/athena5676/m/athena5676/1792510867260';
+let muralConnected = true;
+let muralConfigured = true;
+let failMuralExport = false;
+let muralExports = 0;
+api.getMuralStatus = async () => success({
+  clientId: 'a10cd14e-6000-4e86-8c23-ce3388057959', configured: muralConfigured,
+  connected: muralConnected, boardUrl: muralBoard,
+  redirectUrl: 'https://athena.themicrosoftcloudblog.com/integrations/mural/callback',
+});
+api.exportMuralImage = async (image, board, title) => {
+  muralExports++;
+  check(image.type === 'image/png' && image.size > 100, 'Mural receives a rendered PNG');
+  check(board === muralBoard && title.includes('Enterprise'), 'Mural receives the chosen board and title');
+  if (failMuralExport) return { success: false, error: { code: 'TEST', message: 'Mural write permission denied' } };
+  return success({ boardUrl: muralBoard });
+};
+api.saveMuralConfig = async input => {
+  check(input.secret === 'fixture-client-secret', 'Setup sends the entered client secret');
+  muralConfigured = true;
+  return api.getMuralStatus();
+};
+api.disconnectMural = async () => { muralConnected = false; return success({ connected: false }); };
+api.connectMural = async () => ({ success: false, error: { code: 'TEST', message: 'Fixture connect unavailable' } });
 const canvasId = crypto.randomUUID();
 const assetId = crypto.randomUUID();
 const icon = new Blob(['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="#0078d4" d="M4 28L14 4H22L30 28H22L18 16L12 28Z"/></svg>'], { type: 'image/svg+xml' });
@@ -215,6 +240,7 @@ async function runDiagramLineJumpChecks(): Promise<string[]> {
     check([...xml.querySelectorAll('path')].some(path => path.getAttribute('d') === edge().getAttribute('d')),
       'Connector bridge is identical in canvas and export');
   }
+
   check(window.document.querySelector(`g.dg-node[data-id="${over.id}"] .dg-line__hit`)!.getAttribute('d') === standalone()!.getAttribute('d'),
     'Standalone bridge hit target follows the visible arch');
   const group = edge().closest('g.dg-edge')!;
@@ -257,6 +283,51 @@ async function runDiagramLineJumpChecks(): Promise<string[]> {
     'Bridge hit targets and transparent knockout masks follow the visible arches',
     'Dotted/dashed strokes, arrowheads and responsive layout are preserved'];
 }
+async function runDiagramMuralChecks(): Promise<string[]> {
+  await waitFor(() => window.document.querySelector('.dg-header') !== null);
+  clickButton('Export');
+  await waitFor(() => window.document.querySelector('[aria-label="Export diagram"]') !== null);
+  clickButton('Mural image');
+  await waitFor(() => window.document.querySelector('.mural-integration__field input') !== null);
+  check(window.document.querySelector('[aria-label="Export diagram"]')!.textContent!.includes('not individually editable'), 'Export explicitly discloses flattened image');
+  clickButton('Send image to Mural');
+  await waitFor(() => window.document.querySelector('.mural-integration__result') !== null);
+  check(muralExports === 1, 'One click sends one image');
+  check(window.document.querySelector<HTMLAnchorElement>('.mural-integration__result a')!.href === muralBoard, 'Successful export links to the board');
+  failMuralExport = true;
+  clickButton('Send image to Mural');
+  await waitFor(() => document.body.textContent!.includes('Mural write permission denied'));
+  check(muralExports === 2, 'No automatic retries of external writes');
+  failMuralExport = false;
+  muralConnected = false;
+  await queryClient.invalidateQueries({ queryKey: ['mural-integration'] });
+  await waitFor(() => document.body.textContent!.includes('Set up or reconnect Mural'));
+  check([...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Send image to Mural')!.disabled, 'Disconnected exports are disabled');
+  check(document.documentElement.scrollWidth <= innerWidth, 'Diagram Mural menu does not overflow the viewport');
+  muralConfigured = false;
+  queryClient.removeQueries({ queryKey: ['mural-integration'] });
+  root.render(<MemoryRouter><QueryClientProvider client={queryClient}><MuralIntegration /></QueryClientProvider></MemoryRouter>);
+  await waitFor(() => document.body.textContent!.includes('Set up Mural'));
+  clickButton('Set up Mural');
+  await waitFor(() => document.querySelector('#mural-secret') !== null);
+  check(document.querySelector<HTMLInputElement>('#mural-secret')!.type === 'password', 'Client secret is masked');
+  const field = document.querySelector<HTMLInputElement>('#mural-secret')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'fixture-client-secret');
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  await delay(0);
+  clickButton('Save settings');
+  await waitFor(() => document.body.textContent!.includes('Settings saved'));
+  check(document.querySelector('#mural-secret') === null && !document.body.textContent!.includes('fixture-client-secret'), 'Saved secret is cleared and never displayed');
+  clickButton('Connect to Mural');
+  await waitFor(() => document.body.textContent!.includes('Fixture connect unavailable'));
+  check(document.querySelector('[role="alert"]') !== null, 'Connection errors are explicit');
+  check(document.documentElement.scrollWidth <= innerWidth, 'Mural setup does not overflow the viewport');
+  muralConnected = true; muralConfigured = true;
+  queryClient.removeQueries({ queryKey: ['mural-integration'] });
+  mountEditor();
+  return ['PNG render and board destination', 'single-write export and result link', 'image-only disclosure', 'explicit errors without retries', 'disconnected guard', 'masked credential setup and clearing', 'responsive setup and export menu'];
+}
+
 async function runDiagramAppearanceChecks(): Promise<string[]> {
   await waitFor(() => window.document.querySelector('.dg-properties') !== null);
   const propertiesWidth = window.document.querySelector('.dg-properties')!.getBoundingClientRect().width;
@@ -1249,7 +1320,7 @@ async function runDiagramChecks(): Promise<string[]> {
     'Bundled Microsoft icon picker loads and embeds an official icon', 'Save and reopen retain labels and icons',
     'Missing diagram displays an explicit load error', 'No horizontal page overflow'];
 }
-Object.assign(window, { runDiagramChecks, runDiagramAppearanceChecks, runDiagramPropertiesChecks, runDiagramAiFlowChecks, runDiagramDrilldownChecks, runDiagramLineJumpChecks, diagramFixture: {
+Object.assign(window, { runDiagramMuralChecks, runDiagramChecks, runDiagramAppearanceChecks, runDiagramPropertiesChecks, runDiagramAiFlowChecks, runDiagramDrilldownChecks, runDiagramLineJumpChecks, diagramFixture: {
   snapshot: () => structuredClone(snapshot), saves: () => saves, conflict: (value: boolean) => { conflict = value; },
   waitFor, clickButton,
 } });

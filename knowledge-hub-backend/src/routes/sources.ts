@@ -57,7 +57,7 @@ router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
         last_sync_at: Date | null;
         item_count: number | null;
         last_error: string | null;
-      }>(`SELECT source, last_sync_at, item_count, last_error FROM sync_state WHERE source NOT LIKE 'connection-credential:%' ORDER BY source`);
+      }>(`SELECT source, last_sync_at, item_count, last_error FROM sync_state WHERE source NOT LIKE 'connection-credential:%' AND source NOT LIKE 'integration:mural:%' ORDER BY source`);
 
       const sources = result.rows.map((row: { source: string; last_sync_at: Date | null; item_count: number | null; last_error: string | null }) => ({
         source: row.source,
