@@ -29,6 +29,12 @@
   &__actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
 }
 .dc-parking-intro { font-size: var(--kh-text-body); line-height: 1.6; color: var(--cds-text-secondary); margin: 0 0 1rem; max-width: 72ch; }
+.dc-card-parked {
+  display: inline-flex; align-items: center; padding: .125rem .5rem;
+  border: 1px solid var(--kh-accent-border); border-radius: var(--kh-control-radius);
+  color: var(--kh-accent); background: var(--kh-accent-bg);
+  font-size: var(--kh-text-meta); line-height: 1.5; white-space: normal;
+}
 .dc-parking-excerpt {
   font-size: var(--kh-text-body); line-height: 1.6; color: var(--cds-text-secondary);
   margin: 0; overflow-wrap: anywhere; white-space: pre-wrap;

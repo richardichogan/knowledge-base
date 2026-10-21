@@ -450,6 +450,22 @@ a different URL.
 
 ## Newsletter and podcast parking lot
 
+Parked articles remain in For you when otherwise eligible and show a
+**Parked: Newsletter**, **Parked: Podcast** or combined label on their cards.
+The default For you ranking keeps a modest Microsoft/GitHub preference, but
+progressively discounts repeated publisher-family entries so useful independent
+stories surface on the first page. Relevance, freshness, project fit and explicit
+interest weights still matter; no article is hidden to meet a source quota.
+Balancing is applied before pagination, not to each fetched page. Latest,
+editorial, explicit-source and format-specific sorts keep their requested ordering.
+Pick reasons explain the diversity adjustment; it does not lower an article's
+intrinsic relevance label.
+Saved-source boosts use one-time membership lookups instead of a full content
+scan for each article. Eligibility/count queries omit that always-positive boost,
+and ranking inputs are materialized once before source balancing.
+The initial For you list and its 100-item briefing share one request and a
+one-minute query cache, rather than running the full ranked query twice on entry.
+
 Discover's **Parking lot** keeps articles for a future **Newsletter**, **Podcast**
 or both. Open an article's **Explore** panel (including Saved articles), choose
 **Park for later**, select either or both destinations, then **Save to parking lot**. Entries
@@ -461,6 +477,16 @@ Parking is separate from Saved, Planned for blog, Published and Archived. It
 does not publish, schedule, generate drafts or automatically add material to
 podcast preparation. Existing Saved articles are not automatically moved into
 the pool. This first version accepts Discover articles only.
+
+## Teleprompter text and preferences
+
+Both presentation modes preserve inline line breaks, paragraph spacing and empty
+paragraphs from saved notes. Formatting spans stay on the same line; nested
+blocks, links and readable table text are retained.
+Athena Desktop saves speed, text size, mirror, flip and opacity on that device
+between sessions. Browser Autocue saves text size and microphone sensitivity in
+that browser's local storage; blocked storage shows an error. These preferences
+are not cross-device sync and do not resume playback or a previous scroll position.
 
 ## Quick LinkedIn posts from Discover
 

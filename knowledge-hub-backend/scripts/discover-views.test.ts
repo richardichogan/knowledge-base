@@ -9,6 +9,40 @@ import { errorHandler } from '../src/middleware/errorHandler.js';
 import { CONTENT_FORMATS, formatFitSql } from '../src/integrations/cms/formatFit.js';
 import { isMicrosoftRelevant } from '../src/utils/microsoftRelevance.js';
 import { buildRelevanceSystemPrompt, classifySourceAuthority, SOURCE_AUTHORITY_WEIGHTS } from '../src/integrations/cms/articleScoringPrompt.js';
+import { interestSql } from '../src/services/discoverInterests.js';
+
+test('saved-source boost uses one-time lookups, preserves self-exclusion and never affects eligibility', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`CREATE TABLE content_items(id INTEGER PRIMARY KEY, source TEXT, title TEXT, body TEXT,
+      workflow_state TEXT, published_at TIMESTAMPTZ, metadata JSONB);
+      CREATE TABLE discover_interest_weights(kind TEXT,term TEXT,weight REAL);
+      INSERT INTO content_items VALUES
+      (1,'discovered-article','One','','saved',NOW(),'{"sourceTitle":"Only"}'),
+      (2,'discovered-article','Two','','to-review',NOW(),'{"sourceTitle":"Only"}'),
+      (3,'discovered-article','Three','','saved',NOW(),'{"sourceTitle":"Pair"}'),
+      (4,'discovered-article','Four','','saved',NOW(),'{"sourceTitle":"Pair"}'),
+      (5,'discovered-article','Five','','saved',NOW()-INTERVAL '100 days','{"sourceTitle":"Only"}'),
+      (6,'discovered-article','Six','','to-review',NOW(),'{}'),
+      (7,'discovered-article','Seven','','saved',NOW()-INTERVAL '100 days','{"sourceTitle":"Old"}'),
+      (8,'discovered-article','Eight','','to-review',NOW(),'{"sourceTitle":"Old"}');`);
+    const interests = interestSql('ci');
+    assert.doesNotMatch(interests.eligible, /FROM content_items|workflow_state|published_at/,
+      'Counting eligible articles must not scan saved articles');
+    const result = await db.query<{ id: number; actual: number; legacy: number }>(`
+      SELECT ci.id, ${interests.saved} AS actual,
+      CASE WHEN EXISTS(SELECT 1 FROM content_items saved WHERE saved.source='discovered-article'
+        AND saved.workflow_state='saved' AND saved.id<>ci.id
+        AND saved.metadata->>'sourceTitle'=ci.metadata->>'sourceTitle'
+        AND saved.published_at>NOW()-INTERVAL '90 days') THEN 1.1 ELSE 1 END AS legacy
+      FROM content_items ci ORDER BY ci.id`);
+    assert.deepEqual(result.rows.map(row => Number(row.actual)), [1, 1.1, 1.1, 1.1, 1.1, 1, 1, 1]);
+    for (const row of result.rows) assert.equal(row.actual, row.legacy, `Preserve boost for article ${row.id}`);
+    const plan = await db.query<{ 'QUERY PLAN': string }>(`EXPLAIN (VERBOSE) SELECT ${interests.saved} FROM content_items ci`);
+    assert.ok(plan.rows.some(row => row['QUERY PLAN'].includes('hashed SubPlan')),
+      'PostgreSQL should hash the one-time saved-source sets');
+  } finally { await db.close(); }
+});
 
 test('editorial brief prioritises Microsoft publishing relevance without blanket vendor scores', () => {
   const prompt = buildRelevanceSystemPrompt([]);
@@ -20,7 +54,9 @@ test('editorial brief prioritises Microsoft publishing relevance without blanket
   assert.doesNotMatch(prompt, /the VENDOR does not matter|This vendor-neutral rule/);
   assert.match(prompt, /Apply this equally to articles and videos, including GitHub/);
   assert.match(prompt, /Give them audienceFit 3/);
-  assert.ok(SOURCE_AUTHORITY_WEIGHTS['Microsoft/GitHub Official'] >= 1.6 * SOURCE_AUTHORITY_WEIGHTS['Vendor Official']);
+  assert.ok(SOURCE_AUTHORITY_WEIGHTS['Microsoft/GitHub Official'] > SOURCE_AUTHORITY_WEIGHTS['Vendor Official']);
+  assert.ok(SOURCE_AUTHORITY_WEIGHTS['Microsoft/GitHub Official'] <= 1.1 * SOURCE_AUTHORITY_WEIGHTS['Vendor Official'],
+    'Microsoft preference is modest, not a blanket dominance multiplier');
   assert.equal(classifySourceAuthority('https://github.blog/news-insights/test', null), 'Microsoft/GitHub Official');
   assert.equal(classifySourceAuthority('https://www.microsoft.com/en-us/research/blog/test', null), 'Microsoft/GitHub Official');
   const feed = 'https://www.youtube.com/feeds/videos.xml?channel_id=UC0m-80FnNY2Qb7obvTL_2fA';
@@ -132,6 +168,32 @@ test('Discovery sorts are stable across filtered pages, factors explain the SQL 
     }
     const removed = await fetch(`${base}/${id(0)}/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(removed.status, 404, 'Discovery feedback endpoint was removed');
+
+    await db.exec('DELETE FROM content_items');
+    for (let index = 0; index < 70; index++) {
+      const microsoft = index < 60;
+      await db.query(`INSERT INTO content_items(id,source,source_id,title,body,published_at,relevance_score,metadata)
+        VALUES($1,'discovered-article',$2,$2,'Enterprise news',date_trunc('hour',NOW()),$3,$4)`,
+      [id(index), `Balanced ${index}`, microsoft ? 0.8 : index === 69 ? 0.05 : 0.75,
+        JSON.stringify({ sourceTitle: microsoft ? `Microsoft feed ${index % 4}` : `Independent ${index}`,
+          sourceAuthorityTier: microsoft ? 'Microsoft/GitHub Official' : 'Community' })]);
+    }
+    const balanced = await read('pageSize=25');
+    const nextPage = await read('pageSize=25&page=2');
+    assert.equal(balanced.total, 70, 'Balancing hides no eligible articles');
+    assert.ok(balanced.items.slice(0, 5).some(item => item.sourceAuthorityTier === 'Community'),
+      'An equally useful independent story appears among the first five despite sixty Microsoft stories');
+    assert.ok(new Set(balanced.items.map(item => item.sourceTitle)).size >= 4, 'First page includes multiple publishers');
+    assert.ok(!balanced.items.some(item => item.id === id(69)), 'Diversity does not promote a poor story merely to fill a slot');
+    assert.equal(new Set([...balanced.items, ...nextPage.items].map(item => item.id)).size, 50, 'Balancing happens before pagination without duplicates');
+    assert.deepEqual((await read('pageSize=25')).items.map(item => item.id), balanced.items.map(item => item.id));
+    for (const item of balanced.items) {
+      const f = item.rankFactors;
+      const expected = (f.editorial ?? 0) * (f.recency ?? 0) * f.authority * f.articleType * f.project * f.interests * f.diversity;
+      assert.ok(Math.abs(Number(item.rankScore) - expected) < 0.0001, 'Rank explanation includes the diversity factor');
+    }
+    assert.ok((await read('sort=latest')).items.every(item => item.rankFactors.diversity === 1), 'Latest remains chronological');
+    assert.ok((await read('source=Microsoft%20feed%200')).items.every(item => item.rankFactors.diversity === 1), 'Explicit source filters remain score ordered');
   } finally {
     query.mock.restore();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

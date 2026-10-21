@@ -15,6 +15,9 @@ let empty = false;
 let calls = 0;
 let creates = 0;
 let createFailure = false;
+let exports = 0;
+let exportFailure = false;
+let exportDestination = '';
 api.getMuralRooms = async () => ({ success: true, data: { items: [{ id: 123, name: 'Architecture room', workspace: 'Athena' }], warnings: ['Restricted workspace rooms are not included.'] } });
 api.createMuralBoard = async input => {
   creates++;
@@ -37,7 +40,11 @@ function Fixture(): React.ReactElement {
   const [value, setValue] = useState(first);
   return <Theme theme="g100"><section className="connection-tokens mural-integration dg-export">
     <h3>Mural destination</h3>
-    <MuralExportDestination value={value} title="New architecture diagram" disabled={false} onChange={setValue} />
+    <MuralExportDestination value={value} title="New architecture diagram" disabled={false} onChange={setValue}
+      onCreated={async url => {
+        exports++; exportDestination = url;
+        if (exportFailure) throw new Error('Fixture diagram export failed');
+      }} />
     <button className="dg-primary-btn" disabled={!value} data-send>Send diagram fixture</button>
     <p className="connection-tokens__detail" data-destination>{value}</p>
   </section></Theme>;
@@ -99,21 +106,31 @@ async function run(): Promise<string[]> {
   check(document.body.innerText.includes('Restricted workspace rooms are not included.'), 'Restricted workspace warning must be visible with accessible rooms');
   const room = document.querySelector('select')!;
   room.value = '123'; room.dispatchEvent(new Event('change', { bubbles: true }));
-  await wait(() => !button('Create and select Mural').disabled);
+  await wait(() => !button('Create and export Mural').disabled);
   check(document.querySelector('input')!.value === 'New architecture diagram', 'New board name defaults to diagram title');
-  button('Create and select Mural').click();
+  button('Create and export Mural').click();
   await wait(() => document.querySelector('[data-destination]')?.textContent === first.replace('/1', '/99'));
   check(creates === 1, 'Create exactly one board');
+  await wait(() => exports === 1);
+  check(exportDestination === first.replace('/1', '/99'), 'Export uses the newly created board, not the previous destination');
   check(!document.querySelector<HTMLButtonElement>('[data-send]')!.disabled, 'Created board is ready for export');
   button('Create a new Mural').click();
   await wait(() => document.querySelector('input') !== null);
   createFailure = true;
-  button('Create and select Mural').click();
+  button('Create and export Mural').click();
   await wait(() => document.querySelector('[role=alert]') !== null);
-  check(button('Create and select Mural').disabled, 'Ambiguous creation failure cannot be retried accidentally');
+  check(button('Create and export Mural').disabled, 'Ambiguous creation failure cannot be retried accidentally');
   check(creates === 2, 'No automatic board creation retry');
+  check(exports === 1, 'Failed creation must not export to the previous board');
   button('Add to existing Mural').click();
   await wait(() => document.querySelector('[data-destination]')?.textContent === first.replace('/1', '/99'));
+  createFailure = false; exportFailure = true;
+  button('Create a new Mural').click();
+  await wait(() => document.querySelector('input') !== null);
+  button('Create and export Mural').click();
+  await wait(() => exports === 2 && document.body.innerText.includes('Fixture diagram export failed'));
+  check(creates === 3, 'Failed export never creates another board automatically');
+  check(document.querySelector('[data-destination]')?.textContent === first.replace('/1', '/99'), 'Failed export retains its created board for retry');
   return ['workspace groups', 'saved destination', 'board selection', 'archived disabled', 'manual URL', 'safe link', 'scope error', 'explicit retry', 'empty list', 'refresh recovery', 'room selection', 'new board name', 'create once', 'creation failure protection', 'existing destination restored'];
 }
 Object.assign(window, { runMuralBoardChecks: run });

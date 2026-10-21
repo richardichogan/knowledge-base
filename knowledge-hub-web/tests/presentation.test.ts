@@ -39,7 +39,7 @@ test('presentation scripts preserve nested order, inline links, lists and table 
   ];
   const original = JSON.stringify(blocks);
   const result = presentationScript(original);
-  assert.equal(result.text, 'Opening\nA linked phrase\n- Nested\n1. First\n2. Second\nA | B\nCaption');
+  assert.equal(result.text, 'Opening\n\nA linked phrase\n\n  - Nested\n\n1. First\n\n2. Second\n\nA | B\n\nCaption');
   assert.equal(result.warnings.length, 1);
   assert.equal(JSON.stringify(blocks), original);
 });

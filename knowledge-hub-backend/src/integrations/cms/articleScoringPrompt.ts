@@ -119,13 +119,13 @@ export type SourceAuthorityTier =
 
 /** Weight applied per source authority tier on top of the editorial score (ranking only, applied live). */
 export const SOURCE_AUTHORITY_WEIGHTS: Record<SourceAuthorityTier, number> = {
-  'Microsoft/GitHub Official': 1.8,
-  'IBM Official': 1.3,
-  'Vendor Official': 1.1,   // Google, AWS, OpenAI: primary sources, but not his platform
-  'Analyst/Consultancy': 1.15,
+  'Microsoft/GitHub Official': 1.15,
+  'IBM Official': 1.1,
+  'Vendor Official': 1.1,
+  'Analyst/Consultancy': 1.1,
   Formal: 1.0,
-  Community: 0.75,
-  Unknown: 0.9,
+  Community: 1.0,
+  Unknown: 0.95,
 };
 
 /** Microsoft/GitHub's own channels. */

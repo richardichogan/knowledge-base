@@ -12,11 +12,13 @@ import { useScrollEngine } from './useScrollEngine';
 import { SyllableDetector } from './SyllableDetector';
 import { rateToScrollSpeed, countSyllables, DEFAULT_SYLLABLES_PER_LINE, LINE_HEIGHT_RATIO } from './rateToScrollSpeed';
 import { GamepadController } from './GamepadController';
+import { autocueScriptText } from './scriptText';
+import { AUTOCUE_FONT_SIZE, AUTOCUE_FONT_KEY, AUTOCUE_SENSITIVITY_KEY, readAutocueSettings } from './settings';
 
-const DEFAULT_FONT_SIZE = 64;
-const MIN_FONT_SIZE     = 24;
-const MAX_FONT_SIZE     = 96;
-const FONT_SIZE_STEP    = 4;
+const DEFAULT_FONT_SIZE = AUTOCUE_FONT_SIZE.default;
+const MIN_FONT_SIZE     = AUTOCUE_FONT_SIZE.min;
+const MAX_FONT_SIZE     = AUTOCUE_FONT_SIZE.max;
+const FONT_SIZE_STEP    = AUTOCUE_FONT_SIZE.step;
 const MIC_PERM_KEY      = 'autocue_mic_permission';
 
 // iPad/iOS needs higher sensitivity due to lower mic gain
@@ -30,33 +32,6 @@ function isIOSDevice(): boolean {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/`{1,3}[^`]*`{1,3}/g, '')
-    .replace(/^```[\s\S]*?```$/gm, '')
-    .replace(/^[-*+]\s+/gm, '')
-    .replace(/^\d+\.\s+/gm, '')
-    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
-    .replace(/!\[.*?\]\(.+?\)/g, '')
-    .replace(/^>\s+/gm, '')
-    .replace(/---+/g, '')
-    // Preserve paragraph breaks (double newlines) but normalize single newlines to spaces
-    .replace(/\n\n+/g, '\n\n')
-    .replace(/([^\n])\n([^\n])/g, '$1 $2')
-    .trim();
-}
-
-function extractPlainText(contentJson: string): string {
-  try {
-    const blocks = JSON.parse(contentJson) as Array<{ content?: Array<{ text?: string }> }>;
-    return blocks.flatMap((b) => b.content ?? []).map((c) => c.text ?? '')
-      .join('\n\n').trim();
-  } catch { return stripMarkdown(contentJson); }
-}
-
 export const AutocueSession: React.FC = () => {
   const { noteId } = useParams<{ noteId: string }>();
   const navigate   = useNavigate();
@@ -64,32 +39,38 @@ export const AutocueSession: React.FC = () => {
   
   // Use higher default sensitivity on iOS devices
   const defaultSensitivity = isIOSDevice() ? DEFAULT_SENSITIVITY_IOS : DEFAULT_SENSITIVITY_DESKTOP;
-  const initialSensitivity = parseFloat(
-    searchParams.get('sensitivity') ?? 
-    localStorage.getItem('autocue_sensitivity') ?? 
-    defaultSensitivity.toString()
-  );
+  const [initialSettings] = useState(() => {
+    try { return { ...readAutocueSettings(localStorage, defaultSensitivity, searchParams.get('sensitivity')),
+      micPermission: localStorage.getItem(MIC_PERM_KEY) }; }
+    catch {
+      return { fontSize: DEFAULT_FONT_SIZE, sensitivity: defaultSensitivity, micPermission: null,
+        error: 'Teleprompter settings cannot be read on this device.' };
+    }
+  });
+  const [settingsError, setSettingsError] = useState(initialSettings.error);
   
-  const [sensitivity, setSensitivity] = useState(initialSensitivity);
+  const [sensitivity, setSensitivity] = useState(initialSettings.sensitivity);
   const [sessionState, setSessionState] = useState<SessionState>('idle');
-  const [fontSize, setFontSize]         = useState(DEFAULT_FONT_SIZE);
+  const [fontSize, setFontSize]         = useState<number>(initialSettings.fontSize);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [sylRate, setSylRate]           = useState(0);
-  const [showMicPrompt, setShowMicPrompt] = useState(
-    () => localStorage.getItem(MIC_PERM_KEY) === null,
-  );
+  const [showMicPrompt, setShowMicPrompt] = useState(initialSettings.micPermission === null);
+  const micPermissionRef = useRef(initialSettings.micPermission);
   const [gamepadToast, setGamepadToast] = useState(false);
   const [statusMsg, setStatusMsg]       = useState('');
 
   const sessionStateRef = useRef<SessionState>('idle');
   sessionStateRef.current = sessionState;
-  const fontSizeRef = useRef(DEFAULT_FONT_SIZE);
+  const fontSizeRef = useRef<number>(initialSettings.fontSize);
   fontSizeRef.current = fontSize;
   const sylPerLineRef = useRef<number>(DEFAULT_SYLLABLES_PER_LINE);
   
   useEffect(() => {
-    localStorage.setItem('autocue_sensitivity', sensitivity.toString());
-  }, [sensitivity]);
+    try {
+      localStorage.setItem(AUTOCUE_SENSITIVITY_KEY, sensitivity.toString());
+      localStorage.setItem(AUTOCUE_FONT_KEY, fontSize.toString());
+    } catch { setSettingsError('Teleprompter settings could not be saved. They will reset when you reopen it.'); }
+  }, [sensitivity, fontSize]);
 
   const { data: note } = useQuery({
     queryKey: ['note', noteId],
@@ -134,7 +115,7 @@ export const AutocueSession: React.FC = () => {
   // ── Session control ───────────────────────────────────────────────────────
 
   const handlePlay = useCallback(async () => {
-    const micPerm = localStorage.getItem(MIC_PERM_KEY);
+    const micPerm = micPermissionRef.current;
     setSessionState('running');
     setControlsVisible(false);
     if (micPerm === 'granted') {
@@ -180,27 +161,33 @@ export const AutocueSession: React.FC = () => {
   // ── Mic permission ────────────────────────────────────────────────────────
 
   const handleMicAllow = useCallback(() => {
-    localStorage.setItem(MIC_PERM_KEY, 'granted');
+    micPermissionRef.current = 'granted';
+    try { localStorage.setItem(MIC_PERM_KEY, 'granted'); }
+    catch { setSettingsError('Microphone preference could not be saved on this device.'); }
     setShowMicPrompt(false);
     void handlePlay();
   }, [handlePlay]);
 
   const handleMicSkip = useCallback(() => {
-    localStorage.setItem(MIC_PERM_KEY, 'skipped');
+    micPermissionRef.current = 'skipped';
+    try { localStorage.setItem(MIC_PERM_KEY, 'skipped'); }
+    catch { setSettingsError('Microphone preference could not be saved on this device.'); }
     setShowMicPrompt(false);
     void handlePlay();
   }, [handlePlay]);
 
   // ── Derived script text (needed by effects below) ────────────────────────
 
-  const scriptText = note ? extractPlainText(note.contentJson) : '';
+  const script = React.useMemo(() => {
+    try { return { text: note ? autocueScriptText(note.contentJson) : '', error: '' }; }
+    catch (error) { return { text: '', error: error instanceof Error ? error.message : 'Could not read the teleprompter script.' }; }
+  }, [note]);
+  const scriptText = script.text;
   
   // Split into paragraphs to preserve structure
   const scriptParagraphs = React.useMemo(() => {
     if (!scriptText) return [];
-    return scriptText.split(/\n\n+/).filter(Boolean).map(para => 
-      para.split(/\s+/).filter(Boolean)
-    );
+    return scriptText.split(/\n\n/);
   }, [scriptText]);
 
   // ── Gamepad ───────────────────────────────────────────────────────────────
@@ -256,6 +243,7 @@ export const AutocueSession: React.FC = () => {
 
   return (
     <div className="ac-session">
+      {(settingsError || script.error) && <div className="ac-banner ac-banner--error" role="alert">{script.error || settingsError}</div>}
 
       {statusMsg && (
         <div className={`ac-banner${statusMsg.startsWith('⚠') ? ' ac-banner--error' : ''}`}>
@@ -290,11 +278,9 @@ export const AutocueSession: React.FC = () => {
       >
         <div className="ac-script-inner">
           {scriptParagraphs.length > 0
-            ? scriptParagraphs.map((words, pIndex) => (
+            ? scriptParagraphs.map((paragraph, pIndex) => (
                 <p key={pIndex} className="ac-script-text">
-                  {words.map((word, wIndex) => (
-                    <span key={wIndex} className="ac-word">{word}{' '}</span>
-                  ))}
+                  {paragraph || '\u00a0'}
                 </p>
               ))
             : <p className="ac-script-text">Loading…</p>}

@@ -19,6 +19,14 @@ function buildWeightCaseExpr(column: string, weights: Record<string, number>, fa
 
 export interface DiscoverRankSql { rank: string; recency: string; authority: string; articleType: string; project: string }
 
+/** Gradually discount repetition, not quality. Microsoft/GitHub feeds share one family. */
+export function discoverDiversitySql(alias: string): string {
+  const family = `CASE WHEN ${alias}.metadata->>'sourceAuthorityTier' = 'Microsoft/GitHub Official'
+    THEN 'microsoft-github' ELSE 'source:' || COALESCE(${alias}.metadata->>'sourceTitle', ${alias}.metadata->>'sourceGroup', 'unknown') END`;
+  return `(1.0 / (1 + 0.2 * (ROW_NUMBER() OVER (PARTITION BY ${family}
+    ORDER BY ${alias}.base_rank_score DESC NULLS LAST, ${alias}.published_at DESC NULLS LAST, ${alias}.id ASC) - 1)))`;
+}
+
 /** `halfLifeParam` is the SQL placeholder (e.g. `$3`) bound to the recency half-life in days. */
 export function discoverRankSql(alias: string, halfLifeParam: string): DiscoverRankSql {
   const authority = buildWeightCaseExpr(`${alias}.metadata->>'sourceAuthorityTier'`, SOURCE_AUTHORITY_WEIGHTS, 1);

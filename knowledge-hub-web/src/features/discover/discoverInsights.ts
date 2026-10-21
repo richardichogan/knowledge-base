@@ -22,8 +22,9 @@ const MAX_STANDOUTS = 6;
 
 export function relevanceBand(item: DiscoverItem): RelevanceBand | null {
   if (item.rankScore == null) return null;
-  if (item.rankScore >= MUST_READ_RANK) return 'must-read';
-  if (item.rankScore >= WORTH_A_LOOK_RANK) return 'worth-a-look';
+  const quality = item.rankScore / (item.rankFactors?.diversity ?? 1);
+  if (quality >= MUST_READ_RANK) return 'must-read';
+  if (quality >= WORTH_A_LOOK_RANK) return 'worth-a-look';
   return 'background';
 }
 
@@ -100,7 +101,7 @@ export function buildBriefing(
   const freshNotable = notable(fresh);
   const fallback = freshNotable.length === 0;
   const relevant = fallback ? notable(items) : freshNotable;
-  const standoutPool = relevant.filter((i) => (i.rankScore ?? 0) >= STANDOUT_RANK);
+  const standoutPool = relevant.filter((i) => (i.rankScore ?? 0) / (i.rankFactors?.diversity ?? 1) >= STANDOUT_RANK);
   const standouts = (standoutPool.length > 0 ? standoutPool : relevant).slice(0, standoutPool.length > 0 ? MAX_STANDOUTS : 3);
   const standoutIds = new Set(standouts.map((i) => i.id));
   const alsoRelevant = relevant.filter((i) => !standoutIds.has(i.id));

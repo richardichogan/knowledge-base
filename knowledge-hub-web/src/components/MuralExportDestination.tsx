@@ -8,7 +8,8 @@ export const MURAL_ROOMS_QUERY = ['mural-rooms'] as const;
 
 export const MuralExportDestination: React.FC<{
   value: string; title: string; disabled: boolean; onChange: (url: string) => void;
-}> = ({ value, title, disabled, onChange }) => {
+  onCreated: (url: string) => Promise<void>;
+}> = ({ value, title, disabled, onChange, onCreated }) => {
   const id = useId();
   const cache = useQueryClient();
   const [mode, setMode] = useState<'existing' | 'new'>('existing');
@@ -31,6 +32,7 @@ export const MuralExportDestination: React.FC<{
   async function create(): Promise<void> {
     if (locked || creating.current || !roomId || !name.trim()) return;
     creating.current = true; setBusy(true); setError('');
+    let createdBoard: MuralBoardOption;
     try {
       const response = await api.createMuralBoard({ roomId: Number(roomId), title: name.trim() });
       if (!response.success) throw new Error(response.error.message);
@@ -41,7 +43,17 @@ export const MuralExportDestination: React.FC<{
         warnings: old?.warnings ?? [],
       }));
       onChange(board.url); setPrevious(board.url); setCreated(board.title); setMode('existing');
-    } catch (err) { setError(`${describeApiError(err)} Check the room in Mural before creating another board.`); }
+      createdBoard = board;
+    } catch (err) {
+      setError(`${describeApiError(err)} Check the room in Mural before creating another board.`);
+      creating.current = false; setBusy(false);
+      return;
+    }
+    try {
+      await onCreated(createdBoard.url);
+    } catch (err) {
+      setError(`The board was created, but exporting the diagram failed: ${describeApiError(err)} Inspect the board before retrying export.`);
+    }
     finally { creating.current = false; setBusy(false); }
   }
   return <div className="mural-export-destination">
@@ -73,15 +85,16 @@ export const MuralExportDestination: React.FC<{
         <input id={`${id}-name`} value={name} maxLength={300} disabled={locked}
           onChange={event => { setName(event.target.value); }} />
       </label>
-      <p className="dg-popover__hint">Create an empty board in a room you own, then send the diagram below. Existing boards are unchanged.</p>
+      <p className="dg-popover__hint">Create a board in a room you own and export this diagram to it. Existing boards are unchanged.</p>
       <button type="button" className="dg-primary-btn" disabled={locked || !roomId || !name.trim() || Boolean(error)}
-        onClick={() => { void create(); }}>{busy ? 'Creating Mural...' : 'Create and select Mural'}</button>
+        onClick={() => { void create(); }}>{busy ? 'Creating and exporting...' : 'Create and export Mural'}</button>
       {error && <div className="mural-board-picker__status">
         <p className="mural-board-picker__error" role="alert">{error}</p>
         <div className="mural-board-picker__actions"><button type="button" disabled={locked}
           onClick={() => { setError(''); }}>I checked Mural; allow another attempt</button></div>
       </div>}
     </>}
-    {created && <p className="dg-popover__hint" role="status">Created "{created}" and selected it. Send the diagram below when ready.</p>}
+    {mode === 'existing' && error && <p className="mural-board-picker__error" role="alert">{error}</p>}
+    {created && <p className="dg-popover__hint" role="status">Created "{created}". This board stays selected for export; retrying export will not create another board.</p>}
   </div>;
 };

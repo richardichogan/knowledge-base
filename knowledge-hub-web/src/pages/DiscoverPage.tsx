@@ -299,6 +299,9 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         <span className="dc-card-source">{item.sourceTitle}</span>
         <span className="dc-card-dot">·</span>
         <span className="dc-card-date">{formatDate(item.publishedAt)}</span>
+        {item.parking && <span className="dc-card-parked">
+          Parked: {[item.parking.newsletter ? 'Newsletter' : '', item.parking.podcast ? 'Podcast' : ''].filter(Boolean).join(' + ')}
+        </span>}
       </div>
       <div className="dc-card-title-row">
         <h3 className="dc-card-title">{item.title}</h3>
@@ -406,6 +409,7 @@ export const DiscoverPage: React.FC = () => {
   const isInbox = activeTab === 'inbox';
   const isWatchlists = activeTab === 'watchlists';
   const isParking = activeTab === 'parking-lot';
+  const isForYou = activeTab === 'to-review';
   const [interestsOpen, setInterestsOpen] = useState(false);
   const isCfps  = activeTab === 'cfps';
   const workflowState = isInbox || isParking ? 'to-review' : activeTab as DiscoverWorkflowState;
@@ -425,8 +429,9 @@ export const DiscoverPage: React.FC = () => {
   const feedQuery = useQuery({
     queryKey: ['discover', isParking ? 'parking-lot' : workflowState, page],
     queryFn: async () => requireApiSuccess(await (isParking ? api.getDiscoverParkingLot(page, PAGE_SIZE)
-      : api.getDiscoverFeed(workflowState, undefined, page, PAGE_SIZE, undefined, 'weighted'))),
+      : api.getDiscoverFeed(workflowState, undefined, page, isForYou && page === 1 ? 100 : PAGE_SIZE, undefined, 'weighted'))),
     enabled: !isInbox && !isCfps && !isWatchlists,
+    staleTime: 60_000,
   });
 
   const cfpQuery = useQuery({
@@ -443,9 +448,8 @@ export const DiscoverPage: React.FC = () => {
     enabled: isInbox,
   });
 
-  const isForYou = activeTab === 'to-review';
   const briefingQuery = useQuery({
-    queryKey: ['discover', 'briefing'],
+    queryKey: ['discover', 'to-review', 1],
     queryFn: async () => requireApiSuccess(await api.getDiscoverFeed('to-review', undefined, 1, 100, undefined, 'weighted')),
     staleTime: 60_000,
     enabled: isForYou,
@@ -505,7 +509,7 @@ export const DiscoverPage: React.FC = () => {
   const attentionIds = useMemo(() => new Set(showBriefing ? [...briefing.standouts, ...briefing.alsoRelevant].map((i) => i.id) : []), [showBriefing, briefing]);
 
   const items = useMemo<DiscoverItem[]>(() =>
-    feedQuery.data?.success ? feedQuery.data.data.items : [], [feedQuery.data]);
+    feedQuery.data?.success ? feedQuery.data.data.items.slice(0, PAGE_SIZE) : [], [feedQuery.data]);
   const listedItems = useMemo(() => items.filter((i) => !attentionIds.has(i.id)), [items, attentionIds]);
   const exploreLive = exploreItem === null ? null
     : (items.find((i) => i.id === exploreItem.id) ?? [...(briefing?.standouts ?? []), ...(briefing?.alsoRelevant ?? [])].find((i) => i.id === exploreItem.id) ?? exploreItem);

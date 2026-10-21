@@ -14,6 +14,7 @@
  * conflicts and failures keep the local copy and surface Retry / Reload.
  */
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { diagramTextLayout } from './diagramText';
 import { calloutLayout, DIAGRAM_CALLOUTS } from './diagramCallouts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -342,6 +343,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [lineTool, setLineTool] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [exporting, setExporting] = useState(false);
+  const exportingRef = useRef(false);
+  const [exportError, setExportError] = useState('');
   const [exportFormat, setExportFormat] = useState<DiagramExportFormat | 'mural'>('png');
   const [muralBoardUrl, setMuralBoardUrl] = useState<string | null>(null);
   const [muralResult, setMuralResult] = useState('');
@@ -1205,19 +1208,23 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     });
   }
 
-  async function runExport(shareDrawio = false): Promise<void> {
-    if (exporting) return;
+  async function runExport(shareDrawio = false, destination?: string): Promise<void> {
+    if (exportingRef.current) return;
+    setExportError('');
     const cur = docRef.current;
     const ids = [...new Set(cur.nodes.flatMap((n) => (n.assetId === null ? [] : [n.assetId])))];
     const missing = ids.filter((id) => !blobsRef.current.has(id));
     if (missing.length > 0) {
-      notify('error', `${missing.length} image${missing.length === 1 ? ' is' : 's are'} still loading or failed to load, so the export would be incomplete.`, {
+      const message = `${missing.length} image${missing.length === 1 ? ' is' : 's are'} still loading or failed to load, so the export would be incomplete.`;
+      setExportError(message);
+      notify('error', message, {
         key: 'export', action: { label: 'Retry images', run: retryAssets },
       });
       return;
     }
     const map = new Map<string, Blob>();
     for (const id of ids) { const b = blobsRef.current.get(id); if (b !== undefined) map.set(id, b); }
+    exportingRef.current = true;
     setExporting(true);
     setMuralResult('');
     try {
@@ -1230,7 +1237,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         setMenu(null);
       } else if (exportFormat === 'mural') {
         const payload = await diagramMural(cur, map, {
-          boardUrl: muralBoardUrl ?? muralQuery.data?.boardUrl ?? '', title: (canvas?.title ?? 'Athena diagram').slice(0, 300),
+          boardUrl: destination ?? muralBoardUrl ?? muralQuery.data?.boardUrl ?? '', title: (canvas?.title ?? 'Athena diagram').slice(0, 300),
           footnotes: exportFootnotes, legend: exportLegend && cur.legend?.visible === true,
         });
         const response = await api.exportMuralDiagram(payload);
@@ -1242,8 +1249,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         setMenu(null);
       }
     } catch (err) {
-      notify('error', `Export failed: ${describeError(err).message}`, { key: 'export' });
+      const message = `Export failed: ${describeError(err).message}`;
+      setExportError(message);
+      notify('error', message, { key: 'export' });
     } finally {
+      exportingRef.current = false;
       setExporting(false);
     }
   }
@@ -2050,12 +2060,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             <button type="button" className={`dg-text-btn${menu === 'export' ? ' dg-text-btn--active' : ''}`} aria-expanded={menu === 'export'} aria-haspopup="dialog" onClick={() => { setMenu(menu === 'export' ? null : 'export'); }}>
               <Download size={16} /> Export
             </button>
-            {menu === 'export' && (
+            {menu === 'export' && createPortal(
               <div className="dg-popover dg-popover--end dg-export" role="dialog" aria-label="Export diagram">
                 <div className="dg-export__header">
                   <h2 className="dg-export__title">Export diagram</h2>
                   <IconBtn label="Close export" onClick={() => { setMenu(null); }}><Close size={16} /></IconBtn>
                 </div>
+                <div className="dg-export__body">
                 <section className="dg-popover__section">
                   <h3 className="dg-popover__heading">Format</h3>
                   <Segmented value={exportFormat} onChange={value => { setExportFormat(value); setMuralResult(''); }} options={[{ value: 'png', label: 'PNG' }, { value: 'svg', label: 'SVG' }, { value: 'drawio', label: 'draw.io' }, { value: 'mural', label: 'Mural' }]} label="Export format" />
@@ -2068,7 +2079,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                     {!muralQuery.data?.connected && <p className="dg-popover__hint"><Link to="/my-work?sync=1">Set up or reconnect Mural in Sources / Integrations</Link></p>}
                     {muralQuery.data?.connected && <MuralExportDestination value={muralBoardUrl ?? muralQuery.data.boardUrl}
                       title={canvas?.title ?? 'Athena diagram'}
-                      disabled={exporting} onChange={url => { setMuralBoardUrl(url); setMuralResult(''); }} />}
+                      disabled={exporting || doc.nodes.length === 0}
+                      onChange={url => { setMuralBoardUrl(url); setMuralResult(''); }}
+                      onCreated={url => runExport(false, url)} />}
                     {muralResult && <>
                       <p className="dg-popover__hint mural-integration__result" role="status">Editable diagram exported. <a href={muralResult} target="_blank" rel="noreferrer">Open board in Mural</a></p>
                       <button type="button" className="dg-text-btn" onClick={() => {
@@ -2096,6 +2109,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                     <span className="dg-check__label">Include colour key</span>
                   </label>
                 </section>
+                </div>
+                <div className="dg-export__actions">
+                {exportError && <p className="connection-tokens__error" role="alert">{exportError}</p>}
                 <button type="button" className="dg-primary-btn" disabled={exporting || doc.nodes.length === 0 || (exportFormat === 'mural' && (!muralQuery.data?.connected || !(muralBoardUrl ?? muralQuery.data.boardUrl).trim()))} onClick={() => { void runExport(); }}>
                   {exporting ? <><InProgress size={16} className="dg-spin" /> Exporting…</> : <><Download size={16} /> {exportFormat === 'mural' ? 'Send editable diagram to Mural' : `Export ${exportFormat === 'drawio' ? 'draw.io' : exportFormat.toUpperCase()}`}</>}
                 </button>
@@ -2103,7 +2119,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 <button type="button" className="dg-text-btn" disabled={exporting || doc.nodes.length === 0} onClick={() => { void runExport(true); }}>
                   Share draw.io attachment by email
                 </button>
-              </div>
+                </div>
+              </div>, document.body,
             )}
           </div>
           <IconBtn label="Delete diagram" danger onClick={() => { void deleteDiagram(); }}><TrashCan size={16} /></IconBtn>

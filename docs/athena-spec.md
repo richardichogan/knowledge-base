@@ -8,16 +8,21 @@ This is the current product spec for Athena. It supersedes `2026-04-12-knowledge
 
 ## 1. What Athena is
 
-Athena is Richard's personal, single-user work hub, and the AI assistant (also called Athena) inside it. It brings together:
+Athena is Richard's personal, single-user **work and knowledge hub**, and the AI assistant (also called Athena) inside it. It is not a content pipeline. Publishing is one small use among many.
 
-- what he reads (Discover, Sources);
-- what he thinks (Think: notes, Sparks, canvases);
-- what he plans (Plan, Projects);
-- what he ships (Build).
+It is one place to:
+
+- **See** what needs attention across his work: tasks, calendar, email, GitHub, GitLab, Microsoft 365 and other connected systems (Today, Activity);
+- **Read** and monitor the outside world: Microsoft and industry articles, YouTube channels and videos, calls for papers, and named competitors (Discover, Watchlists, Sources);
+- **Think**: notes, Sparks (ideas), diagrams and a knowledge graph, with an AI that knows his projects, people and memory (Think, Graph, Memory);
+- **Plan and govern**: tasks, projects, people, registers of risks and issues, and review packets (Plan, Projects, People);
+- **Turn ideas into specs and build them** via GitHub Copilot or cloud coding agents (Use cases, Build);
+- **Produce and share** when he chooses: podcast prep, blog and LinkedIn posts, Bluesky posts, diagram exports to Mural and draw.io, notes published to GitHub, and manual emails (Share);
+- **Present**: a voice-paced teleprompter (Autocue).
 
 Athena does most of the writing. Richard mostly prompts, decides and reviews; he does not usually draft by hand.
 
-It runs as a desktop web app at athena.themicrosoftcloudblog.com, with the Athena Desktop (Electron) wrapper. The standalone `/chat` page is the only screen designed for mobile.
+It runs as a desktop web app at athena.themicrosoftcloudblog.com, with the Athena Desktop (Electron) wrapper, which also captures local M365 reports. The standalone `/chat` page is the only screen designed for mobile. A Raycast extension and an Android app (`knowledge-hub-raycast`, `knowledge-hub-app`) are secondary clients.
 
 ## 2. Primary use cases
 
@@ -34,28 +39,36 @@ In priority order:
    - The intent is for Athena to coach the areas Richard finds hardest: governance discipline (owners, dates, reviews, escalation, steering readiness) and communications (drafts written for the reader, difficult messages, reviewing his own drafts).
    - Athena helps; it does not run the programme.
    - No work is planned until this is picked up again.
-5. **Competitive and market monitoring** (planned, refining).
+5. **Competitive and market monitoring** (built; owner review ongoing).
    - Discover **Watchlists** track named organisations and products against one explicit question, a versioned comparison baseline and comparison criteria.
    - Athena records dated, evidence-backed changes and explains what they mean for the comparison. "No meaningful change" is a valid result.
    - It earns its place only if it changes a decision, exposes a weak assumption, or saves meaningful research time.
-   - Spec: `docs/specs/competitor-watchlists.md`. Tracked as a use case (section 6).
+   - Spec: `docs/specs/competitor-watchlists.md`.
+
+6. **Staying on top of work.** Today, Activity and Plan give one view of what is overdue, blocked, due, failing or waiting for a decision, across all connected systems.
+7. **Remembering people and context.** People holds contacts; Memory and project context let Athena answer with the right background without re-explaining.
 
 ## 3. Areas
 
 | Area | Role |
 |---|---|
 | **Today** (`/`) | What needs attention now: overdue, blocked or due tasks; failed connections; open Athena decisions; continue-working items; recent changes; and suggestions worth exploring (Discover picks with a reason, growing Spark themes). Also shows the Thursday podcast prep. |
-| **Discover** (`/discover`) | A ranked feed of articles from Microsoft and industry sources, weighted by relevance, freshness, authority and project fit. Also covers calls for papers (CFPs). Items can be saved, turned into Sparks, or turned into quick LinkedIn and blog posts. |
+| **Discover** (`/discover`) | A ranked feed of articles from Microsoft and industry sources, weighted by relevance, freshness, authority and project fit, with calls for papers (CFPs), saved views and interest weights. **Sources** manages RSS/Atom feeds and **YouTube** channels, and imports single videos (title, channel and description only; no transcripts yet). **Watchlists** monitor named competitors against a question and versioned baseline. **Parking lot** keeps items for a future newsletter or podcast. Items can be saved, turned into Sparks or use cases, or turned into quick LinkedIn, Bluesky and blog posts. |
 | **Plan** (`/plan`) | Tasks in Board and Focus views, with saved views, Athena check-ins and at-risk prompts. Open use cases appear in the Board's Backlog or In Progress columns without creating duplicate task records. |
-| **Think** (`/think`) | Notes (BlockNote editor with history, tags and GitHub publishing), **Sparks** (capture, connect into themes, mature, ship) and **canvases** (diagrams with drilldowns and links to notes). |
+| **Think** (`/think`) | Notes (BlockNote editor with history, recovery, tags, `@` mentions of people, projects and documents, and GitHub publishing), **Sparks** (capture, connect into themes, mature, ship) and **canvases** (diagrams with drilldowns and links to notes, exportable to draw.io and Mural). |
 | **Build** (`/build`) | Specs are split into dependency-ordered tasks and dispatched to GitHub cloud coding agents (Copilot or Claude) as issues. Their PRs are tracked and merged. |
 | **Athena chat** | Available everywhere: a side panel, a floating widget and `/chat`. It has personas: general, brainstorming, blog post, LinkedIn, demo designer, web designer, podcast prep, podcast show notes and Copilot coach. Chats record decisions and Outputs, and can be turned into a spec note. |
-| **Activity** (`/my-work`) | Activity from connected systems (calendar, email, GitHub and others), plus connections and sync. |
+| **Activity** (`/my-work`) | Activity from connected systems (M365 calendar, mail and To Do, GitHub, GitLab, the blog CMS, IBM and Alliance sources), plus connections, tokens and sync status. Also holds the Mural and SMTP2GO integration settings. |
 | **Sources** (`/library`) | Indexed documents and source material, searchable and used for grounding. |
 | **Knowledge graph** (`/graph`) | Connections across Athena's objects. |
 | **Memory** (`/memory`) | What Athena remembers about Richard and his work. |
+| **People** (`/people`) | Contacts with email aliases, organisation, role and topics. Import contact reports from Markdown; mention people with `@` in notes and chat. |
+| **Autocue** (`/autocue`) | A full-screen teleprompter for note scripts, paced by the speaker's voice or a gamepad. Runs outside the normal app shell. |
 | **Projects** (`/projects`) | Project goal, role, dates, expected outputs, and the project **cockpit**, which holds the register of questions, risks and issues, and review packets. |
-| **Management** | Tag Manager, repo-to-tag and repo-to-project mappings, and Knowledge health (AI usage, sync runs, index freshness). |
+| **Share** | Manual, review-before-send emails through SMTP2GO (Mural links, draw.io attachments, GitHub note links), Mural export, GitHub note publishing and Bluesky posting. Nothing is sent or posted automatically. |
+| **Management** | Tag Manager, repo-to-tag and repo-to-project mappings, Knowledge health (AI usage, sync runs, index freshness), practice-exam score history, and voice transcription and speech. |
+
+Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search`, `/ai`, `/blog-post`) redirect to the areas above.
 
 ## 4. Core objects
 
@@ -63,7 +76,10 @@ In priority order:
 - **Note:** a rich document in Think. It can be versioned, tagged, published to GitHub, or turned into a Build spec.
 - **Spark:** a captured idea with its source. Sparks cluster into **themes**, which can become a note, canvas, project or blog post.
 - **Canvas:** a diagram, which can link to notes and drill down into other diagrams.
-- **Content item:** a Discover article or other indexed source.
+- **Content item:** a Discover article, YouTube video or other indexed source. Videos are labelled "description only" because transcripts are not retrieved.
+- **Watchlist:** a monitored competitor question with a versioned baseline and dated findings.
+- **Person:** a contact that notes and chat can reference.
+- **Memory:** durable facts Athena keeps about Richard and his work.
 - **Task:** a Plan item with status, priority and due date.
 - **Chat, Decision and Output:** an Athena conversation, the decisions it settled, and the saved artefacts it produced.
 - **Build spec and Build task:** work dispatched to cloud coding agents.
@@ -106,7 +122,10 @@ A *use case* tracks one idea for one product.
 
 ## 8. Built vs planned
 
-- **Built:** everything in section 3. The README documents each feature in detail.
-- **Built since this spec was written:** use cases (section 6).
-- **Planned:** `docs/planned-features.md`, which covers the command palette, backlinks, `@` and `[[` note links, keyboard triage, memory editing, empty states, a spatial view, side-peek and Discover Watchlists (use case 5, which absorbs "why Athena picked this"). Its "content pipeline board" (item 6) is superseded by section 2: content needs no stage tracking.
+- **Built:** everything in section 3, plus use cases (section 6) and Discover Watchlists (use case 5). The README documents each feature in detail; `docs/email-sharing.md`, `docs/mural-integration.md`, `docs/youtube-discovery.md` and `docs/people.md` cover the newer integrations.
+- **Not built:**
+  - YouTube transcripts or summaries (only description-level import).
+  - Two-way GitHub note sync (edits publish outward; GitHub-side edits need manual resolution).
+  - A saved recipient picker for email sharing.
+- **Planned:** `docs/planned-features.md`, which covers the command palette, backlinks, `@` and `[[` note links, keyboard triage, memory editing, empty states, a spatial view and side-peek. Its "content pipeline board" (item 6) is superseded by section 2: content needs no stage tracking, and its Watchlists item 11 is now built.
 - **Assessed, not planned:** Fabric and Fabric IQ (`docs/fabric-iq-assessment.md`).

@@ -424,10 +424,14 @@ $dg-ink: #f4f4f4;
 }
 
 .dg-export {
-  width: 23rem;
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  left: auto;
+  width: 30rem;
   max-width: calc(100vw - 2rem);
-  max-height: calc(100dvh - 7rem);
-  overflow-y: auto;
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
   gap: 1rem;
   padding: 1rem;
   border-radius: var(--kh-radius-md);
@@ -435,7 +439,13 @@ $dg-ink: #f4f4f4;
   border-color: var(--cds-border-strong-01);
   font-family: 'IBM Plex Sans', system-ui, sans-serif;
 
-  &__header { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+  &__header { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+  &__body { display: flex; flex-direction: column; gap: 1rem; min-height: 0; overflow-y: auto; padding-right: 0.5rem; }
+  &__actions {
+    display: flex; flex-direction: column; gap: 0.625rem; flex-shrink: 0;
+    padding-top: 0.75rem; border-top: 1px solid var(--cds-border-subtle-01);
+    .connection-tokens__error { margin: 0; max-height: 5rem; overflow-y: auto; }
+  }
   &__title { margin: 0; font-size: var(--kh-panel-title); font-weight: 600; line-height: 1.4; }
   &__description { margin: 0; font-size: var(--kh-text-body); line-height: 1.5; color: var(--cds-text-primary); }
   .dg-popover__section { gap: 0.625rem; }
@@ -458,17 +468,6 @@ $dg-ink: #f4f4f4;
     &:active:not(:disabled) { filter: brightness(0.9); }
     &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
     &:disabled { color: var(--cds-text-disabled); }
-  }
-}
-
-@container dg-header (max-width: 700px) {
-  .dg-export {
-    position: fixed;
-    top: 7.5rem;
-    left: 1rem;
-    right: 1rem;
-    width: auto;
-    max-height: calc(100dvh - 8.5rem);
   }
 }
 

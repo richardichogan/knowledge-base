@@ -29,9 +29,13 @@ Configuration and token updates are serialised across backend replicas.
 Open a Think diagram -> Export -> Mural. Choose the destination from the
 board dropdown, grouped by workspace, and check the
 annotation options, then click Send editable diagram to Mural.
+The export dialog stays within the viewport: its settings scroll separately
+while the title, close control and export actions remain visible.
 Choose **Add to existing Mural** to append to a selected board, or **Create a
 new Mural** to select a room and enter a name (initially the diagram title).
-Click **Create and select Mural**, then send the diagram when ready.
+Click **Create and export Mural** to create the destination and immediately send
+the editable diagram to that exact board. Creation alone is not reported as a
+successful diagram export. Export failures appear inside the export dialog.
 Mural requires room-owner permission to create a board. Athena does not create
 rooms or change visitor/sharing permissions. Board creation is never retried:
 if the response is lost, inspect the room before explicitly allowing another
@@ -85,7 +89,10 @@ not workspace lists or visitor routes. Share-token suffixes and queries are
 removed; OAuth permissions determine access. The default is the supplied
 Athena test board. Users can change the default or override it per export.
 The board dropdown lists all boards the connected account owns or belongs to
-across its workspaces, following every pagination token. Archived boards are
+in the Athena workspace (`athena5676`), following its pagination tokens.
+It does not fetch boards or rooms from unrelated workspaces. An explicit
+`MURAL_WORKSPACE_ID` environment override accepts comma-separated workspace IDs.
+Archived boards are
 shown but cannot be selected for export. Refresh boards reloads the list.
 Enter board URL remains available for boards not returned by the account's
 workspace membership or while reconnecting. Listing errors are explicit;

@@ -541,7 +541,7 @@ export interface DiscoverItem {
   rankFactors?: {
     editorial: number | null; recency: number | null; authority: number; articleType: number;
     project: number; halfLifeDays: number; computedAt: string;
-    interests?: number;
+    interests?: number; diversity?: number;
   };
   /** URL of the user's own blog post written about this article */
   publishedUrl: string | null;

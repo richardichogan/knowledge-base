@@ -259,6 +259,9 @@ function muralPages(token: string, onRestrictedWorkspace?: (message: string) => 
     };
 }
 
+const ATHENA_WORKSPACE_ID = 'athena5676';
+const listedWorkspaceIds = (): string[] => (process.env['MURAL_WORKSPACE_ID'] ?? ATHENA_WORKSPACE_ID).split(',').map(id => id.trim()).filter(Boolean);
+
 function workspaceInfo(workspace: Record<string, unknown>): { id: string; name: string } {
   if (typeof workspace.id !== 'string' || !/^[a-z0-9_-]+$/i.test(workspace.id) || typeof workspace.name !== 'string') {
     throw new IntegrationError('mural', 'Mural returned an invalid workspace.');
@@ -280,8 +283,10 @@ export async function listMuralBoards(db: Pool, onRestrictedWorkspace?: (message
   return withToken(db, async token => {
     const pages = muralPages(token, onRestrictedWorkspace);
     const boards = new Map<string, MuralBoardOption>();
+    const allowed = listedWorkspaceIds();
     for (const raw of await pages('/workspaces')) {
       const workspace = workspaceInfo(raw);
+      if (!allowed.includes(workspace.id)) continue;
       for (const board of await pages(`/workspaces/${encodeURIComponent(workspace.id)}/murals`)) {
         const option = boardOption(board, workspace);
         boards.set(option.id, option);
@@ -295,8 +300,10 @@ export async function listMuralRooms(db: Pool, onRestrictedWorkspace?: (message:
   return withToken(db, async token => {
     const pages = muralPages(token, onRestrictedWorkspace);
     const rooms = new Map<number, MuralRoomOption>();
+    const allowed = listedWorkspaceIds();
     for (const raw of await pages('/workspaces')) {
       const workspace = workspaceInfo(raw);
+      if (!allowed.includes(workspace.id)) continue;
       for (const room of await pages(`/workspaces/${encodeURIComponent(workspace.id)}/rooms`)) {
         if (typeof room.id !== 'number' || !Number.isSafeInteger(room.id) || room.id <= 0 || typeof room.name !== 'string') {
           throw new IntegrationError('mural', 'Mural returned an invalid room.');

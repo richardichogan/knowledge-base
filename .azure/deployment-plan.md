@@ -2,6 +2,43 @@
 
 **Status:** Validated
 
+**Discover performance and usability release (2026-10-21):**
+- User approved deploying the current Discover, Mural and teleprompter fixes.
+- Existing image-only AZCLI recipe: backend kh-prod-api-vnet and ACR
+  cad79107555facr, frontend kh-prod-web, resource group rg-knowledge-hub-prod,
+  subscription Alliance Tenant Reporting. Preserve current locations and hosting.
+- No infrastructure, identity, secrets, dependencies, schema or capacity changes.
+- Replace repeated saved-source scans with one-time sets, materialize ranking,
+  and share the first-page For you and briefing request with a one-minute cache.
+  Measured full 100-item route response: 549 ms then 215 ms, 454 eligible items.
+- Also deploy balanced source ranking, parked indicators, Athena-only Mural
+  listings, create-and-export dialog, and faithful/persisted Autocue settings.
+- Fetch/merge main, run both typechecks/builds and isolated suites, commit/push
+  current fixes, increment deployed image tag, update backend and deploy frontend.
+- Verify healthy revision, startup logs and deployed frontend assets.
+- No browser launch authorised. Deployment result is pending.
+
+**Section 7: Validation proof (2026-10-21, Discover performance release):**
+- Fetched and merged origin/main; already current at 3cf678a.
+- `npx tsc --noEmit` and `npm run build` passed in both applications.
+- Backend `npm run test:isolated`: 226 passed, zero failures, including saved-source
+  equivalence, hashed query plans, ranking diversity and stable pagination.
+- Frontend `npm run test:isolated`: 127 unit tests and 9 bundled component tests
+  passed. Additional Autocue and Discover insight tests: 3 passed.
+- Frontend lint non-regression passed (25 existing, baseline 41). Backend baseline
+  reports one pre-existing dailyInsightsParser.ts:85 violation; that file is
+  unchanged from HEAD. No new backend lint findings introduced by this release.
+- CLI 2.79.0 authenticated to the user-confirmed Alliance Tenant Reporting
+  subscription. Existing backend UK South, SWA West Europe and ACR eastus verified.
+- Dockerfile/lockfile unchanged and present; TypeScript application build passed.
+  ACR will perform the production container build from synced/pushed main.
+- Image-only rollout: no Bicep/template/what-if, policy, provisioning, static-role
+  or RBAC changes apply. Existing registry uses secret-based auth, not managed
+  identity; no AcrPull propagation gate or azd environment is applicable.
+- Full 100-item Discover route measured against the real database: 549 ms cold
+  and 215 ms warm, 244141-byte response; previous feed query alone was 5589 ms.
+- `git diff --check` passed. Production currently v226; next image v227.
+
 **Deployment result (2026-10-21, restricted-workspace correction):**
 - Source cf2401e pushed to feature branch and main. ACR run ca74 built
   kh-prod-api:v226, digest

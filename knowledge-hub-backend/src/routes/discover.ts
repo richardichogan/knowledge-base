@@ -8,7 +8,7 @@ import type { ApiSuccess } from '../types/apiResponse.js';
 import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
 import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync.js';
 import { readFeed } from '../integrations/discovery/feedReader.js';
-import { discoverRankSql } from '../integrations/cms/discoverRank.js';
+import { discoverRankSql, discoverDiversitySql } from '../integrations/cms/discoverRank.js';
 import { interestSql } from '../services/discoverInterests.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
 import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
@@ -68,7 +68,7 @@ export interface DiscoverItem {
   rankFactors: {
     editorial: number | null; recency: number | null; authority: number; articleType: number;
     project: number; halfLifeDays: number; computedAt: string;
-    interests: number;
+    interests: number; diversity: number;
   };
   /** 0 = not covered, 1 = same story from another angle, 2 = he has already made this argument */
   alreadyCovered: number | null;
@@ -268,7 +268,7 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
         editorial: 'ci.relevance_score DESC NULLS LAST, ci.published_at DESC NULLS LAST, ci.id ASC',
         latest: 'ci.published_at DESC NULLS LAST, ci.id ASC',
       };
-      const order = isParking ? 'pl.parked_at DESC, ci.id ASC' : orders[sort];
+      const order = isParking ? 'ci.parked_at DESC, ci.id ASC' : orders[sort];
       if (!Object.hasOwn(orders, sort) || !order) throw new ValidationError('Unsupported Discovery sort');
       const formatParam = queryText(req.query['format'], 'format', DISCOVER_ENUM_MAX_LENGTH);
       if (formatParam !== undefined && !isContentFormat(formatParam)) throw new ValidationError('Unsupported Discovery format');
@@ -303,8 +303,8 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
       if (isParking && filtered) throw new ValidationError('The parking lot is independent of the filtered-out view.');
       if (filtered) {
         conditions.push(`ci.published_at >= NOW()-INTERVAL '7 days'`);
-        conditions.push(`(ci.workflow_state IN ('shelved','archived') OR (${interests.factor})=0)`);
-      } else if (!isParking && state === 'to-review') conditions.push(`(${interests.factor})>0`);
+        conditions.push(`(ci.workflow_state IN ('shelved','archived') OR (${interests.eligible})=0)`);
+      } else if (!isParking && state === 'to-review') conditions.push(`(${interests.eligible})>0`);
 
       // Ranking for a format lists only articles that suit it, strongest fit first, then by rank.
       if (format !== undefined) conditions.push(`${formatFitSql('ci', format)} >= 1`);
@@ -322,6 +322,8 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
       params.push(DISCOVER_RECENCY_HALF_LIFE_DAYS);
       const { rank: rankScoreExpr, recency: recencyExpr, authority: authorityWeightExpr, articleType: typeWeightExpr, project: projectExpr }
         = discoverRankSql('ci', `$${halfLifeParamIndex}`);
+      const diversity = !isParking && !filtered && state === 'to-review' && sort === 'weighted' && !sourceFilter && format === undefined
+        ? discoverDiversitySql('ci') : '1.0';
 
       const [countResult, dataResult] = await Promise.all([
         db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM content_items ci ${parkingJoin} ${where}`, params.slice(0, halfLifeParamIndex - 1)),
@@ -339,6 +341,7 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
           relevance_explanation: string | null;
           taxonomy_tag_ids: string[] | null;
           rank_score: number | null;
+          diversity_factor: number;
           recency_factor: number | null;
           authority_factor: number;
           type_factor: number;
@@ -347,13 +350,13 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
           interest_topics: string | null; interest_source: number; saved_factor: number; interest_factor: number;
           parking: DiscoverParking | null;
         } & Record<`fit_${ContentFormat}`, number>>(
-          `SELECT ci.id, ci.source_id, ci.title, ci.url, ci.body, ci.published_at, ci.indexed_at,
+          `WITH ranked AS MATERIALIZED (SELECT ci.id, ci.source_id, ci.title, ci.url, ci.body, ci.published_at, ci.indexed_at,
                   ci.metadata, ci.workflow_state, ci.relevance_score, ci.relevance_explanation,
                   CASE WHEN pl.article_id IS NOT NULL THEN
                     jsonb_build_object('newsletter',pl.newsletter,'podcast',pl.podcast,'parkedAt',pl.parked_at,'updatedAt',pl.updated_at)
-                  END AS parking,
+                  END AS parking, pl.parked_at AS parked_at,
                   array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids,
-                  (${rankScoreExpr}) * (${interests.factor}) AS rank_score,
+                  (${rankScoreExpr}) * (${interests.factor}) AS base_rank_score,
                   ${interests.topics} AS interest_topics, ${interests.source} AS interest_source, ${interests.saved} AS saved_factor,
                   (${interests.factor}) AS interest_factor,
                   ${recencyExpr} AS recency_factor, (${authorityWeightExpr}) AS authority_factor,
@@ -364,7 +367,10 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
            ${parkingJoin}
            LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
            ${where}
-           GROUP BY ci.id, pl.article_id
+           GROUP BY ci.id, pl.article_id)
+           SELECT ci.*, ${diversity} AS diversity_factor,
+                  ci.base_rank_score * ${diversity} AS rank_score
+           FROM ranked ci
            ORDER BY ${format === undefined ? order : `"fit_${format}" DESC, ${order}`}
            LIMIT $${p++} OFFSET $${p}`,
           [...params, pageSize, offset],
@@ -401,6 +407,7 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
           `Source weight ×${Number(row.interest_source)}; recency ×${Number(row.recency_factor ?? 0).toFixed(RANK_FACTOR_PRECISION)}.`,
           ...(row.interest_topics ? [`Matched topics: ${row.interest_topics}.`] : []),
           ...(Number(row.saved_factor) > 1 ? ['You previously saved articles from this source (×1.1).'] : []),
+          ...(Number(row.diversity_factor) < 1 ? ['Balanced with other sources to avoid a feed dominated by one publisher family.'] : []),
         ],
         filteredReason: filtered ? (Number(row.interest_source) === 0 ? 'Source weight is zero.'
           : row.workflow_state === 'shelved' ? `Shelved: ${String(row.metadata['shelvedReason'] ?? 'editorial triage or age')}.`
@@ -411,6 +418,7 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
           authority: Number(row.authority_factor), articleType: Number(row.type_factor),
           project: Number(row.project_factor), halfLifeDays: DISCOVER_RECENCY_HALF_LIFE_DAYS,
           interests: Number(row.interest_factor),
+          diversity: Number(row.diversity_factor),
           computedAt: row.rank_computed_at.toISOString(),
         },
         alreadyCovered: typeof row.metadata['alreadyCovered'] === 'number' ? row.metadata['alreadyCovered'] : null,

@@ -49,7 +49,7 @@ const tokenResponse = (seconds = 900) => new Response(JSON.stringify({
   access_token: 'fixture-access-token', refresh_token: 'fixture-refresh-token', expires_in: seconds,
 }), { status: 200 });
 
-test('Mural lists every workspace and board page, groups names and retains archived boards without exposing sharing tokens', async () => {
+test('Mural lists only the Athena workspace, following board pages, and retains archived boards without exposing sharing tokens', async () => {
   const { pool, db } = await fixture(); const original = globalThis.fetch;
   try {
     await saveMuralConfig(pool, config);
@@ -69,16 +69,15 @@ test('Mural lists every workspace and board page, groups names and retains archi
       if (url.pathname.endsWith('/athena5676/murals')) return Response.json(url.searchParams.has('next')
         ? { value: [{ id: 'athena5676.2', title: 'Archived board', status: 'archived' }] }
         : { value: [{ id: 'athena5676.1', title: 'Project board', status: 'active', state: 'private-visitor-key' }], next: 'boards+/token' });
-      assert.ok(url.pathname.endsWith('/other1234/murals'));
-      return Response.json({ value: [{ id: 'other1234.3', title: 'Project board', status: 'active' }] });
+      throw new Error(`Unexpected request outside the Athena workspace: ${url.pathname}`);
     };
     const boards = await listMuralBoards(pool);
     assert.deepEqual(boards, [
-      { id: 'other1234.3', title: 'Project board', workspace: 'Alpha workspace', archived: false, url: 'https://app.mural.co/t/other1234/m/other1234/3' },
       { id: 'athena5676.2', title: 'Archived board', workspace: 'Main workspace', archived: true, url: 'https://app.mural.co/t/athena5676/m/athena5676/2' },
       { id: 'athena5676.1', title: 'Project board', workspace: 'Main workspace', archived: false, url: 'https://app.mural.co/t/athena5676/m/athena5676/1' },
     ]);
-    assert.equal(calls.length, 5);
+    assert.equal(calls.length, 4);
+    assert.ok(calls.every(call => !call.includes('other1234')));
     assert.ok(calls.some(call => new URL(`https://fixture.test${call}`).searchParams.get('next') === 'boards+/token'));
     assert.ok(!JSON.stringify(boards).includes('private-visitor-key'));
   } finally { globalThis.fetch = original; await db.close(); }
@@ -128,6 +127,7 @@ test('Mural restricted workspace membership preserves accessible board and room 
     await saveMuralConfig(pool, config);
     globalThis.fetch = async () => tokenResponse();
     await finishMuralAuth(pool, 'richard', { state: new URL(await startMuralAuth(pool, 'richard')).searchParams.get('state'), code: 'fixture' });
+    process.env['MURAL_WORKSPACE_ID'] = 'restricted1234,athena5676';
     let errorCode = 'WORKSPACE_LIST_MEMBERS';
     globalThis.fetch = async input => {
       const url = new URL(String(input));
@@ -152,7 +152,7 @@ test('Mural restricted workspace membership preserves accessible board and room 
     globalThis.fetch = async () => Response.json({ code: 'WORKSPACE_LIST_MEMBERS' }, { status: 403 });
     await assert.rejects(listMuralRooms(pool, message => { warnings.push(message); }), /GET \/workspaces \(HTTP 403\)/);
     assert.equal(warnings.length, 2, 'Global and unrecognised denials remain errors');
-  } finally { globalThis.fetch = original; await db.close(); }
+  } finally { delete process.env['MURAL_WORKSPACE_ID']; globalThis.fetch = original; await db.close(); }
 });
 
 test('Mural room listing follows pages; new boards use only the supported create payload and never retry writes', async () => {

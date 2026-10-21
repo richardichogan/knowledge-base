@@ -19,6 +19,7 @@ const articleId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const emailId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee';
 const post = 'Microsoft has announced a new cloud management capability.\n\nFor enterprise IT, this could simplify governance.';
 let requests = 0;
+let feedReads = 0;
 let workflowWrites = 0;
 let failWorkflow = true;
 let fail = false;
@@ -47,12 +48,14 @@ api.addDiscoveryVideo = async url => {
   return success({ id: 'youtube-video', title: 'Agentic borders', isNew: true });
 };
 api.getDiscoverFeed = async () => {
+  feedReads++;
   return success({ items: [{
   id: articleId, sourceId: 'test', title: 'A public cloud management announcement', url: 'https://example.com/news',
   description: 'Public news', publishedAt: now, indexedAt: now, sourceTitle: 'Test newsletter', workflowState: 'to-review',
   relevanceScore: 0.8, rankScore: 1.248, relevanceExplanation: 'A useful enterprise IT update.', publishedUrl: null, taxonomyTagIds: [],
   articleType: null, platform: null, sourceType: null, spark: false, sparkReason: null, compositeScore: null,
   rankFactors: { editorial: 0.8, recency: 1, authority: 1.3, articleType: 1.2, project: 1, halfLifeDays: 7, computedAt: now },
+  parking: { newsletter: true, podcast: true, parkedAt: now, updatedAt: now },
 }], total: 1, page: 1, pageSize: 25 });
 };
 api.getTimeline = async () => success({ items: [{
@@ -116,6 +119,9 @@ function openList(key: string): void {
 export async function runDiscoverChecks(): Promise<string[]> {
   const checks: string[] = [];
   await waitFor(() => document.querySelector('.dc-card .dc-action--explore') !== null);
+  check(feedReads === 1, 'For you and its briefing share one ranked-feed request on entry');
+  check(document.querySelector('.dc-card-parked')?.textContent?.includes('Parked: Newsletter + Podcast') === true,
+    'For you marks parked articles and names their destinations');
   click('Sources');
   await waitFor(() => document.querySelector('.dc-sources') !== null);
   const setInput = (label: string, value: string): void => {
