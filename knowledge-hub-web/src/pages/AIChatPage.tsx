@@ -59,6 +59,8 @@ import { NoteEditCard } from '../components/athena/NoteEditCard';
 import { MapChangeCard } from '../components/athena/MapChangeCard';
 import { LocalFileWriteCard } from '../components/athena/LocalFileWriteCard';
 import { desktopErrorMessage, getDesktop } from '../types/desktop';
+import { useDesktopCommand } from '../services/desktopCommands';
+import { appendVoiceTranscript, finishVoiceTranscript } from '../services/voiceTranscript';
 import { briefingSeenToday, markBriefingSeen } from '../utils/morningBriefing';
 import { PERSONAS, getPersona } from '../components/athena/personas';
 import { ChatMentionSuggestions } from '../chat/ChatMentionSuggestions';
@@ -1630,6 +1632,40 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     await persistResponseToThink(save, contentType);
   }
 
+  const reviewRecordingRef = useRef(false);
+  const desktopVoiceBusyRef = useRef(false);
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    processorRef.current?.disconnect();
+    const context = audioCtxRef.current;
+    if (context && context.state !== 'closed') void context.close().catch(error => {
+      console.error('[Voice input] Could not close audio context:', error);
+    });
+    if (standalone) void getDesktop()?.voiceState?.({ recording: false, transcribing: false }).catch(error => {
+      console.error('[Stream Deck] Could not clear voice state:', error);
+    });
+  }, [standalone]);
+  useEffect(() => {
+    if (!standalone) return;
+    void getDesktop()?.voiceState?.({ recording: isRecording, transcribing: isTranscribing }).catch(error => {
+      console.error('[Stream Deck] Could not publish voice state:', error);
+    });
+  }, [standalone, isRecording, isTranscribing]);
+  useDesktopCommand('speak', async () => {
+    if (!standalone || desktopVoiceBusyRef.current || isTranscribing || chatMutation.isPending || isRestoringHistory) {
+      throw new Error('Chat is busy. Wait for it to finish before recording.');
+    }
+    desktopVoiceBusyRef.current = true;
+    try {
+      if (streamRef.current) await stopRecording(true);
+      else {
+        reviewRecordingRef.current = true;
+        await startRecording();
+        if (!streamRef.current) throw new Error('Microphone access failed. Allow access in the chat window and try again.');
+      }
+    } finally { desktopVoiceBusyRef.current = false; }
+  });
+
   async function startRecording(): Promise<void> {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1654,7 +1690,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     }
   }
 
-  async function stopRecording(): Promise<void> {
+  async function stopRecording(reviewOnly = reviewRecordingRef.current): Promise<void> {
     const ctx = audioCtxRef.current;
     const processor = processorRef.current;
     const stream = streamRef.current;
@@ -1674,7 +1710,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     const chunks = pcmChunksRef.current;
     pcmChunksRef.current = [];
     const totalLen = chunks.reduce((sum, c) => sum + c.length, 0);
-    if (totalLen === 0) return;
+    if (totalLen === 0) {
+      reviewRecordingRef.current = false;
+      if (reviewOnly) throw new Error('No audio was captured. Your draft is unchanged.');
+      return;
+    }
     const merged = new Float32Array(totalLen);
     let offset = 0;
     for (const c of chunks) {
@@ -1693,25 +1733,35 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     try {
       const audioBase64 = await blobToBase64(wavBlob);
       const result = await api.transcribeVoice(audioBase64, 'audio/wav');
+      if (!result.success) throw new Error(result.error.message);
       const text = result.success ? result.data.text.trim() : '';
       if (text !== '') {
-        // Speaking a message auto-enables spoken replies for the rest of the
-        // session, matching FNOL/Steward — typing doesn't opt you back in.
-        setVoiceOutputOn(true);
-        appendMessage('user', text);
-        chatMutation.mutate({ text });
+        finishVoiceTranscript(text, reviewOnly, transcript => {
+          setInput(current => appendVoiceTranscript(current, transcript));
+          textareaRef.current?.focus();
+        }, transcript => {
+          // On-screen voice input retains its existing spoken-reply behavior.
+          setVoiceOutputOn(true);
+          appendMessage('user', transcript);
+          chatMutation.mutate({ text: transcript });
+        });
+        return;
       }
-    } catch {
+      if (reviewOnly) throw new Error('No speech was detected. Your existing draft is unchanged.');
+    } catch (error) {
       appendMessage('assistant', '⚠️ Could not transcribe that recording. Please try again or type your message.');
+      if (reviewOnly) throw error;
     } finally {
+      reviewRecordingRef.current = false;
       setIsTranscribing(false);
     }
   }
 
   function handleMicClick(): void {
     if (isRecording) {
-      void stopRecording();
+      void stopRecording().catch(error => { console.error('[Voice input] Recording failed:', error); });
     } else {
+      reviewRecordingRef.current = false;
       void startRecording();
     }
   }

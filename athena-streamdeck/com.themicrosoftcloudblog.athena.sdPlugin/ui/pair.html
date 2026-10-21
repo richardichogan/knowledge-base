@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src ws://127.0.0.1:*">
+  <title>Athena pairing</title>
+  <link rel="stylesheet" href="pair.css">
+</head>
+<body>
+  <h1>Athena</h1>
+  <p>Open Presentation and Stream Deck in Athena Desktop. Enable the connection and copy its pairing key.</p>
+  <form id="pair">
+    <label for="token">Pairing key</label>
+    <input id="token" type="password" autocomplete="off" spellcheck="false" maxlength="64">
+    <button type="submit">Pair with Athena</button>
+  </form>
+  <p id="status" role="status">Athena Desktop must be running.</p>
+  <p>Your key is saved once for all Athena actions on this PC. Disable the connection in Athena to revoke it.</p>
+  <script src="pair.js"></script>
+</body>
+</html>

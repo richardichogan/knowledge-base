@@ -8,6 +8,7 @@ import { FolderRegistry, guardPath, type LocalFolder } from './folders';
 import { readFileBytes, readText, writeText } from './fileAccess';
 import { chatLinkPath, classifyUrl, isAthenaFrame, launchMode, type LaunchMode } from './navigation';
 import { isIndexable, Scanner } from './scanner';
+import { installElgato } from './elgato';
 
 const ATHENA_URL = process.env.ATHENA_URL ?? 'https://athena.themicrosoftcloudblog.com';
 const ATHENA_ORIGIN = new URL(ATHENA_URL).origin;
@@ -40,6 +41,7 @@ async function start(): Promise<void> {
   registry = new FolderRegistry(join(app.getPath('userData'), 'local-folders.json'));
   await registry.load();
   registerIpc();
+  const openPresentation = installElgato(ATHENA_ORIGIN, path => createWindow(new URL(path, ATHENA_ORIGIN).href), openExperience);
   watchFolders(await registry.folders());
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
@@ -47,6 +49,7 @@ async function start(): Promise<void> {
       submenu: [
         { id: 'open-chat', label: 'Open Athena Chat', accelerator: 'CmdOrCtrl+Shift+C', click: () => { openExperience('chat'); } },
         { id: 'open-workspace', label: 'Open full app', accelerator: 'CmdOrCtrl+Shift+H', click: () => { openExperience('workspace'); } },
+        { label: 'Presentation and Stream Deck', click: openPresentation },
         { type: 'separator' },
         { role: 'close' },
         { role: 'quit' },

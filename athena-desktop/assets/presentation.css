@@ -1,0 +1,8 @@
+html, body { margin: 0; height: 100%; background: #080808; color: #f4f4f4; overflow: hidden; }
+body { font-family: "IBM Plex Sans", "Segoe UI", sans-serif; cursor: none; }
+#viewport { height: 100%; overflow: hidden; transform-origin: center; }
+#script { padding: 35vh 8vw 65vh; font-size: 64px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+#guide { position: fixed; top: 35%; left: 2%; width: 2%; height: 2px; background: #3ddbd9; }
+body.mirror #viewport { transform: scaleX(-1); }
+body.flip #viewport { transform: scaleY(-1); }
+body.mirror.flip #viewport { transform: scale(-1, -1); }

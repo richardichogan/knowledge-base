@@ -1,0 +1,6 @@
+node_modules/
+dist/
+com.themicrosoftcloudblog.athena.sdPlugin/bin/
+com.themicrosoftcloudblog.athena.sdPlugin/logs/
+com.themicrosoftcloudblog.athena.sdPlugin/manifest.json
+com.themicrosoftcloudblog.athena.sdPlugin/imgs/

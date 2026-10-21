@@ -67,23 +67,8 @@ function deserialise(raw: string, id: string, createdAt: string, updatedAt: stri
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 
-export interface NoteContentBlock { type?: string; content?: { text?: string }[]; children?: NoteContentBlock[] }
-
-/** Recursively joins block text content into a flat text blob, skipping non-text blocks (e.g. images). */
-export function extractNoteBlockText(blocks: NoteContentBlock[]): string {
-  const parts: string[] = [];
-  for (const block of blocks) {
-    if (Array.isArray(block.content)) {
-      const text = block.content.map((c) => c.text ?? '').join('');
-      if (text.trim() !== '') parts.push(text.trim());
-    }
-    if (Array.isArray(block.children)) {
-      const childText = extractNoteBlockText(block.children);
-      if (childText !== '') parts.push(childText);
-    }
-  }
-  return parts.join('\n');
-}
+import { extractNoteBlockText, type NoteContentBlock } from './noteText';
+export { extractNoteBlockText, type NoteContentBlock } from './noteText';
 
 /**
  * Builds the note-list preview snippet. Skips any leading lines that just

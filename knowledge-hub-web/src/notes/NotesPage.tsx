@@ -32,6 +32,8 @@ import { DataNotice } from '../components/DataNotice';
 import { canvasHierarchy } from '../features/canvas/canvasHierarchy';
 import { PageHeader } from '../components/PageHeader';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useDesktopCommand } from '../services/desktopCommands';
+import { getDesktop } from '../types/desktop';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -203,8 +205,8 @@ export const NotesPage: React.FC = () => {
     }
   }
 
-  async function handleCreateNote(): Promise<void> {
-    if (creatingNoteRef.current) return;
+  async function handleCreateNote(): Promise<boolean> {
+    if (creatingNoteRef.current) return false;
     creatingNoteRef.current = true;
     try {
       const doc = await createNote({ title: 'Untitled', contentType: 'note', contentJson: '[]' });
@@ -214,13 +216,29 @@ export const NotesPage: React.FC = () => {
         setSelectedId(doc.id);
         setOpenDoc(doc);
         setMobilePane('editor');
+        setMode('notes');
+        return true;
       }
+      return false;
     } catch (err) {
       await alertDialog(err instanceof Error ? err.message : 'Could not create the note.', { title: 'Could not create note', tone: 'danger' });
+      return false;
     } finally {
       creatingNoteRef.current = false;
     }
   }
+
+  useDesktopCommand('new-note', async () => {
+    if (!await handleCreateNote()) throw new Error('Could not create a note. Check Think before retrying.');
+  });
+  useDesktopCommand('new-diagram', async () => {
+    if (!await handleCreateCanvas('diagram')) throw new Error('Could not create the diagram. Check Think before retrying.');
+  });
+  useDesktopCommand('present-note', async () => {
+    const presentation = getDesktop()?.presentation;
+    if (!presentation) throw new Error('Update Athena Desktop to present on another display.');
+    await presentation.open(mode === 'notes' ? openDoc?.id : undefined);
+  });
 
   async function handleImported(doc: NoteDocument): Promise<void> {
     setImportModalOpen(false);
@@ -516,6 +534,10 @@ export const NotesPage: React.FC = () => {
               </button>
             ))}
           </div>
+          {getDesktop()?.presentation && <button type="button" className="kb-import-btn"
+            onClick={() => { void getDesktop()?.presentation?.open(mode === 'notes' ? openDoc?.id : undefined).catch(err => {
+              void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
+            }); }}>Present</button>}
           {/* Always present (label follows the view) so the bar keeps its
               shape when switching Notes / Sparks / Canvas. */}
           <div className="mm-newmap-anchor kh-command-row">

@@ -2,6 +2,28 @@
 
 **Status:** Validated
 
+**Section 7: Validation proof (2026-10-21, Elgato frontend release):**
+- User explicitly requested deployment after local Elgato implementation.
+  Scope is the existing kh-prod-web Static Web App only. No backend,
+  infrastructure, identity, RBAC, secrets or environment changes.
+- Fetched origin and merged origin/main; already up to date at 6f8412e.
+  Frontend and backend `npx tsc --noEmit` passed.
+- Frontend `npm run test:isolated` passed: 122 core tests plus 6 and 3
+  bundled UI tests. `npm run build` passed. `git diff --check` passed.
+- Azure CLI authenticated target: Alliance Tenant Reporting,
+  c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28. Live lookup confirmed kh-prod-web,
+  West Europe, nice-mud-0f780fb03.7.azurestaticapps.net.
+  Azure MCP returned no subscriptions; CLI independently confirmed access.
+- Subscription confirmation was requested; user unavailable. Proceed with
+  their explicit deploy instruction and the established production target.
+- Recipe: existing AZCLI/SWA application deployment. Infrastructure
+  compilation, what-if, Docker, provisioning and RBAC changes are not
+  applicable. Existing authentication and hosting configuration are preserved.
+- Deploy the validated dist directory using the existing SWA deployment
+  token held only in the shell. Verify public assets against local hashes.
+  Desktop installer/plugin installation and physical hardware trial remain
+  separate; no desktop release publication is included.
+
 **Deployment result (2026-10-20 17:14 BST, Mural integration):**
 - Source `297730a` pushed to the feature branch and main. ACR run `ca6x`
   built v220 successfully from `#main:knowledge-hub-backend`; digest

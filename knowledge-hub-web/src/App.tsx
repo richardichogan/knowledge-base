@@ -27,6 +27,7 @@ import { HomePage } from './pages/HomePage';
 import { AppDialogHost } from './components/AppDialog';
 import { LocalFolderSync } from './components/library/LocalFoldersPanel';
 import { ChatLinkReceiver } from './components/ChatLinkReceiver';
+import { DesktopCommandReceiver } from './components/DesktopCommandReceiver';
 import { DocumentTitleSync } from './navigation/PageTitle';
 import { deferredView } from './utils/deferredView';
 
@@ -38,6 +39,7 @@ const NotePopout = deferredView('Note', async () => ({ default: (await import('.
 const DocumentsPage = deferredView('Library', async () => ({ default: (await import('./pages/DocumentsPage')).DocumentsPage }));
 const MemoryPage = deferredView('Memory', async () => ({ default: (await import('./pages/MemoryPage')).MemoryPage }));
 const AutocueApp = deferredView('Autocue', async () => ({ default: (await import('./features/autocue/AutocueApp')).AutocueApp }));
+const Presenter = deferredView('Presentation', async () => ({ default: (await import('./features/autocue/Presenter')).Presenter }));
 const GraphPage = deferredView('Graph', async () => ({ default: (await import('./pages/GraphPage')).GraphPage }));
 const AIChatPage = deferredView('Athena', async () => ({ default: (await import('./pages/AIChatPage')).AIChatPage }));
 const RepoProjectMappingsPage = deferredView('Project mappings', async () => ({ default: (await import('./pages/RepoProjectMappingsPage')).RepoProjectMappingsPage }));
@@ -58,11 +60,13 @@ const App: React.FC = () => {
         <AthenaContextProvider>
           <BrowserRouter>
             <ChatLinkReceiver />
+            <DesktopCommandReceiver />
             <DocumentTitleSync />
             <GlobalContextMenuProvider>
             <Routes>
               <Route path="/integrations/mural/callback" element={<MuralCallback />} />
               <Route path="/autocue/*" element={<AutocueApp />} />
+              <Route path="/present" element={<Presenter />} />
               {/* Standalone full-screen chat, no sidebar/nav — for use as a
                   desktop PWA shortcut (Edge/Chrome "install as app"). */}
               <Route path="/chat" element={<AIChatPage standalone />} />

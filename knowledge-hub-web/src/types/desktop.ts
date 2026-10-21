@@ -4,6 +4,26 @@
  * is checked against the user's chosen folders in the desktop app itself.
  */
 
+import type { CommandRequest, DesktopCommandState, PresentationDisplay, PresentationScript } from '../../../athena-desktop/src/elgatoProtocol';
+export type { DesktopCommand, CommandRequest, DesktopCommandState } from '../../../athena-desktop/src/elgatoProtocol';
+
+export interface DesktopPresentation {
+  open(noteId?: string): Promise<void>;
+  displays(): Promise<(PresentationDisplay & { preferred?: boolean })[]>;
+  identify(id: number): Promise<void>;
+  state(): Promise<DesktopCommandState>;
+  close(): Promise<void>;
+  start(value: PresentationScript & { displayId: number }): Promise<void>;
+  command(value: CommandRequest): Promise<void>;
+  options(value: { mirror: boolean; flip: boolean }): Promise<void>;
+  onState(listener: (value: DesktopCommandState) => void): () => void;
+  onNote(listener: (value: string) => void): () => void;
+  pairingStatus(): Promise<{ enabled: boolean; error: string | null }>;
+  pair(): Promise<{ enabled: boolean; error: string | null }>;
+  copyKey(): Promise<void>;
+  revoke(): Promise<{ enabled: boolean; error: string | null }>;
+}
+
 export interface DesktopFolder {
   id: string;
   name: string;
@@ -27,6 +47,9 @@ export interface DesktopSkippedFile {
 
 export interface AthenaDesktopBridge {
   version: string;
+  presentation?: DesktopPresentation;
+  onCommand?(listener: (request: CommandRequest) => Promise<void>): () => void;
+  voiceState?(value: { recording: boolean; transcribing: boolean }): Promise<void>;
   device(): Promise<{ deviceId: string; deviceName: string }>;
   listFolders(): Promise<DesktopFolder[]>;
   /** Opens a folder picker; null when cancelled. */

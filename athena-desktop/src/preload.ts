@@ -3,14 +3,51 @@
  * can only use `electron`; every call is checked again in the main process.
  */
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import type { CommandRequest } from './elgatoProtocol';
 
 const originArg = process.argv.find((a) => a.startsWith('--athena-origin='));
 const athenaOrigin = originArg?.slice('--athena-origin='.length) ?? '';
 const versionArg = process.argv.find((a) => a.startsWith('--athena-version='));
 
-if (athenaOrigin !== '' && window.location.origin === athenaOrigin) {
+if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === athenaOrigin) {
   contextBridge.exposeInMainWorld('athenaDesktop', {
     version: versionArg?.slice('--athena-version='.length) ?? '',
+    presentation: {
+      open: (noteId?: string) => ipcRenderer.invoke('presentation:open', noteId),
+      displays: () => ipcRenderer.invoke('presentation:displays'),
+      identify: (id: number) => ipcRenderer.invoke('presentation:identify', id),
+      state: () => ipcRenderer.invoke('presentation:state'),
+      close: () => ipcRenderer.invoke('presentation:close'),
+      start: (value: unknown) => ipcRenderer.invoke('presentation:start', value),
+      command: (value: unknown) => ipcRenderer.invoke('presentation:command', value),
+      options: (value: unknown) => ipcRenderer.invoke('presentation:options', value),
+      onState: (listener: (value: unknown) => void) => {
+        const handler = (_event: IpcRendererEvent, value: unknown): void => listener(value);
+        ipcRenderer.on('presentation:state', handler);
+        return () => { ipcRenderer.removeListener('presentation:state', handler); };
+      },
+      onNote: (listener: (value: string) => void) => {
+        const handler = (_event: IpcRendererEvent, value: string): void => listener(value);
+        ipcRenderer.on('presentation:note', handler);
+        return () => { ipcRenderer.removeListener('presentation:note', handler); };
+      },
+      pairingStatus: () => ipcRenderer.invoke('elgato:status'),
+      pair: () => ipcRenderer.invoke('elgato:pair'),
+      copyKey: () => ipcRenderer.invoke('elgato:copy'),
+      revoke: () => ipcRenderer.invoke('elgato:revoke'),
+    },
+    voiceState: (value: unknown) => ipcRenderer.invoke('desktop:voice-state', value),
+    onCommand: (listener: (request: CommandRequest) => Promise<void>) => {
+      const handler = (_event: IpcRendererEvent, request: CommandRequest): void => {
+        Promise.resolve().then(() => listener(request)).then(
+          () => ipcRenderer.send('desktop:reply', { id: request.id }),
+          (error: unknown) => ipcRenderer.send('desktop:reply', { id: request.id, error: error instanceof Error ? error.message : 'Desktop command failed.' }),
+        );
+      };
+      ipcRenderer.on('desktop:command', handler);
+      ipcRenderer.send('desktop:ready');
+      return () => { ipcRenderer.removeListener('desktop:command', handler); };
+    },
     device: () => ipcRenderer.invoke('athena:device'),
     listFolders: () => ipcRenderer.invoke('athena:list-folders'),
     addFolder: () => ipcRenderer.invoke('athena:add-folder'),

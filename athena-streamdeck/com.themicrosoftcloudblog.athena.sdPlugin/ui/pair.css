@@ -1,0 +1,11 @@
+body { padding: 16px; margin: 0; background: #161616; color: #f4f4f4; font: 14px/1.5 "IBM Plex Sans", "Segoe UI", sans-serif; }
+h1 { margin: 0 0 16px; font-size: 20px; font-weight: 600; }
+p { margin: 16px 0; }
+label { display: block; margin-bottom: 8px; font-weight: 600; }
+input { box-sizing: border-box; width: 100%; background: #262626; color: #f4f4f4; border: 1px solid #6f6f6f; padding: 10px; font: inherit; }
+button { margin-top: 12px; border: 0; background: #3ddbd9; color: #161616; min-height: 40px; padding: 10px 16px; font: inherit; cursor: pointer; }
+button:hover { background: #9ef0f0; }
+button:active { background: #08bdba; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+:is(button, input):focus-visible { outline: 2px solid #3ddbd9; outline-offset: 3px; }
+#status { color: #3ddbd9; overflow-wrap: anywhere; }
