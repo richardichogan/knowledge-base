@@ -2,6 +2,20 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-21 15:58 BST, Daily Insights importer):**
+- Source 9a8f70d pushed to feature branch and main. ACR run ca71 built
+  kh-prod-api:v223, digest
+  sha256:0a7b33c15522f980c5f2be837db8cee4ac7f4993640b0ad92c28c43a013f659c.
+- kh-prod-api-vnet--0000220 is Healthy / RunningAtMaxScale with 100% traffic.
+  Startup logs confirm completed migrations, warm database pool and HTTP 200
+  responses from the desktop's /daily-insights capture requests.
+- Today's real report was captured using the existing transactional service:
+  9 tasks created, 0 updated, 0 preserved, 12 meetings, 6 review warnings.
+  Database verification confirms all 9 task identities exist and all 9 tasks
+  have Inbox status. A repeat capture returned unchanged without duplicates.
+- Only the Daily Insights backend fix was deployed. Other local Mural,
+  clipboard, contacts, frontend and desktop changes remain outside this release.
+
 **Section 7: Validation proof (2026-10-21, Daily Insights importer):**
 - User explicitly authorised production deployment and requested tolerance
   for nondeterministic M365 Copilot Markdown output.
