@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { getDb } from '../db/db.js';
 import { ValidationError } from '../types/errors.js';
-import { muralStatus, saveMuralConfig, startMuralAuth, finishMuralAuth, disconnectMural, exportMuralImage } from '../services/mural.js';
+import { muralStatus, saveMuralConfig, startMuralAuth, finishMuralAuth, disconnectMural, exportMuralImage, listMuralBoards } from '../services/mural.js';
 import { exportMuralDiagram } from '../services/muralDiagram.js';
 
 const router = Router();
@@ -14,6 +14,7 @@ function handler(run: (req: Request) => Promise<unknown>) {
   };
 }
 router.get('/', handler(() => muralStatus(getDb())));
+router.get('/boards', handler(() => listMuralBoards(getDb())));
 router.put('/', handler(req => saveMuralConfig(getDb(), req.body)));
 router.post('/connect', handler(async req => ({ url: await startMuralAuth(getDb(), (req as AuthenticatedRequest).userId) })));
 router.post('/callback', handler(async req => {

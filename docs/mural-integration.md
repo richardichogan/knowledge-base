@@ -11,14 +11,17 @@ Register this exact redirect URL:
 
 `https://athena.themicrosoftcloudblog.com/integrations/mural/callback`
 
-Enable `murals:read` and `murals:write`. CORS allowlisting is not needed:
+Enable `murals:read`, `murals:write` and `workspaces:read`. Existing connections
+must reconnect after enabling `workspaces:read` to authorise board listing.
+CORS allowlisting is not needed:
 provider requests are server-side. Keep the app Private during testing.
 Click Connect to Mural and consent using the Mural account that can edit the
 destination board. OAuth uses S256 PKCE, a ten-minute, single-use state bound
 to the authenticated Athena user, and encrypted rotating refresh tokens.
 Configuration and token updates are serialised across backend replicas.
 
-Open a Think diagram -> Export -> Mural. Check the destination board and
+Open a Think diagram -> Export -> Mural. Choose the destination from the
+board dropdown, grouped by workspace, and check the
 annotation options, then click Send editable diagram to Mural.
 Shapes, text, connector labels, footnotes and colour-key entries become native
 editable Mural objects. The backend creates shapes first and connects arrows
@@ -66,8 +69,13 @@ The board URL field accepts normal app.mural.co individual board URLs,
 not workspace lists or visitor routes. Share-token suffixes and queries are
 removed; OAuth permissions determine access. The default is the supplied
 Athena test board. Users can change the default or override it per export.
-This version intentionally uses a board URL rather than requesting workspace
-and room access to build another picker.
+The board dropdown lists all boards the connected account owns or belongs to
+across its workspaces, following every pagination token. Archived boards are
+shown but cannot be selected for export. Refresh boards reloads the list.
+Enter board URL remains available for boards not returned by the account's
+workspace membership or while reconnecting. Listing errors are explicit;
+Athena never presents a partial list as a complete result. The same picker
+is available when editing the default destination in Sources / Integrations.
 
 Disconnect removes Athena's saved OAuth tokens and pending sign-ins but keeps
 app settings and existing exported objects. Revoke the app in Mural as well

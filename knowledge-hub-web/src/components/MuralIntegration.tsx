@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, type MuralStatus } from '../services/api';
 import { describeApiError } from '../services/apiError';
+import { MuralBoardPicker, MURAL_BOARDS_QUERY } from './MuralBoardPicker';
 import './connectionTokens.scss';
 import './muralIntegration.scss';
 
@@ -32,8 +33,8 @@ export const MuralIntegration: React.FC = () => {
   const status = query.data;
   return <section className="connection-tokens mural-integration" aria-labelledby="mural-integration-title">
     <h3 id="mural-integration-title">Mural</h3>
-    <p className="connection-tokens__intro">Send diagrams to Mural as a complete image, including connectors, icons and selected annotations.
-      Shapes are not individually editable in Mural. Nothing is exported automatically.</p>
+    <p className="connection-tokens__intro">Send diagrams to Mural as editable shapes, text and connectors, with separate icon images and selected annotations.
+      Nothing is exported automatically.</p>
     {query.isPending && <p className="connection-tokens__detail" role="status">Loading Mural connection...</p>}
     {query.isError && <div className="connection-tokens__error" role="alert">
       <p>{describeApiError(query.error)}</p>
@@ -54,7 +55,8 @@ export const MuralIntegration: React.FC = () => {
           const response = await api.saveMuralConfig({ clientId, secret, boardUrl });
           if (!response.success) throw new Error(response.error.message);
           setSecret(''); setEditing(false); cache.setQueryData(MURAL_QUERY, response.data);
-          setMessage('Settings saved. Connect to Mural to authorise export.');
+          if (!response.data.connected) cache.removeQueries({ queryKey: MURAL_BOARDS_QUERY });
+          setMessage(response.data.connected ? 'Settings saved.' : 'Settings saved. Connect to Mural to authorise export.');
         });
       }}>
         <label htmlFor="mural-client-id">Client ID</label>
@@ -63,10 +65,12 @@ export const MuralIntegration: React.FC = () => {
         <label htmlFor="mural-secret">Client secret{status.configured ? ' (leave blank to keep the saved secret)' : ''}</label>
         <input id="mural-secret" type="password" value={secret} required={!status.configured} disabled={busy} autoComplete="new-password"
           spellCheck={false} maxLength={8192} onChange={event => { setSecret(event.target.value); }} />
-        <label htmlFor="mural-board">Default board URL</label>
-        <input id="mural-board" type="url" value={boardUrl} required maxLength={2048} disabled={busy} autoComplete="off"
-          placeholder="https://app.mural.co/t/.../m/..." onChange={event => { setBoardUrl(event.target.value); }} />
-        <p className="connection-tokens__detail">Enable murals:read and murals:write in your Mural app. Credentials and OAuth tokens are encrypted on the server and never displayed.</p>
+        {status.connected ? <MuralBoardPicker label="Default board" value={boardUrl} disabled={busy} onChange={setBoardUrl} /> : <>
+          <label htmlFor="mural-board">Default board URL</label>
+          <input id="mural-board" type="url" value={boardUrl} required maxLength={2048} disabled={busy} autoComplete="off"
+            placeholder="https://app.mural.co/t/.../m/..." onChange={event => { setBoardUrl(event.target.value); }} />
+        </>}
+        <p className="connection-tokens__detail">Enable murals:read, murals:write and workspaces:read in your Mural app. Reconnect after adding scopes. Credentials and OAuth tokens are encrypted on the server and never displayed.</p>
         <div className="connection-tokens__actions">
           <button type="submit" className="connection-tokens__button connection-tokens__button--primary" disabled={busy}>{busy ? 'Saving...' : 'Save settings'}</button>
           <button type="button" className="connection-tokens__button" disabled={busy} onClick={() => { setEditing(false); setSecret(''); }}>Cancel</button>
@@ -86,6 +90,7 @@ export const MuralIntegration: React.FC = () => {
           void run(async () => {
             const response = await api.disconnectMural();
             if (!response.success) throw new Error(response.error.message);
+            cache.removeQueries({ queryKey: MURAL_BOARDS_QUERY });
             await query.refetch(); setMessage('Disconnected. Saved app settings remain; existing Mural exports are unchanged.');
           });
         }}>Disconnect</button>}
@@ -116,6 +121,7 @@ export const MuralCallback: React.FC = () => {
       if (!response.success) throw new Error(response.error.message);
     })();
     void completion.then(() => {
+      cache.removeQueries({ queryKey: MURAL_BOARDS_QUERY });
       void cache.invalidateQueries({ queryKey: MURAL_QUERY });
       if (active) setState('done');
     }).catch(err => { if (active) { setError(describeApiError(err)); setState('error'); } });
@@ -124,7 +130,7 @@ export const MuralCallback: React.FC = () => {
   return <main className="connection-tokens mural-integration mural-integration--callback">
     <h1>Mural connection</h1>
     {state === 'pending' && <p className="connection-tokens__detail" role="status">Completing secure sign-in...</p>}
-    {state === 'done' && <p className="connection-tokens__message" role="status">Mural authorised. Open a Think diagram and choose Export, then Mural image, to send it to your board.</p>}
+    {state === 'done' && <p className="connection-tokens__message" role="status">Mural authorised. Open a Think diagram, choose Export, then Mural, and select your destination board.</p>}
     {state === 'error' && <p className="connection-tokens__error" role="alert">{error}</p>}
     <div className="connection-tokens__actions"><Link to="/my-work?sync=1">Return to Sources / Integrations</Link></div>
   </main>;

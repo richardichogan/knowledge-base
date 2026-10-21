@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 process.env.CREDENTIAL_ENCRYPTION_KEY = 'fixture-encryption-key-at-least-thirty-two-characters';
 const {
   muralBoard, muralUploadUrl, pngDimensions, muralStatus, saveMuralConfig, startMuralAuth,
-  finishMuralAuth, disconnectMural, exportMuralImage, MURAL_REDIRECT, MURAL_CLIENT_ID,
+  finishMuralAuth, disconnectMural, exportMuralImage, listMuralBoards, MURAL_REDIRECT, MURAL_CLIENT_ID,
 } = await import('../src/services/mural.js');
 const { exportMuralDiagram, validateMuralDiagram } = await import('../src/services/muralDiagram.js');
 
@@ -48,6 +48,64 @@ function png(): Buffer {
 const tokenResponse = (seconds = 900) => new Response(JSON.stringify({
   access_token: 'fixture-access-token', refresh_token: 'fixture-refresh-token', expires_in: seconds,
 }), { status: 200 });
+
+test('Mural lists every workspace and board page, groups names and retains archived boards without exposing sharing tokens', async () => {
+  const { pool, db } = await fixture(); const original = globalThis.fetch;
+  try {
+    await saveMuralConfig(pool, config);
+    globalThis.fetch = async () => tokenResponse();
+    const auth = new URL(await startMuralAuth(pool, 'richard'));
+    assert.equal(auth.searchParams.get('scope'), 'murals:read murals:write workspaces:read');
+    await finishMuralAuth(pool, 'richard', { state: auth.searchParams.get('state'), code: 'fixture' });
+    const calls: string[] = [];
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input)); calls.push(url.pathname + url.search);
+      assert.equal(init?.method, 'GET');
+      assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer fixture-access-token');
+      assert.equal(url.searchParams.get('limit'), '100');
+      if (url.pathname.endsWith('/workspaces')) return Response.json(url.searchParams.has('next')
+        ? { value: [{ id: 'other1234', name: 'Alpha workspace' }] }
+        : { value: [{ id: 'athena5676', name: 'Main workspace' }], next: 'workspace+/token' });
+      if (url.pathname.endsWith('/athena5676/murals')) return Response.json(url.searchParams.has('next')
+        ? { value: [{ id: 'athena5676.2', title: 'Archived board', status: 'archived' }] }
+        : { value: [{ id: 'athena5676.1', title: 'Project board', status: 'active', state: 'private-visitor-key' }], next: 'boards+/token' });
+      assert.ok(url.pathname.endsWith('/other1234/murals'));
+      return Response.json({ value: [{ id: 'other1234.3', title: 'Project board', status: 'active' }] });
+    };
+    const boards = await listMuralBoards(pool);
+    assert.deepEqual(boards, [
+      { id: 'other1234.3', title: 'Project board', workspace: 'Alpha workspace', archived: false, url: 'https://app.mural.co/t/other1234/m/other1234/3' },
+      { id: 'athena5676.2', title: 'Archived board', workspace: 'Main workspace', archived: true, url: 'https://app.mural.co/t/athena5676/m/athena5676/2' },
+      { id: 'athena5676.1', title: 'Project board', workspace: 'Main workspace', archived: false, url: 'https://app.mural.co/t/athena5676/m/athena5676/1' },
+    ]);
+    assert.equal(calls.length, 5);
+    assert.ok(calls.some(call => new URL(`https://fixture.test${call}`).searchParams.get('next') === 'boards+/token'));
+    assert.ok(!JSON.stringify(boards).includes('private-visitor-key'));
+  } finally { globalThis.fetch = original; await db.close(); }
+});
+
+test('Mural board listing surfaces missing scope, malformed pages, failed pages and pagination loops instead of returning partial success', async () => {
+  const { pool, db } = await fixture(); const original = globalThis.fetch;
+  try {
+    await saveMuralConfig(pool, config);
+    globalThis.fetch = async () => tokenResponse();
+    await finishMuralAuth(pool, 'richard', { state: new URL(await startMuralAuth(pool, 'richard')).searchParams.get('state'), code: 'fixture' });
+    globalThis.fetch = async () => new Response('', { status: 403 });
+    await assert.rejects(listMuralBoards(pool), /workspaces:read.*reconnect/);
+    globalThis.fetch = async () => Response.json({ value: 'invalid' });
+    await assert.rejects(listMuralBoards(pool), /invalid board list/);
+    globalThis.fetch = async () => Response.json({ value: [], next: 'repeated' });
+    await assert.rejects(listMuralBoards(pool), /repeated a pagination token/);
+    globalThis.fetch = async input => String(input).includes('/workspaces?')
+      ? Response.json({ value: [{ id: 'athena5676', name: 'Workspace' }] })
+      : new Response('', { status: 429 });
+    await assert.rejects(listMuralBoards(pool), /429.*Wait/);
+    globalThis.fetch = async () => Response.json({ value: [{ id: 'invalid/workspace', name: 'Invalid' }] });
+    await assert.rejects(listMuralBoards(pool), /invalid workspace/);
+    await disconnectMural(pool);
+    await assert.rejects(listMuralBoards(pool), /Connect to Mural/);
+  } finally { globalThis.fetch = original; await db.close(); }
+});
 
 test('Mural board parsing strips share tokens and rejects workspace/visitor/foreign URLs', () => {
   assert.deepEqual(muralBoard(`${boardUrl}/79b53c15c654bc5408f751d6ca0e7e84224b5a6b?sender=fixture#x`),
@@ -232,7 +290,7 @@ test('Mural OAuth uses exact callback, S256 PKCE, user-bound expiring one-use st
     const url = new URL(await startMuralAuth(pool, 'richard'));
     assert.equal(url.origin, 'https://app.mural.co');
     assert.equal(url.searchParams.get('redirect_uri'), MURAL_REDIRECT);
-    assert.equal(url.searchParams.get('scope'), 'murals:read murals:write');
+    assert.equal(url.searchParams.get('scope'), 'murals:read murals:write workspaces:read');
     assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
     const state = url.searchParams.get('state')!;
     let calls = 0;

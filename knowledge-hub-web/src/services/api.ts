@@ -52,6 +52,9 @@ export { DISCOVER_FORMATS, type DiscoverFormat } from '../types/discover';
 export interface MuralStatus {
   clientId: string; configured: boolean; connected: boolean; boardUrl: string; redirectUrl: string;
 }
+export interface MuralBoardOption {
+  id: string; title: string; url: string; workspace: string; archived: boolean;
+}
 
 export type ProjectRegisterKind = 'question' | 'risk' | 'issue';
 export interface ProjectRegisterItem {
@@ -621,6 +624,9 @@ export class KnowledgeHubApi {
   }
   async getMuralStatus(): Promise<ApiResponse<MuralStatus>> {
     return (await this.client.get<ApiResponse<MuralStatus>>('/api/integrations/mural')).data;
+  }
+  async getMuralBoards(): Promise<ApiResponse<MuralBoardOption[]>> {
+    return (await this.client.get<ApiResponse<MuralBoardOption[]>>('/api/integrations/mural/boards')).data;
   }
   async getShareEmailStatus(): Promise<ApiResponse<import('../types/shareEmail').ShareEmailStatus>> {
     return (await this.client.get<ApiResponse<import('../types/shareEmail').ShareEmailStatus>>('/api/integrations/share-email')).data;
