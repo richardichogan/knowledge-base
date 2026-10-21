@@ -2,6 +2,39 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-21, coordinated fixes release):**
+- Source 0b4f25f pushed to the feature branch and main. ACR run ca72 built
+  kh-prod-api:v224, digest
+  sha256:68b7d559c0751521cad6dd73357b7e8309e5570c852359b6f9da0355a95fb726.
+- Backend revision kh-prod-api-vnet--0000221 is Healthy /
+  RunningAtMaxScale, Provisioned, and receives 100% of production traffic.
+  Startup logs confirm completed migrations and a warm database pool.
+- Matching frontend deployed to kh-prod-web production. Both
+  https://athena.themicrosoftcloudblog.com and
+  https://nice-mud-0f780fb03.7.azurestaticapps.net serve /present with HTTP 200.
+  Entry index-DaMZgheS.js, Presenter-B7x9yW5q.js and
+  Presenter-DFW08jQ3.css match the validated local build by SHA-256 on both
+  domains. Deployed CSS includes the persistent vertical scrollbar.
+- Desktop 0.1.7.0 installed and reopened, responding with an Athena window.
+  Installed app.asar matches the validated installer output byte-for-byte.
+  Local Stream Deck bridge is listening on 127.0.0.1:43129 and rejects
+  unauthenticated requests as designed.
+- Installed Stream Deck 0.1.1.0 manifest and plugin.js match the validated
+  build byte-for-byte; its active runtime started after that build was
+  installed. Existing pairing, buttons, profiles and custom icons preserved.
+- Corrected persisted authority/weight metadata for all 684 official
+  Microsoft/GitHub articles, including the Azure YouTube feed. Re-scored a
+  bounded set of 85 official items: recently auto-shelved content plus the
+  already-restored Agent Lightning article, using the new editorial brief. Six rate-limited
+  assessments were retried sequentially and all completed.
+- Returned 43 qualifying automatically shelved items to to-review, including
+  three videos. Persisted verification confirms all 43 remain in that queue;
+  manual filing and concurrent workflow changes were protected. Lower-value
+  Archive recommendations were not indiscriminately restored. Agent Lightning
+  remains in to-review with a new 93% rating.
+- Physical Prompter playback and on-device button presses were not performed.
+  No display was automatically selected on the user's behalf.
+
 **Section 7: Validation proof (2026-10-21, coordinated fixes release):**
 - User explicitly requested deployment of ALL pending code and fixes everywhere
   needed, including hosted frontend/backend and local Desktop/Stream Deck.
