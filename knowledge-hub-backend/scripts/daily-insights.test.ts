@@ -49,6 +49,61 @@ test('parses explicit tasks, escaped meeting tables, dates and vague deadlines w
   assert.equal(others.tasks.length, 0);
 });
 
+test('accepts generated dash headings, lettered sections and quoted shared-owner cards without weakening dates', () => {
+  const revised = `# Morning briefing – Wednesday, 21 October 2026
+## PART 1 – Today: what to worry about
+### (b) Today's meetings
+| Time (UK) | Meeting | Organiser | Flags |
+|---|---|---|---|
+| All day | Away in another time zone | Colleague | FYI only |
+| 09:45–10:15 | Project review | Organiser | Overlap |
+## PART 2 – Yesterday (Tuesday, 20 October): what I learned
+### (e) Commitments and follow-ups
+> **Title:** Review the project deck
+> **Project:** IMAGINE · **Owner:** Richard (with Colleague) · **Due:** not stated
+> **Source:** Team follow-up email
+
+> **Title:** Prepare the demo
+> **Project:** IMAGINE · **Owner:** Colleague, Richard · **Due:** This week
+> **Source:** Meeting transcript
+
+> **Title:** Someone else's commitment
+> **Project:** IMAGINE · **Owner:** Colleague (you attend) · **Due:** not stated
+> **Source:** Meeting transcript
+`;
+  const parsed = parseDailyInsights('Daily-Briefing-2026-10-21.md', revised);
+  assert.equal(parsed.tasks.length, 2);
+  assert.equal(parsed.tasks[0]?.project, 'IMAGINE');
+  assert.equal(parsed.tasks[0]?.source, 'Team follow-up email');
+  assert.equal(parsed.tasks[1]?.owner, 'Colleague, Richard');
+  assert.deepEqual(parsed.meetings, [{ start: '09:45', end: '10:15', title: 'Project review', flag: 'Organiser · Overlap' }]);
+  assert.ok(parsed.warnings.some(warning => warning.includes('All-day')));
+  assert.ok(parsed.warnings.some(warning => warning.includes('Not assigned')));
+  assert.throws(() => parseDailyInsights('Daily-Briefing-2026-10-21.md', revised.replace('Wednesday, 21 October', 'Wednesday, 22 October')), /match its filename/);
+  assert.throws(() => parseDailyInsights('Daily-Briefing-2026-10-21.md', revised.replace('Tuesday, 20 October', 'Monday, 19 October')), /previous calendar day/);
+  assert.throws(() => parseDailyInsights('Daily-Briefing-2026-10-21.md', revised.replace('**Owner:** Richard (with Colleague) · ', '')), /Incomplete task/);
+});
+
+test('equivalent Copilot Markdown variants retain task identities and support reordered task tables', () => {
+  const expected = parseDailyInsights(filename, report);
+  const variants = [
+    report.replaceAll('**Task:', '**Title:**').replace(/draft\*\*|deck\*\*/g, value => value.replace('**', ''))
+      .replaceAll('- Project:', '* **Project:**').replaceAll('- Owner:', '+ __Owner:__')
+      .replaceAll('- Due:', 'Due:').replaceAll('- Source:', '**Source:**'),
+    report.replace('### Today\'s meetings', '#### Today’s meetings')
+      .replace('## Part 2', '### Part 2').replaceAll('**Task:', '1. Task:').replaceAll('**', ''),
+    report.slice(0, report.indexOf('**Task:')) + `| Owner | Title | Source | Due | Project |
+|---|---|---|---|---|
+| Richard Hogan | Review the draft | Email from Joel | 20 Oct 2026 | IMAGINE |
+| Richard Hogan | Review the deck | Chat with Miha | This week (before it goes to Mohamad) | IBM / MSFT Practice |`,
+  ];
+  for (const variant of variants) {
+    const parsed = parseDailyInsights(filename, variant);
+    assert.deepEqual(parsed.tasks, expected.tasks);
+    assert.deepEqual(parsed.meetings, expected.meetings);
+  }
+});
+
 async function fixture(): Promise<{ db: PGlite; pool: Pool; failKnowledge: (value: boolean) => void }> {
   const db = new PGlite();
   await db.exec(`

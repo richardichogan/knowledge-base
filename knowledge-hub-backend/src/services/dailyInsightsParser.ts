@@ -52,11 +52,15 @@ function explicitDate(text: string, year?: string): string | null {
 
 /** Only unambiguous calendar dates become deadlines; all other wording stays in the task body. */
 export function parseDailyInsights(filename: string, text: string): DailyInsights {
+  // Markdown presentation is not a contract: retain explicit facts, discard decoration.
+  text = text.replace(/\r\n/g, '\n').replace(/^\s*>\s?/gm, '')
+    .replace(/\*\*|__/g, '').replace(/^\s*[-*+]\s+(?=(?:Task|Title|Project|Owner|Due|Source)\s*:)/gmi, '')
+    .replace(/^\s*\d+[.)]\s+(?=(?:Task|Title)\s*:)/gmi, '');
   const fileDate = /^Daily-Briefing-(\d{4}-\d{2}-\d{2})\.md$/i.exec(filename)?.[1];
   if (fileDate === undefined || validDate(fileDate) === null) throw new Error('Expected Daily-Briefing-YYYY-MM-DD.md');
-  const header = /^#\s+Morning briefing:\s*\w+,\s*(.+)$/mi.exec(text)?.[1];
+  const header = /^#{1,6}\s+Morning briefing\s*[:\u2013\u2014-]\s*(?:\w+,\s*)?(.+)$/mi.exec(text)?.[1];
   if (header === undefined || explicitDate(header) !== fileDate) throw new Error('Briefing heading date must match its filename');
-  const part2 = /^##\s+Part 2:\s*Yesterday[^\n]*$/mi.exec(text);
+  const part2 = /^#{1,6}\s+Part 2\s*[:\u2013\u2014-]\s*Yesterday[^\n]*$/mi.exec(text);
   if (part2 === null) throw new Error('Missing Part 2: Yesterday knowledge section');
   const previous = new Date(`${fileDate}T12:00:00Z`);
   previous.setUTCDate(previous.getUTCDate() - 1);
@@ -68,34 +72,55 @@ export function parseDailyInsights(filename: string, text: string): DailyInsight
   const warnings: string[] = [];
   const tasks: DailyTask[] = [];
   // Split at the next task/section rather than guessing actions from narrative prose.
-  const blocks = text.split(/(?=^\*\*Task:)/m).slice(1);
+  let taskText = text.replace(/\s+[\u00b7\u2022]\s+(?=(?:Project|Owner|Due|Source)\s*:)/gi, '\n');
+  // Also accept explicitly labelled task tables; column order is immaterial.
+  const lines = taskText.split('\n');
+  for (let index = 0; index < lines.length - 1; index++) {
+    const cells = (line: string): string[] => line.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map(value => value.replace(/\\\|/g, '|').trim());
+    if (!/^\s*\|/.test(lines[index] ?? '')) continue;
+    const columns = cells(lines[index] ?? '').map(value => value.toLowerCase());
+    const titleColumn = columns.findIndex(value => value === 'task' || value === 'title');
+    if (titleColumn < 0 || !['project', 'owner', 'due', 'source'].every(value => columns.includes(value))) continue;
+    if (!/^\s*\|[\s:|-]+\|\s*$/.test(lines[index + 1] ?? '')) continue;
+    for (index += 2; index < lines.length && /^\s*\|/.test(lines[index] ?? ''); index++) {
+      const values = cells(lines[index] ?? '');
+      taskText += `\nTask: ${values[titleColumn] ?? ''}\n${['Project', 'Owner', 'Due', 'Source'].map(name => `${name}: ${values[columns.indexOf(name.toLowerCase())] ?? ''}`).join('\n')}\n---\n`;
+    }
+  }
+  const blocks = taskText.split(/(?=^(?:Task|Title)\s*:)/mi).slice(1);
   for (const block of blocks) {
-    const title = /^\*\*Task:\s*(.+?)\*\*/.exec(block)?.[1]?.trim();
+    const title = /^(?:Task|Title)\s*:\s*(.+)$/mi.exec(block)?.[1]?.trim();
     if (!title) continue;
-    const fields = block.split(/^### |^---/m)[0] ?? '';
-    const field = (name: string): string => new RegExp(`^-\\s*${name}:\\s*(.+)$`, 'mi').exec(fields)?.[1]?.trim() ?? '';
+    const fields = block.split(/^#{1,6} |^---/m)[0] ?? '';
+    const field = (name: string): string => new RegExp(`^(?:-\\s*)?${name}\\s*:\\s*(.+)$`, 'mi').exec(fields)?.[1]?.trim() ?? '';
     const project = field('Project');
     const owner = field('Owner');
     const dueText = field('Due');
     const source = field('Source');
     if (!project || !owner || !dueText || !source) throw new Error(`Incomplete task: ${title}`);
-    if (!/^(richard hogan|richard|me)$/i.test(owner)) {
+    const owners = owner.split(/,|\s+and\s+/i).map(value => value.trim());
+    if (!owners.some(value => /^(richard hogan|richard|me)(?:\s+\(with [^)]+\))?$/i.test(value))) {
       warnings.push(`Not assigned to Richard: ${title} (${owner})`);
       continue;
     }
     const due = explicitDate(dueText);
     if (due === null && !/^not stated$/i.test(dueText)) warnings.push(`Deadline needs review: ${title} — ${dueText}`);
-    tasks.push({ key: digest([project, owner.replace(/^richard$/i, 'Richard Hogan'), title].map(normaliseIdentity).join('|')), title, project, owner, due, dueText, source });
+    tasks.push({ key: digest([project, 'Richard Hogan', title].map(normaliseIdentity).join('|')), title, project, owner, due, dueText, source });
   }
   const today = text.slice(0, part2.index);
-  const meetingSection = /^###\s+Today's meetings\s*\r?\n([\s\S]*?)(?=^### |^## |$(?![\s\S]))/mi.exec(today)?.[1];
+  const meetingSection = /^#{1,6}\s+(?:(?:\([a-z]\)|[a-z][.)])\s+)?Today['\u2019]s meetings\s*\n([\s\S]*?)(?=^#{1,6} |$(?![\s\S]))/mi.exec(today)?.[1];
   if (meetingSection === undefined) throw new Error("Missing Today's meetings table");
   const meetings: DailyMeeting[] = [];
   for (const line of meetingSection.split('\n')) {
     if (!/^\s*\|/.test(line)) continue;
     const cells = line.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map(c => c.replace(/\\\|/g, '|').trim());
-    if (/^(Time|[-:\s]+)$/i.test(cells[0] ?? '')) continue;
-    const [timeCell = '', title = '', flag = ''] = cells;
+    if (/^(Time(?:\s+\(UK\))?|[-:\s]+)$/i.test(cells[0] ?? '')) continue;
+    const [timeCell = '', title = '', ...details] = cells;
+    const flag = details.filter(Boolean).join(' · ');
+    if (/^All day$/i.test(timeCell) && title) {
+      warnings.push(`All-day calendar entry needs review: ${title}`);
+      continue;
+    }
     const times = /^([0-2]\d:[0-5]\d)\s*[\u2013\u2014-]\s*([0-2]\d:[0-5]\d)$/.exec(timeCell);
     if (times === null || !title) {
       throw new Error(`Unrecognised meeting row: ${line}`);

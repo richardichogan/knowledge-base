@@ -2,6 +2,28 @@
 
 **Status:** Validated
 
+**Section 7: Validation proof (2026-10-21, Daily Insights importer):**
+- User explicitly authorised production deployment and requested tolerance
+  for nondeterministic M365 Copilot Markdown output.
+- Scope: existing backend application only, dailyInsightsParser.ts and its
+  focused regression tests. No frontend, desktop, infrastructure, dependencies,
+  environment, secret, schema or RBAC changes are part of this deployment.
+- Fetched origin and merged origin/main: already up to date.
+- Both applications passed `npx tsc --noEmit`. Backend `npm run build`
+  passed. Daily Insights tests passed 7/7, including equivalent Markdown
+  formats, reordered task tables, strict dates, dedupe and user-edit protection.
+- Azure CLI confirmed Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), existing kh-prod-api-vnet,
+  registry cad79107555facr, currently deployed image v222.
+  Azure MCP returned no subscriptions; CLI confirmed live access.
+- Existing AZCLI image-only recipe: build v223 from synced GitHub main,
+  update existing Container App, verify healthy revision and startup logs.
+  Bicep, what-if and provisioning checks are inapplicable: no infrastructure
+  is changed. Existing registry secret authentication is preserved.
+- Retry today's report through the existing transactional capture service,
+  then verify persisted report receipt and Inbox tasks. No server startup
+  or manual migration is needed for the retry.
+
 **Deployment result (2026-10-21, Elgato frontend release):**
 - Source 1693eea pushed to the feature branch and main. SWA CLI 2.0.10
   successfully deployed the validated frontend to kh-prod-web production.
