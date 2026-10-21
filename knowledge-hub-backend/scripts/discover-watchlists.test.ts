@@ -165,6 +165,76 @@ test('the existing single analysis call generates concise grounded intelligence 
   } finally { chat.mock.restore(); }
 });
 
+test('an omitted project assessment gets one validated correction, never fabricated defaults or unlimited retries', async () => {
+  const evidence = evidenceGroups([{ id: articleId, title: 'Example Product announces agents', body: 'Public statement',
+    url: 'https://example.com/news', published_at: new Date(), metadata: {} }], config());
+  const projects = [
+    { id: 'project-a', name: 'IMAGINE', information: 'Private claims context', sources: [] },
+    { id: 'project-b', name: 'Other work', information: 'Limited context', sources: [] },
+  ];
+  const incomplete = JSON.stringify({ summary: 'Supported development.', findings: [enrichedFinding()] });
+  const correctedFinding = { ...enrichedFinding(), projectAssessments: [...enrichedFinding().projectAssessments!, {
+    projectId: 'project-b', projectName: 'Other work', relevance: 'insufficient-evidence',
+    impact: 'The supplied context does not establish the goals needed for a material impact assessment.',
+  }] };
+  for (const correction of [
+    JSON.stringify({ summary: 'Supported development.', findings: [correctedFinding] }),
+    incomplete,
+    JSON.stringify({ summary: 'Unsupported.', findings: [{ ...correctedFinding, evidenceIds: ['invented'] }] }),
+    JSON.stringify({ summary: 'Unsupported.', findings: [] }),
+  ]) {
+    let calls = 0;
+    const chat = mock.method(FoundryClient.prototype, 'chat', async (_model, messages) => {
+      calls++;
+      if (calls === 1) return incomplete;
+      assert.match(messages[messages.length - 1]!.content, /project-b/);
+      assert.match(messages[messages.length - 1]!.content, /Do not invent/);
+      return correction;
+    });
+    try {
+      if (correction.includes('Unsupported.') || correction === incomplete) {
+        await assert.rejects(analyzeWatchEvidence(config(), evidence, [], projects));
+      } else {
+        const result = await analyzeWatchEvidence(config(), evidence, [], projects);
+        assert.equal(result.findings[0]?.projectAssessments?.length, 2);
+        assert.equal(result.findings[0]?.projectAssessments?.[1]?.relevance, 'insufficient-evidence');
+      }
+      assert.equal(calls, 2, 'Only one correction request is allowed');
+    } finally { chat.mock.restore(); }
+  }
+  const chat = mock.method(FoundryClient.prototype, 'chat', async () => '{invalid JSON');
+  try {
+    await assert.rejects(analyzeWatchEvidence(config(), evidence, [], projects), SyntaxError);
+    assert.equal(chat.mock.callCount(), 1, 'Unrelated failures are not retried by this correction');
+  } finally { chat.mock.restore(); }
+});
+
+test('monitoring project context does not fan out database queries across active projects', async () => {
+  const { pg, db } = await fixture();
+  try {
+    await article(pg);
+    await pg.exec(`INSERT INTO projects(id,name) VALUES ('project-b','Second project'),('project-c','Third project')`);
+    const w = await saveWatchlist(db, { ...config(), projectIds: [] });
+    const original = pg.query.bind(pg);
+    let active = 0;
+    let peak = 0;
+    const query = mock.method(pg, 'query', async (sql, params) => {
+      active++;
+      peak = Math.max(peak, active);
+      try { return await original(sql, params); }
+      finally { active--; }
+    });
+    try {
+      const run = await runWatchlist(db, w.id, false, async (_config, _evidence, _previous, projects) => {
+        assert.equal(projects?.length, 3, 'All active projects still reach analysis');
+        return { summary: 'Supported observation.', findings: [finding()] };
+      });
+      assert.equal(run.status, 'changes');
+      assert.equal(peak, 1, 'One Watchlist must not open a burst of parallel database connections');
+    } finally { query.mock.restore(); }
+  } finally { await pg.close(); }
+});
+
 test('versioned baseline edits are atomic, optimistic and private; historical runs retain original question and baseline', async () => {
   const { pg, db } = await fixture();
   try {

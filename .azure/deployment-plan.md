@@ -2,6 +2,37 @@
 
 **Status:** Validated
 
+**Watchlists backend repair release (2026-10-21):**
+- User directed deployment after the database upgrade, approving the pending
+  backend repairs to the existing production resources and locations.
+- Recipe: AZCLI image-only update, kh-prod-api-vnet in UK South, ACR
+  cad79107555facr, rg-knowledge-hub-prod, Alliance Tenant Reporting.
+- Sequential project context loading reduces connection bursts; one bounded
+  AI correction repairs omitted project assessments with strict revalidation.
+  Failure messages distinguish invalid analysis from other monitoring failures.
+- Frontend unchanged. No new infrastructure, permissions, secrets, dependencies,
+  migrations, monitoring reruns or content publishing.
+- origin/main fetched and merged; already current. Validate both typechecks,
+  backend build, isolated backend suite and focused lint. Commit and push source
+  to branch and main, build next unused image tag, update existing app.
+- Verify latest revision health, traffic and startup logs. Rollback to v227 if
+  rollout fails; preserve the separately approved upgraded database.
+- User reconfirmed existing subscription and UK South backend target.
+
+**Section 7: Validation Proof (2026-10-21, Watchlists backend repair):**
+- Fetch/merge origin/main succeeded, already current.
+- Both applications: `npx tsc --noEmit` passed.
+- Backend: `npm run build` and `npm run test:isolated` passed, 227 tests,
+  zero failures, including 10 Watchlists tests.
+- Focused ESLint on discoverWatchlists.ts and `git diff --check` passed.
+- CLI authenticated to confirmed subscription. Current backend v227, next
+  unused tag v228. Dockerfile and package-lock.json present and unchanged.
+- ACR performs production Docker build from pushed main; no local Docker
+  prerequisite. Existing image-only rollout: template/what-if, policy changes,
+  provisioning, static RBAC changes and azd environment creation not applicable.
+- Existing registry authentication preserved. No managed identity/AcrPull changes.
+- Database upgrade separately verified Ready with live max_connections=100.
+
 **Watchlist crash and blog editor frontend release (2026-10-21):**
 - User explicitly approved deploying both frontend fixes to the same production
   resources confirmed above: kh-prod-web, Alliance Tenant Reporting, West Europe.

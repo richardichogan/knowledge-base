@@ -458,6 +458,13 @@ preserves the original source; rich rendering and pasted HTML are sanitized.
 Watchlist history preserves failed checks even when no coverage was recorded.
 They display a failure and an explicit missing-coverage notice, not a quiet-market
 conclusion, and do not prevent opening a previous completed briefing.
+If the AI omits a required project assessment, Watchlists requests one correction
+using the same evidence and project context. The corrected report must pass all
+existing validation; missing assessments are never invented or silently ignored.
+Validation failures are identified as analysis failures rather than source-health
+problems. Normal successful runs still use one analysis request.
+Project context is loaded sequentially, including its supporting documents, so
+monitoring all active projects does not create a burst of database connections.
 
 ## Newsletter and podcast parking lot
 
