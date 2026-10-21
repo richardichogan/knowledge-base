@@ -72,10 +72,33 @@ test('focus projects, restore from shelved, and shelving protection', async () =
 
     await shelveStaleArticles(db);
     const states = Object.fromEntries((await pg.query<{ id: string; workflow_state: string }>(`SELECT id, workflow_state FROM content_items WHERE source = 'discovered-article'`)).rows.map((r) => [r.id, r.workflow_state]));
-    assert.deepEqual(states, { a1: 'to-review', a2: 'shelved', a3: 'to-review' });
+    assert.deepEqual(states, { a1: 'to-review', a2: 'to-review', a3: 'to-review' });
   } finally {
     await pg.close();
   }
+});
+
+test('age never shelves unseen recommendations; explicit low-value triage still respects restores and project protection', async () => {
+  const pg = new PGlite();
+  try {
+    await pg.exec(`CREATE TABLE content_items (
+      id text, source text, workflow_state text, relevance_score real,
+      indexed_at timestamptz DEFAULT now()-interval '365 days', metadata jsonb);
+      INSERT INTO content_items(id,source,workflow_state,relevance_score,metadata) VALUES
+      ('good','discovered-article','to-review',0.74,'{"platform":"LinkedIn Standalone","scoringVersion":2}'),
+      ('strong','discovered-article','to-review',0.95,'{"platform":"Full Blog Post","scoringVersion":2}'),
+      ('low','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2}'),
+      ('restored','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2,"restoredAt":"2025-01-01T00:00:00Z"}'),
+      ('protected','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2,"projectBoost":0.5}'),
+      ('saved','discovered-article','saved',0.2,'{"platform":"Archive","scoringVersion":2}');
+    `);
+    const db = { query: async (sql: string, params?: unknown[]) => pg.query(sql, params) } as unknown as Pool;
+    await shelveStaleArticles(db);
+    const states = Object.fromEntries((await pg.query<{ id: string; workflow_state: string }>(
+      'SELECT id,workflow_state FROM content_items')).rows.map(row => [row.id, row.workflow_state]));
+    assert.deepEqual(states, { good: 'to-review', strong: 'to-review', low: 'shelved',
+      restored: 'to-review', protected: 'to-review', saved: 'saved' });
+  } finally { await pg.close(); }
 });
 
 test('shared links are read from both share formats', () => {

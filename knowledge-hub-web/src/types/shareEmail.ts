@@ -19,5 +19,6 @@ export interface ShareEmailInput {
   message: string;
   url?: string;
   attachment?: { filename: string; xml: string };
+  muralAccess?: 'view' | 'edit';
 }
-export interface ShareEmailResult { accepted: number; rejected: number }
+export interface ShareEmailResult { accepted: number; rejected: number; muralInvited?: number }

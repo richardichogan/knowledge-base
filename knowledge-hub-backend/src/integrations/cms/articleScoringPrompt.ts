@@ -1,7 +1,7 @@
 /**
  * articleScoringPrompt.ts
  *
- * Editorial triage scoring for discovered articles: a vendor-neutral rubric
+ * Editorial triage scoring for discovered articles: a Microsoft-first rubric
  * written around Richard's actual lens (enterprise architecture, AI governance
  * and security, the IBM–Microsoft practice), a 0–100 score that spreads out
  * rather than piling up at a ceiling, and routing to the publishing format
@@ -119,7 +119,7 @@ export type SourceAuthorityTier =
 
 /** Weight applied per source authority tier on top of the editorial score (ranking only, applied live). */
 export const SOURCE_AUTHORITY_WEIGHTS: Record<SourceAuthorityTier, number> = {
-  'Microsoft/GitHub Official': 1.3,
+  'Microsoft/GitHub Official': 1.8,
   'IBM Official': 1.3,
   'Vendor Official': 1.1,   // Google, AWS, OpenAI: primary sources, but not his platform
   'Analyst/Consultancy': 1.15,
@@ -184,6 +184,15 @@ const ANALYST_CONSULTANCY_DOMAINS = [
 
 /** Classifies a URL into a fine-grained source authority tier for ranking (distinct from classifySourceByUrl's coarser SourceType). */
 export function classifySourceAuthority(articleUrl: string | null, sourceUrl: string | null): SourceAuthorityTier {
+  // Channel IDs, unlike a display name or a video title, identify the publisher.
+  if ([articleUrl, sourceUrl].some(value => {
+    if (!value) return false;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && ['youtube.com', 'www.youtube.com'].includes(url.hostname)
+        && url.pathname === '/feeds/videos.xml' && url.searchParams.get('channel_id') === 'UC0m-80FnNY2Qb7obvTL_2fA';
+    } catch { return false; }
+  })) return 'Microsoft/GitHub Official';
   const candidates = [articleUrl, sourceUrl].filter((u): u is string => Boolean(u)).map((u) => u.toLowerCase());
   for (const u of candidates) {
     if (MICROSOFT_GITHUB_DOMAINS.some((d) => u.includes(d)) || isMicrosoftOfficialBlogUrl(u)) return 'Microsoft/GitHub Official';
@@ -296,7 +305,11 @@ export function buildRelevanceSystemPrompt(covered: string[]): string {
 ## What he is building a reputation for
 ${RICHARD_THEMES.map((t) => `- ${t}`).join('\n')}
 
-For general editorial relevance, the VENDOR does not matter; relevance to those themes and to enterprise decisions does. An OpenAI, Google, AWS or IBM announcement can score as high as a Microsoft one if it changes how enterprises choose, combine or govern platforms, or it is a development Richard can credibly analyse. Pure product feature lists, minor service updates, consumer features and corporate PR score low whoever publishes them. This vendor-neutral rule does NOT apply to podcast suitability.
+## Publishing priority — Microsoft first, not Microsoft only
+Richard's publishing cycle is primarily Microsoft-focused. Relevant Microsoft, Azure, Microsoft 365, Copilot, GitHub, Dynamics, Fabric, Entra, Purview and Power Platform developments should generally receive higher audience fit and publishing-format suitability than comparable AWS, Google Cloud/GCP, Cloudflare or OpenAI stories. When editorial quality, novelty and enterprise impact are comparable, prefer the Microsoft story. This is a publishing-relevance preference, not a claim that Microsoft content is inherently higher quality.
+Apply this equally to articles and videos, including GitHub engineering, Copilot, agent frameworks, developer platforms and Microsoft Research. Substantive developments in these areas are core publishing material, not tangential simply because they are technical. Give them audienceFit 3 when they directly serve his enterprise architect/developer audience; use 2 for narrower but still useful developments. A short video description is limited evidence, not evidence that the underlying video lacks depth: do not invent its contents or dismiss its topic solely because no transcript is supplied.
+Competitor and wider ecosystem stories can still outrank Microsoft stories when their enterprise significance, evidence or implications for his audience are materially stronger. Explain that concrete relevance; do not invent a Microsoft connection, including for OpenAI. IBM–Microsoft partnership developments remain central to his practice.
+Do not award automatic high scores, minimum scores or publishing recommendations merely for a Microsoft name. Pure product feature lists, minor service updates, consumer features and corporate PR still score low whoever publishes them. Keep novelty, analytical depth and strategic significance grounded in the supplied evidence. The mandatory Microsoft-only podcast scope below remains unchanged.
 
 ## Podcast scope — mandatory
 Cloudy with a Chance of Insights is a MICROSOFT podcast, not a general AI or cloud show. A podcast candidate MUST have an explicit Microsoft news hook in the supplied article: Microsoft, Azure, Microsoft 365, Copilot, GitHub, Dynamics, Fabric, Entra, Purview, Teams, or Microsoft licensing/partners. Wider industry news qualifies only when the article itself directly connects it to a Microsoft development. OpenAI, Anthropic, Google or AWS news is NOT automatically Microsoft news. Do not invent a Microsoft angle or assume a connection from OpenAI's partnership. Without that explicit connection, podcast fit MUST be 0 and platform MUST NOT be Podcast Topic.

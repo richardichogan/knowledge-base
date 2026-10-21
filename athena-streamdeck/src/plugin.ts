@@ -45,7 +45,8 @@ async function updateKeys(): Promise<void> {
       else if (['play', 'pause', 'toggle-play', 'stop'].includes(command)) detail = latest.presentation.status;
     }
     await key.setTitle(`${labels[command]}\n${pending.has(key.id) ? 'Working' : detail}`);
-    const active = latest && (command === 'speak' ? latest.recording : latest.presentation.status === 'playing');
+    const active = latest && (command === 'speak' ? latest.recording
+      : ['play', 'toggle-play', 'stop'].includes(command) && latest.presentation.status === 'playing');
     await key.setImage(`imgs/${command}${active ? '-active' : ''}.svg`);
   }
 }

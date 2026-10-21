@@ -6,6 +6,7 @@ import type Mail from 'nodemailer/lib/mailer/index.js';
 import { PGlite } from '@electric-sql/pglite';
 process.env.CREDENTIAL_ENCRYPTION_KEY = 'fixture-sharing-encryption-key-not-a-real-secret';
 const { shareEmailStatus, saveShareEmailConfig, sendShareEmail, validateShareEmail, SHARE_FROM } = await import('../src/services/shareEmail.js');
+const { encryptConnectionValue } = await import('../src/services/connectionCredentials.js');
 const boardUrl = 'https://app.mural.co/t/test/m/test/123';
 const input = () => ({ requestId: crypto.randomUUID(), confirmed: true, recipients: ['one@example.com', 'TWO@example.com'],
   subject: 'Shared <diagram>', message: 'Please review <script>alert("x")</script>', url: boardUrl });
@@ -16,10 +17,12 @@ const result = (accepted = ['one@example.com', 'two@example.com'], rejected: str
 async function fixture() {
   const db = new PGlite();
   await db.exec('CREATE TABLE sync_state (source TEXT PRIMARY KEY, last_cursor TEXT, item_count INTEGER, updated_at TIMESTAMPTZ DEFAULT now())');
-  const pool = { query: async (sql: string, params: unknown[]) => {
+  const query = async (sql: string, params?: unknown[]) => {
+    if (sql.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 1 };
     const answer = await db.query(sql, params);
     return { rows: answer.rows, rowCount: answer.affectedRows ?? answer.rows.length };
-  } } as unknown as Pool;
+  };
+  const pool = { query, connect: async () => ({ query, release() {} }) } as unknown as Pool;
   return { db, pool };
 }
 test('SMTP2GO settings are encrypted and write-only, with fixed verified sender and EU TLS endpoint', async () => {
@@ -40,6 +43,8 @@ test('SMTP2GO settings are encrypted and write-only, with fixed verified sender 
 });
 test('Email validates explicit confirmation, recipient limits, trusted links and bounded draw.io XML', () => {
   assert.equal(validateShareEmail(input()).url, boardUrl);
+  assert.equal(validateShareEmail({ ...input(), muralAccess: 'view' }).muralAccess, 'view');
+  assert.equal(validateShareEmail({ ...input(), muralAccess: 'edit' }).muralAccess, 'edit');
   const file = { filename: 'IKEA – Architecture.drawio', xml: '<mxfile><diagram><mxGraphModel/></diagram></mxfile>' };
   assert.ok(validateShareEmail({ ...input(), url: '', attachment: file }).attachment?.content.equals(Buffer.from(file.xml)));
   const sizedXml = '<mxfile>' + ' '.repeat(4194304 - '<mxfile></mxfile>'.length) + '</mxfile>';
@@ -51,10 +56,102 @@ test('Email validates explicit confirmation, recipient limits, trusted links and
     { recipients: ['a@example.com\r\nBcc:b@example.com'] }, { subject: 'hi\ninjected' }, { message: 'x'.repeat(10001) },
     { url: 'https://evil.test/note.md' }, { url: 'https://github.com.evil.test/owner/repo/blob/main/note.md' },
     { url: 'https://app.mural.co/visitor/private' }, { url: '', attachment: undefined },
+    { muralAccess: 'owner' }, { muralAccess: false },
+    { muralAccess: 'view', url: 'https://github.com/owner/repo/blob/main/note.md' },
     { attachment: { ...file, filename: '../file.drawio' } }, { attachment: { ...file, filename: 'bad.exe' } },
     { attachment: { ...file, xml: '<mxfile>' } }, { attachment: { ...file, xml: '<!DOCTYPE mxfile><mxfile />' } },
     { attachment: { ...file, xml: 'x'.repeat(4194305) } },
   ]) assert.throws(() => validateShareEmail({ ...input(), ...change }));
+});
+
+async function connectMural(pool: Pool): Promise<void> {
+  const key = 'integration:mural:auth';
+  await pool.query('INSERT INTO sync_state (source, last_cursor) VALUES ($1, $2)',
+    [key, encryptConnectionValue(key, JSON.stringify({ accessToken: 'fixture-token', refreshToken: 'fixture-refresh', expiresAt: Date.now() + 3600000 }))]);
+}
+
+test('Mural invitations precede email, use the selected permission and never repeat on an identical share', async () => {
+  const { pool, db } = await fixture();
+  const original = globalThis.fetch;
+  try {
+    await saveShareEmailConfig(pool, settings);
+    await connectMural(pool);
+    for (const permission of ['view', 'edit'] as const) {
+      const order: string[] = [];
+      globalThis.fetch = async (url, init) => {
+        assert.equal(String(url), 'https://app.mural.co/api/public/v1/murals/test.123/users/invite');
+        const body = JSON.parse(String(init?.body));
+        assert.deepEqual(body, { invitations: [{ email: 'one@example.com', editPermission: permission }, { email: 'two@example.com', editPermission: permission }], sendEmail: true });
+        order.push('invite');
+        return Response.json({ value: [{ email: 'one@example.com', refCode: 'first' }, { email: 'two@example.com', username: 'existing-member' }] });
+      };
+      const send = async (mail: Mail.Options) => {
+        order.push('email');
+        assert.ok(String(mail.text).includes(`Mural ${permission} invitations`));
+        return result();
+      };
+      const data = { ...input(), muralAccess: permission };
+      const expected = { accepted: 2, rejected: 0, muralInvited: 2 };
+      assert.deepEqual(await sendShareEmail(pool, 'user', data, send), expected);
+      assert.deepEqual(await sendShareEmail(pool, 'user', data, send), expected);
+      assert.deepEqual(order, ['invite', 'email']);
+      await assert.rejects(sendShareEmail(pool, 'user', { ...data, muralAccess: permission === 'view' ? 'edit' : 'view' }, send), /already attempted/);
+    }
+  } finally { globalThis.fetch = original; await db.close(); }
+});
+
+test('Unconfirmed or partial Mural invitations stop email and cannot be automatically replayed', async () => {
+  const { pool, db } = await fixture();
+  const original = globalThis.fetch;
+  try {
+    await saveShareEmailConfig(pool, settings);
+    await connectMural(pool);
+    let calls = 0, emails = 0;
+    for (const value of [
+      [{ email: 'one@example.com', refCode: 'first' }, { email: 'two@example.com', rejected: true, reason: 'MEMBERS_ONLY' }],
+      [{ email: 'one@example.com', refCode: 'first' }],
+      [{ email: 'one@example.com' }, { email: 'two@example.com' }],
+      [{ email: 'one@example.com', refCode: 'first' }, { email: 'unrequested@example.com', refCode: 'other' }],
+    ]) {
+      globalThis.fetch = async () => { calls++; return Response.json({ value }); };
+      const data = { ...input(), muralAccess: 'view' };
+      const send = async () => { emails++; return result(); };
+      await assert.rejects(sendShareEmail(pool, 'user', data, send), /No SMTP2GO sharing email was sent/);
+      const previous = calls;
+      await assert.rejects(sendShareEmail(pool, 'user', data, send), /already attempted/);
+      assert.equal(calls, previous);
+    }
+    assert.equal(emails, 0);
+    globalThis.fetch = async () => { throw new Error('Network failure'); };
+    await assert.rejects(sendShareEmail(pool, 'user', { ...input(), muralAccess: 'view' }, async () => { emails++; return result(); }), /No SMTP2GO sharing email was sent/);
+    assert.equal(emails, 0);
+  } finally { globalThis.fetch = original; await db.close(); }
+});
+
+test('Mural disconnect and permission denial stop sharing; SMTP failure preserves invitations without replay', async () => {
+  const { pool, db } = await fixture();
+  const original = globalThis.fetch;
+  try {
+    await saveShareEmailConfig(pool, settings);
+    let invitations = 0, emails = 0;
+    const send = async () => { emails++; return result(); };
+    globalThis.fetch = async () => { invitations++; return new Response('', { status: 403 }); };
+    await assert.rejects(sendShareEmail(pool, 'user', { ...input(), muralAccess: 'view' }, send), /Connect to Mural.*No SMTP2GO/);
+    assert.equal(invitations, 0);
+    await connectMural(pool);
+    await assert.rejects(sendShareEmail(pool, 'user', { ...input(), muralAccess: 'view' }, send), /HTTP 403.*No SMTP2GO/);
+    assert.equal(emails, 0);
+    globalThis.fetch = async () => {
+      invitations++;
+      return Response.json({ value: [{ email: 'one@example.com', refCode: 'one' }, { email: 'two@example.com', refCode: 'two' }] });
+    };
+    const data = { ...input(), muralAccess: 'view' };
+    const fail = async () => { emails++; throw new Error('SMTP network failure'); };
+    await assert.rejects(sendShareEmail(pool, 'user', data, fail), /Mural invitations were already requested/);
+    await assert.rejects(sendShareEmail(pool, 'user', data, fail), /already attempted/);
+    assert.equal(emails, 1);
+    assert.equal(invitations, 2);
+  } finally { globalThis.fetch = original; await db.close(); }
 });
 test('Email sends an escaped preview with Bcc privacy, a real attachment and no automatic duplicate submission', async () => {
   const { pool, db } = await fixture();

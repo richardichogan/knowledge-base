@@ -7,6 +7,7 @@ export type DesktopCommand = typeof COMMANDS[number];
 export interface CommandRequest { id: string; command: DesktopCommand; issuedAt: number }
 export interface PresentationState {
   sessionId: string;
+  noteId: string | null;
   title: string;
   status: 'ready' | 'playing' | 'paused' | 'ended' | 'disconnected';
   speed: number;
@@ -15,6 +16,7 @@ export interface PresentationState {
   displayId: number | null;
   mirror: boolean;
   flip: boolean;
+  opacity: number;
   error: string | null;
 }
 export interface PresentationScript { noteId: string; title: string; text: string }
@@ -39,8 +41,8 @@ export function parseCommand(value: unknown, now = Date.now()): CommandRequest {
   return { id: v.id, command: v.command as DesktopCommand, issuedAt: v.issuedAt };
 }
 export function initialPresentation(): PresentationState {
-  return { sessionId: '', title: '', status: 'ready', speed: 80, fontSize: 64,
-    progress: 0, displayId: null, mirror: false, flip: false, error: null };
+  return { sessionId: '', noteId: null, title: '', status: 'ready', speed: 80, fontSize: 64,
+    progress: 0, displayId: null, mirror: false, flip: false, opacity: 100, error: null };
 }
 export function playbackCommand(state: PresentationState, command: DesktopCommand): PresentationState {
   const next = { ...state, error: null };

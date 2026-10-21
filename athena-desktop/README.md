@@ -42,6 +42,12 @@ Keep reports named `Daily-Briefing-YYYY-MM-DD.md`, with the matching
 `### Today's meetings` Markdown table, and a
 `## Part 2: Yesterday, what I learned (Monday, 19 October)` heading. Explicit
 `**Task: ...**` blocks need Project, Owner, Due and Source bullet fields.
+The parser also accepts colon/dash briefing headings, lettered section headings,
+`Time (UK)` tables with Organiser/Flags columns, and quoted `**Title:**` task cards
+with inline `**Project:**`, `**Owner:**`, `**Due:**` and `**Source:**` fields.
+Richard may be explicitly named in a shared owner list; someone else's task
+that merely says “you attend” is not imported as Richard's. All-day FYI entries
+are flagged for review rather than assigned invented start/end times.
 
 - All new reports are processed oldest first, so an offline gap is caught up
   and the latest report is not missed. Same-day corrections replace that day's

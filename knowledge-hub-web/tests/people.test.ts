@@ -4,6 +4,22 @@ import { parsePeopleReport } from '../src/people/importPeople';
 import { insertPersonMention, peopleQuery } from '../src/people/chatMentions';
 import { buildComposerIntent } from '../src/chat/composerIntent';
 import { entityLinkHref, linkPlainMentions } from '../src/notes/entityLinks';
+import { contactsFromText, recipientMention, insertRecipient } from '../src/people/contactText';
+
+test('email recipient mentions resolve addresses and explicit contact extraction never invents identities', () => {
+  assert.equal(recipientMention('one@example.com'), null);
+  assert.deepEqual(recipientMention('one@example.com, @Example Person'), { start: 17, query: 'Example Person' });
+  assert.equal(insertRecipient('one@example.com, @Example', 'two@example.com'), 'one@example.com, two@example.com, ');
+  assert.equal(insertRecipient('one@example.com', 'two@example.com'), 'one@example.com, two@example.com, ');
+  const found = contactsFromText('Example Person <First@example.com>\nOther: second@example.org. First@example.com');
+  assert.equal(found.length, 2);
+  assert.deepEqual(found.map(person => person.emails), [['first@example.com'], ['second@example.org']]);
+  assert.equal(found[0]?.name, 'Example Person');
+  assert.equal(found[1]?.name, '');
+  assert.ok(found.every(person => !person.organisation && !person.role));
+  assert.equal(contactsFromText('A name with no address')[0]?.emails.length, 0);
+  assert.throws(() => contactsFromText('x'.repeat(10_001)), /10,000/);
+});
 
 const report = `# Key contacts
 **Period:** 1-14 October 2026

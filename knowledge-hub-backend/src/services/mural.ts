@@ -215,6 +215,28 @@ export async function apiJson(token: string, path: string, body?: unknown): Prom
   return record(await response.json());
 }
 
+export async function inviteMuralRecipients(db: Pool, boardUrl: string, recipients: string[], permission: 'view' | 'edit'): Promise<number> {
+  const board = muralBoard(boardUrl);
+  return withToken(db, async token => {
+    const response = await apiJson(token, `/murals/${encodeURIComponent(board.id)}/users/invite`, {
+      invitations: recipients.map(email => ({ email, editPermission: permission })), sendEmail: true,
+    });
+    if (!Array.isArray(response.value) || response.value.length !== recipients.length) {
+      throw new IntegrationError('mural', 'Mural did not confirm every invitation. Check the board sharing settings before retrying.');
+    }
+    const expected = new Set(recipients);
+    for (const value of response.value) {
+      const invitation = record(value);
+      const email = typeof invitation.email === 'string' ? invitation.email.toLowerCase() : '';
+      if (!expected.delete(email) || invitation.rejected === true
+        || (invitation.rejected !== false && typeof invitation.refCode !== 'string' && typeof invitation.username !== 'string')) {
+        throw new IntegrationError('mural', 'Mural rejected or did not confirm an invitation. Some invitations may already have been sent. Check board permissions and workspace guest policy before retrying.');
+      }
+    }
+    return recipients.length;
+  });
+}
+
 export function pngDimensions(data: Buffer): { width: number; height: number } {
   if (data.length < PNG_HEADER_BYTES || data.length > MAX_UPLOAD_BYTES
     || !data.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)

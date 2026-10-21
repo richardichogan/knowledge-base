@@ -24,13 +24,8 @@ const MAX_PER_SOURCE_PER_RUN = 60;
 const MAX_PAGE_DESCRIPTIONS = 25;
 /** Scoring batches per sync run (50 articles each); a large backlog drains over several runs. */
 const SCORING_BATCHES_PER_RUN = 6;
-
-/** Days an article waits in To Review before it is shelved. Strong ones (>= STRONG_SCORE) get longer. */
-export const SHELVE_AFTER_DAYS = 7;
-export const SHELVE_AFTER_DAYS_STRONG = 14;
 export const STRONG_SCORE = 0.8;
-/** Articles directly useful to a high-importance project (e.g. IMAGINE) wait this long instead. */
-export const SHELVE_AFTER_DAYS_PROJECT = 30;
+
 /** Project-fit passes per sync run (60 articles each). */
 const PROJECT_FIT_PASSES_PER_RUN = 4;
 
@@ -120,9 +115,8 @@ async function checkSource(db: Pool, source: SourceRow): Promise<number> {
 }
 
 /**
- * Moves articles that have sat in To Review too long to Shelved. Nothing is deleted:
- * shelved articles stay searchable by Athena and can be restored from the Shelved tab.
- * The clock starts when Athena first saw the article, or when it was last restored.
+ * Shelves explicitly low-value recommendations, never articles merely because of age.
+ * Import time is not evidence that the user has seen or declined an article.
  */
 export async function shelveStaleArticles(db: Pool): Promise<number> {
   // Articles the scorer rates as not worth content (routed to Archive) go straight to Shelved: the new
@@ -137,18 +131,7 @@ export async function shelveStaleArticles(db: Pool): Promise<number> {
         AND COALESCE((metadata->>'projectBoost')::numeric, 0) < $1::numeric`,
     [PROJECT_PROTECT_BOOST],
   );
-  const result = await db.query(
-    `UPDATE content_items
-        SET workflow_state = 'shelved',
-            metadata = metadata || jsonb_build_object('shelvedAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'shelvedReason', 'stale')
-      WHERE source = 'discovered-article'
-        AND workflow_state = 'to-review'
-        AND GREATEST(indexed_at, COALESCE(NULLIF(metadata->>'restoredAt', '')::timestamptz, 'epoch'::timestamptz))
-            < now() - (CASE WHEN COALESCE((metadata->>'projectBoost')::numeric, 0) >= $4::numeric THEN $5::int
-                            WHEN COALESCE(relevance_score, 0) >= $1::real THEN $2::int ELSE $3::int END) * interval '1 day'`,
-    [STRONG_SCORE, SHELVE_AFTER_DAYS_STRONG, SHELVE_AFTER_DAYS, PROJECT_PROTECT_BOOST, SHELVE_AFTER_DAYS_PROJECT],
-  );
-  return (low.rowCount ?? 0) + (result.rowCount ?? 0);
+  return low.rowCount ?? 0;
 }
 
 let backgroundWork: Promise<void> | null = null;

@@ -1,25 +1,25 @@
 # Stream Deck and Elgato Prompter
 
-Athena Desktop 0.1.5 adds a paired, local Stream Deck connection and a separate
+Athena Desktop 0.1.7 provides a paired, local Stream Deck connection and a separate
 presentation output. The Prompter is treated as a Windows display, not an image
 sent to Camera Hub. Any saved Think note can be used as a text script.
 
 ## Installation
 
 The hosted frontend must include the new Presentation view, and the desktop
-must be upgraded to 0.1.5 or later. Neither installation alone is sufficient.
+must be upgraded to 0.1.6 or later for direct presentation and saved settings. Neither installation alone is sufficient.
 Changes are not automatically deployed or released by building the artifacts.
 
 Build the desktop installer with `npm run dist` in `athena-desktop`. Its output
-is `athena-desktop\release\Athena Setup 0.1.5.exe`. This follows the existing
+is `athena-desktop\release\Athena Setup 0.1.7.exe`. This follows the existing
 installer/signing configuration; it does not publish an update.
 
 The local artifact built for this change is
-`athena-desktop\release\elgato-package\Athena Setup 0.1.5.exe`. If Electron
+`athena-desktop\release\elgato-package-0.1.7\Athena Setup 0.1.7.exe`. If Electron
 extraction is locked on Windows, build without touching a running app:
 
 ```powershell
-npm run dist -- --config.electronDist=node_modules\electron\dist --config.directories.output=release\elgato-package
+npm run dist -- --config.electronDist=node_modules\electron\dist --config.directories.output=release\elgato-package-0.1.7
 ```
 
 In `athena-streamdeck`, use Node 24 or newer, then:
@@ -39,13 +39,29 @@ The plugin is Windows-only; it does not replace or modify existing profiles.
 ## Choose your output
 
 1. In Athena Desktop, select **Athena > Presentation and Stream Deck**, or
-   **Present** in Think. Select any saved note.
+   select any saved note. This menu remains available for changing settings.
 2. Put the Prompter into Windows extended-display mode. Stop Camera Hub output
    if it is covering that display.
 3. Select the Prompter in **Output display**. Use **Identify** to confirm the
    physical screen; do not assume the first external display is the Prompter.
 4. Select **Open script on display**. The script opens paused. Control it from
    this presenter window or the assigned Stream Deck keys.
+
+Setup is only required once. **Present** on a selected Think note opens it
+directly on the saved display, without the controller popup. It starts paused;
+Play, Pause and Stop reuse the loaded script without reloading it. Repeating
+Present on an unchanged, already-open note keeps its playback and position.
+If the saved display is missing, Athena reports it rather than choosing another.
+
+The monitor, speed, text size, mirror, flip, opacity and last selected note ID
+are remembered across desktop restarts. Script content is not saved to desktop
+configuration: reopening the controller selects the last note and fetches its
+saved content after sign-in. Press **Play** to open it on the remembered display
+and start reading; no separate reload or monitor selection is needed.
+Use **Open script on display** to explicitly replace a live script after edits.
+The controller has a visible vertical scrollbar to reach all settings and pairing.
+**Output opacity** adjusts the entire Prompter window from 20% to 100%, initially
+100%; it does not change the controller.
 
 The controller uses Athena's normal dark Carbon styling. Output is only
 high-contrast text with a reading guide, never editing tools, sign-in pages or
@@ -91,15 +107,26 @@ installed or switched.
 | 3 | Smaller text, Larger text, Play / Pause, spare, spare |
 
 **Speak to Athena** opens the dedicated chat and toggles recording. The second
-press stops recording and transcribes into the existing draft for review.
-It never sends the transcript automatically. First use may require microphone
+press stops recording, transcribes and sends the message to Athena, including
+any existing draft. If chat is busy or has an attachment, the transcript stays
+in the draft with an error explaining that it was not sent. First use may require microphone
 permission in the focused chat window. Existing on-screen voice behavior is
 unchanged for recordings started with its microphone button.
 
 **Present note** uses the current Think note, or opens the note picker when no
 note is selected. Notes and diagrams use their existing creation flows.
 Playback keys never focus the output window. Keys display playback/recording
-state and relevant speed or text size.
+state and relevant speed or text size. Plugin 0.1.1 limits the playing highlight
+to Play, Play / Pause and Stop; other shortcuts keep their normal icons.
+
+Present requests that Windows wakes sleeping displays before opening output.
+This is a system display-wake request, not Elgato hardware power control: the
+Prompter must still be connected, enabled as an extended display and physically
+powered on. Windows execution-state signalling requests display wake without
+waiting for a broadcast acknowledgement from every application. If that request
+fails, Athena logs a warning and still opens output on the confirmed connected
+display; wake failure does not mean the screen is switched off. Desktop 0.1.7
+corrects the blocking wake-error behaviour in 0.1.6.
 
 Presentation scrolling is manual only. Speed defaults to 80 output CSS pixels
 per second, bounded to 10-300 in increments of 10. Faster/Slower change actual
@@ -114,8 +141,10 @@ The legacy standalone browser autocue remains available.
 - If the Prompter disconnects, output closes and playback stops. Refresh
   displays, confirm the reconnected screen and reopen the same unchanged script
   to retain the last reported position. Press Play explicitly.
-- Closing the controller, signing out of that view or an output-renderer crash
-  closes the output. The display is kept awake only during active playback.
+- Closing the source window, leaving its view, signing out or an output-renderer
+  crash closes its output. Closing a separate settings window does not close a
+  presentation started directly from Think. The display is kept awake only
+  during active playback.
 - If port 43129 is unavailable, setup reports the error. Do not terminate
   unrelated processes; resolve the port conflict before enabling pairing.
 - Failed creation commands are not retried automatically. Check Think before

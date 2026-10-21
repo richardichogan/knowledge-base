@@ -16,7 +16,8 @@ test('packaged SDK plugin registers, authenticates, routes keys and never replay
     if (request.command === 'speak') state.recording = !state.recording;
     else state.presentation = protocol.playbackCommand(state.presentation, request.command);
   }, () => state);
-  await bridge.start(token);
+  await bridge.start(token, 0);
+  const bridgePort = bridge.server.address().port;
   const host = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(host, 'listening');
   const info = {
@@ -40,6 +41,9 @@ test('packaged SDK plugin registers, authenticates, routes keys and never replay
         client.send(JSON.stringify({ event: 'didReceiveGlobalSettings', id: message.id, payload: { settings: { token } } }));
         client.send(JSON.stringify(event('willAppear', 'faster', 'pace-key')));
         client.send(JSON.stringify(event('willAppear', 'speak', 'voice-key')));
+        for (const command of protocol.COMMANDS.filter(command => !['faster', 'speak'].includes(command))) {
+          client.send(JSON.stringify(event('willAppear', command, `${command}-key`)));
+        }
       }
     });
   });
@@ -47,7 +51,8 @@ test('packaged SDK plugin registers, authenticates, routes keys and never replay
     new URL('../com.themicrosoftcloudblog.athena.sdPlugin/bin/plugin.js', import.meta.url).href,
     '-port', String(host.address().port), '-pluginUUID', info.plugin.uuid,
     '-registerEvent', 'registerPlugin', '-info', JSON.stringify(info),
-  ], { cwd: fileURLToPath(new URL('../com.themicrosoftcloudblog.athena.sdPlugin', import.meta.url)), silent: true });
+  ], { cwd: fileURLToPath(new URL('../com.themicrosoftcloudblog.athena.sdPlugin', import.meta.url)), silent: true,
+    env: { ...process.env, ATHENA_TEST_BRIDGE_PORT: String(bridgePort) } });
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk.toString(); });
   const waitFor = async predicate => {
@@ -65,6 +70,18 @@ test('packaged SDK plugin registers, authenticates, routes keys and never replay
     socket.send(JSON.stringify(event('keyDown', 'faster', 'pace-key')));
     await waitFor(() => title('pace-key', '90 px/s'));
     assert.deepEqual(commands, ['faster']);
+    state.presentation = { ...state.presentation, sessionId: 'test-session', displayId: 42 };
+    socket.send(JSON.stringify(event('keyDown', 'play', 'play-key')));
+    await waitFor(() => title('play-key', 'playing'));
+    for (const command of protocol.COMMANDS.filter(command => command !== 'speak')) {
+      const context = command === 'faster' ? 'pace-key' : `${command}-key`;
+      const image = messages.filter(message => message.event === 'setImage' && message.context === context).at(-1);
+      assert.ok(image, `Missing image for ${command}`);
+      assert.equal(image.payload.image, `imgs/${command}${['play', 'toggle-play', 'stop'].includes(command) ? '-active' : ''}.svg`);
+    }
+    socket.send(JSON.stringify(event('keyDown', 'pause', 'pause-key')));
+    await waitFor(() => title('play-key', 'paused'));
+    assert.equal(messages.filter(message => message.event === 'setImage' && message.context === 'play-key').at(-1).payload.image, 'imgs/play.svg');
     socket.send(JSON.stringify(event('keyDown', 'speak', 'voice-key')));
     await waitFor(() => title('voice-key', 'Recording'));
     assert.equal(state.recording, true);
@@ -73,7 +90,7 @@ test('packaged SDK plugin registers, authenticates, routes keys and never replay
     await waitFor(() => messages.some(m => m.event === 'showAlert' && m.context === 'pace-key'));
     const count = commands.length;
     messages.length = 0;
-    await bridge.start(token);
+    await bridge.start(token, bridgePort);
     await waitFor(() => title('pace-key', '90 px/s'));
     assert.equal(commands.length, count);
     assert.doesNotMatch(stderr, /Dynamic require/);

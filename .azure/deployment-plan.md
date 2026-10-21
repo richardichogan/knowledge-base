@@ -2,6 +2,29 @@
 
 **Status:** Validated
 
+**Section 7: Validation proof (2026-10-21, coordinated fixes release):**
+- User explicitly requested deployment of ALL pending code and fixes everywhere
+  needed, including hosted frontend/backend and local Desktop/Stream Deck.
+- Existing production resources and authentication unchanged. No infrastructure,
+  schema, dependencies or secrets added. AZCLI image-only and SWA recipes apply;
+  infrastructure validation/provisioning is not applicable.
+- Fetched origin and merged origin/main: already up to date at 9217886.
+  Git reported a shared packed-refs lock during housekeeping; no lock was
+  removed and normal source operations remain scoped to this worktree.
+- Both application typechecks and production builds passed. Frontend lint
+  non-regression passed. Focused backend tests 38/38 and frontend tests 16/16
+  passed. Desktop Elgato tests 5/5 passed, including failed-wake continuation.
+  Real Windows execution-state wake call succeeded.
+- Desktop 0.1.7 installer built. Stream Deck 0.1.1 runtime test, validation
+  and packaging passed. Existing pairing, profiles and user data must be kept.
+- Backend v223 is current; next image v224. Deploy matching frontend dist,
+  verify SHA-256 on both production domains and healthy backend revision.
+- Release includes direct presentation, saved settings, scrollbar and opacity,
+  clipboard/spelling fixes, reviewed contacts, stop-speech-to-send, Mural
+  layout/invitations, Microsoft/GitHub-first ranking and removal of age-only
+  automatic shelving. Backfill source authority and re-evaluate recent
+  automatically shelved Microsoft/GitHub items without overriding user filing.
+
 **Deployment result (2026-10-21 15:58 BST, Daily Insights importer):**
 - Source 9a8f70d pushed to feature branch and main. ACR run ca71 built
   kh-prod-api:v223, digest

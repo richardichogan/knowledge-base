@@ -60,7 +60,7 @@ import { MapChangeCard } from '../components/athena/MapChangeCard';
 import { LocalFileWriteCard } from '../components/athena/LocalFileWriteCard';
 import { desktopErrorMessage, getDesktop } from '../types/desktop';
 import { useDesktopCommand } from '../services/desktopCommands';
-import { appendVoiceTranscript, finishVoiceTranscript } from '../services/voiceTranscript';
+import { appendVoiceTranscript, finishVoiceTranscript, finishDesktopVoiceTranscript } from '../services/voiceTranscript';
 import { briefingSeenToday, markBriefingSeen } from '../utils/morningBriefing';
 import { PERSONAS, getPersona } from '../components/athena/personas';
 import { ChatMentionSuggestions } from '../chat/ChatMentionSuggestions';
@@ -1256,10 +1256,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     }
   }
 
-  async function submitMessage(): Promise<void> {
+  async function submitMessage(inputOverride?: string): Promise<void> {
     if (chatMutation.isPending || isRestoringHistory || historyError !== null || uploadProgress !== null) return;
+    const composerDraft = inputOverride ?? input;
     const intent = buildComposerIntent({
-      input,
+      input: composerDraft,
       projects: uploadProjectOptions,
       activeProjectId,
       actionOverride,
@@ -1317,12 +1318,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // images) at all, since history only keeps a short "[Viewing …]" marker.
     const activeImageContext = activeImage !== null && activeImage.chatId === (sessionId ?? pendingSessionIdRef.current) ? activeImage.context : null;
     if (activeImageContext !== null) {
-      chatMutation.mutate({ text: outgoing, composerDraft: input, pageContext: activeImageContext });
+      chatMutation.mutate({ text: outgoing, composerDraft, pageContext: activeImageContext });
     } else if ((isFirstMessage || contextChanged || isNoteLinkedPanel) && pageContext && !isContextDismissed) {
       lastInjectedContextKeyRef.current = contextKey;
-      chatMutation.mutate({ text: outgoing, composerDraft: input, pageContext });
+      chatMutation.mutate({ text: outgoing, composerDraft, pageContext });
     } else {
-      chatMutation.mutate({ text: outgoing, composerDraft: input });
+      chatMutation.mutate({ text: outgoing, composerDraft });
     }
   }
 
@@ -1633,6 +1634,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   const reviewRecordingRef = useRef(false);
+  const sendDesktopTranscript = useRef<(transcript: string) => Promise<void>>(async () => {});
+  sendDesktopTranscript.current = transcript => finishDesktopVoiceTranscript(transcript, input,
+    !chatMutation.isPending && !isRestoringHistory && historyError === null && uploadProgress === null && pendingFile === null,
+    setInput, submitMessage);
   const desktopVoiceBusyRef = useRef(false);
   useEffect(() => () => {
     streamRef.current?.getTracks().forEach(track => track.stop());
@@ -1652,12 +1657,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     });
   }, [standalone, isRecording, isTranscribing]);
   useDesktopCommand('speak', async () => {
-    if (!standalone || desktopVoiceBusyRef.current || isTranscribing || chatMutation.isPending || isRestoringHistory) {
+    if (!standalone || desktopVoiceBusyRef.current || isTranscribing || (!streamRef.current && (chatMutation.isPending || isRestoringHistory))) {
       throw new Error('Chat is busy. Wait for it to finish before recording.');
     }
     desktopVoiceBusyRef.current = true;
     try {
-      if (streamRef.current) await stopRecording(true);
+      if (streamRef.current) await stopRecording(true, true);
       else {
         reviewRecordingRef.current = true;
         await startRecording();
@@ -1690,7 +1695,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     }
   }
 
-  async function stopRecording(reviewOnly = reviewRecordingRef.current): Promise<void> {
+  async function stopRecording(reviewOnly = reviewRecordingRef.current, sendOnFinish = false): Promise<void> {
     const ctx = audioCtxRef.current;
     const processor = processorRef.current;
     const stream = streamRef.current;
@@ -1736,6 +1741,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (!result.success) throw new Error(result.error.message);
       const text = result.success ? result.data.text.trim() : '';
       if (text !== '') {
+        if (sendOnFinish) {
+          await sendDesktopTranscript.current(text);
+          return;
+        }
         finishVoiceTranscript(text, reviewOnly, transcript => {
           setInput(current => appendVoiceTranscript(current, transcript));
           textareaRef.current?.focus();
@@ -1749,7 +1758,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       }
       if (reviewOnly) throw new Error('No speech was detected. Your existing draft is unchanged.');
     } catch (error) {
-      appendMessage('assistant', '⚠️ Could not transcribe that recording. Please try again or type your message.');
+      appendMessage('assistant', reviewOnly && error instanceof Error ? `⚠️ ${error.message}` : '⚠️ Could not transcribe that recording. Please try again or type your message.');
       if (reviewOnly) throw error;
     } finally {
       reviewRecordingRef.current = false;

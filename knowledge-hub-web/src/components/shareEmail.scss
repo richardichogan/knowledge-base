@@ -15,7 +15,7 @@
 
   p { margin: 0; color: var(--cds-text-secondary); overflow-wrap: anywhere; }
   label { margin-top: 0.5rem; font-weight: 600; }
-  input, textarea {
+  input, textarea, select {
     box-sizing: border-box;
     width: 100%;
     min-width: 0;
@@ -41,4 +41,44 @@
     h3 { margin: 0 0 0.5rem; font-size: var(--kh-section-title, 0.875rem); font-weight: 600; }
   }
   &__error, [role='alert'] { color: var(--cds-text-error); }
+  &__contacts {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--cds-border-strong-01);
+    button { width: 100%; text-align: left; overflow-wrap: anywhere; }
+    [aria-selected='true'] { background: var(--cds-layer-selected-01); }
+  }
+}
+
+.contact-capture, .share-email__contacts {
+  button, .share-email__contact-toggle {
+    padding: 8px 12px; min-height: 32px; border: 1px solid var(--cds-border-strong-01);
+    color: var(--cds-text-primary); background: var(--cds-layer-01); font: inherit; cursor: pointer;
+    &:hover:not(:disabled) { background: var(--cds-layer-hover-01); }
+    &:active:not(:disabled) { background: var(--cds-layer-active-01); }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: -2px; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+}
+.share-email .share-email__contact-toggle {
+  align-self: flex-start; background: transparent; border: 0; padding: 4px 0;
+  color: var(--cds-link-primary); font: inherit; text-decoration: underline; cursor: pointer;
+  &:hover:not(:disabled) { color: var(--cds-link-primary-hover); }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+.contact-capture {
+  display: flex; flex-direction: column; gap: 12px; font-size: var(--kh-text-body);
+  color: var(--cds-text-primary);
+  p { margin: 0; }
+  label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+  input, textarea {
+    width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--cds-border-strong-01);
+    background: var(--cds-field-01); color: inherit; font: inherit; font-weight: 400;
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+  textarea { resize: vertical; }
+  &__draft { display: flex; flex-direction: column; gap: 12px; padding-block: 12px; border-top: 1px solid var(--cds-border-subtle-01); }
+  [role='alert'] { color: var(--cds-text-error); }
 }

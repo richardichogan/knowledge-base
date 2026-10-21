@@ -1,6 +1,6 @@
 import type { MuralConnector, MuralDiagramExport, MuralObject } from '../../types/mural';
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
-import { boundsOf, diagramBounds, edgeLabelCenter, edgeRoute, fitSize, linePoints, nodeMap, renderOrder } from './diagramGeometry';
+import { boundsOf, diagramBounds, edgeLabelCenter, edgeRoute, fitSize, linePoints, nodeMap, renderOrder, wrapText } from './diagramGeometry';
 import { footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT } from './diagramAnnotations';
 import { descriptionPlainText } from './diagramDescription';
 import { DIAGRAM_CALLOUTS } from './diagramCallouts';
@@ -53,8 +53,10 @@ export async function diagramMural(doc: DiagramDocument, assets: ReadonlyMap<str
   const regions = [content];
   const dx = 100 - content.x, dy = 100 - content.y;
   const point = (p: { x: number; y: number }) => ({ x: p.x + dx, y: p.y + dy });
+  const textHeight = (text: string, width: number, fontSize: number): number =>
+    wrapText(text, Math.max(1, width - 16), fontSize, Number.MAX_SAFE_INTEGER).length * fontSize * 1.5 + 16;
   const addText = (id: string, text: string, x: number, y: number, width: number, height: number, fontSize = NOTE_FONT): void => {
-    objects.push({ id, type: 'textbox', shape: '', text, x: x + dx, y: y + dy, width: Math.max(1, width), height: Math.max(1, height),
+    objects.push({ id, type: 'textbox', shape: '', text, x: x + dx, y: y + dy, width: Math.max(1, width), height: Math.max(height, textHeight(text, width, fontSize)),
       parentId: null, fill: '#FFFFFF00', stroke: '#FFFFFF00', strokeWidth: 1, dotted: false, textColor: '#161616FF', fontSize, align: 'left' });
   };
   const images = new Map<string, string>();
@@ -83,13 +85,14 @@ export async function diagramMural(doc: DiagramDocument, assets: ReadonlyMap<str
       object.x += (n.width - n.height) / 2; object.y += (n.height - n.width) / 2;
     }
     objects.push(object);
+    if (n.kind === 'text') object.height = Math.max(object.height, textHeight(text, object.width, n.fontSize));
     if (isArea && text.trim()) {
       const layout = diagramTextLayout({ ...n, label: text });
       const width = Math.max(1, layout.rotation ? n.height - 16 : n.width - 20);
-      const height = Math.max(1, n.fontSize * 1.25 * layout.lines.length);
+      const height = textHeight(layout.lines.join('\n'), width, n.fontSize);
       const x = layout.x - (layout.anchor === 'middle' ? width / 2 : layout.anchor === 'end' ? width : 0);
       objects.push({ ...object, id: `${n.id}-title`, type: 'textbox', shape: '', text: layout.lines.join('\n'),
-        x: x + dx, y: layout.y + dy - height / 2, width, height, parentId: n.id,
+        x: x + dx, y: (layout.rotation ? layout.y - height / 2 : Math.max(n.y, layout.y - height / 2)) + dy, width, height, parentId: n.id,
         stroke: '#FFFFFF00', align: layout.anchor === 'middle' ? 'center' : layout.anchor === 'end' ? 'right' : 'left',
         rotation: layout.rotation ? 270 : 0 });
     }
@@ -131,10 +134,16 @@ export async function diagramMural(doc: DiagramDocument, assets: ReadonlyMap<str
     if (block) {
       regions.push(block.rect);
       addText('notes-heading', 'Notes', block.heading.x, block.heading.y, 120, 24, 14);
+      const columnBottom = new Map<number, number>();
       for (const item of block.items) {
-        badge(`note-badge-${item.id}`, item.number, item.marker);
+        const top = Math.max(item.rect.y, columnBottom.get(item.rect.x) ?? item.rect.y);
+        const offset = top - item.rect.y;
+        badge(`note-badge-${item.id}`, item.number, { ...item.marker, y: item.marker.y + offset });
         const x = item.lines[0]?.x ?? item.rect.x;
-        addText(`note-${item.id}`, item.lines.map(l => l.text).join('\n'), x, item.rect.y + 4, item.rect.x + item.rect.width - x, item.rect.height);
+        addText(`note-${item.id}`, item.lines.map(l => l.text).join('\n'), x, top + 4, item.rect.x + item.rect.width - x, item.rect.height);
+        const exported = objects[objects.length - 1]!;
+        columnBottom.set(item.rect.x, top + exported.height + 16);
+        regions.push({ x, y: top, width: exported.width, height: exported.height + 20 });
       }
     }
   }

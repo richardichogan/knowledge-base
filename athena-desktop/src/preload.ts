@@ -19,6 +19,8 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
       state: () => ipcRenderer.invoke('presentation:state'),
       close: () => ipcRenderer.invoke('presentation:close'),
       start: (value: unknown) => ipcRenderer.invoke('presentation:start', value),
+      present: (value: unknown) => ipcRenderer.invoke('presentation:direct', value),
+      release: () => ipcRenderer.invoke('presentation:release'),
       command: (value: unknown) => ipcRenderer.invoke('presentation:command', value),
       options: (value: unknown) => ipcRenderer.invoke('presentation:options', value),
       onState: (listener: (value: unknown) => void) => {

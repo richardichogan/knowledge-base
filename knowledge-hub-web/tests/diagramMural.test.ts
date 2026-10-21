@@ -90,3 +90,18 @@ test('Mural rejects missing assets and invalid connector endpoints instead of si
     { id: 'broken', sourceId: 'a', targetId: 'missing', sourcePort: 'right', targetPort: 'left', route: 'straight', waypoints: [], label: '', stroke: '#000', dashed: false, arrows: 'end' },
   ] }, new Map(), options), /missing endpoint/);
 });
+
+test('Mural preserves badge font sizes and expands text boxes and notes without overlapping the next note', async () => {
+  const a = { ...node('a', 'process', 0), description: 'First note. '.repeat(80) };
+  const b = { ...node('b', 'process', 300), description: 'Second note. '.repeat(40) };
+  const paragraph = { ...node('paragraph', 'text', 700), label: 'Readable paragraph. '.repeat(50), height: 30, width: 240 };
+  const doc = { ...emptyDiagram(), nodes: [a, b, paragraph],
+    footnotes: [{ id: 'first', targetId: 'a', source: 'description' as const }, { id: 'second', targetId: 'b', source: 'description' as const }] };
+  const result = await diagramMural(doc, new Map(), { ...options, footnotes: true });
+  const first = result.objects.find(n => n.id === 'note-first')!;
+  const second = result.objects.find(n => n.id === 'note-second')!;
+  assert.ok(second.y >= first.y + first.height + 12);
+  assert.ok(result.objects.find(n => n.id === 'paragraph')!.height > paragraph.height);
+  assert.equal(result.objects.find(n => n.id === 'footnote-first')!.fontSize, 11);
+  assert.equal(paragraph.height, 30);
+});

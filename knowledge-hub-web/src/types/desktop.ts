@@ -14,8 +14,10 @@ export interface DesktopPresentation {
   state(): Promise<DesktopCommandState>;
   close(): Promise<void>;
   start(value: PresentationScript & { displayId: number }): Promise<void>;
+  present?(value: PresentationScript): Promise<void>;
+  release?(): Promise<void>;
   command(value: CommandRequest): Promise<void>;
-  options(value: { mirror: boolean; flip: boolean }): Promise<void>;
+  options(value: { mirror: boolean; flip: boolean; opacity?: number }): Promise<void>;
   onState(listener: (value: DesktopCommandState) => void): () => void;
   onNote(listener: (value: string) => void): () => void;
   pairingStatus(): Promise<{ enabled: boolean; error: string | null }>;

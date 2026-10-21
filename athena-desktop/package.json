@@ -1,7 +1,7 @@
 {
   "name": "athena-desktop",
   "productName": "Athena",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "private": true,
   "description": "Athena desktop app: the Athena web app plus access to folders on this PC.",
   "main": "build/src/main.js",
@@ -31,10 +31,19 @@
   "build": {
     "appId": "com.themicrosoftcloudblog.athena",
     "productName": "Athena",
-    "directories": { "output": "release", "buildResources": "assets" },
-    "files": ["build/src/**/*.js", "assets/**/*", "package.json"],
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "build/src/**/*.js",
+      "assets/**/*",
+      "package.json"
+    ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "assets/icon.png",
       "signExecutable": false,
       "verifyUpdateCodeSignature": false
@@ -47,6 +56,13 @@
       "shortcutName": "Athena",
       "include": "installer.nsh"
     },
-    "publish": [{ "provider": "github", "owner": "richardichogan", "repo": "knowledge-base", "releaseType": "release" }]
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "richardichogan",
+        "repo": "knowledge-base",
+        "releaseType": "release"
+      }
+    ]
   }
 }

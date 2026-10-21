@@ -18,6 +18,14 @@ let smtpSubmissions = 0;
 let invalidNext = true;
 let releaseSend: () => void = () => undefined;
 const attempts: ShareEmailInput[] = [];
+let contactSaves = 0;
+api.getPeople = async () => ({ success: true, data: [{ id: 'contact-1', name: 'Example Contact',
+  emails: ['person@example.com'], organisation: 'Example Org', role: '', notes: '', threads: '',
+  source: '', sourcePeriod: '', contactGroup: '', emailCount: null, createdAt: '', updatedAt: '' }] });
+api.savePerson = async input => {
+  contactSaves++;
+  return { success: true, data: { ...input, id: 'new-contact', createdAt: '', updatedAt: '' } };
+};
 api.getShareEmailStatus = async () => {
   if (failSettings) throw new Error('Fixture settings unavailable');
   return { success: true, data: { ...status } };
@@ -106,6 +114,11 @@ export async function runShareEmailChecks(): Promise<string[]> {
   check(verifies === 1 && attempts.length === 0, 'Setup/verification never sends mail');
   button('Share note fixture').click();
   await waitFor(() => composerText().includes('published GitHub version'));
+  field('share-email-to', '@Example');
+  await waitFor(() => document.getElementById('share-contact-0') !== null);
+  document.getElementById('share-contact-0')!.click();
+  await waitFor(() => (document.getElementById('share-email-to') as HTMLInputElement).value.includes('person@example.com'));
+  check(attempts.length === 0 && contactSaves === 0, 'Choosing a contact resolves its address without sending or saving contacts');
   check(composerText().includes('Links do not grant access'), 'Private-link warning is visible');
   field('share-email-to', 'one@example.com, two@example.com');
   field('share-email-message', 'Reviewed message');

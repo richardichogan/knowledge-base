@@ -34,7 +34,7 @@ const manifest = {
   $schema: 'https://schemas.elgato.com/streamdeck/plugins/manifest.json',
   UUID: 'com.themicrosoftcloudblog.athena', Name: 'Athena', Author: 'Richard Hogan',
   Description: 'Athena desktop shortcuts and Prompter presentation controls.',
-  Version: '0.1.0.0', SDKVersion: 2, Software: { MinimumVersion: '7.1' }, Nodejs: { Version: '24' },
+  Version: '0.1.1.0', SDKVersion: 2, Software: { MinimumVersion: '7.1' }, Nodejs: { Version: '24' },
   OS: [{ Platform: 'windows', MinimumVersion: '10' }], CodePath: 'bin/plugin.js',
   Icon: 'imgs/plugin', Category: 'Athena', CategoryIcon: 'imgs/open-athena',
   URL: 'https://athena.themicrosoftcloudblog.com',

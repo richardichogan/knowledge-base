@@ -29,6 +29,10 @@ editable text objects retain Athena's header positions inside their parent areas
 Exported boxes use transparent backgrounds rather than copying saved dark fills,
 and pale label text becomes dark for readability on the board. Borders keep their
 saved colours; Athena's original diagram and other export formats are unchanged.
+Shapes explicitly retain their font size and alignment (including numbered
+badges), rather than inheriting Mural's default typography. Text boxes allow
+extra height for wrapping and padding; exported footnotes move down within
+their column when needed so expanded text does not overlap the following note.
 Descriptions and AI-step summaries
 are retained as widget instructions. Individual icons remain separate images,
 not editable vector paths; the diagram itself is never flattened.
@@ -48,6 +52,8 @@ After export, **Share Mural link by email** opens a manual review-and-send
 composer. The Export menu also supports emailing a draw.io attachment without
 exporting to Mural. Neither action sends automatically; see
 [SMTP2GO sharing](email-sharing.md) for sender setup and access requirements.
+The Mural email composer offers View/Edit recipient invitations before sending,
+or a link-only option. It does not make the board public.
 
 Native export validates all objects before writing. Limit: 200 objects in total,
 including connectors, icons and selected annotations, with 20 MiB of icon PNGs.

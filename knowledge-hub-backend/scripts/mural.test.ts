@@ -146,6 +146,9 @@ test('Native Mural creates areas before children, resolves real IDs, attaches ar
       }
       if (url.endsWith('/shape')) {
         const shape = (body as Array<Record<string, unknown>>)[0]!;
+        assert.equal((shape.style as Record<string, unknown>).fontSize, 14);
+        assert.equal((shape.style as Record<string, unknown>).textAlign, 'center');
+        assert.equal((shape.style as Record<string, unknown>).font, 'proxima-nova');
         shapeCount++;
         if (shapeCount === 1) { assert.equal(shape.parentId, 'mural-area'); assert.equal(shape.x, 20); assert.equal(shape.y, 40); }
         return Response.json({ value: [{ id: shapeCount === 1 ? 'mural-child' : 'mural-target' }] });

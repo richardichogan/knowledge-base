@@ -13,6 +13,7 @@ import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, ChevronDown
 import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
+import { presentationScript } from '../features/autocue/presentationScript';
 import type { NoteContentBlock, NoteListPage } from './noteStorage';
 import { loadedNotes, nextNotesPage, noteListQuery, type NoteListQuery } from './noteListState';
 import type { NoteDocument, NoteListItem } from './types';
@@ -34,6 +35,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useDesktopCommand } from '../services/desktopCommands';
 import { getDesktop } from '../types/desktop';
+import { authSession } from '../services/authSession';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -234,11 +236,28 @@ export const NotesPage: React.FC = () => {
   useDesktopCommand('new-diagram', async () => {
     if (!await handleCreateCanvas('diagram')) throw new Error('Could not create the diagram. Check Think before retrying.');
   });
-  useDesktopCommand('present-note', async () => {
+  async function presentNote(): Promise<void> {
+    if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
     const presentation = getDesktop()?.presentation;
     if (!presentation) throw new Error('Update Athena Desktop to present on another display.');
-    await presentation.open(mode === 'notes' ? openDoc?.id : undefined);
-  });
+    if (mode !== 'notes' || !openDoc) { await presentation.open(); return; }
+    if (!presentation.present) throw new Error('Install the updated Athena Desktop to present directly without the settings window.');
+    const saved = await fetchNote(openDoc.id);
+    if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
+    if (!saved) throw new Error('Save the note before presenting.');
+    const script = presentationScript(saved.contentJson);
+    if (!script.text.trim()) throw new Error('Choose a saved note containing text.');
+    await presentation.present({ noteId: saved.id, title: saved.title, text: script.text });
+  }
+  useDesktopCommand('present-note', presentNote);
+  useEffect(() => {
+    const presentation = getDesktop()?.presentation;
+    const release = (): void => {
+      void presentation?.release?.().catch(error => { console.error('[Presentation] Could not close note output:', error); });
+    };
+    const off = authSession.subscribe(() => { if (authSession.isExpired()) release(); });
+    return () => { off(); release(); };
+  }, []);
 
   async function handleImported(doc: NoteDocument): Promise<void> {
     setImportModalOpen(false);
@@ -535,7 +554,7 @@ export const NotesPage: React.FC = () => {
             ))}
           </div>
           {getDesktop()?.presentation && <button type="button" className="kb-import-btn"
-            onClick={() => { void getDesktop()?.presentation?.open(mode === 'notes' ? openDoc?.id : undefined).catch(err => {
+            onClick={() => { void presentNote().catch(err => {
               void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
             }); }}>Present</button>}
           {/* Always present (label follows the view) so the bar keeps its

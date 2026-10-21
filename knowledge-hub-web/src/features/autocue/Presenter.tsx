@@ -19,6 +19,7 @@ export function Presenter(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [opacity, setOpacity] = useState(100);
   const busyRef = useRef(false);
   const [pairing, setPairing] = useState<{ enabled: boolean; error: string | null } | null>(null);
   const notes = useInfiniteQuery({
@@ -53,10 +54,13 @@ export function Presenter(): React.JSX.Element {
     void Promise.all([desktop.state(), desktop.displays(), desktop.pairingStatus()]).then(([value, available, paired]) => {
       if (!active) return;
       setState(value); setDisplays(available); setPairing(paired);
+      const preferred = available.find(display => display.preferred && !display.primary);
+      if (preferred) setDisplayId(String(preferred.id));
+      if (!new URLSearchParams(window.location.search).has('noteId') && value.presentation.noteId) setNoteId(value.presentation.noteId);
     }).catch(err => { if (active) setError(desktopErrorMessage(err)); });
     return () => {
       active = false; off(); offNote();
-      void desktop.close().catch(err => { console.error('[Presentation] Could not close output:', err); });
+      void (desktop.release ? desktop.release() : desktop.close()).catch(err => { console.error('[Presentation] Could not close output:', err); });
     };
   }, [desktop]);
   useEffect(() => {
@@ -68,10 +72,26 @@ export function Presenter(): React.JSX.Element {
     if (desktop) void action(() => desktop.command({ id: crypto.randomUUID(), command: value, issuedAt: Date.now() }));
   };
   const playback = state?.presentation;
+  useEffect(() => { setOpacity(playback?.opacity ?? 100); }, [playback?.opacity]);
   const connected = playback?.displayId !== null && !!playback?.sessionId && playback?.status !== 'disconnected';
   const rows = notes.data?.pages.flatMap(page => page.items) ?? [];
   const selected = note.data;
   const currentListed = rows.some(item => item.id === noteId);
+  const canStart = !expired && !!selected && !!script?.text && !!displayId && !note.isFetching;
+  const play = (): void => {
+    if (!desktop || !canStart || !selected || !script) return;
+    void action(async () => {
+      if (!connected || (desktop.present && playback?.noteId !== selected.id) || playback?.displayId !== Number(displayId)) {
+        await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, displayId: Number(displayId) });
+      }
+      await desktop.command({ id: crypto.randomUUID(), command: 'play', issuedAt: Date.now() });
+    });
+  };
+  const saveOpacity = (value: number): void => {
+    if (desktop && value !== (playback?.opacity ?? 100)) {
+      void action(() => desktop.options({ mirror: playback?.mirror ?? false, flip: playback?.flip ?? false, opacity: value }));
+    }
+  };
   if (!desktop) return <main className="kh-presenter"><h1>Presentation</h1><p>Open this view in an updated Athena Desktop to use a separate display and Stream Deck.</p><a href="/think">Return to Think</a></main>;
   return <main className="kh-presenter">
     <header className="kh-presenter__header">
@@ -125,7 +145,7 @@ export function Presenter(): React.JSX.Element {
           <h2>Playback</h2>
           <p>{playback?.title || 'No output script loaded'}</p>
           <div className="kh-presenter__row">
-            <button disabled={!connected || busy || playback?.status === 'playing'} onClick={() => command('play')}>Play</button>
+            <button disabled={!canStart || busy || (playback?.status === 'playing' && playback.noteId === noteId)} onClick={play}>Play</button>
             <button disabled={!connected || busy || playback?.status !== 'playing'} onClick={() => command('pause')}>Pause</button>
             <button disabled={!connected || busy} onClick={() => command('stop')}>Stop &amp; reset</button>
           </div>
@@ -146,6 +166,13 @@ export function Presenter(): React.JSX.Element {
           <label className="kh-presenter__check"><input type="checkbox" checked={playback?.flip ?? false} disabled={busy} onChange={e => {
             void action(() => desktop.options({ mirror: playback?.mirror ?? false, flip: e.target.checked }));
           }} />Flip vertically</label>
+          {desktop.present && <label>Output opacity ({opacity}%)
+            <input type="range" min={20} max={100} step={5} value={opacity} disabled={busy}
+              onChange={e => setOpacity(Number(e.target.value))}
+              onPointerUp={e => saveOpacity(Number(e.currentTarget.value))}
+              onKeyUp={e => saveOpacity(Number(e.currentTarget.value))}
+              onBlur={e => saveOpacity(Number(e.currentTarget.value))} />
+          </label>}
           <p>Manual scrolling only. No presentation microphone is used.</p>
         </section>
         <section>
@@ -159,7 +186,7 @@ export function Presenter(): React.JSX.Element {
               <button disabled={busy} onClick={() => { void action(async () => setPairing(await desktop.revoke()), 'Stream Deck connection disabled.'); }}>Disable</button>
             </>}
           </div>
-          <p>Athena Desktop must be running. Speak to Athena leaves the transcript in your draft for review, never automatically sends it.</p>
+          <p>Athena Desktop must be running. Press Speak to Athena once to record; press it again to transcribe and send your message, including any existing draft.</p>
         </section>
       </aside>
     </div>

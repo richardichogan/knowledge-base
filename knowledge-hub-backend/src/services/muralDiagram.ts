@@ -155,7 +155,8 @@ export async function exportMuralDiagram(db: Pool, input: unknown): Promise<{ bo
             style: { backgroundColor: o.fill, borderColor: o.stroke, borderStyle: o.dotted ? 'dotted' : 'solid', borderWidth: o.strokeWidth, titleFontSize: o.fontSize } });
         } else if (o.type === 'shape') {
           response = await apiJson(token, `${path}/widgets/shape`, [{ ...common, rotation: o.rotation, shape: o.shape, text: o.text,
-            style: { backgroundColor: o.fill, borderColor: o.stroke, borderStyle: o.dotted ? 'dotted' : 'solid', borderWidth: o.strokeWidth, fontColor: o.textColor } }]);
+            style: { backgroundColor: o.fill, borderColor: o.stroke, borderStyle: o.dotted ? 'dotted' : 'solid', borderWidth: o.strokeWidth,
+              fontColor: o.textColor, font: 'proxima-nova', fontSize: o.fontSize, textAlign: o.align } }]);
         } else if (o.type === 'textbox') {
           response = await apiJson(token, `${path}/widgets/textbox`, [{ ...common, rotation: o.rotation, text: `<span style="color: ${o.textColor.slice(0, RGB_HEX_LENGTH)}">${html(o.text)}</span>`,
             style: { backgroundColor: o.fill, font: 'proxima-nova', fontSize: o.fontSize, textAlign: o.align } }]);

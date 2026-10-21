@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { presentationScript } from '../src/features/autocue/presentationScript';
-import { appendVoiceTranscript, finishVoiceTranscript } from '../src/services/voiceTranscript';
+import { appendVoiceTranscript, finishVoiceTranscript, finishDesktopVoiceTranscript } from '../src/services/voiceTranscript';
 
-test('Stream Deck transcription appends to a draft and never sends; on-screen mode remains send', () => {
+test('explicit voice review mode preserves the draft; on-screen mode remains send', () => {
   let draft = 'Existing unsent work';
   let sent = '';
   finishVoiceTranscript('  dictated text  ', true, text => { draft = appendVoiceTranscript(draft, text); }, text => { sent = text; });
@@ -12,6 +12,19 @@ test('Stream Deck transcription appends to a draft and never sends; on-screen mo
   finishVoiceTranscript('on-screen', false, () => assert.fail('Should not change the draft'), text => { sent = text; });
   assert.equal(sent, 'on-screen');
   assert.throws(() => finishVoiceTranscript(' ', true, () => assert.fail(), () => assert.fail()), /No speech/);
+});
+
+test('stopping desktop speech sends the transcript with the current draft exactly once, preserving it if blocked', async () => {
+  let draft = 'Current draft';
+  const sent: string[] = [];
+  await finishDesktopVoiceTranscript(' new dictation ', draft, true, value => { draft = value; }, async value => { sent.push(value); });
+  assert.deepEqual(sent, ['Current draft\nnew dictation']);
+  await assert.rejects(finishDesktopVoiceTranscript('next dictation', draft, false, value => { draft = value; }, async () => { assert.fail('Must not send while busy'); }), /in your draft/);
+  assert.equal(draft, 'Current draft\nnew dictation\nnext dictation');
+  await assert.rejects(finishDesktopVoiceTranscript(' ', draft, true, () => assert.fail(), async () => assert.fail()), /No speech/);
+  await assert.rejects(finishDesktopVoiceTranscript('retained speech', '', true, value => { draft = value; },
+    async () => { throw new Error('Send failed'); }), /Send failed/);
+  assert.equal(draft, 'retained speech');
 });
 
 test('presentation scripts preserve nested order, inline links, lists and table text', () => {

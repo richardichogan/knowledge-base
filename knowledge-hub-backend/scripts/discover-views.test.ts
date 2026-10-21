@@ -8,6 +8,25 @@ import { discoverRouter, type DiscoverItem } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { CONTENT_FORMATS, formatFitSql } from '../src/integrations/cms/formatFit.js';
 import { isMicrosoftRelevant } from '../src/utils/microsoftRelevance.js';
+import { buildRelevanceSystemPrompt, classifySourceAuthority, SOURCE_AUTHORITY_WEIGHTS } from '../src/integrations/cms/articleScoringPrompt.js';
+
+test('editorial brief prioritises Microsoft publishing relevance without blanket vendor scores', () => {
+  const prompt = buildRelevanceSystemPrompt([]);
+  assert.match(prompt, /Microsoft first, not Microsoft only/);
+  assert.match(prompt, /AWS, Google Cloud\/GCP, Cloudflare or OpenAI/);
+  assert.match(prompt, /Competitor and wider ecosystem stories can still outrank Microsoft stories/);
+  assert.match(prompt, /Do not award automatic high scores, minimum scores/);
+  assert.match(prompt, /No Microsoft connection = 0/);
+  assert.doesNotMatch(prompt, /the VENDOR does not matter|This vendor-neutral rule/);
+  assert.match(prompt, /Apply this equally to articles and videos, including GitHub/);
+  assert.match(prompt, /Give them audienceFit 3/);
+  assert.ok(SOURCE_AUTHORITY_WEIGHTS['Microsoft/GitHub Official'] >= 1.6 * SOURCE_AUTHORITY_WEIGHTS['Vendor Official']);
+  assert.equal(classifySourceAuthority('https://github.blog/news-insights/test', null), 'Microsoft/GitHub Official');
+  assert.equal(classifySourceAuthority('https://www.microsoft.com/en-us/research/blog/test', null), 'Microsoft/GitHub Official');
+  const feed = 'https://www.youtube.com/feeds/videos.xml?channel_id=UC0m-80FnNY2Qb7obvTL_2fA';
+  assert.equal(classifySourceAuthority('https://www.youtube.com/watch?v=example', feed), 'Microsoft/GitHub Official');
+  assert.equal(classifySourceAuthority(null, feed.replace('www.youtube.com', 'youtube.com.example.com')), 'Unknown');
+});
 
 test('podcast fit requires Microsoft evidence, including stored and legacy recommendations', async () => {
   const db = new PGlite();

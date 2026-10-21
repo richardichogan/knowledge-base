@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { ElgatoBridge } from './elgatoBridge';
 import { initialPresentation, parseCommand, playbackCommand, type CommandRequest, type DesktopCommandState, type PresentationScript } from './elgatoProtocol';
 import { isAthenaFrame } from './navigation';
+import { wakePresentationDisplay } from './displayWake';
 
-interface Config { encryptedToken?: string; display?: string }
+interface Config { encryptedToken?: string; display?: string; noteId?: string; settings?: { speed: number; fontSize: number; mirror: boolean; flip: boolean; opacity: number } }
 type Reply = { id: string; error?: string };
 export function installElgato(
   origin: string,
@@ -16,6 +17,8 @@ export function installElgato(
   let controller: BrowserWindow | null = null;
   let output: BrowserWindow | null = null;
   let outputReady = false;
+  let outputOwner: number | null = null;
+  let starting = false;
   let script: PresentationScript | null = null;
   let state: DesktopCommandState = { protocol: 1, presentation: initialPresentation(), recording: false, transcribing: false, error: null };
   let config: Config = {};
@@ -31,9 +34,21 @@ export function installElgato(
   const configPath = join(app.getPath('userData'), 'elgato.json');
   const fingerprint = (display: Electron.Display): string =>
     `${display.label}:${display.size.width}x${display.size.height}:${display.scaleFactor}`;
-  const persist = async (): Promise<void> => {
-    await writeFile(`${configPath}.tmp`, JSON.stringify(config), { mode: 0o600 });
-    await rename(`${configPath}.tmp`, configPath);
+  let saving: Promise<void> = Promise.resolve();
+  const persist = (): Promise<void> => {
+    const snapshot = JSON.stringify(config);
+    const next = saving.then(async () => {
+      await writeFile(`${configPath}.tmp`, snapshot, { mode: 0o600 });
+      await rename(`${configPath}.tmp`, configPath);
+    });
+    // The caller surfaces failures; a failed write must not block later retries.
+    saving = next.catch(() => {});
+    return next;
+  };
+  const saveSettings = async (): Promise<void> => {
+    const { speed, fontSize, mirror, flip, opacity } = state.presentation;
+    config.settings = { speed, fontSize, mirror, flip, opacity };
+    await persist();
   };
   const syncAwake = (): void => {
     if (state.presentation.status === 'playing' && awake === null) awake = powerSaveBlocker.start('prevent-display-sleep');
@@ -76,13 +91,16 @@ export function installElgato(
     const width = Math.min(1440, area.width);
     const height = Math.min(920, area.height);
     controller.setBounds({ width, height, x: area.x + Math.floor((area.width - width) / 2), y: area.y + Math.floor((area.height - height) / 2) });
+    const contents = controller.webContents;
+    const controllerId = contents.id;
     controller.on('closed', () => {
+      const owned = outputOwner === controllerId;
       controller = null;
-      output?.close();
+      if (owned) output?.close();
     });
-    controller.webContents.on('render-process-gone', () => { output?.close(); });
+    contents.on('render-process-gone', () => { if (outputOwner === contents.id) output?.close(); });
     controller.webContents.on('did-start-navigation', (_event, url, inPlace, isMainFrame) => {
-      if (isMainFrame && !inPlace && new URL(url).pathname !== '/present') output?.close();
+      if (isMainFrame && !inPlace && new URL(url).pathname !== '/present' && outputOwner === contents.id) output?.close();
     });
   }
   async function toRenderer(request: CommandRequest): Promise<void> {
@@ -139,6 +157,7 @@ export function installElgato(
           const wasEnded = state.presentation.status === 'ended' || state.presentation.progress >= 1;
           state.presentation = playbackCommand(state.presentation, request.command);
           await sendOutput(request.command === 'stop' || wasEnded);
+          if (['faster', 'slower', 'text-larger', 'text-smaller'].includes(request.command)) await saveSettings();
         }
       }
     } catch (error) {
@@ -193,59 +212,102 @@ export function installElgato(
   });
   handle('presentation:state', () => state);
   handle('presentation:close', () => { output?.close(); });
+  handle('presentation:release', event => { if (outputOwner === event.sender.id) output?.close(); }, false);
   handle('presentation:command', (_event, value) => execute(parseCommand(value)));
   handle('presentation:options', async (_event, value) => {
     if (!value || typeof value !== 'object') throw new Error('Invalid output options.');
     const options = value as Record<string, unknown>;
-    if (Object.keys(options).some(k => k !== 'mirror' && k !== 'flip') || typeof options.mirror !== 'boolean' || typeof options.flip !== 'boolean') throw new Error('Invalid output options.');
-    state.presentation = { ...state.presentation, mirror: options.mirror, flip: options.flip };
+    if (Object.keys(options).some(k => !['mirror', 'flip', 'opacity'].includes(k)) || typeof options.mirror !== 'boolean' || typeof options.flip !== 'boolean'
+      || (options.opacity !== undefined && (typeof options.opacity !== 'number' || !Number.isFinite(options.opacity) || options.opacity < 20 || options.opacity > 100))) throw new Error('Invalid output options.');
+    state.presentation = { ...state.presentation, mirror: options.mirror, flip: options.flip,
+      opacity: typeof options.opacity === 'number' ? options.opacity : state.presentation.opacity };
+    await saveSettings();
+    output?.setOpacity(state.presentation.opacity / 100);
     if (outputReady) await sendOutput();
     else publish();
   });
-  handle('presentation:start', async (_event, value) => {
-    if (!value || typeof value !== 'object') throw new Error('Choose a saved note and display.');
-    const v = value as Record<string, unknown>;
-    if (typeof v.noteId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(v.noteId)
-      || typeof v.title !== 'string' || v.title.length > 1000
-      || typeof v.text !== 'string' || !v.text.trim() || v.text.length > 500_000) throw new Error('Choose a non-empty saved note (up to 500,000 characters).');
-    const display = screen.getAllDisplays().find(d => d.id === v.displayId);
-    if (!display) throw new Error('Choose an available output display.');
-    if (display.id === screen.getPrimaryDisplay().id) throw new Error('Choose a separate output display. Presenter controls stay on your primary display.');
-    const resumeProgress = state.presentation.status === 'disconnected' && script !== null && script.noteId === v.noteId && script.text === v.text
-      ? state.presentation.progress : 0;
-    state.error = null;
-    output?.close();
-    script = { noteId: v.noteId, title: v.title, text: v.text };
-    state.presentation = { ...state.presentation, sessionId: randomUUID(), title: script.title,
-      displayId: display.id, status: 'ready', progress: resumeProgress, error: null };
-    config.display = fingerprint(display);
-    await persist();
-    const win = new BrowserWindow({
-      ...display.bounds, frame: false, show: false, backgroundColor: '#080808', autoHideMenuBar: true,
-      focusable: false, alwaysOnTop: true, resizable: false, movable: false,
-      webPreferences: { preload: join(__dirname, 'outputPreload.js'), sandbox: true, contextIsolation: true,
-        nodeIntegration: false, backgroundThrottling: false },
-    });
-    output = win;
-    outputReady = false;
-    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    win.webContents.on('will-navigate', event => event.preventDefault());
-    win.webContents.on('will-attach-webview', event => event.preventDefault());
-    win.on('closed', () => {
-      if (output !== win) return;
-      output = null;
-      disconnected('Output closed. Select a display and reopen the script to resume.');
-    });
-    win.webContents.on('render-process-gone', () => { if (output === win) { win.close(); } });
-    await win.loadFile(join(app.getAppPath(), 'assets', 'presentation.html'));
-    if (!outputReady) await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { clearInterval(check); reject(new Error('Presentation output could not initialize.')); }, 3000);
-      const check = setInterval(() => { if (outputReady) { clearInterval(check); clearTimeout(timer); resolve(); } }, 20);
-    });
-    await sendOutput(true, true);
-    win.showInactive();
-    publish();
-  });
+  async function startOutput(event: IpcMainInvokeEvent, value: unknown, direct = false): Promise<void> {
+    if (starting) throw new Error('A presentation is already opening. Try again when it is ready.');
+    starting = true;
+    let created: BrowserWindow | null = null;
+    try {
+      if (!value || typeof value !== 'object') throw new Error('Choose a saved note and display.');
+      const v = value as Record<string, unknown>;
+      if (typeof v.noteId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(v.noteId)
+        || typeof v.title !== 'string' || v.title.length > 1000
+        || typeof v.text !== 'string' || !v.text.trim() || v.text.length > 500_000) throw new Error('Choose a non-empty saved note (up to 500,000 characters).');
+      const matches = screen.getAllDisplays().filter(d => direct ? fingerprint(d) === config.display : d.id === v.displayId);
+      if (matches.length !== 1) throw new Error(direct ? 'Set your output display once in Athena > Presentation and Stream Deck, then try Present again.' : 'Choose an available output display.');
+      const display = matches[0]!;
+      if (display.id === screen.getPrimaryDisplay().id) throw new Error('Choose a separate output display. Presenter controls stay on your primary display.');
+      try {
+        await wakePresentationDisplay();
+      } catch (error) {
+        console.warn('[Presentation] Display wake request failed; continuing on the available output display:', error);
+      }
+      if (direct && outputReady && output && outputOwner === event.sender.id && script?.noteId === v.noteId && script.text === v.text && state.presentation.displayId === display.id) {
+        state.error = null;
+        output.showInactive();
+        publish();
+        return;
+      }
+      const resumeProgress = script !== null && script.noteId === v.noteId && script.text === v.text
+        ? state.presentation.progress : 0;
+      config.display = fingerprint(display);
+      config.noteId = v.noteId;
+      await persist();
+      trusted(event, !direct);
+      state.error = null;
+      output?.close();
+      script = { noteId: v.noteId, title: v.title, text: v.text };
+      state.presentation = { ...state.presentation, sessionId: randomUUID(), noteId: script.noteId, title: script.title,
+        displayId: display.id, status: 'ready', progress: resumeProgress, error: null };
+      const win = new BrowserWindow({
+        ...display.bounds, frame: false, show: false, backgroundColor: '#080808', autoHideMenuBar: true,
+        focusable: false, alwaysOnTop: true, resizable: false, movable: false,
+        webPreferences: { preload: join(__dirname, 'outputPreload.js'), sandbox: true, contextIsolation: true,
+          nodeIntegration: false, backgroundThrottling: false },
+      });
+      created = win;
+      output = win;
+      outputOwner = event.sender.id;
+      const ownerClosed = (): void => { if (output === win) win.close(); };
+      const ownerLoading = (): void => { if (outputOwner !== controller?.webContents.id) ownerClosed(); };
+      event.sender.once('destroyed', ownerClosed);
+      event.sender.once('render-process-gone', ownerClosed);
+      event.sender.once('did-start-loading', ownerLoading);
+      outputReady = false;
+      win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      win.webContents.on('will-navigate', event => event.preventDefault());
+      win.webContents.on('will-attach-webview', event => event.preventDefault());
+      win.on('closed', () => {
+        event.sender.removeListener('destroyed', ownerClosed);
+        event.sender.removeListener('render-process-gone', ownerClosed);
+        event.sender.removeListener('did-start-loading', ownerLoading);
+        if (output !== win) return;
+        output = null;
+        disconnected('Output closed. Use Present or Play to reopen it with your saved settings.');
+      });
+      win.setOpacity(state.presentation.opacity / 100);
+      win.webContents.on('render-process-gone', () => { if (output === win) { win.close(); } });
+      await win.loadFile(join(app.getAppPath(), 'assets', 'presentation.html'));
+      if (!outputReady) await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => { clearInterval(check); reject(new Error('Presentation output could not initialize.')); }, 3000);
+        const check = setInterval(() => { if (outputReady) { clearInterval(check); clearTimeout(timer); resolve(); } }, 20);
+      });
+      await sendOutput(true, true);
+      win.showInactive();
+      publish();
+    } catch (error) {
+      created?.close();
+      throw error;
+    } finally { starting = false; }
+  }
+  handle('presentation:start', (event, value) => startOutput(event, value));
+  handle('presentation:direct', (event, value) => {
+    if (new URL(event.senderFrame!.url).pathname !== '/think') throw new Error('Present a saved note from Think.');
+    return startOutput(event, value, true);
+  }, false);
   ipcMain.on('presentation:ready', event => {
     if (event.sender === output?.webContents && event.senderFrame === event.sender.mainFrame) outputReady = true;
   });
@@ -307,7 +369,18 @@ export function installElgato(
       if (!parsed || typeof parsed !== 'object') throw new Error('Invalid Stream Deck configuration.');
       const saved = parsed as Record<string, unknown>;
       config = { ...(typeof saved.display === 'string' ? { display: saved.display } : {}),
+        ...(typeof saved.noteId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(saved.noteId) ? { noteId: saved.noteId } : {}),
         ...(typeof saved.encryptedToken === 'string' ? { encryptedToken: saved.encryptedToken } : {}) };
+      state.presentation.noteId = config.noteId ?? null;
+      if (saved.settings && typeof saved.settings === 'object') {
+        const s = saved.settings as Record<string, unknown>;
+        if (typeof s.speed !== 'number' || s.speed < 10 || s.speed > 300 || !Number.isFinite(s.speed)
+          || typeof s.fontSize !== 'number' || s.fontSize < 24 || s.fontSize > 96 || !Number.isFinite(s.fontSize)
+          || typeof s.mirror !== 'boolean' || typeof s.flip !== 'boolean'
+          || typeof s.opacity !== 'number' || s.opacity < 20 || s.opacity > 100 || !Number.isFinite(s.opacity)) throw new Error('Invalid saved presentation settings.');
+        config.settings = { speed: s.speed, fontSize: s.fontSize, mirror: s.mirror, flip: s.flip, opacity: s.opacity };
+        state.presentation = { ...state.presentation, ...config.settings };
+      }
       if (config.encryptedToken) {
         const decrypted = safeStorage.decryptString(Buffer.from(config.encryptedToken, 'base64'));
         await bridge.start(decrypted); token = decrypted;

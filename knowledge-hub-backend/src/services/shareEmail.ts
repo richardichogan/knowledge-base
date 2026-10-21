@@ -5,7 +5,7 @@ import type { Pool } from 'pg';
 import { XMLValidator } from 'fast-xml-parser';
 import { encryptConnectionValue, decryptConnectionValue } from './connectionCredentials.js';
 import { ConflictError, IntegrationError, ValidationError } from '../types/errors.js';
-import { muralBoard } from './mural.js';
+import { inviteMuralRecipients, muralBoard } from './mural.js';
 
 const CONFIG_KEY = 'integration:smtp2go:config';
 export const SHARE_FROM = 'share@athena.themicrosoftcloudblog.com';
@@ -22,11 +22,12 @@ const MAX_REQUEST_ID_LENGTH = 80;
 const MAX_URL_LENGTH = 2048;
 const MAX_FILENAME_LENGTH = 120;
 interface Config { username: string; password: string; replyTo: string }
-export interface ShareEmailResult { accepted: number; rejected: number }
+export interface ShareEmailResult { accepted: number; rejected: number; muralInvited?: number }
 interface ShareEmailStatus { configured: boolean; username: string; replyTo: string; from: string; host: string; port: number }
 interface Attachment { filename: string; content: Buffer; contentType: string }
 interface ValidatedEmail {
   requestId: string; recipients: string[]; subject: string; message: string; url: string; attachment: Attachment | undefined;
+  muralAccess?: 'view' | 'edit';
 }
 type Store = Pick<Pool, 'query'>;
 type SendMail = (options: nodemailer.SendMailOptions) => Promise<SMTPTransport.SentMessageInfo>;
@@ -134,10 +135,13 @@ export function validateShareEmail(input: unknown): ValidatedEmail {
     attachment = { filename, content: Buffer.from(file.xml, 'utf8'), contentType: 'application/vnd.jgraph.mxfile' };
   }
   if (!url && !attachment) throw new ValidationError('Include a Mural/GitHub link or draw.io attachment.');
-  return { requestId, recipients, subject, message: data.message, url, attachment };
+  if (data.muralAccess !== undefined && (data.muralAccess !== 'view' && data.muralAccess !== 'edit'
+    || !url.startsWith('https://app.mural.co/'))) throw new ValidationError('Choose View or Edit access for a Mural board only.');
+  return { requestId, recipients, subject, message: data.message, url, attachment,
+    ...(data.muralAccess === 'view' || data.muralAccess === 'edit' ? { muralAccess: data.muralAccess } : {}) };
 }
 
-export async function sendShareEmail(db: Store, userId: string, input: unknown, send?: SendMail): Promise<ShareEmailResult> {
+export async function sendShareEmail(db: Pool, userId: string, input: unknown, send?: SendMail): Promise<ShareEmailResult> {
   const data = validateShareEmail(input);
   const config = await readConfig(db);
   if (!config) throw new ValidationError('Set up SMTP2GO in Sources / Integrations first.');
@@ -149,12 +153,23 @@ export async function sendShareEmail(db: Store, userId: string, input: unknown, 
     const { rows } = await db.query<{ last_cursor: string }>('SELECT last_cursor FROM sync_state WHERE source = $1', [key]);
     const previous = record(JSON.parse(rows[0]?.last_cursor ?? '{}'));
     if (previous.fingerprint !== fingerprint || previous.state !== 'accepted') {
-      throw new ConflictError('This email was already attempted or is still sending. Check SMTP2GO activity before composing another copy.', 'EMAIL_ALREADY_ATTEMPTED');
+      throw new ConflictError('This share was already attempted or is still sending. Check SMTP2GO activity and, if requested, Mural invitations before composing another copy.', 'EMAIL_ALREADY_ATTEMPTED');
     }
-    return { accepted: Number(previous.accepted), rejected: Number(previous.rejected) };
+    return { accepted: Number(previous.accepted), rejected: Number(previous.rejected),
+      ...(typeof previous.muralInvited === 'number' ? { muralInvited: previous.muralInvited } : {}) };
   }
+  let muralInvited: number | undefined;
+  if (data.muralAccess) {
+    try { muralInvited = await inviteMuralRecipients(db, data.url, data.recipients, data.muralAccess); }
+    catch (error) {
+      throw new IntegrationError('mural', `${error instanceof Error ? error.message : 'Mural invitations were not confirmed.'} No SMTP2GO sharing email was sent. Mural may have sent invitations; inspect the board before starting a new share. No automatic retry was made.`);
+    }
+  }
+  const accessNotice = data.muralAccess
+    ? `Mural ${data.muralAccess} invitations were requested separately. Accept your Mural invitation if prompted. Existing permissions and workspace policies still apply.`
+    : 'Links do not grant access to private boards or repositories.';
   const text = [data.message, data.url, data.attachment ? `Attached: ${data.attachment.filename}` : '',
-    'Shared from Athena. Links do not grant access to private boards or repositories.'].filter(Boolean).join('\n\n');
+    `Shared from Athena. ${accessNotice}`].filter(Boolean).join('\n\n');
   let result: SMTPTransport.SentMessageInfo;
   try {
     const sendMail: SendMail = send ?? ((options): Promise<SMTPTransport.SentMessageInfo> => transport(config).sendMail(options));
@@ -165,15 +180,16 @@ export async function sendShareEmail(db: Store, userId: string, input: unknown, 
       subject: data.subject, text,
       html: `<p>${escapeHtml(data.message).replace(/\r?\n/g, '<br>')}</p>${data.url ? `<p><a href="${escapeHtml(data.url)}">Open shared content</a></p>` : ''}
         <p>${escapeHtml(data.attachment ? `Attached: ${data.attachment.filename}` : '')}</p>
-        <p>Shared from Athena. Links do not grant access to private boards or repositories.</p>`,
+        <p>Shared from Athena. ${escapeHtml(accessNotice)}</p>`,
       attachments: data.attachment ? [data.attachment] : [],
       disableFileAccess: true, disableUrlAccess: true,
       messageId: `<${createHash('sha256').update(key).digest('hex')}@athena.themicrosoftcloudblog.com>`,
     });
   } catch (error) {
-    throw smtpFailure(error, 'SMTP2GO did not confirm the send. Delivery may be uncertain; check SMTP2GO activity before sending another copy. No automatic retry was made.');
+    throw smtpFailure(error, `SMTP2GO did not confirm the send. Delivery may be uncertain; check SMTP2GO activity before sending another copy.${muralInvited !== undefined ? ' Mural invitations were already requested; they have not been revoked.' : ''} No automatic retry was made.`);
   }
-  const outcome = { accepted: result.accepted.length, rejected: result.rejected.length };
+  const outcome = { accepted: result.accepted.length, rejected: result.rejected.length,
+    ...(muralInvited !== undefined ? { muralInvited } : {}) };
   try {
     await db.query('UPDATE sync_state SET last_cursor = $2, updated_at = NOW() WHERE source = $1',
       [key, JSON.stringify({ fingerprint, state: outcome.accepted > 0 ? 'accepted' : 'rejected', ...outcome })]);

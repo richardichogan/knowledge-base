@@ -133,6 +133,7 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
     focus(): void { this.focused = true; }
     showInactive(): void { this.inactive = true; }
     setBounds(bounds: unknown): void { this.options.bounds = bounds; }
+    setOpacity(opacity: number): void { this.options.opacity = opacity; }
     close(): void { this.destroyed = true; this.emit('closed'); }
     async loadFile(): Promise<void> {
       this.webContents.mainFrame.url = 'file:///presentation.html';
@@ -158,18 +159,30 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
     powerSaveBlocker: { start: () => ++awake, stop: () => { awake--; } },
   };
   const realRequire = createRequire(join(__dirname, '../src/elgato.js'));
+  let savedConfig: string | null = null;
+  let wakes = 0;
+  let failWake = false;
+  const wakeWarnings: unknown[][] = [];
   const exported: { exports: unknown } = { exports: {} };
   const context = createContext({
     exports: exported.exports, module: exported, __dirname: join(__dirname, '../src'),
     require: (name: string): unknown => {
       if (name === 'electron') return electron;
+      if (name === './displayWake') return { wakePresentationDisplay: async () => {
+        wakes++;
+        if (failWake) throw new Error('Fixture Windows wake request failed');
+      } };
       if (name === 'node:fs/promises') return {
-        readFile: async () => { throw Object.assign(new Error('Not configured'), { code: 'ENOENT' }); },
-        writeFile: async () => {}, rename: async () => {},
+        readFile: async () => {
+          if (savedConfig) return savedConfig;
+          throw Object.assign(new Error('Not configured'), { code: 'ENOENT' });
+        },
+        writeFile: async (_path: string, value: string) => { savedConfig = value; }, rename: async () => {},
       };
       return realRequire(name);
     },
-    console, Buffer, URL, setTimeout, clearTimeout, setInterval, clearInterval,
+    console: { ...console, warn: (...values: unknown[]) => { wakeWarnings.push(values); } },
+    Buffer, URL, setTimeout, clearTimeout, setInterval, clearInterval,
   });
   runInContext(await readFile(join(__dirname, '../src/elgato.js'), 'utf8'), context);
   const { installElgato } = exported.exports as {
@@ -185,6 +198,7 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
     return handler(event(owner.webContents), value);
   }
   await assert.rejects(invoke('presentation:displays', undefined, workspace), /cannot control/);
+  await assert.rejects(invoke('presentation:direct', { noteId: 'note-1', title: 'Script', text: 'Saved words' }, workspace), /from Think/);
   ipc.emit('desktop:ready', event(workspace.webContents));
   await invoke('presentation:command', { id: 'new-note', command: 'new-note', issuedAt: Date.now() });
   assert.ok(workspace.webContents.messages.some(message => message.channel === 'desktop:command'));
@@ -222,5 +236,54 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
   assert.equal(resumed.presentation.status, 'ready');
   assert.equal(resumed.presentation.progress, 0.45);
   assert.equal(awake, 0);
-  await invoke('presentation:close');
+  await invoke('presentation:options', { mirror: true, flip: false, opacity: 65 });
+  await invoke('presentation:command', { id: 'faster', command: 'faster', issuedAt: Date.now() });
+  await invoke('presentation:command', { id: 'text-larger', command: 'text-larger', issuedAt: Date.now() });
+  assert.equal(Window.instances.at(-1)!.options.opacity, 0.65);
+  await assert.rejects(invoke('presentation:options', { mirror: false, flip: false, opacity: 0 }), /Invalid output/);
+  workspace.webContents.mainFrame.url = 'https://athena.example/think';
+  const count = Window.instances.length;
+  failWake = true;
+  await invoke('presentation:direct', { noteId: 'note-2', title: 'Direct', text: 'Direct words' }, workspace);
+  assert.equal(wakeWarnings.length, 1);
+  assert.match(String(wakeWarnings[0]?.[0]), /continuing on the available output display/);
+  failWake = false;
+  assert.equal(Window.instances.length, count + 1);
+  assert.ok(wakes >= 3);
+  const direct = Window.instances.at(-1)!;
+  await invoke('presentation:command', { id: 'direct-play', command: 'play', issuedAt: Date.now() });
+  await invoke('presentation:command', { id: 'direct-pause', command: 'pause', issuedAt: Date.now() });
+  await invoke('presentation:command', { id: 'direct-play-again', command: 'play', issuedAt: Date.now() });
+  assert.equal(Window.instances.length, count + 1);
+  assert.equal(direct.webContents.messages.filter(message => message.channel === 'presentation:update' && 'text' in (message.value as object)).length, 1);
+  await invoke('presentation:release', undefined, controller);
+  assert.equal(direct.destroyed, false);
+  assert.equal(direct.inactive, true);
+  assert.equal(direct.options.opacity, 0.65);
+  await invoke('presentation:direct', { noteId: 'note-2', title: 'Direct', text: 'Direct words' }, workspace);
+  assert.equal(Window.instances.length, count + 1);
+  controller.close();
+  assert.equal(direct.destroyed, false);
+  workspace.webContents.emit('did-start-loading');
+  assert.equal(direct.destroyed, true);
+  available = [];
+  await assert.rejects(invoke('presentation:direct', { noteId: 'note-2', title: 'Direct', text: 'Direct words' }, workspace), /Set your output display once/);
+  assert.ok(savedConfig);
+  assert.doesNotMatch(savedConfig, /Direct words|Saved words/);
+  const saved = JSON.parse(savedConfig);
+  assert.deepEqual(saved.settings, { speed: 90, fontSize: 68, mirror: true, flip: false, opacity: 65 });
+  assert.equal(saved.noteId, 'note-2');
+  available = [{ ...removed, id: 44 }];
+  installElgato('https://athena.example', () => new Window(), () => workspace);
+  const beforeRestartPresent = Window.instances.length;
+  await invoke('presentation:direct', { noteId: 'note-2', title: 'Direct', text: 'Direct words' }, workspace);
+  assert.equal(Window.instances.length, beforeRestartPresent + 1);
+  assert.equal(Window.instances.at(-1)!.options.opacity, 0.65);
+  assert.equal(Window.instances.at(-1)!.options.x, -1707);
+  const restored = Window.instances.at(-1)!.webContents.messages.find(message => message.channel === 'presentation:update')!.value as { state: { speed: number; fontSize: number; mirror: boolean } };
+  assert.equal(restored.state.speed, 90);
+  assert.equal(restored.state.fontSize, 68);
+  assert.equal(restored.state.mirror, true);
+  await invoke('presentation:release', undefined, workspace);
+  assert.equal(Window.instances.at(-1)!.destroyed, true);
 });

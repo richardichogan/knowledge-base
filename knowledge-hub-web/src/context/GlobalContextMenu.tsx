@@ -19,6 +19,7 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Modal } from '@carbon/react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Checkmark, Diagram, Link, Copy, TaskAdd, Idea, DocumentAdd, ChatBot, ArrowRight, Rocket } from '@carbon/icons-react';
@@ -33,6 +34,8 @@ import { extractTasksWithAI } from '../utils/aiTaskExtraction';
 import { addWorkingDays, toISODateString } from '../utils/dates';
 import { getActiveBlockNoteSelectedText, clearActiveBlockNoteSelectionSnapshot, suspendBlockNoteSelectionCapture, resumeBlockNoteSelectionCapture, hasBlockNoteCellSelection, getActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
 import { isMisspelled, isSpellableWord, loadSpelling, spellingSuggestions } from '../utils/spelling';
+import { copyImage } from '../utils/imageClipboard';
+import { ContactCapture } from '../components/ContactCapture';
 
 export interface CtxItemData {
   title: string;
@@ -85,6 +88,16 @@ type EditTarget =
 
 const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', '']);
 
+function caretRangeAtPoint(x: number, y: number): Range | null {
+  if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+  const position = (document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null }).caretPositionFromPoint?.(x, y);
+  if (!position) return null;
+  const range = document.createRange();
+  range.setStart(position.offsetNode, position.offset);
+  range.collapse(true);
+  return range;
+}
+
 function textField(target: HTMLElement): HTMLInputElement | HTMLTextAreaElement | null {
   const field = target.closest('input, textarea');
   return field instanceof HTMLTextAreaElement || (field instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(field.type)) ? field : null;
@@ -102,7 +115,7 @@ function editTargetAt(target: HTMLElement, x: number, y: number): EditTarget | n
   if (selection && selection.rangeCount > 0 && !selection.isCollapsed && root.contains(selection.getRangeAt(0).commonAncestorContainer)) {
     return { kind: 'rich', root, range: selection.getRangeAt(0).cloneRange() };
   }
-  const caret = document.caretRangeFromPoint?.(x, y);
+  const caret = caretRangeAtPoint(x, y);
   if (caret && root.contains(caret.startContainer)) return { kind: 'rich', root, range: caret };
   const range = document.createRange();
   range.selectNodeContents(root);
@@ -127,15 +140,17 @@ function wordBounds(text: string, at: number): { start: number; end: number } | 
  * already put the caret at the click point; nothing is selected yet because
  * the browser only selects a misspelled word after the 'contextmenu' event.
  */
-function wordAtPoint(target: HTMLElement, x: number, y: number): SpellTarget | null {
+export function wordAtPoint(target: HTMLElement, x: number, y: number): SpellTarget | null {
   const field = textField(target);
   if (field) {
-    if (field.readOnly || field.disabled || field.type === 'password' || field.selectionStart === null || field.selectionStart !== field.selectionEnd) return null;
+    if (field.readOnly || field.disabled || field.type === 'password' || field.selectionStart === null) return null;
     const bounds = wordBounds(field.value, field.selectionStart);
+    if (bounds && field.selectionStart !== field.selectionEnd
+      && (field.selectionStart !== bounds.start || field.selectionEnd !== bounds.end)) return null;
     return bounds ? { kind: 'field', el: field, ...bounds, word: field.value.slice(bounds.start, bounds.end) } : null;
   }
   const root = target.closest<HTMLElement>('[contenteditable="true"]');
-  const caret = root ? document.caretRangeFromPoint?.(x, y) : null;
+  const caret = root ? caretRangeAtPoint(x, y) : null;
   if (!root || !caret || caret.startContainer.nodeType !== Node.TEXT_NODE || !root.contains(caret.startContainer)) return null;
   const node = caret.startContainer as Text;
   const bounds = wordBounds(node.data, caret.startOffset);
@@ -185,6 +200,7 @@ function replaceMisspelling(target: SpellTarget, replacement: string): boolean {
 export function GlobalContextMenuProvider({ children }: { children: React.ReactNode }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [spellMenu, setSpellMenu] = useState<SpellMenuState | null>(null);
+  const [contactText, setContactText] = useState<string | null>(null);
   const endBrowserWordRef = useRef<() => void>(() => {});
   // Outlives the menu: the dialog opens as the menu closes.
   const [useCaseLaunch, setUseCaseLaunch] = useState<UseCaseLaunch | null>(null);
@@ -314,19 +330,28 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
   }, []);
 
   useEffect(() => {
+    let spellingRequest = 0;
+    const cancelPendingSpelling = (): void => { spellingRequest++; };
     function onContextMenu(e: MouseEvent) {
+      const request = ++spellingRequest;
+      setSpellMenu(null);
+      setMenu(null);
       const target = e.target as HTMLElement;
       if (e.shiftKey) {
         // Shift+right-click always gets the browser's own menu.
         nativeMenuForThisClick.current = false;
         return;
       }
-      if (nativeMenuForThisClick.current) {
+      const selected = window.getSelection()?.toString().trim() ?? '';
+      const clickedWord = wordAtPoint(target, e.clientX, e.clientY);
+      const field = textField(target);
+      const selectedFieldWord = clickedWord?.kind === 'field' && field?.selectionStart !== field?.selectionEnd;
+      if (nativeMenuForThisClick.current || (clickedWord && (selected === clickedWord.word || selectedFieldWord))) {
         // Right-click in editable text with nothing selected. Handling it here
         // (preventDefault) also stops the browser selecting the whole word.
         nativeMenuForThisClick.current = false;
         endBrowserWordRef.current();
-        const word = wordAtPoint(target, e.clientX, e.clientY);
+        const word = clickedWord;
         const misspelled = word ? isMisspelled(word.word) : false;
         if (word && misspelled) {
           e.preventDefault();
@@ -338,8 +363,14 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
           e.preventDefault();
           const edit = editTargetAt(target, e.clientX, e.clientY);
           loadSpelling().then(
-            () => { if (isMisspelled(word.word)) openEditMenu(e, target, word, edit); else if (!openAthenaMenu(e, target)) openEditMenu(e, target, null, edit); },
-            () => { if (!openAthenaMenu(e, target)) openEditMenu(e, target, null, edit); },
+            () => {
+              if (request !== spellingRequest || !target.isConnected) return;
+              if (isMisspelled(word.word)) openEditMenu(e, target, word, edit);
+              else if (!openAthenaMenu(e, target)) openEditMenu(e, target, null, edit);
+            },
+            () => {
+              if (request === spellingRequest && target.isConnected) openEditMenu(e, target, word, edit);
+            },
           );
           return;
         }
@@ -361,6 +392,13 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
 
     /** Athena's normal menu. False when it has nothing to offer for this click. */
     function openAthenaMenu(e: MouseEvent, target: HTMLElement): boolean {
+      const img = target.closest('img');
+      if (img instanceof HTMLImageElement) {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY,
+          item: { title: img.alt || 'Image', imageUrl: img.currentSrc || img.src, url: img.currentSrc || img.src, nodeType: 'note' } });
+        return true;
+      }
       const liveSel = window.getSelection()?.toString().trim() ?? '';
       // BlockNote/ProseMirror table cell-range selections don't populate the
       // native browser Selection object correctly — ask the editor directly
@@ -406,15 +444,6 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         return true;
       }
 
-      // 2. Image
-      const img = target.closest('img') as HTMLImageElement | null;
-      if (img) {
-        e.preventDefault();
-        setMenu({ x: e.clientX, y: e.clientY,
-          item: { title: img.alt || 'Image', imageUrl: img.src, url: img.src, nodeType: 'note' } });
-        return true;
-      }
-
       // 3. Text selection (no ctx element found)
       if (sel.length > 2) {
         e.preventDefault();
@@ -453,7 +482,14 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
     }
 
     document.addEventListener('contextmenu', onContextMenu, true);
-    return () => document.removeEventListener('contextmenu', onContextMenu, true);
+    document.addEventListener('mousedown', cancelPendingSpelling, true);
+    document.addEventListener('keydown', cancelPendingSpelling, true);
+    return () => {
+      spellingRequest++;
+      document.removeEventListener('contextmenu', onContextMenu, true);
+      document.removeEventListener('mousedown', cancelPendingSpelling, true);
+      document.removeEventListener('keydown', cancelPendingSpelling, true);
+    };
   }, []);
 
   return (
@@ -461,6 +497,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
       {children}
       {menu && createPortal(
         <GlobalCtxMenu x={menu.x} y={menu.y} item={menu.item} onClose={() => setMenu(null)}
+          onContact={text => { setMenu(null); setContactText(text); }}
           onUseCase={(launch) => { setMenu(null); setUseCaseLaunch(launch); }} />,
         document.body,
       )}
@@ -469,6 +506,8 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         document.body,
       )}
       {useCaseLaunch && <UseCaseLauncher launch={useCaseLaunch} onClose={() => { setUseCaseLaunch(null); }} />}
+      {contactText !== null && <Modal open passiveModal size="sm" modalHeading="Identify contacts from text"
+        onRequestClose={() => setContactText(null)}><ContactCapture text={contactText} /></Modal>}
     </Ctx.Provider>
   );
 }
@@ -614,7 +653,7 @@ function SpellingMenu({ x, y, edit, spelling, onClose }: SpellMenuState & { onCl
 
 type PanelState = 'menu' | 'picker';
 
-function GlobalCtxMenu({ x, y, item, onClose, onUseCase }: { x: number; y: number; item: CtxItemData; onClose: () => void; onUseCase: (launch: UseCaseLaunch) => void }) {
+function GlobalCtxMenu({ x, y, item, onClose, onUseCase, onContact }: { x: number; y: number; item: CtxItemData; onClose: () => void; onUseCase: (launch: UseCaseLaunch) => void; onContact: (text: string) => void }) {
   const [panel, setPanel]   = useState<PanelState>('menu');
   const [selectedId, setId] = useState<string | null>(null);
   const [sent, setSent]     = useState(false);
@@ -832,6 +871,9 @@ function GlobalCtxMenu({ x, y, item, onClose, onUseCase }: { x: number; y: numbe
       </button>
       {item.fromSelection === true && (
         <>
+          <button className="gctx__item" onClick={() => onContact(item.body ?? item.title)}>
+            <DocumentAdd size={15} /> Identify contacts from text
+          </button>
           <button className="gctx__item" disabled={extractingNote} onClick={() => { extractNote(); }}>
             <DocumentAdd size={15} /> {extractingNote ? 'Creating note…' : 'Extract to new note'}
           </button>
@@ -848,6 +890,12 @@ function GlobalCtxMenu({ x, y, item, onClose, onUseCase }: { x: number; y: numbe
           <Link size={15} /> Copy URL
         </button>
       )}
+      {item.imageUrl && <button className="gctx__item" onClick={() => {
+        setActionError(null);
+        void copyImage(item.imageUrl!).then(onClose).catch((error: unknown) => {
+          setActionError(error instanceof Error ? error.message : 'Could not copy image. Check clipboard permissions and try again.');
+        });
+      }}><Copy size={15} /> Copy image</button>}
       <button className="gctx__item" onClick={() => { void copyText(); }}>
         <Copy size={15} /> Copy text
       </button>
