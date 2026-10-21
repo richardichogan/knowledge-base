@@ -2,6 +2,26 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-21, Mural destinations release):**
+- Source 244c408 pushed to the feature branch and main. ACR run ca73 built
+  kh-prod-api:v225, digest
+  sha256:58584b4e571fa353375a46a1d132bbadad7c310da6c90242673c534fe6ee7991.
+- Backend revision kh-prod-api-vnet--0000222 is Healthy / RunningAtMaxScale,
+  Provisioned, latest ready, with 100% production traffic. Startup logs
+  confirm migrations completed and all eight database connections warm.
+- Matching frontend deployed to kh-prod-web production. Both public domains
+  serve the new entry and Mural application JS/CSS byte-for-byte:
+  index-DKn6Zh_m.js, appBootstrap-DjvvcF-q.js, appBootstrap-Ci8mQWcg.css.
+  SHA-256 verification passed on athena.themicrosoftcloudblog.com and
+  nice-mud-0f780fb03.7.azurestaticapps.net.
+- Existing/new Mural destinations, room selection, board creation and the
+  native shape/image payload corrections are deployed together. Desktop loads
+  the hosted frontend; no desktop/plugin binary change was required.
+- User must enable workspaces:read and rooms:read in the Mural app and
+  reconnect. No live boards/widgets were created by this rollout; full
+  real-account export remains user-driven. Earlier partial objects remain.
+- The isolated browser server was stopped. Unrelated hook cache preserved.
+
 **Mural destination release (2026-10-21):**
 - User authorised deployment with two export destinations: add to an existing
   board or create a new board. Include the pending board picker and native
