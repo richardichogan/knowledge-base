@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MuralExportDestination } from '../src/components/MuralExportDestination';
 import { api, type MuralBoardOption } from '../src/services/api';
 import '../src/styles/global.scss';
+import '../src/components/connectionTokens.scss';
+import '../src/features/diagram/diagram.scss';
 
 const first = 'https://app.mural.co/t/athena5676/m/athena5676/1';
 const second = 'https://app.mural.co/t/other1234/m/other1234/2';
@@ -33,10 +35,10 @@ api.getMuralBoards = async () => {
 };
 function Fixture(): React.ReactElement {
   const [value, setValue] = useState(first);
-  return <Theme theme="g100"><section className="connection-tokens mural-integration">
+  return <Theme theme="g100"><section className="connection-tokens mural-integration dg-export">
     <h3>Mural destination</h3>
     <MuralExportDestination value={value} title="New architecture diagram" disabled={false} onChange={setValue} />
-    <button disabled={!value} data-send>Send diagram fixture</button>
+    <button className="dg-primary-btn" disabled={!value} data-send>Send diagram fixture</button>
     <p className="connection-tokens__detail" data-destination>{value}</p>
   </section></Theme>;
 }
