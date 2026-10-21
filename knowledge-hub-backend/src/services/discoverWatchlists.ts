@@ -386,7 +386,7 @@ export async function watchlistHistory(db: Pool, id: string, options: { page?: n
   const { rows } = await db.query<{
     id: string; watchlist_id: string; baseline_version: number; baseline: WatchBaseline; config: WatchlistInput;
     started_at: Date; completed_at: Date | null; window_start: Date; status: WatchRunStatus;
-    summary: string; coverage: WatchCoverage; evidence: WatchEvidence[]; findings: WatchRun['findings'];
+    summary: string; coverage: WatchRun['coverage']; evidence: WatchEvidence[]; findings: WatchRun['findings'];
   }>(`SELECT r.*, b.baseline,
     COALESCE((SELECT jsonb_agg(f.finding || jsonb_build_object('id',f.id) ORDER BY f.id)
       FROM discover_watchlist_findings f WHERE f.run_id=r.id),'[]'::jsonb) AS findings

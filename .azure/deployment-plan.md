@@ -2,6 +2,41 @@
 
 **Status:** Validated
 
+**Watchlist crash and blog editor frontend release (2026-10-21):**
+- User explicitly approved deploying both frontend fixes to the same production
+  resources confirmed above: kh-prod-web, Alliance Tenant Reporting, West Europe.
+- Frontend-only SWA recipe; backend stays v227. Backend edits only correct erased
+  TypeScript coverage types to match existing empty coverage on failed runs.
+- Actual AI Platform Moves run failed with coverage {}. Rendering that run
+  reproduced the exact "Cannot read properties of undefined (reading 'length')"
+  exception in coverageGaps / HistoryRun. Fixed renderer shows explicit missing
+  coverage and preserves previous completed briefings.
+- Blog Post field defaults to editable rich text with an HTML source toggle.
+  Both modes share HTML content and preserve the existing publish payload.
+- All validation checks must pass: sync origin/main, both typechecks, frontend
+  build, frontend isolated suite, targeted watchlist tests and frontend lint.
+- No infrastructure, schema, permissions, secrets or dependency changes.
+- Deploy frontend and verify public entry and application assets match by SHA-256.
+- Rollout result pending for this release.
+
+**Section 7: Validation proof (2026-10-21, Watchlist/blog frontend release):**
+- Fetch/merge origin/main completed; already current at 1ef7fda.
+- Both `npx tsc --noEmit` passed; frontend `npm run build` passed.
+- Frontend isolated suite passed: 125 unit tests plus 11 bundled component tests.
+  Includes two new editor tests and two full Watchlists-render regressions.
+- Both Watchlists regressions fail against deployed code with the screenshot's
+  exact exception in coverageGaps / HistoryRun, and pass against corrected code.
+- Eight targeted backend Watchlists tests passed; erased types now accurately
+  describe missing coverage. No backend runtime code or image changes required.
+- Frontend lint baseline passed (25 existing, baseline 41); editor focused lint
+  and Sass compilation passed. `git diff --check` passed.
+- CLI authenticated to confirmed subscription c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28;
+  existing kh-prod-web West Europe target verified. SWA frontend-only recipe:
+  no Docker build, template/what-if, policy, infrastructure or RBAC changes.
+- No browser launched, monitoring rerun, data edits or posts created for checks.
+- The underlying failed analysis has not been diagnosed: old revision has no
+  replica available for log retrieval. Do not claim the monitoring failure fixed.
+
 **Discover performance and usability release (2026-10-21):**
 - User approved deploying the current Discover, Mural and teleprompter fixes.
 - Existing image-only AZCLI recipe: backend kh-prod-api-vnet and ACR

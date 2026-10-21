@@ -7,6 +7,7 @@ import { api, type BlogDraft } from '../../services/api';
 import type { ApiResponse } from '../../types';
 import { describeApiError } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
+import { BlogPostEditor } from './BlogPostEditor';
 
 interface Edits { excerpt?: string; postType?: BlogDraft['postType']; title?: string; summary?: string; content?: string; takeaways?: string; categories?: string; tags?: string }
 
@@ -153,8 +154,8 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
       <textarea id="blog-excerpt" className="dc-linkedin__copy" rows={2} value={value.excerpt} onChange={set('excerpt')} />
       <label className="dc-linkedin__label" htmlFor="blog-summary">{value.postType === 'quick' ? 'Summary (search and AI only, not shown on quick takes)' : 'Summary'}</label>
       <textarea id="blog-summary" className="dc-linkedin__copy" rows={2} value={value.summary} onChange={set('summary')} />
-      <label className="dc-linkedin__label" htmlFor="blog-content">Post (HTML)</label>
-      <textarea id="blog-content" className="dc-linkedin__copy" rows={14} value={value.content} onChange={set('content')} />
+      <BlogPostEditor value={value.content} disabled={publishing}
+        onChange={content => { setEdits(current => ({ ...current, content })); }} />
       <label className="dc-linkedin__label" htmlFor="blog-takeaways">{value.postType === 'quick' ? 'Key takeaways (optional, not shown on quick takes)' : 'Key takeaways (one per line)'}</label>
       <textarea id="blog-takeaways" className="dc-linkedin__copy" rows={4} value={value.takeaways} onChange={set('takeaways')} />
       <label className="dc-linkedin__label" htmlFor="blog-categories">Categories (comma separated)</label>

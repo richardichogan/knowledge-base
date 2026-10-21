@@ -448,6 +448,17 @@ not a category. `BLOG_POSTS_URL` configures the publishing endpoint (default
 `https://themicrosoftcloudblog.com/api/v1/posts/`); category changes do not imply
 a different URL.
 
+The blog publishing popup opens the Post field in rich-text mode, with an HTML
+source toggle. Both modes edit the same HTML content, and both Save as draft and
+Publish live send that HTML to the blog API. Switching views without editing
+preserves the original source; rich rendering and pasted HTML are sanitized.
+
+## Watchlist history
+
+Watchlist history preserves failed checks even when no coverage was recorded.
+They display a failure and an explicit missing-coverage notice, not a quiet-market
+conclusion, and do not prevent opening a previous completed briefing.
+
 ## Newsletter and podcast parking lot
 
 Parked articles remain in For you when otherwise eligible and show a

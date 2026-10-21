@@ -60,7 +60,7 @@ export interface WatchCoverage {
 export interface WatchRun {
   id: string; watchlistId: string; baselineVersion: number; baseline: WatchBaseline;
   config: WatchlistInput; startedAt: string; completedAt: string | null; windowStart: string;
-  status: WatchRunStatus; summary: string; coverage: WatchCoverage; evidence: WatchEvidence[];
+  status: WatchRunStatus; summary: string; coverage: Partial<WatchCoverage>; evidence: WatchEvidence[];
   findings: Array<WatchFinding & { id: string }>;
 }
 export interface InterestWeight { kind: 'topic' | 'source'; term: string; weight: number }

@@ -234,7 +234,8 @@ const relationshipLabel = (relationship: WatchRelationship): string => relations
 function coverageGaps(run: WatchRun): string[] {
   const failures = run.coverage.webFailures ?? 0;
   return [
-    ...(run.coverage.missingEntities.length ? [`No evidence was found for ${run.coverage.missingEntities.join(', ')}.`] : []),
+    ...(run.coverage.missingEntities === undefined ? ['Coverage was not recorded for this check.']
+      : run.coverage.missingEntities.length ? [`No evidence was found for ${run.coverage.missingEntities.join(', ')}.`] : []),
     ...(failures > 0 ? [`${count(failures, 'web search', 'web searches')} failed.`] : []),
     ...(run.coverage.truncated ? ['The evidence limit was reached, so some material was not read.'] : []),
   ];
@@ -244,13 +245,14 @@ function companyStates(watchlist: Watchlist, run: WatchRun | undefined): Company
   const relationships = new Map<string, WatchRelationship>();
   [...watchlist.config.entities, ...(run?.config.entities ?? [])].forEach(e => { if (!relationships.has(e.name)) relationships.set(e.name, e.relationship); });
   const names = [...new Set([...watchlist.config.entities.map(e => e.name), ...(run?.config.entities.map(e => e.name) ?? []), ...(run?.findings.map(f => f.entity) ?? [])])];
-  const incomplete = !!run && (run.status === 'insufficient_coverage' || run.coverage.truncated || (run.coverage.webFailures ?? 0) > 0);
+  const incomplete = !!run && (run.status === 'insufficient_coverage' || run.coverage.missingEntities === undefined
+    || run.coverage.truncated || (run.coverage.webFailures ?? 0) > 0);
   return names.map(name => {
     const findings = run?.findings.filter(f => f.entity === name) ?? [];
     const base = { name, relationship: relationships.get(name) ?? null, findings };
     if (findings.length) return { ...base, state: 'changes', label: count(findings.length, 'development') };
     if (!run || !run.config.entities.some(e => e.name === name)) return { ...base, state: 'unchecked', label: 'Not checked yet' };
-    if (run.coverage.missingEntities.includes(name)) return { ...base, state: 'missing', label: 'No evidence found' };
+    if (run.coverage.missingEntities?.includes(name)) return { ...base, state: 'missing', label: 'No evidence found' };
     if (incomplete) return { ...base, state: 'incomplete', label: 'No change found · coverage incomplete' };
     return { ...base, state: 'quiet', label: 'No meaningful change found' };
   });
@@ -394,7 +396,7 @@ const NowSection: React.FC<{
           Observation date is not the publication or event date.</p>
         {gaps.length > 0 && <p className="dw-hint">Coverage was incomplete. {gaps.join(' ')}</p>}
         <p className="dw-hint">Missing evidence does not mean nothing changed. Company outcomes reflect this saved review, not continuous market coverage.</p>
-        {briefing.coverage.sourcesChecked > 0 && <p className="dw-hint">{briefing.coverage.sourcesHealthy}/{briefing.coverage.sourcesChecked} Discover sources healthy.</p>}
+        {(briefing.coverage.sourcesChecked ?? 0) > 0 && <p className="dw-hint">{briefing.coverage.sourcesHealthy}/{briefing.coverage.sourcesChecked} Discover sources healthy.</p>}
         {!!briefing.coverage.webSearches && <p className="dw-hint">{briefing.coverage.webSearches - (briefing.coverage.webFailures ?? 0)}/{briefing.coverage.webSearches} web searches succeeded.</p>}
       </details>
       {stale && <p className="dw-notice dw-notice--warning">
@@ -605,8 +607,8 @@ const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void }> = 
           <dt>Comparison context · version {briefing.baselineVersion}</dt><dd className="dw-pre">{briefing.baseline.text || 'No manual comparison text was recorded.'}</dd>
           <dt>Coverage</dt><dd>
             {briefing.coverage.webSearches ? `${briefing.coverage.webSearches - (briefing.coverage.webFailures ?? 0)}/${briefing.coverage.webSearches} web searches succeeded. ` : ''}
-            {briefing.coverage.sourcesChecked > 0 && `${briefing.coverage.sourcesHealthy}/${briefing.coverage.sourcesChecked} Discover sources healthy. `}
-            {count(briefing.coverage.uniqueEvents, 'unique event')}.
+            {(briefing.coverage.sourcesChecked ?? 0) > 0 && `${briefing.coverage.sourcesHealthy}/${briefing.coverage.sourcesChecked} Discover sources healthy. `}
+            {briefing.coverage.uniqueEvents === undefined ? 'Event coverage was not recorded.' : `${count(briefing.coverage.uniqueEvents, 'unique event')}.`}
           </dd>
         </dl>
         {briefing.baseline.links.map(link => <a key={link} href={link} target="_blank" rel="noreferrer">{link}</a>)}
