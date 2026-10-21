@@ -20,6 +20,23 @@
       overflow-wrap: anywhere;
       p { margin: 0; line-height: 1.5; }
     }
+
+    .mural-export-destination {
+      display: grid; gap: 0.75rem; min-width: 0; margin-top: 0.75rem;
+      &__modes {
+        display: flex; flex-wrap: wrap; gap: 0.25rem;
+        button {
+          flex: 1 1 9rem; padding: 0.625rem 0.5rem; font: inherit; font-size: var(--kh-text-body, 0.875rem);
+          border: 1px solid var(--cds-border-strong-01); background: var(--cds-field-01);
+          color: var(--cds-text-primary); cursor: pointer;
+          &[aria-pressed='true'] { background: var(--cds-layer-selected-01, #393939); border-color: var(--cds-focus); }
+          &:hover:not(:disabled) { background: var(--cds-layer-hover-01, #333); }
+          &:active:not(:disabled) { background: var(--cds-layer-active-01, #525252); }
+          &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+          &:disabled { opacity: 0.5; cursor: not-allowed; }
+        }
+      }
+    }
     &__error { color: var(--cds-support-error); }
     &__actions {
       display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem;

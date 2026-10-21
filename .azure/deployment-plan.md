@@ -2,6 +2,40 @@
 
 **Status:** Validated
 
+**Mural destination release (2026-10-21):**
+- User authorised deployment with two export destinations: add to an existing
+  board or create a new board. Include the pending board picker and native
+  widget payload correction.
+- Modify existing frontend and backend only; preserve Container Apps and
+  Static Web Apps hosting, credentials, data and infrastructure.
+- Implement room selection and board naming for new boards, using documented
+  Mural APIs. Validate before any external creation; never retry writes.
+- Run both typechecks, focused tests and production builds, then validate
+  and deploy matching frontend/backend. Record actual rollout evidence.
+
+**Section 7: Validation proof (2026-10-21, Mural destinations release):**
+- Explicitly authorised by the user: deploy with existing-board and new-board
+  destinations. Existing Alliance Tenant Reporting subscription and UK South
+  production resources remain the established deployment target.
+- Both applications passed `npx tsc --noEmit` and `npm run build`.
+  Focused backend Mural tests passed 15/15; focused frontend/backend ESLint
+  passed. Frontend lint non-regression passed (25 existing, baseline 41).
+- Azure CLI authentication confirmed subscription
+  c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28 and current backend image v224.
+- Image-only Container Apps and existing SWA deployment: no infrastructure,
+  dependencies, migrations, RBAC, policy, environment or secret changes.
+  Bicep compilation, template validation, what-if and static role checks are
+  inapplicable. Dockerfile and package-lock exist; ACR performs the container
+  build from the pushed source before the image update.
+- Functional verification uses isolated mock API/browser fixtures, not
+  speculative writes to the user's Mural. A complete live export still needs
+  the user's renewed Mural consent and explicit export action.
+- Isolated browser fixture passed all 15 checks: board grouping/defaults,
+  archived/manual URL/error states, room selection, one-time creation,
+  ambiguous-failure retry protection and selected destination retention.
+  Fetched and merged origin/main again before the final frontend build;
+  already up to date. Backend Dockerfile retains schema/migration copies.
+
 **Deployment result (2026-10-21, coordinated fixes release):**
 - Source 0b4f25f pushed to the feature branch and main. ACR run ca72 built
   kh-prod-api:v224, digest

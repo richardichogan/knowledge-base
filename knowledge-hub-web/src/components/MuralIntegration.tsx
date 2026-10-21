@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { api, type MuralStatus } from '../services/api';
 import { describeApiError } from '../services/apiError';
 import { MuralBoardPicker, MURAL_BOARDS_QUERY } from './MuralBoardPicker';
+import { MURAL_ROOMS_QUERY } from './MuralExportDestination';
 import './connectionTokens.scss';
 import './muralIntegration.scss';
 
@@ -55,7 +56,10 @@ export const MuralIntegration: React.FC = () => {
           const response = await api.saveMuralConfig({ clientId, secret, boardUrl });
           if (!response.success) throw new Error(response.error.message);
           setSecret(''); setEditing(false); cache.setQueryData(MURAL_QUERY, response.data);
-          if (!response.data.connected) cache.removeQueries({ queryKey: MURAL_BOARDS_QUERY });
+          if (!response.data.connected) {
+            cache.removeQueries({ queryKey: MURAL_BOARDS_QUERY });
+            cache.removeQueries({ queryKey: MURAL_ROOMS_QUERY });
+          }
           setMessage(response.data.connected ? 'Settings saved.' : 'Settings saved. Connect to Mural to authorise export.');
         });
       }}>
@@ -70,7 +74,7 @@ export const MuralIntegration: React.FC = () => {
           <input id="mural-board" type="url" value={boardUrl} required maxLength={2048} disabled={busy} autoComplete="off"
             placeholder="https://app.mural.co/t/.../m/..." onChange={event => { setBoardUrl(event.target.value); }} />
         </>}
-        <p className="connection-tokens__detail">Enable murals:read, murals:write and workspaces:read in your Mural app. Reconnect after adding scopes. Credentials and OAuth tokens are encrypted on the server and never displayed.</p>
+        <p className="connection-tokens__detail">Enable murals:read, murals:write, workspaces:read and rooms:read in your Mural app. Reconnect after adding scopes. Credentials and OAuth tokens are encrypted on the server and never displayed.</p>
         <div className="connection-tokens__actions">
           <button type="submit" className="connection-tokens__button connection-tokens__button--primary" disabled={busy}>{busy ? 'Saving...' : 'Save settings'}</button>
           <button type="button" className="connection-tokens__button" disabled={busy} onClick={() => { setEditing(false); setSecret(''); }}>Cancel</button>
@@ -91,6 +95,7 @@ export const MuralIntegration: React.FC = () => {
             const response = await api.disconnectMural();
             if (!response.success) throw new Error(response.error.message);
             cache.removeQueries({ queryKey: MURAL_BOARDS_QUERY });
+            cache.removeQueries({ queryKey: MURAL_ROOMS_QUERY });
             await query.refetch(); setMessage('Disconnected. Saved app settings remain; existing Mural exports are unchanged.');
           });
         }}>Disconnect</button>}
@@ -122,6 +127,7 @@ export const MuralCallback: React.FC = () => {
     })();
     void completion.then(() => {
       cache.removeQueries({ queryKey: MURAL_BOARDS_QUERY });
+      cache.removeQueries({ queryKey: MURAL_ROOMS_QUERY });
       void cache.invalidateQueries({ queryKey: MURAL_QUERY });
       if (active) setState('done');
     }).catch(err => { if (active) { setError(describeApiError(err)); setState('error'); } });

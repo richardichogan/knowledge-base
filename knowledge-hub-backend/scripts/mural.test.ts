@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 process.env.CREDENTIAL_ENCRYPTION_KEY = 'fixture-encryption-key-at-least-thirty-two-characters';
 const {
   muralBoard, muralUploadUrl, pngDimensions, muralStatus, saveMuralConfig, startMuralAuth,
-  finishMuralAuth, disconnectMural, exportMuralImage, listMuralBoards, MURAL_REDIRECT, MURAL_CLIENT_ID,
+  finishMuralAuth, disconnectMural, exportMuralImage, listMuralBoards, listMuralRooms, createMuralBoard, MURAL_REDIRECT, MURAL_CLIENT_ID,
 } = await import('../src/services/mural.js');
 const { exportMuralDiagram, validateMuralDiagram } = await import('../src/services/muralDiagram.js');
 
@@ -55,7 +55,7 @@ test('Mural lists every workspace and board page, groups names and retains archi
     await saveMuralConfig(pool, config);
     globalThis.fetch = async () => tokenResponse();
     const auth = new URL(await startMuralAuth(pool, 'richard'));
-    assert.equal(auth.searchParams.get('scope'), 'murals:read murals:write workspaces:read');
+    assert.equal(auth.searchParams.get('scope'), 'murals:read murals:write workspaces:read rooms:read');
     await finishMuralAuth(pool, 'richard', { state: auth.searchParams.get('state'), code: 'fixture' });
     const calls: string[] = [];
     globalThis.fetch = async (input, init) => {
@@ -104,6 +104,46 @@ test('Mural board listing surfaces missing scope, malformed pages, failed pages 
     await assert.rejects(listMuralBoards(pool), /invalid workspace/);
     await disconnectMural(pool);
     await assert.rejects(listMuralBoards(pool), /Connect to Mural/);
+  } finally { globalThis.fetch = original; await db.close(); }
+});
+
+test('Mural room listing follows pages; new boards use only the supported create payload and never retry writes', async () => {
+  const { pool, db } = await fixture(); const original = globalThis.fetch;
+  try {
+    await saveMuralConfig(pool, config);
+    globalThis.fetch = async () => tokenResponse();
+    await finishMuralAuth(pool, 'richard', { state: new URL(await startMuralAuth(pool, 'richard')).searchParams.get('state'), code: 'fixture' });
+    let writes = 0, fail = false;
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/workspaces')) return Response.json({ value: [{ id: 'athena5676', name: 'Athena' }] });
+      if (url.pathname.endsWith('/athena5676/rooms')) return Response.json(url.searchParams.has('next')
+        ? { value: [{ id: 456, name: 'Workshop room' }] }
+        : { value: [{ id: 123, name: 'Architecture room' }], next: 'room-next' });
+      if (url.pathname.endsWith('/rooms/123')) return Response.json({ value: { id: 123, workspaceId: 'athena5676' } });
+      assert.ok(url.pathname.endsWith('/murals'));
+      assert.equal(init?.method, 'POST'); writes++;
+      assert.deepEqual(JSON.parse(String(init?.body)), { roomId: 123, title: 'New diagram', infinite: true });
+      if (fail) throw new Error('Connection lost after creation');
+      return Response.json({ value: { id: 'athena5676.99', title: 'New diagram', status: 'active' } }, { status: 201 });
+    };
+    assert.deepEqual(await listMuralRooms(pool), [
+      { id: 123, name: 'Architecture room', workspace: 'Athena' },
+      { id: 456, name: 'Workshop room', workspace: 'Athena' },
+    ]);
+    assert.deepEqual(await createMuralBoard(pool, { roomId: 123, title: ' New diagram ' }), {
+      id: 'athena5676.99', title: 'New diagram',
+      url: 'https://app.mural.co/t/athena5676/m/athena5676/99', workspace: 'athena5676', archived: false,
+    });
+    assert.equal(writes, 1);
+    fail = true;
+    await assert.rejects(createMuralBoard(pool, { roomId: 123, title: 'New diagram' }), /board may already exist.*Nothing was automatically retried/);
+    assert.equal(writes, 2);
+    for (const invalid of [{ roomId: 0, title: 'New diagram' }, { roomId: '123', title: 'New diagram' },
+      { roomId: 123, title: ' ' }, { roomId: 123, title: 'x'.repeat(301) }, { roomId: 123, title: 'New diagram', visitor: true }]) {
+      await assert.rejects(createMuralBoard(pool, invalid), /Choose a room/);
+    }
+    assert.equal(writes, 2, 'Invalid requests never reach Mural');
   } finally { globalThis.fetch = original; await db.close(); }
 });
 
@@ -316,7 +356,7 @@ test('Mural OAuth uses exact callback, S256 PKCE, user-bound expiring one-use st
     const url = new URL(await startMuralAuth(pool, 'richard'));
     assert.equal(url.origin, 'https://app.mural.co');
     assert.equal(url.searchParams.get('redirect_uri'), MURAL_REDIRECT);
-    assert.equal(url.searchParams.get('scope'), 'murals:read murals:write workspaces:read');
+    assert.equal(url.searchParams.get('scope'), 'murals:read murals:write workspaces:read rooms:read');
     assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
     const state = url.searchParams.get('state')!;
     let calls = 0;

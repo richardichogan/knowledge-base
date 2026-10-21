@@ -36,6 +36,7 @@ interface Pending { userId: string; verifier: string; fingerprint: string }
 type Store = Pick<Pool, 'query'>;
 export interface MuralStatus { clientId: string; configured: boolean; connected: boolean; boardUrl: string; redirectUrl: string }
 export interface MuralBoardOption { id: string; title: string; url: string; workspace: string; archived: boolean }
+export interface MuralRoomOption { id: number; name: string; workspace: string }
 
 function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new IntegrationError('mural', 'Unexpected response format.');
@@ -130,7 +131,7 @@ export async function startMuralAuth(pool: Pool, userId: string): Promise<string
     const url = new URL(`${API}/authorization/oauth2/`);
     url.search = new URLSearchParams({
       client_id: config.clientId, redirect_uri: MURAL_REDIRECT, response_type: 'code',
-      scope: 'murals:read murals:write workspaces:read', state, code_challenge_method: 'S256',
+      scope: 'murals:read murals:write workspaces:read rooms:read', state, code_challenge_method: 'S256',
       code_challenge: createHash('sha256').update(verifier).digest('base64url'),
     }).toString();
     return url.href;
@@ -220,10 +221,9 @@ export async function apiJson(token: string, path: string, body?: unknown): Prom
   return record(await response.json());
 }
 
-export async function listMuralBoards(db: Pool): Promise<MuralBoardOption[]> {
-  return withToken(db, async token => {
+function muralPages(token: string): (path: string) => Promise<Record<string, unknown>[]> {
     let requests = 0;
-    const pages = async (path: string): Promise<Record<string, unknown>[]> => {
+    return async (path: string): Promise<Record<string, unknown>[]> => {
       const items: Record<string, unknown>[] = [];
       const seen = new Set<string>();
       let next = '';
@@ -234,7 +234,7 @@ export async function listMuralBoards(db: Pool): Promise<MuralBoardOption[]> {
           method: 'GET', headers: { Authorization: `Bearer ${token}` },
         });
         if (response.status === FORBIDDEN) {
-          throw new IntegrationError('mural', 'Board listing needs workspaces:read and murals:read. Enable these scopes in your Mural app, then reconnect in Sources / Integrations. You can still enter a board URL.');
+          throw new IntegrationError('mural', 'Board and room listing needs workspaces:read, murals:read and rooms:read. Enable these scopes in your Mural app, then reconnect in Sources / Integrations. You can still enter a board URL.');
         }
         if (response.status === UNAUTHORIZED) throw new IntegrationError('mural', 'Mural sign-in expired or was revoked. Reconnect in Sources / Integrations.');
         if (!response.ok) throw new IntegrationError('mural', `Could not list Mural boards (HTTP ${response.status}). ${response.status === RATE_LIMITED ? 'Wait before refreshing.' : 'Check workspace access and try again.'}`);
@@ -249,24 +249,75 @@ export async function listMuralBoards(db: Pool): Promise<MuralBoardOption[]> {
       } while (next);
       return items;
     };
+}
+
+function workspaceInfo(workspace: Record<string, unknown>): { id: string; name: string } {
+  if (typeof workspace.id !== 'string' || !/^[a-z0-9_-]+$/i.test(workspace.id) || typeof workspace.name !== 'string') {
+    throw new IntegrationError('mural', 'Mural returned an invalid workspace.');
+  }
+  return { id: workspace.id, name: workspace.name };
+}
+
+function boardOption(board: Record<string, unknown>, workspace: { id: string; name: string }): MuralBoardOption {
+  if (typeof board.id !== 'string' || !/^[a-z0-9_-]+\.\d+$/i.test(board.id)
+    || typeof board.title !== 'string' || !['active', 'archived'].includes(String(board.status))) {
+    throw new IntegrationError('mural', 'Mural returned an invalid board.');
+  }
+  const [owner, id] = board.id.split('.');
+  return { id: board.id, title: board.title, workspace: workspace.name, archived: board.status === 'archived',
+    url: muralBoard(`https://app.mural.co/t/${workspace.id}/m/${owner}/${id}`).url };
+}
+
+export async function listMuralBoards(db: Pool): Promise<MuralBoardOption[]> {
+  return withToken(db, async token => {
+    const pages = muralPages(token);
     const boards = new Map<string, MuralBoardOption>();
-    for (const workspace of await pages('/workspaces')) {
-      if (typeof workspace.id !== 'string' || !/^[a-z0-9_-]+$/i.test(workspace.id) || typeof workspace.name !== 'string') {
-        throw new IntegrationError('mural', 'Mural returned an invalid workspace.');
-      }
+    for (const raw of await pages('/workspaces')) {
+      const workspace = workspaceInfo(raw);
       for (const board of await pages(`/workspaces/${encodeURIComponent(workspace.id)}/murals`)) {
-        if (typeof board.id !== 'string' || !/^[a-z0-9_-]+\.\d+$/i.test(board.id)
-          || typeof board.title !== 'string' || !['active', 'archived'].includes(String(board.status))) {
-          throw new IntegrationError('mural', 'Mural returned an invalid board.');
-        }
-        const [owner, id] = board.id.split('.');
-        boards.set(board.id, {
-          id: board.id, title: board.title, workspace: workspace.name, archived: board.status === 'archived',
-          url: muralBoard(`https://app.mural.co/t/${workspace.id}/m/${owner}/${id}`).url,
-        });
+        const option = boardOption(board, workspace);
+        boards.set(option.id, option);
       }
     }
     return [...boards.values()].sort((a, b) => a.workspace.localeCompare(b.workspace) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+  });
+}
+
+export async function listMuralRooms(db: Pool): Promise<MuralRoomOption[]> {
+  return withToken(db, async token => {
+    const pages = muralPages(token);
+    const rooms = new Map<number, MuralRoomOption>();
+    for (const raw of await pages('/workspaces')) {
+      const workspace = workspaceInfo(raw);
+      for (const room of await pages(`/workspaces/${encodeURIComponent(workspace.id)}/rooms`)) {
+        if (typeof room.id !== 'number' || !Number.isSafeInteger(room.id) || room.id <= 0 || typeof room.name !== 'string') {
+          throw new IntegrationError('mural', 'Mural returned an invalid room.');
+        }
+        rooms.set(room.id, { id: room.id, name: room.name, workspace: workspace.name });
+      }
+    }
+    return [...rooms.values()].sort((a, b) => a.workspace.localeCompare(b.workspace) || a.name.localeCompare(b.name) || a.id - b.id);
+  });
+}
+
+export async function createMuralBoard(db: Pool, input: unknown): Promise<MuralBoardOption> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ValidationError('Choose a room and enter a board name.');
+  const body = record(input);
+  if (Object.keys(body).some(key => !['roomId', 'title'].includes(key)) || typeof body.roomId !== 'number'
+    || !Number.isSafeInteger(body.roomId) || body.roomId <= 0 || typeof body.title !== 'string'
+    || !body.title.trim() || body.title.length > MAX_TITLE_LENGTH) throw new ValidationError('Choose a room and enter a board name of 1-300 characters.');
+  const roomId = body.roomId, title = body.title.trim();
+  return withToken(db, async token => {
+    const room = record((await apiJson(token, `/rooms/${roomId.toString()}`)).value);
+    if (typeof room.workspaceId !== 'string' || !/^[a-z0-9_-]+$/i.test(room.workspaceId)) {
+      throw new IntegrationError('mural', 'Mural returned an invalid room workspace. No board was created.');
+    }
+    try {
+      const created = record((await apiJson(token, '/murals', { roomId, title, infinite: true })).value);
+      return boardOption(created, { id: room.workspaceId, name: room.workspaceId });
+    } catch (error) {
+      throw new IntegrationError('mural', `${error instanceof Error ? error.message : 'Board creation failed.'} Check the selected room in Mural before trying again; a board may already exist. Nothing was automatically retried.`);
+    }
   });
 }
 

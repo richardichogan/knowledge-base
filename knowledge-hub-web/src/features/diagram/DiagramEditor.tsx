@@ -56,7 +56,7 @@ import { ShareEmailModal } from '../../components/ShareEmailModal';
 import type { ShareEmailContent } from '../../types/shareEmail';
 import { diagramMural } from './diagramMural';
 import { MURAL_QUERY, loadMuralStatus } from '../../components/MuralIntegration';
-import { MuralBoardPicker } from '../../components/MuralBoardPicker';
+import { MuralExportDestination } from '../../components/MuralExportDestination';
 import { Link } from 'react-router-dom';
 import {
   addFootnote, collapseView, fixTextIssues, footnoteAnchor, footnoteBlock, footnoteHref, footnotesOf, presentationSteps, pruneFootnotes, setLegend,
@@ -2066,7 +2066,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                     {muralQuery.isPending && <p className="dg-popover__hint" role="status">Checking Mural connection...</p>}
                     {muralQuery.isError && <p className="connection-tokens__error" role="alert">Could not check Mural. <button type="button" className="dg-text-btn" onClick={() => { void muralQuery.refetch(); }}>Retry</button></p>}
                     {!muralQuery.data?.connected && <p className="dg-popover__hint"><Link to="/my-work?sync=1">Set up or reconnect Mural in Sources / Integrations</Link></p>}
-                    {muralQuery.data?.connected && <MuralBoardPicker value={muralBoardUrl ?? muralQuery.data.boardUrl}
+                    {muralQuery.data?.connected && <MuralExportDestination value={muralBoardUrl ?? muralQuery.data.boardUrl}
+                      title={canvas?.title ?? 'Athena diagram'}
                       disabled={exporting} onChange={url => { setMuralBoardUrl(url); setMuralResult(''); }} />}
                     {muralResult && <>
                       <p className="dg-popover__hint mural-integration__result" role="status">Editable diagram exported. <a href={muralResult} target="_blank" rel="noreferrer">Open board in Mural</a></p>

@@ -55,6 +55,7 @@ export interface MuralStatus {
 export interface MuralBoardOption {
   id: string; title: string; url: string; workspace: string; archived: boolean;
 }
+export interface MuralRoomOption { id: number; name: string; workspace: string }
 
 export type ProjectRegisterKind = 'question' | 'risk' | 'issue';
 export interface ProjectRegisterItem {
@@ -627,6 +628,12 @@ export class KnowledgeHubApi {
   }
   async getMuralBoards(): Promise<ApiResponse<MuralBoardOption[]>> {
     return (await this.client.get<ApiResponse<MuralBoardOption[]>>('/api/integrations/mural/boards')).data;
+  }
+  async getMuralRooms(): Promise<ApiResponse<MuralRoomOption[]>> {
+    return (await this.client.get<ApiResponse<MuralRoomOption[]>>('/api/integrations/mural/rooms')).data;
+  }
+  async createMuralBoard(input: { roomId: number; title: string }): Promise<ApiResponse<MuralBoardOption>> {
+    return (await this.client.post<ApiResponse<MuralBoardOption>>('/api/integrations/mural/boards', input)).data;
   }
   async getShareEmailStatus(): Promise<ApiResponse<import('../types/shareEmail').ShareEmailStatus>> {
     return (await this.client.get<ApiResponse<import('../types/shareEmail').ShareEmailStatus>>('/api/integrations/share-email')).data;

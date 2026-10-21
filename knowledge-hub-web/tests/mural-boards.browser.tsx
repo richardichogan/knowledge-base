@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Theme } from '@carbon/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MuralBoardPicker } from '../src/components/MuralBoardPicker';
+import { MuralExportDestination } from '../src/components/MuralExportDestination';
 import { api, type MuralBoardOption } from '../src/services/api';
 import '../src/styles/global.scss';
 
@@ -11,6 +11,15 @@ const second = 'https://app.mural.co/t/other1234/m/other1234/2';
 let failure = false;
 let empty = false;
 let calls = 0;
+let creates = 0;
+let createFailure = false;
+api.getMuralRooms = async () => ({ success: true, data: [{ id: 123, name: 'Architecture room', workspace: 'Athena' }] });
+api.createMuralBoard = async input => {
+  creates++;
+  await new Promise(resolve => setTimeout(resolve, 80));
+  if (createFailure) throw new Error('Fixture creation response lost');
+  return { success: true, data: { id: 'athena5676.99', title: input.title, url: first.replace('/1', '/99'), workspace: 'Athena', archived: false } };
+};
 const boards: MuralBoardOption[] = [
   { id: 'athena5676.1', title: 'Architecture planning', workspace: 'Athena', archived: false, url: first },
   { id: 'other1234.2', title: 'Architecture planning', workspace: 'Client projects', archived: false, url: second },
@@ -26,7 +35,8 @@ function Fixture(): React.ReactElement {
   const [value, setValue] = useState(first);
   return <Theme theme="g100"><section className="connection-tokens mural-integration">
     <h3>Mural destination</h3>
-    <MuralBoardPicker value={value} onChange={setValue} />
+    <MuralExportDestination value={value} title="New architecture diagram" disabled={false} onChange={setValue} />
+    <button disabled={!value} data-send>Send diagram fixture</button>
     <p className="connection-tokens__detail" data-destination>{value}</p>
   </section></Theme>;
 }
@@ -80,6 +90,26 @@ async function run(): Promise<string[]> {
   const restored = document.querySelector('select')!;
   restored.value = first; restored.dispatchEvent(new Event('change', { bubbles: true }));
   await wait(() => document.querySelector('[data-destination]')?.textContent === first);
-  return ['workspace groups', 'saved destination', 'board selection', 'archived disabled', 'manual URL', 'safe link', 'scope error', 'explicit retry', 'empty list', 'refresh recovery'];
+  button('Create a new Mural').click();
+  await wait(() => document.querySelectorAll('select option').length === 2);
+  check(document.querySelector<HTMLButtonElement>('[data-send]')!.disabled, 'Export is blocked until new board exists');
+  const room = document.querySelector('select')!;
+  room.value = '123'; room.dispatchEvent(new Event('change', { bubbles: true }));
+  await wait(() => !button('Create and select Mural').disabled);
+  check(document.querySelector('input')!.value === 'New architecture diagram', 'New board name defaults to diagram title');
+  button('Create and select Mural').click();
+  await wait(() => document.querySelector('[data-destination]')?.textContent === first.replace('/1', '/99'));
+  check(creates === 1, 'Create exactly one board');
+  check(!document.querySelector<HTMLButtonElement>('[data-send]')!.disabled, 'Created board is ready for export');
+  button('Create a new Mural').click();
+  await wait(() => document.querySelector('input') !== null);
+  createFailure = true;
+  button('Create and select Mural').click();
+  await wait(() => document.querySelector('[role=alert]') !== null);
+  check(button('Create and select Mural').disabled, 'Ambiguous creation failure cannot be retried accidentally');
+  check(creates === 2, 'No automatic board creation retry');
+  button('Add to existing Mural').click();
+  await wait(() => document.querySelector('[data-destination]')?.textContent === first.replace('/1', '/99'));
+  return ['workspace groups', 'saved destination', 'board selection', 'archived disabled', 'manual URL', 'safe link', 'scope error', 'explicit retry', 'empty list', 'refresh recovery', 'room selection', 'new board name', 'create once', 'creation failure protection', 'existing destination restored'];
 }
 Object.assign(window, { runMuralBoardChecks: run });

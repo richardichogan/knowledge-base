@@ -11,8 +11,9 @@ Register this exact redirect URL:
 
 `https://athena.themicrosoftcloudblog.com/integrations/mural/callback`
 
-Enable `murals:read`, `murals:write` and `workspaces:read`. Existing connections
-must reconnect after enabling `workspaces:read` to authorise board listing.
+Enable `murals:read`, `murals:write`, `workspaces:read` and `rooms:read`.
+Existing connections must reconnect after enabling the new read scopes to
+authorise board and room listing.
 CORS allowlisting is not needed:
 provider requests are server-side. Keep the app Private during testing.
 Click Connect to Mural and consent using the Mural account that can edit the
@@ -23,6 +24,14 @@ Configuration and token updates are serialised across backend replicas.
 Open a Think diagram -> Export -> Mural. Choose the destination from the
 board dropdown, grouped by workspace, and check the
 annotation options, then click Send editable diagram to Mural.
+Choose **Add to existing Mural** to append to a selected board, or **Create a
+new Mural** to select a room and enter a name (initially the diagram title).
+Click **Create and select Mural**, then send the diagram when ready.
+Mural requires room-owner permission to create a board. Athena does not create
+rooms or change visitor/sharing permissions. Board creation is never retried:
+if the response is lost, inspect the room before explicitly allowing another
+attempt. Once creation succeeds, the new board stays selected even if the
+subsequent diagram export fails; no extra board is created on export retry.
 Shapes, text, connector labels, footnotes and colour-key entries become native
 editable Mural objects. The backend creates shapes first and connects arrows
 using the returned Mural widget IDs (`startRefId` / `endRefId`).
