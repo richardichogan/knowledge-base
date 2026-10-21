@@ -2,6 +2,17 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-21, Elgato frontend release):**
+- Source 1693eea pushed to the feature branch and main. SWA CLI 2.0.10
+  successfully deployed the validated frontend to kh-prod-web production.
+- Both public domains serve /present with HTTP 200. Entry
+  /assets/index-DtS6pABP.js and /assets/Presenter-D3zY9wU0.js match the local
+  build byte-for-byte by SHA-256 on both domains.
+- Backend and infrastructure unchanged. No desktop release was published.
+  Install the local Desktop 0.1.5 EXE and Stream Deck plugin, restart Athena,
+  then enable/copy the pairing key in Presentation and Stream Deck.
+  Physical Prompter orientation and Stream Deck button trial remain unverified.
+
 **Section 7: Validation proof (2026-10-21, Elgato frontend release):**
 - User explicitly requested deployment after local Elgato implementation.
   Scope is the existing kh-prod-web Static Web App only. No backend,
