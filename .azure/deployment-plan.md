@@ -16,7 +16,22 @@
 - Fetch/merge main, run both typechecks/builds and isolated suites, commit/push
   current fixes, increment deployed image tag, update backend and deploy frontend.
 - Verify healthy revision, startup logs and deployed frontend assets.
-- No browser launch authorised. Deployment result is pending.
+- No browser launch authorised.
+
+**Deployment result (2026-10-21, Discover performance release):**
+- Source 04315a1 committed and pushed to the feature branch and main.
+- ACR run ca75 built kh-prod-api:v227 from main; image digest
+  sha256:771ccfcbb71115ced322ab1d019de7fa367449feed5f120877064a7d36e117aa.
+- Revision kh-prod-api-vnet--0000224 is latest ready, Healthy /
+  RunningAtMaxScale, receiving 100% traffic. Migrations completed and all eight
+  database connections pre-warmed. Previous revision is deprovisioning.
+- Matching frontend deployed to kh-prod-web. Both public domains serve
+  index-6MQV7KXi.js, appBootstrap-B4bm_5Wc.js and appBootstrap-CTDww7Of.css
+  matching the local production build byte-for-byte by SHA-256.
+- Local optimized backend restarted and listening on 3000; frontend remains
+  running on 5173. No database upgrade, infrastructure or permissions changed.
+- Timings above measure the full feed handler, not browser end-to-end reload.
+  No browser launched or production content created as a deployment check.
 
 **Section 7: Validation proof (2026-10-21, Discover performance release):**
 - Fetched and merged origin/main; already current at 3cf678a.
