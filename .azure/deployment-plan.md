@@ -2,6 +2,22 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-21, restricted-workspace correction):**
+- Source cf2401e pushed to feature branch and main. ACR run ca74 built
+  kh-prod-api:v226, digest
+  sha256:53455c60bf78917bc77986bd62767c3f6785544adf9b7f383f75625cdf5015e7.
+- Revision kh-prod-api-vnet--0000223 is Healthy / RunningAtMaxScale,
+  Provisioned and latest ready, receiving 100% production traffic. Startup
+  completed migrations and pre-warmed 8/8 database connections.
+- Matching warning-aware frontend deployed to kh-prod-web production.
+  Both public domains serve index-DwqsYXyY.js, appBootstrap-BgmFcoZr.js and
+  appBootstrap-Ci8mQWcg.css matching the local build by SHA-256.
+- Actual renewed grant verified before rollout: 42 boards and 77 rooms
+  returned, including Reckitt SDLC, with explicit microsoft1254 restrictions.
+  No board creation or diagram export performed. No further consent needed
+  for this fix; existing open applications must reload the new frontend.
+- Isolated browser helper stopped; unrelated hook cache remains untouched.
+
 **Mural restricted-workspace correction (2026-10-21):**
 - Root cause confirmed with read-only requests using the renewed saved grant:
   global workspaces and Athena boards return HTTP 200. Only microsoft1254
