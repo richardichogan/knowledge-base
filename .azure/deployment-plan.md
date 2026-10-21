@@ -33,6 +33,17 @@
 - Existing registry authentication preserved. No managed identity/AcrPull changes.
 - Database upgrade separately verified Ready with live max_connections=100.
 
+**Deployment result (2026-10-21, Watchlists backend repair):**
+- Source 758b39a pushed to feature branch and main; ACR build succeeded for
+  kh-prod-api:v228 from main.
+- Revision kh-prod-api-vnet--0000225 is Healthy / RunningAtMaxScale with
+  100% traffic. Previous revision has been removed from the active list.
+- Startup logs confirm migrations completed and 8/8 database connections warmed.
+  Live Watchlists, history and baseline reads return successful 304 responses.
+- Production backend repairs deployed; frontend unchanged. No manual monitoring
+  rerun or content publishing performed. A successful fresh AI analysis has not
+  been verified by this deployment.
+
 **Watchlist crash and blog editor frontend release (2026-10-21):**
 - User explicitly approved deploying both frontend fixes to the same production
   resources confirmed above: kh-prod-web, Alliance Tenant Reporting, West Europe.
