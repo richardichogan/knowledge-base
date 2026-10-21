@@ -138,6 +138,7 @@ export async function exportMuralDiagram(db: Pool, input: unknown): Promise<{ bo
     const ids = new Map<string, string>();
     const originals = new Map(diagram.objects.map(o => [o.id, o]));
     let writes = 0;
+    let currentObject = '';
     try {
       const pending = [...diagram.objects];
       while (pending.length) {
@@ -149,14 +150,16 @@ export async function exportMuralDiagram(db: Pool, input: unknown): Promise<{ bo
           title: o.text || diagram.title, instruction: html(o.instruction),
           ...(o.parentId === null ? {} : { parentId: ids.get(o.parentId) }) };
         let response: Record<string, unknown>;
+        currentObject = `${o.type} ${o.id}`;
         writes++;
         if (o.type === 'area') {
           response = await apiJson(token, `${path}/widgets/area`, { ...common, layout: 'free', showTitle: false,
             style: { backgroundColor: o.fill, borderColor: o.stroke, borderStyle: o.dotted ? 'dotted' : 'solid', borderWidth: o.strokeWidth, titleFontSize: o.fontSize } });
         } else if (o.type === 'shape') {
-          response = await apiJson(token, `${path}/widgets/shape`, [{ ...common, rotation: o.rotation, shape: o.shape, text: o.text,
+          response = await apiJson(token, `${path}/widgets/shape`, [{ ...common, rotation: o.rotation, shape: o.shape,
+            htmlText: `<div style="font-family: proxima-nova; font-size: ${o.fontSize}px; text-align: ${o.align}; color: ${o.textColor.slice(0, RGB_HEX_LENGTH)}">${html(o.text)}</div>`,
             style: { backgroundColor: o.fill, borderColor: o.stroke, borderStyle: o.dotted ? 'dotted' : 'solid', borderWidth: o.strokeWidth,
-              fontColor: o.textColor, font: 'proxima-nova', fontSize: o.fontSize, textAlign: o.align } }]);
+              fontColor: o.textColor } }]);
         } else if (o.type === 'textbox') {
           response = await apiJson(token, `${path}/widgets/textbox`, [{ ...common, rotation: o.rotation, text: `<span style="color: ${o.textColor.slice(0, RGB_HEX_LENGTH)}">${html(o.text)}</span>`,
             style: { backgroundColor: o.fill, font: 'proxima-nova', fontSize: o.fontSize, textAlign: o.align } }]);
@@ -166,7 +169,9 @@ export async function exportMuralDiagram(db: Pool, input: unknown): Promise<{ bo
           if (typeof asset.name !== 'string' || !asset.name || o.image === null) throw new IntegrationError('mural', 'Missing native image asset.');
           const uploaded = await request(upload, { method: 'PUT', headers: { 'x-ms-blob-type': 'BlockBlob', 'Content-Type': 'image/png' }, body: new Uint8Array(o.image) });
           if (!uploaded.ok) throw new IntegrationError('mural', `Icon upload failed (HTTP ${uploaded.status}).`);
-          response = await apiJson(token, `${path}/widgets/image`, { ...common, name: asset.name, caption: o.text, showCaption: Boolean(o.text), border: false });
+          response = await apiJson(token, `${path}/widgets/image`, { x: common.x, y: common.y, width: common.width, height: common.height,
+            instruction: common.instruction, ...(o.parentId === null ? {} : { parentId: ids.get(o.parentId) }),
+            name: asset.name, caption: o.text, showCaption: Boolean(o.text), border: false });
         }
         ids.set(o.id, createdId(response, o.type === 'shape' || o.type === 'textbox'));
       }
@@ -176,6 +181,7 @@ export async function exportMuralDiagram(db: Pool, input: unknown): Promise<{ bo
         if (c.arrows === 'start') { points.reverse(); [start, end] = [end, start]; }
         const xs = points.map(p => p.x), ys = points.map(p => p.y);
         const x = Math.min(...xs), y = Math.min(...ys);
+        currentObject = `connector ${c.id}`;
         writes++;
         createdId(await apiJson(token, `${path}/widgets/arrow`, { x, y, width: Math.max(1, Math.max(...xs) - x), height: Math.max(1, Math.max(...ys) - y),
           points: points.map(p => ({ x: p.x - x, y: p.y - y })), arrowType: c.route,
@@ -187,7 +193,7 @@ export async function exportMuralDiagram(db: Pool, input: unknown): Promise<{ bo
             labels: [{ x: c.label.x - x - LABEL_HALF_WIDTH, y: c.label.y - y - c.fontSize, width: LABEL_WIDTH, height: Math.max(LABEL_MIN_HEIGHT, c.fontSize * LABEL_LINE_HEIGHT), text: c.text }] } } : {}) }));
       }
     } catch (error) {
-      throw new IntegrationError('mural', `${error instanceof Error ? error.message : 'Native export failed.'} ${writes} object creation attempt(s). Some objects may already exist; inspect the board before retrying. Nothing was automatically retried or deleted.`);
+      throw new IntegrationError('mural', `${error instanceof Error ? error.message : 'Native export failed.'} Failed at ${currentObject}; ${writes} object creation attempt(s). Some objects may already exist; inspect the board before retrying. Nothing was automatically retried or deleted.`);
     }
     return { boardUrl: diagram.board.url, objects: diagram.objects.length, connectors: diagram.connectors.length };
   });

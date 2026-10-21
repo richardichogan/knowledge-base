@@ -29,6 +29,7 @@ const MAX_PNG_SIDE = 16384;
 const MAX_PNG_PIXELS = 64_000_000;
 const MAX_TITLE_LENGTH = 300;
 const MAX_BOARD_LIST_REQUESTS = 200;
+const BAD_REQUEST = 400;
 interface Config { clientId: string; secret: string; boardUrl: string }
 interface Tokens { accessToken: string; refreshToken: string; expiresAt: number }
 interface Pending { userId: string; verifier: string; fingerprint: string }
@@ -212,6 +213,8 @@ export async function apiJson(token: string, path: string, body?: unknown): Prom
   const response = await request(`${API}${path}`, { method: body === undefined ? 'GET' : 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  if (response.status === BAD_REQUEST) throw new IntegrationError('mural',
+    `Mural rejected the ${path.includes('/widgets/') ? path.split('/widgets/')[1] : 'API'} payload (HTTP 400). The request contains invalid or unsupported fields; this is not a board-name change.`);
   if (!response.ok) throw new IntegrationError('mural',
     `Mural returned HTTP ${response.status}. ${response.status === UNAUTHORIZED ? 'Reconnect to Mural.' : response.status === FORBIDDEN ? 'Check mural write permission, OAuth scopes and workspace data-residency policy.' : response.status === RATE_LIMITED ? 'Rate limit reached; wait before retrying.' : 'Check board access and try again.'}`);
   return record(await response.json());

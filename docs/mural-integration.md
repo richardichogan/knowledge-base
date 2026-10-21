@@ -33,7 +33,8 @@ Exported boxes use transparent backgrounds rather than copying saved dark fills,
 and pale label text becomes dark for readability on the board. Borders keep their
 saved colours; Athena's original diagram and other export formats are unchanged.
 Shapes explicitly retain their font size and alignment (including numbered
-badges), rather than inheriting Mural's default typography. Text boxes allow
+badges) through the shape API's `htmlText`, rather than sending unsupported
+`font`, `fontSize` or `textAlign` shape-style properties. Text boxes allow
 extra height for wrapping and padding; exported footnotes move down within
 their column when needed so expanded text does not overlap the following note.
 Descriptions and AI-step summaries

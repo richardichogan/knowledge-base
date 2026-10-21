@@ -173,6 +173,7 @@ test('Native Mural uploads only individual icons and never forwards OAuth to ass
       if (url.endsWith('/image')) {
         widgets++;
         assert.equal(JSON.parse(String(init?.body)).name, 'icon.png');
+        assert.ok(!('title' in JSON.parse(String(init?.body))), 'Image creation does not accept an outline title');
         return Response.json({ value: { id: 'native-icon' } });
       }
       return Response.json({ value: { id: 'board' } });
@@ -204,9 +205,10 @@ test('Native Mural creates areas before children, resolves real IDs, attaches ar
       }
       if (url.endsWith('/shape')) {
         const shape = (body as Array<Record<string, unknown>>)[0]!;
-        assert.equal((shape.style as Record<string, unknown>).fontSize, 14);
-        assert.equal((shape.style as Record<string, unknown>).textAlign, 'center');
-        assert.equal((shape.style as Record<string, unknown>).font, 'proxima-nova');
+        const shapeStyle = shape.style as Record<string, unknown>;
+        assert.deepEqual(Object.keys(shapeStyle).sort(), ['backgroundColor', 'borderColor', 'borderStyle', 'borderWidth', 'fontColor']);
+        assert.equal(shape.htmlText, '<div style="font-family: proxima-nova; font-size: 14px; text-align: center; color: #161616">Editable &lt;label&gt;</div>');
+        assert.ok(!('text' in shape), 'HTML text owns shape typography without unsupported style fields');
         shapeCount++;
         if (shapeCount === 1) { assert.equal(shape.parentId, 'mural-area'); assert.equal(shape.x, 20); assert.equal(shape.y, 40); }
         return Response.json({ value: [{ id: shapeCount === 1 ? 'mural-child' : 'mural-target' }] });
@@ -259,6 +261,30 @@ test('Native Mural rejects invalid exports before network access and reports par
     };
     await assert.rejects(exportMuralDiagram(pool, nativeDiagram()), /Some objects may already exist.*Nothing was automatically retried/);
     assert.equal(calls, 3);
+  } finally { globalThis.fetch = original; await db.close(); }
+});
+
+test('Native Mural HTTP 400 identifies the failed widget without blaming a board rename or leaking provider data', async () => {
+  const { pool, db } = await fixture(); const original = globalThis.fetch;
+  try {
+    await saveMuralConfig(pool, config);
+    globalThis.fetch = async () => tokenResponse();
+    await finishMuralAuth(pool, 'richard', { state: new URL(await startMuralAuth(pool, 'richard')).searchParams.get('state'), code: 'fixture' });
+    let writes = 0;
+    globalThis.fetch = async (input, init) => {
+      if (!init?.body) return Response.json({ value: { id: 'board' } });
+      writes++;
+      if (String(input).endsWith('/area')) return Response.json({ value: { id: 'area' } });
+      return Response.json({ message: 'fixture-access-token private-provider-data' }, { status: 400 });
+    };
+    await assert.rejects(exportMuralDiagram(pool, nativeDiagram()), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /shape payload \(HTTP 400\)/);
+      assert.match(error.message, /Failed at shape child; 2 object creation attempt/);
+      assert.doesNotMatch(error.message, /Check board access|fixture-access-token|private-provider-data/);
+      return true;
+    });
+    assert.equal(writes, 2, 'Do not retry an external creation request');
   } finally { globalThis.fetch = original; await db.close(); }
 });
 
