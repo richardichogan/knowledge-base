@@ -14,8 +14,18 @@ function handler(run: (req: Request) => Promise<unknown>) {
   };
 }
 router.get('/', handler(() => muralStatus(getDb())));
-router.get('/boards', handler(() => listMuralBoards(getDb())));
-router.get('/rooms', handler(() => listMuralRooms(getDb())));
+router.get('/boards', handler(async req => {
+  if (req.query['includeWarnings'] !== '1') return listMuralBoards(getDb());
+  const warnings: string[] = [];
+  const items = await listMuralBoards(getDb(), message => { warnings.push(message); });
+  return { items, warnings };
+}));
+router.get('/rooms', handler(async req => {
+  if (req.query['includeWarnings'] !== '1') return listMuralRooms(getDb());
+  const warnings: string[] = [];
+  const items = await listMuralRooms(getDb(), message => { warnings.push(message); });
+  return { items, warnings };
+}));
 router.post('/boards', handler(req => createMuralBoard(getDb(), req.body)));
 router.put('/', handler(req => saveMuralConfig(getDb(), req.body)));
 router.post('/connect', handler(async req => ({ url: await startMuralAuth(getDb(), (req as AuthenticatedRequest).userId) })));

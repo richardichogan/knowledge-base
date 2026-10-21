@@ -21,7 +21,7 @@ export const MuralBoardPicker: React.FC<{
     staleTime: 60_000,
     retry: false,
   });
-  const boards = query.data ?? [];
+  const boards = query.data?.items ?? [];
   const workspaces = [...new Set(boards.map(board => board.workspace))];
   const listed = boards.some(board => board.url === value);
   const safeDestination = /^https:\/\/app\.mural\.co\/t\/[a-z0-9_-]+\/m\/[a-z0-9_-]+\/\d+(?:\/[a-f0-9]+)?\/?(?:[?#].*)?$/i.test(value);
@@ -45,6 +45,7 @@ export const MuralBoardPicker: React.FC<{
     <div id={`${id}-status`} className="mural-board-picker__status">
       {query.isPending && <p role="status">Loading boards from your Mural workspaces...</p>}
       {query.isError && <p className="mural-board-picker__error" role="alert">{describeApiError(query.error)}</p>}
+      {query.data?.warnings.map(warning => <p key={warning} role="status">{warning}</p>)}
       {query.isSuccess && boards.length === 0 && <p>No boards were found for this Mural account. Create one in Mural or enter its URL.</p>}
       {!manual && value && !listed && !query.isPending && <p>The current destination is not in this list. Choose a board above or use its URL.</p>}
     </div>

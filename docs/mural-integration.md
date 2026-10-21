@@ -14,6 +14,11 @@ Register this exact redirect URL:
 Enable `murals:read`, `murals:write`, `workspaces:read` and `rooms:read`.
 Existing connections must reconnect after enabling the new read scopes to
 authorise board and room listing.
+The connection controls are in **My work -> Sync Status**, directly accessible
+at `https://athena.themicrosoftcloudblog.com/my-work?sync=1`, not on the
+Tools / Sources document page. A listing HTTP 403 identifies the denied API
+path and required scope; it does not prove that scope is missing. If renewed
+consent does not resolve it, check workspace membership and workspace API policy.
 CORS allowlisting is not needed:
 provider requests are server-side. Keep the app Private during testing.
 Click Connect to Mural and consent using the Mural account that can edit the
@@ -84,6 +89,10 @@ across its workspaces, following every pagination token. Archived boards are
 shown but cannot be selected for export. Refresh boards reloads the list.
 Enter board URL remains available for boards not returned by the account's
 workspace membership or while reconnecting. Listing errors are explicit;
+If an individual workspace returns `403 WORKSPACE_LIST_MEMBERS`, its boards
+and rooms are excluded with a visible warning identifying that workspace.
+Other accessible workspaces remain available. Global workspace-list denial,
+unrecognised permission errors and failed pagination still fail explicitly;
 Athena never presents a partial list as a complete result. The same picker
 is available when editing the default destination in Sources / Integrations.
 

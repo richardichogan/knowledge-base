@@ -221,7 +221,7 @@ export async function apiJson(token: string, path: string, body?: unknown): Prom
   return record(await response.json());
 }
 
-function muralPages(token: string): (path: string) => Promise<Record<string, unknown>[]> {
+function muralPages(token: string, onRestrictedWorkspace?: (message: string) => void): (path: string) => Promise<Record<string, unknown>[]> {
     let requests = 0;
     return async (path: string): Promise<Record<string, unknown>[]> => {
       const items: Record<string, unknown>[] = [];
@@ -234,7 +234,15 @@ function muralPages(token: string): (path: string) => Promise<Record<string, unk
           method: 'GET', headers: { Authorization: `Bearer ${token}` },
         });
         if (response.status === FORBIDDEN) {
-          throw new IntegrationError('mural', 'Board and room listing needs workspaces:read, murals:read and rooms:read. Enable these scopes in your Mural app, then reconnect in Sources / Integrations. You can still enter a board URL.');
+          const denied: unknown = await response.json().catch(() => null);
+          if (onRestrictedWorkspace && path.startsWith('/workspaces/') && denied !== null
+            && typeof denied === 'object' && 'code' in denied && denied.code === 'WORKSPACE_LIST_MEMBERS') {
+            const [, , workspaceId] = path.split('/');
+            onRestrictedWorkspace(`Mural denied access to workspace ${workspaceId} (WORKSPACE_LIST_MEMBERS). Its boards or rooms are not included. Other accessible workspaces are shown.`);
+            return [];
+          }
+          const scope = path === '/workspaces' ? 'workspaces:read' : path.endsWith('/rooms') ? 'rooms:read' : 'murals:read';
+          throw new IntegrationError('mural', `Mural denied GET ${path} (HTTP 403). This endpoint requires ${scope}, but a 403 alone does not establish that the scope is missing. If app permissions changed since connecting, reconnect in My work > Sync Status (/my-work?sync=1). If you already reconnected, check this account's workspace membership and workspace API policy. No partial list was returned. You can still enter a board URL.`);
         }
         if (response.status === UNAUTHORIZED) throw new IntegrationError('mural', 'Mural sign-in expired or was revoked. Reconnect in Sources / Integrations.');
         if (!response.ok) throw new IntegrationError('mural', `Could not list Mural boards (HTTP ${response.status}). ${response.status === RATE_LIMITED ? 'Wait before refreshing.' : 'Check workspace access and try again.'}`);
@@ -268,9 +276,9 @@ function boardOption(board: Record<string, unknown>, workspace: { id: string; na
     url: muralBoard(`https://app.mural.co/t/${workspace.id}/m/${owner}/${id}`).url };
 }
 
-export async function listMuralBoards(db: Pool): Promise<MuralBoardOption[]> {
+export async function listMuralBoards(db: Pool, onRestrictedWorkspace?: (message: string) => void): Promise<MuralBoardOption[]> {
   return withToken(db, async token => {
-    const pages = muralPages(token);
+    const pages = muralPages(token, onRestrictedWorkspace);
     const boards = new Map<string, MuralBoardOption>();
     for (const raw of await pages('/workspaces')) {
       const workspace = workspaceInfo(raw);
@@ -283,9 +291,9 @@ export async function listMuralBoards(db: Pool): Promise<MuralBoardOption[]> {
   });
 }
 
-export async function listMuralRooms(db: Pool): Promise<MuralRoomOption[]> {
+export async function listMuralRooms(db: Pool, onRestrictedWorkspace?: (message: string) => void): Promise<MuralRoomOption[]> {
   return withToken(db, async token => {
-    const pages = muralPages(token);
+    const pages = muralPages(token, onRestrictedWorkspace);
     const rooms = new Map<number, MuralRoomOption>();
     for (const raw of await pages('/workspaces')) {
       const workspace = workspaceInfo(raw);

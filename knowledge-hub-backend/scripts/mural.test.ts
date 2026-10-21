@@ -91,7 +91,22 @@ test('Mural board listing surfaces missing scope, malformed pages, failed pages 
     globalThis.fetch = async () => tokenResponse();
     await finishMuralAuth(pool, 'richard', { state: new URL(await startMuralAuth(pool, 'richard')).searchParams.get('state'), code: 'fixture' });
     globalThis.fetch = async () => new Response('', { status: 403 });
-    await assert.rejects(listMuralBoards(pool), /workspaces:read.*reconnect/);
+    await assert.rejects(listMuralBoards(pool), /denied GET \/workspaces \(HTTP 403\).*workspaces:read.*does not establish.*My work > Sync Status/);
+    for (const [list, resource, scope] of [
+      [listMuralBoards, 'murals', 'murals:read'],
+      [listMuralRooms, 'rooms', 'rooms:read'],
+    ] as const) {
+      globalThis.fetch = async input => new URL(String(input)).pathname.endsWith('/workspaces')
+        ? Response.json({ value: [{ id: 'athena5676', name: 'Workspace' }] })
+        : Response.json({ message: 'private provider details', code: 'FORBIDDEN' }, { status: 403 });
+      await assert.rejects(list(pool), error => {
+        assert.ok(error instanceof Error);
+        assert.ok(error.message.includes(`GET /workspaces/athena5676/${resource} (HTTP 403)`));
+        assert.ok(error.message.includes(scope));
+        assert.ok(!error.message.includes('private provider details'));
+        return true;
+      });
+    }
     globalThis.fetch = async () => Response.json({ value: 'invalid' });
     await assert.rejects(listMuralBoards(pool), /invalid board list/);
     globalThis.fetch = async () => Response.json({ value: [], next: 'repeated' });
@@ -104,6 +119,39 @@ test('Mural board listing surfaces missing scope, malformed pages, failed pages 
     await assert.rejects(listMuralBoards(pool), /invalid workspace/);
     await disconnectMural(pool);
     await assert.rejects(listMuralBoards(pool), /Connect to Mural/);
+  } finally { globalThis.fetch = original; await db.close(); }
+});
+
+test('Mural restricted workspace membership preserves accessible board and room lists with explicit warnings', async () => {
+  const { pool, db } = await fixture(); const original = globalThis.fetch;
+  try {
+    await saveMuralConfig(pool, config);
+    globalThis.fetch = async () => tokenResponse();
+    await finishMuralAuth(pool, 'richard', { state: new URL(await startMuralAuth(pool, 'richard')).searchParams.get('state'), code: 'fixture' });
+    let errorCode = 'WORKSPACE_LIST_MEMBERS';
+    globalThis.fetch = async input => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/workspaces')) return Response.json({ value: [
+        { id: 'restricted1234', name: 'Restricted' }, { id: 'athena5676', name: 'Athena' },
+      ] });
+      if (url.pathname.includes('/restricted1234/')) return Response.json({ code: errorCode, message: 'private provider detail' }, { status: 403 });
+      if (url.pathname.endsWith('/murals')) return Response.json({ value: [{ id: 'athena5676.1', title: 'Existing board', status: 'active' }] });
+      return Response.json({ value: [{ id: 123, name: 'Architecture room' }] });
+    };
+    const warnings: string[] = [];
+    const boards = await listMuralBoards(pool, message => { warnings.push(message); });
+    const rooms = await listMuralRooms(pool, message => { warnings.push(message); });
+    assert.equal(boards.length, 1); assert.equal(boards[0]?.id, 'athena5676.1');
+    assert.equal(rooms.length, 1); assert.equal(rooms[0]?.id, 123);
+    assert.equal(warnings.length, 2);
+    assert.ok(warnings.every(message => message.includes('restricted1234') && message.includes('WORKSPACE_LIST_MEMBERS')));
+    assert.ok(!warnings.join().includes('private provider detail'));
+    await assert.rejects(listMuralBoards(pool), /HTTP 403/, 'No warning consumer means no silent incomplete list');
+    errorCode = 'SCOPE_MISSING';
+    await assert.rejects(listMuralBoards(pool, message => { warnings.push(message); }), /HTTP 403/);
+    globalThis.fetch = async () => Response.json({ code: 'WORKSPACE_LIST_MEMBERS' }, { status: 403 });
+    await assert.rejects(listMuralRooms(pool, message => { warnings.push(message); }), /GET \/workspaces \(HTTP 403\)/);
+    assert.equal(warnings.length, 2, 'Global and unrecognised denials remain errors');
   } finally { globalThis.fetch = original; await db.close(); }
 });
 

@@ -1,6 +1,6 @@
 import React, { useId, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type MuralBoardOption } from '../services/api';
+import { api, type MuralBoardOption, type MuralList } from '../services/api';
 import { describeApiError } from '../services/apiError';
 import { MuralBoardPicker, MURAL_BOARDS_QUERY } from './MuralBoardPicker';
 
@@ -34,9 +34,12 @@ export const MuralExportDestination: React.FC<{
     try {
       const response = await api.createMuralBoard({ roomId: Number(roomId), title: name.trim() });
       if (!response.success) throw new Error(response.error.message);
-      const board = { ...response.data, workspace: rooms.data?.find(room => room.id === Number(roomId))?.workspace ?? response.data.workspace };
-      cache.setQueryData<MuralBoardOption[]>(MURAL_BOARDS_QUERY, old => [...(old ?? []).filter(item => item.id !== board.id), board]
-        .sort((a, b) => a.workspace.localeCompare(b.workspace) || a.title.localeCompare(b.title)));
+      const board = { ...response.data, workspace: rooms.data?.items.find(room => room.id === Number(roomId))?.workspace ?? response.data.workspace };
+      cache.setQueryData<MuralList<MuralBoardOption>>(MURAL_BOARDS_QUERY, old => ({
+        items: [...(old?.items ?? []).filter(item => item.id !== board.id), board]
+          .sort((a, b) => a.workspace.localeCompare(b.workspace) || a.title.localeCompare(b.title)),
+        warnings: old?.warnings ?? [],
+      }));
       onChange(board.url); setPrevious(board.url); setCreated(board.title); setMode('existing');
     } catch (err) { setError(`${describeApiError(err)} Check the room in Mural before creating another board.`); }
     finally { creating.current = false; setBusy(false); }
@@ -52,17 +55,18 @@ export const MuralExportDestination: React.FC<{
     </div>
     {mode === 'existing' ? <MuralBoardPicker value={value} disabled={locked} onChange={onChange} /> : <>
       <label className="mural-integration__field" htmlFor={`${id}-room`}>Room
-        <select id={`${id}-room`} value={roomId} disabled={locked || rooms.isPending || !rooms.data?.length}
+        <select id={`${id}-room`} value={roomId} disabled={locked || rooms.isPending || !rooms.data?.items.length}
           onChange={event => { setRoomId(event.target.value); }}>
           <option value="" disabled>{rooms.isPending ? 'Loading rooms...' : 'Choose a room'}</option>
-          {[...new Set(rooms.data?.map(room => room.workspace) ?? [])].map(workspace =>
-            <optgroup key={workspace} label={workspace}>{rooms.data?.filter(room => room.workspace === workspace).map(room =>
+          {[...new Set(rooms.data?.items.map(room => room.workspace) ?? [])].map(workspace =>
+            <optgroup key={workspace} label={workspace}>{rooms.data?.items.filter(room => room.workspace === workspace).map(room =>
               <option key={room.id} value={room.id}>{room.name}</option>)}</optgroup>)}
         </select>
       </label>
       {rooms.isPending && <p className="dg-popover__hint" role="status">Loading your Mural rooms...</p>}
       {rooms.isError && <p className="mural-board-picker__error" role="alert">{describeApiError(rooms.error)}</p>}
-      {rooms.isSuccess && rooms.data.length === 0 && <p className="dg-popover__hint">No rooms found. Create a room in Mural, then refresh. Mural requires room-owner permission to create a board.</p>}
+      {rooms.data?.warnings.map(warning => <p className="dg-popover__hint" key={warning} role="status">{warning}</p>)}
+      {rooms.isSuccess && rooms.data.items.length === 0 && <p className="dg-popover__hint">No rooms found. Create a room in Mural, then refresh. Mural requires room-owner permission to create a board.</p>}
       <div className="mural-board-picker__actions"><button type="button" disabled={locked || rooms.isFetching}
         onClick={() => { void rooms.refetch(); }}>Refresh rooms</button></div>
       <label className="mural-integration__field" htmlFor={`${id}-name`}>New Mural name

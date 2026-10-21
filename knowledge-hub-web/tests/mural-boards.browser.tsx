@@ -15,7 +15,7 @@ let empty = false;
 let calls = 0;
 let creates = 0;
 let createFailure = false;
-api.getMuralRooms = async () => ({ success: true, data: [{ id: 123, name: 'Architecture room', workspace: 'Athena' }] });
+api.getMuralRooms = async () => ({ success: true, data: { items: [{ id: 123, name: 'Architecture room', workspace: 'Athena' }], warnings: ['Restricted workspace rooms are not included.'] } });
 api.createMuralBoard = async input => {
   creates++;
   await new Promise(resolve => setTimeout(resolve, 80));
@@ -31,7 +31,7 @@ api.getMuralBoards = async () => {
   calls++;
   await new Promise(resolve => setTimeout(resolve, 80));
   if (failure) throw new Error('Enable workspaces:read and reconnect in Sources / Integrations.');
-  return { success: true, data: empty ? [] : boards };
+  return { success: true, data: { items: empty ? [] : boards, warnings: ['Restricted workspace boards are not included.'] } };
 };
 function Fixture(): React.ReactElement {
   const [value, setValue] = useState(first);
@@ -62,6 +62,7 @@ async function run(): Promise<string[]> {
   await wait(() => document.querySelectorAll('optgroup').length === 2);
   const select = document.querySelector('select')!;
   check(select.value === first, 'Saved default must remain selected');
+  check(document.body.innerText.includes('Restricted workspace boards are not included.'), 'Restricted workspace warning must be visible with accessible boards');
   check(select.options[3]!.disabled, 'Archived board must not be selectable');
   select.value = second;
   select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -95,6 +96,7 @@ async function run(): Promise<string[]> {
   button('Create a new Mural').click();
   await wait(() => document.querySelectorAll('select option').length === 2);
   check(document.querySelector<HTMLButtonElement>('[data-send]')!.disabled, 'Export is blocked until new board exists');
+  check(document.body.innerText.includes('Restricted workspace rooms are not included.'), 'Restricted workspace warning must be visible with accessible rooms');
   const room = document.querySelector('select')!;
   room.value = '123'; room.dispatchEvent(new Event('change', { bubbles: true }));
   await wait(() => !button('Create and select Mural').disabled);

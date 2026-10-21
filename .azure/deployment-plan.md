@@ -2,6 +2,39 @@
 
 **Status:** Validated
 
+**Mural restricted-workspace correction (2026-10-21):**
+- Root cause confirmed with read-only requests using the renewed saved grant:
+  global workspaces and Athena boards return HTTP 200. Only microsoft1254
+  returns 403 WORKSPACE_LIST_MEMBERS for board and room listing. The prior
+  implementation aborted all results and incorrectly diagnosed missing scopes.
+- Preserve accessible lists with explicit restricted-workspace warnings.
+  Only the specific provider membership code on individual-workspace endpoints
+  is handled; global/unknown denials and pagination failures still error.
+  New warning-aware clients opt in; existing list API contracts remain intact.
+- Reuse existing image-only AZCLI and SWA deployment to the same production
+  resources. No infrastructure, dependencies, database schema or permissions
+  changes. No new boards or widgets created during diagnosis.
+- Functional proof: fixed service returned 42 real boards and 77 rooms,
+  including Reckitt SDLC in Athena, plus the two expected restriction warnings.
+  Both typechecks, builds, focused lint and 16 Mural tests passed; browser
+  fixture passed destination workflows with visible board and room warnings.
+
+**Section 7: Validation proof (2026-10-21, workspace denial correction):**
+- `npx tsc --noEmit`, `npm run build` passed in both applications after final
+  API opt-in changes. Focused backend/frontend ESLint passed and frontend
+  `npm run lint:check` passed (25 existing violations, baseline 41).
+- `node --import tsx/esm --test --test-force-exit scripts/mural.test.ts`
+  passed 16/16, including restricted-workspace isolation, mandatory warnings,
+  and rejection of global/unknown denials rather than silent partial success.
+- Live service reads returned 42 boards, 77 rooms, Reckitt SDLC and explicit
+  microsoft1254 membership warnings. Browser fixture passed all 15 workflows
+  plus board/room warning assertions; narrow screenshot shows styled controls.
+- Fetched and merged origin/main, already up to date. Azure CLI confirmed
+  Alliance Tenant Reporting c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28 and current
+  image v225; next image v226. Existing secret registry auth preserved.
+- Image-only/SWA recipe; Bicep, what-if, provisioning, policy and RBAC changes
+  are not applicable. Same Dockerfile/lockfile and hosting are retained.
+
 **Deployment result (2026-10-21, Mural destinations release):**
 - Source 244c408 pushed to the feature branch and main. ACR run ca73 built
   kh-prod-api:v225, digest

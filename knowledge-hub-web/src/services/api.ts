@@ -56,6 +56,7 @@ export interface MuralBoardOption {
   id: string; title: string; url: string; workspace: string; archived: boolean;
 }
 export interface MuralRoomOption { id: number; name: string; workspace: string }
+export interface MuralList<T> { items: T[]; warnings: string[] }
 
 export type ProjectRegisterKind = 'question' | 'risk' | 'issue';
 export interface ProjectRegisterItem {
@@ -626,11 +627,11 @@ export class KnowledgeHubApi {
   async getMuralStatus(): Promise<ApiResponse<MuralStatus>> {
     return (await this.client.get<ApiResponse<MuralStatus>>('/api/integrations/mural')).data;
   }
-  async getMuralBoards(): Promise<ApiResponse<MuralBoardOption[]>> {
-    return (await this.client.get<ApiResponse<MuralBoardOption[]>>('/api/integrations/mural/boards')).data;
+  async getMuralBoards(): Promise<ApiResponse<MuralList<MuralBoardOption>>> {
+    return (await this.client.get<ApiResponse<MuralList<MuralBoardOption>>>('/api/integrations/mural/boards?includeWarnings=1')).data;
   }
-  async getMuralRooms(): Promise<ApiResponse<MuralRoomOption[]>> {
-    return (await this.client.get<ApiResponse<MuralRoomOption[]>>('/api/integrations/mural/rooms')).data;
+  async getMuralRooms(): Promise<ApiResponse<MuralList<MuralRoomOption>>> {
+    return (await this.client.get<ApiResponse<MuralList<MuralRoomOption>>>('/api/integrations/mural/rooms?includeWarnings=1')).data;
   }
   async createMuralBoard(input: { roomId: number; title: string }): Promise<ApiResponse<MuralBoardOption>> {
     return (await this.client.post<ApiResponse<MuralBoardOption>>('/api/integrations/mural/boards', input)).data;
