@@ -17,7 +17,19 @@
   build, frontend isolated suite, targeted watchlist tests and frontend lint.
 - No infrastructure, schema, permissions, secrets or dependency changes.
 - Deploy frontend and verify public entry and application assets match by SHA-256.
-- Rollout result pending for this release.
+- Rollout completed; details below.
+
+**Deployment result (2026-10-21, Watchlist/blog frontend release):**
+- Source 5cdddd9 committed and pushed to the feature branch and main.
+- Frontend deployed successfully to kh-prod-web production; backend remains v227.
+- Both athena.themicrosoftcloudblog.com and the default SWA hostname serve
+  index-COdYSCXS.js, appBootstrap-1JOu4eFc.js and appBootstrap-Cfk364Fe.css
+  matching the local production build byte-for-byte by SHA-256.
+- Watchlists now renders the failed AI Platform Moves run with missing-coverage
+  disclosure rather than crashing. The monitoring run's underlying failure is
+  not repaired or retried by this frontend rollout.
+- Blog editor rich-text/HTML toggle deployed; both save actions retain HTML.
+- No content writes, monitoring reruns, browser launches or infrastructure changes.
 
 **Section 7: Validation proof (2026-10-21, Watchlist/blog frontend release):**
 - Fetch/merge origin/main completed; already current at 1ef7fda.
