@@ -1,6 +1,15 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
+
+**Deployment result (2026-10-22, chat/Note styling):**
+- Source 3bfafb4 pushed to main and session branch; frontend deployed to
+  kh-prod-web production. Chat blockquotes are unboxed; Note tags are yellow.
+- Both public domains serve index-CY_DlrZX.js, appBootstrap-D_5YPK6q.js and
+  appBootstrap-D8a2RhdS.css matching the local build by SHA-256.
+- Backend unchanged: v232, latest ready revision kh-prod-api-vnet--0000229.
+- EPAM, BCG and SIGMOID company records were persisted and read back separately,
+  linked to Reckitt. Original source notes remain unchanged.
 
 **Chat quote and Note tag styling release (2026-10-22):**
 - Deploy the two pending frontend styling changes: unboxed chat blockquotes
