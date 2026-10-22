@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **YouTube evidence and related-reading release (2026-10-22):**
 - User requested deploy and push to remote. Deploy current YouTube caption
@@ -37,6 +37,23 @@
   release; no infrastructure changes are included.
 - Completed checks on 2026-10-22 around 08:04 UTC. Logs retained in session
   files/youtube-release-{backend-tests,frontend-build,frontend-tests}.log.
+
+**Deployment result (2026-10-22, YouTube evidence release):**
+- Source 029c650 pushed to feature branch and main. ACR run ca77 built v229
+  successfully from main; digest
+  sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0.
+- Backend revision kh-prod-api-vnet--0000226 is latest ready, Healthy /
+  RunningAtMaxScale, with 100% traffic. Startup logs confirm migration complete
+  and 8/8 database connections warmed.
+- Frontend deployed to kh-prod-web production. Custom and default SWA domains
+  serve index-CHhH54Ok.js, appBootstrap-C-vitBTt.js and
+  appBootstrap-BDIr9sFY.css matching the local release by SHA-256.
+- Public captions are attempted, not guaranteed available. Subject research and
+  related background links remain explicitly separate from transcript evidence.
+- Existing unprocessed videos enrich in bounded batches during normal production
+  sync; no manual production backfill or browser verification was performed.
+- AI coverage and Athena-native semantic-layer documents were pushed as proposed
+  specifications only; those capabilities were not implemented by this release.
 
 **Watchlists backend repair release (2026-10-21):**
 - User directed deployment after the database upgrade, approving the pending
