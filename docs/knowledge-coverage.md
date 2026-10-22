@@ -23,6 +23,25 @@ In chat, the "Used:" line separates **Found** (search candidate, not necessarily
 - Admin API (authenticated by the `x-cron-secret` header only; fails closed if `CRON_SECRET` is unset): `GET /api/knowledge/admin/indexing` returns the switch, queue summary and dry-run estimate; `PUT /api/knowledge/admin/indexing` with `{"enabled": true|false}` sets it.
 - Durable indexing work (`knowledge_indexing_work`, migration 089) is drained by the hourly production sweep when the switch is ON, and the sweep is skipped in development and whenever Foundry IQ is not configured (`FOUNDRY_IQ_SEARCH_ENDPOINT` / `FOUNDRY_IQ_SEARCH_ADMIN_KEY`). Work stays queued while the switch is OFF, with leases and delete tombstones intact.
 
+## BAU monitoring
+
+Every knowledge-orchestrated Athena turn (general persona, `KNOWLEDGE_ORCHESTRATION` on) writes one row to `knowledge_turn_audit` (migration 092): ids, counts and a category only. No user or assistant text is stored. Writing is fire-and-forget after the reply is built; a failure is logged and never affects the answer. Rows older than 90 days are pruned nightly.
+
+**Categories** (first match wins, most severe first): `tool_error` (a tool returned an error), `source_unavailable` (a cited/found record was missing or excluded), `wrong_abstain` (the answer declined although records were found or read), `bad_citation` (ids stripped or a citation repair needed), `unverified_quote` (quote not matched to source text), `budget_hit` (a retrieval budget ran out), `found_not_read` (records found, none opened), `partial` (limited without a specific budget), `no_retrieval` (nothing searched), `ok`.
+
+**Nightly review** (`knowledgeNightlyReviewJob`, about 02:00 UTC, claimed once per day, zero model calls) aggregates the previous UTC day into `knowledge_daily_review`: category counts, rates, the 10 worst turns (audit ids and session ids only) and flags. Critical = `tool_error`, `wrong_abstain`, `bad_citation`, `unverified_quote`.
+
+| Flag | Raised when |
+|---|---|
+| `criticalRate` | critical turns above 5% |
+| `noRetrievalRate` | `no_retrieval` above 10% |
+| `abstainWithEvidence` | `wrong_abstain` above 5% |
+| `lowSample` | fewer than 5 turns (low sample, not an alarm) |
+
+**Reading the report:** `GET /api/health/knowledge` has a `turnReview` section with the latest review and the last 7 days (`trend`, newest first). Check flags first, then `categoryCounts` to see which failure dominates, then look up `worstTurns` ids in `knowledge_turn_audit` to find the session to inspect. A failing section reports "could not be read" and never fails the endpoint.
+
+**Kill switch:** `az containerapp update --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod --set-env-vars KNOWLEDGE_ORCHESTRATION=false` (also stops audit writes).
+
 ## Rollback procedure
 
 1. Set `KNOWLEDGE_ORCHESTRATION` off on the container app (`az containerapp update --set-env-vars KNOWLEDGE_ORCHESTRATION=false`) and let the new revision become Healthy. Old compatible tools resume.

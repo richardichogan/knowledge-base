@@ -116,6 +116,23 @@ export interface KnowledgeHealth {
   syncRuns: Section<{ runs: SyncRunSummary[]; jobs: JobClaimSummary[] }>;
   index: Section<IndexSection>;
   families: Section<FamiliesSection>;
+  turnReview: Section<TurnReviewSection>;
+}
+
+export interface TurnReviewRow { reviewDate: string; turns: number; categoryCounts: unknown; rates: unknown; worstTurns: unknown; flags: unknown }
+export interface TurnReviewSection { latest: TurnReviewRow | null; trend: TurnReviewRow[] }
+
+const TREND_DAYS = 7;
+
+async function turnReviewSection(db: Pool): Promise<TurnReviewSection> {
+  const { rows } = await db.query(
+    `SELECT to_char(review_date, 'YYYY-MM-DD') AS review_date, turns, category_counts, rates, worst_turns, flags
+     FROM knowledge_daily_review ORDER BY review_date DESC LIMIT ${TREND_DAYS}`);
+  const trend = (rows as Array<Record<string, unknown>>).map((r) => ({
+    reviewDate: String(r['review_date']), turns: num(r['turns']), categoryCounts: r['category_counts'], rates: r['rates'],
+    worstTurns: r['worst_turns'], flags: r['flags'],
+  }));
+  return { latest: trend[0] ?? null, trend };
 }
 
 function dayStart(value: string): number {
@@ -378,11 +395,12 @@ export async function getKnowledgeHealth(
 ): Promise<KnowledgeHealth> {
   const start = new Date(dayStart(filters.from)).toISOString();
   const end = new Date(dayStart(filters.to) + DAY_MS).toISOString();
-  const [usage, syncRuns, index, families] = await Promise.all([
+  const [usage, syncRuns, index, families, turnReview] = await Promise.all([
     guarded(() => usageSection(db, filters, start, end)),
     guarded(() => syncSection(db)),
     guarded(() => indexSection(db)),
     guarded(() => familiesSection(db, options)),
+    guarded(() => turnReviewSection(db)),
   ]);
-  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families };
+  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview };
 }

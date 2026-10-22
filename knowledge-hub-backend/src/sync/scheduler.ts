@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 import { runTier1Sync, isSyncInProgress } from './syncOrchestrator.js';
 import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
+import { runKnowledgeNightlyReviewJob } from '../jobs/knowledgeNightlyReviewJob.js';
 import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
 import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
 import { weeklyDigestDue, generateWeeklyMicrosoftDigest } from '../ai/weeklyMicrosoftDigest.js';
@@ -48,6 +49,9 @@ let watchlistsRunning = false;
 /** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
 const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
+const KNOWLEDGE_REVIEW_UTC_HOUR = 2;
+const ISO_DATE_LENGTH = 10;
+let lastKnowledgeReviewDay = ''; // UTC date of the last nightly knowledge review attempt
 
 function isWithinWorkingHours(): boolean {
   const hour = ukClock().hour;
@@ -208,6 +212,15 @@ export function startSyncScheduler(): void {
         console.warn('[Scheduler] Running Foundry IQ backfill sweep...');
         void runClaimedJob(db, 'foundry-backfill', String(Math.floor(Date.now() / FOUNDRY_BACKFILL_INTERVAL_MS)), () => runFoundryIqBackfillJob(db)).catch((err: unknown) => {
           console.error('[Scheduler] Foundry IQ backfill job failed:', err instanceof Error ? err.message : String(err));
+        });
+      }
+      // Nightly knowledge-turn review — production only, from 02:00 UTC, once per day (claimed). Model-free aggregation.
+      const reviewNow = new Date();
+      const reviewDay = reviewNow.toISOString().slice(0, ISO_DATE_LENGTH);
+      if (!env.isDevelopment && reviewNow.getUTCHours() >= KNOWLEDGE_REVIEW_UTC_HOUR && lastKnowledgeReviewDay !== reviewDay) {
+        lastKnowledgeReviewDay = reviewDay;
+        void runClaimedJob(db, 'knowledge-nightly-review', reviewDay, () => runKnowledgeNightlyReviewJob(db, reviewNow)).catch((err: unknown) => {
+          console.error('[Scheduler] Knowledge nightly review failed:', err instanceof Error ? err.message : String(err));
         });
       }
     }, SYNC_CHECK_INTERVAL),

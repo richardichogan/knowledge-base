@@ -8,6 +8,7 @@ import type { ModelRoute } from './modelChoices.js';
 import { spreadsheetsBlock } from './chatFiles.js';
 import { getExcludedSources, filterExcluded, recordToolSources, recordToolEvidence, attachEvidence, type ContextUsed } from './contextUsage.js';
 import { createLedger, ledgerCounts } from './knowledge/evidence.js';
+import { recordTurnAudit, looksAbstained, type TurnAuditRow } from './knowledge/turnAudit.js';
 import { RECORD_TOOLS } from './knowledge/toolRecords.js';
 import { collectIds, resolveAnswer, stripUnseenIds } from './knowledge/citations.js';
 import { TurnBudget, DETERMINISTIC_TOOLS, budgetLimitation, finalizeKnowledgeAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
@@ -391,6 +392,7 @@ export async function handleConversationTurn(
   let retrievalRan = false;
   let deterministicRan = false;
   let deterministicComplete = true;
+  let toolErrorCount = 0;
 
   // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
   const maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS : AI_MAX_TOOL_ITERATIONS;
@@ -475,8 +477,24 @@ export async function handleConversationTurn(
           answerText = decision.answer;
           if (used !== undefined) attachEvidence(used, ledger, budget.partial ? [budgetLimitation(budget)] : []);
           const seenIds = collectIds(userMessage, ...history.map((m) => m.content), ...[...ledger.entries.values()].map((e) => e.ref.id), ...(used?.auto ?? []).map((s) => s.id), ...(used?.found ?? []).map((s) => s.id));
+          const idsBeforeStrip = collectIds(answerText).size;
           answerText = stripUnseenIds(answerText, seenIds);
           const counts = ledgerCounts(ledger);
+          const entries = [...ledger.entries.values()];
+          // Counts and categories only: the answer text is inspected in memory and never stored.
+          const auditRow: TurnAuditRow = {
+            sessionId: sessionId ?? null, assistantMessageId: null, persona: persona ?? 'general',
+            retrievalUsed: retrievalRan, deterministicPath: deterministicRan,
+            found: counts.found, read: counts.read, cited: counts.cited,
+            familiesRead: [...new Set(entries.filter((e) => e.state !== 'found').map((e) => e.ref.kind))],
+            strippedIds: Math.max(0, idsBeforeStrip - collectIds(answerText).size),
+            unverifiedQuotes: decision.action === 'partial' ? decision.invalid.filter((v) => v.problem === 'quote_mismatch').length : 0,
+            repairsUsed: citationRepairs, abstained: looksAbstained(answerText),
+            budgetExhausted: [...budget.exhausted], partial: budget.partial, toolErrorCount,
+            unavailableSources: [...new Set(entries.filter((e) => !e.available).map((e) => e.ref.kind))],
+            durationMs: Date.now() - turnStart, modelRounds: i + 1,
+          };
+          if (persona === undefined || persona === 'general') setImmediate(() => { void recordTurnAudit(db, auditRow); });
           return finalizeKnowledgeAnswer(userMessage, answerText, { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan, deterministicComplete: deterministicComplete && !budget.partial });
         }
         return response.content;
@@ -533,6 +551,7 @@ export async function handleConversationTurn(
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }
       if (result !== null && typeof result === 'object' && 'error' in result) {
+        toolErrorCount++;
         console.warn(`[ai] tool ${call.function.name} returned an error: ${String((result as { error: unknown }).error).slice(0, TOOL_ERROR_LOG_CHARS)}`);
       }
       // Pictures a tool captured (screenshots) go to the model as images, not as text.

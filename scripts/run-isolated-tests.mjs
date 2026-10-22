@@ -68,6 +68,7 @@ const tests = frontend ? [
   'scripts/runtime.test.ts',
   'scripts/discover-views.test.ts',
   'scripts/knowledge-health.test.ts',
+  'scripts/knowledge-monitoring.test.ts',
   'scripts/knowledge-search.test.ts',
   'scripts/knowledge-structured.test.ts',
   'scripts/knowledge-indexing.test.ts',
