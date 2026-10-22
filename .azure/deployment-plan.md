@@ -2,6 +2,85 @@
 
 **Status:** Deployed
 
+**Deployment result (2026-10-22, diagram/company release):**
+- Source 0d5869294a37e24f6470cf63a871da9c7fdf7db5 committed and atomically
+  pushed to main and richardichogan-link-think-chat-projects.
+- ACR run ca7a built and pushed kh-prod-api:v232 successfully from main.
+  Image digest:
+  sha256:4fff18d0645af5fe34db480082d8a0bdbf96b740a75ae7e0e230b2bd20b02ea6.
+- Backend revision kh-prod-api-vnet--0000229 is latest ready, Healthy /
+  RunningAtMaxScale, with 100% traffic. Migration
+  093_company_people_relationships.sql completed successfully at 18:14 UTC;
+  all 8/8 database connections pre-warmed.
+- KNOWLEDGE_ORCHESTRATION remains true; image-only update preserved the
+  existing registry authentication, secrets and runtime configuration.
+- Matching frontend deployed to kh-prod-web production. Custom domain
+  https://athena.themicrosoftcloudblog.com and default SWA domain
+  https://nice-mud-0f780fb03.7.azurestaticapps.net both serve index-CbWFtjHT.js,
+  appBootstrap--4NJEZ2v.js and appBootstrap-C2LTGTlt.css matching the local
+  production build byte-for-byte by SHA-256.
+- No browser launched, test database provisioned, production test records
+  created or manual backfill run. The additive schema migration and normal
+  application startup/scheduler operations ran as part of deployment.
+- BCG/Candela/Reckitt relationships were not inferred or seeded. The UI now
+  supports explicitly recording those company/person/programme relationships.
+
+**Diagram usability and linked company/person release (2026-10-22):**
+- User approved implementation, merge/push and production deployment. Preserve
+  existing targets: Alliance Tenant Reporting, rg-knowledge-hub-prod,
+  kh-prod-api-vnet (UK South), cad79107555facr, kh-prod-web (West Europe).
+- Existing AZCLI image-only backend and SWA deployment; no infrastructure,
+  identity, permissions, secrets, dependencies or new services.
+- Fix diagram navigation, grid/guides, standard Agent preset, clipboard/image
+  actions, content colours, persistent drill-down Athena and top-layer menus.
+- Add company pages, person/company/programme relationships and @mention
+  creation. Migration 093 adds schema only: no seed records, backfills or
+  conversion of existing organisation text.
+- Do not launch browsers, provision test databases, run database-backed
+  suites or create production test records. Existing monitoring stays enabled.
+- Fetched origin/main and merged: already current at 54071be.
+- Current backend verified v231; choose next unused tag from registry.
+  Rollback is v231 plus the previous frontend build. The additive schema
+  can remain if the application image is rolled back.
+
+**Section 7: Validation Proof (2026-10-22, diagram/company release):**
+- azure-validate: both `npx tsc --noEmit` checks passed. Both production
+  `npm run build` commands passed, including the final Athena menu changes.
+- Database-free frontend isolated suite: 159 passed, zero failures.
+  After final changes, affected clipboard/top-layer/usability checks: 8 passed.
+  Existing pure diagram geometry checks: 33 passed.
+- Backend company/relationship and diagram checks: 40 passed using mocked
+  Pool methods and dummy connection settings; no database instance or writes.
+- Known database-backed test fixtures were updated for the additive company
+  schema but were deliberately not executed under the user's restrictions.
+- Frontend lint non-regression passed: 25 existing violations, baseline 41.
+  New company modules, image viewer/helper, shared menu hook, mention menu,
+  clipboard helper and MoveToThink passed focused ESLint. Existing lint
+  violations outside the changed logic were not modified.
+- `git diff --check` passed. Dependency manifests and Dockerfile unchanged;
+  package-lock exists. ACR performs the actual production container build
+  from pushed main; local Docker is not required.
+- Azure CLI authenticated to c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28.
+  Existing backend v231 and SWA hostname verified; orchestration is true.
+- Bicep/template/what-if/policy/static-RBAC/provisioning/azd environment
+  creation are not applicable: existing image/SWA release with no infra changes.
+- No browser run; actual pointer/focus/clipboard interaction is not manually
+  verified. Automated tests cover navigation, alignment thresholds, exports,
+  top-layer positioning/cleanup, clipboard activation/SVG cleanup, validation,
+  relationship transaction handling and mention links.
+
+**Change-fit review:**
+- Architecture: existing React/React Query/API/SQL patterns, shared anchored
+  menu hook and existing Specialist Agent preset; no parallel implementation.
+- Hosting: existing Container Apps, ACR and SWA assumptions retained.
+- Dependencies/cost: no new dependencies, infrastructure or background/model calls.
+- Types/contracts: optional grid spacing preserves old diagrams; typed company
+  records and runtime input validation, no explicit any or loosened contracts.
+- Security: authenticated stored-image reads only, no arbitrary URL proxy;
+  parameterized SQL, safe website protocols, no credentials in source.
+- Smallest safer version: additive relationship schema with explicit user-set
+  links, no inferred records/backfill, existing app services and image-only rollout.
+
 **YouTube evidence and related-reading release (2026-10-22):**
 - User requested deploy and push to remote. Deploy current YouTube caption
   attempts, secondary subject research, safe video deep dives and related links.
