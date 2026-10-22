@@ -31,6 +31,8 @@ export interface EvidenceEntry {
   passages: Array<{ start: number; end: number }>;
   fields: string[];
   path: EvidenceRelationPath | null;
+  /** False when the target was deleted, excluded or could not be opened. */
+  available: boolean;
 }
 
 export interface EvidenceMeta {
@@ -70,7 +72,7 @@ function blank(ref: EvidenceRef, meta: EvidenceMeta): EvidenceEntry {
   return {
     key: refKey(ref), ref: { kind: ref.kind, id: ref.id }, title: meta.title ?? null, projectId: meta.projectId ?? null,
     version: meta.version ?? null, locator: meta.locator ?? null, origin: meta.origin ?? null, state: 'found',
-    sourceTime: meta.sourceTime ?? null, readAt: null, freshness: meta.freshness ?? null, passages: [], fields: [], path: meta.path ?? null,
+    sourceTime: meta.sourceTime ?? null, readAt: null, freshness: meta.freshness ?? null, passages: [], fields: [], path: meta.path ?? null, available: true,
   };
 }
 
@@ -139,7 +141,7 @@ export interface EvidenceSummary {
   counts: { found: number; read: number; cited: number };
   entries: Array<{
     ref: EvidenceRef; title: string | null; projectId: string | null; version: string | null; locator: string | null;
-    state: EvidenceState; origin: EvidenceOrigin | null; explicit: boolean | null;
+    state: EvidenceState; origin: EvidenceOrigin | null; explicit: boolean | null; available: boolean;
   }>;
 }
 
@@ -149,7 +151,7 @@ export function summariseLedger(ledger: EvidenceLedger): EvidenceSummary {
     counts: ledgerCounts(ledger),
     entries: [...ledger.entries.values()].map((e) => ({
       ref: e.ref, title: e.title, projectId: e.projectId, version: e.version, locator: e.locator, state: e.state,
-      origin: e.origin, explicit: e.path === null ? null : e.path.explicit,
+      origin: e.origin, explicit: e.path === null ? null : e.path.explicit, available: e.available,
     })),
   };
 }
@@ -158,4 +160,11 @@ export function summariseLedger(ledger: EvidenceLedger): EvidenceSummary {
 export function dropFromLedger(ledger: EvidenceLedger, ref: EvidenceRef): void {
   ledger.entries.delete(refKey(ref));
   ledger.texts.delete(refKey(ref));
+}
+
+/** Records that a target could not be opened (deleted, excluded or missing) so the UI can show it as unavailable. */
+export function markUnavailable(ledger: EvidenceLedger, ref: EvidenceRef): void {
+  if (!noteFound(ledger, ref)) return;
+  const entry = ledger.entries.get(refKey(ref));
+  if (entry !== undefined) entry.available = false;
 }

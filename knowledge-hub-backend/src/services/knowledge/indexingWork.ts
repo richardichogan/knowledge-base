@@ -254,7 +254,9 @@ export async function estimateIndexingBackfill(q: WorkQueryable, targetChunkChar
             sum(greatest(1, ceil(length(body)::numeric / $1)))::text AS passages,
             sum(length(body))::text AS chars
        FROM content_items ci
-      WHERE (foundry_indexed_at IS NULL OR foundry_indexed_at < updated_at)`,
+      WHERE (foundry_indexed_at IS NULL OR foundry_indexed_at < updated_at)
+        AND NOT EXISTS (SELECT 1 FROM note_github_publications p WHERE ci.source IN ('github-doc', 'github-content-store')
+          AND lower(p.repo) = lower(ci.metadata->>'repo') AND p.path = ci.metadata->>'path')`,
     [targetChunkChars],
   );
   const row = rows[0];
@@ -267,9 +269,11 @@ export async function reconcileIndexingBacklog(
 ): Promise<{ enqueued: number; scanned: number; nextAfterId: string | null }> {
   const limit = Math.min(Math.max(1, options.limit ?? INDEXING_BATCH_SIZE), INDEXING_BATCH_SIZE);
   const { rows } = await q.query<{ id: string }>(
-    `SELECT id::text AS id FROM content_items
-      WHERE (foundry_indexed_at IS NULL OR foundry_indexed_at < updated_at) AND ($1::text IS NULL OR id::text > $1)
-      ORDER BY id::text LIMIT $2`,
+    `SELECT ci.id::text AS id FROM content_items ci
+      WHERE (ci.foundry_indexed_at IS NULL OR ci.foundry_indexed_at < ci.updated_at) AND ($1::text IS NULL OR ci.id::text > $1)
+        AND NOT EXISTS (SELECT 1 FROM note_github_publications p WHERE ci.source IN ('github-doc', 'github-content-store')
+          AND lower(p.repo) = lower(ci.metadata->>'repo') AND p.path = ci.metadata->>'path')
+      ORDER BY ci.id::text LIMIT $2`,
     [options.afterId ?? null, limit],
   );
   let enqueued = 0;

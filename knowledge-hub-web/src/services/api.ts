@@ -34,6 +34,8 @@ import type {
   MemoryScopeType,
 } from '../types';
 import { getApiToken } from './auth';
+import { requireApiData } from './apiError';
+import type { DecisionLinkInput, DecisionSemantics } from '../types/semanticDecision';
 import { normaliseTask } from '../types/task';
 import type { TaskPriority, AtRiskTask, DayCheckin, CheckinAction } from '../types/task';
 import type { DiagramAsset, DiagramDocument, DiagramDrilldownLink, DiagramSnapshot } from '../features/diagram/diagramTypes';
@@ -1051,6 +1053,26 @@ export class KnowledgeHubApi {
 
   async setDecisionTracking(sessionId: string, enabled: boolean | null): Promise<void> {
     await this.client.put(`/api/ai/session/${sessionId}/decision-tracking`, { enabled });
+  }
+
+  async getDecisionSemantics(decisionId: string): Promise<DecisionSemantics> {
+    const r = await this.client.get<ApiResponse<DecisionSemantics>>(`/api/semantic/decisions/${encodeURIComponent(decisionId)}/semantics`);
+    return requireApiData(r.data);
+  }
+
+  async confirmDecisionAcceptance(decisionId: string): Promise<DecisionSemantics> {
+    const r = await this.client.post<ApiResponse<DecisionSemantics>>(`/api/semantic/decisions/${encodeURIComponent(decisionId)}/accept`, { confirmed: true });
+    return requireApiData(r.data);
+  }
+
+  async setDecisionReviewDate(decisionId: string, reviewDate: string | null): Promise<DecisionSemantics> {
+    const r = await this.client.put<ApiResponse<DecisionSemantics>>(`/api/semantic/decisions/${encodeURIComponent(decisionId)}/review-date`, { reviewDate });
+    return requireApiData(r.data);
+  }
+
+  async recordDecisionLink(decisionId: string, link: DecisionLinkInput): Promise<DecisionSemantics> {
+    const r = await this.client.post<ApiResponse<DecisionSemantics>>(`/api/semantic/decisions/${encodeURIComponent(decisionId)}/links`, link);
+    return requireApiData(r.data);
   }
 
   /** Stores a screenshot with a chat and reads it (a detailed read for Demo Designer). */

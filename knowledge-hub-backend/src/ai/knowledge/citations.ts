@@ -52,11 +52,11 @@ const MARKER = /\[\[cite:([a-z_-]+):([^\s|@\]]+)(?:@([^\s|\]]+))?(?:\|([^\]]*))?
 
 /** Parses `[[cite:kind:id@version|quote]]` markers. */
 export function parseCitations(answer: string): Citation[] {
-  return [...answer.matchAll(MARKER)].map((m) => ({
-    ref: { kind: m[1] as string, id: m[2] as string },
-    version: m[3] ?? null,
-    quote: m[4] ?? null,
-    marker: m[0],
+  return [...answer.matchAll(MARKER)].map(([marker, kind, id, version, quote]) => ({
+    ref: { kind: kind as string, id: id as string },
+    version: version ?? null,
+    quote: quote ?? null,
+    marker,
   }));
 }
 

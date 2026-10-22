@@ -48,6 +48,8 @@ import { findDiagramContext } from '../services/diagramContext.js';
 import { createSpark } from '../services/sparkService.js';
 import { loadCurrentProjectContext } from './projectContext.js';
 import { EXCLUSION_GATED_TOOLS, EXCLUSIONS_UNAVAILABLE_RESULT, executeReadKnowledgeRecord } from '../services/knowledge/tool.js';
+import { executeTraverseRelationships } from './knowledge/traversalLoader.js';
+import { isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 import { getDiscoverSources, inspectDiscoverFeed } from './discoveryContext.js';
 import { retrieveWatchlistRecords } from '../services/discoverWatchlists.js';
 import { getAssetToolDefinitions, isAssetTool, executeAssetTool } from './assetTools.js';
@@ -224,6 +226,25 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             offset: { type: 'integer', description: 'Start character offset (alternative to cursor).' },
             maxChars: { type: 'integer', description: 'Page size, default 6000, max 12000.' },
             outputVersion: { type: 'integer', description: 'Output only: a specific historical version; latest by default.' },
+          },
+          required: ['kind', 'id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'traverse_relationships',
+        description:
+          'Follows saved relationships from one record (max 2 hops, 20 neighbours per step) so you can answer "what depends on / is linked to X" ' +
+          'and downstream-consequence questions. Each result is labelled "explicit" (a saved typed link: state it as a relationship) or ' +
+          '"inferred" (a similarity/tag suggestion: call it inference only). Targets are NOT read: open each with read_knowledge_record ' +
+          'before saying what it contains. Deleted, excluded or dangling targets are omitted. Read-only.',
+        parameters: {
+          type: 'object',
+          properties: {
+            kind: { type: 'string', description: 'Record type from a search result (e.g. note, task, document).' },
+            id: { type: 'string', description: 'Record refId from a search result or graph node.' },
           },
           required: ['kind', 'id'],
         },
@@ -743,7 +764,7 @@ export async function executeToolCall(
     sessionId?: string | undefined; noteId?: string | undefined; noteEdits?: NoteEditProposal[];
     excludedIds?: ReadonlySet<string>;
     /** Exclusions could not be loaded: retrieval tools fail closed. Strict "only project X" scope is server-derived. */
-    exclusionsFailed?: boolean; strictProjectId?: string | null;
+    exclusionsFailed?: boolean; strictProjectId?: string | null; signal?: AbortSignal | undefined;
     /** Open mind map: outline alias (n1 …) → idea id, and a collector for proposed changes. */
     mapAliases?: Map<string, string> | undefined; mapCanvas?: CanvasFull | undefined; mapChanges?: MapChangeProposal[];
     /** Folders on his PC (Athena Desktop) and a collector for proposed file writes. */
@@ -768,6 +789,11 @@ export async function executeToolCall(
 
   if (turn.exclusionsFailed === true && EXCLUSION_GATED_TOOLS.has(name)) return EXCLUSIONS_UNAVAILABLE_RESULT;
   if (name === 'read_knowledge_record') return executeReadKnowledgeRecord(db, args, turn);
+  if (name === 'traverse_relationships') {
+    if (!isKnowledgeOrchestrationEnabled()) return { error: 'Relationship traversal is not enabled.' };
+    if (turn.exclusionsFailed === true) return EXCLUSIONS_UNAVAILABLE_RESULT;
+    return executeTraverseRelationships(db, args, { excludedIds: turn.excludedIds, signal: turn.signal });
+  }
 
   if (isAssetTool(name)) return executeAssetTool(db, name, contextualArgs, turn.noteId);
   if (LOCAL_FILE_TOOL_NAMES.has(name)) return executeLocalFileTool(db, name, args, turn.localFolders ?? [], turn.localFileWrites);

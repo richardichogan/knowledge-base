@@ -60,7 +60,7 @@ export const KNOWLEDGE_FAMILIES: readonly KnowledgeFamily[] = [
   family('governance', 'project register/review packets', ['discover', 'read', 'structured'], 'questions, risks, issues, owners, dates, status', 'live', ['human'], 'none', 'unavailable', 'no chat reader found', ['REL-01']),
   family('podcast-content', 'podcast prep, episodes, content picks', ['discover', 'read'], 'prep, evidence, show notes, picks', 'live', ['human', 'ai-generated'], 'get_content_pipeline', 'partial', 'partial tool coverage', ['COV-02']),
   family('cfp-practice', 'CFP and practice score tables', ['discover', 'read', 'structured'], 'dates, status, scores', 'live', ['human'], 'none', 'unavailable', 'no chat reader found', ['COV-04']),
-  family('knowledge-health', 'health aggregates', ['structured'], 'availability, last sync/index, aggregate failures', 'live', ['derived'], 'src/health/knowledgeHealth.ts', 'partial', 'no per-family capability or coverage yet', ['UI-01']),
+  family('knowledge-health', 'health aggregates', ['structured'], 'availability, last sync/index, aggregate failures', 'live', ['derived'], 'src/health/knowledgeHealth.ts', 'partial', 'reports per-family state, indexed counts and extraction; eligible/pending/failed per family are not recorded, so they read as not measured', ['UI-01']),
 ];
 
 const source = (family: string, availability: Availability, reason: string): SourceDisposition => ({ family, availability, reason });

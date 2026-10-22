@@ -14,7 +14,7 @@ test('daily capture has an AI-sized timeout rather than the ordinary eight-secon
         builder.onResolve({ filter: /^\.\/auth$/ }, () => ({ path: 'auth', namespace: 'fixture' }));
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({
           contents: args.path === 'axios'
-            ? 'export default {create: () => globalThis.__dailyApiFixture};'
+            ? 'export default {create: () => globalThis.__dailyApiFixture}; export const isAxiosError = () => false;'
             : 'export const getApiToken = async () => "";',
         }));
       },

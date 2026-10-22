@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { isKnowledgeOrchestrationEnabled } from '../ai/knowledge/budgets.js';
 import { getKnowledgeHealth, parseHealthQuery, type KnowledgeHealth } from '../health/knowledgeHealth.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
+import { getSemanticStatus, type SemanticStatus } from '../services/semantic/status.js';
 
 export const knowledgeHealthRouter = Router();
 
@@ -28,6 +29,18 @@ knowledgeHealthRouter.get('/knowledge', (req: Request, res: Response, next: Next
         orchestrationEnabled: isKnowledgeOrchestrationEnabled(),
       };
       const body: ApiSuccess<KnowledgeHealth> = { success: true, data: await getKnowledgeHealth(getDb(), filters, new Date(), options) };
+      res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/** GET /api/health/semantic — semantic-layer capability counts (decisions awaiting acceptance, edges, monitoring state). */
+knowledgeHealthRouter.get('/semantic', (_req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const body: ApiSuccess<SemanticStatus> = { success: true, data: await getSemanticStatus(getDb(), undefined) };
       res.json(body);
     } catch (err) {
       next(err);

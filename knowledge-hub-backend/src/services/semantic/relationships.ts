@@ -203,7 +203,8 @@ export async function recordEdge(db: Pool, edge: Omit<SemanticEdge, 'storage'>, 
   }
   await db.query(
     `INSERT INTO semantic_edges (relationship, from_kind, from_id, to_kind, to_id, origin, effective_at) VALUES ($1,$2,$3,$4,$5,$6,$7)
-     ON CONFLICT (relationship, from_kind, from_id, to_kind, to_id) DO NOTHING`,
+     ON CONFLICT (relationship, from_kind, from_id, to_kind, to_id) DO UPDATE SET origin = EXCLUDED.origin, effective_at = COALESCE(EXCLUDED.effective_at, semantic_edges.effective_at)
+       WHERE semantic_edges.origin = 'inferred' AND EXCLUDED.origin <> 'inferred'`,
     [edge.relationship, edge.from.kind, edge.from.id, edge.to.kind, edge.to.id, edge.origin, edge.effectiveAt]);
   return { ok: true };
 }

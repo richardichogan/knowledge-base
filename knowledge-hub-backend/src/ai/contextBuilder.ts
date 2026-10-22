@@ -1,4 +1,6 @@
 import { BLOG_PACKAGE_RULES } from './blogHouseStyle.js';
+import { isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
+import { CONFLICT_AUTHORITY_PROMPT } from './knowledge/evidenceAuthority.js';
 import { PODCAST_EDITORIAL_RULES } from './podcastEditorial.js';
 import { getProfileText } from './athenaMemory.js';
 import { abortable } from './abortable.js';
@@ -1243,6 +1245,11 @@ async function formatPageContext(pageContext: ChatPageContext | undefined, userM
   ].filter(Boolean).join('\n');
 }
 
+/** Conflict/authority rules, added only when knowledge orchestration is enabled. */
+export function knowledgeOrchestrationPromptBlocks(): string[] {
+  return isKnowledgeOrchestrationEnabled() ? ['---', CONFLICT_AUTHORITY_PROMPT] : [];
+}
+
 export async function assembleMessages(
   context: AiContext,
   history: ConversationMessage[],
@@ -1274,6 +1281,7 @@ export async function assembleMessages(
     '---',
     buildToolCapabilitiesBlurb(),
     ...(standingInstructions !== '' ? ['---', standingInstructions] : []),
+    ...knowledgeOrchestrationPromptBlocks(),
   ].join('\n\n');
 
   const pageContextBlock = await formatPageContext(pageContext, userMessage);

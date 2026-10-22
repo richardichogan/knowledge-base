@@ -19,12 +19,12 @@ In chat, the "Used:" line separates **Found** (search candidate, not necessarily
 ## Feature flag and indexing switch
 
 - `KNOWLEDGE_ORCHESTRATION` (`1`, `true`, `on` or `yes`) turns on the new orchestration. It is off by default; the previous tools stay registered and compatible.
-- Bulk indexing is controlled by the admin switch for durable indexing work. Pausing it stops new batches but keeps pending work, leases and tombstones so nothing is lost.
+- Bulk indexing has no dedicated admin switch in the code. Durable indexing work (`knowledge_indexing_work`, migration 089) is drained by the hourly production sweep `runFoundryIqBackfillJob` (`src/jobs/foundryIqBackfillJob.ts`), which is skipped in development and whenever Foundry IQ is not configured (`FOUNDRY_IQ_SEARCH_ENDPOINT` / `FOUNDRY_IQ_SEARCH_ADMIN_KEY`). Manual bulk runs use `node scripts/foundryIqIndex.mjs --backfill`. Removing the Foundry IQ settings stops all bulk indexing while work stays queued, with leases and delete tombstones intact.
 
 ## Rollback procedure
 
 1. Set `KNOWLEDGE_ORCHESTRATION` off on the container app (`az containerapp update --set-env-vars KNOWLEDGE_ORCHESTRATION=false`) and let the new revision become Healthy. Old compatible tools resume.
-2. Pause bulk indexing with the admin switch. Durable pending work is kept.
+2. Stop bulk indexing by clearing the Foundry IQ settings (see above; there is no separate switch). Durable pending work is kept.
 3. Do not delete canonical source records, old indexes, embeddings or migrations. Migrations are additive, so the previous application version starts against the current schema.
 4. Deletion and exclusion enforcement must hold in both paths. If the old path cannot enforce a newly required protection, disable that retrieval rather than re-enabling an unsafe fallback.
 5. Diagnose from safe failure counts, provider status and revision-level retry metadata on Knowledge health. Never log prompt or source bodies or secrets.

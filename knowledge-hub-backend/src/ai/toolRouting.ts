@@ -45,6 +45,9 @@ const DISCOVER_INTENT_PATTERN =
 const DECISION_REVIEW_INTENT_PATTERN =
   /\b(?:decisions?|decided|supersed\w*|assumptions?|revisit|re-?consider|still\s+(?:valid|hold|stand)s?|review\s+(?:date|due)|approval\s+gate)\b/i;
 
+const RELATIONSHIP_INTENT_PATTERN =
+  /\b(?:depend(?:s|ed|encies|ency)?\s+on|downstream|upstream|consequences?|knock-?on|impacts?|affect(?:s|ed)?|linked?\s+(?:to|with)|connected\s+to|related\s+to|relationships?|what\s+else\s+(?:uses|touches|relies)|blocked\s+by|blocks)\b/i;
+
 /**
  * Withholds specialised tool groups the turn does not need, so the model sees fewer, more relevant
  * choices and less prompt. Conservative: the current message and recent history both count, so
@@ -52,14 +55,16 @@ const DECISION_REVIEW_INTENT_PATTERN =
  */
 export function focusTools(
   tools: LlmToolDefinition[],
-  turn: { userMessage: string; recentText?: string; hasOpenDiagram?: boolean },
+  turn: { userMessage: string; recentText?: string; hasOpenDiagram?: boolean; knowledgeOrchestration?: boolean },
 ): LlmToolDefinition[] {
   const text = `${turn.userMessage}\n${turn.recentText ?? ''}`;
   const wantsDiagram = turn.hasOpenDiagram === true || DIAGRAM_INTENT_PATTERN.test(text);
   const wantsDiscover = DISCOVER_INTENT_PATTERN.test(text);
   const wantsDecisionReview = DECISION_REVIEW_INTENT_PATTERN.test(text);
+  const wantsTraversal = turn.knowledgeOrchestration === true && RELATIONSHIP_INTENT_PATTERN.test(text);
   return tools.filter((tool) => {
     const name = tool.function.name;
+    if (name === 'traverse_relationships') return wantsTraversal;
     if (name === 'review_decisions') return wantsDecisionReview;
     if (DIAGRAM_WRITE_TOOLS.has(name)) return wantsDiagram;
     if (DISCOVER_ADMIN_TOOLS.has(name)) return wantsDiscover;

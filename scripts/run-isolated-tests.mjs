@@ -38,6 +38,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/blogPostEditor.test.tsx',
   '../knowledge-hub-web/tests/youtubeEvidence.test.tsx',
   '../knowledge-hub-web/tests/projectOptions.test.ts',
+  '../knowledge-hub-web/tests/decisionSemantics.test.tsx',
 ] : [
   'scripts/youtube-discovery.test.ts',
   'scripts/share-email.test.ts',
@@ -51,7 +52,11 @@ const tests = frontend ? [
   'scripts/knowledge-evidence.test.ts',
   'scripts/knowledge-read.test.ts',
   'scripts/knowledge-safety.test.ts',
+  'scripts/knowledge-context.test.ts',
+  'scripts/knowledge-readonly.test.ts',
+  'scripts/knowledge-idx-spec.test.ts',
   'scripts/knowledge-traversal.test.ts',
+  'scripts/knowledge-wiring.test.ts',
   'scripts/discover-parking.test.ts',
   'scripts/people.test.ts',
   'scripts/project-parents-migration.test.ts',
@@ -85,6 +90,7 @@ const tests = frontend ? [
   'scripts/semantic-entities.test.ts',
   'scripts/semantic-rules.test.ts',
   'scripts/semantic-decisions.test.ts',
+  'scripts/semantic-routes.test.ts',
 ];
 // Do not inherit local integration credentials or let dotenv load application settings.
 const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'COMSPEC', 'PATHEXT']);

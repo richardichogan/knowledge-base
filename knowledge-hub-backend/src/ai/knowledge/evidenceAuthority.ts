@@ -52,9 +52,12 @@ export interface CopyCandidate { id: string; url?: string | null; title: string;
 
 const canonicalTitle = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
+const BODY_KEY_MIN_CHARS = 200;
+const BODY_KEY_CHARS = 400;
+
 function bodyFingerprint(c: CopyCandidate): string | null {
   if (c.contentHash != null && c.contentHash !== '') return `h:${c.contentHash}`;
-  if (c.body != null && c.body.length >= 200) return `b:${canonicalTitle(c.body).slice(0, 400)}`;
+  if (c.body != null && c.body.length >= BODY_KEY_MIN_CHARS) return `b:${canonicalTitle(c.body).slice(0, BODY_KEY_CHARS)}`;
   return null;
 }
 

@@ -7,11 +7,11 @@ import { ASSET_WRITE_TOOLS } from './assetTools.js';
 import type { ModelRoute } from './modelChoices.js';
 import { spreadsheetsBlock } from './chatFiles.js';
 import { getExcludedSources, filterExcluded, recordToolSources, recordToolEvidence, attachEvidence, type ContextUsed } from './contextUsage.js';
-import { createLedger } from './knowledge/evidence.js';
+import { createLedger, ledgerCounts } from './knowledge/evidence.js';
 import { resolveAnswer } from './knowledge/citations.js';
-import { TurnBudget, budgetLimitation, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
+import { TurnBudget, budgetLimitation, finalizeKnowledgeAnswer, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 
-const RETRIEVAL_TOOLS = new Set(['search_diagrams', 'read_diagram', 'search_knowledge_base', 'search_library', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph', 'read_output']);
+const RETRIEVAL_TOOLS = new Set(['search_diagrams', 'read_diagram', 'search_knowledge_base', 'search_library', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph', 'read_output', 'traverse_relationships', 'read_knowledge_record']);
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
 import { buildScreensBlock } from './chatScreens.js';
@@ -311,6 +311,7 @@ export async function handleConversationTurn(
     userMessage,
     recentText: history.slice(-TOOL_FOCUS_HISTORY_MESSAGES).map((message) => message.content).join('\n'),
     hasOpenDiagram: openDiagram !== null,
+    knowledgeOrchestration: isKnowledgeOrchestrationEnabled(),
   });
   const tools = (hooks.readOnlyTools === true ? focusedTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : focusedTools)
     .filter((t) => !briefOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'save_output')
@@ -357,6 +358,8 @@ export async function handleConversationTurn(
   const ledger = orchestrated ? createLedger() : undefined;
   const budget = orchestrated ? new TurnBudget(hooks.signal) : undefined;
   let citationRepairs = 0;
+  let retrievalRan = false;
+  let deterministicRan = false;
 
   // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
   const maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS : AI_MAX_TOOL_ITERATIONS;
@@ -415,19 +418,23 @@ export async function handleConversationTurn(
         return "I couldn't put that edit together — it was probably too large for one go. Try asking for it a section at a time (for example \"rewrite the Users section\"), and I'll propose each one for you to apply.";
       }
       if (response.content && response.content.trim() !== '') {
-        if (ledger !== undefined && budget !== undefined && ledger.entries.size > 0) {
-          const decision = resolveAnswer(ledger, response.content, { repairsUsed: citationRepairs, canRepair: !wrapUp && !budget.aborted && i < maxRounds - 1 });
-          if (used !== undefined) attachEvidence(used, ledger);
-          if (decision.action === 'repair') {
-            citationRepairs++;
-            hooks.onReset?.();
-            messages.push({ role: 'assistant', content: response.content });
-            messages.push({ role: 'user', content: decision.instruction });
-            nextRoundTool = 'none';
-            continue;
+        if (ledger !== undefined && budget !== undefined) {
+          let answerText = response.content;
+          if (ledger.entries.size > 0) {
+            const decision = resolveAnswer(ledger, response.content, { repairsUsed: citationRepairs, canRepair: !wrapUp && !budget.aborted && i < maxRounds - 1 });
+            if (used !== undefined) attachEvidence(used, ledger, budget.partial ? [budgetLimitation(budget)] : []);
+            if (decision.action === 'repair') {
+              citationRepairs++;
+              hooks.onReset?.();
+              messages.push({ role: 'assistant', content: response.content });
+              messages.push({ role: 'user', content: decision.instruction });
+              nextRoundTool = 'none';
+              continue;
+            }
+            answerText = decision.answer;
           }
-          const limit = budgetLimitation(budget);
-          return `${decision.answer}${limit !== '' ? `\n\n${limit}` : ''}`;
+          const counts = ledgerCounts(ledger);
+          return finalizeKnowledgeAnswer(userMessage, answerText, { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan });
         }
         return response.content;
       }
@@ -453,7 +460,7 @@ export async function handleConversationTurn(
       onToolCall?.(call.function.name);
       hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
       try {
-        if (briefOnly && !tools.some((tool) => tool.function.name === call.function.name)) {
+        if ((briefOnly || hooks.readOnlyTools === true) && !tools.some((tool) => tool.function.name === call.function.name)) {
           throw new Error('This IMAGINE brief request permits reading context and saving Outputs only. The source note and other records cannot be changed.');
         }
         const gate = budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name) ? budget.canStartRetrieval() : { ok: true as const };
@@ -461,13 +468,15 @@ export async function handleConversationTurn(
           result = { partial: true, note: `${budgetLimitation(budget as TurnBudget)} Do not search again; answer from what was read and say not everything was checked.` };
         } else {
           const run = async (): Promise<unknown> => filterExcluded(
-            await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, excludedIds: excluded, exclusionsFailed, strictProjectId, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
+            await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
             excluded,
           );
           if (budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name)) {
+            retrievalRan = true;
             const timed = await budget.runRetrieval(run);
             result = timed.ok ? timed.value : { partial: true, note: budgetLimitation(budget) };
           } else {
+            if (call.function.name === 'list_tasks') deterministicRan = true;
             result = await run();
           }
           if (used !== undefined) recordToolSources(used, call.function.name, result);

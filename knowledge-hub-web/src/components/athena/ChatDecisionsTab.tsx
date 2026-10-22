@@ -10,6 +10,7 @@ import { InlineLoading } from '@carbon/react';
 import { Checkmark, Close, Undo } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import type { ChatDecision } from '../../types';
+import { DecisionSemanticsPanel } from './DecisionSemanticsPanel';
 
 interface ChatDecisionsTabProps {
   sessionId: string | null;
@@ -19,6 +20,7 @@ interface ChatDecisionsTabProps {
 export const ChatDecisionsTab: React.FC<ChatDecisionsTabProps> = ({ sessionId, refreshKey }) => {
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [newText, setNewText] = useState('');
   const [newStatus, setNewStatus] = useState<ChatDecision['status']>('decided');
@@ -77,7 +79,16 @@ export const ChatDecisionsTab: React.FC<ChatDecisionsTabProps> = ({ sessionId, r
         </button>
       )}
       <span className="ai-decision__actions">
-        <button
+        {d.status === 'decided' && (
+          <button
+            type="button"
+            className="ai-decision__btn ai-decision__btn--text"
+            aria-expanded={detailsId === d.id}
+            onClick={() => { setDetailsId(detailsId === d.id ? null : d.id); }}
+          >
+            Review &amp; links
+          </button>
+        )}        <button
           type="button"
           className="ai-decision__btn"
           title={d.status === 'open' ? 'Mark decided' : 'Reopen'}
@@ -95,6 +106,9 @@ export const ChatDecisionsTab: React.FC<ChatDecisionsTabProps> = ({ sessionId, r
           <Close size={14} aria-hidden="true" /><span className="cds--visually-hidden">Remove</span>
         </button>
       </span>
+      {d.status === 'decided' && detailsId === d.id && (
+        <div className="ai-decision__details"><DecisionSemanticsPanel decisionId={d.id} /></div>
+      )}
     </li>
   );
 

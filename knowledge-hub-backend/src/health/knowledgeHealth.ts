@@ -250,8 +250,8 @@ async function indexSection(db: Pool): Promise<IndexSection> {
 }
 
 // Optional tables added by later migrations; absent tables are reported as "not measured", never as zero.
-const INDEXING_WORK_TABLES = ['knowledge_index_work', 'knowledge_indexing_work'] as const;
-const DECISION_TABLES = ['knowledge_decisions', 'decision_records'] as const;
+const INDEXING_WORK_TABLES = ['knowledge_indexing_work'] as const; // migration 089
+const DECISION_TABLES = ['semantic_edges'] as const; // migration 090 (decision relationships; acceptance lives on chat_decisions)
 const INGESTION_BODY_CAP = 8000;
 const SOURCE_ROW_LIMIT = 100;
 const PENDING_STATUSES = new Set(['pending', 'queued', 'leased', 'retry', 'running']);

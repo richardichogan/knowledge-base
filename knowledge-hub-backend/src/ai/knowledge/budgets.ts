@@ -123,3 +123,17 @@ export function completenessAnswer(budget: TurnBudget, counts: { found: number; 
     ? `No. ${scope} ${budgetLimitation(budget)}`
     : `Not necessarily everything. ${scope} I only checked what my searches surfaced, so I can't promise nothing else exists.`;
 }
+
+/** Applies the exhaustive-query and "checked everything?" rules to a validated final answer. */
+export function finalizeKnowledgeAnswer(
+  query: string,
+  answer: string,
+  turn: { budget: TurnBudget; counts: { found: number; read: number }; retrievalUsed: boolean; deterministicPath: boolean },
+): string {
+  if (isCompletenessChallenge(query)) return completenessAnswer(turn.budget, turn.counts);
+  const qualification = turn.retrievalUsed || turn.deterministicPath
+    ? exhaustiveQualification(query, { deterministicPath: turn.deterministicPath, complete: !turn.budget.partial })
+    : null;
+  const limit = budgetLimitation(turn.budget);
+  return [qualification, answer, limit === '' ? null : limit].filter((p): p is string => p !== null).join('\n\n');
+}

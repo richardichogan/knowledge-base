@@ -134,8 +134,8 @@ test('AC-13 semantic status is never up to date from a provider connection alone
   assert.equal(semanticStatus(true, { measured: true, pending: 0, failed: 0, done: 9 }).state, 'up-to-date');
 
   const db = await fixtureDb();
-  await db.exec(`CREATE TABLE knowledge_index_work (id SERIAL PRIMARY KEY, status TEXT NOT NULL, last_error TEXT)`);
-  await db.exec(`INSERT INTO knowledge_index_work (status, last_error) VALUES ('done',NULL),('pending',NULL),('failed','SECRET prompt text')`);
+  await db.exec(`CREATE TABLE knowledge_indexing_work (id SERIAL PRIMARY KEY, ref_kind TEXT NOT NULL DEFAULT 'content_item', ref_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, error_code TEXT)`);
+  await db.exec(`INSERT INTO knowledge_indexing_work (ref_id, status, error_code) VALUES ('1','done',NULL),('2','pending',NULL),('3','leased',NULL),('4','failed','SECRET prompt text')`);
   await db.query(`INSERT INTO content_items (source, indexed_at) VALUES ('email','2026-03-10T00:00:00Z')`);
   await db.query(`INSERT INTO sync_runs (id, claim_key, status, started_at, finished_at, results) VALUES
     ('00000000-0000-4000-8000-000000000002','k2','partial','2026-03-11T01:00:00Z','2026-03-11T01:05:00Z','[{"source":"email","indexed":1,"errors":2,"error":"LEAK"}]')`);
@@ -143,7 +143,8 @@ test('AC-13 semantic status is never up to date from a provider connection alone
   assert.ok(health.families.available);
   const { semantic, families, orchestrationEnabled } = health.families.data;
   assert.equal(orchestrationEnabled, true);
-  assert.deepEqual([semantic.work.pending, semantic.work.failed, semantic.state], [1, 1, 'temporarily-unavailable']);
+  assert.deepEqual([semantic.work.pending, semantic.work.failed, semantic.state], [2, 1, 'temporarily-unavailable']);
+  assert.equal(health.families.data.decisionTablesMeasured, false);
   const connected = families.find((f) => f.kind === 'connected-activity');
   assert.equal(connected?.state, 'temporarily-unavailable');
   assert.deepEqual(connected?.errorCategories, ['sync-errors']);

@@ -12,9 +12,21 @@ export interface UsedSource {
   kind: string;
   title: string;
   url?: string | null;
+  /** Found → Read → Cited; present only when knowledge orchestration is on. */
+  lifecycle?: 'found' | 'read' | 'cited';
+  /** False when the record was deleted or could not be opened. */
+  available?: boolean;
+}
+
+export interface UsedWarning {
+  message: string;
+  sourceId?: string;
+  family?: string;
 }
 
 export interface ContextUsed {
+  /** Honest limits for this turn (budget, partial reads, unavailable targets). */
+  warnings?: UsedWarning[];
   project: string | null;
   /** Standing instructions and liked examples applied. */
   instructions: number;
@@ -54,7 +66,8 @@ function push(list: UsedSource[], s: UsedSource): void {
 export function recordToolSources(used: ContextUsed, toolName: string, result: unknown): void {
   if (typeof result !== 'object' || result === null) return;
   const r = result as { results?: unknown; documents?: unknown };
-  if ((toolName === 'search_diagrams' || toolName === 'read_diagram') && Array.isArray(r.results)) {
+  if (toolName === 'traverse_relationships') recordTraversalSources(used, result);
+  else if ((toolName === 'search_diagrams' || toolName === 'read_diagram') && Array.isArray(r.results)) {
     for (const item of r.results as Array<{ id?: string; title?: string; url?: string }>) {
       push(used.found, { id: item.id ?? '', kind: 'diagram', title: item.title ?? 'Untitled diagram', url: item.url ?? null });
     }
@@ -69,7 +82,7 @@ export function recordToolSources(used: ContextUsed, toolName: string, result: u
   }
 }
 
-const SEARCH_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph']);
+const SEARCH_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph', 'traverse_relationships']);
 const READ_TOOLS = new Set(['read_diagram', 'read_output', 'read_past_chat']);
 
 /** Feeds the evidence ledger: search hits are Found; opened records are Read. */
@@ -80,7 +93,11 @@ export function recordToolEvidence(ledger: EvidenceLedger, toolName: string, res
   const list = Array.isArray(r['results']) ? r['results'] : Array.isArray(r['documents']) ? r['documents'] : [];
   const rows = list as Array<{ id?: string; title?: string; url?: string | null; version?: string; content?: string; updatedAt?: string; projectId?: string | null }>;
   if (SEARCH_TOOLS.has(toolName)) {
-    for (const x of rows) if (typeof x.id === 'string' && x.id !== '') noteFound(ledger, { kind, id: x.id }, { title: x.title ?? null, locator: x.url ?? null, projectId: x.projectId ?? null });
+    for (const x of rows) {
+      if (typeof x.id !== 'string' || x.id === '') continue;
+      const rowKind = toolName === 'traverse_relationships' ? (x as { type?: string }).type ?? kind : kind;
+      noteFound(ledger, { kind: rowKind, id: x.id }, { title: x.title ?? null, locator: x.url ?? null, projectId: x.projectId ?? null });
+    }
   } else if (READ_TOOLS.has(toolName)) {
     const id = typeof r['id'] === 'string' ? r['id'] : rows[0]?.id;
     if (typeof id === 'string' && id !== '') {
@@ -90,8 +107,30 @@ export function recordToolEvidence(ledger: EvidenceLedger, toolName: string, res
   }
 }
 
-export function attachEvidence(used: ContextUsed, ledger: EvidenceLedger): void {
-  used.evidence = summariseLedger(ledger);
+/** Adds the traversal tool's targets to the Found list (they are unread until opened). */
+function recordTraversalSources(used: ContextUsed, result: unknown): void {
+  const list = (result as { results?: unknown } | null)?.results;
+  if (!Array.isArray(list)) return;
+  for (const x of list as Array<{ id?: string; type?: string; title?: string }>) {
+    push(used.found, { id: x.id ?? '', kind: x.type === 'note' ? 'note' : 'item', title: x.title ?? 'Untitled' });
+  }
+}
+
+/** Copies the ledger lifecycle onto the source payload and adds warnings; additive to existing fields. */
+export function attachEvidence(used: ContextUsed, ledger: EvidenceLedger, warnings: string[] = []): void {
+  const summary = summariseLedger(ledger);
+  used.evidence = summary;
+  const byId = new Map(summary.entries.map((e) => [e.ref.id, e]));
+  const out: UsedWarning[] = [];
+  for (const s of [...used.found, ...used.auto]) {
+    const e = byId.get(s.id);
+    if (e === undefined) continue;
+    s.lifecycle = e.state;
+    s.available = e.available;
+    if (!e.available) out.push({ message: `"${s.title}" is no longer available to open.`, sourceId: s.id });
+  }
+  for (const message of warnings) out.push({ message });
+  if (out.length > 0) used.warnings = out;
 }
 
 /** Removes excluded items from a search tool's result before Athena sees it. */
