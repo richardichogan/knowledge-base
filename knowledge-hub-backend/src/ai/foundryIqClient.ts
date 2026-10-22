@@ -34,7 +34,7 @@ export function isFoundryIqEnabled(): boolean {
  * HTTP/network failure — callers should catch and fall back to Postgres FTS
  * rather than surface a hard error to the user.
  */
-export async function retrieveContentItemIds(query: string, limit: number): Promise<string[]> {
+export async function retrieveContentItemIds(query: string, limit: number, signal?: AbortSignal): Promise<string[]> {
   if (!isFoundryIqEnabled()) throw new Error('Foundry IQ is not configured');
 
   const url =
@@ -42,6 +42,7 @@ export async function retrieveContentItemIds(query: string, limit: number): Prom
     `/retrieve?api-version=${API_VERSION}`;
 
   const res = await fetch(url, {
+    signal: signal ?? null,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'api-key': env.FOUNDRY_IQ_SEARCH_ADMIN_KEY! },
     body: JSON.stringify({

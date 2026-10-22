@@ -218,6 +218,35 @@ export interface KnowledgeHealth {
     sources: Array<{ source: string; items: number; lastIndexedAt: string | null }>;
     scoring: { discoveredArticles: number; unscored: number };
   }>;
+  /** Optional so an older server that lacks per-family coverage still renders. */
+  families?: HealthSection<HealthFamilies>;
+}
+export type HealthFamilyState = 'up-to-date' | 'partial' | 'unsupported-extraction' | 'not-configured' | 'temporarily-unavailable' | 'excluded';
+export type HealthSemanticState = 'not-configured' | 'coverage-not-measured' | 'pending-work' | 'temporarily-unavailable' | 'up-to-date';
+export interface HealthFamily {
+  kind: string;
+  availability: 'supported' | 'partial' | 'unavailable' | 'excluded';
+  state: HealthFamilyState;
+  capabilities: string[];
+  entryPoint: string;
+  reason: string;
+  sources: string[];
+  /** A null count is not measured, never zero. */
+  counts: { eligible: number | null; indexed: number | null; pending: number | null; failed: number | null };
+  extraction: { fullText: number; metadataOnly: number; atIngestionCap: number } | null;
+  lastIndexedAt: string | null;
+  lastSuccessfulSyncAt: string | null;
+  errorCategories: Array<'sync-errors' | 'sync-run-failed'>;
+}
+export interface HealthFamilies {
+  families: HealthFamily[];
+  semantic: {
+    state: HealthSemanticState; providerConfigured: boolean; message: string;
+    work: { measured: boolean; pending: number | null; failed: number | null; done: number | null };
+  };
+  orchestrationEnabled: boolean;
+  decisionTablesMeasured: boolean;
+  lastSuccessfulSyncAt: string | null;
 }
 export interface KnowledgeHealthParams { from?: string; to?: string; environment?: 'prod' | 'dev'; feature?: string; persona?: string; deployment?: string }
 

@@ -6,7 +6,12 @@ import { describeToolActivity } from './turnActivity.js';
 import { ASSET_WRITE_TOOLS } from './assetTools.js';
 import type { ModelRoute } from './modelChoices.js';
 import { spreadsheetsBlock } from './chatFiles.js';
-import { getExcludedSources, filterExcluded, recordToolSources, type ContextUsed } from './contextUsage.js';
+import { getExcludedSources, filterExcluded, recordToolSources, recordToolEvidence, attachEvidence, type ContextUsed } from './contextUsage.js';
+import { createLedger } from './knowledge/evidence.js';
+import { resolveAnswer } from './knowledge/citations.js';
+import { TurnBudget, budgetLimitation, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
+
+const RETRIEVAL_TOOLS = new Set(['search_diagrams', 'read_diagram', 'search_knowledge_base', 'search_library', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph', 'read_output']);
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
 import { buildScreensBlock } from './chatScreens.js';
@@ -14,6 +19,8 @@ import type { LlmMessage, LlmToolChoice } from './foundryClient.js';
 import type { ToolImages } from './chatTools.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
+import { scrubExcludedHistory } from '../services/knowledge/historyScrub.js';
+import { resolveStrictProjectScope } from '../services/knowledge/scope.js';
 import { AI_MAX_TOOL_ITERATIONS, AI_WRAP_UP_ROUND_MIN_MS, SHOW_NOTES_MAX_TOOL_ITERATIONS, AI_CHAT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
@@ -151,13 +158,16 @@ export async function handleConversationTurn(
   const context = await buildAiContext(db, userMessage, history, sessionId, persona);
   hooks.signal?.throwIfAborted();
   // "Don't use this" items stay out of auto-retrieval and search results for this chat.
+  let exclusionsFailed = false;
   const excluded = new Set(sessionId !== undefined
-    ? (await getExcludedSources(db, sessionId).catch(() => [])).map((s) => s.id)
+    ? (await getExcludedSources(db, sessionId).catch(() => { exclusionsFailed = true; return []; })).map((s) => s.id)
     : []);
   const used = hooks.contextUsed;
+  if (exclusionsFailed) context.ragItems = [];
   if (excluded.size > 0) context.ragItems = context.ragItems.filter((item) => !excluded.has(item.id));
+  const strictProjectId = await resolveStrictProjectScope(db, userMessage).catch(() => null);
   let pastChatBlock = '';
-  if (PAST_CHAT_REFERENCE_PATTERN.test(userMessage)) {
+  if (!exclusionsFailed && PAST_CHAT_REFERENCE_PATTERN.test(userMessage)) {
     const query = pastChatSearchQuery(userMessage);
     if (query !== null) {
       hooks.onActivity?.('Finding the earlier conversation');
@@ -267,7 +277,8 @@ export async function handleConversationTurn(
   const peopleBlock = await buildPeopleContext(db, [userMessage]);
   const localFolders = toolContext.localFolders ?? [];
   const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
-  const baseMessages = await assembleMessages(context, history, userMessage, persona, pageContext, systemExtras);
+  const safeHistory = await scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant'));
+  const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
   const images = hooks.screenImages ?? [];
@@ -341,6 +352,11 @@ export async function handleConversationTurn(
   // whatever's left so we always have time to return a clear message.
   const turnStart = Date.now();
   const turnBudgetMs = hooks.budgetMs ?? AI_CONVERSATION_TURN_BUDGET_MS;
+  // Knowledge orchestration (flagged): evidence ledger, retrieval budgets and citation validation. Off = previous path.
+  const orchestrated = isKnowledgeOrchestrationEnabled();
+  const ledger = orchestrated ? createLedger() : undefined;
+  const budget = orchestrated ? new TurnBudget(hooks.signal) : undefined;
+  let citationRepairs = 0;
 
   // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
   const maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS : AI_MAX_TOOL_ITERATIONS;
@@ -399,6 +415,20 @@ export async function handleConversationTurn(
         return "I couldn't put that edit together — it was probably too large for one go. Try asking for it a section at a time (for example \"rewrite the Users section\"), and I'll propose each one for you to apply.";
       }
       if (response.content && response.content.trim() !== '') {
+        if (ledger !== undefined && budget !== undefined && ledger.entries.size > 0) {
+          const decision = resolveAnswer(ledger, response.content, { repairsUsed: citationRepairs, canRepair: !wrapUp && !budget.aborted && i < maxRounds - 1 });
+          if (used !== undefined) attachEvidence(used, ledger);
+          if (decision.action === 'repair') {
+            citationRepairs++;
+            hooks.onReset?.();
+            messages.push({ role: 'assistant', content: response.content });
+            messages.push({ role: 'user', content: decision.instruction });
+            nextRoundTool = 'none';
+            continue;
+          }
+          const limit = budgetLimitation(budget);
+          return `${decision.answer}${limit !== '' ? `\n\n${limit}` : ''}`;
+        }
         return response.content;
       }
       // A reasoning model (or a content filter) can return an empty visible
@@ -426,11 +456,23 @@ export async function handleConversationTurn(
         if (briefOnly && !tools.some((tool) => tool.function.name === call.function.name)) {
           throw new Error('This IMAGINE brief request permits reading context and saving Outputs only. The source note and other records cannot be changed.');
         }
-        result = filterExcluded(
-          await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, excludedIds: excluded, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
-          excluded,
-        );
-        if (used !== undefined) recordToolSources(used, call.function.name, result);
+        const gate = budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name) ? budget.canStartRetrieval() : { ok: true as const };
+        if (!gate.ok) {
+          result = { partial: true, note: `${budgetLimitation(budget as TurnBudget)} Do not search again; answer from what was read and say not everything was checked.` };
+        } else {
+          const run = async (): Promise<unknown> => filterExcluded(
+            await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, excludedIds: excluded, exclusionsFailed, strictProjectId, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
+            excluded,
+          );
+          if (budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name)) {
+            const timed = await budget.runRetrieval(run);
+            result = timed.ok ? timed.value : { partial: true, note: budgetLimitation(budget) };
+          } else {
+            result = await run();
+          }
+          if (used !== undefined) recordToolSources(used, call.function.name, result);
+          if (ledger !== undefined) recordToolEvidence(ledger, call.function.name, result);
+        }
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }
@@ -443,7 +485,13 @@ export async function handleConversationTurn(
         roundImages.push(...(__images ?? []));
         result = rest;
       }
-      messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
+      let toolContent = JSON.stringify(result);
+      if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name)) {
+        const admitted = budget.admitSource(toolContent);
+        if (admitted.truncated) toolContent = JSON.stringify({ partial: true, note: 'Source text limit reached for this answer; not everything was checked.' });
+        if (used !== undefined) attachEvidence(used, ledger);
+      }
+      messages.push({ role: 'tool', tool_call_id: call.id, content: toolContent });
     }
     if (roundImages.length > 0) {
       messages.push({

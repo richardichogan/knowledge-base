@@ -6,7 +6,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { getDb } from '../src/db/db.js';
 import { knowledgeHealthRouter } from '../src/routes/knowledgeHealth.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
-import { getKnowledgeHealth, parseHealthQuery } from '../src/health/knowledgeHealth.js';
+import { getKnowledgeHealth, parseHealthQuery, semanticStatus } from '../src/health/knowledgeHealth.js';
+import { CONTENT_SOURCE_DISPOSITIONS, KNOWLEDGE_FAMILIES } from '../src/ai/knowledge/manifest.js';
 import type { Pool } from 'pg';
 
 async function fixtureDb(): Promise<PGlite> {
@@ -14,7 +15,7 @@ async function fixtureDb(): Promise<PGlite> {
   for (const file of ['054_ai_usage_log.sql', '065_runtime_runs.sql', '067_ai_usage_measured.sql']) {
     await db.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   }
-  await db.exec(`CREATE TABLE content_items (id SERIAL PRIMARY KEY, source TEXT, indexed_at TIMESTAMPTZ, relevance_explanation TEXT);`);
+  await db.exec(`CREATE TABLE content_items (id SERIAL PRIMARY KEY, source TEXT, indexed_at TIMESTAMPTZ, relevance_explanation TEXT, body TEXT NOT NULL DEFAULT '');`);
   return db;
 }
 
@@ -96,4 +97,57 @@ test('health validates ranges, isolates failing sections and is served by the ro
     query.mock.restore();
     await db.close();
   }
+});
+
+test('UI-01 health reports per-family capability and measured counts, with unmeasured values as null', async () => {
+  const db = await fixtureDb();
+  await db.query(`INSERT INTO content_items (source, indexed_at, body) VALUES
+    ('note','2026-03-10T00:00:00Z','text'),('note','2026-03-11T00:00:00Z',''),('github-doc','2026-03-09T00:00:00Z',$1)`, ['x'.repeat(8000)]);
+  const health = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({}), new Date('2026-03-12T10:00:00Z'));
+  assert.ok(health.families.available);
+  const { families, semantic } = health.families.data;
+  assert.deepEqual(families.map((f) => f.kind), KNOWLEDGE_FAMILIES.map((f) => f.kind));
+  const note = families.find((f) => f.kind === 'note');
+  assert.deepEqual(note?.counts, { eligible: null, indexed: 2, pending: null, failed: null });
+  assert.deepEqual(note?.extraction, { fullText: 1, metadataOnly: 1, atIngestionCap: 0 });
+  assert.equal(note?.state, 'unsupported-extraction');
+  assert.equal(note?.lastIndexedAt, '2026-03-11T00:00:00.000Z');
+  assert.equal(families.find((f) => f.kind === 'library-document')?.extraction?.atIngestionCap, 1);
+  const live = families.find((f) => f.kind === 'project');
+  assert.equal(live?.state, 'up-to-date');
+  assert.equal(live?.counts.indexed, null);
+  assert.equal(families.find((f) => f.kind === 'person')?.state, 'not-configured');
+  assert.equal(semantic.state, 'not-configured');
+  assert.equal(semantic.work.measured, false);
+  assert.equal(health.families.data.decisionTablesMeasured, false);
+  const mapped = new Set(families.flatMap((f) => f.sources));
+  for (const source of Object.keys(CONTENT_SOURCE_DISPOSITIONS)) assert.ok(mapped.has(source), `${source} unmapped`);
+});
+
+test('AC-13 semantic status is never up to date from a provider connection alone, and failures surface safely', async () => {
+  const unmeasured = { measured: false, pending: null, failed: null, done: null } as const;
+  assert.equal(semanticStatus(true, unmeasured).state, 'coverage-not-measured');
+  assert.equal(semanticStatus(false, { measured: true, pending: 0, failed: 0, done: 9 }).state, 'not-configured');
+  assert.equal(semanticStatus(true, { measured: true, pending: 0, failed: 0, done: 0 }).state, 'coverage-not-measured');
+  assert.equal(semanticStatus(true, { measured: true, pending: 3, failed: 0, done: 9 }).state, 'pending-work');
+  assert.equal(semanticStatus(true, { measured: true, pending: 0, failed: 1, done: 9 }).state, 'temporarily-unavailable');
+  assert.equal(semanticStatus(true, { measured: true, pending: 0, failed: 0, done: 9 }).state, 'up-to-date');
+
+  const db = await fixtureDb();
+  await db.exec(`CREATE TABLE knowledge_index_work (id SERIAL PRIMARY KEY, status TEXT NOT NULL, last_error TEXT)`);
+  await db.exec(`INSERT INTO knowledge_index_work (status, last_error) VALUES ('done',NULL),('pending',NULL),('failed','SECRET prompt text')`);
+  await db.query(`INSERT INTO content_items (source, indexed_at) VALUES ('email','2026-03-10T00:00:00Z')`);
+  await db.query(`INSERT INTO sync_runs (id, claim_key, status, started_at, finished_at, results) VALUES
+    ('00000000-0000-4000-8000-000000000002','k2','partial','2026-03-11T01:00:00Z','2026-03-11T01:05:00Z','[{"source":"email","indexed":1,"errors":2,"error":"LEAK"}]')`);
+  const health = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({}), new Date(), { semanticConfigured: true, orchestrationEnabled: true });
+  assert.ok(health.families.available);
+  const { semantic, families, orchestrationEnabled } = health.families.data;
+  assert.equal(orchestrationEnabled, true);
+  assert.deepEqual([semantic.work.pending, semantic.work.failed, semantic.state], [1, 1, 'temporarily-unavailable']);
+  const connected = families.find((f) => f.kind === 'connected-activity');
+  assert.equal(connected?.state, 'temporarily-unavailable');
+  assert.deepEqual(connected?.errorCategories, ['sync-errors']);
+  const text = JSON.stringify(health.families);
+  for (const secret of ['SECRET prompt text', 'LEAK']) assert.ok(!text.includes(secret), `${secret} leaked`);
+  assert.ok(!text.includes('100%'));
 });

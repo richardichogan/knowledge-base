@@ -45,6 +45,8 @@ export type {
   ModelChoiceApi,
   ChatAlternate,
   UsedSourceApi,
+  UsedWarningApi,
+  SourceLifecycle,
   ContextUsedApi,
 } from './ai';
 

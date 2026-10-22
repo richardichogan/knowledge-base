@@ -78,6 +78,9 @@ export interface ChatMessage {
   nextSteps?: string[];
 }
 
+/** How far an item got: found by a search, read into the reasoning, or cited in the final answer. */
+export type SourceLifecycle = 'found' | 'read' | 'cited';
+
 /** An item a reply drew on. */
 export interface UsedSourceApi {
   id: string;
@@ -85,6 +88,17 @@ export interface UsedSourceApi {
   kind: string;
   title: string;
   url?: string | null;
+  /** Older replies omit this; see `lifecycleOf` for how they are classified. */
+  lifecycle?: SourceLifecycle;
+  /** False when the target was deleted or can no longer be opened. */
+  available?: boolean;
+}
+
+/** A notice scoped to one reply (and optionally one family or source), never a global banner. */
+export interface UsedWarningApi {
+  message: string;
+  sourceId?: string;
+  family?: string;
 }
 
 /** What a reply drew on (the "Used:" line under it). */
@@ -97,6 +111,8 @@ export interface ContextUsedApi {
   outputs: number;
   decisions: number;
   screens: number;
+  /** Warnings that apply only to this reply, e.g. an optional provider that was unavailable for this query. */
+  warnings?: UsedWarningApi[];
   /** Character counts for the initial model request, not token estimates or source contents. */
   initialSize?: {
     systemChars: number;

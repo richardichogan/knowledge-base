@@ -42,6 +42,8 @@ const DISCOVER_ADMIN_TOOLS = new Set([
 ]);
 const DISCOVER_INTENT_PATTERN =
   /\b(?:discover|feeds?|rss|atom|subscri\w*|sources?|digest|weekly|monday|articles?|shelve\w*|restore|dismiss\w*|park(?:ed|ing)?|later|newsletters?|podcasts?|blog)\b/i;
+const DECISION_REVIEW_INTENT_PATTERN =
+  /\b(?:decisions?|decided|supersed\w*|assumptions?|revisit|re-?consider|still\s+(?:valid|hold|stand)s?|review\s+(?:date|due)|approval\s+gate)\b/i;
 
 /**
  * Withholds specialised tool groups the turn does not need, so the model sees fewer, more relevant
@@ -55,8 +57,10 @@ export function focusTools(
   const text = `${turn.userMessage}\n${turn.recentText ?? ''}`;
   const wantsDiagram = turn.hasOpenDiagram === true || DIAGRAM_INTENT_PATTERN.test(text);
   const wantsDiscover = DISCOVER_INTENT_PATTERN.test(text);
+  const wantsDecisionReview = DECISION_REVIEW_INTENT_PATTERN.test(text);
   return tools.filter((tool) => {
     const name = tool.function.name;
+    if (name === 'review_decisions') return wantsDecisionReview;
     if (DIAGRAM_WRITE_TOOLS.has(name)) return wantsDiagram;
     if (DISCOVER_ADMIN_TOOLS.has(name)) return wantsDiscover;
     return true;

@@ -22,6 +22,7 @@
 import type { Pool } from 'pg';
 import { getContentItemsPendingFoundryIndex, markContentItemFoundryIndexed } from '../db/queries.js';
 import { canIndexToFoundryIq, indexContentItem } from '../ai/foundryIqIndexer.js';
+import { drainIndexingWork } from '../services/knowledge/indexingWorkRunner.js';
 
 const BATCH_LIMIT = 300;
 
@@ -33,6 +34,7 @@ export async function runFoundryIqBackfillJob(db: Pool): Promise<void> {
   }
 
   try {
+    await drainIndexingWork(db);
     const items = await getContentItemsPendingFoundryIndex(db, BATCH_LIMIT);
     if (items.length === 0) {
       console.warn('[FoundryIqBackfill] Nothing pending — all content_items up to date.');

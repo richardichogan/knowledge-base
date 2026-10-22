@@ -17,7 +17,7 @@ import { upsertNode } from '../services/nodeService.js';
 import { parseNoteContent, blockContentSpans } from '../utils/noteContent.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
 import { env } from '../config/env.js';
-import { indexContentItem } from '../ai/foundryIqIndexer.js';
+import { kickIndexingWork } from '../services/knowledge/indexingWorkRunner.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput, ContentItem } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
@@ -138,15 +138,11 @@ export async function buildNoteIndexPayload(
  */
 export async function syncNoteToTimeline(db: ReturnType<typeof getDb>, note: IndexableNote): Promise<void> {
   const payload = await buildNoteIndexPayload(db, note);
-  const { id: contentItemId } = await upsertContentItem(db, payload);
+  await upsertContentItem(db, payload);
 
-  void indexContentItem({
-    ...payload,
-    id: contentItemId,
-    indexedAt: new Date().toISOString(),
-  }).catch((err: unknown) => {
-    console.error('[notes] Foundry IQ index push failed:', err instanceof Error ? err.message : err);
-  });
+  // The write itself enqueued durable indexing work (DB trigger); this only
+  // nudges the worker, so a semantic outage can delay but never lose the edit.
+  kickIndexingWork(db);
 }
 
 /** Lightweight list row for the Think sidebar — no note body (bodies can be MBs with images). */
@@ -812,6 +808,7 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction): void =>
       res.status(HTTP_STATUS.OK).json(body);
       // Remove the note from content_items so it disappears from the timeline
       db.query(`DELETE FROM content_items WHERE source = 'note' AND source_id = $1`, [id])
+        .then(() => { kickIndexingWork(db); })
         .catch((e: unknown) => {
           console.error('[notes] Failed to remove archived note from timeline:', e);
         });

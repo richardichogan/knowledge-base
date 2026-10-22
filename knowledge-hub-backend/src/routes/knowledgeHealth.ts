@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
+import { env } from '../config/env.js';
+import { isKnowledgeOrchestrationEnabled } from '../ai/knowledge/budgets.js';
 import { getKnowledgeHealth, parseHealthQuery, type KnowledgeHealth } from '../health/knowledgeHealth.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 
@@ -21,7 +23,11 @@ knowledgeHealthRouter.get('/knowledge', (req: Request, res: Response, next: Next
         from: queryText(req.query['from']), to: queryText(req.query['to']), environment: queryText(req.query['environment']),
         feature: queryText(req.query['feature']), persona: queryText(req.query['persona']), deployment: queryText(req.query['deployment']),
       });
-      const body: ApiSuccess<KnowledgeHealth> = { success: true, data: await getKnowledgeHealth(getDb(), filters) };
+      const options = {
+        semanticConfigured: Boolean(env.FOUNDRY_IQ_SEARCH_ENDPOINT && env.FOUNDRY_IQ_SEARCH_ADMIN_KEY),
+        orchestrationEnabled: isKnowledgeOrchestrationEnabled(),
+      };
+      const body: ApiSuccess<KnowledgeHealth> = { success: true, data: await getKnowledgeHealth(getDb(), filters, new Date(), options) };
       res.json(body);
     } catch (err) {
       next(err);

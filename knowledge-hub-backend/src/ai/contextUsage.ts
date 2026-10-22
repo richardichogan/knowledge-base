@@ -4,6 +4,7 @@
  * auto-retrieval for the rest of the chat.
  */
 import type { Pool } from 'pg';
+import { noteFound, noteRead, summariseLedger, type EvidenceLedger, type EvidenceSummary } from './knowledge/evidence.js';
 
 export interface UsedSource {
   id: string;
@@ -26,6 +27,8 @@ export interface ContextUsed {
   outputs: number;
   decisions: number;
   screens: number;
+  /** Found/Read/Cited lifecycle for this turn; present only when knowledge orchestration is on. */
+  evidence?: EvidenceSummary;
   /** Character counts for the initial model request, not token estimates or source contents. */
   initialSize?: {
     systemChars: number;
@@ -64,6 +67,31 @@ export function recordToolSources(used: ContextUsed, toolName: string, result: u
       push(used.found, { id: d.id ?? '', kind: 'document', title: d.title ?? 'Untitled', url: d.url !== '' ? d.url ?? null : null });
     }
   }
+}
+
+const SEARCH_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph']);
+const READ_TOOLS = new Set(['read_diagram', 'read_output', 'read_past_chat']);
+
+/** Feeds the evidence ledger: search hits are Found; opened records are Read. */
+export function recordToolEvidence(ledger: EvidenceLedger, toolName: string, result: unknown): void {
+  if (typeof result !== 'object' || result === null || 'error' in result) return;
+  const r = result as Record<string, unknown>;
+  const kind = toolName.includes('diagram') ? 'diagram' : toolName.includes('library') ? 'document' : toolName.includes('chat') ? 'chat' : toolName.includes('output') ? 'output' : 'item';
+  const list = Array.isArray(r['results']) ? r['results'] : Array.isArray(r['documents']) ? r['documents'] : [];
+  const rows = list as Array<{ id?: string; title?: string; url?: string | null; version?: string; content?: string; updatedAt?: string; projectId?: string | null }>;
+  if (SEARCH_TOOLS.has(toolName)) {
+    for (const x of rows) if (typeof x.id === 'string' && x.id !== '') noteFound(ledger, { kind, id: x.id }, { title: x.title ?? null, locator: x.url ?? null, projectId: x.projectId ?? null });
+  } else if (READ_TOOLS.has(toolName)) {
+    const id = typeof r['id'] === 'string' ? r['id'] : rows[0]?.id;
+    if (typeof id === 'string' && id !== '') {
+      const text = typeof r['content'] === 'string' ? r['content'] : JSON.stringify(r);
+      noteRead(ledger, { kind, id }, { title: typeof r['title'] === 'string' ? r['title'] : null, text });
+    }
+  }
+}
+
+export function attachEvidence(used: ContextUsed, ledger: EvidenceLedger): void {
+  used.evidence = summariseLedger(ledger);
 }
 
 /** Removes excluded items from a search tool's result before Athena sees it. */

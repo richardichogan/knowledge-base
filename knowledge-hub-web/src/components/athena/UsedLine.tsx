@@ -6,7 +6,8 @@
  */
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp } from '@carbon/icons-react';
-import type { ContextUsedApi, UsedSourceApi } from '../../types';
+import type { ContextUsedApi, SourceLifecycle, UsedSourceApi } from '../../types';
+import { groupSources, LIFECYCLE_LABEL, scopeWarnings, sourceTarget } from './usedSources';
 
 interface UsedLineProps {
   used: ContextUsedApi;
@@ -24,27 +25,34 @@ function plural(n: number, one: string, many = `${one}s`): string {
 
 export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, onInclude }) => {
   const [open, setOpen] = useState(false);
-  const background = used.auto.filter((a) => !used.found.some((f) => f.id === a.id));
-  const sources = [...used.found, ...background];
+  const groups = groupSources(used);
+  const sourceCount = groups.reduce((total, group) => total + group.sources.length, 0);
+  const { reply: replyWarnings, bySource: sourceWarnings } = scopeWarnings(used.warnings);
+  const warningCount = (used.warnings ?? []).length;
   const summary = [
     used.project,
     used.instructions > 0 ? plural(used.instructions, 'instruction') : null,
     used.inView,
-    sources.length > 0 ? plural(sources.length, 'source') : null,
+    sourceCount > 0 ? plural(sourceCount, 'source') : null,
     used.decisions > 0 ? 'Decisions' : null,
     used.outputs > 0 ? 'Outputs' : null,
     used.screens > 0 ? 'Screens' : null,
+    warningCount > 0 ? plural(warningCount, 'notice') : null,
   ].filter((x): x is string => x !== null && x !== '');
   if (summary.length === 0) return null;
 
-  const row = (s: UsedSourceApi): React.ReactNode => {
+  const row = (s: UsedSourceApi, lifecycle: SourceLifecycle): React.ReactNode => {
     const isOut = excluded.has(s.id);
+    const target = sourceTarget(s);
+    const warnings = sourceWarnings.get(s.id) ?? [];
     return (
-      <li key={s.id} className={`ai-used__item${isOut ? ' ai-used__item--out' : ''}`}>
+      <li key={s.id} className={`ai-used__item${isOut ? ' ai-used__item--out' : ''}${target.kind === 'unavailable' ? ' ai-used__item--unavailable' : ''}`}>
+        <span className={`ai-used__state ai-used__state--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
         <span className="ai-used__kind">{KIND_LABEL[s.kind] ?? s.kind}</span>
-        {s.url !== undefined && s.url !== null && s.url !== ''
-          ? <a href={s.url} target={/^https?:\/\/[^/]*athena/i.test(s.url) ? undefined : '_blank'} rel="noreferrer" className="ai-used__title">{s.title}</a>
+        {target.kind === 'internal' || target.kind === 'external'
+          ? <a href={target.href} target={target.kind === 'external' ? '_blank' : undefined} rel="noreferrer" className="ai-used__title">{s.title}</a>
           : <span className="ai-used__title">{s.title}</span>}
+        {target.kind === 'unavailable' && <span className="ai-used__unavailable">No longer available</span>}
         <button
           type="button"
           className="ai-used__toggle"
@@ -53,6 +61,7 @@ export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, o
         >
           {isOut ? 'Use again' : 'Don’t use this'}
         </button>
+        {warnings.map((w) => <span key={w.message} className="ai-used__item-warning" role="note">{w.message}</span>)}
       </li>
     );
   };
@@ -79,20 +88,16 @@ export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, o
               </li>
             )}
           </ul>
-          {used.found.length > 0 && (
-            <>
-              <div className="ai-used__group">Sources read, including @mentions</div>
-              <ul className="ai-used__list">{used.found.map(row)}</ul>
-            </>
-          )}
-          {background.length > 0 && (
-            <>
-              <div className="ai-used__group">Background (retrieved automatically)</div>
-              <ul className="ai-used__list">{background.map(row)}</ul>
-            </>
-          )}
+          {replyWarnings.map((w) => <p key={w.message} className="ai-used__warning" role="note">{w.message}</p>)}
+          {groups.map((group) => (
+            <React.Fragment key={group.lifecycle}>
+              <div className="ai-used__group" title={group.hint}>{group.label} · {group.hint}</div>
+              <ul className="ai-used__list">{group.sources.map((s) => row(s, group.lifecycle))}</ul>
+            </React.Fragment>
+          ))}
         </div>
       )}
     </div>
   );
 };
+

@@ -6,6 +6,7 @@ import { api } from '../services/api';
 import type { HealthSection, HealthUsageTotals, KnowledgeHealth, KnowledgeHealthParams } from '../services/api';
 import { requireApiData } from '../services/apiError';
 import { PageHeader } from '../components/PageHeader';
+import { KnowledgeFamilies } from '../components/health/KnowledgeFamilies';
 import './KnowledgeHealthPage.css';
 
 const number = new Intl.NumberFormat('en-GB');
@@ -127,6 +128,10 @@ export const KnowledgeHealthPage: React.FC = () => {
                 </ul>
               </>
             )}
+          </section>
+          <section className="kh-health__section" aria-labelledby="health-families">
+            <h2 id="health-families">Knowledge coverage</h2>
+            <KnowledgeFamilies section={query.data.families} />
           </section>
           <section className="kh-health__section" aria-labelledby="health-index">
             <h2 id="health-index">Index freshness</h2>

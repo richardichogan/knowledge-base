@@ -224,8 +224,9 @@ test('a project-scoped knowledge search still returns real matches from other pr
   });
   const query = mock.method(db, 'query', async (sql: string) => {
     if (!sql.includes('FROM content_items')) return { rows: [] };
-    if (sql.includes('project_context = $3')) return { rows: [note('ikea-1', 'ikea', 'IKEA: Microsoft Deep Dive')] };
-    if (sql.includes('plainto_tsquery')) return { rows: [note('dhalia-2', 'imagine', 'IMAGINE: Meeting with Dhalia Part 2')] };
+    if (sql.includes('plainto_tsquery')) {
+      return { rows: [note('dhalia-2', 'imagine', 'IMAGINE: Meeting with Dhalia Part 2'), note('ikea-1', 'ikea', 'IKEA: Microsoft Deep Dive')] };
+    }
     return { rows: [] };
   });
   try {

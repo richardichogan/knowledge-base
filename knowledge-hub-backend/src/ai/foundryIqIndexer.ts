@@ -112,3 +112,98 @@ export async function indexContentItem(item: ContentItem): Promise<void> {
     );
   }
 }
+
+const PASSAGE_INDEX_NAME = 'kh-content-passages';
+const PASSAGE_EMBED_BATCH = 16;
+
+/** Sources whose full text is chunked into the passage index. */
+export const PASSAGE_INDEXED_SOURCES: ReadonlySet<string> = new Set([
+  'user-upload', 'github-doc', 'github-content-store', 'onedrive-document', 'ica-document', 'note',
+]);
+
+export class PassageIndexError extends Error {
+  constructor(readonly failedKeys: string[]) {
+    super(`Passage indexing failed for ${failedKeys.length} document(s)`);
+    this.name = 'PassageIndexError';
+  }
+}
+
+/** Per-item results: a batch-level HTTP 200 with any failed item is a failure (never "indexed"). */
+export function assertAllPassagesIndexed(expectedKeys: string[], response: IndexingResponse): void {
+  const byKey = new Map((response.value ?? []).map(r => [r.key, r.status === true]));
+  const failed = expectedKeys.filter(key => byKey.get(key) !== true);
+  if (failed.length > 0) throw new PassageIndexError(failed);
+}
+
+export interface PassageIndexDeps {
+  embedBatch(texts: string[]): Promise<number[][]>;
+  post(indexName: string, actions: Record<string, unknown>[]): Promise<IndexingResponse>;
+}
+
+const defaultPassageDeps: PassageIndexDeps = {
+  embedBatch: async texts => (await import('./embeddings.js')).embedBatch(texts),
+  async post(indexName, actions) {
+    const res = await fetch(`${env.FOUNDRY_IQ_SEARCH_ENDPOINT}/indexes/${indexName}/docs/index?api-version=${SEARCH_API_VERSION}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': env.FOUNDRY_IQ_SEARCH_ADMIN_KEY ?? '' },
+      body: JSON.stringify({ value: actions }),
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`Foundry IQ passage push failed: ${res.status}`);
+    return (await res.json()) as IndexingResponse;
+  },
+};
+
+export interface PassageIndexOutcome {
+  /** ordinal -> chunk hash now present in the index */
+  indexed: Map<number, string>;
+  staleOrdinals: number[];
+  embedded: number;
+  skipped: number;
+}
+
+/**
+ * Chunks the item, embeds only passages whose hash changed, pushes them and
+ * deletes stale ones. Throws (so the caller leaves the item not indexed) if
+ * any passage fails.
+ */
+export async function indexItemPassages(
+  item: Pick<ContentItem, 'id' | 'source' | 'title' | 'body' | 'projectContext'>,
+  previousHashes: ReadonlyMap<number, string>,
+  deps: PassageIndexDeps = defaultPassageDeps,
+): Promise<PassageIndexOutcome> {
+  const { chunkText, planChunks } = await import('../services/knowledge/chunking.js');
+  const chunks = chunkText(item.id, item.body || '');
+  const plan = planChunks(chunks, previousHashes);
+  const indexed = new Map<number, string>();
+  for (const chunk of chunks) if (previousHashes.get(chunk.ordinal) === chunk.hash) indexed.set(chunk.ordinal, chunk.hash);
+
+  for (let i = 0; i < plan.toEmbed.length; i += PASSAGE_EMBED_BATCH) {
+    const batch = plan.toEmbed.slice(i, i + PASSAGE_EMBED_BATCH);
+    const vectors = await deps.embedBatch(batch.map(c => `${item.title}\n${c.headingPath.join(' > ')}\n${c.text}`));
+    if (vectors.length !== batch.length) throw new PassageIndexError(batch.map(c => c.id));
+    const response = await deps.post(PASSAGE_INDEX_NAME, batch.map((c, n) => ({
+      '@search.action': 'mergeOrUpload',
+      id: c.id, parentId: item.id, ordinal: c.ordinal, startOffset: c.startOffset, endOffset: c.endOffset,
+      headingPath: c.headingPath, version: c.version, title: item.title, content: c.text,
+      projectContext: item.projectContext, source: item.source, contentVector: vectors[n],
+    })));
+    assertAllPassagesIndexed(batch.map(c => c.id), response);
+    for (const c of batch) indexed.set(c.ordinal, c.hash);
+  }
+
+  if (plan.staleOrdinals.length > 0) {
+    const keys = plan.staleOrdinals.map(o => `${item.id}_${o}`);
+    assertAllPassagesIndexed(keys, await deps.post(PASSAGE_INDEX_NAME, keys.map(id => ({ '@search.action': 'delete', id }))));
+  }
+  return { indexed, staleOrdinals: plan.staleOrdinals, embedded: plan.toEmbed.length, skipped: plan.unchanged.length };
+}
+
+/** Removes every passage of a parent (used for deletions). */
+export async function deleteItemPassages(
+  parentId: string, ordinals: number[], deps: PassageIndexDeps = defaultPassageDeps,
+): Promise<void> {
+  if (ordinals.length === 0) return;
+  const keys = ordinals.map(o => `${parentId}_${o}`);
+  assertAllPassagesIndexed(keys, await deps.post(PASSAGE_INDEX_NAME, keys.map(id => ({ '@search.action': 'delete', id }))));
+}

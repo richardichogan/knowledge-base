@@ -48,6 +48,10 @@ const tests = frontend ? [
   'scripts/chat-references.test.ts',
   'scripts/daily-insights.test.ts',
   'scripts/knowledge-manifest.test.ts',
+  'scripts/knowledge-evidence.test.ts',
+  'scripts/knowledge-read.test.ts',
+  'scripts/knowledge-safety.test.ts',
+  'scripts/knowledge-traversal.test.ts',
   'scripts/discover-parking.test.ts',
   'scripts/people.test.ts',
   'scripts/project-parents-migration.test.ts',
@@ -59,6 +63,9 @@ const tests = frontend ? [
   'scripts/runtime.test.ts',
   'scripts/discover-views.test.ts',
   'scripts/knowledge-health.test.ts',
+  'scripts/knowledge-search.test.ts',
+  'scripts/knowledge-structured.test.ts',
+  'scripts/knowledge-indexing.test.ts',
   'scripts/project-cockpit.test.ts',
   'scripts/review-packets.test.ts',
   'scripts/use-cases.test.ts',
@@ -74,6 +81,10 @@ const tests = frontend ? [
   'scripts/canvas-recycle-bin.test.ts',
   'scripts/ai-flow.test.ts',
   'scripts/local-documents.test.ts',
+  'scripts/knowledge-fixtures.test.ts',
+  'scripts/semantic-entities.test.ts',
+  'scripts/semantic-rules.test.ts',
+  'scripts/semantic-decisions.test.ts',
 ];
 // Do not inherit local integration credentials or let dotenv load application settings.
 const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'COMSPEC', 'PATHEXT']);
@@ -92,7 +103,7 @@ if (frontend) {
   // bundle in memory so isolated runs never leave generated test files behind.
   const require = createRequire(resolve(web, 'package.json'));
   const { build } = require('esbuild');
-  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx']) {
+  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx']) {
     const bundle = await build({
       absWorkingDir: web,
       entryPoints: [entry],
