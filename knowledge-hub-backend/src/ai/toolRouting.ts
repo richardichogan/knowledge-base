@@ -1,6 +1,8 @@
 import type { LlmToolChoice, LlmToolDefinition } from './foundryClient.js';
+import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>()]+/i;
+const MIN_PROJECT_TOKEN_CHARS = 4;
 const NOTE_EDIT_PATTERN =
   /\b(?:add|insert|append|prepend|put|write|update|edit|rewrite|re-?word|fix|tidy|clean\s+up|restructure|reformat|reorgani[sz]e|turn|convert|replace|remove|delete|expand|shorten|condense|correct)\b[\s\S]{0,120}\b(?:note|section|paragraph|heading|intro(?:duction)?|conclusion|summary|bullets?|list|checklist|table|action\s+items?|next\s+steps|this|it|top|bottom|end|start)\b/i;
 // Requests that mention another destination are not edits to the note.
@@ -45,6 +47,8 @@ const DISCOVER_INTENT_PATTERN =
 const DECISION_REVIEW_INTENT_PATTERN =
   /\b(?:decisions?|decided|supersed\w*|assumptions?|revisit|re-?consider|still\s+(?:valid|hold|stand)s?|review\s+(?:date|due)|approval\s+gate)\b/i;
 
+const STRUCTURED_INTENT_PATTERN =
+  /\b(?:how\s+many|count|number\s+of|list\s+(?:all|every|the|my)|all\s+(?:my|the|of\s+the)?\s*(?:open\s+|overdue\s+)?tasks?|every\s+(?:task|record|note|item)|overdue|due\s+(?:this|next|last|today|tomorrow)|what\s+(?:has\s+)?changed|changes?\s+(?:this|last|since)|recently\s+(?:changed|updated)|any\s+tasks?|no\s+tasks?|none)\b/i;
 const RELATIONSHIP_INTENT_PATTERN =
   /\b(?:depend(?:s|ed|encies|ency)?\s+on|downstream|upstream|consequences?|knock-?on|impacts?|affect(?:s|ed)?|linked?\s+(?:to|with)|connected\s+to|related\s+to|relationships?|what\s+else\s+(?:uses|touches|relies)|blocked\s+by|blocks)\b/i;
 
@@ -62,8 +66,10 @@ export function focusTools(
   const wantsDiscover = DISCOVER_INTENT_PATTERN.test(text);
   const wantsDecisionReview = DECISION_REVIEW_INTENT_PATTERN.test(text);
   const wantsTraversal = turn.knowledgeOrchestration === true && RELATIONSHIP_INTENT_PATTERN.test(text);
+  const wantsStructured = turn.knowledgeOrchestration === true && STRUCTURED_INTENT_PATTERN.test(text);
   return tools.filter((tool) => {
     const name = tool.function.name;
+    if (STRUCTURED_TOOL_NAMES.has(name)) return wantsStructured;
     if (name === 'traverse_relationships') return wantsTraversal;
     if (name === 'review_decisions') return wantsDecisionReview;
     if (DIAGRAM_WRITE_TOOLS.has(name)) return wantsDiagram;
@@ -85,6 +91,24 @@ function findToolName(tools: LlmToolDefinition[], predicate: (name: string) => b
 const DIAGRAM_CREATE_PATTERN = /\b(?:create|draw|make|build|sketch|generate)\s+(?:me\s+)?(?:a|an|the|new|another)?\s*(?:new\s+)?(?:(?:architecture|flow|process|swim\s*-?lane|ai[\s-]+flow|(?:ai\s+)?governance|agentic(?:\s+process)?)\s+)?diagram\b/i;
 /** An AI flow / governance (agentic process) diagram, even without the word "diagram". */
 const AI_FLOW_CREATE_PATTERN = /\b(?:create|draw|make|build|sketch|generate|map\s+out|map)\s+(?:me\s+)?(?:a|an|the|new|another)?\s*(?:new\s+)?(?:ai[\s-]+flow|ai\s+governance\s+flow|agentic\s+(?:process|flow|workflow)|swim\s*-?lane\s+(?:flow|process|view))\b/i;
+
+const KNOWLEDGE_QUESTION_PATTERN =
+  /\?|^\s*(?:what|which|who|whom|whose|when|where|why|how|should|does|did|do|is|are|was|were|can|could|link|compare|connect|summari[sz]e|explain|tell\s+me|show|find|list|give\s+me|quote|read|check|look)\b/i;
+const NOT_A_RETRIEVAL_REQUEST_PATTERN =
+  /\b(?:create|add|save|remember|update|delete|remove|draft|write|rewrite|schedule|send|set\s+up|mark|rename|move|draw|generate)\b/i;
+
+/**
+ * With knowledge orchestration on, a question about his saved material is never answered or
+ * clarified from the prompt alone: the first round must retrieve. Decisions go to the decision log
+ * (all projects); structured count/list questions keep their own tools; everything else searches.
+ */
+export function selectKnowledgeRetrievalChoice(userMessage: string, tools: LlmToolDefinition[]): LlmToolChoice | undefined {
+  if (!KNOWLEDGE_QUESTION_PATTERN.test(userMessage) || NOT_A_RETRIEVAL_REQUEST_PATTERN.test(userMessage)) return undefined;
+  if (STRUCTURED_INTENT_PATTERN.test(userMessage) && tools.some((t) => STRUCTURED_TOOL_NAMES.has(t.function.name))) return undefined;
+  const preferred = DECISION_REVIEW_INTENT_PATTERN.test(userMessage) && tools.some((t) => t.function.name === 'review_decisions') ? 'review_decisions' : 'search_knowledge_base';
+  const name = findToolName(tools, (n) => n === preferred);
+  return name === undefined ? undefined : { type: 'function', function: { name } };
+}
 
 export function selectRequiredToolChoice(
   userMessage: string,
@@ -174,7 +198,7 @@ export function selectRequiredToolChoice(
   ].some((value) => value
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .some((token) => token.length >= 4 && normalizedMessage.includes(token)));
+    .some((token) => token.length >= MIN_PROJECT_TOKEN_CHARS && normalizedMessage.includes(token)));
 
   if (
     projectReferences.length > 0 &&

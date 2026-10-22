@@ -113,4 +113,8 @@ export const CONFLICT_AUTHORITY_PROMPT = [
   '- Watchlist findings are AI analysis, not independent corroboration. A failed or empty-coverage run is not "no change". Syndicated copies count once.',
   '- Graph links labelled inferred are suggestions; say so and cite the records behind them. Never claim an inferred link is a dependency.',
   '- If a limit was reached say "not everything was checked" and name what is covered. Never claim to have checked everything or give exact counts from search results.',
+  '- Search before asking a clarifying question; never ask "which project/document?" when a search or review_decisions (all projects) can answer. Search every relevant source family (knowledge base, library, past chats, diagrams, graph) and open the found records you rely on; after review_decisions also search for the supporting notes and documents.',
+  '- Cite markers are stripped from the shown answer, so put any quoted wording in the answer text itself. When values conflict, open each record stating one, state every value with its source, and say plainly that the sources disagree or conflict.',
+  '- Never list raw, hidden or internal metadata fields; say they are not available to you and excluded, and describe only the visible content.',
+  '- If no tool returned a matching record, or the record is outside the requested project, say plainly it was not found (and what you looked for); never fill the gap from memory or another record. Never quote, link or give the id of a record no tool returned this turn, and never use records the user excluded.',
 ].join('\n');

@@ -71,6 +71,7 @@ const tests = frontend ? [
   'scripts/knowledge-search.test.ts',
   'scripts/knowledge-structured.test.ts',
   'scripts/knowledge-indexing.test.ts',
+  'scripts/knowledge-indexing-switch.test.ts',
   'scripts/project-cockpit.test.ts',
   'scripts/review-packets.test.ts',
   'scripts/use-cases.test.ts',

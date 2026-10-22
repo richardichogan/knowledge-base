@@ -35,7 +35,7 @@ import type {
 } from '../types';
 import { getApiToken } from './auth';
 import { requireApiData } from './apiError';
-import type { DecisionLinkInput, DecisionSemantics } from '../types/semanticDecision';
+import type { DecisionLinkCandidate, DecisionLinkInput, DecisionSemantics } from '../types/semanticDecision';
 import { normaliseTask } from '../types/task';
 import type { TaskPriority, AtRiskTask, DayCheckin, CheckinAction } from '../types/task';
 import type { DiagramAsset, DiagramDocument, DiagramDrilldownLink, DiagramSnapshot } from '../features/diagram/diagramTypes';
@@ -1058,6 +1058,12 @@ export class KnowledgeHubApi {
   async getDecisionSemantics(decisionId: string): Promise<DecisionSemantics> {
     const r = await this.client.get<ApiResponse<DecisionSemantics>>(`/api/semantic/decisions/${encodeURIComponent(decisionId)}/semantics`);
     return requireApiData(r.data);
+  }
+
+  async getDecisionLinkCandidates(decisionId: string, kind: 'task' | 'decision', q: string, limit = 10): Promise<DecisionLinkCandidate[]> {
+    const r = await this.client.get<ApiResponse<{ items: DecisionLinkCandidate[] }>>(
+      `/api/semantic/decisions/${encodeURIComponent(decisionId)}/candidates`, { params: { kind, q, limit } });
+    return requireApiData(r.data).items;
   }
 
   async confirmDecisionAcceptance(decisionId: string): Promise<DecisionSemantics> {

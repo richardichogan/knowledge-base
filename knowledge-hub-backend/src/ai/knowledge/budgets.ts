@@ -125,15 +125,39 @@ export function completenessAnswer(budget: TurnBudget, counts: { found: number; 
 }
 
 /** Applies the exhaustive-query and "checked everything?" rules to a validated final answer. */
+/** Exact, paged Phase 2 tools whose totals come from the database, not from search. */
+export const DETERMINISTIC_TOOLS: ReadonlySet<string> = new Set(['knowledge_count_tasks', 'knowledge_list_tasks', 'knowledge_list_changes']);
+
+/** A deterministic result is complete unless it errored, was cut off, or has another page. */
+export function isDeterministicResultComplete(result: unknown): boolean {
+  if (typeof result !== 'object' || result === null) return false;
+  const r = result as Record<string, unknown>;
+  if ('error' in r || r['partial'] === true || r['truncated'] === true || r['hasMore'] === true) return false;
+  if (r['status'] !== undefined && r['status'] !== 'ok') return false;
+  const cursor = r['nextCursor'];
+  return cursor === undefined || cursor === null || cursor === '';
+}
+
+const RAW_METADATA_REQUEST_PATTERN =
+  /\b(?:raw|hidden|internal|underlying|excluded|secret|private)\s+(?:metadata|fields?|properties|attributes)\b|\bmetadata\s+(?:dump|blob|json)\b/i;
+
+export const RAW_METADATA_REFUSAL =
+  'Raw metadata fields are not available to me: they are excluded from what I read, so I will not list or reconstruct them. I can describe the note\'s visible content if that helps.';
+
 export function finalizeKnowledgeAnswer(
   query: string,
   answer: string,
-  turn: { budget: TurnBudget; counts: { found: number; read: number }; retrievalUsed: boolean; deterministicPath: boolean },
+  turn: { budget: TurnBudget; counts: { found: number; read: number }; retrievalUsed: boolean; deterministicPath: boolean; deterministicComplete?: boolean },
 ): string {
+  if (RAW_METADATA_REQUEST_PATTERN.test(query)) return RAW_METADATA_REFUSAL;
   if (isCompletenessChallenge(query)) return completenessAnswer(turn.budget, turn.counts);
   const qualification = turn.retrievalUsed || turn.deterministicPath
-    ? exhaustiveQualification(query, { deterministicPath: turn.deterministicPath, complete: !turn.budget.partial })
+    ? exhaustiveQualification(query, { deterministicPath: turn.deterministicPath, complete: turn.deterministicComplete ?? !turn.budget.partial })
     : null;
   const limit = budgetLimitation(turn.budget);
-  return [qualification, answer, limit === '' ? null : limit].filter((p): p is string => p !== null).join('\n\n');
+  const nothingFound = turn.retrievalUsed && !turn.deterministicPath && turn.counts.found === 0 && turn.counts.read === 0 ? NOTHING_FOUND_NOTE : null;
+  return [qualification, nothingFound, answer, limit === '' ? null : limit].filter((p): p is string => p !== null).join('\n\n');
 }
+
+/** Retrieval ran but registered no record: say so, so an unsupported answer is never read as a confirmed one. */
+export const NOTHING_FOUND_NOTE = 'I did not find any matching record in what I could search, so I cannot confirm this from your saved sources.';

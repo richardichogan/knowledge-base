@@ -162,8 +162,10 @@ export function dropFromLedger(ledger: EvidenceLedger, ref: EvidenceRef): void {
   ledger.texts.delete(refKey(ref));
 }
 
-/** Records that a target could not be opened (deleted, excluded or missing) so the UI can show it as unavailable. */
+/** Records that a target could not be opened (deleted or missing) so the UI can show it as unavailable. Matches an existing entry by id when the kind differs. */
 export function markUnavailable(ledger: EvidenceLedger, ref: EvidenceRef): void {
+  const existing = ledger.entries.get(refKey(ref)) ?? [...ledger.entries.values()].find((e) => e.ref.id === ref.id);
+  if (existing !== undefined) { existing.available = false; return; }
   if (!noteFound(ledger, ref)) return;
   const entry = ledger.entries.get(refKey(ref));
   if (entry !== undefined) entry.available = false;

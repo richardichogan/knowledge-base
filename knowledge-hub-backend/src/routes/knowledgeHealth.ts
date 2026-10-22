@@ -6,6 +6,7 @@ import { isKnowledgeOrchestrationEnabled } from '../ai/knowledge/budgets.js';
 import { getKnowledgeHealth, parseHealthQuery, type KnowledgeHealth } from '../health/knowledgeHealth.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { getSemanticStatus, type SemanticStatus } from '../services/semantic/status.js';
+import { readMonitoringConfig } from '../services/semantic/monitoring.js';
 
 export const knowledgeHealthRouter = Router();
 
@@ -40,7 +41,7 @@ knowledgeHealthRouter.get('/knowledge', (req: Request, res: Response, next: Next
 knowledgeHealthRouter.get('/semantic', (_req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const body: ApiSuccess<SemanticStatus> = { success: true, data: await getSemanticStatus(getDb(), undefined) };
+      const body: ApiSuccess<SemanticStatus> = { success: true, data: await getSemanticStatus(getDb(), readMonitoringConfig(env.SEMANTIC_MONITORING_CONFIG)) };
       res.json(body);
     } catch (err) {
       next(err);

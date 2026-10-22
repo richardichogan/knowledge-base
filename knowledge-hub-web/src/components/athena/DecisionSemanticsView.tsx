@@ -3,13 +3,16 @@
  * accepted, set a review date, and record which task implements it or which decision it supersedes.
  * Nothing here is inferred; every change is a deliberate user action.
  */
-import React, { useState } from 'react';
-import type { DecisionLinkInput, DecisionLinkRelationship, DecisionSemantics, SemanticEdgeView } from '../../types/semanticDecision';
+import React, { useEffect, useState } from 'react';
+import type { DecisionLinkCandidate, DecisionLinkInput, DecisionLinkRelationship, DecisionSemantics, SemanticEdgeView } from '../../types/semanticDecision';
 
 export interface DecisionSemanticsViewProps {
   semantics: DecisionSemantics;
   busy?: boolean;
   error?: string | null;
+  candidates?: DecisionLinkCandidate[];
+  candidatesLoading?: boolean;
+  onSearchCandidates?: (kind: 'task' | 'decision', q: string) => void;
   onConfirm: () => void;
   onSetReviewDate: (reviewDate: string | null) => void;
   onRecordLink: (link: DecisionLinkInput) => void;
@@ -17,9 +20,9 @@ export interface DecisionSemanticsViewProps {
 
 const ORIGIN_LABEL: Record<SemanticEdgeView['origin'], string> = { explicit: 'recorded', user_confirmed: 'you confirmed', inferred: 'suggested, not confirmed' };
 const LINK_OPTIONS: ReadonlyArray<{ value: DecisionLinkRelationship; label: string; placeholder: string }> = [
-  { value: 'implements', label: 'Is implemented by task', placeholder: 'Task id' },
-  { value: 'supersedes', label: 'Supersedes decision', placeholder: 'Older decision id' },
-  { value: 'superseded_by', label: 'Is superseded by decision', placeholder: 'Newer decision id' },
+  { value: 'implements', label: 'Is implemented by task', placeholder: 'Search tasks' },
+  { value: 'supersedes', label: 'Supersedes decision', placeholder: 'Search older decisions' },
+  { value: 'superseded_by', label: 'Is superseded by decision', placeholder: 'Search newer decisions' },
 ];
 
 function describeEdge(edge: SemanticEdgeView, id: string): string {
@@ -31,14 +34,27 @@ function describeEdge(edge: SemanticEdgeView, id: string): string {
   return `${verb} ${other.kind} ${other.id}${when} (${ORIGIN_LABEL[edge.origin]})`;
 }
 
-export const DecisionSemanticsView: React.FC<DecisionSemanticsViewProps> = ({ semantics, busy = false, error = null, onConfirm, onSetReviewDate, onRecordLink }) => {
+const SEARCH_DEBOUNCE_MS = 250;
+
+/** Implementing work is a task; supersession always pairs two decisions. */
+export function candidateKind(relationship: DecisionLinkRelationship): 'task' | 'decision' {
+  return relationship === 'implements' ? 'task' : 'decision';
+}
+
+export const DecisionSemanticsView: React.FC<DecisionSemanticsViewProps> = ({ semantics, busy = false, error = null, candidates = [], candidatesLoading = false, onSearchCandidates, onConfirm, onSetReviewDate, onRecordLink }) => {
   const [confirmed, setConfirmed] = useState(false);
   const [reviewDate, setReviewDate] = useState(semantics.reviewDate ?? '');
   const [relationship, setRelationship] = useState<DecisionLinkRelationship>('implements');
   const [counterpartId, setCounterpartId] = useState('');
+  const [search, setSearch] = useState('');
   const [effectiveAt, setEffectiveAt] = useState('');
   const option = LINK_OPTIONS.find((o) => o.value === relationship) ?? LINK_OPTIONS[0];
   const supersession = relationship !== 'implements';
+  useEffect(() => {
+    if (onSearchCandidates === undefined) return undefined;
+    const timer = setTimeout(() => { onSearchCandidates(candidateKind(relationship), search.trim()); }, SEARCH_DEBOUNCE_MS);
+    return () => { clearTimeout(timer); };
+  }, [relationship, search, onSearchCandidates]);
   const links = semantics.edges.filter((e) => e.relationship === 'implements' || e.relationship === 'supersedes');
 
   return (
@@ -80,10 +96,14 @@ export const DecisionSemanticsView: React.FC<DecisionSemanticsViewProps> = ({ se
           </ul>
         )}
         <div className="decision-semantics__row">
-          <select className="decision-semantics__input" aria-label="Link type" value={relationship} onChange={(e) => { setRelationship(e.target.value as DecisionLinkRelationship); }}>
+          <select className="decision-semantics__input" aria-label="Link type" value={relationship} onChange={(e) => { setRelationship(e.target.value as DecisionLinkRelationship); setCounterpartId(''); }}>
             {LINK_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <input className="decision-semantics__input" aria-label="Linked id" placeholder={option?.placeholder} value={counterpartId} onChange={(e) => { setCounterpartId(e.target.value); }} />
+          <input className="decision-semantics__input" type="search" aria-label="Search candidates" placeholder={option?.placeholder} value={search} onChange={(e) => { setSearch(e.target.value); setCounterpartId(''); }} />
+          <select className="decision-semantics__input decision-semantics__picker" aria-label="Linked item" value={counterpartId} onChange={(e) => { setCounterpartId(e.target.value); }}>
+            <option value="">{candidatesLoading ? 'Searching…' : candidates.length === 0 ? 'No matches' : 'Choose…'}</option>
+            {candidates.map((c) => <option key={c.id} value={c.id}>{c.label} ({c.detail})</option>)}
+          </select>
           {supersession && <input type="date" className="decision-semantics__input" aria-label="Effective date" value={effectiveAt} onChange={(e) => { setEffectiveAt(e.target.value); }} />}
           <button
             type="button"
@@ -92,6 +112,7 @@ export const DecisionSemanticsView: React.FC<DecisionSemanticsViewProps> = ({ se
             onClick={() => {
               onRecordLink({ relationship, counterpartId: counterpartId.trim(), ...(supersession && effectiveAt !== '' ? { effectiveAt } : {}) });
               setCounterpartId('');
+              setSearch('');
             }}
           >
             Record link

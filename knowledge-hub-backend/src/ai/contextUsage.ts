@@ -4,7 +4,8 @@
  * auto-retrieval for the rest of the chat.
  */
 import type { Pool } from 'pg';
-import { noteFound, noteRead, summariseLedger, type EvidenceLedger, type EvidenceSummary } from './knowledge/evidence.js';
+import { RECORD_TOOLS, recordRecordTool, recordStructuredTool, STRUCTURED_RESULT_TOOLS } from './knowledge/toolRecords.js';
+import { markUnavailable, noteFound, noteRead, summariseLedger, type EvidenceLedger, type EvidenceSummary } from './knowledge/evidence.js';
 
 export interface UsedSource {
   id: string;
@@ -67,7 +68,12 @@ export function recordToolSources(used: ContextUsed, toolName: string, result: u
   if (typeof result !== 'object' || result === null) return;
   const r = result as { results?: unknown; documents?: unknown };
   if (toolName === 'traverse_relationships') recordTraversalSources(used, result);
-  else if ((toolName === 'search_diagrams' || toolName === 'read_diagram') && Array.isArray(r.results)) {
+  else if (toolName === 'list_tasks' || toolName === 'find_files') {
+    const rows = (toolName === 'list_tasks' ? (result as { tasks?: unknown }).tasks : (result as { files?: unknown }).files);
+    for (const x of Array.isArray(rows) ? rows as Array<{ id?: string; title?: string; url?: string }> : []) {
+      push(used.found, { id: x.id ?? '', kind: toolName === 'list_tasks' ? 'task' : 'item', title: x.title ?? 'Untitled', url: x.url ?? null });
+    }
+  }  else if ((toolName === 'search_diagrams' || toolName === 'read_diagram') && Array.isArray(r.results)) {
     for (const item of r.results as Array<{ id?: string; title?: string; url?: string }>) {
       push(used.found, { id: item.id ?? '', kind: 'diagram', title: item.title ?? 'Untitled diagram', url: item.url ?? null });
     }
@@ -85,9 +91,36 @@ export function recordToolSources(used: ContextUsed, toolName: string, result: u
 const SEARCH_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph', 'traverse_relationships']);
 const READ_TOOLS = new Set(['read_diagram', 'read_output', 'read_past_chat']);
 
+const UNAVAILABLE_STATUSES = new Set(['not_found', 'unavailable']);
+
+interface KnowledgeReadResult {
+  status?: string; code?: string;
+  record?: { ref?: { kind?: string; id?: string }; title?: string; content?: string; version?: string; projectId?: string | null; startOffset?: number };
+}
+
+/** read_knowledge_record: opened records are Read; failed or unavailable ones are flagged, excluded ones are dropped. */
+function recordKnowledgeRead(ledger: EvidenceLedger, result: KnowledgeReadResult, args: Record<string, unknown>): void {
+  const kind = typeof args['kind'] === 'string' ? args['kind'] : '';
+  const id = typeof args['id'] === 'string' ? args['id'] : '';
+  if (result.status === 'ok' || result.status === 'partial') {
+    const rec = result.record;
+    const ref = { kind: rec?.ref?.kind ?? kind, id: rec?.ref?.id ?? id };
+    if (rec === undefined || ref.id === '') return;
+    noteRead(ledger, ref, { title: rec.title ?? null, version: rec.version ?? null, projectId: rec.projectId ?? null, text: rec.content ?? '', start: rec.startOffset ?? 0 });
+  } else if (id !== '' && result.status === 'excluded') {
+    for (const [key, e] of [...ledger.entries]) if (e.ref.id === id) { ledger.entries.delete(key); ledger.texts.delete(key); }
+  } else if (id !== '' && result.status !== undefined && UNAVAILABLE_STATUSES.has(result.status) && result.code !== 'exclusions_unavailable') {
+    markUnavailable(ledger, { kind, id });
+  }
+}
+
 /** Feeds the evidence ledger: search hits are Found; opened records are Read. */
-export function recordToolEvidence(ledger: EvidenceLedger, toolName: string, result: unknown): void {
-  if (typeof result !== 'object' || result === null || 'error' in result) return;
+export function recordToolEvidence(ledger: EvidenceLedger, toolName: string, result: unknown, args: Record<string, unknown> = {}): void {
+  if (typeof result !== 'object' || result === null) return;
+  if (toolName === 'read_knowledge_record') { recordKnowledgeRead(ledger, result as KnowledgeReadResult, args); return; }
+  if ('error' in result) return;
+  if (RECORD_TOOLS.has(toolName)) { recordRecordTool(ledger, toolName, result); return; }
+  if (STRUCTURED_RESULT_TOOLS.has(toolName)) { recordStructuredTool(ledger, toolName, result, args); return; }
   const r = result as Record<string, unknown>;
   const kind = toolName.includes('diagram') ? 'diagram' : toolName.includes('library') ? 'document' : toolName.includes('chat') ? 'chat' : toolName.includes('output') ? 'output' : 'item';
   const list = Array.isArray(r['results']) ? r['results'] : Array.isArray(r['documents']) ? r['documents'] : [];
@@ -116,6 +149,7 @@ function recordTraversalSources(used: ContextUsed, result: unknown): void {
   }
 }
 
+const UNAVAILABLE_WARNING = 'A source could not be opened, so it was not read.';
 /** Copies the ledger lifecycle onto the source payload and adds warnings; additive to existing fields. */
 export function attachEvidence(used: ContextUsed, ledger: EvidenceLedger, warnings: string[] = []): void {
   const summary = summariseLedger(ledger);
@@ -127,8 +161,8 @@ export function attachEvidence(used: ContextUsed, ledger: EvidenceLedger, warnin
     if (e === undefined) continue;
     s.lifecycle = e.state;
     s.available = e.available;
-    if (!e.available) out.push({ message: `"${s.title}" is no longer available to open.`, sourceId: s.id });
   }
+  for (const e of summary.entries) if (!e.available) out.push({ message: UNAVAILABLE_WARNING, sourceId: e.ref.id });
   for (const message of warnings) out.push({ message });
   if (out.length > 0) used.warnings = out;
 }

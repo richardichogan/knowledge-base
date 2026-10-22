@@ -86,3 +86,44 @@ test('SEMROUTE-04 recording a newer decision as superseded_by stores a user-conf
     assert.equal(row?.origin, 'user_confirmed');
   });
 });
+
+test('SEMROUTE-05 candidate lookup is read-only, searchable, limited and validated', async () => {
+  await withApi(async (call, raw) => {
+    const before = JSON.stringify((await raw.query('SELECT * FROM semantic_edges ORDER BY id')).rows);
+    const tasks = await call('GET', `/${SD1}/candidates?kind=task`);
+    assert.equal(tasks.status, 200);
+    const items = tasks.body.data?.['items'] as Array<{ id: string; label: string }>;
+    assert.ok(items.length >= 3 && items.every((i) => i.label !== ''));
+    assert.ok(!items.some((i) => i.id === 't3'), 'archived tasks are not offered');
+    assert.equal(((await call('GET', `/${SD1}/candidates?kind=task&limit=1`)).body.data?.['items'] as unknown[]).length, 1);
+    const none = await call('GET', `/${SD1}/candidates?kind=task&q=zzz-no-such-task`);
+    assert.deepEqual(none.body.data?.['items'], []);
+    const percent = await call('GET', `/${SD1}/candidates?kind=task&q=%25`);
+    assert.deepEqual(percent.body.data?.['items'], [], 'wildcards are literal');
+    const decisions = (await call('GET', `/${SD1}/candidates?kind=decision&q=threshold`)).body.data?.['items'] as Array<{ id: string }>;
+    assert.deepEqual(decisions.map((d) => d.id), [SD3]);
+    assert.ok(!((await call('GET', `/${SD1}/candidates?kind=decision`)).body.data?.['items'] as Array<{ id: string }>).some((d) => d.id === SD1));
+    for (const q of ['', '?kind=note', '?kind=task&limit=0', '?kind=task&limit=26', '?kind=task&limit=x']) {
+      const r = await call('GET', `/${SD1}/candidates${q}`);
+      assert.equal(r.status, 400);
+      assert.equal(r.body.error?.code, 'VALIDATION_ERROR');
+    }
+    assert.equal(JSON.stringify((await raw.query('SELECT * FROM semantic_edges ORDER BY id')).rows), before);
+  });
+});
+
+test('SEMROUTE-06 monitoring status comes from the setting: disabled unless fully approved, bad JSON never enables it', async () => {
+  const { readMonitoringConfig, parseMonitoringConfig } = await import('../src/services/semantic/monitoring.js');
+  const reason = (setting: string | undefined): unknown => { const p = parseMonitoringConfig(readMonitoringConfig(setting)); return p.enabled ? 'enabled' : p.reason; };
+  assert.equal(reason(undefined), 'not_configured');
+  assert.equal(reason('  '), 'not_configured');
+  assert.equal(reason('{not json'), 'approval_incomplete');
+  assert.equal(reason('{"enabled":false}'), 'not_enabled');
+  assert.equal(reason('{"enabled":true}'), 'approval_incomplete');
+  const full = { enabled: true, approvedBy: 'owner', approvedAt: '2026-10-01T00:00:00Z', rules: [{ ruleId: 'task-overdue', version: 1 }], projectIds: ['p-imagine'], cadenceMinutes: 60, notificationDestination: 'inbox', aiUsage: 'none', maxEntitiesPerRun: 5 };
+  assert.equal(reason(JSON.stringify(full)), 'enabled');
+  const { getSemanticStatus } = await import('../src/services/semantic/status.js');
+  const { db } = await fixtureDb();
+  assert.equal((await getSemanticStatus(db, readMonitoringConfig(JSON.stringify(full)))).monitoring.enabled, true);
+  assert.equal((await getSemanticStatus(db, readMonitoringConfig(undefined))).monitoring.enabled, false);
+});

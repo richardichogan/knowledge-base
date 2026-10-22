@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DecisionSemanticsView } from '../src/components/athena/DecisionSemanticsView';
+import { candidateKind, DecisionSemanticsView } from '../src/components/athena/DecisionSemanticsView';
 import { describeApiError } from '../src/services/apiError';
 import type { DecisionSemantics } from '../src/types/semanticDecision';
 
@@ -35,6 +35,20 @@ test('DECUI-02 review date and link controls render, and inferred links are labe
   assert.match(html, /decision-semantics__item--inferred">Implemented by task t4 \(suggested, not confirmed\)/);
   for (const label of ['Is implemented by task', 'Supersedes decision', 'Is superseded by decision']) assert.ok(html.includes(label), label);
   assert.match(html, /Record link<\/button>/);
+  assert.ok(!html.includes('Linked id'));
+});
+
+test('DECUI-04 link picker offers searched candidates, starts empty and keeps Record link disabled', () => {
+  const candidates = [{ id: 't9', label: 'Ship the pilot', detail: 'in_progress · p1' }];
+  const html = renderToStaticMarkup(<DecisionSemanticsView semantics={base} candidates={candidates} onConfirm={noop} onSetReviewDate={noop} onRecordLink={noop} />);
+  assert.match(html, /aria-label="Search candidates" placeholder="Search tasks"/);
+  assert.match(html, /<option value="" selected="">Choose…<\/option><option value="t9">Ship the pilot \(in_progress · p1\)<\/option>/);
+  assert.match(html, /disabled="">Record link<\/button>/);
+  assert.match(renderToStaticMarkup(<DecisionSemanticsView semantics={base} onConfirm={noop} onSetReviewDate={noop} onRecordLink={noop} />), /<option value="" selected="">No matches<\/option>/);
+  assert.match(renderToStaticMarkup(<DecisionSemanticsView semantics={base} candidatesLoading onConfirm={noop} onSetReviewDate={noop} onRecordLink={noop} />), /Searching…/);
+  assert.equal(candidateKind('implements'), 'task');
+  assert.equal(candidateKind('supersedes'), 'decision');
+  assert.equal(candidateKind('superseded_by'), 'decision');
 });
 
 test('DECUI-03 typed server errors are shown to the user and a superseded decision is stated', () => {

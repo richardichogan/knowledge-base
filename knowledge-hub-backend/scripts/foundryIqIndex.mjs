@@ -111,8 +111,27 @@ async function embed(texts) {
 const BATCH_SIZE = 50;
 const BODY_CHARS_FOR_EMBEDDING = 2000; // keep embedding input bounded/cheap
 
-async function backfill() {
+async function backfill(dryRun) {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  if (dryRun) {
+    const { rows: est } = await pool.query(`SELECT count(*)::int AS items, coalesce(sum(length(coalesce(body, ''))), 0)::int AS chars FROM content_items`);
+    console.log(`Dry run: ${est[0].items} content_items, ~${est[0].chars} body chars; nothing was sent.`);
+    await pool.end();
+    return;
+  }
+  // Bulk indexing is behind the persisted admin switch (default OFF); fail closed if it cannot be read.
+  let enabled = false;
+  try {
+    const sw = await pool.query(`SELECT enabled FROM knowledge_indexing_settings WHERE key = 'bulk_indexing'`);
+    enabled = sw.rows[0]?.enabled === true;
+  } catch {
+    enabled = false;
+  }
+  if (!enabled) {
+    await pool.end();
+    console.error('BULK_INDEXING_DISABLED: bulk indexing is switched off. Enable it via PUT /api/knowledge/admin/indexing, or use --backfill --dry-run for an estimate.');
+    process.exit(2);
+  }
   const { rows } = await pool.query(
     `SELECT id, source, title, summary, body, url, project_context, tags, published_at FROM content_items`,
   );
@@ -149,8 +168,8 @@ async function backfill() {
 
 const mode = process.argv[2];
 if (mode === '--create-index') await createIndex();
-else if (mode === '--backfill') await backfill();
+else if (mode === '--backfill') await backfill(process.argv.includes('--dry-run'));
 else {
-  console.log('Usage: node foundryIqIndex.mjs [--create-index|--backfill]');
+  console.log('Usage: node foundryIqIndex.mjs [--create-index|--backfill [--dry-run]]');
   process.exit(1);
 }

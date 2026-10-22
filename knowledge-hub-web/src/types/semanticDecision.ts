@@ -19,6 +19,8 @@ export interface DecisionSemantics {
 
 export type DecisionLinkRelationship = 'implements' | 'supersedes' | 'superseded_by';
 
+export interface DecisionLinkCandidate { id: string; label: string; detail: string }
+
 export interface DecisionLinkInput {
   relationship: DecisionLinkRelationship;
   counterpartId: string;

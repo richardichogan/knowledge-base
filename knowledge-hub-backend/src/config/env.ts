@@ -191,6 +191,9 @@ export const env = {
   SMTP_PASS: optional('SMTP_PASS'),
   SMTP_FROM: optionalWithDefault('SMTP_FROM', 'newsletter@newsletter.themicrosoftcloudblog.com'),
 
+  // Semantic monitoring approval (JSON, see services/semantic/monitoring.ts). Unset = monitoring disabled.
+  SEMANTIC_MONITORING_CONFIG: optional('SEMANTIC_MONITORING_CONFIG'),
+
   // Foundry IQ (Azure AI Search agentic retrieval) — replaces Postgres FTS as
   // the retrieval backend for search_knowledge_base. Optional: if unset,
   // chatTools falls back to the Postgres full-text search path so local dev

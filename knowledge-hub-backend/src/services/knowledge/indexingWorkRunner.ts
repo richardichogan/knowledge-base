@@ -9,8 +9,9 @@ import {
 import { getContentItemsByIds, markContentItemFoundryIndexed } from '../../db/queries.js';
 import {
   clearPassages, IndexingFailure, loadPassageHashes, recordPassages, runIndexingBatch, enqueueContentItemIndex,
-  enqueueContentItemDelete, type BatchResult, type IndexingHandlers, type WorkQueryable,
+  enqueueContentItemDelete, reconcileIndexingBacklog, type BatchResult, type IndexingHandlers, type WorkQueryable,
 } from './indexingWork.js';
+import { assertBulkIndexingEnabled, isBulkIndexingEnabled } from './indexingSwitch.js';
 
 function toFailure(err: unknown): IndexingFailure {
   if (err instanceof IndexingFailure) return err;
@@ -52,8 +53,7 @@ export function createDefaultIndexingHandlers(db: Pool): IndexingHandlers {
 
 const DEFAULT_DRAIN_BATCHES = 3;
 
-/** Drains at most `maxBatches` keyset batches; never throws. */
-export async function drainIndexingWork(db: Pool, maxBatches: number = DEFAULT_DRAIN_BATCHES): Promise<BatchResult | null> {
+async function drainUnchecked(db: Pool, maxBatches: number): Promise<BatchResult | null> {
   let last: BatchResult | null = null;
   try {
     const handlers = createDefaultIndexingHandlers(db);
@@ -69,12 +69,30 @@ export async function drainIndexingWork(db: Pool, maxBatches: number = DEFAULT_D
   return last;
 }
 
+/** Bulk path: drains at most `maxBatches` keyset batches only while the admin switch is ON; never throws. */
+export async function drainIndexingWork(db: Pool, maxBatches: number = DEFAULT_DRAIN_BATCHES): Promise<BatchResult | null> {
+  if (!(await isBulkIndexingEnabled(db))) {
+    console.warn('[IndexingWork] Bulk indexing is switched off - skipping bulk drain.');
+    return null;
+  }
+  return drainUnchecked(db, maxBatches);
+}
+
+/** Bulk reconcile (enqueues one page of the backlog); throws BulkIndexingDisabledError while the switch is OFF. */
+export async function bulkReconcileIndexingBacklog(
+  db: Pool, options: { afterId?: string; limit?: number; now?: Date } = {},
+): ReturnType<typeof reconcileIndexingBacklog> {
+  await assertBulkIndexingEnabled(db);
+  return reconcileIndexingBacklog(db as unknown as WorkQueryable, options);
+}
+
 /**
  * Best-effort kick after a write: the durable row already exists, so a
- * semantic outage here only delays indexing.
+ * semantic outage here only delays indexing. Per-write indexing is never
+ * gated by the bulk switch.
  */
 export function kickIndexingWork(db: Pool): void {
-  void drainIndexingWork(db, 1);
+  void drainUnchecked(db, 1);
 }
 
 export { enqueueContentItemIndex, enqueueContentItemDelete };

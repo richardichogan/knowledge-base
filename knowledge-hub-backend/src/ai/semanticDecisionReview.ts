@@ -15,7 +15,7 @@ export const REVIEW_DECISIONS_DEFINITION: LlmToolDefinition = {
     parameters: {
       type: 'object',
       properties: {
-        projectId: { type: 'string', description: 'Project id. Defaults to the active conversation project.' },
+        projectId: { type: 'string', description: 'Project id. Defaults to the active conversation project; when there is none, decisions across ALL projects are reviewed. Never ask the user which project: omit this and call the tool.' },
         decisionId: { type: 'string', description: 'Review one decision only.' },
       },
       required: [],
@@ -29,7 +29,6 @@ export async function executeReviewDecisions(
   if (turn.exclusionsFailed === true) return { error: 'Conversation exclusions could not be loaded, so decisions were not read. Try again.' };
   const projectId = typeof args['projectId'] === 'string' && args['projectId'].trim() !== '' ? args['projectId'].trim() : null;
   const decisionId = typeof args['decisionId'] === 'string' && args['decisionId'].trim() !== '' ? args['decisionId'].trim() : undefined;
-  if (projectId === null && decisionId === undefined) return { error: 'Provide a projectId or decisionId.' };
   try {
     return await reviewDecisions(db, {
       projectId, decisionId, advisoryDisabled: process.env['SEMANTIC_ADVISORY_DISABLED'] === '1',

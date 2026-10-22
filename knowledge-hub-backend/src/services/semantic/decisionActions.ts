@@ -26,6 +26,39 @@ export interface DecisionSemantics {
 export type LinkRelationship = 'implements' | 'supersedes' | 'superseded_by';
 const LINK_RELATIONSHIPS: readonly string[] = ['implements', 'supersedes', 'superseded_by'];
 
+const DEFAULT_CANDIDATES = 10;
+const MAX_CANDIDATES = 25;
+const MAX_QUERY_CHARS = 100;
+const SNIPPET_CHARS = 120;
+const ISO_DATE_CHARS = 10;
+
+export interface LinkCandidate { id: string; label: string; detail: string }
+export interface CandidateQuery { kind: unknown; q: unknown; limit: unknown }
+
+/** Read-only picker data: tasks (for `implements`) or other decided decisions (for supersession). */
+export async function listLinkCandidates(db: Pool, id: string, query: CandidateQuery): Promise<ActionResult<{ items: LinkCandidate[] }>> {
+  if (!validId(id)) return fail(HTTP_BAD_REQUEST, 'VALIDATION_ERROR', 'A decision id is required.', { id: 'required' });
+  const fields: Record<string, string> = {};
+  if (query.kind !== 'task' && query.kind !== 'decision') fields['kind'] = 'task or decision';
+  if (query.q !== undefined && (typeof query.q !== 'string' || query.q.length > MAX_QUERY_CHARS)) fields['q'] = `text of at most ${MAX_QUERY_CHARS} characters`;
+  const limit = query.limit === undefined ? DEFAULT_CANDIDATES : Number(query.limit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_CANDIDATES) fields['limit'] = `a whole number from 1 to ${MAX_CANDIDATES}`;
+  if (Object.keys(fields).length > 0) return fail(HTTP_BAD_REQUEST, 'VALIDATION_ERROR', 'The lookup is not valid.', fields);
+  const text = typeof query.q === 'string' ? query.q.trim() : '';
+  const pattern = `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  if (query.kind === 'task') {
+    const { rows } = await db.query<{ id: string; title: string; status: string; project_id: string | null }>(
+      `SELECT id::text AS id, title, status, project_id FROM tasks WHERE archived = false AND ($1 = '' OR title ILIKE $2) ORDER BY updated_at DESC LIMIT $3`, [text, pattern, limit]);
+    return { ok: true, data: { items: rows.map((r) => ({ id: r.id, label: r.title, detail: r.project_id === null ? r.status : `${r.status} · ${r.project_id}` })) } };
+  }
+  const { rows } = await db.query<{ id: string; text: string; created_at: unknown }>(
+    `SELECT id::text AS id, text, created_at FROM chat_decisions WHERE status = 'decided' AND id::text <> $1 AND ($2 = '' OR text ILIKE $3) ORDER BY created_at DESC LIMIT $4`, [id, text, pattern, limit]);
+  return {
+    ok: true,
+    data: { items: rows.map((r) => ({ id: r.id, label: r.text.length > SNIPPET_CHARS ? `${r.text.slice(0, SNIPPET_CHARS)}…` : r.text, detail: r.created_at instanceof Date ? r.created_at.toISOString().slice(0, ISO_DATE_CHARS) : '' })) },
+  };
+}
+
 const fail = (status: number, code: string, message: string, fields?: Record<string, string>): { ok: false; error: ActionError } =>
   ({ ok: false, error: { status, code, message, ...(fields === undefined ? {} : { fields }) } });
 

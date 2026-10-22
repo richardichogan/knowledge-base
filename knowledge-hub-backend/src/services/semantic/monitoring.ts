@@ -21,6 +21,12 @@ export interface MonitoringConfig {
 }
 export type ParsedMonitoring = { enabled: false; reason: string } | { enabled: true; config: MonitoringConfig };
 
+/** Reads the approval from its JSON setting. Unset or blank = not configured; unparseable = approval incomplete (never enabled). */
+export function readMonitoringConfig(setting: string | undefined): unknown {
+  if (setting === undefined || setting.trim() === '') return undefined;
+  try { return JSON.parse(setting) as unknown; } catch { return { enabled: true }; }
+}
+
 export function parseMonitoringConfig(raw: unknown): ParsedMonitoring {
   if (raw === null || typeof raw !== 'object') return { enabled: false, reason: 'not_configured' };
   const c = raw as Record<string, unknown>;

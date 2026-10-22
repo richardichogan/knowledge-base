@@ -2,7 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import type { Pool } from 'pg';
 import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
-import { confirmAcceptance, readDecisionSemantics, recordDecisionLink, updateReviewDate, type ActionResult, type DecisionSemantics } from '../services/semantic/decisionActions.js';
+import { confirmAcceptance, listLinkCandidates, readDecisionSemantics, recordDecisionLink, updateReviewDate, type ActionResult, type DecisionSemantics, type LinkCandidate } from '../services/semantic/decisionActions.js';
 import type { ApiError, ApiSuccess } from '../types/apiResponse.js';
 
 type Action = (db: Pool, id: string, body: unknown, ctx: { now: Date }) => Promise<ActionResult<DecisionSemantics>>;
@@ -26,6 +26,21 @@ export function createSemanticDecisionsRouter(pool: () => Pool = getDb): Router 
     })();
   };
   router.get('/:id/semantics', handle((db, id, _body, ctx) => readDecisionSemantics(db, id, ctx)));
+  router.get('/:id/candidates', (req: Request, res: Response, next: NextFunction): void => {
+    void (async (): Promise<void> => {
+      try {
+        const result = await listLinkCandidates(pool(), String(req.params['id'] ?? ''), { kind: req.query['kind'], q: req.query['q'], limit: req.query['limit'] });
+        if (result.ok) {
+          const body: ApiSuccess<{ items: LinkCandidate[] }> = { success: true, data: result.data };
+          res.status(HTTP_STATUS.OK).json(body);
+          return;
+        }
+        const { status, code, message, fields } = result.error;
+        const body: ApiError = { success: false, error: { code, message, ...(fields === undefined ? {} : { fields }) } };
+        res.status(status).json(body);
+      } catch (err) { next(err); }
+    })();
+  });
   router.post('/:id/accept', handle(confirmAcceptance));
   router.put('/:id/review-date', handle(updateReviewDate));
   router.post('/:id/links', handle(recordDecisionLink, HTTP_STATUS.CREATED));

@@ -1047,6 +1047,9 @@ async function loadActiveSessionProject(
 const FULL_DOCUMENT_CHAR_THRESHOLD = 150000;
 /** Target size of each chunk when splitting an oversized document for retrieval. */
 const CHUNK_TARGET_CHARS = 1400;
+const PARAGRAPH_JOIN_CHARS = 2;
+const OVERSIZE_CHUNK_FACTOR = 1.5;
+const MIN_QUERY_TERM_CHARS = 3;
 /**
  * Char budget for the selected excerpt when a document exceeds the full-send
  * threshold. Generous on purpose — the goal of excerpting is to bound
@@ -1069,14 +1072,14 @@ function splitIntoChunks(text: string): string[] {
   const chunks: string[] = [];
   let current = '';
   for (const para of paragraphs) {
-    if (current !== '' && current.length + para.length + 2 > CHUNK_TARGET_CHARS) {
+    if (current !== '' && current.length + para.length + PARAGRAPH_JOIN_CHARS > CHUNK_TARGET_CHARS) {
       chunks.push(current);
       current = para;
     } else {
       current = current === '' ? para : `${current}\n\n${para}`;
     }
     // A single paragraph longer than the target on its own — hard-split it.
-    while (current.length > CHUNK_TARGET_CHARS * 1.5) {
+    while (current.length > CHUNK_TARGET_CHARS * OVERSIZE_CHUNK_FACTOR) {
       chunks.push(current.slice(0, CHUNK_TARGET_CHARS));
       current = current.slice(CHUNK_TARGET_CHARS);
     }
@@ -1088,7 +1091,7 @@ function splitIntoChunks(text: string): string[] {
 /** Extracts meaningful (non-stopword, length>=3) lowercase query terms for keyword-based fallback scoring. */
 function extractQueryTerms(query: string): string[] {
   return Array.from(new Set(
-    query.toLowerCase().match(/[a-z0-9']+/g)?.filter((w) => w.length >= 3 && !STOPWORDS.has(w)) ?? [],
+    query.toLowerCase().match(/[a-z0-9']+/g)?.filter((w) => w.length >= MIN_QUERY_TERM_CHARS && !STOPWORDS.has(w)) ?? [],
   ));
 }
 

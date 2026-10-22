@@ -79,7 +79,9 @@ test('DEC-04 explicit task and risk impact is separated from inferred suggestion
   const tool = await executeReviewDecisions(db, { projectId: P1 }, { now: NOW, excludedIds: new Set([SD1]) }) as { reviews: Array<{ recorded: { ref: { id: string } } }> };
   assert.ok(!tool.reviews.some((r) => r.recorded.ref.id === SD1));
   assert.ok('error' in (await executeReviewDecisions(db, { projectId: P1 }, { exclusionsFailed: true }) as object));
-  assert.ok('error' in (await executeReviewDecisions(db, {}, {}) as object));
+  const crossProject = await executeReviewDecisions(db, {}, { now: NOW }) as { error?: string; reviews?: unknown[] };
+  assert.equal(crossProject.error, undefined);
+  assert.ok(Array.isArray(crossProject.reviews));
   assert.equal(await counts(raw), before);
   assert.equal(REVIEW_DECISIONS_DEFINITION.function.name, 'review_decisions');
   const tools = [REVIEW_DECISIONS_DEFINITION];

@@ -8,10 +8,12 @@ import type { ModelRoute } from './modelChoices.js';
 import { spreadsheetsBlock } from './chatFiles.js';
 import { getExcludedSources, filterExcluded, recordToolSources, recordToolEvidence, attachEvidence, type ContextUsed } from './contextUsage.js';
 import { createLedger, ledgerCounts } from './knowledge/evidence.js';
-import { resolveAnswer } from './knowledge/citations.js';
-import { TurnBudget, budgetLimitation, finalizeKnowledgeAnswer, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
+import { RECORD_TOOLS } from './knowledge/toolRecords.js';
+import { collectIds, resolveAnswer, stripUnseenIds } from './knowledge/citations.js';
+import { TurnBudget, DETERMINISTIC_TOOLS, budgetLimitation, finalizeKnowledgeAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 
-const RETRIEVAL_TOOLS = new Set(['search_diagrams', 'read_diagram', 'search_knowledge_base', 'search_library', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph', 'read_output', 'traverse_relationships', 'read_knowledge_record']);
+const RETRIEVAL_TOOLS = new Set(['search_diagrams', 'read_diagram', 'search_knowledge_base', 'search_library', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
+import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
 import { buildScreensBlock } from './chatScreens.js';
@@ -25,7 +27,8 @@ import { AI_MAX_TOOL_ITERATIONS, AI_WRAP_UP_ROUND_MIN_MS, SHOW_NOTES_MAX_TOOL_IT
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId, readPastChat, searchReferencedPastChats } from './chatSessionStore.js';
-import { focusTools, selectRequiredToolChoice } from './toolRouting.js';
+import { focusTools, selectKnowledgeRetrievalChoice, selectRequiredToolChoice } from './toolRouting.js';
+import { openFoundInstruction, unreadFoundCandidates } from './knowledge/openFound.js';
 import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
 import { getCanvas } from '../services/canvasService.js';
 import { buildPeopleContext } from '../services/peopleContext.js';
@@ -38,6 +41,29 @@ import { ukClock } from '../sync/ukClock.js';
 
 /** Recent messages that count when deciding whether a follow-up still needs a specialised tool group. */
 const TOOL_FOCUS_HISTORY_MESSAGES = 4;
+const RAG_USED_LIMIT = 10;
+const TOOL_ERROR_LOG_CHARS = 400;
+const MAX_ROUND_SCREENSHOTS = 6;
+const PASTED_EDIT_REPLY_CHARS = 900;
+const NOTE_SUMMARY_MAX_TOKENS = 400;
+const ROLLUP_MAX_TOKENS = 400;
+const SESSION_SUMMARY_MAX_TOKENS = 1_000;
+const EXPORT_MAX_TOKENS = 1_500;
+const EXPORT_SEPARATOR = '---';
+const TITLE_SOURCE_CHARS = 1_500;
+const TITLE_MAX_TOKENS = 24;
+const NOT_FOLLOWED_LIVE = (): void => { /* not followed live */ };
+
+const READ_ONLY_REFUSAL = 'This request is read-only: it permits reading context and saving Outputs where allowed. The source note and other records cannot be changed.';
+
+function parseToolArgs(argsJson: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(argsJson || '{}');
+    return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
 
 
 /** Live hooks for a background chat turn. */
@@ -268,7 +294,7 @@ export async function handleConversationTurn(
     used.project = context.activeProjectName;
     used.instructions = (standingBlock.match(/^- /gm) ?? []).length;
     used.inView = pageContext?.title ?? null;
-    used.auto = context.ragItems.slice(0, 10).map((item) => ({ id: item.id, kind: item.source === 'note' ? 'note' : 'item', title: item.title, url: item.url ?? null }));
+    used.auto = context.ragItems.slice(0, RAG_USED_LIMIT).map((item) => ({ id: item.id, kind: item.source === 'note' ? 'note' : 'item', title: item.title, url: item.url ?? null }));
     used.outputs = (outputsBlock.match(/^### /gm) ?? []).length;
     used.decisions = (decisionsBlock.match(/^- /gm) ?? []).length;
     used.screens = (screensBlock.match(/^### /gm) ?? []).length;
@@ -333,7 +359,9 @@ export async function handleConversationTurn(
     noteOpen,
     mapOutlineResult !== null,
     openDiagram !== null,
-  );
+  ) ?? (isKnowledgeOrchestrationEnabled() && (persona === undefined || persona === 'general') && !briefOnly
+    ? selectKnowledgeRetrievalChoice(userMessage, tools)
+    : undefined);
   // Asked to change the open note: she may need to write a lot (a full redraft, a long spec), so the
   // output budget is raised well above the chat default — otherwise a long edit is cut off mid-call.
   const editsOpenNote = requiredFirstTool !== undefined && typeof requiredFirstTool === 'object'
@@ -358,8 +386,11 @@ export async function handleConversationTurn(
   const ledger = orchestrated ? createLedger() : undefined;
   const budget = orchestrated ? new TurnBudget(hooks.signal) : undefined;
   let citationRepairs = 0;
+  const FOUND_OPEN_RESERVE_ROUNDS = 2;
+  let openedFound = false;
   let retrievalRan = false;
   let deterministicRan = false;
+  let deterministicComplete = true;
 
   // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
   const maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS : AI_MAX_TOOL_ITERATIONS;
@@ -385,7 +416,7 @@ export async function handleConversationTurn(
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
     // Streams when someone is following live, or when a specific deployment is chosen (only the streaming call takes one).
     const response = hooks.onDelta !== undefined || hooks.modelRoute !== undefined
-      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta ?? (() => { /* not followed live */ }), hooks.signal, hooks.modelRoute, {
+      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta ?? NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute, {
         ...(hooks.codeFiles !== undefined && hooks.codeFiles.ids.length > 0 && {
           builtInTools: [{ type: 'code_interpreter', container: { type: 'auto', file_ids: hooks.codeFiles.ids } }],
         }),
@@ -401,7 +432,7 @@ export async function handleConversationTurn(
       // edit call failed and she carried on as if it hadn't. One retry with the edit forced; if that fails
       // too, say so plainly rather than let her claim an edit that doesn't exist.
       if (editsOpenNote && (toolContext.noteEdits?.length ?? 0) === 0 && response.content !== null && response.content.trim() !== ''
-        && (response.content.length > 900 || /\b(propos|apply|preview)/i.test(response.content))) {
+        && (response.content.length > PASTED_EDIT_REPLY_CHARS || /\b(propos|apply|preview)/i.test(response.content))) {
         if (!editRescued) {
           editRescued = true;
           hooks.onReset?.();
@@ -419,22 +450,34 @@ export async function handleConversationTurn(
       }
       if (response.content && response.content.trim() !== '') {
         if (ledger !== undefined && budget !== undefined) {
-          let answerText = response.content;
-          if (ledger.entries.size > 0) {
-            const decision = resolveAnswer(ledger, response.content, { repairsUsed: citationRepairs, canRepair: !wrapUp && !budget.aborted && i < maxRounds - 1 });
-            if (used !== undefined) attachEvidence(used, ledger, budget.partial ? [budgetLimitation(budget)] : []);
-            if (decision.action === 'repair') {
-              citationRepairs++;
+          // Found but never opened: read the top hit of each family before answering (once per turn).
+          if (!openedFound && retrievalRan && !deterministicRan && !wrapUp && !budget.aborted && !budget.partial && i < maxRounds - FOUND_OPEN_RESERVE_ROUNDS) {
+            const candidates = unreadFoundCandidates(ledger);
+            if (candidates.length > 0) {
+              openedFound = true;
               hooks.onReset?.();
               messages.push({ role: 'assistant', content: response.content });
-              messages.push({ role: 'user', content: decision.instruction });
-              nextRoundTool = 'none';
+              messages.push({ role: 'user', content: openFoundInstruction(candidates) });
               continue;
             }
-            answerText = decision.answer;
           }
+          let answerText = response.content;
+          const decision = resolveAnswer(ledger, response.content, { repairsUsed: citationRepairs, canRepair: !wrapUp && !budget.aborted && i < maxRounds - 1 });
+          if (used !== undefined) attachEvidence(used, ledger, budget.partial ? [budgetLimitation(budget)] : []);
+          if (decision.action === 'repair') {
+            citationRepairs++;
+            hooks.onReset?.();
+            messages.push({ role: 'assistant', content: response.content });
+            messages.push({ role: 'user', content: decision.instruction });
+            nextRoundTool = decision.mayOpen ? undefined : 'none';
+            continue;
+          }
+          answerText = decision.answer;
+          if (used !== undefined) attachEvidence(used, ledger, budget.partial ? [budgetLimitation(budget)] : []);
+          const seenIds = collectIds(userMessage, ...history.map((m) => m.content), ...[...ledger.entries.values()].map((e) => e.ref.id), ...(used?.auto ?? []).map((s) => s.id), ...(used?.found ?? []).map((s) => s.id));
+          answerText = stripUnseenIds(answerText, seenIds);
           const counts = ledgerCounts(ledger);
-          return finalizeKnowledgeAnswer(userMessage, answerText, { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan });
+          return finalizeKnowledgeAnswer(userMessage, answerText, { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan, deterministicComplete: deterministicComplete && !budget.partial });
         }
         return response.content;
       }
@@ -461,7 +504,7 @@ export async function handleConversationTurn(
       hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
       try {
         if ((briefOnly || hooks.readOnlyTools === true) && !tools.some((tool) => tool.function.name === call.function.name)) {
-          throw new Error('This IMAGINE brief request permits reading context and saving Outputs only. The source note and other records cannot be changed.');
+          throw new Error(READ_ONLY_REFUSAL);
         }
         const gate = budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name) ? budget.canStartRetrieval() : { ok: true as const };
         if (!gate.ok) {
@@ -476,17 +519,21 @@ export async function handleConversationTurn(
             const timed = await budget.runRetrieval(run);
             result = timed.ok ? timed.value : { partial: true, note: budgetLimitation(budget) };
           } else {
-            if (call.function.name === 'list_tasks') deterministicRan = true;
             result = await run();
           }
+          if (DETERMINISTIC_TOOLS.has(call.function.name)) {
+            deterministicRan = true;
+            deterministicComplete &&= isDeterministicResultComplete(result);
+          }
+          if (RECORD_TOOLS.has(call.function.name)) retrievalRan = true;
           if (used !== undefined) recordToolSources(used, call.function.name, result);
-          if (ledger !== undefined) recordToolEvidence(ledger, call.function.name, result);
+          if (ledger !== undefined) recordToolEvidence(ledger, call.function.name, result, parseToolArgs(call.function.arguments));
         }
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }
       if (result !== null && typeof result === 'object' && 'error' in result) {
-        console.warn(`[ai] tool ${call.function.name} returned an error: ${String((result as { error: unknown }).error).slice(0, 400)}`);
+        console.warn(`[ai] tool ${call.function.name} returned an error: ${String((result as { error: unknown }).error).slice(0, TOOL_ERROR_LOG_CHARS)}`);
       }
       // Pictures a tool captured (screenshots) go to the model as images, not as text.
       if (result !== null && typeof result === 'object' && '__images' in result) {
@@ -507,7 +554,7 @@ export async function handleConversationTurn(
         role: 'user',
         content: [
           { type: 'text', text: '[Screenshots you just captured — look at them and use them in your answer. This is not a new request from him.]' },
-          ...roundImages.slice(0, 6).flatMap((img) => [
+          ...roundImages.slice(0, MAX_ROUND_SCREENSHOTS).flatMap((img) => [
             { type: 'text' as const, text: img.label },
             { type: 'image_url' as const, image_url: { url: img.url, detail: 'high' as const } },
           ]),
@@ -547,7 +594,7 @@ export async function summarizeNoteContent(title: string, content: string): Prom
     },
   ];
 
-  return client.chat('light', messages, 400);
+  return client.chat('light', messages, NOTE_SUMMARY_MAX_TOKENS);
 }
 
 /**
@@ -567,9 +614,9 @@ export async function generateSessionTitle(userMessage: string, reply: string): 
           'No quotes, no trailing punctuation, no words like "chat" or "conversation". ' +
           'If it is only a greeting with no topic, reply with exactly: Quick check-in',
       },
-      { role: 'user', content: `User: ${userMessage.slice(0, 1_500)}\n\nAssistant: ${reply.slice(0, 1_500)}` },
+      { role: 'user', content: `User: ${userMessage.slice(0, TITLE_SOURCE_CHARS)}\n\nAssistant: ${reply.slice(0, TITLE_SOURCE_CHARS)}` },
     ],
-    24,
+    TITLE_MAX_TOKENS,
   );
 }
 
@@ -597,7 +644,7 @@ export async function summariseSession(
     },
   ];
 
-  return client.chat('light', messages, 1_000);
+  return client.chat('light', messages, SESSION_SUMMARY_MAX_TOKENS);
 }
 
 /**
@@ -635,7 +682,7 @@ export async function rollUpConversationSummary(
     },
   ];
 
-  return client.chat('light', messages, 400);
+  return client.chat('light', messages, ROLLUP_MAX_TOKENS);
 }
 
 /**
@@ -681,10 +728,10 @@ export async function formatSessionForThink(
     },
   ];
 
-  const raw = await client.chat('light', messages, 1_500);
-  const separatorIndex = raw.indexOf('---');
+  const raw = await client.chat('light', messages, EXPORT_MAX_TOKENS);
+  const separatorIndex = raw.indexOf(EXPORT_SEPARATOR);
   const titleLine = separatorIndex === -1 ? raw.split('\n')[0] ?? 'Athena export' : raw.slice(0, separatorIndex);
-  const body = separatorIndex === -1 ? raw : raw.slice(separatorIndex + 3);
+  const body = separatorIndex === -1 ? raw : raw.slice(separatorIndex + EXPORT_SEPARATOR.length);
 
   const title = titleLine.replace(/^TITLE:\s*/i, '').trim() || 'Athena export';
   const bodyMarkdown = body.trim() || raw.trim();

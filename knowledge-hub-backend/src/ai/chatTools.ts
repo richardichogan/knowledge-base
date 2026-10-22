@@ -50,6 +50,7 @@ import { loadCurrentProjectContext } from './projectContext.js';
 import { EXCLUSION_GATED_TOOLS, EXCLUSIONS_UNAVAILABLE_RESULT, executeReadKnowledgeRecord } from '../services/knowledge/tool.js';
 import { executeTraverseRelationships } from './knowledge/traversalLoader.js';
 import { isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
+import { STRUCTURED_TOOL_DEFINITIONS, STRUCTURED_TOOL_NAMES, executeStructuredTool } from './knowledge/structuredTools.js';
 import { getDiscoverSources, inspectDiscoverFeed } from './discoveryContext.js';
 import { retrieveWatchlistRecords } from '../services/discoverWatchlists.js';
 import { getAssetToolDefinitions, isAssetTool, executeAssetTool } from './assetTools.js';
@@ -250,6 +251,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
         },
       },
     },
+    ...STRUCTURED_TOOL_DEFINITIONS,
     {
       type: 'function',
       function: {
@@ -624,7 +626,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
                   },
                   heading: { type: 'string', description: 'Exact heading text of the target section (section actions only).' },
                   find: { type: 'string', description: 'Exact existing text to replace (replace_text only) — a sentence or phrase copied from the note.' },
-                  markdown: { type: 'string', description: 'New content as Markdown. For section actions, give ONLY the section body — do not repeat the heading line (it stays in the note). To ADD a new section (append/prepend/add_to_section), start with a real Markdown heading, e.g. \"## Summary\". Use a blank line between paragraphs.' },
+                  markdown: { type: 'string', description: 'New content as Markdown. For section actions, give ONLY the section body — do not repeat the heading line (it stays in the note). To ADD a new section (append/prepend/add_to_section), start with a real Markdown heading, e.g. "## Summary". Use a blank line between paragraphs.' },
                   summary: { type: 'string', description: 'One short line describing this edit, e.g. "Add a Summary section at the top".' },
                 },
                 required: ['action', 'summary'],
@@ -793,6 +795,11 @@ export async function executeToolCall(
     if (!isKnowledgeOrchestrationEnabled()) return { error: 'Relationship traversal is not enabled.' };
     if (turn.exclusionsFailed === true) return EXCLUSIONS_UNAVAILABLE_RESULT;
     return executeTraverseRelationships(db, args, { excludedIds: turn.excludedIds, signal: turn.signal });
+  }
+  if (STRUCTURED_TOOL_NAMES.has(name)) {
+    if (!isKnowledgeOrchestrationEnabled()) return { error: 'Structured task and change queries are not enabled.' };
+    if (turn.exclusionsFailed === true) return EXCLUSIONS_UNAVAILABLE_RESULT;
+    return executeStructuredTool(db, name, args, { sessionId: turn.sessionId, strictProjectId: turn.strictProjectId, signal: turn.signal });
   }
 
   if (isAssetTool(name)) return executeAssetTool(db, name, contextualArgs, turn.noteId);
@@ -984,7 +991,7 @@ export async function executeToolCall(
  * FTS results are listed first (higher precision, direct term match), then
  * topped up with any additional Foundry IQ matches not already present.
  */
-export async function getKnowledgeBaseItems(db: Pool, query: string, limit: number, projectId = '') {
+export async function getKnowledgeBaseItems(db: Pool, query: string, limit: number, projectId = ''): Promise<Awaited<ReturnType<typeof getRagItems>>> {
   // A project filter ranks that project first but never hides real matches
   // elsewhere: what he refers to is often filed under another client (e.g.
   // feedback from an IMAGINE meeting discussed in an IKEA chat).
@@ -997,7 +1004,7 @@ export async function getKnowledgeBaseItems(db: Pool, query: string, limit: numb
 
   if (isFoundryIqEnabled()) {
     try {
-      const ids = await retrieveContentItemIds(query, projectId === '' ? limit : Math.max(limit * 5, 40));
+      const ids = await retrieveContentItemIds(query, projectId === '' ? limit : Math.max(limit * FOUNDRY_PROJECT_OVERFETCH, FOUNDRY_MIN_FETCH));
       if (ids.length > 0) {
         const items = await getContentItemsByIds(db, ids);
         const filtered = projectId === '' ? items : items.filter((item) => item.projectContext === projectId);
@@ -1009,7 +1016,7 @@ export async function getKnowledgeBaseItems(db: Pool, query: string, limit: numb
     }
   }
 
-  if (projectId === '' || combined.length >= Math.min(3, limit)) return combined.slice(0, limit);
+  if (projectId === '' || combined.length >= Math.min(MIN_DIRECT_MATCHES, limit)) return combined.slice(0, limit);
 
   const overviewItems = await getProjectContextItems(db, projectId, limit);
   const seen = new Set(combined.map((item) => item.id));
@@ -1037,7 +1044,7 @@ export function interleaveUnique<T extends { id: string }>(first: T[], second: T
  */
 async function matchesInOtherProjects(db: Pool, projectId: string, query: string): Promise<Record<string, unknown>> {
   const terms = [...new Set((query.toLowerCase().match(/[a-z0-9][a-z0-9_-]{1,}/g) ?? [])
-    .flatMap((t) => t.replace(/[-_]+/g, ' ').split(' ')).filter((t) => t.length >= 3))];
+    .flatMap((t) => t.replace(/[-_]+/g, ' ')    .split(' ')).filter((t) => t.length >= MIN_TERM_CHARS))];
   if (terms.length === 0) return {};
   const { rows } = await db.query<{ title: string; project: string; path: string | null }>(
     `SELECT COALESCE(NULLIF(ci.title, ''), 'Untitled Document') AS title, COALESCE(p.name, ci.project_context, 'personal') AS project,
@@ -1229,7 +1236,7 @@ export interface ToolImages { __images?: Array<{ label: string; url: string }> }
 async function screenshotPage(db: Pool, args: Record<string, unknown>, sessionId: string | undefined): Promise<unknown> {
   if (!isScreenshotServiceConfigured()) return { error: 'Screenshots are not available (the screenshot service is not configured).' };
   const devices = (Array.isArray(args['devices']) ? args['devices'] : ['desktop', 'mobile'])
-    .filter((d): d is ShotDevice => d === 'desktop' || d === 'tablet' || d === 'mobile').slice(0, 3);
+    .filter((d): d is ShotDevice => d === 'desktop' || d === 'tablet' || d === 'mobile').slice(0, MAX_SCREENSHOT_DEVICES);
   const outputId = typeof args['output_id'] === 'string' ? args['output_id'].trim() : '';
   let url = typeof args['url'] === 'string' ? args['url'].trim() : '';
   let html: string | undefined;
@@ -1249,7 +1256,7 @@ async function screenshotPage(db: Pool, args: Record<string, unknown>, sessionId
     const name = html !== undefined ? label : (shot.title !== '' ? shot.title : new URL(shot.finalUrl || url).hostname);
     if (sessionId !== undefined) {
       for (const img of shot.images) {
-        await addScreenUnread(db, sessionId, { buffer: Buffer.from(img.base64, 'base64'), contentType: img.mimeType, name: `${name} — ${img.device}`.slice(0, 120) })
+        await addScreenUnread(db, sessionId, { buffer: Buffer.from(img.base64, 'base64'), contentType: img.mimeType, name: `${name} — ${img.device}`.slice(0, SCREEN_NAME_CHARS) })
           .catch((err: unknown) => { console.warn('[screenshot] could not add to Screens:', err); });
       }
     }
@@ -1279,13 +1286,28 @@ const FILE_TYPE_EXTENSIONS: Record<string, string[]> = {
 };
 const FIND_FILES_LIMIT = 25;
 const FIND_FILES_CONTENT_CHARS = 8_000;
+const FOUNDRY_PROJECT_OVERFETCH = 5;
+const FOUNDRY_MIN_FETCH = 40;
+const MIN_DIRECT_MATCHES = 3;
+const MIN_TERM_CHARS = 3;
+const MIN_SHORT_TERM_CHARS = 2;
+const MAX_SCREENSHOT_DEVICES = 3;
+const SCREEN_NAME_CHARS = 120;
+const ISO_DATE_CHARS = 10;
+const CONFIDENT_MATCH_SCORE = 0.5;
+const CONFIDENT_MATCH_MARGIN = 0.25;
+const PLAUSIBLE_MATCH_SCORE = 0.34;
+const MAX_AMBIGUOUS_CANDIDATES = 5;
+const MAX_TASK_TAGS = 10;
+const STRONG_PROJECT_FIT = 2;
 
 /** find_files — his files by folder, type and name (OneDrive, uploads, repo docs), with content for a single match. */
 async function findFiles(db: Pool, args: Record<string, unknown>): Promise<unknown> {
   const folder = typeof args['folder'] === 'string' ? args['folder'].trim().replace(/^\/+|\/+$/g, '') : '';
   const fileType = typeof args['fileType'] === 'string' ? args['fileType'] : 'any';
   const nameWords = typeof args['name'] === 'string'
-    ? args['name'].toLowerCase().replace(/\.[a-z0-9]{2,5}$/, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 2)
+    ? args['name'].toLowerCase().replace(/\.[a-z0-9]{2,5}$/, '').split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= MIN_SHORT_TERM_CHARS)
     : [];
   const params: unknown[] = [];
   const where = [`ci.source IN ('onedrive-document', 'user-upload', 'github-doc', 'github-content-store')`, canonicalContentSql('ci')];
@@ -1320,7 +1342,7 @@ async function findFiles(db: Pool, args: Record<string, unknown>): Promise<unkno
     title: r.title,
     where: r.source === 'onedrive-document' ? `OneDrive: ${r.path ?? r.title}` : r.source === 'user-upload' ? `Uploaded: ${r.path ?? r.title}` : `Repo doc: ${r.path ?? r.title}`,
     project: r.project ?? 'personal',
-    modified: r.updated_at.toISOString().slice(0, 10),
+    modified: r.updated_at.toISOString().slice(0, ISO_DATE_CHARS),
     url: r.url ?? '',
     ...(withContent && { content: (r.body ?? '').slice(0, FIND_FILES_CONTENT_CHARS) }),
   }));
@@ -1368,7 +1390,7 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>, contentCha
   const terms = [...new Set((query.toLowerCase().match(/[a-z0-9][a-z0-9_-]{1,}/g) ?? [])
     .map((t) => t.replace(/[-_]+/g, ' ').trim())
     .flatMap((t) => t.split(' '))
-    .filter((t) => t.length >= 2))];
+    .filter((t) => t.length >= MIN_SHORT_TERM_CHARS))];
   const orQuery = terms.join(' | ');
 
   const params: unknown[] = [];
@@ -1418,7 +1440,7 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>, contentCha
       ? r.metadata['repo']
       : r.source === 'user-upload' ? 'Uploaded Library' : r.source === 'onedrive-document' ? 'OneDrive' : '';
     const path = typeof r.metadata?.['path'] === 'string'
-      ? r.metadata['path'] as string
+      ? r.metadata['path']
       : (typeof r.metadata?.['filename'] === 'string' ? r.metadata['filename'] : r.title);
     return {
       id: r.id,
@@ -1575,7 +1597,7 @@ function tokenizeTitle(text: string): string[] {
       .toLowerCase()
       .split(/[^a-z0-9']+/)
       .map((w) => w.replace(/^'|'s$|'$/g, ''))
-      .filter((w) => w.length >= 3 && !TITLE_STOPWORDS.has(w)),
+      .filter((w) => w.length >= MIN_TERM_CHARS && !TITLE_STOPWORDS.has(w)),
   ));
 }
 
@@ -1639,12 +1661,12 @@ async function resolveTask(
     // Best candidate matched most keywords and clearly beats the next one —
     // still surface it for confirmation rather than silently updating the
     // wrong task, but as a single suggestion rather than a raw "not found".
-    if (best.score >= 0.5 && (runnerUp === undefined || best.score - runnerUp.score >= 0.25)) {
+    if (best.score >= CONFIDENT_MATCH_SCORE && (runnerUp === undefined || best.score - runnerUp.score >= CONFIDENT_MATCH_MARGIN)) {
       return { suggested: best.row };
     }
 
     // Multiple plausible candidates within the same ballpark — let the user pick.
-    const topCandidates = scored.filter((s) => s.score >= 0.34).slice(0, 5).map((s) => s.row);
+    const topCandidates = scored.filter((s) => s.score >= PLAUSIBLE_MATCH_SCORE).slice(0, MAX_AMBIGUOUS_CANDIDATES).map((s) => s.row);
     if (topCandidates.length > 0) return { ambiguous: topCandidates };
 
     return { notFound: true };
@@ -1760,7 +1782,7 @@ async function taskTagNames(db: Pool, taskIds: string[]): Promise<Map<string, st
 
 /** Sets a task's Plan tags by name (existing tags matched by name or slug; missing ones created as top-level filing tags). */
 async function setTaskTags(db: Pool, taskId: string, raw: unknown[]): Promise<string[]> {
-  const names = [...new Set(raw.filter((t): t is string => typeof t === 'string').map((t) => t.trim()).filter(Boolean))].slice(0, 10);
+  const names = [...new Set(raw.filter((t): t is string => typeof t === 'string').map((t) => t.trim()).filter(Boolean))].slice(0, MAX_TASK_TAGS);
   const ids: string[] = [];
   const out: string[] = [];
   for (const name of names) {
@@ -1906,7 +1928,7 @@ async function resolveNoteProject(db: Pool, requested: string | null, title: str
       const { loadFocusProjects, assessProjectFit } = await import('../integrations/discovery/projectFit.js');
       const projects = await loadFocusProjects(db);
       const fits = (await assessProjectFit(new FoundryClient('note-project'), projects, [{ id: 'note', title, body: content, url: null }])).get('note') ?? [];
-      const best = fits.find((f) => f.fit === 2)
+      const best = fits.find((f) => f.fit === STRONG_PROJECT_FIT)
         ?? fits.find((f) => f.fit === 1 && projects.find((p) => p.id === f.projectId)?.importance === 'high');
       if (best !== undefined) return best.projectId;
     } catch (err) {

@@ -15586,6 +15586,8 @@ fieldset.proj-modal-body {
 
 .decision-semantics__item--inferred { color: var(--cds-text-secondary); font-style: italic; }
 
+.decision-semantics__picker { flex: 2; }
+
 .decision-semantics__input {
   flex: 1;
   min-width: 8rem;

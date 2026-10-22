@@ -151,5 +151,5 @@ async function main(): Promise<number> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  main().then((c) => { process.exitCode = c; }, (e) => { console.error(e); process.exitCode = 1; });
+  main().then((c) => { process.exit(c); }, (e) => { console.error(e); process.exit(1); });
 }
