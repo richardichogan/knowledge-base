@@ -47,6 +47,7 @@ const tests = frontend ? [
   'scripts/chat-session-store.test.ts',
   'scripts/chat-references.test.ts',
   'scripts/daily-insights.test.ts',
+  'scripts/knowledge-manifest.test.ts',
   'scripts/discover-parking.test.ts',
   'scripts/people.test.ts',
   'scripts/project-parents-migration.test.ts',
