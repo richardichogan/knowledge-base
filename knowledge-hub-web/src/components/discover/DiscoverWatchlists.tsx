@@ -389,6 +389,12 @@ const NowSection: React.FC<{
         <span className={`dw-run__status dw-run__status--${briefing.status}`}>{briefing.status === 'insufficient_coverage' ? 'Coverage incomplete' : STATUS[briefing.status]}</span>
         {' · '}{count(companies.length, 'company monitored', 'companies monitored')} · {tally.map(t => t.text).join(' · ')}
       </p>
+      <ul className="dw-plain-list dw-now__companies" aria-label="Companies monitored">{companies.map(c => <li key={c.name}>
+        {c.findings.length > 0
+          ? <button type="button" className={`dw-company-chip dw-company-chip--${c.state}`} title={c.label} onClick={() => onOpen(c.findings[0]!)}>
+            {c.name}<span className="dw-company-chip__state">{c.findings.length}</span></button>
+          : <span className={`dw-company-chip dw-company-chip--${c.state}`} title={c.label}>{c.name}<span className="dw-company-chip__state">{c.state === 'quiet' ? 'quiet' : '?'}</span></span>}
+      </li>)}</ul>
       <details className="dw-details dw-coverage" id={`${summaryId}-coverage`} tabIndex={-1}
         open={coverageOpen} onToggle={event => { setCoverageOpen(event.currentTarget.open); }}>
         <summary>View coverage details</summary>
@@ -409,9 +415,12 @@ const NowSection: React.FC<{
         <ol className="dw-now__list">{developments.map(f => <li className="dw-now__item" key={f.id}>
           <p className="dw-now__company">{f.entity} · {f.field || CLAIM_LABELS[f.kind]}</p>
           <h6 className="dw-now__headline">{f.headline ?? f.changed}</h6>
-          {f.evidenceHighlight && <p className="dw-now__evidence"><span className="dw-label">Key evidence</span>{f.evidenceHighlight.text}</p>}
           {f.matters && <p className="dw-now__matters"><span className="dw-label">Why it matters</span>{f.matters}</p>}
-          <p className="dw-now__observed">{CLAIM_LABELS[f.kind]} · Observed in this review · {reportDate(briefing.startedAt)}</p>
+          {f.evidenceHighlight && <p className="dw-now__evidence"><span className="dw-label">Key evidence</span>{f.evidenceHighlight.text}</p>}
+          {!!f.projectAssessments?.length && <ul className="dw-plain-list dw-now__projects" aria-label="Projects affected">
+            {[...f.projectAssessments].sort(compareAssessments).slice(0, 3).map(a => <li key={a.projectId}
+              className={`dw-now__project dw-now__project--${a.relevance ?? 'unrated'}`}>{a.projectName}</li>)}
+          </ul>}
           <button type="button" className="dw-link-button" onClick={() => onOpen(f)}>Detail and {count(new Set(f.evidenceIds).size, 'source')} in {f.entity}</button>
         </li>)}</ol>
       </section>}

@@ -10,6 +10,8 @@ import type { ModelRoute } from './modelChoices.js';
 import { recordAiUsage, tokenUsageFrom } from './aiUsage.js';
 import type { TokenUsage } from './aiUsage.js';
 
+const DEFAULT_CHAT_TEMPERATURE = 0.7;
+
 /** A single tool call the model wants the caller to execute. */
 export interface LlmToolCall {
   id: string;
@@ -436,7 +438,7 @@ export class FoundryClient {
           messages,
           max_completion_tokens: maxTokens,
           ...(jsonSchema !== undefined && { response_format: { type: 'json_schema', json_schema: { ...jsonSchema, strict: true } } }),
-          ...(this.supportsCustomTemperature(model) && { temperature: jsonSchema !== undefined ? 0 : 0.7 }),
+          ...(this.supportsCustomTemperature(model) && { temperature: jsonSchema !== undefined ? 0 : DEFAULT_CHAT_TEMPERATURE }),
           ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: toolChoice }),
         }),
         // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.

@@ -224,6 +224,11 @@ Non-production server and migration-CLI startup require an explicit
 `DATABASE_MODE=local` (a loopback database URL) or `DATABASE_MODE=disposable`
 (an explicitly selected disposable database). Do not point disposable mode at
 production. Development/test servers never start scheduled integration/AI jobs.
+For local development using Athena's production content, explicitly set
+`NODE_ENV=development` and `DATABASE_MODE=production`. This server mode skips
+automatic migrations and interrupted-work recovery so it does not interfere
+with production jobs; app actions still read and write production data.
+The migration CLI still runs migrations when explicitly invoked.
 Isolated tests still block dotenv and use disposable fixtures, not application
 database settings.
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FitToScreen, Renew, ZoomIn, ZoomOut } from '@carbon/icons-react';
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from 'react-force-graph-2d';
 import type { GraphEdge, GraphNode } from '../../services/api';
 import { useIdentity } from '../../identity';
@@ -10,7 +11,8 @@ type ForceNode = NodeObject<GraphNode>;
 type ForceLink = LinkObject<GraphNode, Omit<GraphEdge, 'source' | 'target'>>;
 const endpoint = (value: ForceLink['source']): string => typeof value === 'object' ? value.id : String(value);
 
-export function AtlasForceMap({ nodes, edges, selected, focus, onSelect, onEdge, active, colourMode = 'type' }: AtlasMapProps): React.ReactElement {
+export function AtlasForceMap({ nodes, edges, selected, focus, onSelect, onEdge, active, compact = false,
+  colourMode = 'type' }: Omit<AtlasMapProps, 'layout'>): React.ReactElement {
   const container = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphMethods<GraphNode, Omit<GraphEdge, 'source' | 'target'>>>();
   const needsFit = useRef(true);
@@ -31,7 +33,19 @@ export function AtlasForceMap({ nodes, edges, selected, focus, onSelect, onEdge,
   const spotlight = hovered ?? selected;
   const neighbours = spotlight ? adjacency.get(spotlight) : undefined;
   const duration = reducedMotion ? 0 : 220;
-  const fit = useCallback(() => { graphRef.current?.zoomToFit(duration, 65); }, [duration]);
+  const fit = useCallback(() => {
+    const renderer = graphRef.current;
+    if (!renderer) return;
+    if (!compact) { renderer.zoomToFit(duration, 65); return; }
+    // A few far-flung leaves would otherwise shrink the small panel's view to a dot cluster.
+    const placed = graph.nodes.filter(n => n.x !== undefined && n.y !== undefined);
+    const cx = placed.reduce((s, n) => s + n.x!, 0) / Math.max(1, placed.length);
+    const cy = placed.reduce((s, n) => s + n.y!, 0) / Math.max(1, placed.length);
+    const distances = placed.map(n => Math.hypot(n.x! - cx, n.y! - cy)).sort((a, b) => a - b);
+    const cutoff = distances[Math.floor((distances.length - 1) * 0.9)] ?? Infinity;
+    renderer.zoomToFit(duration, 24, n => n.id === focus || n.id === selected
+      || (n.x !== undefined && n.y !== undefined && Math.hypot(n.x - cx, n.y - cy) <= cutoff));
+  }, [duration, compact, graph, focus, selected]);
 
   useEffect(() => {
     const el = container.current;
@@ -76,7 +90,7 @@ export function AtlasForceMap({ nodes, edges, selected, focus, onSelect, onEdge,
   }
   function drawLabels(ctx: CanvasRenderingContext2D, scale: number): void {
     const renderer = graphRef.current;
-    if (!renderer) return;
+    if (!renderer || !container.current) return;
     const candidates = [...graph.nodes].filter(n => n.id === spotlight || neighbours?.has(n.id)
       || (scale > 1.5 || (adjacency.get(n.id)?.size ?? 0) >= 6))
       .sort((a, b) => Number(b.id === spotlight) - Number(a.id === spotlight)
@@ -86,7 +100,8 @@ export function AtlasForceMap({ nodes, edges, selected, focus, onSelect, onEdge,
       }]);
     const labels = placeAtlasLabels(candidates, size.width, size.height);
     ctx.save(); ctx.font = `${12 / scale}px "IBM Plex Sans", sans-serif`; ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle'; ctx.lineWidth = 3 / scale; ctx.strokeStyle = '#161616';
+    ctx.textBaseline = 'middle'; ctx.lineWidth = 3 / scale;
+    ctx.strokeStyle = getComputedStyle(container.current).backgroundColor;
     for (const label of labels) {
       const p = renderer.screen2GraphCoords(label.x + label.width / 2, label.y + 12);
       const max = Math.floor((label.width - 12) / 7.2);
@@ -98,9 +113,12 @@ export function AtlasForceMap({ nodes, edges, selected, focus, onSelect, onEdge,
     ctx.restore();
   }
   const highlightedLink = (link: ForceLink): boolean => endpoint(link.source) === spotlight || endpoint(link.target) === spotlight;
-  return <div className="atlas-force" ref={container} role="region" aria-label="2D force-directed knowledge graph">
+  return <div className={`atlas-force${compact ? ' atlas-force--compact' : ''}`} ref={container}
+    // Programmatic fits also fire onZoom, so only real gestures cancel the settle-time fit.
+    onWheel={() => { needsFit.current = false; }} onPointerDown={() => { needsFit.current = false; }}
+    role="region" aria-label={compact ? 'Note connections: interactive 2D knowledge graph' : '2D force-directed knowledge graph'}>
     <ForceGraph2D<GraphNode, Omit<GraphEdge, 'source' | 'target'>> ref={graphRef}
-      graphData={graph} width={size.width} height={size.height} backgroundColor="#161616"
+      graphData={graph} width={size.width} height={size.height} backgroundColor="transparent"
       nodeLabel="" nodeCanvasObject={drawNode} onRenderFramePost={drawLabels}
       nodePointerAreaPaint={(node, colour, ctx, scale) => {
         if (node.x === undefined || node.y === undefined) return;
@@ -108,7 +126,8 @@ export function AtlasForceMap({ nodes, edges, selected, focus, onSelect, onEdge,
       }}
       linkColor={link => highlightedLink(link) ? 'rgba(61,219,217,0.65)' : spotlight ? 'rgba(130,140,150,0.08)' : 'rgba(130,140,150,0.24)'}
       linkWidth={link => highlightedLink(link) ? 1.2 : 0.6} linkLineDash={link => isInferred(link) ? [3, 4] : null}
-      warmupTicks={reducedMotion ? 180 : 40} cooldownTicks={reducedMotion ? 0 : 180} cooldownTime={reducedMotion ? 0 : 5000}
+      warmupTicks={reducedMotion || compact ? 180 : 40} cooldownTicks={reducedMotion || compact ? 0 : 180}
+      cooldownTime={reducedMotion || compact ? 0 : 5000}
       d3AlphaDecay={0.035} d3VelocityDecay={0.4} minZoom={0.15} maxZoom={8}
       onNodeHover={node => { setHovered(node?.id ?? null); }}
       onNodeClick={node => { needsFit.current = false; onSelect(node); }}
@@ -118,18 +137,25 @@ export function AtlasForceMap({ nodes, edges, selected, focus, onSelect, onEdge,
         if (node.y !== undefined) node.fy = node.y;
       }}
       onLinkClick={link => { const edge = edges.find(e => e.id === link.id); if (edge) onEdge?.(edge); }}
-      onZoom={() => { needsFit.current = false; }}
       onEngineStop={() => { if (needsFit.current) { needsFit.current = false; fit(); } }} />
-    <div className="atlas-map__tools" aria-label="2D graph controls">
-      <button aria-label="Zoom in 2D" onClick={() => { const g = graphRef.current; if (g) g.zoom(Math.min(8, g.zoom() * 1.3), duration); }}>+</button>
-      <button aria-label="Zoom out 2D" onClick={() => { const g = graphRef.current; if (g) g.zoom(Math.max(0.15, g.zoom() / 1.3), duration); }}>−</button>
-      <button onClick={fit}>Fit 2D</button>
-      <button onClick={() => {
+    <div className="atlas-force__tools" role="group" aria-label="Graph controls">
+      <button type="button" aria-label="Zoom in" title="Zoom in"
+        onClick={() => { const g = graphRef.current; if (g) g.zoom(Math.min(8, g.zoom() * 1.3), duration); }}>
+        <ZoomIn size={16} aria-hidden="true" />
+      </button>
+      <button type="button" aria-label="Zoom out" title="Zoom out"
+        onClick={() => { const g = graphRef.current; if (g) g.zoom(Math.max(0.15, g.zoom() / 1.3), duration); }}>
+        <ZoomOut size={16} aria-hidden="true" />
+      </button>
+      <button type="button" aria-label="Fit graph" title="Fit graph" onClick={fit}>
+        <FitToScreen size={16} aria-hidden="true" />
+      </button>
+      <button type="button" aria-label="Reflow graph" title="Reflow graph: release dragged nodes" onClick={() => {
         for (const node of graph.nodes) { delete node.fx; delete node.fy; }
         needsFit.current = true; graphRef.current?.d3ReheatSimulation();
-      }}>Reflow</button>
+      }}><Renew size={16} aria-hidden="true" /></button>
     </div>
     {hovered && <div className="atlas-force__hover">{nodes.find(n => n.id === hovered)?.title}</div>}
-    <p className="atlas-map__hint">2D · drag dots to arrange · scroll to zoom · Reflow releases dragged dots</p>
+    {!compact && <p className="atlas-map__hint">Drag dots to arrange · scroll to zoom</p>}
   </div>;
 }

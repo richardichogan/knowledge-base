@@ -119,6 +119,9 @@ test('shutdown during startup cannot start schedulers; non-production requires a
   assert.throws(() => assertSafeDatabase('local', 'postgresql://remote.invalid/prod', 'test'), /DATABASE_MODE/);
   assert.doesNotThrow(() => assertSafeDatabase('local', 'postgresql://127.0.0.1/test', 'development'));
   assert.doesNotThrow(() => assertSafeDatabase('disposable', 'postgresql://fixture.invalid/test', 'test'));
+  assert.doesNotThrow(() => assertSafeDatabase('production', 'postgresql://remote.invalid/prod', 'development'));
+  assert.throws(() => assertSafeDatabase('production', 'postgresql://remote.invalid/prod', 'test'), /DATABASE_MODE/);
+  assert.throws(() => assertSafeDatabase('', 'postgresql://remote.invalid/prod', 'development'), /DATABASE_MODE/);
 });
 test('UK clock handles midnight, DST and weekly keys regardless of host timezone', () => {
   assert.equal(ukClock(new Date('2026-07-05T23:30:00Z')).day, '2026-07-06');

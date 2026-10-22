@@ -70,10 +70,11 @@ export function createRuntime(deps: RuntimeDependencies, shutdownMs = SHUTDOWN_T
 
 export function assertSafeDatabase(mode: string, databaseUrl: string, nodeEnv: string): void {
   if (nodeEnv === 'production') return;
+  if (nodeEnv === 'development' && mode === 'production') return;
   if (mode === 'disposable') return;
   if (mode === 'local') {
     const hostname = new URL(databaseUrl).hostname;
     if (['localhost', '127.0.0.1', '[::1]'].includes(hostname)) return;
   }
-  throw new Error('Non-production startup requires DATABASE_MODE=local with a loopback database, or DATABASE_MODE=disposable for an explicitly selected disposable database.');
+  throw new Error('Non-production startup requires DATABASE_MODE=local with a loopback database, DATABASE_MODE=disposable for an explicitly selected disposable database, or DATABASE_MODE=production for explicitly opted-in development against production.');
 }

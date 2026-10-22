@@ -91,9 +91,23 @@
   &__label { padding: 0.5rem 0.75rem; display: block; background: var(--cds-layer-01); color: var(--cds-text-primary); font: 14px 'IBM Plex Sans', sans-serif; }
 }
 .atlas-force { position: relative; height: 100%; min-height: 260px; overflow: hidden;
+  --atlas-surface: var(--cds-background);
+  background: var(--atlas-surface);
   canvas { display: block; }
+  &--compact { --atlas-surface: var(--cds-layer-01); height: 360px; min-width: 0; }
+  &__tools { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 2;
+    display: flex; gap: 2px; padding: 2px; border-radius: var(--kh-radius-sm); background: transparent;
+    button { display: inline-flex; align-items: center; justify-content: center;
+      width: var(--kh-control-height-compact, 32px); height: var(--kh-control-height-compact, 32px);
+      min-height: var(--kh-control-height-compact, 32px); padding: 0; border: 0;
+      background: transparent; color: var(--cds-text-secondary);
+      &:hover:not(:disabled) { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); }
+      &:active:not(:disabled) { background: var(--cds-layer-active-01); }
+      &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 1px; }
+    }
+  }
   &__hover { position: absolute; top: 3.5rem; right: 1rem; max-width: min(32ch, 70%); padding: 0.5rem;
-    background: var(--cds-background); color: var(--cds-text-primary); font-size: var(--kh-text-meta);
+    background: var(--atlas-surface); color: var(--cds-text-primary); font-size: var(--kh-text-meta);
     line-height: 1.5; overflow-wrap: anywhere; pointer-events: none; }
 }
 .atlas-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden;
@@ -118,6 +132,8 @@
   }
   &__selection { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; padding: 0.75rem 0;
     strong { flex-basis: 100%; overflow-wrap: anywhere; } span { color: var(--cds-text-secondary); } }
+  button.note-mini-graph__record { display: block; width: 100%; text-align: start; overflow-wrap: anywhere;
+    margin-bottom: 0.25rem; }
   p { color: var(--cds-text-secondary); }
   summary { padding: 0.5rem 0; }
   ul { padding-inline-start: var(--kh-list-indent); margin: 0.75rem 0; }

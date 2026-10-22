@@ -117,12 +117,14 @@ root AS (
   SELECT id FROM all_nodes WHERE id=$1
   UNION SELECT ref_type||':'||ref_id FROM nodes WHERE id::text=$1
 ),
+adj AS MATERIALIZED (
+  SELECT source AS a,target AS b,edge_type FROM all_edges UNION ALL SELECT target,source,edge_type FROM all_edges
+),
 walk(id,depth) AS (
   SELECT id,0 FROM root
   UNION
-  SELECT CASE WHEN e.source=w.id THEN e.target ELSE e.source END,w.depth+1
-    FROM walk w JOIN all_edges e ON e.source=w.id OR e.target=w.id
-    WHERE w.depth<$2 AND (cardinality($5::text[])=0 OR e.edge_type=ANY($5))
+  SELECT a.b,w.depth+1 FROM walk w JOIN adj a ON a.a=w.id
+    WHERE w.depth<$2 AND (cardinality($5::text[])=0 OR a.edge_type=ANY($5))
 ),
 candidates AS (
   SELECT n.* FROM all_nodes n

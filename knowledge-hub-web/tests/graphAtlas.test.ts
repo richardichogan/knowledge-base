@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import type { GraphNode, GraphEdge } from '../src/services/api';
 import { atlasLayout, atlasBounds, forceGraphData, placeAtlasLabels, activityWindow, graphNodeHref, neighbourhood, isInferred } from '../src/components/graph/atlasModel';
 
@@ -32,6 +33,67 @@ test('mini graph keeps the root, caps neighbours and has no dangling edges', () 
   assert.equal(preview.omitted, 7);
   assert.equal(preview.edges.length, 8);
   assert.deepEqual(neighbourhood([], [], root.id), { nodes: [], edges: [], omitted: 0 });
+});
+
+test('note connections use the shared interactive renderer and retain all loaded recorded neighbours', () => {
+  const source = readFileSync(new URL('../src/components/graph/NoteMiniGraph.tsx', import.meta.url), 'utf8');
+  assert.match(source, /<AtlasForceMap compact/);
+  assert.match(source, /const seed = `note:\$\{noteId\}`/);
+  assert.match(source, /useGraphData\(\{ days: 3650, seed, depth: 2 \}\)/);
+  assert.doesNotMatch(source, /<AtlasMap\b|Math\.cos|eight neighbours/);
+  assert.match(source, /seed, Math\.min\(data\?\.nodes\.length \?\? 0, 60\), 2\)/);
+  assert.match(source, /aria-pressed=\{selected === n\.id\}/);
+  const root = node('note:root');
+  const others = Array.from({ length: 20 }, (_, i) => node(`note:${i}`));
+  const inferred = node('note:inferred');
+  const nodes = [root, ...others, inferred, node('note:unrelated'), node('note:second-hop')];
+  const edges = [...others.map(n => edge(root.id, n.id)),
+    edge('note:0', 'note:second-hop'),
+    { ...edge(root.id, inferred.id), origin: 'inferred' as const }];
+  const graph = neighbourhood(nodes, edges.filter(e => !isInferred(e)), root.id, nodes.length);
+  assert.equal(graph.nodes.length, 21);
+  assert.equal(graph.nodes[0]?.id, root.id);
+  assert.equal(graph.edges.length, 20);
+  assert.equal(graph.omitted, 0);
+  assert.ok(graph.nodes.every(n => n.id !== inferred.id && n.id !== 'note:unrelated' && n.id !== 'note:second-hop'));
+  const twoHops = neighbourhood(nodes, edges.filter(e => !isInferred(e)), root.id, nodes.length, 2);
+  assert.ok(twoHops.nodes.some(n => n.id === 'note:second-hop'));
+  assert.ok(twoHops.nodes.every(n => n.id !== inferred.id && n.id !== 'note:unrelated'));
+});
+
+test('graph controls are labelled icons and graph navigation has no 3D option', () => {
+  const renderer = readFileSync(new URL('../src/components/graph/AtlasForceMap.tsx', import.meta.url), 'utf8');
+  for (const label of ['Zoom in', 'Zoom out', 'Fit graph', 'Reflow graph']) {
+    assert.ok(renderer.includes(`aria-label="${label}" title="${label}`));
+  }
+  for (const icon of ['ZoomIn', 'ZoomOut', 'FitToScreen', 'Renew']) {
+    assert.ok(renderer.includes(`<${icon} size={16} aria-hidden="true" />`));
+  }
+  assert.doesNotMatch(renderer, />Fit 2D<|>Reflow<|>2D ·/);
+  const page = readFileSync(new URL('../src/pages/GraphPage.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(page, /AtlasSpace|supports3D|webgl|3D explorer|'space'/);
+  assert.match(page, /\['map', 'list'\]/);
+});
+
+test('note graph and label outlines use the panel surface instead of a hardcoded black canvas', () => {
+  const renderer = readFileSync(new URL('../src/components/graph/AtlasForceMap.tsx', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../src/components/graph/atlas.scss', import.meta.url), 'utf8');
+  assert.match(renderer, /backgroundColor="transparent"/);
+  assert.match(renderer, /ctx\.strokeStyle = getComputedStyle\(container\.current\)\.backgroundColor/);
+  assert.doesNotMatch(renderer, /#161616/);
+  assert.match(styles, /&--compact \{ --atlas-surface: var\(--cds-layer-01\)/);
+  assert.match(styles, /background: var\(--atlas-surface\)/);
+});
+
+test('Link-tab note previews blend into the panel without adding an unrelated graph', () => {
+  const preview = readFileSync(new URL('../src/notes/LinkPreviewPanel.tsx', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../src/styles/global.scss', import.meta.url), 'utf8');
+  const previewStyles = styles.slice(styles.indexOf('.link-preview {'), styles.indexOf('.note-link-suggest {'));
+  assert.match(preview, /<NoteWriting contentJson=\{data\.contentJson\}/);
+  assert.doesNotMatch(preview, /NoteMiniGraph|<iframe/);
+  assert.match(previewStyles, /\.bn-container \{[^}]*background: transparent/);
+  assert.match(previewStyles, /\.bn-editor \{[^}]*background: transparent/);
+  assert.match(previewStyles, /\[data-content-type="heading"\]:not\(\[data-level\]\),\s*\[data-content-type="heading"\]\[data-level="1"\] \{ --level: 1\.375rem/);
 });
 
 test('activity retains one-hop older context, but not unrelated or transitive records', () => {

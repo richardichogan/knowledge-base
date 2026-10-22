@@ -1,42 +1,40 @@
 // Editor-only contrast adjustments; saved colours and exports stay unchanged.
-const DARK_FILLS: Record<string, string> = {
-  '#fff': '#262626', '#ffffff': '#262626', white: '#262626',
-  '#edf5ff': '#1c2d4a', '#defbe6': '#173b27', '#fcf4d6': '#3d3215',
-  '#fff1f1': '#442027', '#f6f2ff': '#302342', '#f4f4f4': '#202020',
-  '#d9fbfb': '#0f3433', '#fff0f7': '#3e1a2b',
-  '#e5f6ff': '#012749', '#fff2e8': '#3e1a00',
+// The sheet is light grey, so colours authored for the old dark sheet map to
+// their light equivalents and everything else displays as authored.
+const LIGHT_FILLS: Record<string, string> = {
+  '#262626': '#ffffff', '#1c2d4a': '#edf5ff', '#173b27': '#defbe6', '#3d3215': '#fcf4d6',
+  '#442027': '#fff1f1', '#302342': '#f6f2ff', '#202020': '#f4f4f4',
+  '#0f3433': '#d9fbfb', '#3e1a2b': '#fff0f7',
+  '#012749': '#e5f6ff', '#3e1a00': '#fff2e8',
 };
-const DARK_INK: Record<string, string> = {
-  '#000': '#f4f4f4', '#000000': '#f4f4f4', black: '#f4f4f4',
-  '#111111': '#f4f4f4',
-  '#161616': '#f4f4f4',
-  '#333333': '#c6c6c6',
-  '#525252': '#c6c6c6',
-  '#0f62fe': '#78a9ff',
-  '#198038': '#6fdc8c',
-  '#b28600': '#f1c21b',
-  '#da1e28': '#ff8389',
-  '#8a3ffc': '#be95ff',
-  '#007d79': '#3ddbd9',
-  '#d02670': '#ff7eb6',
-  '#6f6f6f': '#a8a8a8',
-  '#1192e8': '#82cfff', '#f1c21b': '#f1c21b', '#eb6200': '#ffb784',
+const LIGHT_INK: Record<string, string> = {
+  '#f4f4f4': '#161616', '#fff': '#161616', '#ffffff': '#161616', white: '#161616',
+  '#c6c6c6': '#525252',
+  '#78a9ff': '#0f62fe',
+  '#6fdc8c': '#198038',
+  '#f1c21b': '#b28600',
+  '#ff8389': '#da1e28',
+  '#be95ff': '#8a3ffc',
+  '#3ddbd9': '#007d79',
+  '#ff7eb6': '#d02670',
+  '#a8a8a8': '#6f6f6f',
+  '#82cfff': '#1192e8',
+  '#ffb784': '#eb6200',
 };
 
 export function diagramEditorInk(colour: string): string {
-  return DARK_INK[colour.toLowerCase()] ?? colour;
+  return LIGHT_INK[colour.toLowerCase()] ?? colour;
 }
 
 export function diagramEditorFill(colour: string): string {
-  return DARK_FILLS[colour.toLowerCase()] ?? colour;
+  return LIGHT_FILLS[colour.toLowerCase()] ?? colour;
 }
 
 export function diagramEditorNodeColours(node: { fill: string; stroke: string; textColor: string }): {
   fill: string; stroke: string; textColor: string;
 } {
   const fill = diagramEditorFill(node.fill);
-  const darkSurface = fill !== node.fill || fill === 'none' || fill === 'transparent'
-    || Object.values(DARK_FILLS).includes(fill.toLowerCase());
-  return { fill, stroke: darkSurface ? diagramEditorInk(node.stroke) : node.stroke,
-    textColor: darkSurface ? diagramEditorInk(node.textColor) : node.textColor };
+  const darkAuthored = fill !== node.fill || fill === 'none' || fill === 'transparent';
+  return { fill, stroke: darkAuthored ? diagramEditorInk(node.stroke) : node.stroke,
+    textColor: darkAuthored ? diagramEditorInk(node.textColor) : node.textColor };
 }

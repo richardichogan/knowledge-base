@@ -1,6 +1,6 @@
 import type { GraphEdge, GraphNode } from '../../services/api';
 
-export type AtlasMode = 'map' | 'space' | 'list';
+export type AtlasMode = 'map' | 'list';
 export interface AtlasPoint { x: number; y: number; z: number }
 export interface AtlasCluster { id: string; label: string; x: number; y: number; radius: number; count: number }
 export interface AtlasLayout { positions: Map<string, AtlasPoint>; clusters: AtlasCluster[]; width: number; height: number }
@@ -100,11 +100,17 @@ export function placeAtlasLabels(candidates: Array<{ id: string; text: string; x
   return labels;
 }
 
-export function neighbourhood(nodes: GraphNode[], edges: GraphEdge[], seed: string, limit = 13): { nodes: GraphNode[]; edges: GraphEdge[]; omitted: number } {
+export function neighbourhood(nodes: GraphNode[], edges: GraphEdge[], seed: string, limit = 13, depth = 1): { nodes: GraphNode[]; edges: GraphEdge[]; omitted: number } {
   const connected = new Set([seed]);
-  for (const edge of edges) {
-    if (edge.source === seed) connected.add(edge.target);
-    if (edge.target === seed) connected.add(edge.source);
+  let frontier = new Set([seed]);
+  for (let hop = 0; hop < depth; hop++) {
+    const next = new Set<string>();
+    for (const edge of edges) {
+      if (frontier.has(edge.source) && !connected.has(edge.target)) next.add(edge.target);
+      if (frontier.has(edge.target) && !connected.has(edge.source)) next.add(edge.source);
+    }
+    next.forEach(id => connected.add(id));
+    frontier = next;
   }
   const candidates = nodes.filter(n => connected.has(n.id)).sort((a, b) =>
     Number(b.id === seed) - Number(a.id === seed) || Number(b.refType === 'project') - Number(a.refType === 'project') || a.title.localeCompare(b.title));

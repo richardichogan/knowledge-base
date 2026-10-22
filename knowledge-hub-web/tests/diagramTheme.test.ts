@@ -4,13 +4,12 @@ import { diagramEditorFill, diagramEditorInk, diagramEditorNodeColours } from '.
 import { diagramSvg } from '../src/features/diagram/diagramExport';
 import { emptyDiagram } from '../src/features/diagram/diagramTypes';
 
-test('dark sheet adjusts known dark inks without changing custom colours', () => {
-  assert.equal(diagramEditorInk('#161616'), '#f4f4f4');
-  assert.equal(diagramEditorInk('#000'), '#f4f4f4');
-  assert.equal(diagramEditorInk('#333333'), '#c6c6c6');
-  assert.equal(diagramEditorInk('#0F62FE'), '#78a9ff');
+test('light sheet maps dark-authored colours and keeps custom colours', () => {
+  assert.equal(diagramEditorInk('#f4f4f4'), '#161616');
+  assert.equal(diagramEditorInk('#78a9ff'), '#0f62fe');
   assert.equal(diagramEditorInk('#abcdef'), '#abcdef');
-  assert.equal(diagramEditorInk('none'), 'none');
+  assert.equal(diagramEditorFill('#262626'), '#ffffff');
+  assert.equal(diagramEditorFill('none'), 'none');
 });
 
 test('legacy export colours remain intact while editor appearance is dark', async () => {
@@ -23,18 +22,11 @@ test('legacy export colours remain intact while editor appearance is dark', asyn
   assert.ok(svg.includes('fill="#161616" text-anchor'));
 });
 
-test('existing white and pastel shapes render dark with readable borders and labels', () => {
-  for (const fill of ['white', '#fff', '#FFFFFF', '#edf5ff', '#defbe6', '#fcf4d6', '#fff1f1', '#f6f2ff', '#f4f4f4']) {
-    const node = { fill, stroke: '#525252', textColor: '#161616' };
-    const colours = diagramEditorNodeColours(node);
-    assert.notEqual(colours.fill, fill);
-    assert.equal(colours.stroke, '#c6c6c6');
-    assert.equal(colours.textColor, '#f4f4f4');
-    assert.equal(node.fill, fill, 'Viewing an existing diagram does not rewrite saved artwork');
-  }
-  assert.equal(diagramEditorFill('none'), 'none');
-  assert.equal(diagramEditorFill('#abcdef'), '#abcdef');
+test('dark-authored shapes render light with readable borders and labels', () => {
+  assert.deepEqual(diagramEditorNodeColours({ fill: '#1c2d4a', stroke: '#78a9ff', textColor: '#f4f4f4' }),
+    { fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616' });
+  assert.deepEqual(diagramEditorNodeColours({ fill: 'none', stroke: '#c6c6c6', textColor: '#f4f4f4' }),
+    { fill: 'none', stroke: '#525252', textColor: '#161616' });
   assert.deepEqual(diagramEditorNodeColours({ fill: '#abcdef', stroke: '#161616', textColor: '#161616' }),
-    { fill: '#abcdef', stroke: '#161616', textColor: '#161616' }, 'Custom colours remain unchanged');
-  assert.equal(diagramEditorNodeColours({ fill: '#262626', stroke: '#161616', textColor: '#161616' }).textColor, '#f4f4f4');
+    { fill: '#abcdef', stroke: '#161616', textColor: '#161616' });
 });

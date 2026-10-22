@@ -10,6 +10,7 @@ import { stopTurnJobs } from './ai/turnJobs.js';
 import { loadConnectionCredentials } from './services/connectionCredentials.js';
 
 assertSafeDatabase(env.DATABASE_MODE, env.DATABASE_URL, env.NODE_ENV);
+const sharedProductionDatabase = env.NODE_ENV === 'development' && env.DATABASE_MODE === 'production';
 let credentialTimer: ReturnType<typeof setInterval> | undefined;
 let refreshingCredentials = false;
 const CREDENTIAL_REFRESH_INTERVAL_MS = 15_000;
@@ -20,10 +21,14 @@ const server = app.listen(env.PORT, () => {
 });
 const runtime = createRuntime({
   initialize: async () => {
-    await runMigrations();
+    if (sharedProductionDatabase) {
+      console.warn('[Server] Using production data in development; automatic migrations and interrupted-work recovery are disabled.');
+    } else {
+      await runMigrations();
+    }
     await loadConnectionCredentials(getDb());
     await getDb().query('SELECT 1');
-    await recoverInterruptedWork(getDb());
+    if (!sharedProductionDatabase) await recoverInterruptedWork(getDb());
     await warmUpDb();
   },
   startJobs: () => {

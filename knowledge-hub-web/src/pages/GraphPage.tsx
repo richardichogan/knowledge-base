@@ -1,25 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useGraphData } from '../hooks/useGraphData';
-import { deferredView } from '../utils/deferredView';
 import { DataNotice } from '../components/DataNotice';
 import { AtlasForceMap } from '../components/graph/AtlasForceMap';
 import { GraphRelationships } from '../components/graph/GraphRelationships';
-import { activityTime, activityWindow, atlasLayout, DAY_MS, edgeLabel, graphNodeHref, isInferred, type AtlasMode } from '../components/graph/atlasModel';
+import { activityTime, activityWindow, DAY_MS, edgeLabel, graphNodeHref, isInferred, type AtlasMode } from '../components/graph/atlasModel';
 import { AtlasTimeline } from '../components/graph/AtlasTimeline';
 import type { GraphEdge, GraphNode } from '../services/api';
 import '../components/graph/atlas.scss';
 
-const Space = deferredView('3D knowledge atlas', async () => ({ default: (await import('../components/graph/AtlasSpace')).AtlasSpace }));
 const EMPTY_NODES: GraphNode[] = [], EMPTY_EDGES: GraphEdge[] = [];
-
-function supports3D(): boolean {
-  const canvas = document.createElement('canvas');
-  const gl = canvas.getContext('webgl2');
-  if (!gl) return false;
-  gl.getExtension('WEBGL_lose_context')?.loseContext();
-  return true;
-}
 
 export const GraphPage: React.FC = () => {
   const [params, setParams] = useSearchParams();
@@ -41,7 +31,6 @@ export const GraphPage: React.FC = () => {
   const [timeEnabled, setTimeEnabled] = useState(false);
   const [endDay, setEndDay] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [webgl] = useState(supports3D);
   const [now] = useState(() => Date.now());
   const [reducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const { data, isLoading, isError, error, retry } = useGraphData({ days, seed, depth });
@@ -73,7 +62,6 @@ export const GraphPage: React.FC = () => {
     const ids = new Set(visibleNodes.map(n => n.id));
     return allowedEdges.filter(e => ids.has(e.source) && ids.has(e.target));
   }, [visibleNodes, allowedEdges]);
-  const layout = useMemo(() => atlasLayout(visibleNodes), [visibleNodes]);
   const matches = query.trim() ? filteredNodes.filter(n => n.title.toLowerCase().includes(query.trim().toLowerCase())) : [];
   const node = nodes.find(n => n.id === selected);
   const edge = edges.find(e => e.id === edgeId);
@@ -102,9 +90,8 @@ export const GraphPage: React.FC = () => {
     <header className="atlas__header">
       <div><h1>Knowledge atlas</h1><p>{seed ? 'Explore a neighbourhood' : 'Projects, people and the ideas between them'}</p></div>
       <nav className="atlas__modes" aria-label="Graph view">
-        {(['map', 'space', 'list'] as const).map(value => <button key={value} aria-pressed={mode === value}
-          disabled={value === 'space' && !webgl} title={value === 'space' && !webgl ? 'WebGL2 is unavailable; use Map or Relationships' : undefined}
-          onClick={() => { setMode(value); }}>{value === 'map' ? '2D graph' : value === 'space' ? '3D explorer' : 'Relationships'}</button>)}
+        {(['map', 'list'] as const).map(value => <button key={value} aria-pressed={mode === value}
+          onClick={() => { setMode(value); }}>{value === 'map' ? 'Graph' : 'Relationships'}</button>)}
       </nav>
     </header>
     <div className="atlas__toolbar">
@@ -157,8 +144,7 @@ export const GraphPage: React.FC = () => {
             <p>{seed ? 'This record may be unavailable or have no visible relationships.' : 'Try widening the period or clearing your filters.'}</p>
             <button onClick={() => { setType(''); setProject(''); setTimeEnabled(false); setDays(3650); setIncludeUnconnected(true); }}>Widen view</button></div>
             : mode === 'list' ? <GraphRelationships nodes={visibleNodes} edges={visibleEdges} query={query} truncated={data?.stats.truncated ?? false} onSelect={select} />
-              : mode === 'space' ? <Space nodes={visibleNodes} edges={visibleEdges} layout={layout} selected={selected} focus={focus} onSelect={select} onEdge={inspect} colourMode={colourMode} />
-                : <AtlasForceMap nodes={visibleNodes} edges={visibleEdges} layout={layout} selected={selected} onSelect={select} onEdge={inspect}
+              : <AtlasForceMap nodes={visibleNodes} edges={visibleEdges} selected={selected} onSelect={select} onEdge={inspect}
                   focus={focus} active={timeEnabled ? activity.active : null} colourMode={colourMode} />}
       </section>
       {(node || edge) && <aside className="atlas__inspector" aria-label="Selected connection details">
