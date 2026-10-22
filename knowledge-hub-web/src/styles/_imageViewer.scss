@@ -22,7 +22,7 @@
 
 $content-type-colours: (
   blog: #6fdc8c, podcast: #3ddbd9, podcast-show-notes: #be95ff, newsletter: #be95ff,
-  project: #78a9ff, note: #a8a8a8, script: #ff8389, architecture: #78a9ff, meeting: #ff9f5a,
+  project: #78a9ff, note: #f1c21b, script: #ff8389, architecture: #78a9ff, meeting: #ff9f5a,
   research: #33b1ff, spec: #ff7eb6, use-case: #3ddbd9
 );
 @each $type, $colour in $content-type-colours {

@@ -1,6 +1,31 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
+
+**Chat quote and Note tag styling release (2026-10-22):**
+- Deploy the two pending frontend styling changes: unboxed chat blockquotes
+  and warm yellow Note tags. Company records were already persisted separately.
+- Existing SWA-only recipe: kh-prod-web, rg-knowledge-hub-prod, West Europe,
+  Alliance Tenant Reporting (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28).
+- Backend remains v232. No infrastructure, schema, dependencies or secrets change.
+- Fetch/merge main, both typechecks, frontend build and database-free isolated
+  tests, lint non-regression and compiled-style assertions; commit/push, deploy
+  frontend, verify public application asset hashes. No browser launch.
+- Rollback: redeploy previous frontend build from c6cab5d.
+- User approved the existing frontend target/subscription/location. Main fetched
+  and merged; already current.
+
+**Section 7: Validation Proof (2026-10-22, chat/Note styling):**
+- Both `npx tsc --noEmit` checks passed; frontend `npm run build` passed.
+- Frontend database-free isolated suites: 160 passed (143+6+3+2+6), no failures.
+- Frontend lint non-regression passed: 25 existing violations, baseline 41.
+- Compiled Sass assertions confirmed transparent/borderless chat blockquotes,
+  preserved document quote styling and yellow Note tags with matching tint.
+- `git diff --check` passed. Azure CLI authenticated; existing SWA location and
+  hostname verified. User confirmed subscription and target.
+- Existing SWA-only deployment: Docker, template/what-if, policy changes,
+  infrastructure provisioning and RBAC changes not applicable.
+- Release build/test logs retained in session files/chat-styling-release-*.log.
 
 **Deployment result (2026-10-22, diagram/company release):**
 - Source 0d5869294a37e24f6470cf63a871da9c7fdf7db5 committed and atomically
