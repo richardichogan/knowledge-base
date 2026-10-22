@@ -11,6 +11,7 @@ import type { ApiSuccess } from '../types/apiResponse.js';
 import type { ContentItem } from '../types/contentItem.js';
 import { looksLikeMeetingList, importMeetingList } from '../integrations/ibm/ibmMeetings.js';
 import { captureDailyInsights } from '../services/dailyInsights.js';
+import { dailyReportDate } from '../services/dailyInsightsExtraction.js';
 
 const router = Router();
 const DAILY_INSIGHTS_MAX_CHARS = 250_000;
@@ -29,10 +30,8 @@ router.post('/daily-insights', (req: Request, res: Response, next: NextFunction)
         || !Number.isFinite(Date.parse(sourceModifiedAt))) {
         throw new ValidationError('Expected a dated Daily Briefing Markdown file (maximum 250,000 characters)', { filename: 'daily briefing', text: 'required' });
       }
-      // Validate the entire report before acquiring a database connection.
-      const { parseDailyInsights } = await import('../services/dailyInsightsParser.js');
-      try { parseDailyInsights(filename, text); }
-      catch (error) { throw new ValidationError(error instanceof Error ? error.message : 'Invalid daily briefing', { text: 'invalid briefing' }); }
+      try { dailyReportDate(filename); }
+      catch { throw new ValidationError('Daily briefing filename must contain a valid calendar date', { filename: 'invalid date' }); }
       const result = await captureDailyInsights(getDb(), filename, text, sourcePath, sourceModifiedAt);
       res.status(HTTP_STATUS.OK).json({ success: true, data: result });
     } catch (error) { next(error); }

@@ -27,6 +27,11 @@ export interface LlmToolDefinition {
   };
 }
 
+export interface LlmJsonSchema {
+  name: string;
+  schema: Record<string, unknown>;
+}
+
 /** Tool-selection mode accepted by Azure OpenAI chat completions. */
 export type LlmToolChoice =
   | 'auto'
@@ -143,10 +148,16 @@ export class FoundryClient {
     timeoutMs = 120_000,
     /** More effort for work where quality matters (a spec); reasoning tokens count against maxTokens. */
     reasoningEffort: 'low' | 'medium' | 'high' = 'low',
+    jsonSchema?: LlmJsonSchema,
   ): Promise<string> {
     const endpoint = env.AZURE_OPENAI_ENDPOINT_GPT54;
     const apiKey = env.AZURE_OPENAI_API_KEY_GPT54;
     if (endpoint === undefined || endpoint === '' || apiKey === undefined || apiKey === '') {
+      if (jsonSchema !== undefined) {
+        const data = await this.request('light', messages, undefined, maxTokens, 'auto', timeoutMs, jsonSchema);
+        if (data.choices[0]?.finish_reason !== 'stop' || !data.choices[0].message.content) throw new AiError('Structured bulk extraction was incomplete or refused');
+        return data.choices[0].message.content;
+      }
       return this.chat('light', messages, maxTokens);
     }
     const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? 'gpt-5.4';
@@ -156,7 +167,8 @@ export class FoundryClient {
       response = await fetch(`${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-        body: JSON.stringify({ messages, max_completion_tokens: maxTokens, reasoning_effort: reasoningEffort }),
+        body: JSON.stringify({ messages, max_completion_tokens: maxTokens, reasoning_effort: reasoningEffort,
+          ...(jsonSchema !== undefined && { response_format: { type: 'json_schema', json_schema: { ...jsonSchema, strict: true } } }) }),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
@@ -173,6 +185,7 @@ export class FoundryClient {
     const data = (await response.json()) as ChatCompletionResponse;
     this.logCall('bulk', deployment, 'chat', startedAt, tokenUsageFrom(data.usage));
     const content = data.choices[0]?.message.content;
+    if (jsonSchema !== undefined && data.choices[0]?.finish_reason !== 'stop') throw new AiError('Structured bulk extraction was incomplete or refused');
     if (!content) throw new AiError('Empty response from the bulk model');
     return content;
   }
@@ -379,12 +392,13 @@ export class FoundryClient {
     maxTokens: number,
     toolChoice: LlmToolChoice = 'auto',
     timeoutMsOverride?: number,
+    jsonSchema?: LlmJsonSchema,
   ): Promise<ChatCompletionResponse> {
     const startedAt = Date.now();
     const deployment = this.getDeployment(model);
     const api = model === 'reasoning' && env.AZURE_OPENAI_GPT54_API === 'responses' ? 'responses' : 'chat';
     try {
-      const data = await this.requestRaw(model, messages, tools, maxTokens, toolChoice, timeoutMsOverride);
+      const data = await this.requestRaw(model, messages, tools, maxTokens, toolChoice, timeoutMsOverride, jsonSchema);
       this.logCall(model, deployment, api, startedAt, tokenUsageFrom(data.usage));
       return data;
     } catch (err) {
@@ -400,6 +414,7 @@ export class FoundryClient {
     maxTokens: number,
     toolChoice: LlmToolChoice = 'auto',
     timeoutMsOverride?: number,
+    jsonSchema?: LlmJsonSchema,
   ): Promise<ChatCompletionResponse> {
     const deployment = this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
@@ -420,7 +435,8 @@ export class FoundryClient {
         body: JSON.stringify({
           messages,
           max_completion_tokens: maxTokens,
-          ...(this.supportsCustomTemperature(model) && { temperature: 0.7 }),
+          ...(jsonSchema !== undefined && { response_format: { type: 'json_schema', json_schema: { ...jsonSchema, strict: true } } }),
+          ...(this.supportsCustomTemperature(model) && { temperature: jsonSchema !== undefined ? 0 : 0.7 }),
           ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: toolChoice }),
         }),
         // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.

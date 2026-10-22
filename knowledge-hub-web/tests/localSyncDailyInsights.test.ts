@@ -3,6 +3,41 @@ import { test } from 'node:test';
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 
+test('daily capture has an AI-sized timeout rather than the ordinary eight-second request timeout', async () => {
+  const bundle = await build({
+    entryPoints: [fileURLToPath(new URL('../src/services/api.ts', import.meta.url))],
+    bundle: true, write: false, platform: 'node', format: 'cjs', define: { 'import.meta.env': '{}' },
+    plugins: [{
+      name: 'fixture-api-transport',
+      setup(builder) {
+        builder.onResolve({ filter: /^axios$/ }, () => ({ path: 'axios', namespace: 'fixture' }));
+        builder.onResolve({ filter: /^\.\/auth$/ }, () => ({ path: 'auth', namespace: 'fixture' }));
+        builder.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({
+          contents: args.path === 'axios'
+            ? 'export default {create: () => globalThis.__dailyApiFixture};'
+            : 'export const getApiToken = async () => "";',
+        }));
+      },
+    }],
+  });
+  let timeout = 0;
+  const globals = globalThis as unknown as { __dailyApiFixture?: unknown };
+  globals.__dailyApiFixture = {
+    interceptors: { request: { use() {} } },
+    post: async (path: string, _input: unknown, config: { timeout: number }) => {
+      assert.equal(path, '/api/capture/daily-insights');
+      timeout = config.timeout;
+      return { data: { success: true } };
+    },
+  };
+  const module = { exports: {} as { api: { captureDailyInsights(input: object): Promise<unknown> } } };
+  try {
+    new Function('module', 'exports', bundle.outputFiles[0]?.text ?? '')(module, module.exports);
+    await module.exports.api.captureDailyInsights({});
+    assert.equal(timeout, 240_000);
+  } finally { delete globals.__dailyApiFixture; }
+});
+
 test('structured capture retries independently of a successful, unchanged upload index', async () => {
   const bundle = await build({
     entryPoints: [fileURLToPath(new URL('../src/services/localSync.ts', import.meta.url))],

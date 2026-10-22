@@ -113,6 +113,7 @@ const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
 // needs the full backend budget still gets a chance to finish before the
 // client gives up on it.
 const CHAT_TIMEOUT_MS = 120_000;
+const DAILY_INSIGHTS_TIMEOUT_MS = 240_000;
 
 function makeClient(baseURL: string, token: string): AxiosInstance {
   const client = axios.create({
@@ -1727,7 +1728,7 @@ export class KnowledgeHubApi {
     return (await this.client.post<ApiResponse<{
       date: string; knowledgeDate: string; tasksCreated: number; tasksUpdated: number;
       tasksPreserved: number; meetings: number; warnings: string[]; unchanged: boolean;
-    }>>('/api/capture/daily-insights', input)).data;
+    }>>('/api/capture/daily-insights', input, { timeout: DAILY_INSIGHTS_TIMEOUT_MS })).data;
   }
 
   /** Indexes (or re-indexes) one file from a folder on this PC; unchanged files are skipped by the server. */

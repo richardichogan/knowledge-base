@@ -3,10 +3,14 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
-import { captureDailyInsights } from '../src/services/dailyInsights.js';
+import { captureDailyInsights as captureReport } from '../src/services/dailyInsights.js';
 import { londonTime, parseDailyInsights } from '../src/services/dailyInsightsParser.js';
+import { extractDailyInsights, validateDailyExtraction } from '../src/services/dailyInsightsExtraction.js';
+import { FoundryClient } from '../src/ai/foundryClient.js';
 
 const filename = 'Daily-Briefing-2026-10-20.md';
+const captureDailyInsights = (pool: Pool, name: string, text: string, path: string, modified?: string) =>
+  captureReport(pool, name, text, path, modified, async (file, content) => parseDailyInsights(file, content));
 const report = `# Morning briefing: Tuesday, 20 October 2026
 ## Part 1: Today, what to worry about
 ### Today's meetings
@@ -128,6 +132,151 @@ async function fixture(): Promise<{ db: PGlite; pool: Pool; failKnowledge: (valu
   };
   return { db, pool: { connect: async () => client } as unknown as Pool, failKnowledge: value => { fail = value; } };
 }
+
+const semanticTask = 'Richard Hogan (as reviewer) will Review the draft for IMAGINE; deadline: 20 Oct 2026; evidence: Email from Joel.';
+const semanticOther = 'Colleague (Richard Hogan is informed) will Prepare the demo for IMAGINE; deadline: This week; evidence: Team email.';
+const semanticKnowledge = `Yesterday, 19 October 2026: legal review continues.\n${semanticTask}\n${semanticOther}`;
+const semanticReport = `Brief for 20 October 2026\nAt 09:45-10:15: Project review\n${semanticKnowledge}`;
+function extraction() {
+  return {
+    date: '2026-10-20', knowledgeDate: '2026-10-19', dateEvidenceLines: [1], knowledgeStartLine: 3, knowledgeEndLine: 5,
+    taskCount: 2, meetingCount: 1,
+    tasksComplete: true, meetingsComplete: true, knowledgeComplete: true, warnings: [],
+    tasks: [
+      { title: 'Review the draft', project: 'IMAGINE', owner: 'Richard Hogan (as reviewer)', richardAssignee: 'Richard Hogan',
+        dueText: '20 Oct 2026', source: 'Email from Joel', evidenceLines: [4] },
+      { title: 'Prepare the demo', project: 'IMAGINE', owner: 'Colleague (Richard Hogan is informed)', richardAssignee: null,
+        dueText: 'This week', source: 'Team email', evidenceLines: [5] },
+    ],
+    meetings: [{ title: 'Project review', start: '09:45', end: '10:15', flag: '', evidenceLines: [2] }],
+  };
+}
+
+test('AI extraction handles semantic prose without Markdown contracts and retains grounded identities', async context => {
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => {
+    assert.match(messages[0]?.content ?? '', /untrusted data/);
+    assert.ok(messages[1]?.content.includes(`4: ${semanticTask}`));
+    return JSON.stringify(extraction());
+  });
+  const parsed = await extractDailyInsights(filename, semanticReport);
+  assert.equal(parsed.tasks.length, 1);
+  assert.equal(parsed.tasks[0]?.key, parseDailyInsights(filename, report).tasks[0]?.key);
+  assert.equal(parsed.tasks[0]?.due, '2026-10-20');
+  assert.equal(parsed.meetings.length, 1);
+  assert.equal(parsed.knowledge, semanticKnowledge);
+  assert.match(parsed.warnings.join(), /Not assigned to Richard/);
+});
+
+test('inventory mismatch requests one AI correction before saving a complete capture', async context => {
+  const { db, pool } = await fixture();
+  let extractions = 0;
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => {
+    extractions++;
+    if (extractions === 1) return JSON.stringify({ ...extraction(), tasks: [] });
+    assert.match(messages.at(-1)?.content ?? '', /coverage mismatch/);
+    return JSON.stringify(extraction());
+  });
+  try {
+    const result = await captureReport(pool, filename, semanticReport, 'fixture');
+    assert.equal(result.tasksCreated, 1);
+    assert.equal(extractions, 2);
+  } finally { await db.close(); }
+});
+
+test('unresolved extraction coverage failure never reconciles calendar or writes a receipt', async context => {
+  const { db, pool } = await fixture();
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async () => JSON.stringify({ ...extraction(), meetings: [] }));
+  try {
+    await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture'), /coverage mismatch/);
+    assert.equal((await db.query('SELECT * FROM content_items')).rows.length, 0);
+    assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 0);
+    assert.equal((await db.query('SELECT * FROM daily_insights_reports')).rows.length, 0);
+  } finally { await db.close(); }
+});
+
+test('rejects incomplete, invented, invalid-date and invalid-clock extractions before any writes', () => {
+  for (const change of [
+    { date: '2026-10-21' }, { knowledgeDate: '2026-10-18' }, { tasksComplete: false }, { meetingsComplete: false },
+    { knowledgeComplete: false }, { knowledgeEndLine: 999 }, { knowledgeStartLine: 0 }, { tasks: 'not an array' },
+    { dateEvidenceLines: [1.5] }, { dateEvidenceLines: [-1] },
+    { taskCount: 1, tasks: [{ ...extraction().tasks[0], title: 'Invented action' }] },
+    { taskCount: 1, tasks: [{ ...extraction().tasks[0], richardAssignee: 'Joel' }] },
+    { taskCount: 1, tasks: [{ ...extraction().tasks[0], evidenceLines: [999] }] },
+    { meetings: [{ ...extraction().meetings[0], start: '29:45' }] },
+    { meetings: [{ ...extraction().meetings[0], start: '10:15', end: '09:45' }] },
+  ]) assert.throws(() => validateDailyExtraction(filename, semanticReport, { ...extraction(), ...change }));
+  assert.throws(() => validateDailyExtraction('Daily-Briefing-2026-02-30.md', semanticReport, extraction()), /valid date/);
+  const vague = semanticReport.replaceAll('20 Oct 2026', 'This week');
+  const output = extraction();
+  output.tasks[0]!.dueText = 'This week';
+  const parsed = validateDailyExtraction(filename, vague, output);
+  assert.equal(parsed.tasks[0]?.due, null);
+  assert.match(parsed.warnings.join(), /Deadline needs review/);
+});
+
+test('shared-time children cite parent and child source lines without manufacturing evidence', () => {
+  const grouped = `Brief for 20 October 2026
+At 16:00-16:30, clash:
+  - First meeting
+  - Second meeting
+${semanticKnowledge}`;
+  const output = extraction();
+  output.knowledgeStartLine = 5;
+  output.knowledgeEndLine = 7;
+  output.tasks[0]!.evidenceLines = [6];
+  output.tasks[1]!.evidenceLines = [7];
+  output.meetingCount = 2;
+  output.meetings = [
+    { title: 'First meeting', start: '16:00', end: '16:30', flag: 'Clash', evidenceLines: [2, 3] },
+    { title: 'Second meeting', start: '16:00', end: '16:30', flag: 'Clash', evidenceLines: [2, 4] },
+  ];
+  assert.deepEqual(validateDailyExtraction(filename, grouped, output).meetings.map(meeting => meeting.title), ['First meeting', 'Second meeting']);
+  output.meetings[1]!.evidenceLines = [4];
+  assert.throws(() => validateDailyExtraction(filename, grouped, output), /unsupported meeting time/);
+});
+
+test('bulk client requests strict JSON and rejects truncated responses even if their JSON parses', async context => {
+  let truncated = false;
+  const schema = { name: 'fixture', schema: { type: 'object', properties: {}, additionalProperties: false } };
+  context.mock.method(globalThis, 'fetch', async (_url: unknown, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    assert.deepEqual(body.response_format, { type: 'json_schema', json_schema: { ...schema, strict: true } });
+    return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '{}' }, finish_reason: truncated ? 'length' : 'stop' }] }));
+  });
+  const client = new FoundryClient('daily-insights-test');
+  const messages = [{ role: 'user' as const, content: 'fixture' }];
+  assert.equal(await client.chatBulk(messages, 1000, 1000, 'low', schema), '{}');
+  truncated = true;
+  await assert.rejects(client.chatBulk(messages, 1000, 1000, 'low', schema), /incomplete or refused/);
+});
+
+test('provider and malformed-output failures leave no receipt or partial tasks', async context => {
+  const { db, pool } = await fixture();
+  try {
+    const mock = context.mock.method(FoundryClient.prototype, 'chatBulk', async () => '{truncated');
+    await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture'), /invalid or truncated JSON/);
+    mock.mock.mockImplementation(async () => { throw new Error('provider unavailable'); });
+    await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture'), /provider unavailable/);
+    assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 0);
+    assert.equal((await db.query('SELECT * FROM daily_insights_reports')).rows.length, 0);
+  } finally { await db.close(); }
+});
+
+test('simultaneous and unchanged desktop captures share one extraction; stale reports skip AI', async () => {
+  const { db, pool } = await fixture();
+  let calls = 0;
+  const extract = async (file: string, text: string) => { calls++; return validateDailyExtraction(file, text, extraction()); };
+  try {
+    const results = await Promise.all(Array.from({ length: 3 }, () =>
+      captureReport(pool, filename, semanticReport, 'fixture', '2026-10-20T09:00:00Z', extract)));
+    assert.equal(calls, 1);
+    assert.equal(results[0]?.tasksCreated, 1);
+    await captureReport(pool, filename, semanticReport, 'fixture', '2026-10-20T10:00:00Z', extract);
+    await captureReport(pool, filename, `${semanticReport}\nold content`, 'fixture', '2026-10-20T09:30:00Z', extract);
+    assert.equal(calls, 1);
+    assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 1);
+  } finally { await db.close(); }
+});
 
 test('atomic capture retries, corrections, next-day dedupe, completed/edited/deleted task preservation', async () => {
   const { db, pool, failKnowledge } = await fixture();

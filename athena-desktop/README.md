@@ -37,17 +37,22 @@ specifically authorised `C:\Users\RichardHogan\OneDrive - IBM\Daily Insights`
 folder can also be registered using the existing **Add folder** button, including
 on desktop 0.1.3. No other folder named “Daily Insights” is implicitly enabled.
 
-Keep reports named `Daily-Briefing-YYYY-MM-DD.md`, with the matching
-`# Morning briefing: Tuesday, 20 October 2026` heading, a
-`### Today's meetings` Markdown table, and a
-`## Part 2: Yesterday, what I learned (Monday, 19 October)` heading. Explicit
-`**Task: ...**` blocks need Project, Owner, Due and Source bullet fields.
-The parser also accepts colon/dash briefing headings, lettered section headings,
-`Time (UK)` tables with Organiser/Flags columns, and quoted `**Title:**` task cards
-with inline `**Project:**`, `**Owner:**`, `**Due:**` and `**Source:**` fields.
-Richard may be explicitly named in a shared owner list; someone else's task
-that merely says “you attend” is not imported as Richard's. All-day FYI entries
-are flagged for review rather than assigned invented start/end times.
+Keep reports named `Daily-Briefing-YYYY-MM-DD.md`, with the matching report
+date and the previous day's knowledge. The backend uses the existing Azure AI
+bulk model to understand tasks, ownership, deadlines and meetings semantically;
+headings, field labels and Markdown layout are not a parsing contract. Tables,
+cards, nested meeting clashes and prose are supported without template aliases.
+The model references source line numbers; the importer checks extracted fields
+against those actual lines and copies yesterday's complete knowledge from its
+original source range, rather than asking the model to reproduce it.
+These checks must pass before anything is saved. The model inventories actions
+and timed entries before extracting them; the returned arrays must match that
+inventory. Failed validation allows one AI correction, never partial capture.
+Richard may be directly or jointly assigned, including role annotations;
+another owner's contextual mention of Richard is not an assignment. All-day FYI
+entries are flagged for review rather than assigned invented start/end times.
+Unavailable AI, malformed output, missing facts or incomplete extraction fail
+explicitly without partial writes; there is no regex-parser fallback.
 
 - All new reports are processed oldest first, so an offline gap is caught up
   and the latest report is not missed. Same-day corrections replace that day's
@@ -65,6 +70,9 @@ are flagged for review rather than assigned invented start/end times.
   transaction/receipt, separate from upload indexing. Failed captures retry on
   the next sync even if the original file is already indexed. Sync runs on
   startup, filesystem changes, **Sync now**, and every minute while Desktop is open.
+  Unchanged/stale reports reuse the receipt without another model call; identical
+  simultaneous requests share extraction within the backend process. AI runs
+  before the write transaction; the transaction rechecks receipts for races.
 - Library shows processed report dates, task/diary counts and deadline/project
   review warnings. Failure details are under **sync issues**.
 

@@ -6,6 +6,7 @@ const MONTH_ABBREVIATION_CHARS = 3;
 const CLOCK_FIELD_CHARS = 2;
 const LAST_HOUR = 23;
 const MS_PER_HOUR = 3_600_000;
+const TABLE_HEADER_ROWS = 2;
 
 export interface DailyTask {
   key: string;
@@ -35,11 +36,13 @@ export function normaliseIdentity(text: string): string {
 }
 
 function validDate(text: string): string | null {
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) && new Date(`${text}T12:00:00Z`).toISOString().slice(0, DATE_CHARS) === text ? text : null;
+  const time = Date.parse(`${text}T12:00:00Z`);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) && Number.isFinite(time)
+    && new Date(time).toISOString().slice(0, DATE_CHARS) === text ? text : null;
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-function explicitDate(text: string, year?: string): string | null {
+export function explicitDate(text: string, year?: string): string | null {
   const iso = /^\d{4}-\d{2}-\d{2}$/.exec(text.trim());
   if (iso !== null) return validDate(iso[0]);
   const match = /^(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?$/.exec(text.trim());
@@ -82,7 +85,7 @@ export function parseDailyInsights(filename: string, text: string): DailyInsight
     const titleColumn = columns.findIndex(value => value === 'task' || value === 'title');
     if (titleColumn < 0 || !['project', 'owner', 'due', 'source'].every(value => columns.includes(value))) continue;
     if (!/^\s*\|[\s:|-]+\|\s*$/.test(lines[index + 1] ?? '')) continue;
-    for (index += 2; index < lines.length && /^\s*\|/.test(lines[index] ?? ''); index++) {
+    for (index += TABLE_HEADER_ROWS; index < lines.length && /^\s*\|/.test(lines[index] ?? ''); index++) {
       const values = cells(lines[index] ?? '');
       taskText += `\nTask: ${values[titleColumn] ?? ''}\n${['Project', 'Owner', 'Due', 'Source'].map(name => `${name}: ${values[columns.indexOf(name.toLowerCase())] ?? ''}`).join('\n')}\n---\n`;
     }

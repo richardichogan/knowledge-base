@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
-import { digest, normaliseIdentity, parseDailyInsights, londonTime } from './dailyInsightsParser.js';
+import { digest, normaliseIdentity, londonTime, type DailyInsights } from './dailyInsightsParser.js';
+import { dailyReportDate, extractDailyInsights } from './dailyInsightsExtraction.js';
 
 const MEETING_ID_CHARS = 20;
 
@@ -23,17 +24,43 @@ async function putContent(db: PoolClient, source: string, id: string, title: str
   [source, id, title, body, date, JSON.stringify(metadata)]);
 }
 
-/** No Graph, AI, blob writes or filesystem access: this is one atomic local capture. */
-export async function captureDailyInsights(db: Pool, filename: string, text: string, sourcePath: string, sourceModifiedAt?: string): Promise<DailyInsightsResult> {
-  const parsed = parseDailyInsights(filename, text);
+type ReportExtractor = (filename: string, text: string) => Promise<DailyInsights>;
+const captures = new WeakMap<Pool, Map<string, Promise<DailyInsightsResult>>>();
+
+export function captureDailyInsights(db: Pool, filename: string, text: string, sourcePath: string, sourceModifiedAt?: string,
+  extract: ReportExtractor = extractDailyInsights): Promise<DailyInsightsResult> {
+  let pending = captures.get(db);
+  if (!pending) { pending = new Map(); captures.set(db, pending); }
+  const key = digest(JSON.stringify([filename, text, sourcePath, sourceModifiedAt]));
+  const existing = pending.get(key);
+  if (existing) return existing;
+  const work = capture(db, filename, text, sourcePath, sourceModifiedAt, extract).finally(() => { pending.delete(key); });
+  pending.set(key, work);
+  return work;
+}
+
+/** AI runs before the write transaction; unchanged reports do not call the model. */
+async function capture(db: Pool, filename: string, text: string, sourcePath: string, sourceModifiedAt: string | undefined,
+  extract: ReportExtractor): Promise<DailyInsightsResult> {
+  const date = dailyReportDate(filename);
   const hash = digest(text);
+  const check = await db.connect();
+  let cached: boolean;
+  try {
+    const receipt = await check.query<{ content_hash: string; source_modified_at: Date | null }>(
+      'SELECT content_hash, source_modified_at FROM daily_insights_reports WHERE report_date=$1', [date]);
+    const prior = receipt.rows[0];
+    cached = prior !== undefined && (prior.content_hash === hash || (sourceModifiedAt !== undefined
+      && prior.source_modified_at !== null && new Date(prior.source_modified_at).getTime() > new Date(sourceModifiedAt).getTime()));
+  } finally { check.release(); }
+  const parsed = cached ? null : await extract(filename, text);
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     // Serialize the stream, including different report days and desktop windows.
     await client.query('SELECT pg_advisory_xact_lock(741903, 88)');
     const saved = await client.query<{ content_hash: string; result: DailyInsightsResult; source_modified_at: Date | null }>(
-      'SELECT content_hash, result, source_modified_at FROM daily_insights_reports WHERE report_date=$1', [parsed.date]);
+      'SELECT content_hash, result, source_modified_at FROM daily_insights_reports WHERE report_date=$1', [date]);
     const previous = saved.rows[0];
     const stale = previous?.source_modified_at != null && sourceModifiedAt !== undefined
       && new Date(previous.source_modified_at).getTime() > new Date(sourceModifiedAt).getTime();
@@ -41,10 +68,11 @@ export async function captureDailyInsights(db: Pool, filename: string, text: str
       // Even an unchanged capture advances the watermark so a delayed desktop
       // request cannot replace a newer report revision.
       if (!stale && sourceModifiedAt !== undefined) await client.query(`UPDATE daily_insights_reports
-        SET source_modified_at=GREATEST(source_modified_at,$2::timestamptz) WHERE report_date=$1`, [parsed.date, sourceModifiedAt]);
+        SET source_modified_at=GREATEST(source_modified_at,$2::timestamptz) WHERE report_date=$1`, [date, sourceModifiedAt]);
       await client.query('COMMIT');
       return { ...previous.result, unchanged: true };
     }
+    if (parsed === null) throw new Error('Daily Insights report changed during capture; retry to extract the current report');
     const result: DailyInsightsResult = {
       date: parsed.date, knowledgeDate: parsed.knowledgeDate, tasksCreated: 0, tasksUpdated: 0,
       tasksPreserved: 0, meetings: parsed.meetings.length, warnings: [...parsed.warnings], unchanged: false,
