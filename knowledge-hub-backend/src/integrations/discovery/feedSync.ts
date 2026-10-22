@@ -15,6 +15,7 @@ import { readFeed, fetchPageDescription } from './feedReader.js';
 import { scoreUnscored } from '../cms/discoveredArticlesSync.js';
 import { runProjectFitPass, PROJECT_PROTECT_BOOST } from './projectFit.js';
 import { youtubeVideoId } from './youtube.js';
+import { enrichPendingYouTubeVideos } from './youtubeEvidence.js';
 
 const SYNC_STATE_KEY = 'discovered-articles';
 /** Only articles published this recently are filed — also bounds a brand-new source's first fetch. */
@@ -140,6 +141,7 @@ let backgroundWork: Promise<void> | null = null;
 function startBackgroundWork(db: Pool): void {
   if (backgroundWork !== null) return;
   backgroundWork = (async () => {
+    await enrichPendingYouTubeVideos(db).catch((err: unknown) => { console.warn('[Discovery] YouTube enrichment failed:', err); });
     for (let i = 0; i < SCORING_BATCHES_PER_RUN; i++) {
       const scored = await scoreUnscored(db).catch((err: unknown) => { console.warn('[Discovery] scoring failed:', err); return 0; });
       if (scored === 0) break;

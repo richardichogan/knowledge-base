@@ -53,7 +53,7 @@ In priority order:
 | Area | Role |
 |---|---|
 | **Today** (`/`) | What needs attention now: overdue, blocked or due tasks; failed connections; open Athena decisions; continue-working items; recent changes; and suggestions worth exploring (Discover picks with a reason, growing Spark themes). Also shows the Thursday podcast prep. |
-| **Discover** (`/discover`) | A ranked feed of articles from Microsoft and industry sources, weighted by relevance, freshness, authority and project fit, with calls for papers (CFPs), saved views and interest weights. **Sources** manages RSS/Atom feeds and **YouTube** channels, and imports single videos (title, channel and description only; no transcripts yet). **Watchlists** monitor named competitors against a question and versioned baseline. **Parking lot** keeps items for a future newsletter or podcast. Items can be saved, turned into Sparks or use cases, or turned into quick LinkedIn, Bluesky and blog posts. |
+| **Discover** (`/discover`) | A ranked feed of articles from Microsoft and industry sources, weighted by relevance, freshness, authority and project fit, with calls for papers (CFPs), saved views and interest weights. **Sources** manages RSS/Atom feeds and **YouTube** channels, and imports single videos with a public-caption attempt; missing captions leave description-only evidence and separately attributed related background links. **Watchlists** monitor named competitors against a question and versioned baseline. **Parking lot** keeps items for a future newsletter or podcast. Items can be saved, turned into Sparks or use cases, or turned into quick LinkedIn, Bluesky and blog posts. |
 | **Plan** (`/plan`) | Tasks in Board and Focus views, with saved views, Athena check-ins and at-risk prompts. Open use cases appear in the Board's Backlog or In Progress columns without creating duplicate task records. |
 | **Think** (`/think`) | Notes (BlockNote editor with history, recovery, tags, `@` mentions of people, projects and documents, and GitHub publishing), **Sparks** (capture, connect into themes, mature, ship) and **canvases** (diagrams with drilldowns and links to notes, exportable to draw.io and Mural). |
 | **Build** (`/build`) | Specs are split into dependency-ordered tasks and dispatched to GitHub cloud coding agents (Copilot or Claude) as issues. Their PRs are tracked and merged. |
@@ -76,7 +76,7 @@ Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search
 - **Note:** a rich document in Think. It can be versioned, tagged, published to GitHub, or turned into a Build spec.
 - **Spark:** a captured idea with its source. Sparks cluster into **themes**, which can become a note, canvas, project or blog post.
 - **Canvas:** a diagram, which can link to notes and drill down into other diagrams.
-- **Content item:** a Discover article, YouTube video or other indexed source. Videos are labelled "description only" because transcripts are not retrieved.
+- **Content item:** a Discover article, YouTube video or other indexed source. Videos distinguish public captions from description-only evidence; secondary background sources are not transcripts.
 - **Watchlist:** a monitored competitor question with a versioned baseline and dated findings.
 - **Person:** a contact that notes and chat can reference.
 - **Memory:** durable facts Athena keeps about Richard and his work.
@@ -92,6 +92,12 @@ Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search
 - **AI text is attributable.** AI-written content is identifiable as such.
 - **Writes need confirmation.** Athena proposes; actions that change data or post externally need Richard's confirmation.
 - **Grounded and linked.** Sources are kept and linked, so any output can be traced to where it came from.
+
+**Proposed extension, not built:** [AI knowledge coverage and grounded cross-source
+reasoning](specs/athena-ai-knowledge-coverage.md) specifies on-demand access to
+eligible records, full/versioned reads, relationships, freshness, exclusions and
+evidence-backed answers. It includes mandatory test cases and release acceptance
+criteria. It preserves focused chat context and does not introduce Fabric.
 
 ## 6. Use cases: ideas → specs → build
 
@@ -124,7 +130,9 @@ A *use case* tracks one idea for one product.
 
 - **Built:** everything in section 3, plus use cases (section 6) and Discover Watchlists (use case 5). The README documents each feature in detail; `docs/email-sharing.md`, `docs/mural-integration.md`, `docs/youtube-discovery.md` and `docs/people.md` cover the newer integrations.
 - **Not built:**
-  - YouTube transcripts or summaries (only description-level import).
+  - Audio transcription or video-content summaries. Public caption retrieval is
+    attempted; unavailable captions leave description-only evidence with separately
+    attributed related background reading. See `docs/youtube-discovery.md`.
   - Two-way GitHub note sync (edits publish outward; GitHub-side edits need manual resolution).
   - A saved recipient picker for email sharing.
 - **Planned:** `docs/planned-features.md`, which covers the command palette, backlinks, `@` and `[[` note links, keyboard triage, memory editing, empty states, a spatial view and side-peek. Its "content pipeline board" (item 6) is superseded by section 2: content needs no stage tracking, and its Watchlists item 11 is now built.

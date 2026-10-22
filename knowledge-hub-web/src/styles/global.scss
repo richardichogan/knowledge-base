@@ -13572,6 +13572,16 @@ $project-colour-map: (
   li + li { margin-top: 0.5rem; }
 }
 
+.dc-explore__reading a {
+  color: var(--cds-link-primary);
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  svg { vertical-align: middle; }
+  &:hover { color: var(--cds-link-primary-hover); }
+  &:active { color: var(--cds-text-primary); }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+}
+
 .dc-explore__formats {
   list-style: none;
   margin: 0;

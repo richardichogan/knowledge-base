@@ -2,6 +2,42 @@
 
 **Status:** Validated
 
+**YouTube evidence and related-reading release (2026-10-22):**
+- User requested deploy and push to remote. Deploy current YouTube caption
+  attempts, secondary subject research, safe video deep dives and related links.
+- Existing AZCLI image-only backend plus SWA frontend deployment. Subscription
+  Alliance Tenant Reporting, rg-knowledge-hub-prod; backend kh-prod-api-vnet in
+  UK South, ACR cad79107555facr, frontend kh-prod-web in West Europe.
+- No infrastructure, dependency, migration, permission or secret changes.
+- Also persist requested AI knowledge coverage/semantic-layer specification,
+  without implementing or deploying those proposed capabilities.
+- Sync main, validate both applications and existing release suites, commit/push,
+  build next backend image, deploy both applications, verify health and assets.
+- No browser launch or manual production backfill.
+- User reconfirmed existing subscription and production resource locations.
+- origin/main fetched and merged, already current at 15d585d. Current backend
+  v228; next image tag v229. Rollback uses v228 and previous SWA build.
+
+**Section 7: Validation Proof (2026-10-22, YouTube evidence release):**
+- Validated under azure-validate after explicit production target confirmation.
+- Both applications: `npx tsc --noEmit` and `npm run build` passed.
+- Backend `npm run test:isolated`: 215 passed, zero failed.
+- Frontend `npm run test:isolated`: 142 passed across four runners
+  (131 + 6 + 3 + 2), zero failed, including related-reading notice tests.
+- Frontend `npm run lint:check`: non-regression passed, 25 existing violations
+  against baseline 41. Focused ESLint on youtube.ts, youtubeCaptions.ts and
+  youtubeEvidence.ts passed. `git diff --check` passed.
+- Azure CLI authenticated and existing backend/frontend targets verified.
+  Backend v228, next unused tag v229. Existing secret-based ACR authentication
+  preserved; no managed-identity/AcrPull changes.
+- Dockerfile and package-lock.json verified. ACR builds the production container
+  from pushed main. No local Docker prerequisite for remote ACR builds.
+- Template compilation/validation/what-if, policy, static RBAC, provisioning and
+  azd environment creation are not applicable to this existing image-only/SWA
+  release; no infrastructure changes are included.
+- Completed checks on 2026-10-22 around 08:04 UTC. Logs retained in session
+  files/youtube-release-{backend-tests,frontend-build,frontend-tests}.log.
+
 **Watchlists backend repair release (2026-10-21):**
 - User directed deployment after the database upgrade, approving the pending
   backend repairs to the existing production resources and locations.

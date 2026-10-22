@@ -36,6 +36,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/noteDraftStorage.test.ts',
   '../knowledge-hub-web/tests/documentList.test.ts',
   '../knowledge-hub-web/tests/blogPostEditor.test.tsx',
+  '../knowledge-hub-web/tests/youtubeEvidence.test.tsx',
   '../knowledge-hub-web/tests/projectOptions.test.ts',
 ] : [
   'scripts/youtube-discovery.test.ts',

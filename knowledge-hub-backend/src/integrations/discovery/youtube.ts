@@ -1,5 +1,6 @@
 import { fetchPublic, decodeEntities, type FeedArticle } from './feedReader.js';
 import { ValidationError } from '../../types/errors.js';
+import { playerFromPage, readYouTubeText, retrieveCaptions, type YouTubeTranscript } from './youtubeCaptions.js';
 
 const CHANNEL_ID = /^UC[\w-]{22}$/;
 const VIDEO_ID = /^[\w-]{11}$/;
@@ -73,13 +74,14 @@ export async function resolveDiscoveryFeed(raw: string): Promise<string> {
   return `https://www.youtube.com/feeds/videos.xml?channel_id=${id}`;
 }
 
-export interface YouTubeVideo extends FeedArticle { channel: string; durationSeconds: number; videoId: string }
+export interface YouTubeVideo extends FeedArticle {
+  channel: string; durationSeconds: number; videoId: string;
+  transcript?: YouTubeTranscript;
+}
 
 export function videoFromPage(html: string, videoId: string): YouTubeVideo {
-  const match = /(?:var\s+)?ytInitialPlayerResponse\s*=\s*(\{.*?\});/s.exec(html);
-  if (!match) throw new ValidationError('YouTube did not expose video details. The video may be private, restricted or unavailable.');
   let data: unknown;
-  try { data = JSON.parse(match[1] ?? ''); } catch { throw new ValidationError('YouTube returned unreadable video details.'); }
+  try { data = playerFromPage(html); } catch { throw new ValidationError('YouTube did not expose readable video details. The video may be private, restricted or unavailable.'); }
   if (!data || typeof data !== 'object' || !('videoDetails' in data)) throw new ValidationError('Video details are unavailable.');
   const details = data.videoDetails;
   if (!details || typeof details !== 'object' || !('title' in details) || typeof details.title !== 'string'
@@ -101,5 +103,11 @@ export function videoFromPage(html: string, videoId: string): YouTubeVideo {
 export async function readYouTubeVideo(raw: string): Promise<YouTubeVideo> {
   const id = youtubeVideoId(raw);
   if (!id) throw new ValidationError('Enter a valid YouTube video URL.');
-  return videoFromPage(await page(`https://www.youtube.com/watch?v=${id}`), id);
+  const html = await readYouTubeText(`https://www.youtube.com/watch?v=${id}`, MAX_PAGE_BYTES);
+  const video = videoFromPage(html, id);
+  const transcript = await retrieveCaptions(playerFromPage(html));
+  if (transcript.status === 'retrieved') {
+    video.summary = `${video.summary.replace('description only; no transcript retrieved.', 'description and public captions retrieved.')}\n\nPublic captions (${transcript.language}; ${transcript.automatic ? 'automatically generated; may contain errors' : 'authored'}${transcript.truncated ? '; truncated' : ''}):\n${transcript.text}`;
+  }
+  return { ...video, transcript };
 }

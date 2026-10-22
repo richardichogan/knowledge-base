@@ -2,6 +2,14 @@
 
 Status: **assessment only. Do not implement.** Recorded on 18 October 2026 for future reference.
 
+Update, 22 October 2026: the database was upgraded on 21 October to General
+Purpose Standard_D2ds_v5 (2 vCores / 8 GB RAM), with max_connections set to 100.
+The database details below are the historical assessment, not current capacity.
+The proposed [AI knowledge coverage specification](specs/athena-ai-knowledge-coverage.md)
+addresses retrieval and cross-source reasoning within Athena's existing stack,
+without adopting Fabric. Fabric-specific product/cost assertions in this older
+assessment must be revalidated before any future proof of concept.
+
 ## Summary
 
 For Athena as a day-to-day personal app, Fabric adds **little**. It is only worth doing if one of these matters:

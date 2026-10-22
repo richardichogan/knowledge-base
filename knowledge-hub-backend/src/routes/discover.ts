@@ -18,6 +18,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../types/errors.j
 import { BlueskyPostUnconfirmedError, blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
 import { getDiscoverParking, saveDiscoverParking, removeDiscoverParking, type DiscoverParking } from '../services/discoverParking.js';
 import { resolveDiscoveryFeed, readYouTubeVideo } from '../integrations/discovery/youtube.js';
+import { collectYouTubeEvidence, relatedYouTubeArticles } from '../integrations/discovery/youtubeEvidence.js';
 import { upsertContentItem } from '../db/queries.js';
 
 export const discoverRouter = Router();
@@ -29,7 +30,8 @@ discoverRouter.get('/blog-categories', (_req: Request, res: Response): void => {
 export type WorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published' | 'shelved';
 
 export interface DiscoverItem {
-  contentBasis?: 'description-only';
+  contentBasis?: 'description-only' | 'captions';
+  relatedArticles?: Array<{ title: string; url: string }>;
   parking?: DiscoverParking;
   id: string;
   sourceId: string;
@@ -424,7 +426,9 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
         alreadyCovered: typeof row.metadata['alreadyCovered'] === 'number' ? row.metadata['alreadyCovered'] : null,
         coveredBy: typeof row.metadata['coveredBy'] === 'string' && row.metadata['coveredBy'] !== '' ? row.metadata['coveredBy'] : null,
         sourceGroup: typeof row.metadata['sourceGroup'] === 'string' ? row.metadata['sourceGroup'] : null,
-        ...(row.metadata['contentBasis'] === 'description-only' ? { contentBasis: 'description-only' as const } : {}),
+        ...(['description-only', 'captions'].includes(String(row.metadata['contentBasis']))
+          ? { contentBasis: row.metadata['contentBasis'] as 'description-only' | 'captions' } : {}),
+        relatedArticles: relatedYouTubeArticles(row.metadata),
         shelvedAt: typeof row.metadata['shelvedAt'] === 'string' ? row.metadata['shelvedAt'] : null,
         shelvedReason: typeof row.metadata['shelvedReason'] === 'string' ? row.metadata['shelvedReason'] : null,
         formatFit: Object.fromEntries(CONTENT_FORMATS.map((f) => [f, Number(row[`fit_${f}`])])) as FormatFit,
@@ -548,14 +552,15 @@ discoverRouter.post('/videos', (req: Request, res: Response, next: NextFunction)
       const raw: unknown = (req.body as { url?: unknown }).url;
       if (typeof raw !== 'string' || raw.length > VIDEO_URL_MAX_CHARS) throw new ValidationError('Enter a YouTube video URL.');
       const video = await readYouTubeVideo(raw);
+      const evidence = await collectYouTubeEvidence(video);
       const discoveredAt = new Date().toISOString();
       const result = await upsertContentItem(getDb(), {
         source: 'discovered-article', sourceId: `youtube-${video.videoId}`, title: video.title,
-        summary: `YouTube - ${video.channel} - description only`, body: video.summary,
+        summary: `YouTube - ${video.channel} - ${evidence.metadata['contentBasis'] === 'captions' ? 'public captions' : 'description only'}`, body: evidence.body,
         publishedAt: (video.publishedAt ?? new Date()).toISOString(), url: video.url, projectContext: 'msft-blog',
         tags: [video.channel], metadata: {
           sourceTitle: video.channel, sourceGroup: 'YouTube', contentKind: 'youtube-video', videoId: video.videoId,
-          durationSeconds: video.durationSeconds, contentBasis: 'description-only', transcriptStatus: 'not-retrieved',
+          durationSeconds: video.durationSeconds, ...evidence.metadata,
           discoveredAt, status: 'new',
         },
       });

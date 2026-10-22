@@ -15,6 +15,7 @@ import { whyPicked } from '../../features/discover/discoverInsights';
 import { UseCaseLauncher } from '../../features/useCases/UseCaseLauncher';
 import { launchFromRef } from '../../features/useCases/useCaseView';
 import { DiscoverParkingAction } from './DiscoverParkingAction';
+import { YouTubeEvidenceNotice } from './YouTubeEvidenceNotice';
 
 interface DiscoverExploreProps {
   item: DiscoverItem;
@@ -85,10 +86,10 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
         <h2 id="dc-explore-title" className="dc-explore__title">{item.title}</h2>
         {item.url !== null && (
           <a className="dc-explore__source-link" href={item.url} target="_blank" rel="noreferrer">
-            {item.contentBasis === 'description-only' ? 'Watch the video' : 'Read the original'} <Launch size={16} />
+            {item.contentBasis ? 'Watch the video' : 'Read the original'} <Launch size={16} />
           </a>
         )}
-        {item.contentBasis === 'description-only' && <p className="dc-explore__hint">YouTube video: description only. No transcript has been retrieved; spoken claims and timestamps have not been verified.</p>}
+        <YouTubeEvidenceNotice item={item} />
 
         <section className="dc-explore__section">
           <h3>Why it matters</h3>
@@ -109,7 +110,7 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
             openAthena(anglePrompt(item), {
               type: 'discover item',
               title: item.title,
-              detail: [item.sourceTitle, item.contentBasis === 'description-only' ? 'YouTube description only; no transcript. Do not infer spoken claims, quotes or timestamps.' : '', item.relevanceExplanation ?? '', item.sparkReason ?? '', item.url ?? ''].filter(Boolean).join(' | '),
+              detail: [item.sourceTitle, item.contentBasis === 'description-only' ? 'YouTube description only; no transcript. Do not infer spoken claims, quotes or timestamps. Use attributed secondary research to explain unfamiliar subjects; keep it separate from video claims.' : item.contentBasis === 'captions' ? 'YouTube public captions available; may be automatic or incomplete. Do not invent speech.' : '', item.relevanceExplanation ?? '', item.sparkReason ?? '', item.url ?? '', ...(item.relatedArticles ?? []).map(article => `Secondary background: ${article.title} ${article.url}`)].filter(Boolean).join(' | '),
             });
             onClose();
           }}>

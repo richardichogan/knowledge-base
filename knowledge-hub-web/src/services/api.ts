@@ -521,7 +521,8 @@ export interface NavAttention { think: number; discover: number; plan: number; b
 
 
 export interface DiscoverItem {
-  contentBasis?: 'description-only';
+  contentBasis?: 'description-only' | 'captions';
+  relatedArticles?: Array<{ title: string; url: string }>;
   parking?: DiscoverParking;
   pickReasons?: string[];
   filteredReason?: string | null;
