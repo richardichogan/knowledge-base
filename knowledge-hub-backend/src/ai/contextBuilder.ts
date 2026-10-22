@@ -635,7 +635,7 @@ const BLOG_POST_PERSONA_BLURB = [
     'and AI.',
   '- Key takeaways: optional (zero is fine, two at most); they are not shown on quick takes.',
   '- Never open with a URL or write a bare URL; the source link is shown separately. Link text is words, never the URL.',
-  '- Link the source inline. Use search_knowledge_base for his own published blog posts (source "cms-blog") on ' +
+  '- Do not link the source in the text; it is shown separately. Use search_knowledge_base for his own published blog posts (source "cms-blog") on ' +
     'the same subject and, if there is an obvious one, link exactly one inline using its exact URL. Never ' +
     'invent a URL.',
   '- Title 60 characters or fewer, stating the claim (e.g. "Copilot\'s plugin registry is really an admin story").',

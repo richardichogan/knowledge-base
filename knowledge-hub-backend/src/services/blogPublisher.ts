@@ -7,6 +7,7 @@ import { env } from '../config/env.js';
 import { ValidationError } from '../types/errors.js';
 import { POST_TYPES, type PostType } from '../ai/blogDraft.js';
 import { BLOG_CATEGORIES, resolveBlogCategory } from '../ai/blogHouseStyle.js';
+import { findTropes, fixDashes } from '../ai/styleCheck.js';
 
 export interface BlogPublishBody { excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
 
@@ -39,6 +40,11 @@ export function parsePublishBody(body: unknown): BlogPublishBody {
     throw new ValidationError(`Unknown blog categories: ${unknown.join(', ')}. Use any of: ${BLOG_CATEGORIES.join(', ')}. Other topics such as Dynamics 365 belong in tags. Quick take is a post type, not a category.`);
   }
   parsed.categories = [...new Set(parsed.categories.map(category => resolveBlogCategory(category)!))];
+  parsed.title = fixDashes(parsed.title); parsed.excerpt = fixDashes(parsed.excerpt); parsed.summary = fixDashes(parsed.summary);
+  parsed.content = fixDashes(parsed.content); parsed.keyTakeaways = parsed.keyTakeaways.map(fixDashes);
+  const ownContent = parsed.content.replace(/<hr>\s*<p><em>Source:[\s\S]*?<\/em><\/p>\s*$/i, '');
+  const tropes = findTropes(parsed.title, parsed.excerpt, parsed.summary, ownContent, ...parsed.keyTakeaways);
+  if (tropes.length > 0) throw new ValidationError(`Not sent: the post still contains banned AI writing patterns. Edit these out first: ${tropes.join('; ')}.`);
   return parsed;
 }
 

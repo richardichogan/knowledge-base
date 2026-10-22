@@ -33,7 +33,10 @@ export const BLOG_PACKAGE_RULES = [
   '- No "not X, it\'s Y" or negative parallelism constructions.',
   '- No "done well / done badly" mirror structures.',
   '- No vague mass attributions ("most organisations") without specificity.',
-  '- No rhythmic triplets designed to sound conclusive.',
+  '- No rhythmic triplets designed to sound conclusive, and no lists of three ("process, policy, and evidence"); ' +
+    'use two items or name the one that matters.',
+  '- No "rather than" or "instead of" contrasts, and no signposting such as "my read is", "this matters", ' +
+    '"that is useful for", "in enterprise terms" or "architects and IT leaders".',
   '- Never open or frame content with "The part that lands here" or variations ("what lands," "the bit ' +
     'that lands"). Always use alternatives.',
   '- No use of "signal" as an uncountable mass noun (e.g. "useful signal," "there is signal here").',

@@ -659,8 +659,6 @@ export interface SocialDraft {
 export interface BlogDraft {
   title: string; excerpt: string; summary: string; content: string; keyTakeaways: string[]; categories: string[]; tags: string[];
   postType: 'article' | 'weekly' | 'newsletter' | 'podcast' | 'quick'; sourceUrl: string | null;
-  /** Banned AI tropes still present after the server's automatic check. */
-  styleWarnings?: string[];
 }
 
 export class KnowledgeHubApi {

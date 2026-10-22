@@ -51,6 +51,16 @@ test('generated drafts enforce canonical categories instead of returning an unpu
     /unsupported blog categories: Dynamics 365/);
 });
 
+test('publishing accepts introductory clauses with pairs but still rejects actual triplets', () => {
+  for (const status of ['draft', 'published'] as const) {
+    const content = '<p>In enterprise IT, identity and permissions now travel with the agent.</p>';
+    assert.equal(parsePublishBody({ ...fields, status, content }).content, content);
+    assert.throws(() => parsePublishBody({
+      ...fields, status, content: '<p>Engineering process, policy, and evidence already meet.</p>',
+    }), /triplet list/);
+  }
+});
+
 test('source and ideas drafts use the accepted taxonomy for both quick takes and articles', async () => {
   const prompts: string[] = [];
   const client = { chat: async (_model: string, messages: Array<{ content: string }>) => {

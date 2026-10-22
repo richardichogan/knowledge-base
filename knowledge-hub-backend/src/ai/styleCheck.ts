@@ -7,23 +7,28 @@ const plain = (html: string): string => html.replace(/<[^>]*>/g, ' ').replace(/&
 
 /** Replaces em/en dashes used as punctuation with commas; number ranges become "to". */
 export function fixDashes(text: string): string {
-  return text
+  return text.split(/(<[^>]*>)/g).map(part => part.startsWith('<') ? part : part
     .replace(/(\d)\s*[–—]\s*(\d)/g, '$1 to $2')
     .replace(/\s*[—–]\s*([.,;:!?)])/g, '$1')
     .replace(/(^|[>(\n])\s*[—–]\s*/g, '$1')
     .replace(/\s*[—–]\s*/g, ', ')
     .replace(/\s+-{1,2}\s+/g, ', ')
-    .replace(/,\s*,/g, ',');
+    .replace(/,\s*,/g, ',')).join('');
 }
 
 const TROPES: Array<{ label: string; pattern: RegExp }> = [
-  { label: '"not X, it\'s Y" construction', pattern: /\b(?:it|this|that|the \w+)(?:['’]s| is| was) not\b[^.!?]{1,80}[.,;:]\s*(?:it|this|that|they)(?:['’]s| is| was| are)\b/i },
+  { label: '"not X, it\'s Y" construction', pattern: /\b(?:is|was|are) not\b[^.!?]{1,120}[.,;:]\s*(?:it|this|that|they)(?:['’]s| is| was| are)\b/i },
   { label: '"isn\'t X, it\'s Y" construction', pattern: /\b(?:isn['’]t|aren['’]t|wasn['’]t)\b[^.!?]{1,80}[.,;:]\s*(?:it|this|that|they)(?:['’]s|['’]re| is| are| was)\b/i },
   { label: '"not just X but Y" construction', pattern: /\bnot (?:just|only|merely|simply)\b[^.!?]{1,80}\b(?:but|it['’]s|it is)\b/i },
   { label: '"less about X, more about Y" construction', pattern: /\bless about\b[^.!?]{1,80}\bmore about\b/i },
   { label: '"done well / done badly" mirror', pattern: /\bdone (?:well|right|badly|poorly|wrong)\b/i },
   { label: 'rhythmic triplet of fragments', pattern: /(?:^|[.!?]\s)(?:\S+(?:\s\S+){0,2}[.!?]\s){2}\S+(?:\s\S+){0,2}[.!?](?:\s|$)/ },
-  { label: 'rhythmic triplet ending a sentence', pattern: /\b[a-z]+, [a-z]+,? and [a-z]+[.!?](?:\s|$)/ },
+  // A single comma can introduce a clause containing a pair, not a three-item list.
+  { label: 'triplet list', pattern: /\b[a-z][a-z'’-]*(?: [a-z][a-z'’-]*){0,3}, [a-z][a-z'’-]*(?: [a-z][a-z'’-]*){0,3}, (?:and|or) [a-z][a-z'’-]*(?: [a-z][a-z'’-]*){0,3}/i },
+  { label: '"rather than / instead of" contrast', pattern: /\b(?:rather than|instead of)\b/i },
+  { label: '"matters" signposting', pattern: /\b(?:also|really|still|which|this|that|it|what|why) matters\b|\bmatters (?:because|here|more|most)\b/i },
+  { label: 'editorial throat-clearing', pattern: /\bmy (?:read|take|view|sense) (?:is|here)\b|\b(?:that|this) is (?:useful|important|significant|interesting|helpful) (?:for|because)\b|\bin (?:enterprise|practical|plain|real|business) terms\b|\bfairly simple\b|\bthe short version\b|\bput simply\b|\bin other words\b/i },
+  { label: 'stock audience phrase', pattern: /\b(?:architects|IT leaders) and (?:architects|IT leaders)\b/i },
   { label: 'vague mass attribution', pattern: /\b(?:most|many) (?:organisations|organizations|companies|enterprises|businesses|teams|leaders)\b/i },
   { label: '"resonates"', pattern: /\bresonat\w*/i },
   { label: '"worth noting/flagging/sitting with"', pattern: /\bworth (?:noting|flagging|sitting with|mentioning)\b/i },
@@ -37,8 +42,10 @@ const TROPES: Array<{ label: string; pattern: RegExp }> = [
   { label: 'em or en dash', pattern: /[—–]/ },
 ];
 
-/** Returns the labels of every banned trope found in the given texts (HTML is stripped). */
+/** Returns every banned trope found in the given texts (HTML is stripped), each with the offending words quoted. */
 export function findTropes(...texts: string[]): string[] {
-  const text = texts.map(plain).join('\n');
-  return TROPES.filter(t => t.pattern.test(text)).map(t => t.label);
+  return [...new Set(texts.flatMap(text => text.split(/<\/(?:p|h[1-6]|li)>/i)).flatMap(text => TROPES.flatMap(t =>
+    [...plain(text).matchAll(new RegExp(t.pattern.source, `${t.pattern.flags}g`))]
+      .map(m => `${t.label}: "${m[0].trim()}"`),
+  )))];
 }

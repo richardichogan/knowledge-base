@@ -2,6 +2,36 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, Discover and drafting release):**
+- Both explicit `npx tsc --noEmit` checks and both production builds passed.
+- Isolated release suites passed: backend 422; frontend 165; zero failures.
+- Both lint non-regression checks passed. Fixed the new blog-repair response
+  array typing; backend typecheck/build and all 16 directly affected blog tests
+  passed again after that type-only correction.
+- Azure CLI authentication and existing target resources verified. Production
+  backend is v234 and ACR tag v235 is unused. Existing SWA hostname verified.
+- Existing AZCLI application-only recipe: no infrastructure, policy, role or
+  managed-identity changes. Template validation/provisioning are not applicable.
+  Dockerfile and lockfile exist; ACR builds the production container before update.
+- Logs: session files/v235-{backend,frontend}-{build,tests,lint}.log and
+  v235-blog-final-tests.log. Tests use isolated credentials, not production data.
+
+**Discover, indexing and blog drafting release (2026-10-23):**
+- User explicitly requested deployment of the current changes to the existing
+  production targets in Alliance Tenant Reporting (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28).
+- AZCLI image-only update: kh-prod-api-vnet, cad79107555facr and kh-prod-web in
+  rg-knowledge-hub-prod. Existing UK South backend and West Europe frontend;
+  no infrastructure, identity, secret, permission or resource provisioning changes.
+- Includes Discover voting, change-only content indexing, optional passage-index
+  handling, reduced edge inference, source-link removal and checked blog revisions.
+- Migration 094 retries failed content-item indexing jobs; it does not edit notes.
+- Main fetched and merged; already current. Current image v234; v235 is unused.
+  Rollback is image v234 and frontend source 268f8eb.
+- Validation: both typechecks/builds, isolated release suites, lint non-regression
+  and diff hygiene. No browser or production-data test fixtures.
+- Commit and push main plus the session branch, build ACR image from main, check
+  revision health/startup logs, deploy matching SWA assets and verify deployment.
+
 **Section 7: Validation Proof (2026-10-22, knowledge graph release):**
 - Both `npx tsc --noEmit` checks and both production `npm run build` commands passed.
 - Database-free release suites: backend 411 passed, frontend 167 passed
