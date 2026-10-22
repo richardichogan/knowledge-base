@@ -17,6 +17,7 @@ test('mention search and grounding use saved readable records, not client labels
   const db = new PGlite();
   await db.exec(`
     CREATE TABLE people(id UUID PRIMARY KEY,name TEXT,organisation TEXT,emails TEXT[],updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE companies(id UUID PRIMARY KEY,name TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT,lifecycle_state TEXT DEFAULT 'active',updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE notes(id UUID PRIMARY KEY,content TEXT,status TEXT DEFAULT 'active',updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE content_items(id UUID PRIMARY KEY,title TEXT,body TEXT,source TEXT,project_context TEXT,metadata JSONB DEFAULT '{}',updated_at TIMESTAMPTZ DEFAULT NOW());

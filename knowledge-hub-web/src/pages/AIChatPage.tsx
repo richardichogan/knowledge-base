@@ -284,7 +284,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const isNoteLinkedPanel = compact && compactVariant === 'narrow';
   // Think notes and Library documents each keep their own linked conversation.
   // Canvases too (id "map:<id>"), so each canvas keeps its own chat and Athena can propose changes to it.
-  const currentNoteId = isNoteLinkedPanel && (pageContext?.type === 'note' || pageContext?.type === 'document' || pageContext?.type === 'canvas') ? pageContext.id : undefined;
+  const currentNoteId = isNoteLinkedPanel && (pageContext?.type === 'note' || pageContext?.type === 'document' || pageContext?.type === 'canvas') ? pageContext.conversationId ?? pageContext.id : undefined;
   // In Think, the open note's project grounds the chat (no project chip there).
   const noteProjectId = isNoteLinkedPanel ? pageContext?.projectId : undefined;
 

@@ -22,7 +22,7 @@ import { createPortal } from 'react-dom';
 import { Modal } from '@carbon/react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Checkmark, Diagram, Link, Copy, TaskAdd, Idea, DocumentAdd, ChatBot, ArrowRight, Rocket } from '@carbon/icons-react';
+import { Checkmark, Diagram, Link, Copy, TaskAdd, Idea, DocumentAdd, ChatBot, ArrowRight, Rocket, Image as ImageIcon } from '@carbon/icons-react';
 import { useAthenaContext } from './AthenaContext';
 import { UseCaseLauncher, type UseCaseLaunch } from '../features/useCases/UseCaseLauncher';
 import { launchFromRef } from '../features/useCases/useCaseView';
@@ -35,6 +35,7 @@ import { addWorkingDays, toISODateString } from '../utils/dates';
 import { getActiveBlockNoteSelectedText, clearActiveBlockNoteSelectionSnapshot, suspendBlockNoteSelectionCapture, resumeBlockNoteSelectionCapture, hasBlockNoteCellSelection, getActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
 import { isMisspelled, isSpellableWord, loadSpelling, spellingSuggestions } from '../utils/spelling';
 import { copyImage } from '../utils/imageClipboard';
+import { ImageViewer, type ImagePreview } from '../components/ImageViewer';
 import { ContactCapture } from '../components/ContactCapture';
 
 export interface CtxItemData {
@@ -201,6 +202,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [spellMenu, setSpellMenu] = useState<SpellMenuState | null>(null);
   const [contactText, setContactText] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const endBrowserWordRef = useRef<() => void>(() => {});
   // Outlives the menu: the dialog opens as the menu closes.
   const [useCaseLaunch, setUseCaseLaunch] = useState<UseCaseLaunch | null>(null);
@@ -497,6 +499,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
       {children}
       {menu && createPortal(
         <GlobalCtxMenu x={menu.x} y={menu.y} item={menu.item} onClose={() => setMenu(null)}
+          onViewImage={image => { setMenu(null); setImagePreview(image); }}
           onContact={text => { setMenu(null); setContactText(text); }}
           onUseCase={(launch) => { setMenu(null); setUseCaseLaunch(launch); }} />,
         document.body,
@@ -506,6 +509,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         document.body,
       )}
       {useCaseLaunch && <UseCaseLauncher launch={useCaseLaunch} onClose={() => { setUseCaseLaunch(null); }} />}
+      {imagePreview && <ImageViewer image={imagePreview} onClose={() => { setImagePreview(null); }} />}
       {contactText !== null && <Modal open passiveModal size="sm" modalHeading="Identify contacts from text"
         onRequestClose={() => setContactText(null)}><ContactCapture text={contactText} /></Modal>}
     </Ctx.Provider>
@@ -653,7 +657,7 @@ function SpellingMenu({ x, y, edit, spelling, onClose }: SpellMenuState & { onCl
 
 type PanelState = 'menu' | 'picker';
 
-function GlobalCtxMenu({ x, y, item, onClose, onUseCase, onContact }: { x: number; y: number; item: CtxItemData; onClose: () => void; onUseCase: (launch: UseCaseLaunch) => void; onContact: (text: string) => void }) {
+function GlobalCtxMenu({ x, y, item, onClose, onUseCase, onContact, onViewImage }: { x: number; y: number; item: CtxItemData; onClose: () => void; onUseCase: (launch: UseCaseLaunch) => void; onContact: (text: string) => void; onViewImage: (image: ImagePreview) => void }) {
   const [panel, setPanel]   = useState<PanelState>('menu');
   const [selectedId, setId] = useState<string | null>(null);
   const [sent, setSent]     = useState(false);
@@ -892,10 +896,13 @@ function GlobalCtxMenu({ x, y, item, onClose, onUseCase, onContact }: { x: numbe
       )}
       {item.imageUrl && <button className="gctx__item" onClick={() => {
         setActionError(null);
-        void copyImage(item.imageUrl!).then(onClose).catch((error: unknown) => {
+        void copyImage(item.imageUrl!, id => api.getImageFile(id)).then(onClose).catch((error: unknown) => {
           setActionError(error instanceof Error ? error.message : 'Could not copy image. Check clipboard permissions and try again.');
         });
       }}><Copy size={15} /> Copy image</button>}
+      {item.imageUrl && <button className="gctx__item" onClick={() => { onViewImage({ source: item.imageUrl!, title: item.title }); }}>
+        <ImageIcon size={15} /> Open image full screen
+      </button>}
       <button className="gctx__item" onClick={() => { void copyText(); }}>
         <Copy size={15} /> Copy text
       </button>

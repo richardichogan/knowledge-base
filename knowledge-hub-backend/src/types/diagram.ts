@@ -204,6 +204,7 @@ export interface DiagramDocument {
   nodes: DiagramNode[];
   edges: DiagramEdge[];
   grid: boolean;
+  gridSize?: number;
   viewport: { x: number; y: number; zoom: number };
   /** Optional numbered notes; the array order is the footnote number. */
   footnotes?: DiagramFootnote[];

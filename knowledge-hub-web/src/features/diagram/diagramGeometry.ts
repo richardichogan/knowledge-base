@@ -702,6 +702,7 @@ export function normalizeDocument(doc: DiagramDocument): DiagramDocument {
   });
   return {
     version: 1, nodes: fixed, edges, grid: doc.grid !== false, viewport,
+    ...(doc.gridSize !== undefined ? { gridSize: doc.gridSize } : {}),
     ...(footnotes.length > 0 ? { footnotes } : {}),
     ...(doc.legend !== undefined ? { legend: doc.legend } : {}),
     ...(doc.notesPanel !== undefined ? { notesPanel: doc.notesPanel } : {}),

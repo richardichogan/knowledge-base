@@ -262,6 +262,6 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
   }
 
   const name = xml(options.name?.trim() || 'Diagram');
-  const model = `<mxGraphModel dx="0" dy="0" grid="${doc.grid ? 1 : 0}" gridSize="20" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/>${cells.map((c) => c.xml).join('')}</root></mxGraphModel>`;
+  const model = `<mxGraphModel dx="0" dy="0" grid="${doc.grid ? 1 : 0}" gridSize="${doc.gridSize ?? 10}" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/>${cells.map((c) => c.xml).join('')}</root></mxGraphModel>`;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<mxfile host="Athena" type="device"><diagram id="athena" name="${name}">${model}</diagram></mxfile>\n`;
 }

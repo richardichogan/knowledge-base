@@ -1,12 +1,14 @@
 import React, { useDeferredValue, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { api } from '../services/api';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog } from '../services/appDialogs';
 import { EMPTY_PERSON, type Person, type PersonInput } from '../types/people';
 import { parsePeopleReport } from '../people/importPeople';
+import { PersonRelationships } from '../people/PersonRelationships';
+import { NoteBacklinks } from '../notes/NoteBacklinks';
 
 export function PeoplePage(): React.ReactElement {
   const qc = useQueryClient();
@@ -56,6 +58,7 @@ export function PeoplePage(): React.ReactElement {
       </label>
       <button className="people-page__button" disabled={busy} onClick={() => { setEditing({ input: { ...EMPTY_PERSON } }); setPreview(null); }}>Add person</button>
       <button className="people-page__button" disabled={busy} onClick={() => { upload.current?.click(); }}>Import contact report</button>
+      <Link className="people-page__button" to="/companies">Companies</Link>
       <input ref={upload} className="people-page__upload" type="file" accept=".md,.markdown,text/markdown,text/plain" aria-label="Contact report"
         onChange={event => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = ''; }} />
     </div>
@@ -110,6 +113,8 @@ export function PeoplePage(): React.ReactElement {
             <dt>Emails sent</dt><dd>{selected.data.emailCount ?? 'Not recorded'}{selected.data.sourcePeriod && ` during ${selected.data.sourcePeriod}`}</dd>
             <dt>Source</dt><dd>{selected.data.source || 'Added manually'}</dd>
           </dl>
+          <PersonRelationships key={selected.data.id} personId={selected.data.id} />
+          <NoteBacklinks type="person" noteId={selected.data.id} />
           <div className="people-page__actions">
             <button className="people-page__button" disabled={busy} onClick={() => { setEditing({ id: selected.data.id, input: selected.data }); }}>Edit person</button>
             <button className="people-page__button people-page__button--danger" disabled={busy} onClick={() => { void (async () => {

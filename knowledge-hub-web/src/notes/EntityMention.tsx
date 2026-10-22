@@ -55,7 +55,7 @@ export const noteMentionSpec = createReactInlineContentSpec({
 
 export const entityMentionSpec = createReactInlineContentSpec({
   type: 'entityMention',
-  propSchema: { entityType: { default: 'spark', values: ['spark', 'diagram', 'project', 'task', 'usecase', 'article', 'person'] }, entityId: { default: '' } },
+  propSchema: { entityType: { default: 'spark', values: ['spark', 'diagram', 'project', 'task', 'usecase', 'article', 'person', 'company'] }, entityId: { default: '' } },
   content: 'none',
 }, {
   render: ({ inlineContent }) => <EntityMention type={inlineContent.props.entityType} id={inlineContent.props.entityId} />,

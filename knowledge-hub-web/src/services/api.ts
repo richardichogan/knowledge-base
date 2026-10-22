@@ -48,6 +48,7 @@ import type { DiscoverFormat, DiscoverParking, ParkingSelection } from '../types
 import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight } from '../types/watchlists';
 import type { BacklinkPage, EntityLinkTarget, EntityLinkType } from '../notes/entityLinks';
 import type { Person, PersonInput } from '../types/people';
+import type { Company, CompanyInput, CompanyPerson, PersonRelationships } from '../types/companies';
 
 export { DISCOVER_FORMATS, type DiscoverFormat } from '../types/discover';
 
@@ -723,6 +724,27 @@ export class KnowledgeHubApi {
 
   async getPeople(q = ''): Promise<ApiResponse<Person[]>> {
     return (await this.client.get<ApiResponse<Person[]>>('/api/people', { params: { q } })).data;
+  }
+
+  async getCompanies(q = ''): Promise<ApiResponse<Company[]>> {
+    return (await this.client.get<ApiResponse<Company[]>>('/api/companies', { params: { q } })).data;
+  }
+  async getCompany(id: string): Promise<ApiResponse<Company>> {
+    return (await this.client.get<ApiResponse<Company>>(`/api/companies/${encodeURIComponent(id)}`)).data;
+  }
+  async getCompanyPeople(id: string): Promise<ApiResponse<CompanyPerson[]>> {
+    return (await this.client.get<ApiResponse<CompanyPerson[]>>(`/api/companies/${encodeURIComponent(id)}/people`)).data;
+  }
+  async saveCompany(input: CompanyInput, id?: string): Promise<ApiResponse<Company>> {
+    return id
+      ? (await this.client.put<ApiResponse<Company>>(`/api/companies/${encodeURIComponent(id)}`, input)).data
+      : (await this.client.post<ApiResponse<Company>>('/api/companies', input)).data;
+  }
+  async getPersonRelationships(id: string): Promise<ApiResponse<PersonRelationships>> {
+    return (await this.client.get<ApiResponse<PersonRelationships>>(`/api/people/${encodeURIComponent(id)}/relationships`)).data;
+  }
+  async savePersonRelationships(id: string, input: PersonRelationships): Promise<ApiResponse<PersonRelationships>> {
+    return (await this.client.put<ApiResponse<PersonRelationships>>(`/api/people/${encodeURIComponent(id)}/relationships`, input)).data;
   }
 
   async getPerson(id: string): Promise<ApiResponse<Person>> {
@@ -2212,6 +2234,10 @@ export class KnowledgeHubApi {
 
   async getDiagramAsset(id: string, assetId: string): Promise<Blob> {
     return (await this.client.get<Blob>(`/api/canvases/${id}/assets/${assetId}`, { responseType: 'blob' })).data;
+  }
+
+  async getImageFile(id: string): Promise<Blob> {
+    return (await this.client.get<Blob>(`/api/images/${encodeURIComponent(id)}/file`, { responseType: 'blob' })).data;
   }
 
   async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; viewport?: object }): Promise<ApiResponse<CanvasSummaryApi>> {

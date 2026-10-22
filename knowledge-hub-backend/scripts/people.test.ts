@@ -61,7 +61,7 @@ test('persistent people CRUD/import, alias lookup, note mentions, backlinks, pre
     CREATE TABLE use_cases(id UUID PRIMARY KEY,title TEXT,stage TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE content_items(id UUID PRIMARY KEY,title TEXT,url TEXT,source TEXT,published_at TIMESTAMPTZ,indexed_at TIMESTAMPTZ);
   `);
-  for (const filename of ['064_note_list_metadata.sql', '082_note_links.sql', '085_people.sql', '085_people.sql']) {
+  for (const filename of ['064_note_list_metadata.sql', '082_note_links.sql', '085_people.sql', '085_people.sql', '093_company_people_relationships.sql']) {
     await db.exec(await readFile(new URL(`../src/db/migrations/${filename}`, import.meta.url), 'utf8'));
   }
   const pool = getDb();

@@ -350,7 +350,7 @@ const NoteCard: React.FC<{
         <span className="notes-list-item-date">
           {formatDate((sortKey === 'created' ? note.createdAt : note.updatedAt) ?? note.updatedAt)}
         </span>
-        <span className="notes-type-tag kh-type-mark">
+        <span className={`notes-type-tag kh-type-mark kh-content-type--${note.contentType}`}>
           <TypeIcon size={12} aria-hidden="true" />
           {note.contentType.replace(/-/g, ' ')}
         </span>

@@ -77,7 +77,11 @@ const ROUTES: readonly DiagramEdge['route'][] = ['straight', 'orthogonal'];
 const ARROWS: readonly DiagramEdge['arrows'][] = ['none', 'start', 'end', 'both'];
 
 const DOC_KEYS = ['version', 'nodes', 'edges', 'grid', 'viewport'] as const;
-const DOC_OPTIONAL_KEYS = ['footnotes', 'legend', 'notesPanel', 'diagramType'] as const;
+const DOC_OPTIONAL_KEYS = ['footnotes', 'legend', 'notesPanel', 'diagramType', 'gridSize'] as const;
+const GRID_FINEST = 5;
+const GRID_FINE = 10;
+const GRID_STANDARD = 20;
+const GRID_COARSE = 40;
 const FOOTNOTE_KEYS = ['id', 'targetId', 'source'] as const;
 const LEGEND_KEYS = ['visible', 'position', 'entries'] as const;
 const LEGEND_ENTRY_KEYS = ['colour', 'label'] as const;
@@ -441,6 +445,8 @@ export function validateDiagramDocument(input: unknown, knownAssetIds: ReadonlyS
     zoom: num(vp['zoom'], 'document.viewport.zoom', DIAGRAM_LIMITS.minZoom, DIAGRAM_LIMITS.maxZoom),
   };
   const grid = bool(o['grid'], 'document.grid');
+  const gridSize = o['gridSize'] === undefined ? undefined : num(o['gridSize'], 'document.gridSize', GRID_FINEST, GRID_COARSE);
+  if (gridSize !== undefined && ![GRID_FINEST, GRID_FINE, GRID_STANDARD, GRID_COARSE].includes(gridSize)) fail('document.gridSize', 'must be 5, 10, 20 or 40');
   const footnotes = o['footnotes'] === undefined ? undefined
     : array(o['footnotes'], 'document.footnotes', DIAGRAM_LIMITS.maxFootnotes).map((f, i) => validateFootnote(f, `document.footnotes[${i}]`));
   const legend = o['legend'] === undefined ? undefined : validateLegend(o['legend'], 'document.legend');
@@ -506,6 +512,7 @@ export function validateDiagramDocument(input: unknown, knownAssetIds: ReadonlyS
     version: 1,
     ...(diagramType !== undefined ? { diagramType } : {}),
     nodes, edges, grid, viewport,
+    ...(gridSize !== undefined ? { gridSize } : {}),
     ...(footnotes !== undefined ? { footnotes } : {}),
     ...(legend !== undefined ? { legend } : {}),
     ...(notesPanel !== undefined ? { notesPanel } : {}),

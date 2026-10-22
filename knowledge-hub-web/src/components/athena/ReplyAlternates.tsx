@@ -11,6 +11,7 @@ import { api } from '../../services/api';
 import { followChatTurn, TurnStoppedError } from '../../services/chatTurns';
 import type { ChatAlternate, ModelChoiceApi } from '../../types';
 import { renderAssistantMessage } from './renderReply';
+import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
 
 interface ReplyAlternatesProps {
   sessionId: string;
@@ -30,6 +31,17 @@ export const ReplyAlternates: React.FC<ReplyAlternatesProps> = ({ sessionId, mes
   const [running, setRunning] = useState<{ label: string; activity: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
+  const menuRoot = useRef<HTMLSpanElement>(null);
+  useAnchoredPopovers(menuRoot, menuOpen ? '.ai-alts__menu' : null, true);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: MouseEvent): void => {
+      if (event.target instanceof Node && !menuRoot.current?.contains(event.target)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => { document.removeEventListener('mousedown', close); };
+  }, [menuOpen]);
 
   useEffect(() => () => { controllerRef.current?.abort(); }, []);
 
@@ -81,7 +93,12 @@ export const ReplyAlternates: React.FC<ReplyAlternatesProps> = ({ sessionId, mes
             ))}
           </div>
         )}
-        <span className="ai-alts__ask">
+        <span className="ai-alts__ask" ref={menuRoot} onKeyDown={event => {
+          if (event.key === 'Escape' && menuOpen) {
+            event.preventDefault(); event.stopPropagation(); setMenuOpen(false);
+            menuRoot.current?.querySelector('button')?.focus();
+          }
+        }}>
           <button
             type="button"
             className="ai-alts__ask-btn"

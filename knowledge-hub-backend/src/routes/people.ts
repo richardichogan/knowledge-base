@@ -3,9 +3,16 @@ import { getDb } from '../db/db.js';
 import { NotFoundError, ValidationError } from '../types/errors.js';
 import { getPerson, importPeople, listPeople, savePerson } from '../services/people.js';
 import { HTTP_STATUS } from '../config/constants.js';
+import { getPersonRelationships, savePersonRelationships } from '../services/companies.js';
 
 export const peopleRouter = Router();
 const MAX_SEARCH = 200;
+peopleRouter.get('/:id/relationships', (req, res, next) => {
+  void getPersonRelationships(getDb(), req.params['id']).then(data => { res.json({ success: true, data }); }).catch(next);
+});
+peopleRouter.put('/:id/relationships', (req, res, next) => {
+  void savePersonRelationships(getDb(), req.params['id'], req.body).then(data => { res.json({ success: true, data }); }).catch(next);
+});
 peopleRouter.get('/', (req, res, next) => {
   void (async (): Promise<void> => {
     const q = req.query['q'] ?? '';

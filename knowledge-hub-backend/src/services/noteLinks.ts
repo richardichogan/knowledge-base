@@ -2,7 +2,7 @@ import type { Pool } from 'pg';
 import { NotFoundError } from '../types/errors.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 
-export const LINK_TYPES = ['note', 'spark', 'diagram', 'project', 'task', 'usecase', 'article', 'person'] as const;
+export const LINK_TYPES = ['note', 'spark', 'diagram', 'project', 'task', 'usecase', 'article', 'person', 'company'] as const;
 export type LinkType = typeof LINK_TYPES[number];
 export interface LinkTarget { type: LinkType; id: string; title: string; href: string }
 type TargetRow = { type: LinkType; id: string; title: string; url: string | null };
@@ -18,6 +18,7 @@ const TARGETS = `
   UNION ALL SELECT 'task', id::text, title, NULL, updated_at FROM tasks WHERE archived = false AND title IS NOT NULL
   UNION ALL SELECT 'usecase', id::text, title, NULL, updated_at FROM use_cases WHERE stage <> 'dropped'
   UNION ALL SELECT 'person', id::text, name, NULL, updated_at FROM people
+  UNION ALL SELECT 'company', id::text, name, NULL, updated_at FROM companies
   UNION ALL SELECT 'article', id::text, title, url, COALESCE(published_at, indexed_at) FROM content_items
     WHERE source = 'discovered-article' AND title IS NOT NULL AND url ~ '^https?://'`;
 
@@ -32,6 +33,7 @@ export function linkHref(type: LinkType, id: string, url?: string | null): strin
     case 'usecase': return `/plan?view=use-cases&useCase=${encoded}`;
     case 'article': return url ?? `/discover?tab=saved`;
     case 'person': return `/people?personId=${encoded}`;
+    case 'company': return `/companies?companyId=${encoded}`;
   }
 }
 
@@ -152,11 +154,13 @@ const PREVIEW_QUERIES: Record<Exclude<LinkType, 'note'>, string> = {
   usecase: "SELECT summary, stage AS d1, product_kind AS d2 FROM use_cases WHERE id::text=$1",
   article: "SELECT COALESCE(NULLIF(summary,''), LEFT(body, 1200)) AS summary, to_char(published_at,'YYYY-MM-DD') AS d1, url AS d2 FROM content_items WHERE id::text=$1",
   person: "SELECT concat_ws(E'\\n\\n',NULLIF(threads,''),NULLIF(notes,'')) AS summary, organisation AS d1,role AS d2,array_to_string(emails,', ') AS d3 FROM people WHERE id::text=$1",
+  company: "SELECT description AS summary,website AS d1 FROM companies WHERE id::text=$1",
 };
 const PREVIEW_LABELS: Record<Exclude<LinkType, 'note'>, string[]> = {
   spark: ['Created'], diagram: ['Updated'], project: ['Stage', 'Category', 'Priority'], task: ['Status', 'Priority', 'Due'],
   usecase: ['Stage', 'Kind'], article: ['Published', 'Source'],
   person: ['Organisation', 'Role / relationship', 'Email'],
+  company: ['Website'],
 };
 const MAX_SUMMARY = 1500;
 

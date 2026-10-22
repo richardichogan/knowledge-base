@@ -25,6 +25,8 @@ export interface AthenaPageContext {
    * note — not sent to the backend as part of the LLM-facing context.
    */
   id?: string;
+  /** Stable conversation owner while a nested diagram changes the active context. */
+  conversationId?: string;
   /**
    * Project the underlying item belongs to (e.g. the note's project). The
    * Think-embedded Athena panel grounds the conversation in it instead of

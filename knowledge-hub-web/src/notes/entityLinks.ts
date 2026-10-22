@@ -1,9 +1,10 @@
-export const ENTITY_LINK_TYPES = ['note', 'spark', 'diagram', 'project', 'task', 'usecase', 'article', 'person'] as const;
+export const ENTITY_LINK_TYPES = ['note', 'spark', 'diagram', 'project', 'task', 'usecase', 'article', 'person', 'company'] as const;
 export type EntityLinkType = typeof ENTITY_LINK_TYPES[number];
 export interface EntityLinkTarget { type: EntityLinkType; id: string; title: string; href: string }
 export const ENTITY_LINK_LABELS: Record<EntityLinkType, string> = {
   note: 'Note', spark: 'Spark', diagram: 'Diagram', project: 'Project', task: 'Task', usecase: 'Use case', article: 'Article',
   person: 'Person',
+  company: 'Company',
 };
 export interface BacklinkPage { items: EntityLinkTarget[]; hasMore: boolean }
 
@@ -75,6 +76,7 @@ export function entityLinkHref(type: EntityLinkType, id: string): string {
     case 'usecase': return `/plan?view=use-cases&useCase=${encoded}`;
     case 'article': return '/discover';
     case 'person': return `/people?personId=${encoded}`;
+    case 'company': return `/companies?companyId=${encoded}`;
   }
 }
 

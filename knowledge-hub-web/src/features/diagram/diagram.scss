@@ -7,6 +7,19 @@ $dg-ink: #f4f4f4;
 
 @keyframes dg-spin { to { transform: rotate(360deg); } }
 .dg-spin { animation: dg-spin 1s linear infinite; }
+.dg-grid-size {
+  background: var(--cds-layer-01); color: var(--cds-text-primary);
+  border: 1px solid var(--cds-border-subtle-01); border-radius: var(--kh-radius-sm);
+  height: var(--kh-control-height); font-size: 0.75rem; padding: 0 0.25rem;
+  &:hover { border-color: var(--kh-accent); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); }
+}
+.dg-alignment-guide { stroke: #ff7eb6; stroke-width: 1; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.dg-chat-target, .dg-chat-host { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; }
+.dg-popover[popover]:popover-open {
+  position: fixed; inset: auto; margin: 0; overflow: auto; z-index: 1;
+  color: var(--cds-text-primary); background: var(--cds-layer-01);
+}
 
 @mixin dg-focus { outline: 2px solid var(--kh-accent); outline-offset: 1px; }
 

@@ -3,7 +3,7 @@ import { canonicalContentSql } from '../db/contentVisibility.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
 import { ValidationError } from '../types/errors.js';
 
-type MentionType = 'person' | 'project' | 'note' | 'document';
+type MentionType = 'person' | 'company' | 'project' | 'note' | 'document';
 export interface ChatMentionTarget { type: MentionType; id: string; title: string; href: string; detail: string }
 export interface ChatReference { type: 'note' | 'document'; id: string }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -17,6 +17,7 @@ export async function chatMentionTargets(db: Pool, query: string): Promise<ChatM
     WITH targets AS (
       SELECT 'person'::text AS type,id::text,name AS title,
         concat_ws(' / ',NULLIF(organisation,''),emails[1]) AS detail,updated_at AS touched FROM people
+      UNION ALL SELECT 'company',id::text,name,'Company',updated_at FROM companies
       UNION ALL SELECT 'project',id,name,'Project',updated_at FROM projects WHERE lifecycle_state <> 'archived'
       UNION ALL SELECT 'note',id::text,note_list_metadata(content)->>'title',
         COALESCE(note_list_metadata(content)->>'contentType','note'),updated_at FROM notes WHERE status='active'
@@ -34,6 +35,7 @@ export async function chatMentionTargets(db: Pool, query: string): Promise<ChatM
   return rows.map(row => ({
     ...row,
     href: row.type === 'person' ? `/people?personId=${encodeURIComponent(row.id)}`
+      : row.type === 'company' ? `/companies?companyId=${encodeURIComponent(row.id)}`
       : row.type === 'project' ? `/projects?projectId=${encodeURIComponent(row.id)}`
         : row.type === 'note' ? `/think?noteId=${encodeURIComponent(row.id)}`
           : `/library?contentItemId=${encodeURIComponent(row.id)}`,

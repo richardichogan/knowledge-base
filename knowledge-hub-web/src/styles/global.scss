@@ -7,6 +7,7 @@
 @use './identity';
 @use './useCases';
 @use './people';
+@use './imageViewer';
 
 .email-connections {
   margin-bottom: 20px;
@@ -16400,6 +16401,12 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
   .ai-move__button { height: 1.75rem; padding: 0 0.75rem; font-size: 0.75rem; border-color: var(--kh-accent); color: var(--kh-accent); }
   .ai-move__label { display: inline; }
   .ai-move__panel { top: auto; bottom: 2.25rem; left: 0; right: 0; width: auto; max-width: 26rem; }
+}
+
+.ai-move .ai-move__panel[popover]:popover-open,
+.ai-alts__menu[popover]:popover-open {
+  position: fixed; inset: auto; margin: 0; overflow: auto;
+  width: min(26rem, calc(100vw - 1rem)); box-sizing: border-box;
 }
 
 .notes-meta-tag-auto { font-size: var(--kh-text-meta); color: var(--cds-text-secondary); }

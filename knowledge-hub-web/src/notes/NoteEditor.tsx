@@ -9,6 +9,7 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { useQueryClient } from '@tanstack/react-query';
 import '@blocknote/mantine/style.css';
 import { toPng } from 'html-to-image';
+import { ImageViewer, type ImagePreview } from '../components/ImageViewer';
 import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { ShareEmailModal } from '../components/ShareEmailModal';
@@ -135,6 +136,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
 export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onShowEditor }) => {
   const queryClient = useQueryClient();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
+  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const [emailContent, setEmailContent] = useState<ShareEmailContent | null>(null);
@@ -969,6 +971,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         {/* Editor scroll area — data-ctx-* enables right-click → Send to Canvas with note context */}
         <div
           className="notes-editor-scroll"
+          onDoubleClick={event => {
+            if (event.target instanceof HTMLImageElement) {
+              setImagePreview({ source: event.target.currentSrc || event.target.src, title: event.target.alt || 'Note image' });
+            }
+          }}
           ref={editorScrollRef}
           data-ctx-title={doc.title}
           data-ctx-type="hub_ref"
@@ -978,6 +985,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           {...(appliedTags.length > 0 ? { 'data-ctx-tags': appliedTags.map((t) => `${t.name}|${identity.hexForTag(t.id)}`).join(',') } : {})}
           {...(appliedTags.length > 0 ? { 'data-ctx-tag-ids': appliedTags.map((t) => t.id).join(',') } : {})}
         >
+          {imagePreview && <ImageViewer image={imagePreview} onClose={() => { setImagePreview(null); }} />}
           <div className="notes-editor-inner">
             <BlockNoteViewWrapper
               editor={editor}

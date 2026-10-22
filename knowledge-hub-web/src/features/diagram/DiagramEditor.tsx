@@ -29,7 +29,7 @@ import {
 } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
-import { ThinkAthenaPanel } from '../../notes/ThinkAthenaPanel';
+import { DiagramChatProvider, DiagramChatTarget, useDiagramChatScope } from './DiagramChatScope';
 import type { AthenaPageContext } from '../../context/AthenaContext';
 import type { CanvasFullApi } from '../../services/api';
 import {
@@ -78,10 +78,14 @@ import {
 } from './diagramAiFlowBadges';
 import { AiFlowProperties, AiFlowGovernance, AiFlowKey } from './DiagramAiFlowPanels';
 import './diagram.scss';
+import { alignMovingBounds, diagramGridSize, type AlignmentGuide } from './diagramAlignment';
+import { pasteReadableText } from '../../utils/clipboardText';
+import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
+import { ImageViewer, type ImagePreview } from '../../components/ImageViewer';
+import { copyImage } from '../../utils/imageClipboard';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const GRID = 20;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 1.25;
@@ -215,6 +219,7 @@ function measureImage(url: string): Promise<{ width: number; height: number }> {
 
 export interface DiagramEditorProps {
   canvasId: string;
+  parentContext?: AthenaPageContext | undefined;
   onDeleted?: (() => void) | undefined;
   onOpenNote?: ((noteId: string) => void) | undefined;
   onNoteChanged?: ((noteId: string) => void) | undefined;
@@ -238,7 +243,12 @@ function notesBlockOf(d: DiagramDocument, hidden: boolean): FootnoteBlock | null
   return footnoteBlock(d, diagramBounds({ nodes: shown.nodes, edges: shown.edges }, 0), d.notesPanel ?? 'bottom', EMPTY_NOTE);
 }
 
-export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote, initialFootnote, onSaveReady }) => {
+export const DiagramEditor: React.FC<DiagramEditorProps> = props => {
+  const scope = useDiagramChatScope();
+  return scope ? <DiagramEditorBody {...props} /> : <DiagramChatProvider><DiagramEditorBody {...props} /></DiagramChatProvider>;
+};
+
+const DiagramEditorBody: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote, initialFootnote, onSaveReady, parentContext }) => {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -276,7 +286,7 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({ canvasId, onDelete
       </div>
     );
   }
-  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} initialFootnote={initialFootnote} onSaveReady={onSaveReady} />;
+  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} initialFootnote={initialFootnote} onSaveReady={onSaveReady} parentContext={parentContext} />;
 };
 
 // ── Surface ───────────────────────────────────────────────────────────────────
@@ -314,6 +324,7 @@ interface EditingLabel { kind: 'node' | 'edge'; id: string; value: string }
 
 interface SurfaceProps {
   canvasId: string;
+  parentContext?: AthenaPageContext | undefined;
   initial: DiagramSnapshot;
   onReload: () => void;
   onDeleted?: (() => void) | undefined;
@@ -324,12 +335,15 @@ interface SurfaceProps {
 
 const LABEL_OFFSET_MAX = 10000;
 
-const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote, initialFootnote, onSaveReady }) => {
+const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote, initialFootnote, onSaveReady, parentContext }) => {
   const queryClient = useQueryClient();
   const markerBase = `dg${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
   const [doc, setDocState] = useState<DiagramDocument>(initial.document);
   const docRef = useRef(doc);
+  const GRID = diagramGridSize(doc.gridSize);
+  const [guides, setGuides] = useState<AlignmentGuide[]>([]);
+  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [sel, setSelState] = useState<Selection>(EMPTY_SEL);
   const selRef = useRef(sel);
   const [drag, setDragState] = useState<Drag | null>(null);
@@ -367,6 +381,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [, setHistoryTick] = useState(0);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  useAnchoredPopovers(rootRef, menu ? '.dg-popover' : null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -377,7 +392,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   const setDoc = useCallback((next: DiagramDocument) => { docRef.current = next; setDocState(next); }, []);
   const setSel = useCallback((next: Selection) => { selRef.current = next; setSelState(next); }, []);
-  const setDrag = useCallback((next: Drag | null) => { dragRef.current = next; setDragState(next); }, []);
+  const setDrag = useCallback((next: Drag | null) => { dragRef.current = next; setDragState(next); if (next === null) setGuides([]); }, []);
 
   const display = useMemo(() => collapseView(doc), [doc]);
   const byId = useMemo(() => nodeMap(display.nodes), [display.nodes]);
@@ -462,10 +477,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const [saveError, setSaveError] = useState<string | null>(null);
   const athenaContext = useMemo<AthenaPageContext>(() => ({
     type: 'canvas', id: `map:${canvasId}`, title: savedTitle,
-    detail: `Editable diagram. Read its saved shapes and connectors, provided separately. ${saveStatus === 'saved' ? 'All editor changes are saved.' : 'Editor changes are not yet saved; do not assume they are in the saved structure.'}`,
+    conversationId: parentContext?.conversationId ?? parentContext?.id ?? `map:${canvasId}`,
+    detail: `${parentContext ? `Inside ${parentContext.title} (${parentContext.id}). Parent context: ${parentContext.detail ?? ''}\n` : ''}Editable diagram. Read its saved shapes and connectors, provided separately. ${saveStatus === 'saved' ? 'All editor changes are saved.' : 'Editor changes are not yet saved; do not assume they are in the saved structure.'}`,
     ...(sel.nodes.length === 1 ? { selectedId: sel.nodes[0]! } : sel.edges.length === 1 ? { selectedId: sel.edges[0]! } : {}),
-    ...(canvas?.project != null ? { projectId: canvas.project } : {}),
-  }), [canvasId, savedTitle, saveStatus, sel.nodes, sel.edges, canvas?.project]);
+    ...(canvas?.project != null ? { projectId: canvas.project } : parentContext?.projectId != null ? { projectId: parentContext.projectId } : {}),
+  }), [canvasId, savedTitle, saveStatus, sel.nodes, sel.edges, canvas?.project, parentContext]);
 
   const flush = useCallback((): void => {
     const s = save.current;
@@ -815,7 +831,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const placeNode = useCallback((kind: DiagramKind, center: P, extra: Partial<DiagramNode> = {}): DiagramNode => {
     const cur = docRef.current;
     let node = makeNode(kind, center, extra);
-    if (cur.grid) node = { ...node, x: snap(node.x, GRID), y: snap(node.y, GRID) };
+    if (cur.grid) node = { ...node, x: snap(node.x, diagramGridSize(cur.gridSize)), y: snap(node.y, diagramGridSize(cur.gridSize)) };
     const host = containerAt(cur.nodes, center);
     return host !== null ? { ...node, parentId: host.id } : node;
   }, []);
@@ -1453,14 +1469,26 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         const rawY = world.y - d.start.y;
         const dx = snapOn ? snap(d.origin.x + rawX, GRID) - d.origin.x : rawX;
         const dy = snapOn ? snap(d.origin.y + rawY, GRID) - d.origin.y : rawY;
-        setDoc(translateNodes(d.before, d.ids, dx, dy));
+        const moving = withDescendants(d.before.nodes, d.ids);
+        const alignment = e.altKey ? { delta: { x: dx, y: dy }, guides: [] }
+          : alignMovingBounds(d.origin, d.before.nodes.filter(node => !moving.has(node.id) && !isContainerKind(node.kind)), { x: dx, y: dy }, 5 / cur.viewport.zoom);
+        setGuides(alignment.guides);
+        setDoc(translateNodes(d.before, d.ids, alignment.delta.x, alignment.delta.y));
         const host = containerAt(d.before.nodes, world, withDescendants(d.before.nodes, d.ids));
         setDropTargetId(host?.id ?? null);
         setDrag({ ...d, moved: true, current: world });
         return;
       }
       case 'resize': {
-        const rect = resizeRect(d.origin, d.handle, snapPoint(world, snapOn), { min: MIN_NODE_SIZE, keepAspect: e.shiftKey });
+        let point = snapPoint(world, snapOn);
+        const alignment = alignMovingBounds({ ...point, width: 0, height: 0 },
+          d.before.nodes.filter(node => node.id !== d.id && !isContainerKind(node.kind)), { x: 0, y: 0 }, 5 / cur.viewport.zoom);
+        const activeGuides = e.altKey || e.shiftKey ? [] : alignment.guides.filter(guide =>
+          guide.axis === 'x' ? /[ew]/.test(d.handle) : /[ns]/.test(d.handle));
+        point = { x: point.x + (activeGuides.some(guide => guide.axis === 'x') ? alignment.delta.x : 0),
+          y: point.y + (activeGuides.some(guide => guide.axis === 'y') ? alignment.delta.y : 0) };
+        setGuides(activeGuides);
+        const rect = resizeRect(d.origin, d.handle, point, { min: MIN_NODE_SIZE, keepAspect: e.shiftKey });
         setDoc({
           ...d.before,
           nodes: d.before.nodes.map((n) => (n.id === d.id ? { ...n, x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) } : n)),
@@ -1499,6 +1527,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     if (d === null || e.pointerId !== d.pointerId) return;
     if (svgRef.current?.hasPointerCapture(e.pointerId) === true) svgRef.current.releasePointerCapture(e.pointerId);
     setDrag(null);
+    setGuides([]);
     setDropTargetId(null);
     if (cancelled) {
       if (d.kind === 'move' || d.kind === 'resize' || d.kind === 'bend' || d.kind === 'line-end' || d.kind === 'label') setDoc({ ...d.before, viewport: docRef.current.viewport });
@@ -1947,6 +1976,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   };
 
   return (<>
+    {imagePreview && <ImageViewer image={imagePreview} onClose={() => { setImagePreview(null); }} />}
     {emailContent && <ShareEmailModal content={emailContent} onClose={() => { setEmailContent(null); }} />}
     <div
       ref={rootRef}
@@ -1958,6 +1988,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       onCopy={(e) => { onCopy(e); }}
       onCut={(e) => { onCopy(e, true); }}
       onPaste={onPaste}
+      onPasteCapture={pasteReadableText}
     >
       <div className="dg-header">
         <div className="dg-header__row">
@@ -1982,6 +2013,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           </div>
           <div className="dg-header__group kh-command-row">
           <IconBtn label={doc.grid ? 'Hide grid and snapping' : 'Show grid and snap to it'} pressed={doc.grid} onClick={toggleGrid}><Grid size={16} /></IconBtn>
+          <select className="dg-grid-size" aria-label="Grid spacing" value={GRID} title="Grid spacing. Hold Alt to bypass snapping and alignment guides."
+            onChange={event => { commit({ ...docRef.current, gridSize: diagramGridSize(Number(event.target.value)) }); }}>
+            {[5, 10, 20, 40].map(value => <option key={value} value={value}>{value} units</option>)}
+          </select>
           <IconBtn label={doc.legend?.visible === true ? 'Hide colour key' : 'Show colour key'} pressed={doc.legend?.visible === true}
             onClick={() => { const visible = doc.legend?.visible !== true; changeAnnotations(setLegend(doc, { ...(doc.legend ?? DEFAULT_LEGEND), visible }), true); if (!visible) setKeyFilter(null); }}>
             <Legend size={16} />
@@ -2184,6 +2219,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             onClick={() => { setLineTool(!lineTool); setMenu(null); }}>
             <ShapeGlyph kind="line" />
           </button>
+          {!isAiFlow && <button type="button" className="dg-palette__item" title="Agent - add an AI agent to this standard diagram" aria-label="Add Agent"
+            onClick={() => { addAiStep('specialist_agent'); }}><Bot size={20} /></button>}
           {isAiFlow && (
             <div className="dg-anchor dg-anchor--ai-steps">
               <button
@@ -2247,6 +2284,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             </defs>
             {doc.grid && <rect className="dg-canvas__grid" x={0} y={0} width="100%" height="100%" fill={`url(#${markerBase}-grid)`} />}
             <g transform={`translate(${view.x} ${view.y}) scale(${z})`}>
+              {guides.map(guide => <line key={guide.axis} className="dg-alignment-guide"
+                x1={guide.axis === 'x' ? guide.value : -view.x / z} x2={guide.axis === 'x' ? guide.value : (size.width - view.x) / z}
+                y1={guide.axis === 'y' ? guide.value : -view.y / z} y2={guide.axis === 'y' ? guide.value : (size.height - view.y) / z} />)}
               {drag?.kind === 'draw-line' && <line className="dg-preview-line" x1={drag.start.x} y1={drag.start.y}
                 x2={drag.current.x} y2={drag.current.y} />}
               {display.edges.filter((edge) => edge.behind === true).map(renderEdge)}
@@ -2628,7 +2668,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         <p className="dg-athena__hint">{saveStatus === 'saved'
           ? 'Athena reads saved shapes, descriptions and connectors, and can compare other diagrams.'
           : 'Changes are not saved yet. Athena can only read the last saved diagram.'}</p>
-        <ThinkAthenaPanel pageContext={athenaContext} promptRequest={athenaPrompt} />
+        <DiagramChatTarget context={athenaContext} prompt={athenaPrompt} visible={athenaOpen} />
       </aside>}
       {propertiesOpen && !athenaOpen && <aside className="dg-properties" aria-label="Diagram properties">
         <div className="dg-properties__heading"><h3>Properties</h3><IconBtn label="Close properties" onClick={() => { setPropertiesOpen(false); }}><Close size={16} /></IconBtn></div>
@@ -2709,6 +2749,20 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             else { setDoc(updated); markDirty(SAVE_DELAY_MS); }
           }}
         />}
+        {singleNode?.kind === 'image' && <div className="dg-properties__actions">
+          <button type="button" className="dg-text-btn" onClick={() => {
+            const asset = singleNode.assetId ? assets[singleNode.assetId] : undefined;
+            if (asset?.status !== 'ready') { notify('error', 'Wait for the image to load, or retry the image.'); return; }
+            setImagePreview({ source: asset.url, title: singleNode.label || 'Diagram image' });
+          }}><ZoomIn size={16} /> Open image full screen</button>
+          <button type="button" className="dg-text-btn" onClick={() => {
+            const asset = singleNode.assetId ? assets[singleNode.assetId] : undefined;
+            if (asset?.status !== 'ready') { notify('error', 'Wait for the image to load, or retry the image.'); return; }
+            void copyImage(asset.url).then(() => { notify('info', 'Image copied.'); }).catch((cause: unknown) => {
+              notify('error', `Could not copy image: ${describeError(cause).message}`);
+            });
+          }}><Copy size={16} /> Copy image</button>
+        </div>}
         {singleId !== undefined && <DiagramElementNotes
           key={`notes-${singleId}`} canvasId={canvasId} elementId={singleId} title="Notes linked to this shape"
           notes={elementNotes.filter((l) => l.elementId === singleId)} onOpenNote={onOpenNote} beforeChange={beforeElementLink}
@@ -2750,7 +2804,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         }}
       />
       {drilldown !== null && <DiagramDrilldown canvasId={drilldown.canvasId} shapeTitle={drilldown.shapeTitle}
-        parentTitle={savedTitle} onOpenNote={onOpenNote} onClose={() => {
+        parentTitle={savedTitle} parentContext={athenaContext} onOpenNote={onOpenNote} onClose={() => {
           setDrilldown(null);
           void queryClient.invalidateQueries({ queryKey: ['diagram-drilldowns', canvasId] });
           rootRef.current?.focus({ preventScroll: true });

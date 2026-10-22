@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, Close, Layers } from '@carbon/icons-react';
 import { DiagramEditor } from './DiagramEditor';
+import type { AthenaPageContext } from '../../context/AthenaContext';
 
 /** A separate editable canvas; the parent stays mounted with its selection and viewport intact. */
-export function DiagramDrilldown({ canvasId, shapeTitle, parentTitle, onClose, onOpenNote }: {
+export function DiagramDrilldown({ canvasId, shapeTitle, parentTitle, parentContext, onClose, onOpenNote }: {
   canvasId: string;
   shapeTitle: string;
   parentTitle: string;
+  parentContext?: AthenaPageContext | undefined;
   onClose: () => void;
   onOpenNote?: ((id: string) => void) | undefined;
 }): React.ReactElement {
@@ -64,7 +66,7 @@ export function DiagramDrilldown({ canvasId, shapeTitle, parentTitle, onClose, o
       </header>
       {error !== null && <p className="dg-drilldown__error" role="alert">{error}</p>}
       <div className="dg-drilldown__body">
-        <DiagramEditor canvasId={canvasId} onSaveReady={registerSave} onDeleted={onClose}
+        <DiagramEditor canvasId={canvasId} parentContext={parentContext} onSaveReady={registerSave} onDeleted={onClose}
           onOpenNote={onOpenNote === undefined ? undefined : id => { void close(() => { onOpenNote(id); }); }} />
       </div>
     </dialog>, document.body);

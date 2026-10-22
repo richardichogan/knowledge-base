@@ -1,4 +1,4 @@
-export type ChatMentionType = 'person' | 'project' | 'note' | 'document';
+export type ChatMentionType = 'person' | 'company' | 'project' | 'note' | 'document';
 export interface ChatMentionTarget {
   type: ChatMentionType;
   id: string;
@@ -8,7 +8,7 @@ export interface ChatMentionTarget {
 }
 
 export const CHAT_MENTION_LABELS: Record<ChatMentionType, string> = {
-  person: 'Person', project: 'Project', note: 'Think note', document: 'Library document',
+  person: 'Person', company: 'Company', project: 'Project', note: 'Think note', document: 'Library document',
 };
 
 export function insertChatMention(input: string, query: { start: number; end: number }, target: ChatMentionTarget): { input: string; cursor: number } {

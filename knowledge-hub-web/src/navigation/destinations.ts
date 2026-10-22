@@ -1,6 +1,6 @@
 import {
   Home, Compass, CalendarTools, Idea, Portfolio, Activity, Book,
-  Network_3, MachineLearningModel, Renew, Tag, Settings, Code, Analytics, UserMultiple,
+  Network_3, MachineLearningModel, Renew, Tag, Settings, Code, Analytics, UserMultiple, Building,
 } from '@carbon/icons-react';
 
 export type NavigationAction = 'tags' | 'repo-tags';
@@ -28,6 +28,7 @@ export const PRIMARY_DESTINATIONS: NavigationDestination[] = [
 export const TOOL_GROUPS: NavigationGroup[] = [
   { label: 'Context and records', items: [
     { id: 'people', path: '/people', label: 'People', icon: UserMultiple, description: 'Contacts, organisations and working relationships' },
+    { id: 'companies', path: '/companies', label: 'Companies', icon: Building, description: 'Company pages, people and programme relationships' },
     { id: 'activity', path: '/my-work', label: 'Activity', icon: Activity, description: 'Activity from connected systems' },
     { id: 'sources', path: '/library', label: 'Sources', icon: Book, description: 'Indexed documents and source material' },
     { id: 'graph', path: '/graph', label: 'Knowledge graph', icon: Network_3, description: 'Inspect connections across Athena' },

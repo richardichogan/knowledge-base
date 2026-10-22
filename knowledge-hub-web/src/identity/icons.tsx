@@ -59,7 +59,7 @@ export const IDENTITY_ICONS: Record<string, { icon: CarbonIconType; label: strin
 
 export const PROJECT_ICON_KEYS = Object.keys(IDENTITY_ICONS);
 
-/** Content types are identified by icon only — never by colour. */
+/** Icons remain available alongside content-type colours. */
 const CONTENT_TYPE_ICON: Record<string, CarbonIconType> = {
   note: Notebook,
   code: Code,

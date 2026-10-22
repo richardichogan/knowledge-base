@@ -1,0 +1,137 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { alignMovingBounds, diagramGridSize } from '../src/features/diagram/diagramAlignment';
+import { normalizeDocument } from '../src/features/diagram/diagramGeometry';
+import { diagramSvg } from '../src/features/diagram/diagramExport';
+import { diagramDrawioXml } from '../src/features/diagram/diagramDrawio';
+import { emptyDiagram, type DiagramNode } from '../src/features/diagram/diagramTypes';
+import { readThinkLocation, diagramLocation } from '../src/notes/thinkLocation';
+import { readableClipboardText } from '../src/utils/clipboardText';
+import { entityLinkHref, linkPlainMentions } from '../src/notes/entityLinks';
+import { insertChatMention } from '../src/chat/mentions';
+import { build } from 'esbuild';
+import { createContext, runInContext } from 'node:vm';
+import { fileURLToPath } from 'node:url';
+
+const node = (id: string, x: number, y: number): DiagramNode => ({
+  id, x, y, width: 100, height: 60, kind: 'process', label: id, fill: '#ffffff',
+  stroke: '#161616', textColor: '#161616', fontSize: 14, assetId: null, parentId: null,
+});
+
+test('new diagram navigation replaces stale note/spark routing and survives a reload', () => {
+  const original = new URLSearchParams('noteId=old&view=sparks&footnote=4&projectId=reckitt');
+  const next = diagramLocation(original, 'new-diagram');
+  assert.deepEqual(readThinkLocation(next), { view: 'canvas', id: 'new-diagram' });
+  assert.equal(original.get('noteId'), 'old', 'navigation must not mutate router params');
+  assert.equal(next.get('projectId'), 'reckitt');
+  assert.deepEqual(readThinkLocation(new URLSearchParams(next.toString())), { view: 'canvas', id: 'new-diagram' });
+  assert.deepEqual(readThinkLocation(new URLSearchParams('mapId=child&noteId=stale&footnote=2')), { view: 'canvas', id: 'child', footnote: 2 });
+  assert.deepEqual(readThinkLocation(new URLSearchParams('noteId=note')), { view: 'notes', id: 'note' });
+  assert.deepEqual(readThinkLocation(new URLSearchParams('view=sparks')), { view: 'sparks' });
+});
+
+test('alignment snaps centres and edges exactly within zoom-adjusted tolerance, leaving distant shapes alone', () => {
+  const moving = { x: 0, y: 0, width: 100, height: 60 };
+  const other = node('reference', 200, 100);
+  const near = alignMovingBounds(moving, [other], { x: 198, y: 98 }, 5);
+  assert.deepEqual(near.delta, { x: 200, y: 100 });
+  assert.deepEqual(near.guides, [{ axis: 'x', value: 200 }, { axis: 'y', value: 100 }]);
+  const far = alignMovingBounds(moving, [other], { x: 170, y: 80 }, 5);
+  assert.deepEqual(far, { delta: { x: 170, y: 80 }, guides: [] });
+  const zoomed = alignMovingBounds(moving, [other], { x: 198, y: 98 }, 5 / 4);
+  assert.deepEqual(zoomed.guides, []);
+  const centre = alignMovingBounds({ x: 0, y: 0, width: 60, height: 20 }, [other], { x: 219, y: 119 }, 2);
+  assert.deepEqual(centre.delta, { x: 220, y: 120 });
+});
+
+test('fine grid preferences round-trip and remain consistent in SVG and draw.io exports', async () => {
+  assert.equal(diagramGridSize(undefined), 10);
+  assert.equal(diagramGridSize(13), 10);
+  for (const gridSize of [5, 10, 20, 40]) {
+    const doc = normalizeDocument({ ...emptyDiagram(), nodes: [node('one', 0, 0)], gridSize });
+    assert.equal(doc.gridSize, gridSize);
+    const svg = await diagramSvg(doc, new Map(), 'white', true);
+    assert.ok(svg.includes(`id="export-grid" width="${gridSize}" height="${gridSize}"`));
+    const xml = await diagramDrawioXml(doc, new Map());
+    assert.ok(xml.includes(`gridSize="${gridSize}"`));
+  }
+});
+
+test('Athena structured clipboard text becomes prose; ordinary JSON and diagram object clipboard remain untouched', () => {
+  const blocks = [{ type: 'paragraph', content: [{ type: 'text', text: 'Company ' }, { type: 'text', text: 'context' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Programme details' }] }];
+  assert.equal(readableClipboardText(JSON.stringify(blocks), ''), 'Company context\nProgramme details');
+  assert.equal(readableClipboardText(JSON.stringify({ contentJson: JSON.stringify(blocks) }), ''), 'Company context\nProgramme details');
+  assert.equal(readableClipboardText('A plain description', ''), 'A plain description');
+  assert.equal(readableClipboardText('{"setting":42}', ''), '{"setting":42}');
+  assert.equal(readableClipboardText('[not JSON]', ''), '[not JSON]');
+  const diagram = '{"type":"kh-diagram/v1","nodes":[],"edges":[]}';
+  assert.equal(readableClipboardText(diagram, ''), diagram);
+});
+
+test('companies participate in note linking and chat mentions with stable encoded routes', () => {
+  const href = entityLinkHref('company', 'company & id');
+  assert.equal(href, '/companies?companyId=company%20%26%20id');
+  const target = { type: 'company' as const, id: 'bcg', title: 'BCG', href };
+  const converted = linkPlainMentions([{ type: 'paragraph', content: [{ type: 'text', text: 'BCG works on Reckitt' }] }], target);
+  assert.equal(converted.count, 1);
+  assert.match(JSON.stringify(converted.blocks), /"entityType":"company"/);
+  assert.equal(insertChatMention('Ask @BC', { start: 4, end: 7 }, { ...target, detail: '' }).input, `Ask @[BCG](${href}) `);
+});
+
+test('diagram popovers enter the top layer, stay within the viewport and release listeners on close', async () => {
+  const compiled = await build({
+    entryPoints: [fileURLToPath(new URL('../src/hooks/useAnchoredPopovers.ts', import.meta.url))],
+    bundle: true, write: false, platform: 'node', format: 'cjs', external: ['react'],
+  });
+  let cleanup: (() => void) | undefined;
+  let open = false;
+  let observerDisconnected = false;
+  const listeners = new Map<string, () => void>();
+  const style: Record<string, string> = {};
+  const attributes: Record<string, string> = {};
+  const element = {
+    style, offsetWidth: 400, offsetHeight: 500,
+    parentElement: { getBoundingClientRect: () => ({ left: 480, top: 750, bottom: 800 }) },
+    setAttribute: (name: string, value: string) => { attributes[name] = value; },
+    showPopover: () => { open = true; }, hidePopover: () => { open = false; },
+    matches: (selector: string) => selector === ':popover-open' && open,
+  };
+  const window = {
+    innerWidth: 500, innerHeight: 400,
+    addEventListener: (name: string, listener: () => void, capture = false) => { listeners.set(`${name}:${capture}`, listener); },
+    removeEventListener: (name: string, listener: () => void, capture = false) => {
+      assert.equal(listeners.get(`${name}:${capture}`), listener);
+      listeners.delete(`${name}:${capture}`);
+    },
+  };
+  const root = { current: { querySelectorAll: () => [element] } };
+  const module = { exports: {} as { useAnchoredPopovers(target: typeof root, selector: string | null, above?: boolean): void } };
+  const context = createContext({ module, exports: module.exports, window,
+    ResizeObserver: class {
+      observe(): void {}
+      disconnect(): void { observerDisconnected = true; }
+    },
+    require: () => ({ useLayoutEffect: (effect: () => (() => void) | undefined) => { cleanup = effect(); } }),
+  });
+  runInContext(compiled.outputFiles[0]!.text, context);
+  module.exports.useAnchoredPopovers(root, '.dg-popover');
+  assert.equal(attributes['popover'], 'manual');
+  assert.equal(open, true);
+  assert.equal(style['left'], '92px');
+  assert.equal(style['top'], '8px');
+  assert.equal(style['maxHeight'], '384px');
+  window.innerWidth = 1200; window.innerHeight = 900;
+  listeners.get('resize:false')!();
+  assert.equal(style['left'], '480px');
+  assert.equal(style['top'], '392px');
+  cleanup!();
+  assert.equal(open, false);
+  assert.equal(listeners.size, 0);
+  assert.equal(observerDisconnected, true);
+  module.exports.useAnchoredPopovers(root, '.ai-move__panel', true);
+  assert.equal(style['top'], '242px', 'inline Athena menus prefer the space above their trigger');
+  cleanup!();
+  module.exports.useAnchoredPopovers(root, null);
+  assert.equal(cleanup, undefined);
+});

@@ -17,7 +17,7 @@ import { BlobSASPermissions, generateBlobSASQueryParameters } from '@azure/stora
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
 import { HTTP_STATUS, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, OCR_MAX_POLLS, OCR_POLL_INTERVAL_MS, IMAGE_SAS_EXPIRY_YEARS, BLOB_UPLOAD_TIMEOUT_MS } from '../config/constants.js';
-import { BlobStorageError, ValidationError } from '../types/index.js';
+import { BlobStorageError, ValidationError, NotFoundError } from '../types/index.js';
 import { analyzeImageWithVision } from '../services/visionAnalyzer.js';
 import type { ApiSuccess, PaginatedList, KnowledgeImage } from '../types/index.js';
 import { getAthenaStorage } from '../services/athenaStorage.js';
@@ -26,6 +26,26 @@ const router = Router();
 
 const KB_IMAGES_CONTAINER = 'kb-images';
 const CHAT_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const MAX_COPY_IMAGE_BYTES = 25_000_000;
+
+// Read known stored images through the authenticated API, independent of blob CORS/SAS expiry.
+router.get('/:id/file', (req, res, next) => {
+  void (async (): Promise<void> => {
+    const id = req.params['id'];
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new ValidationError('Invalid image ID');
+    const existing = await getDb().query('SELECT id FROM kb_images WHERE id::text=$1', [id]);
+    if (!existing.rows.length) throw new NotFoundError('Image');
+    const blob = getAthenaStorage().service.getContainerClient(KB_IMAGES_CONTAINER).getBlockBlobClient(id);
+    const properties = await blob.getProperties();
+    if ((properties.contentLength ?? 0) > MAX_COPY_IMAGE_BYTES) throw new ValidationError('Image exceeds the 25 MB copy limit');
+    const type = properties.contentType ?? '';
+    if (!type.startsWith('image/')) throw new ValidationError('Stored file is not an image');
+    const bytes = await blob.downloadToBuffer();
+    res.setHeader('Content-Type', type);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(bytes);
+  })().catch(next);
+});
 
 /** Calls Azure AI Vision Read API to extract text from an image buffer. */
 async function runOcr(imageBuffer: Buffer): Promise<string> {

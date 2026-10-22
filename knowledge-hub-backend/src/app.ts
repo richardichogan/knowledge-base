@@ -23,6 +23,7 @@ import { allianceAuthRouter, allianceApiRouter } from './routes/allianceAuth.js'
 import { memoriesRouter } from './routes/memories.js';
 import { projectsRouter } from './routes/projects.js';
 import { peopleRouter } from './routes/people.js';
+import { companiesRouter } from './routes/companies.js';
 import { projectCockpitRouter } from './routes/projectCockpit.js';
 import { reviewPacketsRouter } from './routes/reviewPackets.js';
 import { tagsRouter } from './routes/tags.js';
@@ -153,6 +154,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/images', imagesRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/people', peopleRouter);
+  app.use('/api/companies', companiesRouter);
   app.use('/api/projects', projectCockpitRouter);
   app.use('/api/projects', reviewPacketsRouter);
   app.use('/api/tags', tagsRouter);

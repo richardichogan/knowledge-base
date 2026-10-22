@@ -197,7 +197,7 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     const at = footnoteAnchor(document, target, byId);
     return at === null ? [] : [marker(at.x, at.y, i + 1)];
   });
-  const grid = includeGrid ? `<pattern id="export-grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r="1" fill="#d0d0d0"/></pattern>` : '';
+  const grid = includeGrid ? `<pattern id="export-grid" width="${source.gridSize ?? 10}" height="${source.gridSize ?? 10}" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r="1" fill="#d0d0d0"/></pattern>` : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${bounds.x} ${bounds.y} ${width} ${height}"><defs>${grid}${definitions.join('')}</defs>${background === 'white' ? `<rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="white"/>` : ''}${includeGrid ? `<rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="url(#export-grid)"/>` : ''}${behindEdges.join('')}${nodes.join('')}${edges.join('')}${markers.join('')}${extras.join('')}</svg>`;
   return { svg, width, height };
 }

@@ -28,6 +28,7 @@ import { useAthenaContext } from '../context/AthenaContext';
 import { usePersistedBoolean } from '../hooks/usePersistedState';
 import type { CanvasFullApi, CanvasSummaryApi } from '../services/api';
 import type { DiagramType } from '../features/diagram/diagramTypes';
+import { diagramLocation, readThinkLocation } from './thinkLocation';
 import '../features/diagram/diagramIntegration.scss';
 import { DataNotice } from '../components/DataNotice';
 import { canvasHierarchy } from '../features/canvas/canvasHierarchy';
@@ -77,7 +78,7 @@ export const NotesPage: React.FC = () => {
   const [sparksPrompt, setSparksPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
   const [selectedId,       setSelectedId]       = useState<string | null>(null);
   const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
-  const [mode,             setMode]             = useState<ViewMode>('notes');
+  const [mode,             setMode]             = useState<ViewMode>(() => readThinkLocation(searchParams)?.view ?? 'notes');
   usePageTitle({ view: VIEW_MODES.find((v) => v.key === mode)?.label });
   const [mobilePane, setMobilePane] = useState<'list' | 'editor'>('list');
   const mobile = useMediaQuery('(max-width: 640px)');
@@ -157,20 +158,17 @@ export const NotesPage: React.FC = () => {
   });
 
   useEffect(() => {
-    if (searchParams.get('view') === 'sparks') {
+    const location = readThinkLocation(searchParams);
+    if (location?.view === 'sparks') {
       setMode('sparks');
       searchParams.delete('view');
       setSearchParams(searchParams, { replace: true });
       return;
     }
-    const linkedMapId = searchParams.get('mapId');
-    if (linkedMapId !== null) {
-      openMap(linkedMapId);
-      const footnote = Number(searchParams.get('footnote'));
-      if (Number.isInteger(footnote) && footnote > 0) setCanvasFootnote(footnote);
-      searchParams.delete('mapId');
-      searchParams.delete('footnote');
-      setSearchParams(searchParams, { replace: true });
+    if (location?.view === 'canvas') {
+      openMap(location.id);
+      if (location.footnote !== undefined) setCanvasFootnote(location.footnote);
+      return;
     }
     const linkedId = searchParams.get('noteId');
     if (linkedId !== null) {
@@ -219,6 +217,7 @@ export const NotesPage: React.FC = () => {
         setOpenDoc(doc);
         setMobilePane('editor');
         setMode('notes');
+        setSearchParams({ noteId: doc.id }, { replace: true });
         return true;
       }
       return false;
@@ -360,6 +359,9 @@ export const NotesPage: React.FC = () => {
     setCanvasOpenTab(tab);
     setCanvasFootnote(undefined);
     setSelectedCanvasId(mapId);
+    if (searchParams.get('mapId') !== mapId || searchParams.has('noteId')) {
+      setSearchParams(diagramLocation(searchParams, mapId), { replace: true });
+    }
   }
 
   /** "Canvas" on a note: opens the note's canvas, or creates one with the note as its first card. */
@@ -376,6 +378,7 @@ export const NotesPage: React.FC = () => {
 
   /** Opens a note from a map (switches Think back to Notes). */
   function openNoteFromMap(noteId: string): void {
+    setSearchParams({ noteId }, { replace: true });
     setMode('notes');
     setMobilePane('editor');
     setSelectedId(null);
@@ -546,7 +549,7 @@ export const NotesPage: React.FC = () => {
                 role="tab"
                 aria-selected={mode === key}
                 className={`plan-view-btn${mode === key ? ' plan-view-btn--active' : ''}`}
-                onClick={() => { setMode(key); setMobilePane('list'); }}
+                onClick={() => { setSearchParams(key === 'sparks' ? { view: 'sparks' } : {}, { replace: true }); setMode(key); setMobilePane('list'); }}
               >
                 <Icon size={16} />
                 {label}

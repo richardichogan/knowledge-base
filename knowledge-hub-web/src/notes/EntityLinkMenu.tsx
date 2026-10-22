@@ -9,10 +9,11 @@ import { useAthenaContext } from '../context/AthenaContext';
 import { createNote } from './noteStorage';
 import { ENTITY_LINK_LABELS, debouncedLinkSearch, wikiQuery, type EntityLinkTarget } from './entityLinks';
 import { editorSchema } from './editorSchema';
+import { EMPTY_PERSON } from '../types/people';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
 type Item = { title: string; detail: string } & (
-  { kind: 'existing'; target: EntityLinkTarget } | { kind: 'create'; text: string } | { kind: 'athena' } | { kind: 'message' }
+  { kind: 'existing'; target: EntityLinkTarget } | { kind: 'create'; text: string; entityType: 'note' | 'person' | 'company' } | { kind: 'athena' } | { kind: 'message' }
 );
 
 function LinkSuggestions({ items, selectedIndex, onItemClick, loadingState }: SuggestionMenuProps<Item>): React.ReactElement {
@@ -68,22 +69,34 @@ export function EntityLinkMenu({ editor, noteId, projectId, onError }: {
     // Freeze the source editor until creation resolves so insertion cannot land in another block.
     const wasEditable = editor.isEditable;
     editor.isEditable = false;
-    void createNote({ title: item.text, contentType: 'note',
-      contentJson: JSON.stringify([{ type: 'heading', props: { level: 1 }, content: item.text }]) }, projectId || undefined)
-      .then(note => {
-        if (!note) throw new Error('The new note was not returned.');
-        void qc.invalidateQueries({ queryKey: ['notes-list'] });
+    const create = async (): Promise<EntityLinkTarget> => {
+      if (item.entityType === 'person') {
+        const person = requireApiData(await api.savePerson({ ...EMPTY_PERSON, name: item.text }));
+        return { type: 'person', id: person.id, title: person.name, href: `/people?personId=${encodeURIComponent(person.id)}` };
+      }
+      if (item.entityType === 'company') {
+        const company = requireApiData(await api.saveCompany({ name: item.text, description: '', website: '', projectIds: [] }));
+        return { type: 'company', id: company.id, title: company.name, href: `/companies?companyId=${encodeURIComponent(company.id)}` };
+      }
+      const note = await createNote({ title: item.text, contentType: 'note',
+        contentJson: JSON.stringify([{ type: 'heading', props: { level: 1 }, content: item.text }]) }, projectId || undefined);
+      if (!note) throw new Error('The new note was not returned.');
+      return { type: 'note', id: note.id, title: note.title, href: `/think?noteId=${encodeURIComponent(note.id)}` };
+    };
+    void create()
+      .then(target => {
+        for (const key of ['notes-list', 'people', 'companies']) void qc.invalidateQueries({ queryKey: [key] });
         void qc.invalidateQueries({ queryKey: ['entity-link-search'] });
         if (!mounted.current) return;
         editor.isEditable = wasEditable;
-        insert({ type: 'note', id: note.id, title: note.title, href: `/think?noteId=${encodeURIComponent(note.id)}` }, wiki);
+        insert(target, wiki);
       })
       .catch((error: unknown) => {
-        console.error('[note links] Could not create linked note:', error);
+        console.error('[note links] Could not create linked record:', error);
         if (mounted.current) {
           editor.isEditable = wasEditable;
           editor.insertInlineContent([wiki ? `[${item.text}]]` : `@${item.text}`]);
-          onError(error instanceof Error ? error.message : 'Could not create the linked note. Your text was retained.');
+          onError(error instanceof Error ? error.message : 'Could not create the linked record. Your text was retained.');
         }
       }).finally(() => {
         busy.current = false;
@@ -116,7 +129,12 @@ export function EntityLinkMenu({ editor, noteId, projectId, onError }: {
     }
     const items: Item[] = targets.map(target => ({ kind: 'existing', title: target.title, detail: ENTITY_LINK_LABELS[target.type], target }));
     if (text && !targets.some(target => target.type === 'note' && target.title.toLocaleLowerCase() === text.toLocaleLowerCase())) {
-      items.push({ kind: 'create', title: `Create note "${text}"`, detail: 'Create and link; stay in this note', text });
+      items.push({ kind: 'create', entityType: 'note', title: `Create note "${text}"`, detail: 'Create and link; stay in this note', text });
+    }
+    if (text) for (const entityType of ['person', 'company'] as const) {
+      if (!targets.some(target => target.type === entityType && target.title.toLocaleLowerCase() === text.toLocaleLowerCase())) {
+        items.push({ kind: 'create', entityType, title: `Create ${entityType} "${text}"`, detail: `Create a dedicated ${entityType} page and insert its link`, text });
+      }
     }
     if (!wiki && (!text || 'athena'.startsWith(text.toLowerCase()))) items.push({ kind: 'athena', title: 'Athena', detail: 'Ask about the current note in the side panel' });
     return items.length ? items : [{ kind: 'message', title: 'No matching links', detail: 'Keep typing a title to create a note' }];
@@ -124,7 +142,7 @@ export function EntityLinkMenu({ editor, noteId, projectId, onError }: {
   const atItems = useCallback((query: string) => getItems(query, false), [getItems]);
   const wikiItems = useCallback((query: string) => getItems(query, true), [getItems]);
   return <>
-    {creating && <span className="note-link-menu__status" role="status">Creating linked note...</span>}
+    {creating && <span className="note-link-menu__status" role="status">Creating linked record...</span>}
     <SuggestionMenuController triggerCharacter="@" getItems={atItems} suggestionMenuComponent={LinkSuggestions}
       shouldOpen={tr => !tr.selection.$from.parent.type.spec.code &&
         (tr.selection.$from.parentOffset === 0 || /[\s([{]/.test(tr.selection.$from.parent.textBetween(tr.selection.$from.parentOffset - 1, tr.selection.$from.parentOffset)))}

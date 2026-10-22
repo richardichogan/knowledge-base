@@ -7,6 +7,7 @@ import { Export } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { createNote } from '../../notes/noteStorage';
 import { alertDialog } from '../../services/appDialogs';
+import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
 
 interface MoveToThinkProps {
   sessionId: string;
@@ -28,6 +29,7 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  useAnchoredPopovers(rootRef, open ? '.ai-move__panel' : null, variant === 'inline');
 
   useEffect(() => {
     if (!open) return undefined;
@@ -73,7 +75,11 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
   }
 
   return (
-    <div className={`ai-move${variant === 'inline' ? ' ai-move--inline' : ''}`} ref={rootRef}>
+    <div className={`ai-move${variant === 'inline' ? ' ai-move--inline' : ''}`} ref={rootRef}
+      onKeyDown={event => { if (event.key === 'Escape' && open) {
+        event.preventDefault(); event.stopPropagation();
+        if (busy === null) { setOpen(false); rootRef.current?.querySelector('button')?.focus(); }
+      } }}>
       <button
         type="button"
         className="ai-move__button"
