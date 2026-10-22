@@ -142,6 +142,9 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
       <button type="button" className="kh-dialog__button" onClick={() => { void categories.refetch(); }}>Retry categories</button>
     </p>}
     {d && !draft.isFetching && !draft.isError && !result && <>
+      {(d.styleWarnings?.length ?? 0) > 0 && <p className="dc-linkedin__error" role="status">
+        Style check (generated draft): {d.styleWarnings!.join('; ')}. Edit these out before sending.
+      </p>}
       <label className="dc-linkedin__label" htmlFor="blog-type">Post type</label>
       <select id="blog-type" className="dc-filter-select" value={value.postType}
         onChange={(e) => { const next = e.target.value as BlogDraft['postType']; setEdits(c => ({ ...c, postType: next })); }}>

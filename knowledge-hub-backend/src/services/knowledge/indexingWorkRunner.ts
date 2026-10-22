@@ -4,7 +4,8 @@
  */
 import type { Pool } from 'pg';
 import {
-  canIndexToFoundryIq, deleteIndexedContentItems, deleteItemPassages, indexContentItem, indexItemPassages, PASSAGE_INDEXED_SOURCES,
+  canIndexToFoundryIq, deleteIndexedContentItems, deleteItemPassages, indexContentItem, indexItemPassages, isPassageIndexAvailable,
+  PASSAGE_INDEXED_SOURCES,
 } from '../../ai/foundryIqIndexer.js';
 import { getContentItemsByIds, markContentItemFoundryIndexed } from '../../db/queries.js';
 import {
@@ -28,7 +29,7 @@ export function createDefaultIndexingHandlers(db: Pool): IndexingHandlers {
       if (item === undefined) return;
       try {
         await indexContentItem(item);
-        if (PASSAGE_INDEXED_SOURCES.has(item.source)) {
+        if (PASSAGE_INDEXED_SOURCES.has(item.source) && await isPassageIndexAvailable()) {
           const outcome = await indexItemPassages(item, await loadPassageHashes(db, item.id));
           await recordPassages(db, item.id, outcome.indexed, outcome.staleOrdinals);
         }
@@ -42,7 +43,7 @@ export function createDefaultIndexingHandlers(db: Pool): IndexingHandlers {
       try {
         const ordinals = [...(await loadPassageHashes(db, refId)).keys()];
         await deleteIndexedContentItems([refId]);
-        await deleteItemPassages(refId, ordinals);
+        if (ordinals.length > 0 && await isPassageIndexAvailable()) await deleteItemPassages(refId, ordinals);
         await clearPassages(db, refId);
       } catch (err) {
         throw toFailure(err);

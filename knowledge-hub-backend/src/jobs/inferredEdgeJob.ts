@@ -21,6 +21,10 @@ const SUMMARY_MAX_CHARS = 500;
 const MIN_CONFIDENCE = 0.7;
 const AI_MAX_TOKENS = 800;
 const MS_PER_DAY = 86_400_000;
+/** Records worth an AI relatedness check. Repo activity and feed articles are high-volume, low-value sources. */
+export const INFERENCE_SOURCE_TYPES = ['note', 'task', 'spark', 'canvas', 'document'] as const;
+/** Feed articles can still be suggested as related to a note or document. */
+export const INFERENCE_CANDIDATE_TYPES = [...INFERENCE_SOURCE_TYPES, 'discover_item'] as const;
 
 interface NodeRow {
   id: string;
@@ -82,9 +86,10 @@ export async function runInferredEdgeJob(db: Pool): Promise<void> {
        LEFT JOIN connection_assessments a ON a.node_id = n.id
        WHERE a.content_version IS DISTINCT FROM v.content_version
          AND v.changed_at <= $1
+         AND v.ref_type = ANY($3::text[])
        ORDER BY a.last_attempted_at ASC NULLS FIRST, v.changed_at, n.id
        LIMIT $2`,
-      [new Date(Date.now() - SETTLE_DELAY_MS).toISOString(), MAX_SOURCES_PER_RUN],
+      [new Date(Date.now() - SETTLE_DELAY_MS).toISOString(), MAX_SOURCES_PER_RUN, INFERENCE_SOURCE_TYPES],
     );
 
     const client = new FoundryClient('edge-inference');
@@ -144,6 +149,7 @@ async function processNode(
      LEFT JOIN connection_content_versions v ON v.ref_id = n.ref_id AND v.ref_type = n.ref_type
      WHERE GREATEST(n.updated_at, v.changed_at) >= $1
        AND n.id != $2
+       AND n.ref_type = ANY($4::text[])
        AND NOT EXISTS (
          SELECT 1 FROM edges e
          WHERE (e.source_node_id = $2 AND e.target_node_id = n.id)
@@ -152,7 +158,7 @@ async function processNode(
      ) candidates
      ORDER BY type_rank, updated_at DESC, id
      LIMIT $3`,
-    [candidateCutoff, source.id, MAX_CANDIDATES],
+    [candidateCutoff, source.id, MAX_CANDIDATES, INFERENCE_CANDIDATE_TYPES],
   );
   if (candidates.rows.length === 0) return;
 

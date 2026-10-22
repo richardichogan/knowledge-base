@@ -20,6 +20,7 @@ import { DataNotice } from '../components/DataNotice';
 import { PageHeader } from '../components/PageHeader';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import { DiscoverExplore } from '../components/discover/DiscoverExplore';
+import { DiscoverVote } from '../components/discover/DiscoverVote';
 import { DiscoverWatchlists } from '../components/discover/DiscoverWatchlists';
 import { DiscoverInterests } from '../components/discover/DiscoverInterests';
 import { buildBriefing, readSinceLastLooked } from '../features/discover/discoverInsights';
@@ -334,6 +335,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           </div>
         )}
         <div className="dc-card-actions">
+          <DiscoverVote itemId={item.id} vote={item.feedbackVote ?? null} />
           {(state === 'to-review' || state === 'shelved') && (
             <>
               <button type="button" className="dc-action dc-action--save" onClick={() => { onStateChange(item.id, 'saved'); }} disabled={isUpdating}>

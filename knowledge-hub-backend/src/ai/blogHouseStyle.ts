@@ -38,6 +38,11 @@ export const BLOG_PACKAGE_RULES = [
     'that lands"). Always use alternatives.',
   '- No use of "signal" as an uncountable mass noun (e.g. "useful signal," "there is signal here").',
   '- No overuse of "worth noting," "worth flagging," or "worth sitting with."',
+  '- No stock AI phrasing: "load-bearing", "testament to", "underscores", "pivotal", "seamless", "unlock", ' +
+    '"quietly", "at its core", "delve", "double-edged sword", "north star", "table stakes", "ultimately", ' +
+    '"moreover", "the uncomfortable truth", "the bottom line".',
+  '- No set-up and reveal ("Here\'s the catch:", "The answer?", "Here\'s why"), no "the question isn\'t X", ' +
+    'no "not because X, but because Y", and no "this matters because" signposting.',
   '',
   '### CMS output package — deliver all 10 fields, in this order, every time, no omissions',
   '1. **Title** — editorial and specific, not a restatement of the source headline; reflects the angle ' +

@@ -9,7 +9,7 @@ import { errorHandler } from '../src/middleware/errorHandler.js';
 import { CONTENT_FORMATS, formatFitSql } from '../src/integrations/cms/formatFit.js';
 import { isMicrosoftRelevant } from '../src/utils/microsoftRelevance.js';
 import { buildRelevanceSystemPrompt, classifySourceAuthority, SOURCE_AUTHORITY_WEIGHTS } from '../src/integrations/cms/articleScoringPrompt.js';
-import { interestSql } from '../src/services/discoverInterests.js';
+import { interestSql, learnedSourceSql } from '../src/services/discoverInterests.js';
 
 test('saved-source boost uses one-time lookups, preserves self-exclusion and never affects eligibility', async () => {
   const db = new PGlite();
@@ -41,6 +41,29 @@ test('saved-source boost uses one-time lookups, preserves self-exclusion and nev
     const plan = await db.query<{ 'QUERY PLAN': string }>(`EXPLAIN (VERBOSE) SELECT ${interests.saved} FROM content_items ci`);
     assert.ok(plan.rows.some(row => row['QUERY PLAN'].includes('hashed SubPlan')),
       'PostgreSQL should hash the one-time saved-source sets');
+  } finally { await db.close(); }
+});
+
+test('learned source factor rewards kept sources, penalises archived and down-voted ones, neutral otherwise', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`CREATE TABLE content_items(id INTEGER PRIMARY KEY, source TEXT, workflow_state TEXT, published_at TIMESTAMPTZ, metadata JSONB);
+      INSERT INTO content_items VALUES
+      (1,'discovered-article','saved',NOW(),'{"sourceTitle":"Good"}'),
+      (2,'discovered-article','to-review',NOW(),'{"sourceTitle":"Good","feedbackVote":"up"}'),
+      (3,'discovered-article','archived',NOW(),'{"sourceTitle":"Bad","feedbackVote":"down"}'),
+      (4,'discovered-article','archived',NOW(),'{"sourceTitle":"Bad"}'),
+      (5,'discovered-article','archived',NOW()-INTERVAL '200 days','{"sourceTitle":"Stale"}'),
+      (6,'discovered-article','to-review',NOW(),'{"sourceTitle":"Stale"}'),
+      (7,'discovered-article','to-review',NOW(),'{}');`);
+    const rows = (await db.query<{ id: number; f: string }>(`SELECT id, ${learnedSourceSql('ci')} AS f FROM content_items ci ORDER BY id`)).rows;
+    const f = (id: number): number => Number(rows.find(r => r.id === id)?.f);
+    assert.equal(f(1), 1.13, 'Good: 3 positive, 0 negative');
+    assert.equal(f(3), 0.87, 'Bad: 0 positive, 3 negative');
+    assert.equal(f(6), 1, 'History older than 180 days is ignored');
+    assert.equal(f(7), 1, 'No source title stays neutral');
+    assert.ok(interestSql('ci').factor.includes(learnedSourceSql('ci')), 'Learned factor feeds the ranking');
+    assert.ok(!interestSql('ci').eligible.includes('feedbackVote'), 'Feedback never hides articles from eligibility');
   } finally { await db.close(); }
 });
 

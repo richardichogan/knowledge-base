@@ -331,6 +331,7 @@ export interface DocumentContent {
 }
 
 export type DiscoverWorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published' | 'shelved';
+export type DiscoverFeedbackVote = 'up' | 'down' | null;
 
 /** Workflow states for CFP items (separate from article workflow) */
 export type CfpWorkflowState = 'to_review' | 'saved' | 'submitted' | 'archived';
@@ -599,6 +600,7 @@ export interface DiscoverItem {
   spark: boolean | null;
   /** Reason for spark flag */
   sparkReason: string | null;
+  feedbackVote?: DiscoverFeedbackVote;
   /** Composite relevance score 0-10 */
   compositeScore: number | null;
   /** Authority tier of the source, e.g. "Microsoft/GitHub Official" */
@@ -657,6 +659,8 @@ export interface SocialDraft {
 export interface BlogDraft {
   title: string; excerpt: string; summary: string; content: string; keyTakeaways: string[]; categories: string[]; tags: string[];
   postType: 'article' | 'weekly' | 'newsletter' | 'podcast' | 'quick'; sourceUrl: string | null;
+  /** Banned AI tropes still present after the server's automatic check. */
+  styleWarnings?: string[];
 }
 
 export class KnowledgeHubApi {
@@ -1984,6 +1988,11 @@ export class KnowledgeHubApi {
 
   async updateDiscoverWorkflow(id: string, state: DiscoverWorkflowState): Promise<ApiResponse<unknown>> {
     const r = await this.client.patch<ApiResponse<unknown>>(`/api/discover/${id}/workflow`, { state });
+    return r.data;
+  }
+
+  async setDiscoverFeedback(id: string, vote: DiscoverFeedbackVote): Promise<ApiResponse<{ feedbackVote: DiscoverFeedbackVote; workflowState: DiscoverWorkflowState }>> {
+    const r = await this.client.put<ApiResponse<{ feedbackVote: DiscoverFeedbackVote; workflowState: DiscoverWorkflowState }>>(`/api/discover/${id}/feedback`, { vote });
     return r.data;
   }
 

@@ -12,6 +12,7 @@ import { api } from '../../services/api';
 import type { DiscoverItem, SparkCluster } from '../../services/api';
 import type { UrgencyItem, Task } from '../../services/todayUrgencyService';
 import { DiscoverActions } from '../discover/DiscoverActions';
+import { DiscoverVote } from '../discover/DiscoverVote';
 import { ProjectFitChips } from '../discover/ProjectFitChips';
 import { createNote } from '../../notes/noteStorage';
 
@@ -163,6 +164,9 @@ export const TodayRankedRow: React.FC<TodayRankedRowProps> = ({
       <div className="today-ranked-row__actions">
         {item.type === 'task' && (
           <TaskRowActions task={item.payload as Task} />
+        )}
+        {item.type === 'to-review' && (
+          <DiscoverVote itemId={item.id} vote={(item.payload as DiscoverItem).feedbackVote ?? null} />
         )}
         {item.type === 'to-review' && (
           <DiscoverActions

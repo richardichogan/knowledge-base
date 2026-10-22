@@ -30,6 +30,7 @@ discoverRouter.get('/blog-categories', (_req: Request, res: Response): void => {
 export type WorkflowState = 'to-review' | 'saved' | 'blog' | 'archived' | 'published' | 'shelved';
 
 export interface DiscoverItem {
+  feedbackVote?: 'up' | 'down' | null;
   contentBasis?: 'description-only' | 'captions';
   relatedArticles?: Array<{ title: string; url: string }>;
   parking?: DiscoverParking;
@@ -349,7 +350,7 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
           type_factor: number;
           project_factor: number;
           rank_computed_at: Date;
-          interest_topics: string | null; interest_source: number; saved_factor: number; interest_factor: number;
+          interest_topics: string | null; interest_source: number; saved_factor: number; learned_factor: number; interest_factor: number;
           parking: DiscoverParking | null;
         } & Record<`fit_${ContentFormat}`, number>>(
           `WITH ranked AS MATERIALIZED (SELECT ci.id, ci.source_id, ci.title, ci.url, ci.body, ci.published_at, ci.indexed_at,
@@ -359,7 +360,7 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
                   END AS parking, pl.parked_at AS parked_at,
                   array_agg(dit.tag_id) FILTER (WHERE dit.tag_id IS NOT NULL) AS taxonomy_tag_ids,
                   (${rankScoreExpr}) * (${interests.factor}) AS base_rank_score,
-                  ${interests.topics} AS interest_topics, ${interests.source} AS interest_source, ${interests.saved} AS saved_factor,
+                  ${interests.topics} AS interest_topics, ${interests.source} AS interest_source, ${interests.saved} AS saved_factor, ${interests.learned} AS learned_factor,
                   (${interests.factor}) AS interest_factor,
                   ${recencyExpr} AS recency_factor, (${authorityWeightExpr}) AS authority_factor,
                   (${typeWeightExpr}) AS type_factor, ${projectExpr} AS project_factor,
@@ -401,6 +402,7 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
         sourceType: typeof row.metadata['sourceType'] === 'string' ? row.metadata['sourceType'] : null,
         spark: typeof row.metadata['spark'] === 'boolean' ? row.metadata['spark'] : null,
         sparkReason: typeof row.metadata['sparkReason'] === 'string' ? row.metadata['sparkReason'] : null,
+        feedbackVote: row.metadata['feedbackVote'] === 'up' || row.metadata['feedbackVote'] === 'down' ? row.metadata['feedbackVote'] : null,
         compositeScore: typeof row.metadata['compositeScore'] === 'number' ? row.metadata['compositeScore'] : null,
         sourceAuthorityTier: typeof row.metadata['sourceAuthorityTier'] === 'string' ? row.metadata['sourceAuthorityTier'] : null,
         rankScore: row.rank_score,
@@ -409,6 +411,7 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
           `Source weight ×${Number(row.interest_source)}; recency ×${Number(row.recency_factor ?? 0).toFixed(RANK_FACTOR_PRECISION)}.`,
           ...(row.interest_topics ? [`Matched topics: ${row.interest_topics}.`] : []),
           ...(Number(row.saved_factor) > 1 ? ['You previously saved articles from this source (×1.1).'] : []),
+          ...(Number(row.learned_factor) !== 1 ? [`Learned from what you kept or archived from this source (×${Number(row.learned_factor)}).`] : []),
           ...(Number(row.diversity_factor) < 1 ? ['Balanced with other sources to avoid a feed dominated by one publisher family.'] : []),
         ],
         filteredReason: filtered ? (Number(row.interest_source) === 0 ? 'Source weight is zero.'
@@ -475,6 +478,34 @@ discoverRouter.get('/sources', (req: Request, res: Response, next: NextFunction)
       const sources = result.rows.map((r) => ({ title: r.source_title, count: parseInt(r.count, 10) }));
       const response: ApiSuccess<typeof sources> = { success: true, data: sources };
       res.json(response);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+// ── PUT /api/discover/:id/feedback ───────────────────────────────────────────
+// Thumbs up/down teaches source ranking (learnedSourceSql); a down-vote also archives
+// a To review article. vote=null clears it.
+discoverRouter.put('/:id/feedback', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const vote = (req.body as { vote?: unknown }).vote;
+      if (vote !== 'up' && vote !== 'down' && vote !== null) throw new ValidationError('vote must be up, down or null');
+      const result = await getDb().query(
+        `UPDATE content_items SET
+           metadata = CASE WHEN $1::text IS NULL THEN metadata - 'feedbackVote'
+             ELSE metadata || jsonb_build_object('feedbackVote', $1::text) END,
+           workflow_state = CASE WHEN $1::text = 'down' AND workflow_state IN ('to-review','shelved') THEN 'archived' ELSE workflow_state END
+         WHERE id = $2 AND source = 'discovered-article' RETURNING workflow_state`,
+        [vote, req.params['id']],
+      );
+      const row = result.rows[0] as { workflow_state: WorkflowState } | undefined;
+      if (row === undefined) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: { code: 'NOT_FOUND', message: 'Item not found' } });
+        return;
+      }
+      res.json({ success: true, data: { feedbackVote: vote, workflowState: row.workflow_state } });
     } catch (err) {
       next(err);
     }

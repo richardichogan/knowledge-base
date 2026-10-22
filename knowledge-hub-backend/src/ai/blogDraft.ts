@@ -3,6 +3,7 @@ import { getFoundryClient, type FoundryClient } from './foundryClient.js';
 import { AiError } from '../types/errors.js';
 import { BLOG_WRITING_RULES, BLOG_CATEGORY_RULES, resolveBlogCategory } from './blogHouseStyle.js';
 import type { LinkedInSource } from './linkedInDraft.js';
+import { findTropes, fixDashes } from './styleCheck.js';
 
 const MAX_SOURCE_CHARS = 16000;
 const DRAFT_MAX_TOKENS = 4000;
@@ -33,6 +34,8 @@ export interface BlogDraft {
   tags: string[];
   postType: PostType;
   sourceUrl: string | null;
+  /** Banned AI tropes still present after the automatic check and one regeneration. */
+  styleWarnings?: string[];
 }
 
 function strings(value: unknown, limit: number, maxChars = DEFAULT_ITEM_CHARS): string[] {
@@ -58,11 +61,20 @@ function quickTakeRules(opening: string): string {
     '- One point only. If there is a second argument, leave it out (that belongs in a full article).',
     '- Structure, as plain paragraphs: one short paragraph on what happened; one or two paragraphs on why it matters to architects and IT leaders; one short paragraph on what to do or watch.',
     '- No subheadings (no h2 or h3), no lists, no "In short" or summary box inside content.',
+    '- Never start with a URL and never write a bare URL anywhere: the source link is shown separately. Link text is always words (e.g. the source name), never the URL itself.',
     '- Link the source inline with an <a> tag on the first mention. If one of the earlierPosts supplied is obviously related to this point, link exactly one of them inline using its exact url; otherwise link none. Never link any other URL.',
     `- title is ${QUICK_MAX_TITLE} characters or fewer and states the claim, e.g. "Copilot's plugin registry is really an admin story".`,
     '- summary is one or two sentences stating the point (used for search and AI, not shown on the page).',
     `- keyTakeaways: 0 to ${QUICK_MAX_TAKEAWAYS}, only if genuinely useful; an empty array is fine.`,
   ].join('\n');
+}
+
+/** Strips URLs the model puts at the start of a quick take (bare, or as link text), since the source field already carries the link. */
+export function stripLeadingUrl(content: string): string {
+  const url = String.raw`https?:\/\/[^\s<"]+`;
+  return content
+    .replace(new RegExp(String.raw`^\s*<p>\s*(?:<a\b[^>]*>\s*)?${url}\s*(?:<\/a>)?\s*<\/p>\s*`, 'i'), '')
+    .replace(new RegExp(String.raw`^(\s*<p>\s*)(?:<a\b[^>]*>\s*)?${url}\s*(?:<\/a>)?[\s:—–-]*`, 'i'), '$1');
 }
 
 const wordCount = (html: string): number => html.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
@@ -89,7 +101,7 @@ export async function findEarlierPosts(db: Pool, text: string, limit = DEFAULT_E
   return rows;
 }
 
-/** Calls the model, regenerating a quick take once if it breaks the word or title limit. */
+/** Calls the model, regenerating once if a quick take breaks the word or title limit or the draft uses banned AI tropes. */
 async function draftWithLimits(
   client: Pick<FoundryClient, 'chat'>, system: string, user: string, quick: boolean, sourceUrl: string | null,
 ): Promise<BlogDraft> {
@@ -97,12 +109,25 @@ async function draftWithLimits(
     { role: 'system', content: system + extra },
     { role: 'user', content: user },
   ], DRAFT_MAX_TOKENS);
+  const problems = (d: BlogDraft): string[] => {
+    const found = findTropes(d.title, d.excerpt, d.summary, d.content, ...d.keyTakeaways).map(t => `uses a banned trope: ${t}`);
+    if (quick && wordCount(d.content) > QUICK_MAX_WORDS) found.push(`${wordCount(d.content)} words; content must be at most 450 words`);
+    if (quick && d.title.length > QUICK_MAX_TITLE) found.push(`title is ${d.title.length} characters; it must be at most ${QUICK_MAX_TITLE}`);
+    return found;
+  };
   let draft = parseBlogDraft(await ask(''), sourceUrl);
-  if (quick && (wordCount(draft.content) > QUICK_MAX_WORDS || draft.title.length > QUICK_MAX_TITLE)) {
-    draft = parseBlogDraft(await ask(`\n\nYour previous draft broke the limits (${wordCount(draft.content)} words, title ${draft.title.length} characters). Content must be at most 450 words and the title at most ${QUICK_MAX_TITLE} characters.`), sourceUrl);
+  const first = problems(draft);
+  if (first.length > 0) {
+    draft = parseBlogDraft(await ask(`\n\nYour previous draft broke the rules: ${first.join('; ')}. Rewrite without any of these.`), sourceUrl);
   }
+  draft = {
+    ...draft,
+    title: fixDashes(draft.title), excerpt: fixDashes(draft.excerpt), summary: fixDashes(draft.summary),
+    content: fixDashes(draft.content), keyTakeaways: draft.keyTakeaways.map(fixDashes),
+  };
+  draft.styleWarnings = findTropes(draft.title, draft.excerpt, draft.summary, draft.content, ...draft.keyTakeaways);
   return quick
-    ? { ...draft, postType: 'quick', keyTakeaways: draft.keyTakeaways.slice(0, QUICK_MAX_TAKEAWAYS) }
+    ? { ...draft, content: stripLeadingUrl(draft.content), postType: 'quick', keyTakeaways: draft.keyTakeaways.slice(0, QUICK_MAX_TAKEAWAYS) }
     : draft;
 }
 

@@ -7879,6 +7879,21 @@ body.kh-pane-resizing {
   flex-shrink: 0;
 }
 
+// ── Feedback vote (teaches source ranking) ─────────────────────────
+.dc-vote { display: inline-flex; gap: 2px; margin-right: auto; }
+.dc-vote__btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: var(--kh-radius-sm);
+  color: var(--cds-text-secondary); cursor: pointer;
+  transition: background 80ms, color 80ms, border-color 80ms;
+  &:hover:not(:disabled) { background: var(--cds-layer-hover-02); color: var(--cds-text-primary); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  &:disabled { cursor: progress; }
+  &--up { color: var(--kh-accent); border-color: var(--kh-accent-border); background: var(--kh-accent-bg); }
+  &--down { color: var(--cds-support-error); border-color: var(--cds-support-error); }
+}
+
 // ── Action buttons ─────────────────────────────────────────────────
 .dc-action {
   display: inline-flex;

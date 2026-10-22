@@ -634,6 +634,7 @@ const BLOG_POST_PERSONA_BLURB = [
   '- Summary TL;DR: one or two sentences stating the point. It is not shown on the page; it is used for search ' +
     'and AI.',
   '- Key takeaways: optional (zero is fine, two at most); they are not shown on quick takes.',
+  '- Never open with a URL or write a bare URL; the source link is shown separately. Link text is words, never the URL.',
   '- Link the source inline. Use search_knowledge_base for his own published blog posts (source "cms-blog") on ' +
     'the same subject and, if there is an obvious one, link exactly one inline using its exact URL. Never ' +
     'invent a URL.',

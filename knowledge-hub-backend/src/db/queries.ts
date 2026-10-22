@@ -69,7 +69,11 @@ export async function upsertContentItem(
         summary   = EXCLUDED.summary,
         body      = EXCLUDED.body,
         metadata  = content_items.metadata || EXCLUDED.metadata,
-        updated_at = NOW()
+        -- Unchanged feed snapshots must not look edited, or they are re-embedded every sweep.
+        updated_at = CASE
+          WHEN (content_items.title, content_items.summary, content_items.body)
+               IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.summary, EXCLUDED.body)
+          THEN NOW() ELSE content_items.updated_at END
       RETURNING id, (xmax = 0) AS is_new
     `;
     const result = await db.query<{ id: string; is_new: boolean }>(sql, [
@@ -115,7 +119,14 @@ export async function upsertContentItem(
       -- Merge metadata: preserve scoring fields (platform, sourceType, spark, etc.) that were calculated
       -- Only update the source-provided fields (status, newsWorthiness, sourceTitle, etc.)
       metadata = content_items.metadata || EXCLUDED.metadata,
-      updated_at = NOW()
+      -- Only real content changes count as an update; re-syncing unchanged items
+      -- otherwise re-queues them for embedding on every hourly sweep.
+      updated_at = CASE
+        WHEN (content_items.title, content_items.summary, content_items.body, content_items.published_at,
+              content_items.url, content_items.project_context, content_items.tags)
+             IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.summary, EXCLUDED.body, EXCLUDED.published_at,
+              EXCLUDED.url, EXCLUDED.project_context, EXCLUDED.tags)
+        THEN NOW() ELSE content_items.updated_at END
     RETURNING id, (xmax = 0) AS is_new
   `;
   const result = await db.query<{ id: string; is_new: boolean }>(sql, [

@@ -115,11 +115,34 @@ export async function indexContentItem(item: ContentItem): Promise<void> {
 
 const PASSAGE_INDEX_NAME = 'kh-content-passages';
 const PASSAGE_EMBED_BATCH = 16;
+const HTTP_NOT_FOUND = 404;
 
 /** Sources whose full text is chunked into the passage index. */
 export const PASSAGE_INDEXED_SOURCES: ReadonlySet<string> = new Set([
   'user-upload', 'github-doc', 'github-content-store', 'onedrive-document', 'ica-document', 'note',
 ]);
+
+let passageIndexKnown: boolean | undefined;
+
+/**
+ * True when the passage index exists. The index is optional (nothing queries it
+ * yet); writing to a missing index failed every note/document job and retried
+ * whole-document embeddings five times. Cached once the service answers.
+ */
+export async function isPassageIndexAvailable(): Promise<boolean> {
+  if (passageIndexKnown !== undefined) return passageIndexKnown;
+  if (!env.FOUNDRY_IQ_SEARCH_ENDPOINT || !env.FOUNDRY_IQ_SEARCH_ADMIN_KEY) return false;
+  try {
+    const res = await fetch(`${env.FOUNDRY_IQ_SEARCH_ENDPOINT}/indexes/${PASSAGE_INDEX_NAME}?api-version=${SEARCH_API_VERSION}`, {
+      headers: { 'api-key': env.FOUNDRY_IQ_SEARCH_ADMIN_KEY },
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+    });
+    if (res.ok || res.status === HTTP_NOT_FOUND) passageIndexKnown = res.ok;
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 export class PassageIndexError extends Error {
   constructor(readonly failedKeys: string[]) {
