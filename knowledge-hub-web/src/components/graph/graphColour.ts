@@ -32,6 +32,12 @@ export const TYPE_TO_FAMILY: Record<string, Family> = {
   document:        'reference',
   canvas:          'reference',
   task:            'task',
+  project:         'reference',
+  company:         'output',
+  person:          'inbound',
+  decision:        'thinking',
+  risk:            'task',
+  chat:            'thinking',
 };
 
 /** Colour for nodes with no concept-area parent. */

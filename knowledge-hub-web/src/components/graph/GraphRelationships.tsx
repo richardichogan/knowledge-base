@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { GraphEdge, GraphNode } from '../../services/api';
+import { isInferred } from './atlasModel';
 
 const PAGE_SIZE = 50;
 
@@ -28,7 +29,7 @@ export const GraphRelationships: React.FC<{
   const offset = (currentPage - 1) * PAGE_SIZE;
 
   return <section className="graph-relationships" aria-label="Graph relationships">
-    <h1>Relationships</h1>
+    <h2>Relationships</h2>
     <p className="graph-relationships__coverage">
       Loaded indexed data, not an exhaustive view of your sources.
       {truncated ? ' The server truncated this graph; some nodes and relationships are omitted.' : ''}
@@ -40,7 +41,7 @@ export const GraphRelationships: React.FC<{
           <button className="graph-relationships__node" onClick={() => { onSelect(row.source); }}>{row.source.title}</button>
           {row.edge && <span className="graph-relationships__type">
             {row.edge.edgeType.replaceAll('_', ' ')}
-            {row.edge.edgeType === 'thematically_related' ? ` (inferred, ${Math.round(row.edge.confidence * 100)}% confidence)` : ''}
+            {isInferred(row.edge) ? ' (inferred, not confirmed)' : ''}
           </span>}
           {row.target ? <button className="graph-relationships__node" onClick={() => { if (row.target) onSelect(row.target); }}>
             {row.target.title}</button> : <span className="graph-relationships__type">No visible relationships</span>}

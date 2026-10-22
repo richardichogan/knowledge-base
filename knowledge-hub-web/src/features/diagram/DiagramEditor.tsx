@@ -111,16 +111,16 @@ const KIND_LABEL: Record<DiagramKind, string> = {
 };
 
 const DEFAULTS: Record<DiagramKind, Pick<DiagramNode, 'label' | 'width' | 'height' | 'fill' | 'stroke' | 'textColor' | 'fontSize'>> = {
-  process: { label: 'Process', width: 140, height: 64, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 16 },
+  process: { label: 'Process', width: 140, height: 64, fill: 'none', stroke: '#161616', textColor: '#161616', fontSize: 16 },
   decision: { label: 'Decision?', width: 120, height: 80, fill: '#fcf4d6', stroke: '#b28600', textColor: '#161616', fontSize: 16 },
   terminator: { label: 'Start', width: 140, height: 52, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 16 },
-  document: { label: 'Document', width: 140, height: 80, fill: '#ffffff', stroke: '#161616', textColor: '#161616', fontSize: 16 },
+  document: { label: 'Document', width: 140, height: 80, fill: 'none', stroke: '#161616', textColor: '#161616', fontSize: 16 },
   arrow: { label: '', width: 160, height: 80, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 16 },
   line: { label: '', width: 140, height: 24, fill: 'none', stroke: '#525252', textColor: '#161616', fontSize: 16 },
   text: { label: 'Text', width: 140, height: 40, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 16 },
   image: { label: '', width: 96, height: 96, fill: 'none', stroke: 'none', textColor: '#161616', fontSize: 16 },
-  container: { label: 'Group', width: 320, height: 220, fill: '#f4f4f4', stroke: '#525252', textColor: '#161616', fontSize: 18 },
-  swimlane: { label: 'Lane', width: 560, height: 180, fill: '#ffffff', stroke: '#525252', textColor: '#161616', fontSize: 18 },
+  container: { label: 'Group', width: 320, height: 220, fill: 'none', stroke: '#525252', textColor: '#161616', fontSize: 18 },
+  swimlane: { label: 'Lane', width: 560, height: 180, fill: 'none', stroke: '#525252', textColor: '#161616', fontSize: 18 },
 };
 
 const PALETTE: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'arrow', 'text', 'image', 'container', 'swimlane'];
@@ -2298,7 +2298,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {ordered.filter(node => drilldownIds.has(node.id)).map(node => (
                 <g key={`drilldown-${node.id}`} className="dg-drilldown-marker" role="button" tabIndex={0}
                   aria-label={`Open drill-down for ${descriptionPlainText(node.label).trim() || 'Untitled shape'}`}
-                  transform={`translate(${node.x + node.width - 16} ${node.y + 16})`}
+                  transform={`translate(${node.x + 16} ${node.y + 16})`}
                   onPointerDown={event => { event.stopPropagation(); }}
                   onDoubleClick={event => { event.stopPropagation(); }}
                   onClick={event => { event.stopPropagation(); void openShapeDrilldown(node); }}

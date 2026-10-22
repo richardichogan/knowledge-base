@@ -60,7 +60,7 @@ In priority order:
 | **Athena chat** | Available everywhere: a side panel, a floating widget and `/chat`. It has personas: general, brainstorming, blog post, LinkedIn, demo designer, web designer, podcast prep, podcast show notes and Copilot coach. Chats record decisions and Outputs, and can be turned into a spec note. |
 | **Activity** (`/my-work`) | Activity from connected systems (M365 calendar, mail and To Do, GitHub, GitLab, the blog CMS, IBM and Alliance sources), plus connections, tokens and sync status. Also holds the Mural and SMTP2GO integration settings. |
 | **Sources** (`/library`) | Indexed documents and source material, searchable and used for grounding. |
-| **Knowledge graph** (`/graph`) | Connections across Athena's objects. |
+| **Knowledge graph** (`/graph`) | A simple force-directed 2D graph, separate optional browser-rendered 3D exploration, and an accessible relationship list. Search, focus and inspect recorded or explicitly labelled inferred connections; start from a note's Connections-panel mini graph. |
 | **Memory** (`/memory`) | What Athena remembers about Richard and his work. |
 | **People** (`/people`) | Contacts with email aliases, organisation, role and topics. Import contact reports from Markdown; mention people with `@` in notes and chat. |
 | **Autocue** (`/autocue`) | A full-screen teleprompter for note scripts, paced by the speaker's voice or a gamepad. Runs outside the normal app shell. |
@@ -69,6 +69,18 @@ In priority order:
 | **Management** | Tag Manager, repo-to-tag and repo-to-project mappings, Knowledge health (AI usage, sync runs, index freshness), practice-exam score history, and voice transcription and speech. |
 
 Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search`, `/ai`, `/blog-post`) redirect to the areas above.
+
+### Knowledge atlas
+
+The atlas reads existing entity records and saved relationships without creating a second authoritative graph. It includes company/programme links, people and roles, note links, decisions and semantic relationships alongside indexed source connections. Inferred links are hidden by default and never presented as confirmed roles or facts. Positions organise project neighbourhoods; neither distance nor 3D depth measures relationship strength.
+
+2D and 3D initially hide records with no displayed links, with a visible count and a control to include them. Search still finds those loaded records, and Relationships lists them. Labels are collision-checked at screen size and clickable in 3D; full names appear in the inspector and on hover. Selecting a record focuses the camera, highlights its links and offers an action to isolate its immediate connections. Zoom controls and Fit work on the displayed records, not a fixed whole-graph extent; filtering relayouts the visible records.
+
+The **2D graph** uses small flat dots, thin links, and restrained labels on hover, selection or zoom. Repulsion and link attraction arrange connected records rather than fixed project islands. The simulation settles after a short bounded interval; dragging pins a dot, and **Reflow** releases those pins. Reduced-motion users get a pre-settled layout. The **3D explorer** remains a distinct orbitable view; the note preview remains a compact flat neighbourhood.
+
+The overview reserves space for different entity types before filling its 500-record limit with recent activity. Results are capped at 2,500 edges and visibly labelled when truncated. Search and filters operate on the loaded subset, not the entire knowledge base. Starting from a record loads one or two connection hops, retaining older context regardless of the overview's date filter. The note preview shows up to eight recorded neighbours and opens the same explorer.
+
+Activity mode moves a seven-day window across the last year, highlights records with a latest stored update in that window, and retains their neighbours for context. Counts compare latest-update dates with the preceding week; they are **not a historical graph diff or a complete event log**. Indexed sources may have index timestamps rather than source dates. Deleted records, earlier revisions and unknown relationship start dates are not reconstructed. Playback respects reduced-motion preferences; the slider remains usable. 3D is loaded on demand, requires WebGL2, and has Map/Relationships alternatives.
 
 ## 4. Core objects
 

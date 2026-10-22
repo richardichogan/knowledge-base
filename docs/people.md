@@ -64,12 +64,18 @@ convert organisation text into company links or seed any company/person roles.
 ## Diagram and image controls
 
 Diagrams now offer live edge/centre alignment guides, including during resizing.
+New standard Process, Document, Container and Swimlane shapes start with no
+background fill instead of a dark neutral background. Coloured defaults and
+AI-flow presets are unchanged. Existing shapes retain their saved colours;
+use the fill controls to apply a background when needed.
 The default grid spacing is 10 units; use the spacing selector for 5, 10, 20
 or 40 units. Hold Alt to bypass snapping and guides. The saved spacing is
 retained in SVG and draw.io exports. Standard diagrams also offer the existing
 Specialist Agent preset directly from their palette.
 
 New diagrams keep a stable URL so refresh does not return to Notes.
+The drill-down icon sits at the top-left of a shape, leaving the top-right
+available for its footnote marker.
 Drill-downs keep the same Athena conversation and draft, carrying parent/project
 context while the child diagram is active. Closing restores the parent's
 context. Popups use the browser top layer rather than being clipped by the

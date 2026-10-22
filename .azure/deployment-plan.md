@@ -1,6 +1,46 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
+
+**Section 7: Validation Proof (2026-10-22, knowledge graph release):**
+- Both `npx tsc --noEmit` checks and both production `npm run build` commands passed.
+- Database-free release suites: backend 411 passed, frontend 167 passed
+  (150 + 6 + 3 + 2 + 6), zero test failures. After backend lint-only fixes,
+  its typecheck/build and the three graph service tests passed again.
+- Frontend lint non-regression passed (25 existing violations, baseline 41).
+  New backend graph files pass ESLint with zero warnings. Backend baseline has
+  one pre-existing foundryClient.ts:439 magic-number warning: verified that file
+  byte-for-byte against HEAD; no release-introduced violations remain. No baseline
+  was rewritten and the unrelated file was not changed.
+- Live read-only graph projections returned valid bounded overview and two-hop
+  data. Desktop browser checks covered separate Canvas 2D and WebGL 3D surfaces,
+  actual force motion, labels, selection, isolation and fitting.
+- Azure authentication, existing SWA hostname/location, backend v232/ready
+  revision, latest-revision traffic and registry settings verified. Next tag v233
+  is unused. User explicitly reconfirmed existing production targets.
+- Dockerfile and backend lockfile present. ACR performs the production container
+  build using the existing recipe. No infra/RBAC change or managed identity:
+  template compilation, what-if and role provisioning are not applicable.
+- Build/test logs: session files/graph-release-*.log. `git diff --check` passed.
+
+**Knowledge graph and diagram release (2026-10-22):**
+- User approved deployment to the existing Alliance Tenant Reporting subscription
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28): kh-prod-api-vnet (UK South),
+  cad79107555facr and kh-prod-web (West Europe), rg-knowledge-hub-prod.
+- Existing AZCLI image-only backend and SWA production deployment. No infrastructure,
+  schema, identity, secret, permission or background backfill changes.
+- Release the read-only graph projection, force-directed 2D view, separate lazy 3D
+  explorer, note mini graph, activity view and usability fixes. Include the pending
+  neutral diagram shape transparency and top-left drill-down icon changes.
+- Fetched and merged origin/main: already current. Current production backend is
+  v232, ready revision kh-prod-api-vnet--0000229. Use the next unused image tag.
+- Validate both typechecks/builds, isolated backend/frontend tests, lint baselines
+  and diff hygiene; commit and push the exact release to main and the session branch.
+- Build the backend from remote main, verify healthy revision and startup logs, then
+  deploy the matching local frontend. Verify served asset hashes and graph contract.
+- Rollback: restore backend v232 and frontend built from 6652b80.
+- No new resource provisioning: Bicep/what-if/policy changes are not applicable.
+  Existing registry uses secret-based authentication, not managed-identity AcrPull.
 
 **Deployment result (2026-10-22, chat/Note styling):**
 - Source 3bfafb4 pushed to main and session branch; frontend deployed to

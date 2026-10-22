@@ -32,6 +32,7 @@ import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { NoteBacklinks } from './NoteBacklinks';
 import { ProjectOptions } from '../components/ProjectOptions';
 import { UnlinkedMentions } from './UnlinkedMentions';
+import { NoteMiniGraph } from '../components/graph/NoteMiniGraph';
 
 const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections', 'history', 'link'] as const;
 type SidePanelTab = typeof SIDE_PANEL_TABS[number];
@@ -396,6 +397,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
         {tab === 'connections' && (
           <div role="tabpanel" id="think-side-panel-connections" aria-labelledby="think-side-tab-connections" className="notes-meta-tabpanel">
+            <NoteMiniGraph key={noteId} noteId={noteId} />
             <NoteBacklinks noteId={noteId} />
             <UnlinkedMentions noteId={noteId} />
             <ConnectionsPanel refId={doc.id} refType="note" headerless />

@@ -524,6 +524,9 @@ export interface GraphNode {
   tags: string[];
   createdAt: string;
   conceptParent: string | null;
+  updatedAt?: string;
+  projectIds?: string[];
+  timestampBasis?: 'source' | 'index';
 }
 
 export interface GraphEdge {
@@ -533,9 +536,12 @@ export interface GraphEdge {
   edgeType: string;
   confidence: number;
   metadata: Record<string, unknown> | null;
+  createdAt?: string | null;
+  origin?: 'explicit' | 'user_confirmed' | 'inferred';
 }
 
 export interface GraphResponse {
+  rootId?: string | null;
   nodes: GraphNode[];
   edges: GraphEdge[];
   stats: {
