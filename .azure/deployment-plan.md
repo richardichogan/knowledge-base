@@ -2,6 +2,21 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, Athena and graph refinements):**
+- Source bb1640c726b9b71ab179641f1b9c091f3d14fa27 committed and atomically
+  pushed to main and richardichogan-local-development.
+- SWA CLI successfully deployed the validated frontend dist to kh-prod-web
+  production. The credential remained in the deployment process environment.
+- https://athena.themicrosoftcloudblog.com and
+  https://nice-mud-0f780fb03.7.azurestaticapps.net return HTTP 200 and the new
+  entry asset references. Four checked assets (entry JS/CSS and both renderers)
+  match local SHA-256 hashes on both domains.
+- Atlas SHA-256: 152917d1a2b55e04a781aeda58635f09c7a741489ba2f7dcef0643fe45019ce4
+- Ribbon SHA-256: 84956d29b657c28f4b4fd8bac29bf6ac732aca0c1338fbfa6b5e45bc33bebe83
+- Backend remains v238. No production database, infrastructure, permission,
+  secret configuration or desktop installer changes.
+- Log: session files/athena-refinement-release-deploy.log.
+
 **Section 7: Validation Proof (2026-10-23, Athena and graph refinements):**
 - Synced origin and merged origin/main; already up to date at f3ba807.
 - Frontend and backend `npx --no-install tsc --noEmit` passed.
