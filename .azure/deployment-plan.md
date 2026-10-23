@@ -2,6 +2,19 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, identity and capability grounding):**
+- Source 4fced85 committed and atomically pushed to main and
+  richardichogan-local-development; ACR build and v241 update succeeded.
+- Latest ready revision kh-prod-api-vnet--0000238 is Healthy, Provisioned,
+  RunningAtMaxScale, with 100% latest-revision traffic.
+- Startup confirms port 3000, migrations complete and eight database
+  connections ready. All 140 notes already indexed; no reindex writes.
+  Incumbent pg SSL-mode future-semantics warning remains.
+- Backend-only release; frontend remains at
+  https://athena.themicrosoftcloudblog.com. No changes to saved content,
+  profiles, dependencies, migrations or infrastructure.
+- Build/startup logs: session files/athena-identity-{acr,startup}.log.
+
 **Section 7: Validation Proof (2026-10-23, identity and capability grounding):**
 - Fetched origin and merged origin/main; already current at 415a072.
 - Latest production chat read in a READ ONLY transaction: Athena required old
