@@ -21,7 +21,7 @@ class Canvas {
   };
   getContext() { return this.context; }
 }
-const observed = new Set(['mood', 'state', 'size', 'label', 'still', 'paused']);
+const observed = new Set(['mood', 'state', 'size', 'label', 'still', 'paused', 'interaction']);
 class Host {
   attrs = new Map<string, string>();
   isConnected = false;
@@ -46,7 +46,7 @@ class Host {
 type Ribbon = Host & {
   connectedCallback(): void; disconnectedCallback(): void;
   attributeChangedCallback(name: string, old: string | null, value: string | null): void;
-  mood: string; level: number | null; _p: Record<string, number>; _yaw: number; _spin: number;
+  mood: string; level: number | null; _p: Record<string, number>; _yaw: number; _spin: number; _energy: number;
 };
 
 function fixture(attrs: Record<string, string> = {}) {
@@ -192,4 +192,54 @@ test('real mic level clamps and changes only listening ripple without synthetic 
   assert.notEqual(f.ribbon.canvas.signature, quiet);
   f.ribbon.level = null;
   assert.equal(f.ribbon.level, null);
+});
+
+test('composer typing eases into an attentive tilt and relaxes without resizing or restarting phases', () => {
+  const f = fixture({ size: '56', mood: 'listening', interaction: 'typing' });
+  f.advance(3000);
+  assert.ok(Math.abs(f.ribbon._p.roll! + 0.12) < 0.001);
+  assert.ok(Math.abs(f.ribbon._p.bright! - 1.12) < 0.001);
+  assert.equal(f.ribbon.canvas.width, 112);
+  const yaw = f.ribbon._yaw;
+  f.ribbon.setAttribute('interaction', 'idle');
+  f.ribbon.mood = 'resting';
+  f.advance(3000);
+  assert.ok(Math.abs(f.ribbon._p.roll! - 0.3) < 0.001);
+  assert.ok(f.ribbon._yaw > yaw);
+  assert.equal(f.ribbon.canvas.width, 112);
+});
+
+test('voice energy opens and brightens strands with bounded attack/release and no invented speech', () => {
+  const quiet = fixture({ size: '96', mood: 'listening', interaction: 'voice' });
+  const voice = fixture({ size: '96', mood: 'listening', interaction: 'voice' });
+  quiet.advance(2000); voice.advance(2000);
+  assert.equal(voice.ribbon._energy, 0);
+  assert.equal(quiet.ribbon.canvas.signature, voice.ribbon.canvas.signature);
+  voice.ribbon.level = 1;
+  quiet.step(); voice.step();
+  assert.ok(voice.ribbon._energy > 0 && voice.ribbon._energy < 0.25);
+  quiet.advance(400); voice.advance(400);
+  assert.ok(voice.ribbon._energy > 0.99);
+  assert.ok(voice.ribbon.canvas.peakAlpha > quiet.ribbon.canvas.peakAlpha);
+  assert.notEqual(voice.ribbon.canvas.signature, quiet.ribbon.canvas.signature);
+  voice.ribbon.level = 0; voice.step();
+  assert.ok(voice.ribbon._energy > 0.8, 'Speech pauses settle gradually rather than flickering');
+  voice.advance(2000);
+  assert.ok(voice.ribbon._energy < 0.002);
+  voice.ribbon.level = 1;
+  voice.reduced(true); voice.advance(4000);
+  assert.equal(voice.ribbon._energy, 0);
+  assert.equal(voice.frames.size + voice.timers.size, 0);
+});
+
+test('idle breathing adds gentle light and tilt only to the live composer, respecting static renders', () => {
+  const plain = fixture({ size: '96' }), idle = fixture({ size: '96', interaction: 'idle' });
+  plain.advance(1200); idle.advance(1200);
+  assert.notEqual(idle.ribbon.canvas.signature, plain.ribbon.canvas.signature);
+  assert.ok(idle.ribbon.canvas.peakAlpha > plain.ribbon.canvas.peakAlpha);
+  const still = fixture({ size: '56', interaction: 'idle', still: '' });
+  const original = fixture({ size: '56', still: '' });
+  still.step(); original.step();
+  assert.equal(still.ribbon.canvas.signature, original.ribbon.canvas.signature);
+  assert.equal(still.frames.size + still.timers.size, 0);
 });

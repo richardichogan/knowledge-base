@@ -9,11 +9,12 @@ export const AthenaRibbon: React.FC<{
   track?: boolean;
   silent?: boolean;
   still?: boolean;
+  interaction?: 'idle' | 'typing' | 'voice' | undefined;
   label?: string;
   className?: string;
   ribbonRef?: React.RefObject<AthenaRibbonElement>;
-}> = ({ mood = 'resting', size = 32, track = false, silent = true, still = false, label, className = '', ribbonRef }) =>
+}> = ({ mood = 'resting', size = 32, track = false, silent = true, still = false, interaction, label, className = '', ribbonRef }) =>
   React.createElement('athena-ribbon', {
-    ref: ribbonRef, mood, size: String(size), label, class: `athena-ribbon ${className}`.trim(),
+    ref: ribbonRef, mood, size: String(size), interaction, label, class: `athena-ribbon ${className}`.trim(),
     ...(track && { track: '' }), ...(silent && { silent: '' }), ...(still && { still: '' }),
   });

@@ -10,9 +10,11 @@ For dark-background legibility, minimum edge/body stroke widths are 1px/0.75px i
 
 The app retains the existing travelling character instead of adding a second header avatar, per user feedback. It stays 56px across resting, listening, thinking, answering and returning home; reply avatars and their slots also use 56px so the handoff does not resize it. Existing text status regions announce progress and errors; the ribbon instances are silent. The header in the standalone test gallery is a size example, not an additional production chat character.
 
-Assistant replies have no outer border or extra horizontal inset. Reply, thinking and resting characters share the same left column, with reply text aligned to that edge. User-message bubbles retain their own border and inset.
+Assistant replies have no outer border, background fill or extra horizontal inset. Reply, thinking and resting characters share the same left column, with reply text aligned to that edge. User-message bubbles retain their own border, background and inset.
 
 Looking up a note's saved conversation and restoring its messages keep Athena resting at the composer. Only actual summary generation for a note without saved chat starts the thinking movement; restoration still exposes a plain status message.
+
+The travelling composer's `interaction` attribute adds restrained personality without moving or resizing its 56px host. `typing` eases the listening ribbon into an attentive tilt and relaxes after the existing typing-idle timeout. `voice` uses measured microphone energy with an 80ms attack and 300ms release to open and brighten the strands; silence never invents speech energy. `idle` adds a 5.6-second brightness breath and a gentle slow tilt. These accents do not affect historical reply avatars or the welcome character, stop while hidden/offscreen, and are disabled for reduced-motion and still renders.
 
 **Accepted-answer exception:** the backend can discard intermediate token streams. Athena therefore stays `thinking` until the successful final answer, rather than responding to provisional first tokens. This preserves the answer-redraw fix. Errors, evidence warnings, suggestions, positive feedback and completed actions drive the additional moods; no new confidence contract or sentiment model is assumed.
 

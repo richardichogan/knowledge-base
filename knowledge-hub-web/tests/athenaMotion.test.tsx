@@ -129,6 +129,7 @@ test('motion styles preserve answer growth, ribbon slots, controls and reduced m
   assert.match(css, /athena-ribbon/);
   assert.match(css, /\.athena-ribbon \{[^}]*background: transparent;/);
   assert.match(css, /\.ai-answer-panel \{[^}]*border: 0;/);
+  assert.match(css, /\.ai-answer-panel \{[^}]*background: transparent;/);
   assert.match(css, /\.ai-presence-think-anchor \{[^}]*left: 0;/);
   assert.match(scss, /\.ai-bubble--ai \{[^}]*padding: 1\.5rem 0;/);
   for (const slot of ['ai-presence-anchor', 'ai-presence-think-anchor', 'ai-reply-heading__mark']) {
@@ -149,6 +150,9 @@ test('travelling character keeps one size through every lifecycle phase', () => 
       thinker={React.createRef<HTMLSpanElement>()} reply={React.createRef<HTMLSpanElement>()} />);
     assert.equal([...html.matchAll(/<athena-ribbon/g)].length, 1);
     assert.match(html, /<athena-ribbon[^>]*size="56"/);
+    const interaction = phase === 'typing' ? 'typing' : phase === 'listening' ? 'voice' : phase === 'idle' ? 'idle' : null;
+    if (interaction) assert.ok(html.includes(`interaction="${interaction}"`));
+    else assert.doesNotMatch(html, /interaction=/);
   }
 });
 

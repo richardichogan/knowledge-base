@@ -9,6 +9,7 @@
      label    accessible name override (default "Athena")
      silent   present → do not announce mood changes to screen readers
      still    present → render one settled frame and stop (static exports, thumbnails)
+     interaction  idle | typing | voice → composer-only attentiveness, without moving the host
 
    Properties   el.mood (get/set)
    Events       athena-moodchange  { detail: { from, to } }   (bubbles, composed)
@@ -36,13 +37,13 @@
   addEventListener('pointermove', e => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.t = performance.now(); }, { passive: true });
 
   class AthenaRibbon extends HTMLElement {
-    static get observedAttributes() { return ['mood', 'state', 'size', 'label', 'still', 'paused']; }
+    static get observedAttributes() { return ['mood', 'state', 'size', 'label', 'still', 'paused', 'interaction']; }
     constructor() {
       super();
       this.attachShadow({ mode: 'open' });
       this._mood = 'resting'; this._p = { ...BASE }; this._yaw = 0.6; this._spin = 0; this._t0 = performance.now(); this._raf = 0;
       this._visible = true; this._nx = 0; this._ny = 0;
-      this._level = null; this._reducedTime = null;
+      this._level = null; this._energy = 0; this._reducedTime = null;
       this._mq = matchMedia('(prefers-reduced-motion: reduce)');
       this._wake = () => this._schedule();
     }
@@ -84,7 +85,14 @@
       if (this._live && !this.hasAttribute('silent') && ANNOUNCE.has(next)) this._live.textContent = LABELS[next];
       this.dispatchEvent(new CustomEvent('athena-moodchange', { detail: { from: prev, to: next }, bubbles: true, composed: true }));
     }
-    _settle() { this._p = { ...BASE, ...MOODS[this._mood] }; }
+    _target() {
+      const target = { ...BASE, ...MOODS[this._mood] };
+      if (this.getAttribute('interaction') === 'typing' && this._mood === 'listening') {
+        Object.assign(target, { roll: -0.12, pitch: 0.24, yawSp: 0.025, ripple: 0.015, bright: 1.12, W: 0.105 });
+      }
+      return target;
+    }
+    _settle() { this._p = this._target(); }
     _pause() { cancelAnimationFrame(this._raf); clearTimeout(this._to); this._raf = 0; this._last = null; }
     _schedule() {
       if (!this.isConnected || !this._visible || document.hidden || this.hasAttribute('paused')) { this._pause(); return; }
@@ -117,9 +125,11 @@
     _tick(now) {
       const still = this.hasAttribute('still');
       const dt = Math.min(0.064, (now - (this._last ?? now)) / 1000); this._last = now;
-      const R = this._mq.matches || still, tgt = { ...BASE, ...MOODS[this._mood] }, p = this._p;
+      const R = this._mq.matches || still, tgt = this._target(), p = this._p;
       const k = still ? 1 : 1 - Math.exp(-dt / EASE_TAU);
       for (const key in BASE) p[key] += (tgt[key] - p[key]) * k;
+      const level = !R && this.getAttribute('interaction') === 'voice' && this._mood === 'listening' ? this._level ?? 0 : 0;
+      this._energy = R ? 0 : this._energy + (level - this._energy) * (1 - Math.exp(-dt / (level > this._energy ? 0.08 : 0.3)));
       if (!R) { this._yaw += p.yawSp * dt; this._spin += p.spin * dt; }
       if (!R) this._reducedTime = null;
       else this._reducedTime ??= now / 1000;
@@ -129,6 +139,10 @@
     }
     _draw(t, tt, R) {
       const s = this._s, ctx = this._ctx, p = this._p, S = this._S, N = this._N, c = s / 2;
+      const waiting = !R && this.getAttribute('interaction') === 'idle' && this._mood === 'resting';
+      const breath = waiting ? Math.sin(2 * Math.PI * t / 5.6) : 0;
+      const energy = R ? 0 : this._energy;
+      const listeningLevel = this.getAttribute('interaction') === 'voice' ? energy : this._level ?? 1;
       ctx.clearRect(0, 0, s, s);
       let nx = 0, ny = 0;
       if (!R && this.hasAttribute('track') && pointer.x != null && performance.now() - pointer.t < 4000) {
@@ -142,22 +156,23 @@
       const shake = R ? 0 : p.shake * Math.sin(t * 5.2) * Math.max(0, Math.sin(t * 1.1)) * 0.5;
       const talk = R ? 0 : p.talk * (tt < 3 ? Math.abs(Math.sin(tt * 9)) * (0.6 + 0.4 * Math.sin(tt * 3.3)) : 0.15 * Math.abs(Math.sin(tt * 2)));
       const scale = s * p.scale * breathe * (1 + 0.06 * talk);
-      const yaw = this._yaw + p.yaw0 + shake + this._nx * 0.5, pitch = p.pitch + this._ny * 0.4, roll = p.roll + p.lean * this._nx * 0.2;
+      const yaw = this._yaw + p.yaw0 + shake + this._nx * 0.5, pitch = p.pitch + this._ny * 0.4 - energy * 0.06,
+        roll = p.roll + p.lean * this._nx * 0.2 + (waiting ? 0.06 * Math.sin(t * 0.35) : 0);
       const cy0 = c + s * (-bounce + p.sink * 0.06), cx0 = c + p.lean * s * 0.03;
       const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll);
       const D = 2.6;                                  // camera distance (perspective)
       const pts = new Float32Array((N + 1) * 3);
       ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
-      const bright = p.bright * (s < 60 ? 2.5 : 1), CH = 10;
+      const bright = p.bright * (1 + 0.1 * breath + 0.32 * energy) * (s < 60 ? 2.5 : 1), CH = 10;
       for (let j = 0; j < S; j++) {
         const v = S === 1 ? 0 : (j / (S - 1)) * 2 - 1, edge = Math.abs(v) > 0.93;
         for (let i = 0; i <= N; i++) {
           const th = (i / N) * Math.PI * 2;
-          const rr = p.R * (1 + p.lob * Math.sin(p.lobes * th + t * 0.4) + (p.ripple * (this._mood === 'listening' ? this._level ?? 1 : 1) + 0.03 * talk) * Math.sin(p.rf * th - t * 7));
+          const rr = p.R * (1 + p.lob * Math.sin(p.lobes * th + t * 0.4) + (p.ripple * (this._mood === 'listening' ? listeningLevel : 1) + 0.03 * talk) * Math.sin(p.rf * th - t * 7));
           let x = rr * Math.cos(th), y = rr * Math.sin(th) * p.squash, z = p.R * p.amp * Math.sin(2 * th + 0.6);
           const tau = p.twist * th / 2 + this._spin;
           const rx = Math.cos(th), ry = Math.sin(th) * p.squash, rl = Math.hypot(rx, ry) || 1;
-          const w = p.W * (1 + 0.35 * talk);
+          const w = p.W * (1 + 0.35 * talk + 0.18 * energy);
           x += v * w * Math.cos(tau) * rx / rl; y += v * w * Math.cos(tau) * ry / rl; z += v * w * Math.sin(tau);
           y -= p.bend * (x * x / (p.R * p.R) - 0.45) * p.R * 0.6;
           const X = x * cyw + z * syw, Z = -x * syw + z * cyw;
