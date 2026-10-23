@@ -4,7 +4,7 @@
  * searches found, background items, the chat's panels). Expand to see each
  * item, open it, or say "Don't use this" for the rest of the chat.
  */
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { ChevronDown, ChevronUp } from '@carbon/icons-react';
 import type { ContextUsedApi, SourceLifecycle, UsedSourceApi } from '../../types';
 import { groupSources, LIFECYCLE_LABEL, scopeWarnings, sourceTarget } from './usedSources';
@@ -25,6 +25,7 @@ function plural(n: number, one: string, many = `${one}s`): string {
 
 export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, onInclude }) => {
   const [open, setOpen] = useState(false);
+  const detailId = useId();
   const groups = groupSources(used);
   const sourceCount = groups.reduce((total, group) => total + group.sources.length, 0);
   const { reply: replyWarnings, bySource: sourceWarnings } = scopeWarnings(used.warnings);
@@ -40,6 +41,10 @@ export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, o
     warningCount > 0 ? plural(warningCount, 'notice') : null,
   ].filter((x): x is string => x !== null && x !== '');
   if (summary.length === 0) return null;
+  const counts = [
+    sourceCount > 0 ? plural(sourceCount, 'source') : null,
+    used.instructions > 0 ? plural(used.instructions, 'instruction') : null,
+  ].filter(Boolean).join(' · ');
 
   const row = (s: UsedSourceApi, lifecycle: SourceLifecycle): React.ReactNode => {
     const isOut = excluded.has(s.id);
@@ -47,12 +52,16 @@ export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, o
     const warnings = sourceWarnings.get(s.id) ?? [];
     return (
       <li key={s.id} className={`ai-used__item${isOut ? ' ai-used__item--out' : ''}${target.kind === 'unavailable' ? ' ai-used__item--unavailable' : ''}`}>
-        <span className={`ai-used__state ai-used__state--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
-        <span className="ai-used__kind">{KIND_LABEL[s.kind] ?? s.kind}</span>
-        {target.kind === 'internal' || target.kind === 'external'
-          ? <a href={target.href} target={target.kind === 'external' ? '_blank' : undefined} rel="noreferrer" className="ai-used__title">{s.title}</a>
-          : <span className="ai-used__title">{s.title}</span>}
-        {target.kind === 'unavailable' && <span className="ai-used__unavailable">No longer available</span>}
+        <div className="ai-used__source">
+          {target.kind === 'internal' || target.kind === 'external'
+            ? <a href={target.href} target={target.kind === 'external' ? '_blank' : undefined} rel="noreferrer" className="ai-used__title">{s.title}</a>
+            : <span className="ai-used__title">{s.title}</span>}
+          <div className="ai-used__source-meta">
+            <span className={`ai-used__state ai-used__state--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
+            <span className="ai-used__kind">{KIND_LABEL[s.kind] ?? s.kind}</span>
+            {target.kind === 'unavailable' && <span className="ai-used__unavailable">No longer available</span>}
+          </div>
+        </div>
         <button
           type="button"
           className="ai-used__toggle"
@@ -68,12 +77,16 @@ export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, o
 
   return (
     <div className="ai-used">
-      <button type="button" className="ai-used__line" aria-expanded={open} onClick={() => { setOpen((o) => !o); }}>
-        Used: {summary.join(' · ')}
+      <button type="button" className="ai-used__line" aria-expanded={open} aria-controls={detailId} onClick={() => { setOpen((o) => !o); }}>
+        <span className="ai-used__summary">
+          <span className="ai-used__label">Context &amp; references</span>
+          {counts !== '' && <span className="ai-used__counts">{counts}</span>}
+          {warningCount > 0 && <span className="ai-used__notices">{plural(warningCount, 'notice')}</span>}
+        </span>
         {open ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
       </button>
       {open && (
-        <div className="ai-used__detail">
+        <div id={detailId} className="ai-used__detail">
           <ul className="ai-used__facts">
             {used.project !== null && <li>Project: <strong>{used.project}</strong></li>}
             {used.instructions > 0 && <li>{plural(used.instructions, 'standing instruction')} and liked examples (see Memory)</li>}
@@ -91,7 +104,7 @@ export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, o
           {replyWarnings.map((w) => <p key={w.message} className="ai-used__warning" role="note">{w.message}</p>)}
           {groups.map((group) => (
             <React.Fragment key={group.lifecycle}>
-              <div className="ai-used__group" title={group.hint}>{group.label} · {group.hint}</div>
+              <div className="ai-used__group"><span>{group.label}</span><span className="ai-used__hint">{group.hint}</span></div>
               <ul className="ai-used__list">{group.sources.map((s) => row(s, group.lifecycle))}</ul>
             </React.Fragment>
           ))}
@@ -100,4 +113,3 @@ export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, o
     </div>
   );
 };
-

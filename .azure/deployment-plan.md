@@ -2,6 +2,38 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, chat animation and references):**
+- Both applications' `npx tsc --noEmit` checks passed.
+- Frontend production `npm run build` and `npm run lint:check` passed.
+- Frontend `npm run test:isolated`: 184 tests passed across five runners
+  (167 + 6 + 3 + 2 + 6), zero failures.
+- Azure CLI authentication verified; live SWA target is kh-prod-web in West
+  Europe. Backend image verified v235 and will not be updated.
+- Existing SWA-only release; no infrastructure, role, identity, policy or
+  provisioning changes, so template/what-if/container validation is not applicable.
+- Release logs: session files/chat-motion-release-{build,lint,tests}.log.
+
+**Chat animation and references release (2026-10-23):**
+- User confirmed the existing frontend target: kh-prod-web, West Europe,
+  rg-knowledge-hub-prod, Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28).
+- Frontend-only SWA deployment: full Athena v3 motion, centred/wrapped progress,
+  answer choreography and compact reference disclosure/styling.
+- Fetched and merged origin/main; already current at 0a9cc82.
+- Backend remains v235. No backend, database, dependency, infrastructure,
+  identity, secret or permission changes. Rollback: frontend source 0a9cc82.
+- All validation checks must pass:
+  - Azure CLI authentication and existing SWA target verification.
+  - Both application typechecks; frontend production build.
+  - Frontend isolated release suite, lint non-regression and diff hygiene.
+  - Prior fixture-only browser checks cover motion, responsive references,
+    source inclusion/exclusion and model-menu access; no production writes.
+  - Bicep compilation, template validation, what-if, Docker, policy changes,
+    provisioning and static/live RBAC changes are not applicable to this
+    existing SWA asset-only release.
+- Commit/push the exact release to main and the session branch; deploy the
+  matching local build and compare public asset hashes with the local files.
+
 **Section 7: Validation Proof (2026-10-23, Discover and drafting release):**
 - Both explicit `npx tsc --noEmit` checks and both production builds passed.
 - Isolated release suites passed: backend 422; frontend 165; zero failures.

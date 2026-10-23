@@ -70,6 +70,14 @@ In priority order:
 
 Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search`, `/ai`, `/blog-post`) redirect to the areas above.
 
+### Athena chat motion
+
+Chat uses the supplied Athena v3 animation's four-piece geometry and saved blue palette. The idle circle breathes above the composer, separates into bouncing dots during text/voice input, then travels to the centre of the pending reply as expanding, rotating squares. A new question slides into the thread. On the first answer text (or a complete non-streamed answer), the character contracts into the answer's corner as its panel unfolds horizontally and vertically. The label, text and output chips enter at the prototype's staggered offsets; a grey marker fades in as the character rotates back to the composer. The 2.1-second answer choreography continues across the streaming-to-saved handoff rather than restarting.
+
+Real input and response events replace the prototype's scripted question and demo loop. All chat surfaces share the animation, including compact panels. Progress updates, including wrapped messages, conversation restoration and note-summary loading, stay centred below the thinker rather than appearing at the left. Scrolling the active reply out of view returns the character to the composer without moving the reader's scroll position. Reduced-motion mode uses static shapes and immediately visible answers; hidden panels and tabs pause the character's loops. Pending-turn elapsed time and Stop controls remain available.
+
+Reply metadata sits in a quiet reference area below the answer. **Context & references** expands the project, instructions, current document and source details; its collapsed summary shows counts instead of repeating long titles. Source groups retain their Cited/Read/Found distinctions, links, notices and per-chat inclusion controls.
+
 ### Knowledge atlas
 
 The atlas reads existing entity records and saved relationships without creating a second authoritative graph. It includes company/programme links, people and roles, note links, decisions and semantic relationships alongside indexed source connections. Inferred links are hidden by default and never presented as confirmed roles or facts. Positions organise neighbourhoods; distance does not measure relationship strength.

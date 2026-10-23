@@ -12,7 +12,6 @@ import axios from 'axios';
 import {
   Button,
   Tile,
-  InlineLoading,
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
@@ -23,7 +22,10 @@ import { useProjects } from '../hooks/useProjects';
 import { ProjectOptions, type ProjectPickerItem } from '../components/ProjectOptions';
 import { DataNotice } from '../components/DataNotice';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
-import { LiveReply } from '../components/athena/LiveReply';
+import { LiveReply, ThinkingReply } from '../components/athena/LiveReply';
+import { AthenaPresence } from '../components/athena/AthenaPresence';
+import { ChatBubble } from '../components/athena/ChatBubble';
+import { athenaMotionPhase } from '../chat/athenaMotion';
 import { SideTabsPanel } from '../components/SideTabsPanel';
 import { ChatOutputsTab } from '../components/athena/ChatOutputsTab';
 import { ChatDecisionsTab } from '../components/athena/ChatDecisionsTab';
@@ -374,6 +376,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [voiceOutputOn, setVoiceOutputOn] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
+  const presenceDockRef = useRef<HTMLSpanElement>(null);
+  const presenceReplyRef = useRef<HTMLSpanElement>(null);
+  const presenceThinkRef = useRef<HTMLSpanElement>(null);
+  const [replyArrival, setReplyArrival] = useState<{ startedAt: number; complete: boolean } | null>(null);
+  const [promptArrivalAt, setPromptArrivalAt] = useState<number | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
   /** After he sends, room below the thread so his prompt can sit at the top while the reply comes in. */
   const [holdPromptTop, setHoldPromptTop] = useState(false);
   const promptRoomRef = useRef<HTMLDivElement>(null);
@@ -782,6 +791,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     onMutate: () => {
       // Fresh controller per turn — Stop only ever aborts the request that's actually in flight.
       chatAbortControllerRef.current = new AbortController();
+      setReplyArrival(null);
     },
     mutationFn: async ({ text, composerDraft, pageContext: ctx, resumeTurnId, resumeStartedAt, screenReview }: { text: string; composerDraft?: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string; screenReview?: ChatRequest['screenReview'] }) => {
       // Runs on the server in the background; this view follows it live and
@@ -803,7 +813,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           if (composerDraft !== undefined) setInput((current) => current === composerDraft ? '' : current);
         },
         onActivity: (activity) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, activity })); },
-        onText: (liveText) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, text: liveText })); },
+        onText: (liveText) => {
+          if (turnRunRef.current === run) {
+            if (liveText !== '') setReplyArrival(current => current ?? { startedAt: Date.now(), complete: false });
+            setLiveTurn((t) => (t === null ? t : { ...t, text: liveText }));
+          }
+        },
       };
       try {
         // In Athena Desktop, Athena may read and propose changes to the folders he chose on this PC.
@@ -838,12 +853,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         return result;
       } finally {
         if (turnRunRef.current === run) {
-          setLiveTurn(null);
           liveTurnIdRef.current = null;
         }
       }
     },
     onSuccess: (result) => {
+      setLiveTurn(null);
+      if (!result.success) setReplyArrival(null);
       if (!result.success && result.error.code === 'TURN_GONE' && sessionId !== null) {
         // Finished while we were reconnecting (it's in the saved history), or
         // lost in a server restart (the interrupted notice offers a resend).
@@ -859,6 +875,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         return;
       }
       if (sessionId === null) persistSessionId(result.data.sessionId, true);
+      setReplyArrival(current => ({ startedAt: current?.startedAt ?? Date.now(), complete: true }));
       appendMessage('assistant', result.data.reply, {
         persona: result.data.persona,
         sources: result.data.sources,
@@ -899,6 +916,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     onError: (err: unknown) => {
       // This view let go of the turn (switched chats) — it finishes in its own chat.
       if (err instanceof TurnDetachedError) return;
+      setLiveTurn(null);
+      setReplyArrival(null);
       // User pressed Stop — the request was deliberately aborted client-side. Not a real
       // failure, but confirm it visibly so it's clear Stop actually did something. The reply
       // (if the backend finishes generating it anyway) is simply discarded from here on.
@@ -1027,6 +1046,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     turnRunRef.current += 1;
     chatAbortControllerRef.current?.abort();
     setLiveTurn(null);
+    setReplyArrival(null);
+    setPromptArrivalAt(null);
     liveTurnIdRef.current = null;
     setInterruptedTurn(null);
   }
@@ -1125,6 +1146,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       },
     ]);
     if (role === 'user') {
+      setPromptArrivalAt(Date.now());
       // Bring his prompt to the top of the view and keep it there while the reply
       // arrives beneath it (the space below the thread makes room for that).
       setHoldPromptTop(true);
@@ -1140,8 +1162,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   function scrollMessagesTo(el: HTMLElement): void {
     const box = messagesRef.current;
     if (box === null) return;
-    const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 8;
-    box.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    const transform = getComputedStyle(el).transform;
+    const entranceOffset = transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m42;
+    const top = el.getBoundingClientRect().top - entranceOffset - box.getBoundingClientRect().top + box.scrollTop - 8;
+    box.scrollTo({ top: Math.max(0, top), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
 
   /** Jumps to the previous or next of his own messages in the thread. */
@@ -1170,6 +1194,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   const promptCount = messages.filter((m) => m.role === 'user').length;
   const lastAssistantIndex = messages.reduce((last, m, idx) => (m.role === 'assistant' ? idx : last), -1);
+  const lastUserIndex = messages.reduce((last, m, idx) => (m.role === 'user' ? idx : last), -1);
 
   // Size the room below the thread to just what keeps his last prompt at the top of
   // the view — it shrinks to nothing as the reply fills the screen.
@@ -1974,6 +1999,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     </>
   );
 
+  const motionPhase = athenaMotionPhase({
+    pending: chatMutation.isPending,
+    text: liveTurn?.text ?? '',
+    activity: liveTurn?.activity ?? 'Sending',
+    recording: isRecording,
+    transcribing: isTranscribing,
+    restoring: messages.length === 0 && (isRestoringHistory || (isNoteLinkedPanel && isNoteSummaryLoading)),
+    typing: inputFocused && input.trim() !== '',
+    answered: replyArrival !== null,
+  });
+
   return (
     <div className={standalone ? 'ai-chat-standalone' : compact ? `ai-chat-compact ai-chat-compact--${compactVariant}` : 'page-root'}>
       {standalone && (
@@ -2038,7 +2074,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </div>
         </div>
       )}
-      <div className={`ai-conversation${standalone ? ' ai-chat-standalone__body' : compact ? ' ai-chat-compact__body' : ''}`}>
+      <div ref={conversationRef} className={`ai-conversation${standalone ? ' ai-chat-standalone__body' : compact ? ' ai-chat-compact__body' : ''}`}>
+        <AthenaPresence phase={motionPhase} pending={chatMutation.isPending} answerAt={replyArrival?.startedAt ?? null}
+          contextKey={currentNoteId ?? sessionId ?? 'new'} host={conversationRef}
+          thread={messagesRef} dock={presenceDockRef} thinker={presenceThinkRef} reply={presenceReplyRef} />
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
             <p className="ai-action-desc">{action.description}</p>
@@ -2077,15 +2116,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           }}
         >
           {messages.length === 0 && isRestoringHistory && (
-            <div className="ai-empty">
-              <InlineLoading description="Restoring conversation…" />
-            </div>
+            <ThinkingReply activity="Restoring conversation" presenceRef={presenceThinkRef} />
           )}
           {messages.length === 0 && !isRestoringHistory && historyError === null && isNoteLinkedPanel && currentNoteId !== undefined && (
             <div className="ai-note-summary-card">
               <p className="ai-note-summary-card__label">Summary</p>
               {isNoteSummaryLoading ? (
-                <InlineLoading description="Summarising this note…" />
+                <ThinkingReply activity="Summarising this note" presenceRef={presenceThinkRef} />
               ) : noteSummaryError !== null ? (
                 <div className="ai-history-error" role="alert">
                   <p>Could not summarise this note: {noteSummaryError}</p>
@@ -2127,11 +2164,18 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             </div>
           )}
           {messages.map((msg, i) => (
-            <div
+            <ChatBubble
               key={i}
-              className={msg.role === 'user' ? 'ai-bubble ai-bubble--user' : 'ai-bubble ai-bubble--ai'}
-              aria-label={msg.role === 'user' ? 'You' : 'Athena'}
+              role={msg.role}
+              arrivalAt={msg.role === 'user' ? i === lastUserIndex ? promptArrivalAt : null
+                : i === lastAssistantIndex && replyArrival?.complete ? replyArrival.startedAt : null}
             >
+              {msg.role === 'assistant' && (
+                <div className="ai-reply-heading" aria-hidden="true">
+                  <span className="ai-reply-heading__mark" ref={i === lastAssistantIndex && replyArrival?.complete && !chatMutation.isPending ? presenceReplyRef : undefined} />
+                  <span>Athena</span>
+                </div>
+              )}
               {msg.role === 'user' ? (
                 <div className="ai-bubble-text"><PeopleMessageText text={msg.content} /></div>
               ) : (
@@ -2141,18 +2185,22 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                   dangerouslySetInnerHTML={{ __html: renderAssistantMessage(msg.content, { projectNameById }) }}
                 />
               )}
-              {msg.role === 'assistant' && <ReplyMeta persona={msg.persona} sources={msg.sources} />}
-              {msg.role === 'assistant' && msg.contextUsed !== undefined && sessionId !== null && (
-                <UsedLine
-                  used={msg.contextUsed}
-                  excluded={excludedIds}
-                  onExclude={(source) => {
-                    void api.excludeSource(sessionId, source).then((r) => { if (r.success) setExcludedIds(new Set(r.data.map((x) => x.id))); });
-                  }}
-                  onInclude={(sourceId) => {
-                    void api.includeSource(sessionId, sourceId).then((r) => { if (r.success) setExcludedIds(new Set(r.data.map((x) => x.id))); });
-                  }}
-                />
+              {msg.role === 'assistant' && (
+                <div className="ai-reply-references">
+                  <ReplyMeta persona={msg.persona} sources={msg.sources} />
+                  {msg.contextUsed !== undefined && sessionId !== null && (
+                    <UsedLine
+                      used={msg.contextUsed}
+                      excluded={excludedIds}
+                      onExclude={(source) => {
+                        void api.excludeSource(sessionId, source).then((r) => { if (r.success) setExcludedIds(new Set(r.data.map((x) => x.id))); });
+                      }}
+                      onInclude={(sourceId) => {
+                        void api.includeSource(sessionId, sourceId).then((r) => { if (r.success) setExcludedIds(new Set(r.data.map((x) => x.id))); });
+                      }}
+                    />
+                  )}
+                </div>
               )}
               {msg.role === 'assistant' && msg.noteEdits !== undefined && msg.noteEditsFor !== undefined && (
                 <NoteEditCard edits={msg.noteEdits} noteId={msg.noteEditsFor} />
@@ -2246,7 +2294,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                   </div>
                 )}
               </div>
-            </div>
+            </ChatBubble>
           ))}
           {!chatMutation.isPending && (() => {
             const last = messages[messages.length - 1];
@@ -2267,11 +2315,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             );
           })()}
           {chatMutation.isPending && (liveTurn !== null ? (
-            <LiveReply activity={liveTurn.activity} text={liveTurn.text} startedAt={liveTurn.startedAt} renderContext={{ projectNameById }} />
+            <LiveReply activity={liveTurn.activity} text={liveTurn.text} startedAt={liveTurn.startedAt} renderContext={{ projectNameById }}
+              presenceRef={presenceReplyRef} thinkerRef={presenceThinkRef} arrivalAt={replyArrival?.startedAt ?? null} />
           ) : (
-            <div className="ai-bubble ai-bubble--ai ai-bubble--thinking">
-              <InlineLoading description="Athena is thinking…" />
-            </div>
+            <ThinkingReply activity="Athena is thinking" presenceRef={presenceThinkRef} />
           ))}
           {holdPromptTop && <div ref={promptRoomRef} className="ai-prompt-room" aria-hidden="true" />}
           <div ref={bottomRef} />
@@ -2298,7 +2345,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </div>
         )}
 
-        <div className="ai-composer">
+        <div className={`ai-composer${isRecording || (inputFocused && input.trim() !== '') ? ' ai-composer--asking' : ''}${isRecording ? ' ai-composer--listening' : ''}`}>
+        <div className="ai-presence-dock">
+          <span ref={presenceDockRef} className="ai-presence-anchor" aria-hidden="true" />
+          <span className="ai-presence-dock__status" role="status">{isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : ''}</span>
+        </div>
         {prepareDemoBrief !== undefined && (
           <div className="ai-demo-brief-skill">
             <button type="button" className="ai-demo-brief-skill__button" disabled={preparingBrief || chatMutation.isPending || isRestoringHistory}
@@ -2419,6 +2470,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : pendingFile !== null ? 'Ask a question about the attached file…' : 'Ask Athena…'}
               value={input}
               onChange={(e) => { hasUserWorkRef.current = true; setInput(e.target.value); }}
+              onFocus={() => { setInputFocused(true); }}
+              onBlur={() => { setInputFocused(false); }}
               onKeyDown={handleInputKeyDown}
               onPaste={handleInputPaste}
               disabled={chatMutation.isPending}

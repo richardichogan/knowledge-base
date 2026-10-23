@@ -4,14 +4,17 @@
  * how long ("Searching your Library for “underwriting queue”… 12s").
  */
 import React, { useEffect, useState } from 'react';
-import { InlineLoading } from '@carbon/react';
 import { renderAssistantMessage } from './renderReply';
+import { ChatBubble } from './ChatBubble';
 
 interface LiveReplyProps {
   activity: string;
   text: string;
   startedAt: number;
   renderContext: Parameters<typeof renderAssistantMessage>[1];
+  presenceRef: React.RefObject<HTMLSpanElement>;
+  thinkerRef: React.RefObject<HTMLSpanElement>;
+  arrivalAt: number | null;
 }
 
 const LONG_BLOCK_CHARS = 400;
@@ -30,7 +33,21 @@ function collapseLongBlocks(text: string): string {
   });
 }
 
-export const LiveReply: React.FC<LiveReplyProps> = ({ activity, text, startedAt, renderContext }) => {
+export const ThinkingReply: React.FC<{
+  activity: string;
+  presenceRef: React.RefObject<HTMLSpanElement>;
+  seconds?: number;
+}> = ({ activity, presenceRef, seconds }) => (
+  <ChatBubble role="assistant" thinking>
+    <span ref={presenceRef} className="ai-presence-think-anchor" aria-hidden="true" />
+    <div className="ai-live-activity">
+      <span className="ai-live-activity__label" role="status">{activity}…</span>
+      {seconds !== undefined && <span className="ai-live-activity__time" aria-hidden="true">{seconds.toString()}s</span>}
+    </div>
+  </ChatBubble>
+);
+
+export const LiveReply: React.FC<LiveReplyProps> = ({ activity, text, startedAt, renderContext, presenceRef, thinkerRef, arrivalAt }) => {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => { setNow(Date.now()); }, 1000);
@@ -38,19 +55,20 @@ export const LiveReply: React.FC<LiveReplyProps> = ({ activity, text, startedAt,
   }, []);
   const seconds = Math.max(0, Math.round((now - startedAt) / 1000));
   const writing = text !== '';
+  if (!writing) return <ThinkingReply activity={activity} presenceRef={thinkerRef} seconds={seconds} />;
   return (
-    <div className={`ai-bubble ai-bubble--ai ai-bubble--live${writing ? '' : ' ai-bubble--thinking'}`} aria-live="polite">
-      {writing && (
-        <div
-          className="ai-bubble-text ai-bubble-text--md"
-          // eslint-disable-next-line react/no-danger
-          dangerouslySetInnerHTML={{ __html: renderAssistantMessage(collapseLongBlocks(text), renderContext) }}
-        />
-      )}
-      <InlineLoading
-        className="ai-live-activity"
-        description={`${writing ? 'Writing' : activity}… ${seconds.toString()}s`}
+    <ChatBubble role="assistant" live arrivalAt={arrivalAt}>
+      <div className="ai-reply-heading" aria-hidden="true">
+        <span ref={presenceRef} className="ai-reply-heading__mark" />
+        <span>Athena</span>
+      </div>
+      <span className="ai-live-writing" role="status">Writing…</span>
+      <div
+        className="ai-bubble-text ai-bubble-text--md"
+        aria-live="polite"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: renderAssistantMessage(collapseLongBlocks(text), renderContext) }}
       />
-    </div>
+    </ChatBubble>
   );
 };
