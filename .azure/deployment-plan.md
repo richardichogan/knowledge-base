@@ -2,6 +2,16 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, Athena personality):**
+- Source 0a43f3b committed and atomically pushed to main and the working branch.
+- Validated frontend dist deployed successfully to kh-prod-web production.
+- Custom and default HTTPS domains return 200 with the expected entry reference;
+  all three checked assets (entry and both renderers) match local SHA-256 hashes.
+- Ribbon SHA-256: d303b50be0c6a1e1cf0413832e416326954f7a00644ae654046e95bac5b42dd3
+- Includes transparent reply backgrounds and idle/typing/voice personality.
+  Backend and production database unchanged; token not printed or committed.
+- Log: session files/athena-personality-release-deploy.log.
+
 **Section 7: Validation Proof (2026-10-23, Athena personality):**
 - User requested production deployment of voice-responsive strands, typing
   attentiveness, idle breathing and transparent assistant reply backgrounds.
