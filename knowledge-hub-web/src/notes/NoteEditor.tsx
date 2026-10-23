@@ -15,7 +15,7 @@ import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { ShareEmailModal } from '../components/ShareEmailModal';
 import type { ShareEmailContent } from '../types/shareEmail';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
-import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch, TextBold, TextItalic, ListChecked, ListBulleted, ListNumbered, Quotes } from '@carbon/icons-react';
+import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch, PresentationFile, TextBold, TextItalic, ListChecked, ListBulleted, ListNumbered, Quotes } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { noteFilename } from './noteFilename';
@@ -38,7 +38,8 @@ import { MetadataPanel } from './MetadataPanel';
 import { useProjects } from '../hooks/useProjects';
 import { editorSchema } from './editorSchema';
 import { parseTranscript, transcriptToBlocks } from './transcriptPaste';
-import { imagineDemoBriefPrompt } from './imagineDemoBrief';
+import { imagineDemoBriefPrompt, imagineDemoSpecificationPrompt } from './imagineDemoBrief';
+import { useAthenaContext } from '../context/AthenaContext';
 import { noteDraftIdentity } from '../services/auth';
 import { captureNoteDraft, removeNoteDraftIfUnchanged, storeNoteDraft, type NoteDraft } from './noteDraftStorage';
 import { NoteDraftReview } from './NoteDraftReview';
@@ -61,6 +62,7 @@ interface NoteEditorProps {
   onCreateDiagram?: (noteId: string) => Promise<void>;
   onImport?: () => void;
   onRecovery?: () => void;
+  onPresent?: (() => void) | undefined;
   onShowEditor?: (() => void) | undefined;
 }
 
@@ -133,8 +135,9 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onShowEditor }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor }) => {
   const queryClient = useQueryClient();
+  const { openAthena, pageContext } = useAthenaContext();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
@@ -144,6 +147,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [preparingSpecification, setPreparingSpecification] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
 
@@ -833,23 +837,6 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             provides a slot, otherwise inline above the editor. */}
         {portalInto(actionsSlot, (
         <div className={actionsSlot ? 'notes-doc-actions kh-command-row' : 'notes-top-bar'}>
-          <button type="button" className="notes-popout-btn" disabled={historyBusy}
-            title="Open this note in a content-only, read-only window"
-            onClick={() => {
-              const popup = window.open(`/think/notes/${encodeURIComponent(doc.id)}/popout`,
-                `athena-note-${doc.id}`, 'popup,width=960,height=800,resizable=yes,scrollbars=yes');
-              if (!popup) {
-                setNotification({ kind: 'error', msg: 'Pop-up blocked. Allow pop-ups for Athena, then try Pop out again.' });
-                return;
-              }
-              popup.opener = null;
-              popup.focus();
-              void doSave().then(saved => {
-                if (!saved) setNotification({ kind: 'error', msg: 'The pop-out shows saved writing only. Current edits could not be saved; resolve the save error in Think before relying on the pop-out.' });
-              });
-            }}>
-            <Launch size={16} /><span className="notes-action-label">Pop out</span>
-          </button>
           <div className="notes-export-anchor kh-command-row" ref={exportMenuRef}>
             <button
               type="button"
@@ -863,6 +850,56 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             </button>
             {exportMenuOpen && (
               <ul className="kb-menu" role="menu">
+                {onPresent && (
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item" disabled={historyBusy}
+                      onClick={() => { setExportMenuOpen(false); onPresent(); }}>
+                      <PresentationFile size={16} /> Present
+                    </button>
+                  </li>
+                )}
+                <li role="menuitem">
+                  <button type="button" className="kb-menu__item" disabled={historyBusy}
+                    title="Open this note in a content-only, read-only window"
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      const popup = window.open(`/think/notes/${encodeURIComponent(doc.id)}/popout`,
+                        `athena-note-${doc.id}`, 'popup,width=960,height=800,resizable=yes,scrollbars=yes');
+                      if (!popup) {
+                        setNotification({ kind: 'error', msg: 'Pop-up blocked. Allow pop-ups for Athena, then try Pop out again.' });
+                        return;
+                      }
+                      popup.opener = null;
+                      popup.focus();
+                      void doSave().then(saved => {
+                        if (!saved) setNotification({ kind: 'error', msg: 'The pop-out shows saved writing only. Current edits could not be saved; resolve the save error in Think before relying on the pop-out.' });
+                      });
+                    }}>
+                    <Launch size={16} /> Pop out
+                  </button>
+                </li>
+                <li className="kb-menu__sep" role="separator" />
+                <li role="menuitem">
+                  <button type="button" className="kb-menu__item" disabled={historyBusy || preparingSpecification}
+                    title="Create the full IMAGINE specification from this note and its Athena conversation; keep the source unchanged"
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      setPreparingSpecification(true);
+                      void doSave().then(saved => {
+                        if (!saved) throw new Error('Save the source note before creating its demo specification. Resolve the save error and retry.');
+                        if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) return;
+                        openAthena(imagineDemoSpecificationPrompt(doc.id, savedDocRef.current.title), {
+                          ...(pageContext?.id === doc.id ? pageContext : {}),
+                          type: 'note', id: doc.id, title: savedDocRef.current.title,
+                          ...(projectIdRef.current ? { projectId: projectIdRef.current } : {}),
+                        });
+                      }).catch((error: unknown) => {
+                        if (mountedRef.current) setNotification({ kind: 'error', msg: error instanceof Error ? error.message : 'Could not prepare the demo specification. Retry from this note.' });
+                      }).finally(() => { if (mountedRef.current) setPreparingSpecification(false); });
+                    }}>
+                    <DocumentExport size={16} /> {preparingSpecification ? 'Preparing specification...' : 'Create demo specification'}
+                  </button>
+                </li>
                 <li role="menuitem">
                   <button type="button" className="kb-menu__item notes-copy-btn" disabled={copying} title="Copy the whole note, including unsaved changes"
                     onClick={() => { setExportMenuOpen(false); void handleCopyNote(); }}>

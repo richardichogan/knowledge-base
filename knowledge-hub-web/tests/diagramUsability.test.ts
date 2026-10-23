@@ -35,7 +35,10 @@ test('alignment snaps centres and edges exactly within zoom-adjusted tolerance, 
   const other = node('reference', 200, 100);
   const near = alignMovingBounds(moving, [other], { x: 198, y: 98 }, 5);
   assert.deepEqual(near.delta, { x: 200, y: 100 });
-  assert.deepEqual(near.guides, [{ axis: 'x', value: 200 }, { axis: 'y', value: 100 }]);
+  assert.deepEqual(near.guides, [
+    { axis: 'x', value: 200, kind: 'edge' }, { axis: 'x', value: 250, kind: 'centre' }, { axis: 'x', value: 300, kind: 'edge' },
+    { axis: 'y', value: 100, kind: 'edge' }, { axis: 'y', value: 130, kind: 'centre' }, { axis: 'y', value: 160, kind: 'edge' },
+  ]);
   const far = alignMovingBounds(moving, [other], { x: 170, y: 80 }, 5);
   assert.deepEqual(far, { delta: { x: 170, y: 80 }, guides: [] });
   const zoomed = alignMovingBounds(moving, [other], { x: 198, y: 98 }, 5 / 4);

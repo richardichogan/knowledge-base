@@ -2,6 +2,59 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, demo specification and Think fixes):**
+- origin/main fetched twice; HEAD f9f2f93 includes all remote changes before release.
+- Both explicit TypeScript checks and both production builds passed.
+- Backend full isolated suite ran 458 tests; two stale/new fixture assertions
+  were corrected. The affected 93-test rerun passed, followed by 21 final
+  routing/read-only/specification/layout checks and five tagging regressions.
+- Frontend full isolated suites ran 178 + 6 + 3 + 2 + 6 tests. The sole stale
+  guide assertion now expects all matching edges/centres; its targeted rerun passed.
+- Both lint non-regression checks now pass without baseline changes. Two
+  tagging-release literals were replaced with same-valued named constants.
+- The committed template exactly matches the supplied 330-line attachment.
+  Every editable field was individually tested for missing/empty rejection.
+- Scoped note-menu layout detector and git diff --check passed. The unrelated
+  incumbent diagramIntegration.scss shadow warning is out of scope and unchanged;
+  no detector suppression or user setting changes were made.
+- Azure CLI verified subscription c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28, UK South
+  kh-prod-api-vnet/v237, West Europe kh-prod-web and unused image tag v238.
+  Azure MCP returned no subscriptions; existing authenticated CLI used unchanged.
+- Container App has identity None and the established registry credential binding.
+  No managed-identity AcrPull or role/provisioning changes apply. Existing latest
+  revision receives 100% traffic. ACR location is East US.
+- Architecture fit: uses existing chat tools, per-note chat, note persistence
+  and Markdown/BlockNote conversion; immutable template rendering avoids omissions.
+  Hosting: TS template compiles into the unchanged container build, no runtime
+  file-copy assumption. Dependencies/cost: none added; specification schemas are
+  limited to relevant conversations and existing long-output limits are reused.
+  Typing/contracts: structured inputs checked before saving; legacy notes and
+  brief formats remain compatible. Security: read-only and strict-project/
+  exclusion guards apply, no new secrets or external writes. Smallest safe change:
+  dedicated validated new-note path, not a generic prompt-only save or overwrite.
+- No browser launch, production test-content write or infrastructure modification.
+
+**Current release (2026-10-23, demo specification and pending Think fixes):**
+- User explicitly requested push to remote and deployment when complete.
+- Existing application-only Azure CLI recipe and production resources unchanged:
+  Alliance Tenant Reporting, rg-knowledge-hub-prod, kh-prod-api-vnet and kh-prod-web.
+- Includes exact-template demo specification generation, consolidated note Actions,
+  diagram layout/guides/snapping and earlier graph/tooltips/AI source-handling fixes.
+- No new dependencies, migrations, cloud resources, roles, secrets or permissions.
+- Source is current with origin/main (f9f2f93); existing backend image is v237.
+- All validation checks must pass before deployment:
+  - Both TypeScript checks and both production builds.
+  - Both isolated release suites, targeted diagram tests, lint non-regression.
+  - Template identity against the supplied attachment, diff hygiene and architecture fit.
+  - Azure CLI authentication, exact existing targets and unused next image tag.
+  - Existing unchanged Docker recipe and lockfile; ACR verifies the container build.
+  - Bicep, template validation, what-if, policy/provisioning and RBAC changes are
+    not applicable to this application-only release.
+- Post-deploy: exact source-image provenance, healthy/running revision and startup
+  logs; successful SWA production upload and public asset hash verification.
+- Do not launch browsers, change settings, create production test content or
+  execute the generated specification's embedded Build instruction.
+
 **Deployment result (2026-10-23, diagram styling and AI reliability):**
 - Source fd24505104d605c0870923b8a8446309a5d4d5db merged/pushed atomically
   to main and richardichogan-link-think-chat-projects.

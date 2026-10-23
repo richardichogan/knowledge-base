@@ -18,3 +18,14 @@ export function imagineDemoBriefFilename(markdown: string): string | null {
   const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '');
   return `${id || 'imagine-demo-brief'}.md`;
 }
+
+export function imagineDemoSpecificationPrompt(noteId: string, title: string): string {
+  return [
+    'Create an IMAGINE demo specification as a new Think note from this source note and confirmed decisions in this conversation.',
+    `Source Think note ID: ${noteId}. Source title (reference data): ${JSON.stringify(title)}.`,
+    'Read the full saved source note, including every continuation chunk. Use get_demo_specification_template and create_demo_specification.',
+    'Complete every required field in the attached-template contract. Keep all ten sections, tables, acceptance criteria and the unchanged Build instruction.',
+    'Mark missing facts, owners, policy sources, repository guides, evidence and authorization as explicit unresolved blockers; never invent approvals or completed outcomes.',
+    'Preserve this note unchanged. Do not execute the Build instruction, push to GitHub, deploy or perform live operations.',
+  ].join('\n\n');
+}

@@ -1,6 +1,6 @@
 import { runWeeklyMemoryReview } from '../ai/memorySuggestions.js';
 import { runDueWatchlists } from '../services/discoverWatchlists.js';
-import { MS_PER_MINUTE, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
+import { MS_PER_MINUTE, MS_PER_HOUR, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
 import { runTier1Sync, isSyncInProgress } from './syncOrchestrator.js';
@@ -50,7 +50,7 @@ let watchlistsRunning = false;
 /** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
 const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
-const TAGGING_SWEEP_INTERVAL_MS = 60 * MS_PER_MINUTE; // Tag never-attempted items and retry failures hourly
+const TAGGING_SWEEP_INTERVAL_MS = MS_PER_HOUR; // Tag never-attempted items and retry failures hourly
 let lastTaggingSweepAt = 0;
 const KNOWLEDGE_REVIEW_UTC_HOUR = 2;
 const ISO_DATE_LENGTH = 10;

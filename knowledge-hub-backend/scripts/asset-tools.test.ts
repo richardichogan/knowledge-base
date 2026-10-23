@@ -153,7 +153,21 @@ test('an AI flow gets lanes, steps placed in them, sanitised metadata and a vali
 
   const general = applyDiagramUpdate(emptyDiagram(), { addNodes: [{ label: 'A' }], relayout: true });
   assert.equal(general.doc.diagramType, undefined);
-  assert.deepEqual(general.problems, ['relayout only applies to AI flow diagrams.']);
+  assert.deepEqual(general.problems, []);
+});
+
+test('ordinary diagram edits retain positions; relayout is explicit and centres mixed-height steps', () => {
+  const first = addToDiagram(emptyDiagram(), [
+    { key: 'a', label: 'Start', kind: 'terminator', colour: 'blue', footnote: false },
+    { key: 'b', label: 'Gate', kind: 'decision', colour: 'yellow', footnote: false },
+  ], [{ from: 'a', to: 'b', label: '', dashed: false }]).doc;
+  assert.equal(first.nodes[0]!.y + first.nodes[0]!.height / 2, first.nodes[1]!.y + first.nodes[1]!.height / 2);
+  first.nodes[0]!.x = 999;
+  const edited = applyDiagramUpdate(first, { updateNodes: [{ node: 'Start', colour: 'green' }] });
+  assert.equal(edited.doc.nodes[0]!.x, 999);
+  const arranged = applyDiagramUpdate(edited.doc, { relayout: true });
+  assert.deepEqual(arranged.problems, []);
+  assert.equal(arranged.doc.nodes[0]!.x, 80);
 });
 test('the note open beside the chat must go through a reviewed edit', async () => {
   const db = await database();

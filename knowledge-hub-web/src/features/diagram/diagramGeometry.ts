@@ -703,6 +703,8 @@ export function normalizeDocument(doc: DiagramDocument): DiagramDocument {
   return {
     version: 1, nodes: fixed, edges, grid: doc.grid !== false, viewport,
     ...(doc.gridSize !== undefined ? { gridSize: doc.gridSize } : {}),
+    ...(doc.snapToGrid !== undefined ? { snapToGrid: doc.snapToGrid } : {}),
+    ...(doc.snapToShapes !== undefined ? { snapToShapes: doc.snapToShapes } : {}),
     ...(footnotes.length > 0 ? { footnotes } : {}),
     ...(doc.legend !== undefined ? { legend: doc.legend } : {}),
     ...(doc.notesPanel !== undefined ? { notesPanel: doc.notesPanel } : {}),

@@ -154,7 +154,7 @@ test('wiring: discarded oversized reads never become evidence or expose their id
 
   const discarded = budget.admitResult(read('discarded-note', 'x'.repeat(48_000)));
   assert.deepEqual(JSON.parse(discarded.content), discarded.result);
-  assert.match(discarded.content, /Source text limit reached/);
+  assert.match(discarded.content, /Only part of this source material fit/);
   assert.doesNotMatch(discarded.content, /discarded-note/);
   recordToolEvidence(ledger, 'read_knowledge_record', discarded.result, { kind: 'note', id: 'discarded-note' });
   assert.equal(ledgerCounts(ledger).read, 1);

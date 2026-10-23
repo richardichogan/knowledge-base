@@ -11,6 +11,7 @@ import { formatRagContext } from './ragRetriever.js';
 import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
 import { IMAGINE_DEMO_BRIEF_SKILL } from './imagineDemoBriefSkill.js';
+import { DEMO_SPECIFICATION_INSTRUCTIONS, isDemoSpecificationRequest } from './demoSpecification.js';
 import { DISCOVER_APP_GUIDANCE, getDiscoverSources, isDiscoverSourceRequest } from './discoveryContext.js';
 import { formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
@@ -82,6 +83,14 @@ const USER_PROFILE_BLURB = [
   'Challenge weak assumptions, flag risks and contradictions, and back conclusions with evidence rather than ' +
     'authority. Read what he actually wrote before responding to it — don\'t respond to an assumed version of ' +
     'his request.',
+  'Never narrate private reasoning, discarded drafts, tool preambles, or corrections to your own intermediate ' +
+    'output. Do not answer or apologise to an earlier assistant message as though Richard said it. Use tool ' +
+    'results silently and respond directly to his request with the finished answer.',
+  'When analysing a saved meeting transcript or other long saved record, search for it and read its stored body ' +
+    'with read_knowledge_record, which pages the database content using nextCursor. Read successive pages as ' +
+    'needed before drawing conclusions. Do not fetch the record URL as a substitute for its saved body. If a ' +
+    'page or turn budget prevents complete coverage, state the missing coverage plainly and do not imply the full ' +
+    'transcript was reviewed.',
 ].join('\n');
 
 /**
@@ -327,6 +336,7 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'NOT call this (or create_task) proactively — the upload is already stored and searchable on its own; ' +
     'only create a note/task from it if the user explicitly asks you to. File it under the project the material ' +
     'most directly serves (projectId) — e.g. anything bearing on the IMAGINE platform goes in "imagine".',
+  '- For the full IMAGINE demo specification (not the shorter demo brief), use get_demo_specification_template and create_demo_specification, never a generic note or Output. Every mandatory field is enforced server-side.',
   '- You can create and change any asset in the app, so never tell the user you lack a tool for it: ' +
     'add_discover_source / update_discover_source (subscribe, rename, regroup, disable Discover feeds), ' +
     'set_discover_item_state (restore/shelve/save Discover articles), update_spark, create_project / ' +
@@ -1293,6 +1303,7 @@ export async function assembleMessages(
     buildToolCapabilitiesBlurb(),
     ...(standingInstructions !== '' ? ['---', standingInstructions] : []),
     ...knowledgeOrchestrationPromptBlocks(),
+    ...(isDemoSpecificationRequest(userMessage) ? ['---', 'For this request the following full specification contract overrides shorter demo/brief formats:', DEMO_SPECIFICATION_INSTRUCTIONS] : []),
   ].join('\n\n');
 
   const pageContextBlock = await formatPageContext(pageContext, userMessage);

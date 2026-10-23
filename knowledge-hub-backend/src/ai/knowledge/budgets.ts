@@ -8,6 +8,21 @@ export const BUDGET_LIMITS = {
   maxModelRounds: 10,
 } as const;
 
+type BudgetLimits = { [K in keyof typeof BUDGET_LIMITS]: number };
+
+export const TRANSCRIPT_REVIEW_BUDGET = {
+  sourceChars: 240_000,
+  retrievalExecutions: 20,
+  retrievalWallMs: 25_000,
+  maxModelRounds: 16,
+} as const;
+
+const TRANSCRIPT_REVIEW_QUERY = /\b(?:transcripts?|meeting transcript|call transcript|verbatim minutes)\b/i;
+
+export function isTranscriptReviewRequest(query: string): boolean {
+  return TRANSCRIPT_REVIEW_QUERY.test(query);
+}
+
 export type BudgetKind = 'source_chars' | 'tool_executions' | 'wall_time' | 'aborted' | 'model_rounds';
 
 /** Server flag gating the new orchestration; the previous path stays the default. */
@@ -28,11 +43,11 @@ export class TurnBudget {
   retrievalExecutions = 0;
   retrievalMs = 0;
   readonly exhausted = new Set<BudgetKind>();
-  private readonly limits: typeof BUDGET_LIMITS;
+  private readonly limits: BudgetLimits;
 
   constructor(
     private readonly signal?: AbortSignal,
-    limits: Partial<typeof BUDGET_LIMITS> = {},
+    limits: Partial<BudgetLimits> = {},
     private readonly clock: () => number = Date.now,
   ) {
     this.limits = { ...BUDGET_LIMITS, ...limits };
@@ -83,7 +98,7 @@ export class TurnBudget {
   admitResult(result: unknown): { result: unknown; content: string } {
     const content = JSON.stringify(result);
     if (!this.admitSource(content).truncated) return { result, content };
-    const warning = { partial: true, note: 'Source text limit reached for this answer; not everything was checked.' };
+    const warning = { partial: true, note: 'Only part of this source material fit into the answer context; not everything was checked.' };
     return { result: warning, content: JSON.stringify(warning) };
   }
 
@@ -95,7 +110,7 @@ export class TurnBudget {
 }
 
 const SCOPE_TEXT: Record<BudgetKind, string> = {
-  source_chars: 'the source text limit for one answer was reached',
+  source_chars: 'the amount of source material I can review in one answer was reached',
   tool_executions: 'the limit on searches and reads for one answer was reached',
   wall_time: 'the time allowed for looking things up was used up',
   aborted: 'the request was cancelled',

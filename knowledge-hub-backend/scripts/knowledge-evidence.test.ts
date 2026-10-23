@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createLedger, noteFound, noteRead, ledgerCounts, summariseLedger, dropFromLedger } from '../src/ai/knowledge/evidence.js';
 import { resolveAnswer, validateCitation, normaliseWhitespace, parseCitations } from '../src/ai/knowledge/citations.js';
-import { TurnBudget, budgetLimitation, completenessAnswer, exhaustiveQualification, isKnowledgeOrchestrationEnabled } from '../src/ai/knowledge/budgets.js';
+import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, budgetLimitation, completenessAnswer, exhaustiveQualification, isKnowledgeOrchestrationEnabled, isTranscriptReviewRequest } from '../src/ai/knowledge/budgets.js';
 import { authorityLabel, attributionVerb, overclaimProblems, dedupeSyndicated, interpretWatchRun, watchStatement, chatQuoteAllowed } from '../src/ai/knowledge/evidenceAuthority.js';
 import { emptyContextUsed, attachEvidence, recordToolEvidence } from '../src/ai/contextUsage.js';
 
@@ -166,6 +166,17 @@ test('PERF-06: source text across several tool rounds stays within the cap', () 
   let sent = 0;
   for (let i = 0; i < 10; i++) sent += b.admitSource('z'.repeat(12_000)).text.length;
   assert.equal(sent, 48_000);
+});
+
+test('PERF-07: transcript review receives a larger paged-source budget', () => {
+  assert.equal(isTranscriptReviewRequest('Review this meeting transcript and identify the decisions.'), true);
+  assert.equal(isTranscriptReviewRequest('Summarise my project notes.'), false);
+  const budget = new TurnBudget(undefined, TRANSCRIPT_REVIEW_BUDGET);
+  const firstPage = budget.admitSource('x'.repeat(200_000));
+  assert.equal(firstPage.truncated, false);
+  assert.equal(budget.sourceChars, 200_000);
+  assert.equal(budget.admitSource('y'.repeat(50_000)).text.length, 40_000);
+  assert.ok(budget.exhausted.has('source_chars'));
 });
 
 test('PERF-07: flag off by default and exhaustive queries need a deterministic path', () => {

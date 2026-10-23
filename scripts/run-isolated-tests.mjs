@@ -47,6 +47,8 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/decisionSemantics.test.tsx',
 ] : [
   'scripts/graph-atlas.test.ts',
+  'scripts/demo-specification.test.ts',
+  'scripts/diagram-layout.test.ts',
   'scripts/company-relationships.test.ts',
   'scripts/youtube-discovery.test.ts',
   'scripts/share-email.test.ts',

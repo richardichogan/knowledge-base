@@ -278,6 +278,8 @@ export async function tagContent(
   }
 }
 
+const MIN_TAGGABLE_TEXT_CHARS = 20;
+
 async function tagWithPolicy(
   db: Pool,
   policy: TaggingPolicy,
@@ -296,7 +298,7 @@ async function tagWithPolicy(
   if (policy.mode !== 'ai') return { appliedTagIds: applied, suggestedNewTags: [], outcome: outcome('no_fit') };
 
   const conceptTags = await loadConceptTags(db);
-  if (conceptTags.length === 0 || text.trim().length < 20) return { appliedTagIds: applied, suggestedNewTags: [], outcome: outcome('skipped') };
+  if (conceptTags.length === 0 || text.trim().length < MIN_TAGGABLE_TEXT_CHARS) return { appliedTagIds: applied, suggestedNewTags: [], outcome: outcome('skipped') };
 
   const client = new FoundryClient('auto-tagging');
   const raw = await client.chatBulk([

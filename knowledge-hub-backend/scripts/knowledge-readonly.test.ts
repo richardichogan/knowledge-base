@@ -14,6 +14,7 @@ const WRITE_ATTEMPTS = [
   { name: 'create_task', args: { title: 'Sneaky task' } },
   { name: 'update_task', args: { id: 't1', status: 'done' } },
   { name: 'create_note_draft', args: { content: 'Sneaky note' } },
+  { name: 'create_demo_specification', args: { values: {} } },
   { name: 'create_spark', args: { content: 'Sneaky spark' } },
   { name: 'remember', args: { content: 'Sneaky memory' } },
   { name: 'save_output', args: { title: 'Sneaky output', content: 'x' } },

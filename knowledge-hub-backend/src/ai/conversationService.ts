@@ -11,7 +11,7 @@ import { createLedger, ledgerCounts } from './knowledge/evidence.js';
 import { recordTurnAudit, looksAbstained, type TurnAuditRow } from './knowledge/turnAudit.js';
 import { RECORD_TOOLS } from './knowledge/toolRecords.js';
 import { collectIds, resolveAnswer, stripUnseenIds } from './knowledge/citations.js';
-import { TurnBudget, DETERMINISTIC_TOOLS, budgetLimitation, finalizeKnowledgeAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
+import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, DETERMINISTIC_TOOLS, budgetLimitation, finalizeKnowledgeAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled, isTranscriptReviewRequest } from './knowledge/budgets.js';
 
 const RETRIEVAL_TOOLS = new Set(['search_diagrams', 'read_diagram', 'search_knowledge_base', 'search_library', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
@@ -31,6 +31,7 @@ import { getSessionProjectId, readPastChat, searchReferencedPastChats } from './
 import { focusTools, selectKnowledgeRetrievalChoice, selectRequiredToolChoice } from './toolRouting.js';
 import { openFoundInstruction, unreadFoundCandidates } from './knowledge/openFound.js';
 import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
+import { DEMO_SPECIFICATION_WRITE_TOOL, isDemoSpecificationRequest } from './demoSpecification.js';
 import { getCanvas } from '../services/canvasService.js';
 import { buildPeopleContext } from '../services/peopleContext.js';
 import { buildCanvasContext } from '../services/canvasContent.js';
@@ -132,7 +133,7 @@ function pastChatSearchQuery(message: string): string | null {
 }
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -331,6 +332,7 @@ export async function handleConversationTurn(
   const allTools = [...await getToolDefinitions(), ...(localFolders.length > 0 ? LOCAL_FILE_TOOLS : [])];
   hooks.signal?.throwIfAborted();
   const briefOnly = isImagineDemoBriefRequest(persona, userMessage);
+  const specificationOnly = isDemoSpecificationRequest(userMessage);
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
   // The note-edit and map-edit tools are the two largest definitions (about 1,400 tokens between them) and
   // only make sense with a note or canvas open, so they are not sent otherwise.
@@ -343,7 +345,8 @@ export async function handleConversationTurn(
     knowledgeOrchestration: isKnowledgeOrchestrationEnabled(),
   });
   const tools = (hooks.readOnlyTools === true ? focusedTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : focusedTools)
-    .filter((t) => !briefOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'save_output')
+    .filter((t) => !specificationOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === DEMO_SPECIFICATION_WRITE_TOOL)
+    .filter((t) => specificationOnly || !briefOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'save_output')
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
@@ -354,7 +357,7 @@ export async function handleConversationTurn(
     toolSchemaChars: JSON.stringify(tools).length,
     outputsIndexChars: outputsBlock.length,
   };
-  const requiredFirstTool = selectRequiredToolChoice(
+  const requiredFirstTool = specificationOnly ? { type: 'function' as const, function: { name: 'get_demo_specification_template' } } : selectRequiredToolChoice(
     userMessage,
     tools,
     context.projectReferences,
@@ -369,7 +372,7 @@ export async function handleConversationTurn(
   // output budget is raised well above the chat default — otherwise a long edit is cut off mid-call.
   const editsOpenNote = requiredFirstTool !== undefined && typeof requiredFirstTool === 'object'
     && requiredFirstTool.function.name === 'propose_note_edit';
-  const maxTokens = editsOpenNote
+  const maxTokens = editsOpenNote || specificationOnly
     ? NOTE_EDIT_MAX_TOKENS
     : model === 'reasoning' ? AI_REASONING_MODEL_MAX_TOKENS : AI_CHAT_MAX_TOKENS;
   let editRescued = false;
@@ -387,7 +390,10 @@ export async function handleConversationTurn(
   // Knowledge orchestration (flagged): evidence ledger, retrieval budgets and citation validation. Off = previous path.
   const orchestrated = isKnowledgeOrchestrationEnabled();
   const ledger = orchestrated ? createLedger() : undefined;
-  const budget = orchestrated ? new TurnBudget(hooks.signal) : undefined;
+  const transcriptReview = isTranscriptReviewRequest(userMessage);
+  const budget = orchestrated
+    ? new TurnBudget(hooks.signal, transcriptReview ? TRANSCRIPT_REVIEW_BUDGET : undefined)
+    : undefined;
   let citationRepairs = 0;
   const FOUND_OPEN_RESERVE_ROUNDS = 2;
   let openedFound = false;
@@ -397,7 +403,9 @@ export async function handleConversationTurn(
   let toolErrorCount = 0;
 
   // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
-  const maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS : AI_MAX_TOOL_ITERATIONS;
+  const maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS
+    : transcriptReview ? Math.max(AI_MAX_TOOL_ITERATIONS, TRANSCRIPT_REVIEW_BUDGET.maxModelRounds)
+      : AI_MAX_TOOL_ITERATIONS;
   for (let i = 0; i < maxRounds; i++) {
     if (isStopped(hooks)) throw new AiStoppedError();
     hooks.onActivity?.(i === 0 ? 'Thinking' : 'Reading what I found');
@@ -460,7 +468,6 @@ export async function handleConversationTurn(
             if (candidates.length > 0) {
               openedFound = true;
               hooks.onReset?.();
-              messages.push({ role: 'assistant', content: response.content });
               messages.push({ role: 'user', content: openFoundInstruction(candidates) });
               continue;
             }
@@ -471,7 +478,6 @@ export async function handleConversationTurn(
           if (decision.action === 'repair') {
             citationRepairs++;
             hooks.onReset?.();
-            messages.push({ role: 'assistant', content: response.content });
             messages.push({ role: 'user', content: decision.instruction });
             nextRoundTool = decision.mayOpen ? undefined : 'none';
             continue;
@@ -515,7 +521,7 @@ export async function handleConversationTurn(
         : "I didn't get a usable response back from the AI model that time — could you try again?";
     }
 
-    messages.push({ role: 'assistant', content: response.content, tool_calls: response.toolCalls });
+    messages.push({ role: 'assistant', content: null, tool_calls: response.toolCalls });
     // Any text streamed this round was a preamble to tool calls, not the answer.
     if (response.content !== null && response.content !== '') hooks.onReset?.();
 
@@ -526,7 +532,7 @@ export async function handleConversationTurn(
       onToolCall?.(call.function.name);
       hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
       try {
-        if ((briefOnly || hooks.readOnlyTools === true) && !tools.some((tool) => tool.function.name === call.function.name)) {
+        if ((briefOnly || specificationOnly || hooks.readOnlyTools === true) && !tools.some((tool) => tool.function.name === call.function.name)) {
           throw new Error(READ_ONLY_REFUSAL);
         }
         const gate = budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name) ? budget.canStartRetrieval() : { ok: true as const };

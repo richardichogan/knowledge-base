@@ -44,6 +44,17 @@ function rejects(fn: () => unknown, field: RegExp): void {
 
 // ─── Document validation ─────────────────────────────────────────────────────
 
+test('independent grid and shape snap preferences round-trip and remain optional for old diagrams', () => {
+  assert.deepEqual(validateDiagramDocument(emptyDiagram(), NONE), emptyDiagram());
+  for (const snapToGrid of [true, false]) for (const snapToShapes of [true, false]) {
+    const input = { ...emptyDiagram(), grid: false, gridSize: 20, snapToGrid, snapToShapes };
+    assert.deepEqual(validateDiagramDocument(JSON.parse(JSON.stringify(input)), NONE), input);
+  }
+  for (const field of ['snapToGrid', 'snapToShapes']) for (const value of [null, 1, 'true']) {
+    rejects(() => validateDiagramDocument({ ...emptyDiagram(), [field]: value }, NONE), new RegExp(field));
+  }
+});
+
 test('text callout categories round-trip, remain optional, and reject invalid types or shape kinds', () => {
   const plain = node({ kind: 'text' });
   assert.deepEqual(validateDiagramDocument(doc([plain]), NONE), doc([plain]));

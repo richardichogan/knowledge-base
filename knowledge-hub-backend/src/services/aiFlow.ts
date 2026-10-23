@@ -233,6 +233,47 @@ export function nextLaneOrder(doc: DiagramDocument): number {
   return doc.nodes.reduce((max, n) => (n.lane !== undefined ? Math.max(max, n.lane.order) : max), 0) + 1;
 }
 
+/** Ignore DFS feedback edges when ranking; return/rework paths must not push the main flow rightwards. */
+export function rankFlowNodes(keys: readonly string[], links: ReadonlyArray<{ from: string; to: string }>): Map<string, number> {
+  const outgoing = new Map(keys.map(key => [key, new Set<string>()]));
+  const incoming = new Map(keys.map(key => [key, 0]));
+  for (const { from, to } of links) {
+    const targets = outgoing.get(from);
+    if (from === to || !targets || !incoming.has(to) || targets.has(to)) continue;
+    targets.add(to);
+    incoming.set(to, incoming.get(to)! + 1);
+  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const forward = new Map(keys.map(key => [key, [] as string[]]));
+  const visit = (key: string): void => {
+    visiting.add(key);
+    for (const target of outgoing.get(key)!) {
+      if (visiting.has(target)) continue;
+      forward.get(key)!.push(target);
+      if (!visited.has(target)) visit(target);
+    }
+    visiting.delete(key);
+    visited.add(key);
+  };
+  for (const key of [...keys.filter(key => incoming.get(key) === 0), ...keys]) {
+    if (!visited.has(key)) visit(key);
+  }
+  const remaining = new Map(keys.map(key => [key, 0]));
+  for (const targets of forward.values()) for (const target of targets) remaining.set(target, remaining.get(target)! + 1);
+  const queue = keys.filter(key => remaining.get(key) === 0);
+  const columns = new Map(keys.map(key => [key, 0]));
+  for (let index = 0; index < queue.length; index++) {
+    const key = queue[index]!;
+    for (const target of forward.get(key)!) {
+      columns.set(target, Math.max(columns.get(target)!, columns.get(key)! + 1));
+      remaining.set(target, remaining.get(target)! - 1);
+      if (remaining.get(target) === 0) queue.push(target);
+    }
+  }
+  return columns;
+}
+
 /**
  * Lays an AI flow out as swimlanes: top-level lanes stacked by `lane.order`,
  * their direct children in columns by longest flow path (cycles tolerated),
@@ -250,16 +291,8 @@ export function layoutAiFlow(doc: DiagramDocument): DiagramDocument {
   const steps = doc.nodes.filter((n) => n.parentId !== null && laneIds.has(n.parentId) && n.kind !== 'line');
   const stepIds = new Set(steps.map((s) => s.id));
 
-  const column = new Map(steps.map((s) => [s.id, 0]));
   const ranking = doc.edges.filter((e) => RANKING_EDGES.has(e.flow?.edgeType) && e.sourceId !== e.targetId && stepIds.has(e.sourceId) && stepIds.has(e.targetId));
-  for (let pass = 0; pass < steps.length; pass++) {
-    let changed = false;
-    for (const e of ranking) {
-      const from = column.get(e.sourceId)!;
-      if (column.get(e.targetId)! < from + 1 && from + 1 < steps.length) { column.set(e.targetId, from + 1); changed = true; }
-    }
-    if (!changed) break;
-  }
+  const column = rankFlowNodes(steps.map(s => s.id), ranking.map(e => ({ from: e.sourceId, to: e.targetId })));
   const columns = steps.length === 0 ? 1 : Math.max(...column.values()) + 1;
   const columnPitch = Math.max(L.minColumnPitch, ...steps.map((s) => s.width + L.columnGap));
   const cellWidth = columnPitch - L.columnGap;

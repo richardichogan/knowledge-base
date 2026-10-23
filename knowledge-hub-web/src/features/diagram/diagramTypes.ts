@@ -200,6 +200,8 @@ export interface DiagramDocument {
   edges: DiagramEdge[];
   grid: boolean;
   gridSize?: number;
+  snapToGrid?: boolean;
+  snapToShapes?: boolean;
   viewport: { x: number; y: number; zoom: number };
   /** Optional numbered notes; the array order is the footnote number. */
   footnotes?: DiagramFootnote[];

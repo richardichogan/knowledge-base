@@ -18,7 +18,8 @@ import {
   type AiFlowOperations, type AiFlowStep,
   type DiagramDocument, type DiagramEdge, type DiagramNode, type DiagramKind,
 } from '../types/diagram.js';
-import { checkAiFlow, EDGE_STYLES, layoutAiFlow, nextLaneOrder, STEP_STYLES } from '../services/aiFlow.js';
+import { checkAiFlow, EDGE_STYLES, layoutAiFlow, nextLaneOrder, rankFlowNodes, STEP_STYLES } from '../services/aiFlow.js';
+import { layoutGeneralDiagram } from '../services/diagramLayout.js';
 import { DIAGRAM_LIMITS, currentStepType } from '../services/diagramValidation.js';
 import { env } from '../config/env.js';
 
@@ -62,7 +63,7 @@ const NODE_SIZE: Record<typeof NODE_KINDS[number], { width: number; height: numb
   terminator: { width: 160, height: 52 },
   document: { width: 160, height: 80 },
 };
-const LAYOUT = { left: 80, top: 80, columnGap: 240, rowGap: 130 };
+const LAYOUT = { left: 80, top: 80, gap: 80 };
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[]): T | undefined =>
@@ -263,7 +264,9 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         projectId: { type: 'string' },
       }, ['noteId']),
     fn('create_diagram',
-      'Creates a new diagram (Think → Diagrams) from shapes and connectors, laid out automatically left to right. Use for architectures, flows and processes. Colour shapes by meaning and add a legend for the colours. ' +
+      'Creates a new diagram (Think → Diagrams) from shapes and connectors, laid out automatically in aligned, evenly spaced columns with centred branches and separate feedback routes. Use for architectures, flows and processes. ' +
+      'Plan the main reading path first, give shapes in logical reading order, keep labels concise, put explanations in descriptions/footnotes, and distinguish primary flow from supporting or return paths. Keep related branches together rather than producing a sprawling list of boxes. ' +
+      'When asked to match a saved diagram, read it first and preserve its grouping, hierarchy and visual rhythm. Colour shapes by meaning and add a legend for the colours. ' +
       'For an AI flow / governance diagram (an agentic or AI-assisted process mapped to agents, tools and controls) set diagramType "ai-flow", give lanes (one per team, persona, channel, agent group or system, with its owner) and give every step a lane and a stepType; ' +
       'fill agent details on AI steps and controls where data is sensitive. Only record agents, tools and controls the user stated or the sources show — leave unknowns out so the governance findings in the result show the gaps. Lanes and steps are laid out as swimlanes.',
       {
@@ -312,7 +315,7 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
           },
         },
         removeNodes: { type: 'array', items: { type: 'string' }, description: 'Ids or labels; their connectors go too.' },
-        relayout: { type: 'boolean', description: 'AI flow only: re-run the swimlane layout.' },
+        relayout: { type: 'boolean', description: 'Explicitly rearrange the diagram into aligned, evenly spaced columns (or swimlanes for an AI flow). Preserves containers and their children. Leave false for content/style edits to keep the user\'s layout.' },
         legend: legendSchema,
       }, ['diagramId']),
     fn('create_mind_map',
@@ -747,19 +750,9 @@ function governanceSummary(doc: DiagramDocument): Record<string, unknown> {
   };
 }
 
-/** Columns by longest path from the starting shapes (cycles tolerated), rows in input order. */
+/** Feedback loops do not participate in longest-path ranking. */
 export function layoutColumns(keys: string[], edges: Array<{ from: string; to: string }>): Map<string, number> {
-  const column = new Map(keys.map((k) => [k, 0]));
-  for (let pass = 0; pass < keys.length; pass++) {
-    let changed = false;
-    for (const e of edges) {
-      const from = column.get(e.from);
-      const to = column.get(e.to);
-      if (from !== undefined && to !== undefined && to < from + 1 && from + 1 < keys.length) { column.set(e.to, from + 1); changed = true; }
-    }
-    if (!changed) break;
-  }
-  return column;
+  return rankFlowNodes(keys, edges);
 }
 
 /** Finds a shape by id, or by label (case-insensitive) when unambiguous. */
@@ -786,17 +779,11 @@ function legendFrom(v: unknown, existing: DiagramDocument['legend']): DiagramDoc
 /** Adds shapes (placed to the right of anything already there) and connectors to a document. */
 export function addToDiagram(doc: DiagramDocument, nodes: NodeSpec[], edges: EdgeSpec[]): { doc: DiagramDocument; problems: string[] } {
   const problems: string[] = [];
-  const startX = doc.nodes.length === 0 ? LAYOUT.left : Math.max(...doc.nodes.map((n) => n.x + n.width)) + LAYOUT.columnGap - NODE_SIZE.process.width;
-  const newKeys = nodes.map((n) => n.key.toLowerCase());
-  const columns = layoutColumns(newKeys, edges.map((e) => ({ from: e.from.toLowerCase(), to: e.to.toLowerCase() })));
-  const rows = new Map<number, number>();
+  const startX = doc.nodes.length === 0 ? LAYOUT.left : Math.max(...doc.nodes.map((n) => n.x + n.width)) + LAYOUT.gap;
   const keyToId = new Map<string, string>();
   const added: DiagramNode[] = [];
   for (const spec of nodes) {
-    const col = columns.get(spec.key.toLowerCase()) ?? 0;
-    const row = rows.get(col) ?? 0;
-    rows.set(col, row + 1);
-    const node = makeNode(spec, startX + col * LAYOUT.columnGap, LAYOUT.top + row * LAYOUT.rowGap);
+    const node = makeNode(spec, startX, LAYOUT.top);
     keyToId.set(spec.key.toLowerCase(), node.id);
     added.push(node);
   }
@@ -811,7 +798,13 @@ export function addToDiagram(doc: DiagramDocument, nodes: NodeSpec[], edges: Edg
     next.edges.push(makeEdge(from.id, to.id, e));
   }
   if (next.footnotes!.length === 0) delete next.footnotes;
-  return { doc: next, problems };
+  if (added.length === 0) return { doc: next, problems };
+  const addedIds = new Set(added.map(node => node.id));
+  const placed = layoutGeneralDiagram({ ...next, nodes: added,
+    edges: next.edges.filter(edge => addedIds.has(edge.sourceId) && addedIds.has(edge.targetId)) }, { x: startX, y: LAYOUT.top });
+  const placedEdges = new Map(placed.edges.map(edge => [edge.id, edge]));
+  return { doc: { ...next, nodes: [...doc.nodes, ...placed.nodes],
+    edges: next.edges.map(edge => placedEdges.get(edge.id) ?? edge) }, problems };
 }
 
 async function createDiagram(db: Pool, args: Record<string, unknown>): Promise<unknown> {
@@ -941,7 +934,7 @@ export function applyDiagramUpdate(current: DiagramDocument, args: Record<string
   }
   if (relayout) {
     if (doc.diagramType === 'ai-flow') doc = layoutAiFlow(doc);
-    else if (args['relayout'] === true) problems.push('relayout only applies to AI flow diagrams.');
+    else if (args['relayout'] === true) doc = layoutGeneralDiagram(doc);
   }
   const legend = legendFrom(args['legend'], doc.legend);
   if (legend !== undefined) doc.legend = legend;

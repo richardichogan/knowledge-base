@@ -138,24 +138,6 @@
 
 // ── Layout overrides ──────────────────────────────────────────────────────────
 
-.notes-popout-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--cds-border-strong-01);
-  background: transparent;
-  color: var(--cds-text-primary);
-  font: inherit;
-  font-size: var(--kh-text-body);
-  white-space: nowrap;
-  cursor: pointer;
-  &:hover:not(:disabled) { background: var(--cds-layer-hover-01); }
-  &:active:not(:disabled) { background: var(--cds-layer-active-01); }
-  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
 .note-popout {
   height: 100dvh;
   overflow: auto;
@@ -1089,15 +1071,29 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   }
 }
 
-.ai-bubble-action-button.cds--btn.cds--btn--icon-only {
+.ai-bubble-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--kh-radius-sm);
+  background: transparent;
+  cursor: pointer;
   width: 1.5rem;
   height: 1.5rem;
   min-height: 1.5rem;
   color: var(--cds-text-secondary);
+  transition: color 120ms ease, background 120ms ease;
 
   &:hover:not(:disabled) {
     color: var(--cds-text-primary);
     background: var(--cds-layer-hover-01);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--kh-accent);
+    outline-offset: 2px;
   }
 
   &:disabled {
@@ -4368,35 +4364,16 @@ body.kh-native-context .bn-formatting-toolbar {
   background: var(--kh-accent);
   color: var(--cds-text-inverse);
   cursor: pointer;
-
-  &::after {
-    content: attr(data-tip);
-    position: absolute;
-    right: calc(100% + 8px);
-    top: 50%;
-    transform: translateY(-50%);
-    width: max-content;
-    max-width: 260px;
-    padding: 0.375rem 0.625rem;
-    background: var(--cds-layer-02);
-    color: var(--cds-text-primary);
-    font-size: var(--kh-text-meta);
-    line-height: 1.3;
-    text-align: left;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.12s;
-    z-index: 5;
-  }
-  &:hover::after, &:focus-visible::after { opacity: 1; }
 }
 
 .extraction-pop {
   position: fixed;
   z-index: 9000;
   min-width: 240px;
-  max-width: 340px;
+  width: min(340px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  box-sizing: border-box;
   background: var(--cds-layer-01);
   border: 1px solid var(--cds-border-subtle-01);
   border-radius: var(--kh-radius-md);

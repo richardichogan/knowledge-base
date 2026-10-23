@@ -79,7 +79,7 @@ import {
 } from './diagramAiFlowBadges';
 import { AiFlowProperties, AiFlowGovernance, AiFlowKey } from './DiagramAiFlowPanels';
 import './diagram.scss';
-import { alignMovingBounds, diagramGridSize, type AlignmentGuide } from './diagramAlignment';
+import { alignMovingBounds, diagramGridSize, gridSnapEnabled, shapeSnapEnabled, spaceMovingBounds, type AlignmentGuide, type SpacingIndicator } from './diagramAlignment';
 import { pasteReadableText } from '../../utils/clipboardText';
 import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
 import { ImageViewer, type ImagePreview } from '../../components/ImageViewer';
@@ -319,7 +319,7 @@ type Drag =
   | { kind: 'bend'; pointerId: number; edgeId: string; index: number; before: DiagramDocument }
   | { kind: 'label'; pointerId: number; edgeId: string; startScreen: P; start: P; origin: P; before: DiagramDocument; moved: boolean };
 
-type Menu = 'style' | 'arrange' | 'edge-colour' | 'export' | 'image' | 'versions' | 'text-check' | 'ai-step' | 'governance' | 'ai-key' | null;
+type Menu = 'style' | 'arrange' | 'edge-colour' | 'export' | 'image' | 'versions' | 'text-check' | 'ai-step' | 'governance' | 'ai-key' | 'snap' | null;
 
 interface EditingLabel { kind: 'node' | 'edge'; id: string; value: string }
 
@@ -344,6 +344,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const docRef = useRef(doc);
   const GRID = diagramGridSize(doc.gridSize);
   const [guides, setGuides] = useState<AlignmentGuide[]>([]);
+  const [spacing, setSpacing] = useState<SpacingIndicator[]>([]);
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [sel, setSelState] = useState<Selection>(EMPTY_SEL);
   const selRef = useRef(sel);
@@ -393,7 +394,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   const setDoc = useCallback((next: DiagramDocument) => { docRef.current = next; setDocState(next); }, []);
   const setSel = useCallback((next: Selection) => { selRef.current = next; setSelState(next); }, []);
-  const setDrag = useCallback((next: Drag | null) => { dragRef.current = next; setDragState(next); if (next === null) setGuides([]); }, []);
+  const setDrag = useCallback((next: Drag | null) => {
+    dragRef.current = next; setDragState(next);
+    if (next === null) { setGuides([]); setSpacing([]); }
+  }, []);
 
   const display = useMemo(() => collapseView(doc), [doc]);
   const byId = useMemo(() => nodeMap(display.nodes), [display.nodes]);
@@ -642,7 +646,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const cur = docRef.current;
     if (dir === 'undo') { h.past = h.past.slice(0, -1); h.future = [...h.future, cur]; }
     else { h.future = h.future.slice(0, -1); h.past = [...h.past, cur]; }
-    const next = { ...snapshot, viewport: cur.viewport, grid: cur.grid };
+    const next = { ...snapshot, viewport: cur.viewport, grid: cur.grid,
+      snapToGrid: gridSnapEnabled(cur), snapToShapes: shapeSnapEnabled(cur) };
     setHistoryTick((t) => t + 1);
     setDoc(next);
     pruneSelection(next);
@@ -832,7 +837,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const placeNode = useCallback((kind: DiagramKind, center: P, extra: Partial<DiagramNode> = {}): DiagramNode => {
     const cur = docRef.current;
     let node = makeNode(kind, center, extra);
-    if (cur.grid) node = { ...node, x: snap(node.x, diagramGridSize(cur.gridSize)), y: snap(node.y, diagramGridSize(cur.gridSize)) };
+    if (gridSnapEnabled(cur)) node = { ...node, x: snap(node.x, diagramGridSize(cur.gridSize)), y: snap(node.y, diagramGridSize(cur.gridSize)) };
     const host = containerAt(cur.nodes, center);
     return host !== null ? { ...node, parentId: host.id } : node;
   }, []);
@@ -1152,7 +1157,14 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   function toggleGrid(): void {
     const cur = docRef.current;
-    setDoc({ ...cur, grid: !cur.grid });
+    setDoc({ ...cur, grid: !cur.grid, snapToGrid: gridSnapEnabled(cur) });
+    markDirty(SAVE_DELAY_MS);
+  }
+
+  function toggleSnap(kind: 'grid' | 'shapes'): void {
+    const cur = docRef.current;
+    setDoc(kind === 'grid' ? { ...cur, snapToGrid: !gridSnapEnabled(cur) }
+      : { ...cur, snapToShapes: !shapeSnapEnabled(cur) });
     markDirty(SAVE_DELAY_MS);
   }
 
@@ -1307,7 +1319,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     }
     if (e.button !== 0) return;
     if (lineTool) {
-      const start = snapPoint(world, cur.grid && !e.altKey);
+      const start = snapPoint(world, gridSnapEnabled(cur) && !e.altKey);
       begin({ kind: 'draw-line', pointerId, start, current: start });
       return;
     }
@@ -1386,7 +1398,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         const edge = cur.edges.find((x) => x.id === id);
         const route = edge === undefined ? null : edgeRoute(edge, byId);
         if (edge === undefined || route === null) return;
-        const ins = insertWaypoint(route, edge.waypoints, snapPoint(world, cur.grid && !e.altKey));
+        const ins = insertWaypoint(route, edge.waypoints, snapPoint(world, gridSnapEnabled(cur) && !e.altKey));
         setDoc({ ...cur, edges: cur.edges.map((x) => (x.id === id ? { ...x, waypoints: ins.waypoints } : x)) });
         begin({ kind: 'bend', pointerId, edgeId: id, index: ins.index, before: cur });
         return;
@@ -1438,7 +1450,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     }
     if (e.pointerId !== d.pointerId) return;
     const cur = docRef.current;
-    const snapOn = cur.grid && !e.altKey;
+    const snapOn = gridSnapEnabled(cur) && !e.altKey;
     switch (d.kind) {
       case 'draw-line':
         setDrag({ ...d, current: snapPoint(world, snapOn) });
@@ -1471,10 +1483,15 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         const dx = snapOn ? snap(d.origin.x + rawX, GRID) - d.origin.x : rawX;
         const dy = snapOn ? snap(d.origin.y + rawY, GRID) - d.origin.y : rawY;
         const moving = withDescendants(d.before.nodes, d.ids);
-        const alignment = e.altKey ? { delta: { x: dx, y: dy }, guides: [] }
-          : alignMovingBounds(d.origin, d.before.nodes.filter(node => !moving.has(node.id) && !isContainerKind(node.kind)), { x: dx, y: dy }, 5 / cur.viewport.zoom);
-        setGuides(alignment.guides);
-        setDoc(translateNodes(d.before, d.ids, alignment.delta.x, alignment.delta.y));
+        const others = collapseView(d.before).nodes.filter(node => !moving.has(node.id) && !isContainerKind(node.kind) && node.kind !== 'line');
+        const snapping = shapeSnapEnabled(cur) && !e.altKey;
+        const tolerance = (snapping ? 5 : 0.5) / cur.viewport.zoom;
+        const alignment = alignMovingBounds(d.origin, others, { x: dx, y: dy }, tolerance, snapping);
+        const spaced = spaceMovingBounds(d.origin, others, alignment.delta, tolerance, snapping, alignment.guides.map(guide => guide.axis));
+        const finalGuides = alignMovingBounds(d.origin, others, spaced.delta, 0.5 / cur.viewport.zoom, false).guides;
+        setGuides(e.altKey ? [] : finalGuides);
+        setSpacing(e.altKey ? [] : spaced.indicators);
+        setDoc(translateNodes(d.before, d.ids, spaced.delta.x, spaced.delta.y));
         const host = containerAt(d.before.nodes, world, withDescendants(d.before.nodes, d.ids));
         setDropTargetId(host?.id ?? null);
         setDrag({ ...d, moved: true, current: world });
@@ -1482,8 +1499,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       }
       case 'resize': {
         let point = snapPoint(world, snapOn);
+        const snapping = shapeSnapEnabled(cur) && !e.altKey;
         const alignment = alignMovingBounds({ ...point, width: 0, height: 0 },
-          d.before.nodes.filter(node => node.id !== d.id && !isContainerKind(node.kind)), { x: 0, y: 0 }, 5 / cur.viewport.zoom);
+          collapseView(d.before).nodes.filter(node => node.id !== d.id && !isContainerKind(node.kind) && node.kind !== 'line'),
+          { x: 0, y: 0 }, (snapping ? 5 : 0.5) / cur.viewport.zoom, snapping);
         const activeGuides = e.altKey || e.shiftKey ? [] : alignment.guides.filter(guide =>
           guide.axis === 'x' ? /[ew]/.test(d.handle) : /[ns]/.test(d.handle));
         point = { x: point.x + (activeGuides.some(guide => guide.axis === 'x') ? alignment.delta.x : 0),
@@ -1538,7 +1557,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const world = toWorld(e.clientX, e.clientY);
     switch (d.kind) {
       case 'draw-line': {
-        const end = snapPoint(world, cur.grid && !e.altKey);
+        const end = snapPoint(world, gridSnapEnabled(cur) && !e.altKey);
         if (distance(d.start, end) * cur.viewport.zoom < DRAG_THRESHOLD_PX) return;
         addNodes([makeNode('line', d.start, lineGeometry(d.start, end))]);
         setLineTool(false);
@@ -2015,7 +2034,26 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           <IconBtn label="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={() => { stepHistory('redo'); }}><Redo size={16} /></IconBtn>
           </div>
           <div className="dg-header__group kh-command-row">
-          <IconBtn label={doc.grid ? 'Hide grid and snapping' : 'Show grid and snap to it'} pressed={doc.grid} onClick={toggleGrid}><Grid size={16} /></IconBtn>
+          <IconBtn label={doc.grid ? 'Hide grid' : 'Show grid'} pressed={doc.grid} onClick={toggleGrid}><Grid size={16} /></IconBtn>
+          <div className="dg-anchor">
+            <button type="button" className="dg-text-btn dg-snap-toggle" aria-label="Snapping options"
+              aria-haspopup="dialog" aria-expanded={menu === 'snap'}
+              title="Snapping options. Hold Alt to temporarily bypass snapping and guides."
+              onClick={() => { setMenu(menu === 'snap' ? null : 'snap'); }}>Snap <ChevronDown size={12} /></button>
+            {menu === 'snap' && <div className="dg-popover" role="dialog" aria-label="Snapping options">
+              <label className="dg-check">
+                <input className="dg-check__input" type="checkbox" checked={gridSnapEnabled(doc)}
+                  onChange={() => { toggleSnap('grid'); }} />
+                <span className="dg-check__label">Grid snap</span>
+              </label>
+              <label className="dg-check">
+                <input className="dg-check__input" type="checkbox" checked={shapeSnapEnabled(doc)}
+                  onChange={() => { toggleSnap('shapes'); }} />
+                <span className="dg-check__label">Shape and equal-spacing snap</span>
+              </label>
+              <p className="dg-popover__hint">Grid visibility is separate. Hold Alt to move freely without guides.</p>
+            </div>}
+          </div>
           <select className="dg-grid-size" aria-label="Grid spacing" value={GRID} title="Grid spacing. Hold Alt to bypass snapping and alignment guides."
             onChange={event => { commit({ ...docRef.current, gridSize: diagramGridSize(Number(event.target.value)) }); }}>
             {[5, 10, 20, 40].map(value => <option key={value} value={value}>{value} units</option>)}
@@ -2079,7 +2117,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   notify={(message) => { notify('info', message, { key: 'versions' }); }}
                   onRestore={(version) => {
                     const cur = docRef.current;
-                    const next = { ...normalizeDocument(version.document), viewport: cur.viewport, grid: cur.grid };
+                    const next = { ...normalizeDocument(version.document), viewport: cur.viewport, grid: cur.grid,
+                      snapToGrid: gridSnapEnabled(cur), snapToShapes: shapeSnapEnabled(cur) };
                     commit(next);
                     pruneSelection(next);
                     setMenu(null);
@@ -2287,9 +2326,6 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             </defs>
             {doc.grid && <rect className="dg-canvas__grid" x={0} y={0} width="100%" height="100%" fill={`url(#${markerBase}-grid)`} />}
             <g transform={`translate(${view.x} ${view.y}) scale(${z})`}>
-              {guides.map(guide => <line key={guide.axis} className="dg-alignment-guide"
-                x1={guide.axis === 'x' ? guide.value : -view.x / z} x2={guide.axis === 'x' ? guide.value : (size.width - view.x) / z}
-                y1={guide.axis === 'y' ? guide.value : -view.y / z} y2={guide.axis === 'y' ? guide.value : (size.height - view.y) / z} />)}
               {drag?.kind === 'draw-line' && <line className="dg-preview-line" x1={drag.start.x} y1={drag.start.y}
                 x2={drag.current.x} y2={drag.current.y} />}
               {display.edges.filter((edge) => edge.behind === true).map(renderEdge)}
@@ -2456,6 +2492,34 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 const to = t !== undefined && drag.targetPort !== null ? portPoint(nodeRect(t), drag.targetPort, t.kind, t.arrowDirection) : drag.current;
                 return from === null ? null : <line className="dg-preview-line" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
               })()}
+              <g className="dg-drawing-guides" aria-hidden="true">
+                {guides.map(guide => <line key={`${guide.axis}:${guide.value}`}
+                  className={`dg-alignment-guide dg-alignment-guide--${guide.kind}`}
+                  x1={guide.axis === 'x' ? guide.value : -view.x / z} x2={guide.axis === 'x' ? guide.value : (size.width - view.x) / z}
+                  y1={guide.axis === 'y' ? guide.value : -view.y / z} y2={guide.axis === 'y' ? guide.value : (size.height - view.y) / z} />)}
+                {spacing.filter(indicator => indicator.gap > 0.5).map((indicator, index) => {
+                  const { axis, start, end, position } = indicator;
+                  const horizontal = axis === 'x';
+                  const x1 = horizontal ? start : position;
+                  const y1 = horizontal ? position : start;
+                  const x2 = horizontal ? end : position;
+                  const y2 = horizontal ? position : end;
+                  const cap = 4 / z;
+                  const label = `${indicator.equal ? '= ' : ''}${Math.round(indicator.gap * 10) / 10}`;
+                  const labelWidth = label.length * 7 + 10;
+                  return <g key={`${axis}:${index}`} className={`dg-spacing${indicator.equal ? ' dg-spacing--equal' : ''}`}>
+                    <line x1={x1} y1={y1} x2={x2} y2={y2} />
+                    <line x1={x1 - (horizontal ? 0 : cap)} x2={x1 + (horizontal ? 0 : cap)}
+                      y1={y1 - (horizontal ? cap : 0)} y2={y1 + (horizontal ? cap : 0)} />
+                    <line x1={x2 - (horizontal ? 0 : cap)} x2={x2 + (horizontal ? 0 : cap)}
+                      y1={y2 - (horizontal ? cap : 0)} y2={y2 + (horizontal ? cap : 0)} />
+                    <g transform={`translate(${(x1 + x2) / 2} ${(y1 + y2) / 2}) scale(${1 / z})`}>
+                      <rect x={-labelWidth / 2} y={-9} width={labelWidth} height={18} rx={2} />
+                      <text textAnchor="middle" dominantBaseline="central">{label}</text>
+                    </g>
+                  </g>;
+                })}
+              </g>
             </g>
           </svg>
 

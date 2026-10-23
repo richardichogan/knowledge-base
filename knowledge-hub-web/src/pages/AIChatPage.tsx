@@ -2301,29 +2301,25 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 </div>
                 {msg.role === 'assistant' && (
                   <div className="ai-bubble-actions">
-                    <Button
+                    <button
                       type="button"
-                      kind="ghost"
-                      hasIconOnly
-                      size="sm"
-                      renderIcon={savingResponseIndex === i ? Checkmark : Notebook}
-                      iconDescription={savingResponseIndex === i ? 'Saving to Think…' : 'Save response to Think'}
-                      tooltipPosition="top"
                       className="ai-bubble-action-button"
+                      aria-label={savingResponseIndex === i ? 'Saving to Think' : 'Save response to Think'}
+                      title={savingResponseIndex === i ? 'Saving to Think…' : 'Save response to Think'}
                       disabled={savingResponseIndex !== null}
                       onClick={() => { void handleSaveResponseToThink(msg, i); }}
-                    />
-                    <Button
+                    >
+                      {savingResponseIndex === i ? <Checkmark size={14} aria-hidden="true" /> : <Notebook size={14} aria-hidden="true" />}
+                    </button>
+                    <button
                       type="button"
-                      kind="ghost"
-                      hasIconOnly
-                      size="sm"
-                      renderIcon={copiedIndex === i ? Checkmark : Copy}
-                      iconDescription={copiedIndex === i ? 'Copied!' : 'Copy response'}
-                      tooltipPosition="top"
                       className="ai-bubble-action-button ai-bubble-copy-button"
+                      aria-label={copiedIndex === i ? 'Copied!' : 'Copy response'}
+                      title={copiedIndex === i ? 'Copied!' : 'Copy response'}
                       onClick={() => { void handleCopyMessage(msg.content, i); }}
-                    />
+                    >
+                      {copiedIndex === i ? <Checkmark size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                    </button>
                   </div>
                 )}
               </div>

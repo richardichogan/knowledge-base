@@ -505,6 +505,10 @@ the pool. This first version accepts Discover articles only.
 
 ## Teleprompter text and preferences
 
+Each open Think note's **Actions** menu includes **Pop out** for a read-only
+content window and, in supported Athena Desktop versions, **Present** for the
+presentation display. These commands no longer occupy separate toolbar buttons.
+
 Both presentation modes preserve inline line breaks, paragraph spacing and empty
 paragraphs from saved notes. Formatting spans stay on the same line; nested
 blocks, links and readable table text are retained.
@@ -512,6 +516,29 @@ Athena Desktop saves speed, text size, mirror, flip and opacity on that device
 between sessions. Browser Autocue saves text size and microphone sensitivity in
 that browser's local storage; blocked storage shows an error. These preferences
 are not cross-device sync and do not resume playback or a previous scroll position.
+
+## IMAGINE demo specifications
+
+Open the source Think note, discuss the use case with its Athena side-panel chat,
+then choose **Actions > Create demo specification**. This saves current source
+edits and prepares a request in that same chat; review it and press **Send**.
+Alternatively, ask Athena in a chat to create an IMAGINE demo specification and
+identify the source Think note (and any earlier conversation to read).
+
+The dedicated versioned template follows the supplied `demo-use-case.md`, not the
+shorter generic use-case/demo brief. Athena reads the full saved note through
+knowledge retrieval and uses confirmed chat decisions. The server constructs all
+ten sections, every fixed requirement and table row, G0-G7 criteria and the exact
+Build instruction. Every editable bullet/cell must have a nonempty answer before
+the new specification can be saved. Additional table rows cover further actors,
+agents, dependencies, scenarios and source requirements.
+
+Missing facts remain explicit unresolved blockers; proposed technical detail is
+not evidence, authorization or human acceptance. The generated note includes its
+template version and links to the source note and conversation, inherits the
+source project and never overwrites the original. Referenced repository methods
+must be read separately or flagged unavailable. This action does not execute the
+embedded Build instruction or authorize deployment or other live side effects.
 
 ## Quick LinkedIn posts from Discover
 
@@ -630,6 +657,27 @@ In diagrams, double-click a shape to edit its text; double-click empty canvas
 to create a process shape.
 Shape Properties also provides left/center/right and top/middle/bottom text
 alignment. Alignment is saved with the diagram and used in SVG/PNG exports.
+While moving shapes (including a multi-selection), drawing guides show every
+matching left/centre/right and top/middle/bottom alignment. Gap indicators show
+the distance to nearby shapes in diagram units; purple `=` indicators mark equal
+gaps, including a repeated gap alongside two neighbours. The **Snap** menu's
+**Grid snap** and **Shape and equal-spacing snap** are independent, saved toggles; shape snapping includes equal
+spacing. Grid visibility is separate. Hold **Alt** to temporarily bypass snapping
+and guides. Existing diagrams keep their previous snapping behaviour until a
+control is changed.
+
+Athena-generated process diagrams use centred rows, consistent 80-unit gaps
+between connected columns and 40-unit gaps between branches. Unconnected
+components use compact aligned grids (20-unit horizontal / 16-unit vertical gaps).
+Feedback/rework loops no longer push the main flow into distant columns.
+Existing manual layouts are unchanged by content/style edits; ask Athena to
+**rearrange the layout** to explicitly reflow a saved diagram, retaining its
+container hierarchy. For a reference-led request, use: "Read [diagram title] as
+the layout reference. Use consistent shape sizes, aligned rows and columns,
+equal gaps, clear groups and a main reading path; keep feedback routes separate
+and put detailed explanations in footnotes." These are layout requirements,
+not permission to change the diagram's meaning.
+
 Select a **Text** shape and choose **Properties > Callout type** to mark it as
 Question, Risk, Issue, Assumption, Decision or Action. Each has a distinct
 outline icon and type label above the text; Plain text removes the classification.

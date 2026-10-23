@@ -4,7 +4,7 @@
  * note content itself is never modified. Clicking the bar (or the passage) shows
  * what was done with it and links to each target.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -77,6 +77,7 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
   const navigate = useNavigate();
   const qc = useQueryClient();
   const marked = useRef<Marked[]>([]);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [bars, setBars] = useState<Bar[]>([]);
   const [popover, setPopover] = useState<{ x: number; y: number; items: NoteExtraction[] } | null>(null);
 
@@ -161,6 +162,24 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
     return () => { document.removeEventListener('mousedown', close); };
   }, [popover]);
 
+  useLayoutEffect(() => {
+    const element = popoverRef.current;
+    if (!popover || !element) return;
+    const position = (): void => {
+      const margin = 8;
+      const rect = element.getBoundingClientRect();
+      const left = Math.max(margin, Math.min(popover.x, window.innerWidth - rect.width - margin));
+      let top = popover.y + 14;
+      if (top + rect.height > window.innerHeight - margin) top = popover.y - rect.height - 14;
+      top = Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin));
+      element.style.left = `${left}px`;
+      element.style.top = `${top}px`;
+    };
+    position();
+    window.addEventListener('resize', position);
+    return () => { window.removeEventListener('resize', position); };
+  }, [popover]);
+
   const remove = async (id: string): Promise<void> => {
     await api.deleteNoteExtraction(noteId, id);
     setPopover(null);
@@ -175,7 +194,7 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
         const tip = x.action === 'athena' ? ACTION_VERB.athena : `${ACTION_VERB[x.action]}: ${x.targetLabel}`;
         return (
           <div key={b.key} className="extraction-bar" style={{ top: b.top, height: Math.max(b.height, 24), left: b.left }}>
-            <button type="button" className="extraction-bar__icon" data-tip={`${tip}. Click for details.`}
+            <button type="button" className="extraction-bar__icon" title={`${tip}. Click for details.`}
               aria-label={tip}
               onClick={(e) => { e.stopPropagation(); setPopover({ x: e.clientX - 220, y: e.clientY, items: b.items }); }}>
               <Icon size={12} />
@@ -188,7 +207,8 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
   return (
     <>
     {barLayer}
-    <div className="extraction-pop" style={{ left: popover.x, top: popover.y + 14 }} role="dialog" aria-label="What was done with this text">
+    {createPortal(<div ref={popoverRef} className="extraction-pop" style={{ left: popover.x, top: popover.y + 14 }}
+      role="dialog" aria-label="What was done with this text">
       <div className="extraction-pop__title">Used from this text</div>
       {popover.items.map((x) => {
         const to = targetPath(x);
@@ -201,7 +221,7 @@ export const ExtractionMarks: React.FC<{ noteId: string; scrollRef: React.RefObj
           </div>
         );
       })}
-    </div>
+    </div>, document.body)}
     </>
   );
 };
