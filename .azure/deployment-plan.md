@@ -2,6 +2,19 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, conversational challenge):**
+- Source 34f8df3 committed and atomically pushed to main and working branch.
+- ACR built kh-prod-api:v239 successfully from GitHub main backend source.
+- kh-prod-api-vnet--0000236 is latest ready, Healthy, Provisioned and
+  RunningAtMaxScale; latest revision receives 100% traffic. Old revision is
+  deprovisioning. Startup confirms production port 3000 and migration complete,
+  with no startup failure; existing PostgreSQL future SSL-mode warning remains.
+- Athena now receives explicit conversational questioning and constructive
+  challenge instructions across personas, overriding older output-first profiles.
+- Frontend and stored profile data unchanged; no new migrations or configuration.
+- Logs: session files/athena-dialogue-release-{acr,startup}.log.
+- Production app: https://athena.themicrosoftcloudblog.com.
+
 **Section 7: Validation Proof (2026-10-23, conversational challenge):**
 - Fetched origin and merged origin/main; already current at 7bb4f92.
 - Both frontend/backend `npx --no-install tsc --noEmit` passed.
