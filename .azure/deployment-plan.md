@@ -2,6 +2,16 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, provisional-answer redraw fix):**
+- Release cba34d1 pushed atomically to main and richardichogan-local-development.
+- Frontend deployed successfully to kh-prod-web production after one transient
+  Azure content-server failure; the identical build succeeded on retry.
+- Both public domains return HTTP 200 with the matching release entry.
+  SHA-256 comparisons passed for index-DOlNM5X6.js, AIChatPage-B0SqLbui.js,
+  appBootstrap--y_LZpH_.css and appBootstrap-nogEcoiL.js.
+- Backend remains v235; no production content or database writes.
+- Successful deployment log: session files/chat-redraw-release-deploy-retry.log.
+
 **Section 7: Validation Proof (2026-10-23, provisional-answer redraw fix):**
 - User confirmed kh-prod-web, West Europe, rg-knowledge-hub-prod, in
   Alliance Tenant Reporting (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28).
