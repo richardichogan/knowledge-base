@@ -15,6 +15,7 @@ import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError, NotFoundError } from '../types/errors.js';
 import { tagContent, invalidateConceptTagCache } from '../services/taxonomyService.js';
+import { selectTaggingCandidates, tagCandidate, type TaggingCandidate } from '../jobs/taggingSweepJob.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 
 const router = Router();
@@ -236,7 +237,8 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction): void =>
 });
 
 // ── POST /api/taxonomy/retag — re-run auto-tagging on all content items ───────
-// Processes discover_items and notes that have no tags yet (or all, if ?all=true).
+// Processes content items due for tagging (never attempted, or failed and due a retry) and
+// untagged notes; ?all=true re-runs every content item and note.
 // Runs in the background — returns 202 immediately with a count estimate.
 
 const RETAG_SUMMARY_CHARS = 2_000;
@@ -261,16 +263,9 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
       // Invalidate cache so the refreshed tag list is loaded
       invalidateConceptTagCache();
 
-      const discoverRows = await db.query<{
-        id: string; source: string; title: string; summary: string;
-      }>(all
-        ? `SELECT id, source, title, summary FROM content_items ORDER BY indexed_at DESC`
-        : `SELECT ci.id, ci.source, ci.title, ci.summary
-           FROM content_items ci
-           LEFT JOIN discover_item_tags dit ON dit.discover_item_id = ci.id
-           WHERE dit.discover_item_id IS NULL
-           ORDER BY ci.indexed_at DESC`,
-      );
+      const discoverRows = all
+        ? await db.query<TaggingCandidate>(`SELECT id, source, title, summary, body, url, project_context FROM content_items ORDER BY indexed_at DESC`)
+        : { rows: await selectTaggingCandidates(db, null) };
 
       const noteRows = await db.query<{ id: string; content: string }>(all
         ? `SELECT id, content FROM notes WHERE status = 'active'`
@@ -292,8 +287,7 @@ router.post('/retag', (req: Request, res: Response, next: NextFunction): void =>
       void (async (): Promise<void> => {
         let done = 0;
         for (const row of discoverRows.rows) {
-          const summary = (row.summary ?? row.title ?? '').slice(0, RETAG_SUMMARY_CHARS);
-          await tagContent(db, summary, row.id, row.source, row.title);
+          await tagCandidate(db, row);
           done++;
           retagProgress.done = done;
         }

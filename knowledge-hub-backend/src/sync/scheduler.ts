@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 import { runTier1Sync, isSyncInProgress } from './syncOrchestrator.js';
 import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
+import { runTaggingSweepJob } from '../jobs/taggingSweepJob.js';
 import { runKnowledgeNightlyReviewJob } from '../jobs/knowledgeNightlyReviewJob.js';
 import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
 import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
@@ -49,6 +50,8 @@ let watchlistsRunning = false;
 /** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
 const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
+const TAGGING_SWEEP_INTERVAL_MS = 60 * MS_PER_MINUTE; // Tag never-attempted items and retry failures hourly
+let lastTaggingSweepAt = 0;
 const KNOWLEDGE_REVIEW_UTC_HOUR = 2;
 const ISO_DATE_LENGTH = 10;
 let lastKnowledgeReviewDay = ''; // UTC date of the last nightly knowledge review attempt
@@ -212,6 +215,14 @@ export function startSyncScheduler(): void {
         console.warn('[Scheduler] Running Foundry IQ backfill sweep...');
         void runClaimedJob(db, 'foundry-backfill', String(Math.floor(Date.now() / FOUNDRY_BACKFILL_INTERVAL_MS)), () => runFoundryIqBackfillJob(db)).catch((err: unknown) => {
           console.error('[Scheduler] Foundry IQ backfill job failed:', err instanceof Error ? err.message : String(err));
+        });
+      }
+      // Tagging sweep — production only, hourly, bounded batch: tags items whose insert-time
+      // tagging never ran and retries failed attempts. Deferred while a sync is running.
+      if (!env.isDevelopment && Date.now() - lastTaggingSweepAt >= TAGGING_SWEEP_INTERVAL_MS && !isSyncInProgress()) {
+        lastTaggingSweepAt = Date.now();
+        void runClaimedJob(db, 'tagging-sweep', String(Math.floor(Date.now() / TAGGING_SWEEP_INTERVAL_MS)), () => runTaggingSweepJob(db)).catch((err: unknown) => {
+          console.error('[Scheduler] Tagging sweep failed:', err instanceof Error ? err.message : String(err));
         });
       }
       // Nightly knowledge-turn review — production only, from 02:00 UTC, once per day (claimed). Model-free aggregation.

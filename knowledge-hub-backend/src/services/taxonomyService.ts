@@ -8,13 +8,20 @@
  *   Plan       tasks               → AI tags from the existing taxonomy only
  *   My Work    activity            → the project's tag; AI tags only on items worth reading
  *                                    (pull requests, issues, releases, posts, meetings)
- *   Library, Projects              → nothing new is applied
+ *   Projects   GitHub design and instructional docs (PRDs, specs, ADRs, READMEs, guides,
+ *              agent/skill instructions) → existing tags plus the project tag
+ *   Library, other Projects items  → nothing new is applied
+ *
+ * Every content item's outcome is recorded in content_items.tagging_status (tagged, no_fit,
+ * failed, skipped) so the tagging sweep can tag never-attempted items and retry failures.
  *
  * Exported:
  *   tagContent()        — tags one item per its policy, queues a proposed new tag as evidence
  *   loadConceptTags()   — the flat concept tag list
  *   tagKey()            — normalised form of a tag name, for matching near-duplicates
- *   policyFor()         — the policy for a content type
+ *   policyFor()         — the policy for a content type (and, for GitHub docs, its URL)
+ *   isDesignDoc()       — is a GitHub doc URL a design or instructional document?
+ *   TAGGABLE_SOURCES    — content types whose policy can apply tags
  */
 import type { Pool } from 'pg';
 import { FoundryClient } from '../ai/foundryClient.js';
@@ -55,8 +62,47 @@ const POLICY_BY_TYPE: Record<string, TaggingPolicy> = {
   'github-doc': NONE, 'github-content-store': NONE, 'onedrive-document': NONE, 'user-upload': NONE, 'ica-document': NONE, image: NONE,
 };
 
-export function policyFor(contentType: string): TaggingPolicy {
+const DESIGN_DOC_FOLDER = /\/(docs?|specs?|designs?|architecture|decisions|adrs?|rfcs?|requirements|prds?|guides?|[a-z-]+-guide|runbooks?|playbooks?|skills|references|contracts|diagrams|\.agents|\.github\/(agents|skills|instructions|prompts))\//i;
+const DESIGN_DOC_FILE = /\/[^/]*(readme|agents|prd|spec|design|architecture|requirement|instructions|guide|runbook|playbook|skill|\.agent|\.prompt|adr|rfc|overview|setup|how-?to|usage|manual|onboarding|quick[-_ ]?start|troubleshooting|features|roadmap|best[-_ ]practices|conventions|standards|contributing|reference|strategy|plan|process)[^/]*\.mdx?$/i;
+const NOT_DESIGN_DOC = /(changelog|session[-_ ]?notes|\/sessions\/|\/status\/|status[-_ ]report|\.copilot-tracking|\/license|code[-_]of[-_]conduct|migration[-_]index|\/data\/|\/posts\/|\/blogs\/)/i;
+
+/** A GitHub doc that explains how something should be designed, built or used (PRDs, specs, ADRs, guides). */
+export function isDesignDoc(url: string | null | undefined): boolean {
+  if (url === null || url === undefined || url === '') return false;
+  const path = url.split('?')[0] ?? url;
+  if (NOT_DESIGN_DOC.test(path)) return false;
+  return DESIGN_DOC_FOLDER.test(path) || DESIGN_DOC_FILE.test(path);
+}
+
+export function policyFor(contentType: string, url?: string | null): TaggingPolicy {
+  if (contentType === 'github-doc' && isDesignDoc(url)) return AI_EXISTING;
   return POLICY_BY_TYPE[contentType] ?? NONE;
+}
+
+/** Content types whose policy can apply a tag (github-doc only for design docs, checked per URL). */
+export const TAGGABLE_SOURCES: readonly string[] = [
+  ...Object.entries(POLICY_BY_TYPE).filter(([type, p]) => p.mode !== 'none' && type !== 'note' && type !== 'task').map(([type]) => type),
+  'github-doc',
+];
+
+// ── Limiting concurrent model calls ──────────────────────────────────────────
+
+/** Sync sweeps insert many items at once; unbounded parallel tagging calls get rate-limited. */
+const MAX_CONCURRENT_TAGGING = 3;
+let activeTagging = 0;
+const taggingQueue: Array<() => void> = [];
+
+async function withTaggingSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeTagging >= MAX_CONCURRENT_TAGGING) await new Promise<void>((resolve) => { taggingQueue.push(resolve); });
+  else activeTagging++;
+  try {
+    return await fn();
+  } finally {
+    // Hand the slot straight to the next waiter, so a new caller cannot slip in between.
+    const next = taggingQueue.shift();
+    if (next !== undefined) next();
+    else activeTagging--;
+  }
 }
 
 // ── Matching names ───────────────────────────────────────────────────────────
@@ -167,8 +213,40 @@ async function projectTagId(db: Pool, projectContext: string | null | undefined)
 export interface TagOptions {
   /** The item's project, for the project tag (My Work items). */
   projectContext?: string | null | undefined;
+  /** The item's URL: decides whether a GitHub doc is a design document. */
+  url?: string | null | undefined;
   /** How much of the text to show the model. */
   maxChars?: number;
+}
+
+export type TaggingOutcome = 'tagged' | 'no_fit' | 'failed' | 'skipped';
+
+export const TAG_TEXT_CHARS = 3_000;
+
+/** The text shown to the model. GitHub docs use the body (their summary is a 200-character stub) and path. */
+export function taggingText(item: { source: string; title: string; summary?: string | null; body?: string | null; url?: string | null }): string {
+  const preferBody = item.source === 'github-doc';
+  const first = preferBody ? item.body : item.summary;
+  const second = preferBody ? item.summary : item.body;
+  const text = first !== null && first !== undefined && first.trim() !== '' ? first : (second ?? '');
+  const path = preferBody && item.url !== null && item.url !== undefined ? `\nPath: ${item.url.replace(/^https:\/\/github\.com\//, '')}` : '';
+  return `${item.title}${path}\n\n${text}`.slice(0, TAG_TEXT_CHARS);
+}
+
+/** Notes and tasks have their own tables; every other type is a content_items row. */
+function isContentItem(contentType: string): boolean {
+  return contentType !== 'note' && contentType !== 'task';
+}
+
+async function recordOutcome(db: Pool, contentId: string, contentType: string, outcome: TaggingOutcome): Promise<void> {
+  if (!isContentItem(contentType)) return;
+  await db.query(
+    `UPDATE content_items SET tagging_status = $2, tagging_attempts = tagging_attempts + 1, tagging_attempted_at = now()
+      WHERE id::text = $1`,
+    [contentId, outcome],
+  ).catch((err: unknown) => {
+    console.error(`[TaxonomyService] could not record tagging outcome for ${contentType}:${contentId}`, err instanceof Error ? err.message : err);
+  });
 }
 
 /**
@@ -184,51 +262,78 @@ export async function tagContent(
   options: TagOptions = {},
 ): Promise<TaggingResult> {
   const empty: TaggingResult = { appliedTagIds: [], suggestedNewTags: [] };
-  const policy = policyFor(contentType);
-  if (policy.mode === 'none') return empty;
-  try {
-    const applied: string[] = [];
-    if (policy.projectTag) {
-      const projectTag = await projectTagId(db, options.projectContext);
-      if (projectTag !== null && await applyTag(db, contentId, contentType, projectTag)) applied.push(projectTag);
-    }
-    if (policy.mode !== 'ai') return { appliedTagIds: applied, suggestedNewTags: [] };
-
-    const conceptTags = await loadConceptTags(db);
-    if (conceptTags.length === 0 || text.trim().length < 20) return { appliedTagIds: applied, suggestedNewTags: [] };
-
-    const client = new FoundryClient('auto-tagging');
-    const raw = await client.chatBulk([
-      { role: 'system', content: systemPrompt(policy.mayPropose) },
-      { role: 'user', content: `Item:\n${text.slice(0, options.maxChars ?? 3_000)}\n\nExisting concept tags, by group:\n${buildTaxonomyListing(conceptTags)}` },
-    ], 800);
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    const parsed = JSON.parse(cleaned.slice(cleaned.indexOf('{'), cleaned.lastIndexOf('}') + 1)) as { tags?: string[]; new_tag?: string | null };
-
-    for (const tagName of (parsed.tags ?? []).slice(0, 5)) {
-      const match = conceptTags.find((t) => t.name.toLowerCase() === String(tagName).toLowerCase());
-      if (match === undefined) continue;
-      if (await applyTag(db, contentId, contentType, match.id)) applied.push(match.id);
-    }
-
-    const suggested: string[] = [];
-    const proposal = policy.mayPropose && typeof parsed.new_tag === 'string' ? parsed.new_tag.trim() : '';
-    if (proposal !== '' && proposal.toLowerCase() !== 'null' && isCredibleNewTag(proposal)) {
-      const key = tagKey(proposal);
-      const existing = (await allTagsByKey(db)).get(key);
-      if (existing !== undefined) {
-        // The "new" tag already exists under another spelling: just apply it.
-        if (existing.isConcept && await applyTag(db, contentId, contentType, existing.id)) applied.push(existing.id);
-      } else if (!(await rejectedKeys(db)).has(key)) {
-        await recordSuggestion(db, proposal, exampleTitle, `${contentType}:${contentId}`);
-        suggested.push(proposal);
-      }
-    }
-    return { appliedTagIds: applied, suggestedNewTags: suggested };
-  } catch (err) {
-    console.error(`[TaxonomyService] tagging failed for ${contentType}:${contentId}`, err);
+  const policy = policyFor(contentType, options.url);
+  if (policy.mode === 'none') {
+    await recordOutcome(db, contentId, contentType, 'skipped');
     return empty;
   }
+  try {
+    const result = await withTaggingSlot(() => tagWithPolicy(db, policy, text, contentId, contentType, exampleTitle, options));
+    await recordOutcome(db, contentId, contentType, result.outcome);
+    return { appliedTagIds: result.appliedTagIds, suggestedNewTags: result.suggestedNewTags };
+  } catch (err) {
+    console.error(`[TaxonomyService] tagging failed for ${contentType}:${contentId}`, err);
+    await recordOutcome(db, contentId, contentType, 'failed');
+    return empty;
+  }
+}
+
+async function tagWithPolicy(
+  db: Pool,
+  policy: TaggingPolicy,
+  text: string,
+  contentId: string,
+  contentType: string,
+  exampleTitle: string,
+  options: TagOptions,
+): Promise<TaggingResult & { outcome: TaggingOutcome }> {
+  const applied: string[] = [];
+  const outcome = (fallback: TaggingOutcome): TaggingOutcome => (applied.length > 0 ? 'tagged' : fallback);
+  if (policy.projectTag) {
+    const projectTag = await projectTagId(db, options.projectContext);
+    if (projectTag !== null && await applyTag(db, contentId, contentType, projectTag)) applied.push(projectTag);
+  }
+  if (policy.mode !== 'ai') return { appliedTagIds: applied, suggestedNewTags: [], outcome: outcome('no_fit') };
+
+  const conceptTags = await loadConceptTags(db);
+  if (conceptTags.length === 0 || text.trim().length < 20) return { appliedTagIds: applied, suggestedNewTags: [], outcome: outcome('skipped') };
+
+  const client = new FoundryClient('auto-tagging');
+  const raw = await client.chatBulk([
+    { role: 'system', content: systemPrompt(policy.mayPropose) },
+    { role: 'user', content: `Item:\n${text.slice(0, options.maxChars ?? 3_000)}\n\nExisting concept tags, by group:\n${buildTaxonomyListing(conceptTags)}` },
+  ], 800);
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const parsed = JSON.parse(cleaned.slice(cleaned.indexOf('{'), cleaned.lastIndexOf('}') + 1)) as { tags?: string[]; new_tag?: string | null };
+
+  for (const tagName of (parsed.tags ?? []).slice(0, 5)) {
+    const match = conceptTags.find((t) => t.name.toLowerCase() === String(tagName).toLowerCase());
+    if (match === undefined) continue;
+    if (await applyTag(db, contentId, contentType, match.id)) applied.push(match.id);
+  }
+
+  const suggested: string[] = [];
+  const proposal = policy.mayPropose && typeof parsed.new_tag === 'string' ? parsed.new_tag.trim() : '';
+  if (proposal !== '' && proposal.toLowerCase() !== 'null' && isCredibleNewTag(proposal)) {
+    const key = tagKey(proposal);
+    const existing = (await allTagsByKey(db)).get(key);
+    if (existing !== undefined) {
+      // The "new" tag already exists under another spelling: just apply it.
+      if (existing.isConcept && await applyTag(db, contentId, contentType, existing.id)) applied.push(existing.id);
+    } else if (!(await rejectedKeys(db)).has(key)) {
+      await recordSuggestion(db, proposal, exampleTitle, `${contentType}:${contentId}`);
+      suggested.push(proposal);
+    }
+  }
+  return { appliedTagIds: applied, suggestedNewTags: suggested, outcome: await finalOutcome(db, contentId, contentType, applied) };
+}
+
+/** Tagged if anything was applied now or the item already carried a tag (a re-run); otherwise nothing fitted. */
+async function finalOutcome(db: Pool, contentId: string, contentType: string, applied: string[]): Promise<TaggingOutcome> {
+  if (applied.length > 0) return 'tagged';
+  if (!isContentItem(contentType)) return 'no_fit';
+  const existing = await db.query(`SELECT 1 FROM discover_item_tags WHERE discover_item_id::text = $1 LIMIT 1`, [contentId]);
+  return (existing.rowCount ?? 0) > 0 ? 'tagged' : 'no_fit';
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
