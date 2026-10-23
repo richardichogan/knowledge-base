@@ -2,6 +2,34 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, diagram styling and AI reliability):**
+- Source fd24505104d605c0870923b8a8446309a5d4d5db merged/pushed atomically
+  to main and richardichogan-link-think-chat-projects.
+- Backend ACR build ca7e succeeded and recorded that exact git-head-revision.
+  Image kh-prod-api:v236 is deployed to kh-prod-api-vnet--0000233.
+- New revision is Healthy / RunningAtMaxScale, provisioning Succeeded,
+  latest-ready revision matches and latest-revision traffic is 100%.
+- Startup logs confirm migration completion and database pool readiness.
+  Existing pg SSL-mode future-compatibility warning remains; no runtime
+  configuration or migration errors were observed. JSON log output avoids
+  the Azure CLI's Windows text-mode Unicode encoding error.
+- Frontend production deployment succeeded. Both
+  https://athena.themicrosoftcloudblog.com and
+  https://nice-mud-0f780fb03.7.azurestaticapps.net serve the expected release
+  entry and all three checked entry-asset SHA-256 hashes match local dist.
+- No infrastructure, dependency, secret, identity or permission changes;
+  no browser launch, manual production test-content writes or system changes.
+  Normal existing backend startup/scheduler operations remain enabled.
+- Architecture fit: existing document history/autosave handles each bulk edit
+  atomically; typed style patches preserve stored data contracts. Existing
+  AI budgets and audit persistence are reused without added model calls.
+  The bounded fix avoids a new styling framework, budget increases, migrations
+  or historical audit rewrites. No new secret-handling paths were introduced.
+- Design-hook fixture-colour warnings are intentional legacy/custom-colour
+  test inputs. Incumbent unrelated typography and side-tab styling are unchanged.
+- Logs: session files/v236-acr-build.log, v236-frontend-deploy.log,
+  v236-backend-startup-json.log (text-mode diagnostics in v236-backend-startup.log).
+
 **Section 7: Validation Proof (2026-10-23, diagram styling and AI reliability):**
 - Fetched origin and merged origin/main; already current at 8cd688b.
 - Both explicit `npx tsc --noEmit` checks and both production builds passed.
