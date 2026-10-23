@@ -2,6 +2,19 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, completion notifications):**
+- Source 0cdd853f093d9f4f26322aaa93dad4519e485b0f committed and atomically
+  pushed to main and richardichogan-local-development.
+- Validated dist uploaded successfully to kh-prod-web production.
+- Both https://athena.themicrosoftcloudblog.com and
+  https://nice-mud-0f780fb03.7.azurestaticapps.net return HTTP 200 with the
+  expected entry reference and matching SHA-256 hashes for all three checked
+  entry/renderer assets.
+- Includes the composer sizing fix and browser completion alerts for successful
+  prompts over 30 seconds. Backend and production database unchanged.
+- Deployment token was kept private. Log: session
+  files/athena-notification-release-deploy.log.
+
 **Section 7: Validation Proof (2026-10-23T21:34Z, completion notifications):**
 - Synced origin/main before validation; already current at 4171a19.
 - `npx --no-install tsc --noEmit` passed in both frontend and backend.
