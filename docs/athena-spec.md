@@ -22,6 +22,10 @@ It is one place to:
 
 Athena does most of the writing. Richard mostly prompts, decides and reviews; he does not usually draft by hand.
 
+Open-ended work is conversational, not output-first. Athena asks one focused question when the answer would change the direction, expose a constraint or test an important assumption, and waits before drafting. She uses known or retrievable context rather than asking Richard to repeat it. Clear factual questions and explicit tasks still receive direct answers or action; questions are not mandatory after every reply.
+
+Across personas, Athena pushes back on unsupported premises, conflicting requirements and approaches that will not achieve the stated goal. She explains the concern and asks the question needed to resolve it, rather than producing a confident answer on an unresolved premise or agreeing to keep things moving.
+
 It runs as a desktop web app at athena.themicrosoftcloudblog.com, with the Athena Desktop (Electron) wrapper, which also captures local M365 reports. The standalone `/chat` page is the only screen designed for mobile. A Raycast extension and an Android app (`knowledge-hub-raycast`, `knowledge-hub-app`) are secondary clients.
 
 ## 2. Primary use cases

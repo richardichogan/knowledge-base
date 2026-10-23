@@ -19,7 +19,9 @@ test('ordinary and source-bound requests do not perform automatic knowledge, gra
   const reads: string[] = [];
   const query = mock.method(db, 'query', async (sql: string) => {
     reads.push(sql);
-    if (sql.includes("kind = 'profile'")) return { rows: [{ content: 'Essential preferences', status: 'active' }] };
+    if (sql.includes("kind = 'profile'")) return { rows: [{
+      content: 'Essential preferences: produce output first', status: 'active',
+    }] };
     if (sql.includes('FROM projects ORDER BY name')) {
       return { rows: [{ id: 'imagine', name: 'IMAGINE', goal: 'UNRELATED_GOAL', importance: 'critical', lifecycle_state: 'active' }] };
     }
@@ -38,6 +40,18 @@ test('ordinary and source-bound requests do not perform automatic knowledge, gra
         { type: 'document', title: 'Selected source', detail: 'Exact source material' });
       assert.ok(messages.at(-1)?.content.includes('Exact source material'));
       assert.ok(messages[0]?.content.includes('Essential preferences'));
+      const systemPrompt = messages[0]?.content ?? '';
+      assert.ok(systemPrompt.includes('Ask one focused question when his answer would materially shape the direction'));
+      assert.ok(systemPrompt.includes('It is fine for that question to be the whole reply'));
+      assert.ok(systemPrompt.includes('Answer clear factual questions directly'));
+      assert.ok(systemPrompt.includes('Push back when his premise is unsupported'));
+      assert.ok(systemPrompt.includes('pause and wait for his answer rather than answering your own question'));
+      assert.ok(systemPrompt.indexOf('## Conversation and constructive challenge') > systemPrompt.indexOf('Essential preferences'));
+      assert.ok(systemPrompt.includes('override any older profile instruction to draft before asking questions'));
+      if (persona === 'brainstorming') {
+        assert.ok(messages[0]?.content.includes('Let him answer before developing a detailed critique or alternative'));
+        assert.ok(!messages[0]?.content.includes('Ask for clarification only when'));
+      }
       assert.ok(!messages.at(-1)?.content.includes('Previous unrelated topic'));
     }
     assert.ok(reads.every(sql => !/content_items|ai_chat_messages|graph_|plan_tasks/.test(sql)), reads.join('\n'));

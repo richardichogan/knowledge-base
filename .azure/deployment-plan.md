@@ -2,6 +2,29 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, conversational challenge):**
+- Fetched origin and merged origin/main; already current at 7bb4f92.
+- Both frontend/backend `npx --no-install tsc --noEmit` passed.
+- Backend `npm run build`, `npm run lint:check` and full isolated release
+  suite passed: 433 tests, zero failures. `git diff --check` passed.
+- Updated prompt-assembly regression covers general, brainstorming and show
+  notes with an old saved output-first profile, requiring shared questioning
+  and constructive challenge rules after that profile.
+- Existing user-confirmed Azure target: Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), rg-knowledge-hub-prod,
+  kh-prod-api-vnet in UK South. Current image v238; release image v239.
+- Existing application-only AZCLI recipe: ACR builds GitHub main backend
+  source, then update the existing container image. Dockerfile and lockfile
+  present; ACR performs the container build before switching the image.
+- No frontend upload, infrastructure, RBAC, dependency, migration or secret
+  changes. Bicep/template/what-if/policy and provisioning/role propagation
+  gates are not applicable to this image-only update.
+- No production database test writes; isolated tests strip credentials.
+  Shared rules override legacy profile instructions without editing user data.
+- Logs: session files/athena-dialogue-release-{build,tests,lint}.log.
+- Verify revision health and startup logs after deployment. Preserve unrelated
+  .impeccable/hook.cache.json.
+
 **Deployment result (2026-10-23, completion notifications):**
 - Source 0cdd853f093d9f4f26322aaa93dad4519e485b0f committed and atomically
   pushed to main and richardichogan-local-development.
