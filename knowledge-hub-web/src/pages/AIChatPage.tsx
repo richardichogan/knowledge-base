@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { notifyPromptCompleted, requestCompletionNotifications } from '../chat/completionNotification';
 import { usePageTitle } from '../navigation/PageTitle';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -458,13 +459,25 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const uploadProjectName = uploadProjectOptions.find((p) => p.id === uploadProjectId)?.name ?? uploadProjectId;
 
   // Auto-grow the message textarea up to a max height, then let it scroll —
-  // recalculated whenever the input text changes.
-  useEffect(() => {
+  // Recalculate on text changes and when a hidden/narrow panel becomes visible.
+  useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    const maxHeight = 200;
-    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    let width = -1;
+    const resize = (): void => {
+      if (el.clientWidth === 0) return;
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      if (el.value === '') el.scrollTop = 0;
+    };
+    resize();
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      resize();
+    });
+    observer.observe(el);
+    return () => { observer.disconnect(); };
   }, [input]);
 
   useEffect(() => {
@@ -808,7 +821,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   const chatMutation = useMutation({
-    onMutate: () => {
+    onMutate: ({ resumeTurnId }) => {
+      if (resumeTurnId === undefined) requestCompletionNotifications();
       // Fresh controller per turn — Stop only ever aborts the request that's actually in flight.
       chatAbortControllerRef.current = new AbortController();
       setReplyArrival(null);
@@ -820,6 +834,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       const run = ++turnRunRef.current;
       const signal = (chatAbortControllerRef.current ?? new AbortController()).signal;
       const startedAt = resumeStartedAt !== undefined ? Date.parse(resumeStartedAt) : Date.now();
+      let notificationTurnId = resumeTurnId;
       // Remember the destination before token renewal/network I/O, not only
       // after the server response (which a refresh may never receive).
       const requestSessionId = sessionId ?? pendingSessionIdRef.current ?? crypto.randomUUID();
@@ -828,6 +843,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       liveTurnIdRef.current = resumeTurnId ?? null;
       const handlers: LiveTurnHandlers = {
         onStarted: (turnId, newSessionId) => {
+          notificationTurnId = turnId;
           if (turnRunRef.current !== run) return;
           liveTurnIdRef.current = turnId;
           if (sessionId === null) persistSessionId(newSessionId, true);
@@ -870,6 +886,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           const remaining = ATHENA_MIN_THINK_MS - (Date.now() - startedAt);
           if (remaining > 0) await new Promise<void>(resolve => { window.setTimeout(resolve, remaining); });
           if (signal.aborted) throw new axios.CanceledError('Stopped');
+        }
+        if (result.success && result.data.reply.trim() && notificationTurnId !== undefined) {
+          notifyPromptCompleted(notificationTurnId, startedAt, result.data.sessionId,
+            isNoteLinkedPanel ? currentNoteId : undefined);
         }
         // He switched chats while it finished: it's saved in its own chat — never show it in this one.
         if (turnRunRef.current !== run) throw new TurnDetachedError();

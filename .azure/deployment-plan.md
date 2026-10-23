@@ -2,6 +2,27 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23T21:34Z, completion notifications):**
+- Synced origin/main before validation; already current at 4171a19.
+- `npx --no-install tsc --noEmit` passed in both frontend and backend.
+- Frontend `npm run build`, `npm run test:isolated` (232 tests, zero
+  failures), `npm run lint:check` and `git diff --check` passed.
+- Production dist contains no tests directory. Release includes the composer
+  height fix and browser-side success notifications for prompts over 30 seconds.
+- Azure CLI 2.79.0 authenticated; existing kh-prod-web target verified in West
+  Europe, subscription Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), rg-knowledge-hub-prod.
+- Existing user-confirmed frontend-only AZCLI/SWA upload. Bicep compilation,
+  template validation, what-if, Docker, policy and static/live RBAC changes
+  are not applicable: no provisioning, backend, infrastructure, identity,
+  dependency, database or secret configuration changes.
+- System notification delivery requires browser permission and an open app
+  following the turn; actual OS delivery and composer appearance were not
+  manually verified. No server-side push is introduced.
+- Logs: session files/athena-notification-release-{build,tests,lint}.log.
+- Preserve unrelated .impeccable/hook.cache.json. Verify public entry and
+  renderer asset hashes after deploying the validated dist.
+
 **Deployment result (2026-10-23, Athena personality):**
 - Source 0a43f3b committed and atomically pushed to main and the working branch.
 - Validated frontend dist deployed successfully to kh-prod-web production.

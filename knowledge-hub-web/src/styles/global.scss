@@ -1753,6 +1753,8 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   .ai-input-textarea {
     flex: 1;
     min-width: 0;
+    box-sizing: border-box;
+    min-height: 2.625rem;
     max-height: 200px;
     overflow-y: auto;
     resize: none;

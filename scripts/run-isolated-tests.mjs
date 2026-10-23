@@ -6,6 +6,7 @@ const backend = resolve(import.meta.dirname, '../knowledge-hub-backend');
 const web = resolve(import.meta.dirname, '../knowledge-hub-web');
 const frontend = process.argv.includes('--frontend');
 const tests = frontend ? [
+  '../knowledge-hub-web/tests/completionNotification.test.ts',
   '../knowledge-hub-web/tests/athenaMotion.test.tsx',
   '../knowledge-hub-web/tests/athenaMarkElement.test.ts',
   '../knowledge-hub-web/tests/athenaRibbonElement.test.ts',

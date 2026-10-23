@@ -52,6 +52,15 @@ test('composer suggestions have bounded text, keyboard focus and reduced-motion 
   assert.doesNotMatch(css, /background: var\(--cds-layer-(?:hover|active)/);
 });
 
+test('composer has room for one line and recalculates when hidden panels become visible', () => {
+  const scss = readFileSync(new URL('../src/styles/global.scss', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../src/pages/AIChatPage.tsx', import.meta.url), 'utf8');
+  assert.match(scss, /\.ai-input-textarea \{[^}]*box-sizing: border-box;[^}]*min-height: 2\.625rem;/);
+  assert.match(page, /if \(el\.clientWidth === 0\) return;/);
+  assert.match(page, /observer\.observe\(el\)/);
+  assert.match(page, /if \(el\.value === ''\) el\.scrollTop = 0;/);
+});
+
 test('placement and scrolling use the supplied expressive cubic-bezier', () => {
   assert.equal(athenaExpressiveEase(0), 0);
   assert.ok(Math.abs(athenaExpressiveEase(1) - 1) < 1e-12);
