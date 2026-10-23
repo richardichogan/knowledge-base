@@ -79,9 +79,11 @@ test('main and note graphs use the supplied G100 renderer and compact 300px pane
   const renderer = readFileSync(new URL('../public/athena/atlas-graph.js', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/components/graph/atlas.scss', import.meta.url), 'utf8');
   assert.match(renderer, /const BG = '#161616'/);
-  assert.match(renderer, /ctx\.strokeStyle = BG/);
+  assert.match(renderer, /if \(this\.compact\) ctx\.clearRect\(0, 0, W, H\)/);
+  assert.match(renderer, /else \{ ctx\.fillStyle = BG; ctx\.fillRect\(0, 0, W, H\); \}/);
+  assert.doesNotMatch(renderer, /strokeText/);
   assert.match(styles, /&--compact \{ height: 300px/);
-  assert.match(styles, /background: var\(--atlas-surface\)/);
+  assert.match(styles, /&--compact \{[^}]*background: transparent;/);
 });
 
 test('Link-tab note previews blend into the panel without adding an unrelated graph', () => {

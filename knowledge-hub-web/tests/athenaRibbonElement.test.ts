@@ -5,12 +5,19 @@ import { runInNewContext } from 'node:vm';
 
 class Canvas {
   width = 0; height = 0; strokes = 0; signature = 0; style: Record<string, string> = {};
+  strokeWidths = new Set<number>();
+  peakAlpha = 0;
   context = {
-    clearRect: () => { this.strokes = 0; this.signature = 0; },
+    lineWidth: 0,
+    strokeStyle: '',
+    clearRect: () => { this.strokes = 0; this.signature = 0; this.strokeWidths.clear(); this.peakAlpha = 0; },
     setTransform() {}, drawImage() {}, beginPath() {},
     moveTo: (x: number, y: number) => { assert.ok(Number.isFinite(x + y)); this.signature += x + y; },
     lineTo: (x: number, y: number) => { assert.ok(Number.isFinite(x + y)); this.signature += x * 0.7 + y; },
-    stroke: () => { this.strokes++; },
+    stroke: () => {
+      this.strokes++; this.strokeWidths.add(this.context.lineWidth);
+      this.peakAlpha = Math.max(this.peakAlpha, Number(this.context.strokeStyle.split(',').at(-1)?.replace(')', '')));
+    },
   };
   getContext() { return this.context; }
 }
@@ -111,6 +118,15 @@ test('moods ease from the current shape with the original 380ms time constant an
   f.advance(4000);
   assert.ok(Math.abs(f.ribbon._p.bright! - 0.5) < 0.001);
   assert.equal(f.ribbon.getAttribute('aria-label'), 'Athena is sorry');
+});
+
+test('small chat ribbons use thicker strands without changing their size or mood geometry', () => {
+  const f = fixture({ size: '44', still: '' });
+  f.step();
+  assert.deepEqual([...f.ribbon.canvas.strokeWidths].sort(), [0.75, 1]);
+  assert.equal(f.ribbon.canvas.width, 88);
+  assert.equal(f.ribbon._p.bright, 0.85);
+  assert.ok(f.ribbon.canvas.peakAlpha >= 0.6, 'Resting chat icon must have visibly bright edge strands');
 });
 
 test('all nine settled moods render once, remain finite and announce only supported non-silent events', () => {

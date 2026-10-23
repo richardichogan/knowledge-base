@@ -6,7 +6,11 @@ already byte-identical to the installed asset. Physics, palette and timings
 below remain unchanged. App-specific additions are instance-local commands and
 seeded random state, lifecycle/visibility cleanup, live reduced-motion support,
 instant reduced-motion paths, pointer cancellation/pinch handling, long-label
-clamping, and optional connected-context visibility. The adapter retains all
+clamping, collision-aware label budgets (six titles in the full graph, four in
+compact mode), and optional connected-context visibility. Labels prioritise
+root, hover and selection; full titles and activity details live in hover
+tooltips and the inspector. This supersedes the unrestricted labels and
+secondary metadata described in the original handoff below. The adapter retains all
 real entity kinds and evidence labels. See `../athena-spec.md` for bounded-data,
 endpoint resolution and compact-panel behavior. Placeholder demo data is not
 shipped.

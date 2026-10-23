@@ -25,6 +25,7 @@ import { renderAssistantMessage, handleCodeCopyClick } from '../components/athen
 import { LiveReply, ThinkingReply } from '../components/athena/LiveReply';
 import { AthenaPresence } from '../components/athena/AthenaPresence';
 import { AthenaRibbon } from '../components/athena/AthenaRibbon';
+import { ComposerSuggestion, composerSuggestions } from '../components/athena/ComposerSuggestion';
 import { useAthenaMood } from '../chat/athenaMood';
 import { ChatBubble } from '../components/athena/ChatBubble';
 import { athenaMotionPhase, athenaExpressiveEase, microphoneLevel, ATHENA_ANSWER_MS, ATHENA_MIN_THINK_MS, ATHENA_TYPING_IDLE_MS } from '../chat/athenaMotion';
@@ -2055,11 +2056,17 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     activity: liveTurn?.activity ?? 'Sending',
     recording: isRecording,
     transcribing: isTranscribing,
-    restoring: messages.length === 0 && (isRestoringHistory || (isNoteLinkedPanel && isNoteSummaryLoading)),
+    summarizing: messages.length === 0 && !isRestoringHistory && isNoteLinkedPanel && isNoteSummaryLoading,
     typing: inputFocused && typingActive && input.trim() !== '',
     answered: replyArrival !== null,
   });
   const { mood, emote, clearEmotion } = useAthenaMood(motionPhase, currentNoteId ?? sessionId ?? 'new');
+  const latestMessage = messages[messages.length - 1];
+  const composerNextSteps = composerSuggestions(
+    latestMessage?.role === 'assistant' ? latestMessage.nextSteps : undefined,
+    pageContext?.type,
+    messages.length ? ['Summarise our conversation', 'What should we do next?', 'Explain the key points in more detail'] : STARTER_PROMPTS,
+  );
 
   return (
     <div className={standalone ? 'ai-chat-standalone' : compact ? `ai-chat-compact ai-chat-compact--${compactVariant}` : 'page-root'}>
@@ -2097,16 +2104,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
-            <div className="ai-character-heading">
-              <AthenaRibbon mood={mood} size={44} silent={false} />
-              <h1 className="page-title">{title ?? 'Athena'}</h1>
-            </div>
+            <h1 className="page-title">{title ?? 'Athena'}</h1>
           </div>
         </div>
       )}
       {standalone && (
         <div className="ai-chat-standalone__topbar ai-chat-standalone__topbar--minimal">
-          <AthenaRibbon mood={mood} size={44} silent={false} />
           <Button
             size="sm"
             kind="ghost"
@@ -2124,7 +2127,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       )}
       {!standalone && (
         <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact' : 'ai-new-chat-row'}>
-          {compact && <AthenaRibbon mood={mood} size={44} silent={false} />}
           <div className="ai-new-chat-row__actions">
             {actionButtons}
           </div>
@@ -2172,7 +2174,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           }}
         >
           {messages.length === 0 && isRestoringHistory && (
-            <ThinkingReply activity="Restoring conversation" presenceRef={presenceThinkRef} />
+            <div className="ai-live-activity" role="status">Restoring conversation</div>
           )}
           {messages.length === 0 && !isRestoringHistory && historyError === null && isNoteLinkedPanel && currentNoteId !== undefined && (
             <div className="ai-note-summary-card">
@@ -2205,18 +2207,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 <p className="ai-empty__subtitle">Notes, tasks, commits, articles, sparks — ask anything.</p>
               )}
               <AtRiskChatCard />
-              <div className="ai-starters">
-                {STARTER_PROMPTS.map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    className="ai-starter"
-                    onClick={() => { setInput(prompt); textareaRef.current?.focus(); }}
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
             </div>
           )}
           {messages.map((msg, i) => (
@@ -2229,7 +2219,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               {msg.role === 'assistant' && (
                 <div className="ai-reply-heading" aria-hidden="true">
                   <span className="ai-reply-heading__mark" ref={i === lastAssistantIndex && replyArrival?.complete && !chatMutation.isPending ? presenceReplyRef : undefined}>
-                    <AthenaRibbon size={32} mood={i === lastAssistantIndex && !chatMutation.isPending ? mood : 'resting'}
+                    <AthenaRibbon size={56} mood={i === lastAssistantIndex && !chatMutation.isPending ? mood : 'resting'}
                       still={i !== lastAssistantIndex || chatMutation.isPending} />
                   </span>
                   <span>Athena</span>
@@ -2352,24 +2342,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               </div>
             </ChatBubble>
           ))}
-          {!chatMutation.isPending && (() => {
-            const last = messages[messages.length - 1];
-            if (last?.role !== 'assistant' || last.nextSteps === undefined) return null;
-            return (
-              <div className="ai-next-steps" aria-label="Suggested next steps">
-                {last.nextSteps.map((step) => (
-                  <button
-                    key={step}
-                    type="button"
-                    className="ai-next-step"
-                    onClick={() => { appendMessage('user', step); chatMutation.mutate({ text: step }); }}
-                  >
-                    {step}
-                  </button>
-                ))}
-              </div>
-            );
-          })()}
           {chatMutation.isPending && replyArrival?.complete !== true && (liveTurn !== null ? (
             <LiveReply activity={liveTurn.activity} startedAt={liveTurn.startedAt} thinkerRef={presenceThinkRef} />
           ) : (
@@ -2404,6 +2376,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         <div className="ai-presence-dock">
           <span ref={presenceDockRef} className="ai-presence-anchor" aria-hidden="true" />
           <span className="ai-presence-dock__status" role="status">{isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : ''}</span>
+          {motionPhase === 'idle' && input.trim() === '' && !isRestoringHistory && !preparingBrief
+            && composerNextSteps.length > 0 && (
+            <ComposerSuggestion key={`${currentNoteId ?? sessionId ?? 'new'}:${messages.length}`} steps={composerNextSteps}
+              onChoose={step => {
+                hasUserWorkRef.current = true;
+                setInput(step);
+                noteTyping();
+                textareaRef.current?.focus();
+              }} />
+          )}
         </div>
         {prepareDemoBrief !== undefined && (
           <div className="ai-demo-brief-skill">

@@ -8,8 +8,49 @@ import { ATHENA_ANSWER_MS, ATHENA_MIN_THINK_MS, ATHENA_TYPING_IDLE_MS, AthenaMot
 import { AthenaMark } from '../src/components/athena/AthenaMark';
 import { ThinkingReply } from '../src/components/athena/LiveReply';
 import { ChatBubble } from '../src/components/athena/ChatBubble';
+import { AthenaPresence } from '../src/components/athena/AthenaPresence';
+import { ComposerSuggestion, composerSuggestions, SUGGESTION_ROTATION_MS } from '../src/components/athena/ComposerSuggestion';
 
-const idle: AthenaMotionState = { pending: false, activity: '', recording: false, transcribing: false, restoring: false };
+const idle: AthenaMotionState = { pending: false, activity: '', recording: false, transcribing: false, summarizing: false };
+
+test('notes and restored replies without follow-ups still have context-appropriate composer suggestions', () => {
+  assert.deepEqual(composerSuggestions(['  Inspect linked notes ', '', 'Inspect linked notes'], 'note', []), ['Inspect linked notes']);
+  assert.equal(composerSuggestions(undefined, 'note', [])[0], 'Summarise this note');
+  assert.equal(composerSuggestions([], 'document', [])[0], 'Summarise this document');
+  assert.deepEqual(composerSuggestions([' '], undefined, ['Summarise our conversation']), ['Summarise our conversation']);
+});
+
+test('composer shows one existing suggestion with no playback or next controls, never a submit button', () => {
+  let chosen = false;
+  const html = renderToStaticMarkup(<ComposerSuggestion steps={['Inspect linked notes', 'Draft the update', 'List decisions']}
+    onChoose={() => { chosen = true; }} />);
+  assert.match(html, /role="group" aria-label="Suggested next steps"/);
+  assert.match(html, /Use suggestion: Inspect linked notes/);
+  assert.doesNotMatch(html, /Next suggestion|Pause suggestions|Resume suggestions/);
+  assert.equal([...html.matchAll(/<button/g)].length, 1);
+  assert.doesNotMatch(html, /Draft the update|List decisions|type="submit"|aria-live/);
+  assert.equal(chosen, false);
+  assert.equal(SUGGESTION_ROTATION_MS, 7000);
+  const single = renderToStaticMarkup(<ComposerSuggestion steps={['', '  ', 'Only suggestion']} onChoose={() => {}} />);
+  assert.match(single, /Only suggestion/);
+  assert.doesNotMatch(single, /Next suggestion/);
+  assert.equal(renderToStaticMarkup(<ComposerSuggestion steps={['', '  ']} onChoose={() => {}} />), '');
+});
+
+test('composer suggestions have bounded text, keyboard focus and reduced-motion styles without pill chrome', () => {
+  const scss = readFileSync(new URL('../src/styles/global.scss', import.meta.url), 'utf8');
+  const start = scss.indexOf('.ai-composer-suggestion {');
+  const { css } = compileString(scss.slice(start, scss.indexOf('.ai-remembered__input', start)));
+  assert.match(css, /min-width: 0/);
+  assert.match(css, /height: 56px/);
+  assert.match(css, /-webkit-line-clamp: 2/);
+  assert.match(css, /:focus-visible/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(css, /animation: none/);
+  assert.doesNotMatch(css, /radius-pill/);
+  assert.match(css, /:hover \{\s*text-decoration: underline;/);
+  assert.doesNotMatch(css, /background: var\(--cds-layer-(?:hover|active)/);
+});
 
 test('placement and scrolling use the supplied expressive cubic-bezier', () => {
   assert.equal(athenaExpressiveEase(0), 0);
@@ -33,7 +74,8 @@ test('send immediately thinks; typing and voice listen; only accepted answers en
   assert.equal(athenaMarkState('writing'), 'answering');
   assert.equal(athenaMotionPhase({ ...idle, recording: true }), 'listening');
   assert.equal(athenaMotionPhase({ ...idle, transcribing: true }), 'thinking');
-  assert.equal(athenaMotionPhase({ ...idle, restoring: true }), 'thinking');
+  assert.equal(athenaMotionPhase({ ...idle, activity: 'Restoring conversation' }), 'idle');
+  assert.equal(athenaMotionPhase({ ...idle, summarizing: true }), 'thinking');
   assert.equal(athenaMotionPhase({ ...idle, pending: true, recording: true }), 'thinking');
   assert.equal(athenaMotionPhase({ ...idle, activity: 'Stopped' }), 'idle');
   assert.equal(athenaMotionPhase({ ...idle, activity: 'Error' }), 'idle');
@@ -78,19 +120,36 @@ test('working state retains actual activity and adds a single helper after eight
 
 test('motion styles preserve answer growth, ribbon slots, controls and reduced motion', () => {
   const scss = readFileSync(new URL('../src/styles/global.scss', import.meta.url), 'utf8');
-  const start = scss.indexOf('.ai-presence {');
+  const start = scss.indexOf('.athena-ribbon {');
   const end = scss.indexOf('// Shown above the composer', start);
   const { css } = compileString(scss.slice(start, end));
   assert.match(css, /ai-answer-grow 400ms/);
   assert.match(css, /72|ai-answer-scale-x/);
   assert.match(css, /translateY\(16px\)/);
   assert.match(css, /athena-ribbon/);
-  assert.match(css, /width: 96px/);
-  assert.match(css, /width: 32px/);
+  assert.match(css, /\.athena-ribbon \{[^}]*background: transparent;/);
+  assert.match(css, /\.ai-answer-panel \{[^}]*border: 0;/);
+  assert.match(css, /\.ai-presence-think-anchor \{[^}]*left: 0;/);
+  assert.match(scss, /\.ai-bubble--ai \{[^}]*padding: 1\.5rem 0;/);
+  for (const slot of ['ai-presence-anchor', 'ai-presence-think-anchor', 'ai-reply-heading__mark']) {
+    assert.match(css, new RegExp(`\\.${slot} \\{[^}]*width: 56px;[^}]*height: 56px;`));
+  }
+  assert.doesNotMatch(css, /(?:width|height): (?:96|32)px/);
   assert.match(css, /border-color: var\(--kh-accent\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /animation: none !important/);
   assert.doesNotMatch(css, /ai-answer-width|ai-answer-height|ai-presence-idle/);
+});
+
+test('travelling character keeps one size through every lifecycle phase', () => {
+  for (const phase of ['idle', 'typing', 'listening', 'sending', 'thinking', 'writing'] as const) {
+    const html = renderToStaticMarkup(<AthenaPresence phase={phase} pending={phase === 'thinking'}
+      answerAt={null} contextKey="fixed-size" host={React.createRef<HTMLDivElement>()}
+      thread={React.createRef<HTMLDivElement>()} dock={React.createRef<HTMLSpanElement>()}
+      thinker={React.createRef<HTMLSpanElement>()} reply={React.createRef<HTMLSpanElement>()} />);
+    assert.equal([...html.matchAll(/<athena-ribbon/g)].length, 1);
+    assert.match(html, /<athena-ribbon[^>]*size="56"/);
+  }
 });
 
 test('placement moves from dock to the answer slot and keeps listening at the dock', () => {

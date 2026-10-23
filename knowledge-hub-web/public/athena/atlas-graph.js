@@ -12,7 +12,6 @@
     return () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const ago = d => (d === 0 ? 'active today' : d === 1 ? 'active yesterday' : `active ${d} days ago`);
   function hull(pts) {
     if (pts.length < 3) return pts.slice();
     const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -27,7 +26,13 @@
 
   class AtlasGraph extends HTMLElement {
     static get observedAttributes() { return ['selected', 'path', 'hide-types', 'context', 'search', 'range', 'group', 'scope', 'depth', 'compact']; }
-    set data(d) { this._data = d; if (this.isConnected) { this.init(); this.fitted = false; this.resize(); this.schedule(); } }
+    set data(d) {
+      const unchanged = this._data === d || (this._data && JSON.stringify(this._data) === JSON.stringify(d));
+      this._data = d;
+      // Query refreshes and repeated React effects must not replay the graph's entry animation.
+      if (unchanged && this.nodes) return;
+      if (this.isConnected) { this.init(); this.fitted = false; this.resize(); this.schedule(); }
+    }
     get data() { return this._data || window.ATLAS; }
     constructor() {
       super();
@@ -61,6 +66,7 @@
       if (!D) return;
       const rnd = this.rnd = random();
       this.down = null; this.dragging = false; this.hover = null; this.pinch = null;
+      this.cv.title = '';
       this.pointers?.clear();
       this.types = D.types;
       this.reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -72,10 +78,14 @@
         for (let d = 0; d < this.depth; d++) { const nx = []; fr.forEach(id => (adj[id] || []).forEach(o => { if (!keep.has(o)) { keep.add(o); nx.push(o); } })); fr = nx; }
         srcN = srcN.filter(n => keep.has(n.id)); srcE = srcE.filter(e => keep.has(e.a) && keep.has(e.b));
       }
-      this.nodes = srcN.map(n => ({ ...n, x: 0, y: 0, vx: 0, vy: 0, deg: 0, fx: null, fy: null }));
+      this.nodes = srcN.map(n => ({ ...n, x: 0, y: 0, vx: 0, vy: 0, deg: 0, stiffness: 0, fx: null, fy: null }));
       this.by = Object.fromEntries(this.nodes.map(n => [n.id, n]));
       this.edges = srcE.filter(e => this.by[e.a] && this.by[e.b]).map(e => ({ ...e, A: this.by[e.a], B: this.by[e.b], ph: rnd() }));
-      this.edges.forEach(e => { e.A.deg++; e.B.deg++; });
+      this.edges.forEach(e => {
+        e.A.deg++; e.B.deg++;
+        const stiffness = (KIND[e.kind] || KIND.member).k;
+        e.A.stiffness += stiffness; e.B.stiffness += stiffness;
+      });
       const hubs = this.nodes.filter(n => n.hub);
       const hr = this.scope ? 110 : 300;
       hubs.forEach((h, i) => { const a = (i / hubs.length) * Math.PI * 2; h.x = Math.cos(a) * hr; h.y = Math.sin(a) * hr * 0.77; });
@@ -151,10 +161,16 @@
       this.schedule();
     }
     resize() {
+      const wasHidden = !this.w || !this.h;
       const r = this.getBoundingClientRect();
       this.w = r.width; this.h = r.height; this.dpr = window.devicePixelRatio || 1;
+      this.surface = this.compact ? getComputedStyle(this).getPropertyValue('--atlas-surface').trim() || '#262626' : BG;
       for (const c of [this.cv, this.hc]) { c.width = Math.max(1, Math.round(this.w * this.dpr)); c.height = Math.max(1, Math.round(this.h * this.dpr)); }
-      if (!this.fitted && this.w > 0) { this.fitted = true; this.fitTo(null, false, this.compact ? 70 : 80); }
+      if (wasHidden && this.w > 0 && this.h > 0) {
+        this.fitted = false;
+        if (this.autoFit) this.autoFit = performance.now() + 3200;
+      }
+      if (!this.fitted && this.nodes && this.w > 0 && this.h > 0) { this.fitted = true; this.fitTo(null, false, this.compact ? 70 : 80); }
       if (this.reduced) this.schedule();
     }
     isVis(n) { return n.hub || !this.hideTypes.has(n.type) || this.context.has(n.id); }
@@ -202,7 +218,9 @@
         if (this.scope) { L = Math.min(L, 80); if (e.a === this.scope || e.b === this.scope) L = Math.max(L, 70); }
         const dx = e.B.x - e.A.x, dy = e.B.y - e.A.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
         const f = ((d - L) / d) * K.k * a;
-        e.A.vx += dx * f; e.A.vy += dy * f; e.B.vx -= dx * f; e.B.vy -= dy * f;
+        // Dense real-data hubs need degree-weighted inertia; summed springs otherwise explode.
+        const fa = f / Math.max(1, e.A.stiffness), fb = f / Math.max(1, e.B.stiffness);
+        e.A.vx += dx * fa; e.A.vy += dy * fa; e.B.vx -= dx * fb; e.B.vy -= dy * fb;
       }
       for (const n of N) {
         if (n.fx != null) { n.x = n.fx; n.y = n.fy; n.vx = n.vy = 0; continue; }
@@ -298,6 +316,7 @@
           else { this.cam.x = d.cam.x - (p[0] - d.p[0]) / this.cam.k; this.cam.y = d.cam.y - (p[1] - d.p[1]) / this.cam.k; }
         } else {
           this.hover = this.pick(p);
+          c.title = this.hover?.name || '';
           c.style.cursor = this.hover ? 'pointer' : 'grab';
         }
         this.schedule();
@@ -315,7 +334,7 @@
       };
       c.addEventListener('pointerup', up);
       c.addEventListener('pointercancel', up);
-      c.addEventListener('pointerleave', () => { if (!this.down) { this.hover = null; this.schedule(); } });
+      c.addEventListener('pointerleave', () => { if (!this.down) { this.hover = null; c.title = ''; this.schedule(); } });
       c.addEventListener('wheel', e => {
         e.preventDefault();
         const p = this.pos(e), w = this.world(p);
@@ -329,9 +348,10 @@
       const ctx = this.ctx, W = this.w, H = this.h, k = this.cam.k, t = now / 1000, zr = this.zr(), T = this.types;
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.globalAlpha = 1; ctx.setLineDash([]); ctx.shadowBlur = 0;
-      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+      if (this.compact) ctx.clearRect(0, 0, W, H);
+      else { ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H); }
       const gs = 48 * k;
-      if (gs > 14) {
+      if (!this.compact && gs > 14) {
         ctx.fillStyle = '#262626';
         const ox = (((W / 2 - this.cam.x * k) % gs) + gs) % gs, oy = (((H / 2 - this.cam.y * k) % gs) + gs) % gs;
         for (let x = ox; x < W; x += gs) for (let y = oy; y < H; y += gs) ctx.fillRect(x - 0.75, y - 0.75, 1.5, 1.5);
@@ -352,7 +372,6 @@
       const quiet = path.length || focus || group || q;
 
       // project hulls
-      this.hubLabels = [];
       const pad = (this.compact ? 16 : 26) * zr, hx = this.hctx, fN = focus && this.by[focus];
       for (const p of this.projects) {
         const pts = [p.hub, ...p.mem].filter(n => this.isVis(n)).map(n => this.S(n));
@@ -365,12 +384,6 @@
         const mine = fN && fN.project === p.hub.id;
         ctx.globalAlpha = mine ? 0.075 : quiet ? 0.022 : 0.045;
         ctx.drawImage(this.hc, 0, 0, W, H);
-        const hp = this.S(p.hub), cx = hp[0], top = hp[1] + p.hub.r * zr + (this.compact ? 22 : 30);
-        const last = p.hub.last, cold = last > 14;
-        ctx.globalAlpha = quiet && !mine ? 0.35 : 1;
-        ctx.textAlign = 'center';
-        const meta = `${p.mem.length} items · ${cold ? `quiet ${last} days` : ago(last)}`;
-        this.hubLabels.push([cx, top, p.hub.name, meta, cold, ctx.globalAlpha]);
       }
       ctx.textAlign = 'left';
 
@@ -437,7 +450,6 @@
 
       // nodes
       const order = this.nodes.filter(n => this.isVis(n)).sort((a, b) => (a.hub - b.hub));
-      const labels = [];
       for (const n of order) {
         const [sx, sy] = this.S(n);
         if (sx < -60 || sy < -60 || sx > W + 60 || sy > H + 60) continue;
@@ -452,7 +464,7 @@
           ctx.globalAlpha = 1;
         }
         if (n.hub) {
-          ctx.fillStyle = BG; ctx.beginPath(); ctx.arc(sx, sy, rs, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = this.surface || BG; ctx.beginPath(); ctx.arc(sx, sy, rs, 0, Math.PI * 2); ctx.fill();
           ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.stroke();
           ctx.fillStyle = col; ctx.beginPath(); ctx.arc(sx, sy, rs * 0.42, 0, Math.PI * 2); ctx.fill();
         } else {
@@ -463,31 +475,49 @@
           ctx.strokeStyle = pset.has(n.id) ? '#4589ff' : '#f4f4f4'; ctx.lineWidth = n.id === hov && n.id !== sel ? 1 : 1.75;
           ctx.beginPath(); ctx.arc(sx, sy, rs + 4, 0, Math.PI * 2); ctx.stroke();
         }
-        const show = L && (n.id === this.scope || n.id === focus || nb.has(n.id) || pset.has(n.id) || (q && match(n)) || (group === 'islands' && !n.project) || (!n.hub && k > 1.7));
-        if (show && !(n.hub && !pset.has(n.id) && n.id !== focus && n.id !== this.scope && !nb.has(n.id))) labels.push(n.id === this.scope ? [n, sx, sy - rs - 14, true] : [n, sx + rs + 6, sy]);
       }
-      ctx.lineJoin = 'round'; ctx.textAlign = 'center';
-      for (let [x, y, name, meta, cold, al] of this.hubLabels) {
-        ctx.globalAlpha = al; ctx.strokeStyle = BG; ctx.lineWidth = 4;
-        ctx.font = `600 13px ${FONT}`;
-        const hw = ctx.measureText(name).width / 2 + 6; x = clamp(x, hw, Math.max(hw, W - hw));
-        ctx.strokeText(name, x, y - 14); ctx.fillStyle = '#f4f4f4'; ctx.fillText(name, x, y - 14);
-        if (!this.compact) { ctx.font = `12px ${FONT}`; ctx.strokeText(meta, x, y + 2); ctx.fillStyle = cold ? '#ff8389' : '#a8a8a8'; ctx.fillText(meta, x, y + 2); }
-      }
-      ctx.textAlign = 'left'; ctx.globalAlpha = 1;
-      for (let [n, x, y, above] of labels) {
-        ctx.textAlign = above ? 'center' : 'left';
-        const main = above || n.id === focus || pset.has(n.id);
-        ctx.font = `${main ? 600 : 400} ${main ? 13 : 12}px ${FONT}`;
-        const tw = ctx.measureText(n.name).width;
-        if (above) x = clamp(x, tw / 2 + 6, Math.max(tw / 2 + 6, W - tw / 2 - 6)); else if (x + tw > W - 6) { x = x - tw - 12 - n.r * zr * 2; }
-        if (!above) x = clamp(x, 6, Math.max(6, W - tw - 6));
-        y = clamp(y, 14, H - (n.id === hov ? 24 : 8));
-        ctx.strokeStyle = BG; ctx.lineWidth = 4; ctx.strokeText(n.name, x, y + 4);
-        ctx.fillStyle = main ? '#f4f4f4' : '#c6c6c6'; ctx.fillText(n.name, x, y + 4);
-        if (n.id === hov) {
-          const sub = `${T[n.type].one} · ${ago(n.last)}`;
-          ctx.font = `12px ${FONT}`; ctx.strokeText(sub, x, y + 20); ctx.fillStyle = '#a8a8a8'; ctx.fillText(sub, x, y + 20);
+      {
+        const priority = n => n.id === this.scope ? 0 : n.id === hov ? 1 : n.id === sel ? 2
+          : pset.has(n.id) ? 3 : q && match(n) ? 4 : n.hub ? 5 : 6;
+        const candidates = order.filter(n => priority(n) < 3 || (lit(n)
+          && (n.hub || (!this.compact && (pset.has(n.id) || q || k > 1.7)))))
+          .sort((a, b) => priority(a) - priority(b));
+        // Share one label budget across hubs and items; selection must not label every neighbour.
+        const occupied = [{ left: W - 64, top: H - 170, right: W, bottom: H }];
+        const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        ctx.lineJoin = 'round'; ctx.textAlign = 'left'; ctx.globalAlpha = 1;
+        let count = 0;
+        for (const n of candidates) {
+          if (count === (this.compact ? 4 : 6) || W < 96 || H < 32) break;
+          const [sx, sy] = this.S(n), r = n.r * zr;
+          if (sx < 0 || sy < 0 || sx > W || sy > H) continue;
+          const main = priority(n) < 3;
+          ctx.font = `400 12px ${FONT}`;
+          const maxWidth = Math.min(220, W - 80);
+          let text = n.name;
+          if (ctx.measureText(text).width > maxWidth) {
+            const characters = Array.from(text);
+            let low = 0, high = characters.length;
+            while (low < high) {
+              const mid = Math.ceil((low + high) / 2);
+              if (ctx.measureText(characters.slice(0, mid).join('') + '…').width <= maxWidth) low = mid;
+              else high = mid - 1;
+            }
+            text = characters.slice(0, low).join('') + '…';
+          }
+          const width = ctx.measureText(text).width;
+          const positions = [[sx - width / 2, sy - r - 10], [sx - width / 2, sy + r + 22],
+            [sx - r - width - 10, sy + 4], [sx + r + 10, sy + 4]];
+          for (let [x, y] of positions) {
+            x = clamp(x, 8, W - width - 8); y = clamp(y, 18, H - 8);
+            const box = { left: x - 4, top: y - 15, right: x + width + 4, bottom: y + 6 };
+            if (occupied.some(other => overlaps(box, other))) continue;
+            occupied.push(box); count++;
+            ctx.fillStyle = this.surface || '#262626'; ctx.globalAlpha = 0.9; ctx.fillRect(x - 3, y - 13, width + 6, 18);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = main ? '#f4f4f4' : '#c6c6c6'; ctx.fillText(text, x, y);
+            break;
+          }
         }
       }
     }

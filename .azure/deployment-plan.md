@@ -2,6 +2,42 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, Athena and graph refinements):**
+- Synced origin and merged origin/main; already up to date at f3ba807.
+- Frontend and backend `npx --no-install tsc --noEmit` passed.
+- Frontend `npm run build` passed. Full isolated frontend release run executed
+  224 tests (207 + 6 + 3 + 2 + 6); 223 passed and one stale assertion still
+  expected the removed heavy graph text outline. Updated that directly affected
+  assertion to require compact transparency, full-graph G100 fill and no
+  strokeText; its 11-test graph-file rerun passed without failures.
+- Frontend lint non-regression passed: 23 existing violations, baseline 41.
+  Updated graph assertions also pass focused ESLint; git diff --check passed.
+- Azure CLI verified subscription Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), established kh-prod-web in West Europe,
+  its default hostname and athena.themicrosoftcloudblog.com custom domain.
+- Frontend-only application upload using the existing AZCLI/SWA recipe.
+  Backend remains kh-prod-api:v238; no migrations, infrastructure, IAM, role,
+  identity, dependency, secret configuration or production-data changes.
+  Bicep compilation, what-if, container builds and RBAC provisioning gates are
+  not applicable to this static-content-only release.
+- Architecture/hosting fit: existing typed chat and graph adapters retained;
+  no extra AI calls, dependencies or services. Suggestions only insert drafts.
+  Dense graph stability and label-budget regressions preserve all records/edges.
+  The smallest safe change reuses the existing renderer and motion lifecycle.
+- Browser fixture verification is incomplete: app browser previews returned a
+  blank page or an expired fixture sign-in. No production content was edited.
+- Logs: session files/athena-refinement-release-{build,tests,lint}.log and
+  athena-refinement-release-graph-rerun.log. Preserve unrelated Impeccable cache.
+
+**Current release (2026-10-23, Athena and graph refinements):**
+- User explicitly requested deploy, merge and push to the existing production.
+- Includes transparent/brighter, fixed-size Athena; borderless aligned replies;
+  control-free rotating composer suggestions; quiet saved-chat restoration;
+  stable dense graph physics, transparent compact graphs and bounded labels.
+- Push the release atomically to main and richardichogan-local-development,
+  upload validated dist to kh-prod-web production, then verify both public
+  domains and exact entry/renderer asset hashes. Leave backend v238 unchanged.
+
 **Deployment result (2026-10-23, Atlas graph and Athena Ribbon):**
 - Release source 22fd5f0 committed and pushed atomically to main and
   richardichogan-local-development.

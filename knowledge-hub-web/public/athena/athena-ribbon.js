@@ -148,7 +148,7 @@
       const D = 2.6;                                  // camera distance (perspective)
       const pts = new Float32Array((N + 1) * 3);
       ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
-      const bright = p.bright, CH = 10;
+      const bright = p.bright * (s < 60 ? 2.5 : 1), CH = 10;
       for (let j = 0; j < S; j++) {
         const v = S === 1 ? 0 : (j / (S - 1)) * 2 - 1, edge = Math.abs(v) > 0.93;
         for (let i = 0; i <= N; i++) {
@@ -166,7 +166,7 @@
           const f = D / (D - Z2);
           pts[i * 3] = cx0 + X3 * f * scale; pts[i * 3 + 1] = cy0 + Y3 * f * scale; pts[i * 3 + 2] = Z2;
         }
-        const baseA = (edge ? 0.38 : 0.1) * bright, lw = edge ? Math.max(0.8, s * 0.0045) : Math.max(0.6, s * 0.003);
+        const baseA = (edge ? 0.38 : 0.1) * bright, lw = edge ? Math.max(1, s * 0.0045) : Math.max(0.75, s * 0.003);
         const col = edge ? COLORS.edge : COLORS.body;
         ctx.lineWidth = lw;
         for (let i0 = 0; i0 < N; i0 += CH) {

@@ -52,14 +52,14 @@ function Fixture(): React.ReactElement {
           host={host} thread={thread} dock={dock} thinker={thinker} reply={mark} />
         <div ref={thread} className="ai-messages">
           <ChatBubble role="assistant">
-            <div className="ai-reply-heading" aria-hidden="true"><span className="ai-reply-heading__mark"><AthenaRibbon still /></span><span>Athena</span></div>
+            <div className="ai-reply-heading" aria-hidden="true"><span className="ai-reply-heading__mark"><AthenaRibbon size={56} still /></span><span>Athena</span></div>
             <div className="ai-bubble-text">You own the positioning alignment task.</div>
           </ChatBubble>
           {scene.question && <ChatBubble role="user"><div className="ai-bubble-text">draft the core IMAGINE story</div></ChatBubble>}
           {scene.pending && <LiveReply activity={scene.activity} startedAt={Date.now()} thinkerRef={thinker} />}
           {scene.complete && (
             <ChatBubble role="assistant" arrivalAt={scene.answerAt}>
-              <div className="ai-reply-heading" aria-hidden="true"><span ref={mark} className="ai-reply-heading__mark"><AthenaRibbon /></span><span>Athena</span></div>
+              <div className="ai-reply-heading" aria-hidden="true"><span ref={mark} className="ai-reply-heading__mark"><AthenaRibbon size={56} /></span><span>Athena</span></div>
               <div className="ai-bubble-text">{answer}</div>
               <div className="ai-output-chips"><button className="ai-output-chip">IMAGINE core story · v1 <span className="ai-output-chip__open">Saved to Outputs</span></button></div>
             </ChatBubble>
@@ -94,11 +94,27 @@ async function runChecks(): Promise<string[]> {
     setScene({ ...idle, context: `check-${width}` });
     await delay(100);
     const sprite = element<HTMLElement>('.ai-presence');
+    const checkSize = (): void => {
+      const ribbon = element('.ai-presence athena-ribbon');
+      check(ribbon.getBoundingClientRect().width === 56 && ribbon.getBoundingClientRect().height === 56, 'Character keeps its 56px size in every phase');
+      check(getComputedStyle(ribbon).backgroundColor === 'rgba(0, 0, 0, 0)', 'Character has no opaque backing');
+    };
+    checkSize();
     check(getComputedStyle(sprite).visibility === 'visible', 'Idle character must be visible on initial mount');
     check(closeTo(centre(sprite), centre(element('.ai-presence-anchor'))), 'Idle character must be docked');
+    const checkAlignment = (selector: string): void => {
+      check(Math.abs(centre(element(selector)).x - centre(element('.ai-presence-anchor')).x) < 1,
+        'Reply, thinking and resting characters must share the same left column');
+    };
+    checkAlignment('.ai-reply-heading__mark');
+    check(getComputedStyle(element('.ai-answer-panel')).borderStyle === 'none', 'Assistant replies have no outer border');
+    check(Math.abs(element('.ai-bubble-text').getBoundingClientRect().left
+      - element('.ai-reply-heading__mark').getBoundingClientRect().left) < 1, 'Reply content shares the character left edge');
     setScene(s => ({ ...s, pending: true, question: true, phase: 'thinking', activity: 'Checking the related project notes and searching your Library for the supporting details before preparing the answer' }));
     await delay(650);
+    checkSize();
     check(closeTo(centre(sprite), centre(element('.ai-presence-think-anchor'))), 'Thinking must travel to the left column of the pending reply');
+    checkAlignment('.ai-presence-think-anchor');
     const status = element<HTMLElement>('.ai-live-activity__label');
     check(getComputedStyle(status).textAlign === 'left', 'Wrapped progress updates must share the content column');
     check(status.getBoundingClientRect().top > element('.ai-presence-think-anchor').getBoundingClientRect().bottom, 'Progress updates must stay below the animation');
@@ -113,12 +129,16 @@ async function runChecks(): Promise<string[]> {
     check(panel.getBoundingClientRect().width < panel.parentElement!.getBoundingClientRect().width, 'Answer starts growing from the 72px mark surface');
     await delay(650);
     check(panel.getBoundingClientRect().width > 200, 'Answer must unfold across the card');
-    check(closeTo(centre(sprite), centre(element('.ai-answer-arrival .ai-reply-heading__mark'))), 'Character must contract into the answer corner');
+    check(closeTo(centre(sprite), centre(element('.ai-answer-arrival .ai-reply-heading__mark'))), 'Character must travel to the answer corner without resizing');
+    checkAlignment('.ai-answer-arrival .ai-reply-heading__mark');
+    check(getComputedStyle(panel).borderStyle === 'none', 'New answers remain borderless during their entrance');
+    checkSize();
     setScene(s => ({ ...s }));
     await delay(100);
     check(element('.ai-answer-arrival .ai-answer-panel').getBoundingClientRect().width > 200, 'Rerendering must not restart card expansion');
     await delay(1350);
     check(closeTo(centre(sprite), centre(element('.ai-presence-anchor'))), 'Character must return home after the answer');
+    checkSize();
     check(getComputedStyle(element('.ai-answer-arrival .ai-reply-heading__mark')).opacity === '1', 'Answer retains the supplied ribbon at its original brightness');
     check(element('.ai-messages').scrollWidth <= element('.ai-messages').clientWidth + 1, 'Chat must not overflow horizontally');
     results.push(`${width}px: idle, travel, live ribbon, single unfold and return`);

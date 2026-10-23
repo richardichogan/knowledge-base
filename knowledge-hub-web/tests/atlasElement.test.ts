@@ -9,18 +9,26 @@ type Handler = (event: { type?: string; pointerId: number; clientX: number; clie
 type Element = {
   isConnected: boolean; data: AtlasData; nodes: Node[]; edges: unknown[];
   cam: { x: number; y: number; k: number }; camT: unknown; reduced: boolean; autoFit: number;
-  alphaTarget: number; dragging: boolean; path: string[]; cv: Canvas; w: number; h: number;
+  alphaTarget: number; dragging: boolean; path: string[]; cv: Canvas; w: number; h: number; time: number; hover: Node | null;
   connectedCallback(): void; disconnectedCallback(): void; tick(): void; draw(now: number): void; cmd(c: string): void;
   attributeChangedCallback(name: string, before: string | null, value: string): void;
   S(n: Node): [number, number]; world(p: [number, number]): [number, number]; isVis(n: Node): boolean;
 };
 class Canvas {
   width = 0; height = 0; style: Record<string, string> = {};
+  title = '';
   events = new Map<string, Handler>();
   calls: string[] = [];
-  context = new Proxy({ measureText: (text: string) => ({ width: text.length * 7 }) }, {
+  text: Array<{ text: string; x: number; y: number; width: number; font: string }> = [];
+  fills: Array<{ x: number; y: number; width: number; height: number }> = [];
+  context = new Proxy({
+    font: '',
+    measureText: (text: string) => ({ width: text.length * 7 }),
+    fillText: (text: string, x: number, y: number) => { this.text.push({ text, x, y, width: text.length * 7, font: this.context.font }); },
+    fillRect: (x: number, y: number, width: number, height: number) => { this.fills.push({ x, y, width, height }); },
+  }, {
     get: (target, name) => name in target ? target[name as keyof typeof target] : (..._args: unknown[]) => { this.calls.push(String(name)); },
-    set: () => true,
+    set: (target, name, value) => Reflect.set(target, name, value),
   });
   getContext(): object { return this.context; }
   addEventListener(name: string, handler: Handler): void { this.events.set(name, handler); }
@@ -54,6 +62,7 @@ function harness(reduced = false) {
     },
     window: { matchMedia: () => media, devicePixelRatio: 2, addEventListener() {}, removeEventListener() {} },
     document, performance: { now: () => time },
+    getComputedStyle: () => ({ getPropertyValue: () => '#262626' }),
     ResizeObserver: class { observe() {} disconnect() {} },
     IntersectionObserver: class {
       constructor(callback: typeof observers[number]) { observers.push(callback); }
@@ -151,4 +160,177 @@ test('type-hidden connected context remains visible; each graph owns its camera 
   const initial = { ...b.cam };
   a.cmd('in'); h.step(); assert.deepEqual({ ...b.cam }, initial);
   a.disconnectedCallback(); b.disconnectedCallback();
+});
+
+test('dense compact labels fit without overlaps or duplicate hub titles, retaining every record and edge', () => {
+  const h = harness(), el = h.make();
+  const records = Array.from({ length: 80 }, (_, i) => ({
+    ...payload.nodes[1]!, id: `note-${i}`, name: `Delivery ${i}: weekly alignment, architecture decisions and programme follow-up notes`,
+  }));
+  const data: AtlasData = {
+    ...payload,
+    nodes: [...payload.nodes, ...records],
+    edges: [...payload.edges, ...records.map(n => ({
+      ...payload.edges[1]!, id: `a/${n.id}`, a: 'a', b: n.id,
+    }))],
+  };
+  data.nodes[1] = { ...data.nodes[1]!, name: 'Root: STP/RTR weekly delivery alignment and decisions for the entire programme' };
+  el.data = data;
+  el.attributeChangedCallback('compact', null, '');
+  el.attributeChangedCallback('scope', null, 'a');
+  el.attributeChangedCallback('selected', null, 'a');
+  el.time = 10;
+  el.h = 300;
+  const overlaps = (a: { left: number; top: number; right: number; bottom: number }, b: typeof a): boolean =>
+    a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  for (const width of [280, 360, 640]) {
+    el.w = width;
+    el.cam = { x: 0, y: 0, k: 1 };
+    el.nodes.forEach((n, i) => { n.x = i === 1 ? 0 : (i % 7 - 3) * 8; n.y = i === 1 ? 0 : (i % 5 - 2) * 8; });
+    el.hover = el.nodes.find(n => n.id === 'note-0')!;
+    el.hover.y = 70;
+    el.cv.text = [];
+    el.draw(1000);
+    assert.equal(el.nodes.length, data.nodes.length);
+    assert.equal(el.edges.length, data.edges.length);
+    const labels = el.cv.text;
+    assert.ok(labels.length >= 2 && labels.length <= 4);
+    assert.ok(labels[0]?.text.startsWith('Root:'));
+    assert.ok(labels.some(label => label.text.startsWith('Delivery 0:')));
+    assert.ok(labels[0]?.text.endsWith('…'));
+    assert.equal(new Set(labels.map(label => label.text)).size, labels.length);
+    const boxes = [{ left: width - 64, top: el.h - 170, right: width, bottom: el.h }];
+    for (const label of labels) {
+      const box = { left: label.x - 4, top: label.y - 15, right: label.x + label.width + 4, bottom: label.y + 6 };
+      assert.ok(label.width <= 220);
+      assert.ok(box.left >= 0 && box.right <= width && box.top >= 0 && box.bottom <= el.h);
+      assert.ok(boxes.every(other => !overlaps(box, other)), `Overlapping compact title at ${width}px: ${label.text}`);
+      boxes.push(box);
+    }
+  }
+  el.disconnectedCallback();
+});
+
+test('hover exposes the full title and clears it when leaving or reflowing', () => {
+  const h = harness(), el = h.make();
+  const [x, y] = el.S(el.nodes[1]!);
+  pointer(el, 'pointermove', x, y);
+  assert.equal(el.cv.title, 'First');
+  pointer(el, 'pointerleave', x, y);
+  assert.equal(el.cv.title, '');
+  pointer(el, 'pointermove', x, y);
+  el.cmd('reflow');
+  assert.equal(el.cv.title, '');
+  el.disconnectedCallback();
+});
+
+test('full graph limits dense selection, search and zoom labels without hiding records or overlapping titles', () => {
+  const h = harness(true), el = h.make();
+  const records = Array.from({ length: 80 }, (_, i) => ({
+    ...payload.nodes[1]!, id: `note-${i}`, name: `Delivery ${i}: weekly alignment, architecture decisions and programme follow-up notes`,
+  }));
+  const data: AtlasData = {
+    ...payload,
+    nodes: [...payload.nodes, ...records],
+    edges: [...payload.edges, ...records.map(n => ({ ...payload.edges[1]!, id: `a/${n.id}`, a: 'a', b: n.id }))],
+  };
+  el.data = data;
+  el.time = 10;
+  el.h = 600;
+  for (const width of [480, 1040]) {
+    el.w = width;
+    el.nodes.forEach((n, i) => { n.x = (i % 9 - 4) * 34; n.y = (Math.floor(i / 9) - 4) * 30; });
+    el.nodes[1]!.x = -80; el.nodes[1]!.y = -130;
+    el.nodes[3]!.x = 80; el.nodes[3]!.y = -130;
+    el.hover = el.nodes[3]!;
+    el.attributeChangedCallback('selected', null, 'a');
+    for (const mode of ['selection', 'search', 'path', 'zoom']) {
+      el.attributeChangedCallback('search', null, mode === 'search' ? 'Delivery' : '');
+      el.attributeChangedCallback('path', null, mode === 'path' ? records.slice(0, 20).map(n => n.id).join(',') : '');
+      el.cam = { x: 0, y: 0, k: mode === 'zoom' ? 1.8 : 1 };
+      el.cv.text = []; el.cv.calls = [];
+      el.draw(1000);
+      assert.equal(el.nodes.length, data.nodes.length);
+      assert.equal(el.edges.length, data.edges.length);
+      const labels = el.cv.text;
+      assert.ok(labels.length >= 2 && labels.length <= 6, `${mode}: capped title count`);
+      assert.ok(labels.some(label => label.text === 'First'), 'Selected title stays visible');
+      assert.ok(labels.some(label => label.text.startsWith('Delivery 0:') && label.text.endsWith('…')), 'Hovered title is prioritised and shortened');
+      assert.equal(new Set(labels.map(label => label.text)).size, labels.length);
+      assert.ok(!el.cv.calls.includes('strokeText'), 'No heavy text outlines or secondary metadata');
+      const boxes = [{ left: width - 64, top: el.h - 170, right: width, bottom: el.h }];
+      for (const label of labels) {
+        const box = { left: label.x - 4, top: label.y - 15, right: label.x + label.width + 4, bottom: label.y + 6 };
+        assert.ok(label.width <= 220);
+        assert.match(label.font, /^400 12px/);
+        assert.ok(box.left >= 0 && box.right <= width && box.top >= 0 && box.bottom <= el.h);
+        assert.ok(boxes.every(other => box.right <= other.left || box.left >= other.right || box.bottom <= other.top || box.top >= other.bottom),
+          `${mode}: title overlaps at ${width}px`);
+        boxes.push(box);
+      }
+    }
+  }
+  el.disconnectedCallback();
+});
+
+test('identical graph refreshes do not restart entry, force positions or camera; changed data and Reflow still rebuild', () => {
+  const h = harness(), el = h.make();
+  el.attributeChangedCallback('compact', null, '');
+  el.attributeChangedCallback('scope', null, 'a');
+  el.tick();
+  el.time = 8;
+  el.cam = { x: 12, y: 8, k: 1.8 };
+  const nodes = el.nodes, edges = el.edges, camera = el.cam;
+  const positions = JSON.stringify(el.nodes);
+  el.data = payload;
+  el.data = structuredClone(payload);
+  assert.equal(el.nodes, nodes);
+  assert.equal(el.edges, edges);
+  assert.equal(el.time, 8);
+  assert.equal(el.cam, camera);
+  assert.equal(JSON.stringify(el.nodes), positions);
+  const changed = structuredClone(payload);
+  changed.edges.push({ ...changed.edges[0]!, id: 'pb', a: 'p', b: 'b' });
+  el.data = changed;
+  assert.notEqual(el.nodes, nodes);
+  assert.equal(el.edges.length, 3);
+  assert.equal(el.time, 0);
+  const refreshed = el.nodes;
+  el.cmd('reflow');
+  assert.notEqual(el.nodes, refreshed);
+  el.disconnectedCallback();
+});
+
+test('high-degree note neighbourhoods stay bounded instead of launching nodes off screen', () => {
+  const h = harness(), el = h.make();
+  const notes = Array.from({ length: 200 }, (_, i) => ({ ...payload.nodes[1]!, id: `dense-${i}`, name: `Linked record ${i}` }));
+  el.data = { ...payload, nodes: [payload.nodes[0]!, ...notes], edges: notes.map(n => ({
+    ...payload.edges[0]!, id: `p/${n.id}`, a: 'p', b: n.id,
+  })) };
+  el.attributeChangedCallback('compact', null, '');
+  el.attributeChangedCallback('scope', null, 'dense-0');
+  for (let i = 0; i < 320; i++) {
+    el.tick();
+    assert.ok(el.nodes.every(n => Number.isFinite(n.x + n.y) && Math.hypot(n.x, n.y) < 2000), `Layout escaped at tick ${i}`);
+  }
+  assert.equal(el.nodes.length, 201);
+  assert.equal(el.edges.length, 200);
+  el.disconnectedCallback();
+});
+
+test('only compact graphs clear to transparent and draw light labels without black outlines', () => {
+  const h = harness(true), el = h.make();
+  el.cv.fills = [];
+  el.draw(1000);
+  assert.ok(el.cv.fills.some(r => r.width === el.w && r.height === el.h), 'Full Atlas keeps its painted background');
+  el.attributeChangedCallback('compact', null, '');
+  el.attributeChangedCallback('scope', null, 'a');
+  el.cv.fills = []; el.cv.calls = []; el.cv.text = [];
+  el.draw(1000);
+  assert.ok(el.cv.calls.includes('clearRect'));
+  assert.ok(!el.cv.fills.some(r => r.width === el.w && r.height === el.h));
+  assert.ok(!el.cv.calls.includes('strokeText'));
+  assert.ok(el.cv.text.length > 0);
+  assert.ok(el.cv.text.every(label => label.font.startsWith('400 12px')));
+  el.disconnectedCallback();
 });

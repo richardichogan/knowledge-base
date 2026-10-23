@@ -27,6 +27,14 @@ const edges = [edge('note:root', 'project:a', 'belongs_to'), edge('note:bridge',
   edge('person:a', 'note:bridge'), edge('note:root', 'company:microsoft', 'mentions'),
   edge('document:one', 'project:c', 'belongs_to'), edge('note:island', 'company:microsoft', 'mentions'),
   edge('meeting:one', 'project:a', 'belongs_to'), edge('spark:idea', 'project:a', 'belongs_to')];
+if (new URLSearchParams(location.search).has('dense')) {
+  nodes.find(n => n.id === 'note:root')!.title = 'STP/RTR weekly delivery alignment, architecture decisions and programme follow-up';
+  for (let i = 0; i < 80; i++) {
+    const id = `note:dense-${i}`;
+    nodes.push(node(id, `Delivery ${i}: long weekly alignment and programme follow-up notes`, ['a']));
+    edges.push(edge('note:root', id));
+  }
+}
 const graph: GraphResponse = { nodes, edges, stats: { totalNodes: nodes.length, totalEdges: edges.length, filteredNodes: nodes.length, filteredEdges: edges.length, truncated: false } };
 api.getGraph = async params => ({ success: true, data: { ...graph, rootId: params?.seed ?? null } });
 api.suggestLinkTargets = async () => ({ success: true, data: [

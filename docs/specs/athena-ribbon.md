@@ -2,9 +2,17 @@
 
 ## Application integration
 
-The supplied renderer lives at `knowledge-hub-web/public/athena/athena-ribbon.js` and is loaded once by the app. `AthenaRibbon.tsx` is the typed React equivalent of the supplied JSX wrapper; `useAthenaMood` shares chat events across instances. The graph also uses the ribbon. The original geometry, nine mood tables, strand counts, 380ms easing and cyan/glass palette are preserved intentionally.
+The supplied renderer lives at `knowledge-hub-web/public/athena/athena-ribbon.js` and is loaded once by the app. `AthenaRibbon.tsx` is the typed React equivalent of the supplied JSX wrapper; `useAthenaMood` shares chat events across instances. The graph also uses the ribbon. The original geometry, nine mood tables, strand counts, 380ms easing and cyan/glass palette are preserved intentionally. The host background is transparent so the ribbon and translucent sphere blend into the surrounding UI; no opaque circular backing is added.
 
 Small runtime adaptations cancel hidden/offscreen RAF and timeout callbacks, allow the travelling overlay to pause explicitly, freeze time and pointer tracking in reduced motion, and stop reduced-motion frames after the shape settles. The optional `level` property drives listening ripple from the existing mic analyser. No animation or API dependency was added.
+
+For dark-background legibility, minimum edge/body stroke widths are 1px/0.75px instead of 0.8px/0.6px. This thickens small-icon strands by 25%. Below 60px, rendered strand opacity gets a 2.5x gain so the resting chat character stays visible; the supplied relative mood brightness, colour, geometry and timing remain intact. Larger welcome/gallery renders retain the original brightness.
+
+The app retains the existing travelling character instead of adding a second header avatar, per user feedback. It stays 56px across resting, listening, thinking, answering and returning home; reply avatars and their slots also use 56px so the handoff does not resize it. Existing text status regions announce progress and errors; the ribbon instances are silent. The header in the standalone test gallery is a size example, not an additional production chat character.
+
+Assistant replies have no outer border or extra horizontal inset. Reply, thinking and resting characters share the same left column, with reply text aligned to that edge. User-message bubbles retain their own border and inset.
+
+Looking up a note's saved conversation and restoring its messages keep Athena resting at the composer. Only actual summary generation for a note without saved chat starts the thinking movement; restoration still exposes a plain status message.
 
 **Accepted-answer exception:** the backend can discard intermediate token streams. Athena therefore stays `thinking` until the successful final answer, rather than responding to provisional first tokens. This preserves the answer-redraw fix. Errors, evidence warnings, suggestions, positive feedback and completed actions drive the additional moods; no new confidence contract or sentiment model is assumed.
 

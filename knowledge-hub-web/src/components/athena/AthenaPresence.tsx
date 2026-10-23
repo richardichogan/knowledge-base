@@ -122,6 +122,6 @@ export const AthenaPresence: React.FC<AthenaPresenceProps> = ({ phase, pending, 
 
   return <><div ref={sprite} className="ai-presence" aria-hidden="true">
     <AthenaRibbon ribbonRef={markElement} mood={mood ?? athenaMarkState(phase)}
-      size={phase === 'thinking' || phase === 'sending' ? 96 : phase === 'writing' ? 32 : 44} />
+      size={56} />
   </div><span className="ai-presence-announcement" role="status">{phase === 'writing' ? 'Athena replied' : ''}</span></>;
 };

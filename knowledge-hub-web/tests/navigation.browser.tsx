@@ -865,6 +865,7 @@ async function runChatResetChecks(): Promise<string[]> {
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
   let sessionId = '';
   let unfoldCount = 0;
+  let submittedTurns = 0;
   const encoder = new TextEncoder();
   const tick = (): Promise<void> => new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(() => { resolve(); })));
   const send = async (event: ChatTurnEvent): Promise<void> => {
@@ -884,6 +885,7 @@ async function runChatResetChecks(): Promise<string[]> {
     });
   };
   api.startChatTurn = async request => {
+    submittedTurns++;
     sessionId = request.sessionId!;
     return success({ turnId: 'reset-fixture', sessionId });
   };
@@ -911,21 +913,39 @@ async function runChatResetChecks(): Promise<string[]> {
       check(selector('.ai-presence-think-anchor') === thinker, 'Reset must not replace the pending reply');
       check(selector('.ai-live-activity').textContent?.includes(`Checking references ${round}`) === true, 'Progress remains visible');
       check(document.querySelector('.ai-answer-arrival') === null, 'Reset must not start answer choreography');
-      check(selector('.ai-chat-standalone__topbar athena-ribbon').getAttribute('mood') === 'thinking', 'Provisional drafts must not change the shared ribbon mood');
+      check(document.querySelector('.ai-composer-suggestion') === null, 'Suggestions stay hidden during work');
+      check(document.querySelector('.ai-chat-standalone__topbar athena-ribbon') === null, 'Chat must not add a duplicate header character');
+      check(selector('.ai-presence athena-ribbon').getAttribute('mood') === 'thinking', 'Provisional drafts must not change the shared ribbon mood');
     }
     await send({ type: 'done', data: {
       sessionId, reply: 'Accepted final fixture answer.', assistantMessageId: 'accepted-fixture-answer', pendingActions: [],
-      nextSteps: ['Inspect linked notes'],
+      nextSteps: ['Inspect linked notes', 'Draft the update', 'List decisions'],
     } });
     stream!.close();
     stream = undefined;
     await waitFor(() => document.querySelector('.ai-answer-arrival')?.textContent?.includes('Accepted final fixture answer.') === true);
-    check(selector('.ai-chat-standalone__topbar athena-ribbon').getAttribute('mood') === 'answering', 'Accepted answer must drive answering');
+    check(selector('.ai-presence athena-ribbon').getAttribute('mood') === 'answering', 'Accepted answer must drive answering');
     await new Promise(resolve => window.setTimeout(resolve, 2400));
     check(unfoldCount === 1, 'Exactly one answer unfold is allowed per successful turn');
     check(document.querySelector('.ai-presence-think-anchor') === null, 'Accepted answer cannot return to thinking');
     check([...document.querySelectorAll('.ai-bubble--ai')].filter(b => b.textContent?.includes('Accepted final fixture answer.')).length === 1, 'Only one final answer remains after its entrance ends');
-    check(selector('.ai-chat-standalone__topbar athena-ribbon').getAttribute('mood') === 'curious', 'Real suggestions drive curious after the answer entrance');
+    check(selector('.ai-presence athena-ribbon').getAttribute('mood') === 'curious', 'Real suggestions drive curious after the answer entrance');
+    check(document.querySelector('.ai-next-steps') === null, 'Large reply suggestion pills are removed');
+    const suggestion = selector<HTMLButtonElement>('.ai-presence-dock .ai-composer-suggestion__choose');
+    check(suggestion.textContent === 'Inspect linked notes', 'First suggestion comes from the accepted reply');
+    check(document.querySelectorAll('.ai-composer-suggestion button').length === 1, 'Suggestion strip has no playback or next controls');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reducedMotion) {
+      await new Promise(resolve => window.setTimeout(resolve, 7100));
+      check(suggestion.textContent === 'Draft the update', 'Existing suggestions rotate automatically');
+    }
+    const chosenSuggestion = suggestion.textContent;
+    suggestion.click();
+    await tick();
+    check(selector<HTMLTextAreaElement>('#ai-chat-input').value === chosenSuggestion, 'Choosing a suggestion fills the draft');
+    check(document.activeElement === selector('#ai-chat-input'), 'Choosing a suggestion focuses the composer');
+    check(submittedTurns === 1, 'Choosing a suggestion must not send a turn');
+    check(document.querySelector('.ai-composer-suggestion') === null, 'Suggestions hide while a draft exists');
     for (const stopped of [true, false]) {
       await submit();
       await send({ type: 'delta', text: 'Provisional failed draft' });
@@ -935,17 +955,73 @@ async function runChatResetChecks(): Promise<string[]> {
       await waitFor(() => !selector<HTMLTextAreaElement>('#ai-chat-input').disabled);
       check(document.querySelector('.ai-answer-arrival') === null, 'Stopped or failed turns must not animate an answer');
       check(!selector('.ai-messages').textContent?.includes('Provisional'), 'Failed draft must not leak into history');
-      if (!stopped) check(selector('.ai-chat-standalone__topbar athena-ribbon').getAttribute('mood') === 'sorry', 'Actual failures show sorry alongside their error text');
+      if (!stopped) check(selector('.ai-presence athena-ribbon').getAttribute('mood') === 'sorry', 'Actual failures show sorry alongside their error text');
     }
     return ['Three draft/reset/tool rounds and a populated reconnect snapshot keep one stable working view',
       'Only the successful final result reveals once; stopped/failed drafts never appear',
-      'Actual chat header shares thinking, answering, curious and sorry moods'];
+      'One travelling character shares thinking, answering, curious and sorry moods without a duplicate header avatar'];
   } finally {
     stream?.close();
     document.removeEventListener('animationstart', onAnimation);
     window.fetch = originalFetch;
     api.startChatTurn = originalStart;
     await go('/_chat-remount');
+  }
+}
+
+async function runNoteRestoreMotionChecks(): Promise<string[]> {
+  const originalLookup = api.getSessionIdForNote, originalHistory = api.getSessionHistory, originalSummary = api.summarizeNote;
+  let releaseLookup = (): void => {}, releaseHistory = (): void => {}, releaseSummary = (): void => {};
+  const lookupGate = new Promise<void>(resolve => { releaseLookup = resolve; });
+  const historyGate = new Promise<void>(resolve => { releaseHistory = resolve; });
+  const summaryGate = new Promise<void>(resolve => { releaseSummary = resolve; });
+  let lookupStarted = false, historyStarted = false, summaryCalls = 0;
+  const checkDocked = (): void => {
+    check(document.querySelector('.ai-presence-think-anchor') === null, 'Restoring history has no thinking destination');
+    const ribbon = selector<HTMLElement>('.ai-presence athena-ribbon');
+    check(ribbon.getAttribute('mood') === 'resting', 'Restoring history keeps the resting mood');
+    const mark = ribbon.getBoundingClientRect(), dock = selector('.ai-presence-anchor').getBoundingClientRect();
+    check(Math.abs(mark.left - dock.left) < 1 && Math.abs(mark.top - dock.top) < 1, 'Restoration keeps Athena docked');
+    check(summaryCalls === 0, 'Existing conversation never generates an introductory summary');
+  };
+  try {
+    await go('/_chat-remount');
+    api.getSessionIdForNote = async () => {
+      lookupStarted = true; await lookupGate;
+      return success({ sessionId: 'restored-note-fixture' });
+    };
+    api.getSessionHistory = async sessionId => {
+      historyStarted = true; await historyGate;
+      return success({ sessionId, projectId: null, messages: [
+        { role: 'assistant', content: 'Saved note conversation', timestamp: new Date().toISOString() },
+      ] });
+    };
+    api.summarizeNote = async () => {
+      summaryCalls++; await summaryGate;
+      return success({ summary: 'New note summary' });
+    };
+    await go('/summary-fixture/restore-motion');
+    await waitFor(() => lookupStarted && document.querySelector('.ai-presence athena-ribbon') !== null);
+    await new Promise(resolve => window.requestAnimationFrame(resolve));
+    checkDocked();
+    releaseLookup();
+    await waitFor(() => historyStarted);
+    checkDocked();
+    releaseHistory();
+    await waitFor(() => document.querySelector('.ai-bubble-text')?.textContent === 'Saved note conversation');
+    checkDocked();
+    api.getSessionIdForNote = async () => success({ sessionId: null });
+    await go('/summary-fixture/new-summary-motion');
+    await waitFor(() => summaryCalls === 1 && document.querySelector('.ai-presence-think-anchor') !== null);
+    check(selector('.ai-presence athena-ribbon').getAttribute('mood') === 'thinking', 'Only actual summary generation starts thinking');
+    releaseSummary();
+    await waitFor(() => document.querySelector('.ai-note-summary-card__text')?.textContent === 'New note summary');
+    check(document.querySelector('.ai-presence-think-anchor') === null, 'Summary completion removes the working destination');
+    return ['Saved-note lookup and history restore keep Athena docked', 'Only a new note summary starts the loading movement'];
+  } finally {
+    releaseLookup(); releaseHistory(); releaseSummary();
+    await go('/_chat-remount');
+    api.getSessionIdForNote = originalLookup; api.getSessionHistory = originalHistory; api.summarizeNote = originalSummary;
   }
 }
 
@@ -992,4 +1068,4 @@ async function showGraphReview(): Promise<void> {
   [...document.querySelectorAll<HTMLButtonElement>('.graph-controls__chip')].find(control => control.textContent === 'Relationships')!.click();
   await waitFor(() => document.querySelector('.graph-relationships') !== null);
 }
-Object.assign(window, { runNavigationChecks, runChatChecks, runChatResetChecks, runProjectPickerChecks, verifyChatReload, showGraphReview });
+Object.assign(window, { runNavigationChecks, runChatChecks, runChatResetChecks, runNoteRestoreMotionChecks, runProjectPickerChecks, verifyChatReload, showGraphReview });

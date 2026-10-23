@@ -130,7 +130,10 @@
   background: var(--atlas-surface);
   atlas-graph { position: absolute; inset: 0; }
   canvas { display: block; }
-  &--compact { height: 300px; width: 100%; min-width: 0; }
+  &--compact { height: 300px; width: 100%; min-width: 0;
+    --atlas-surface: var(--cds-layer-01, #262626);
+    background: transparent;
+  }
   &__error { position: absolute; top: 1rem; left: 1rem; right: 1rem; background: #262626; padding: 1rem; color: #ff8389; }
   &__tools { position: absolute; bottom: 16px; right: 20px; z-index: 2;
     display: flex; flex-direction: column; gap: 0; border: 1px solid #525252; border-radius: 4px; background: #262626;
