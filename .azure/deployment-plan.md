@@ -2,6 +2,25 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, RTR reliability and personality):**
+- Source 8ad38e408fc40dc5aaa52711c70062195bac92c9 committed and atomically
+  pushed to main and richardichogan-local-development.
+- ACR build and backend v240 update succeeded. Latest ready revision
+  kh-prod-api-vnet--0000237 is Healthy, Provisioned, RunningAtMaxScale with
+  latest-revision traffic at 100%. Startup confirms port 3000, migration
+  complete and all eight database connections ready; incumbent SSL-mode warning.
+- Validated frontend dist uploaded to kh-prod-web production. Both
+  https://athena.themicrosoftcloudblog.com and
+  https://nice-mud-0f780fb03.7.azurestaticapps.net return HTTP 200 with the
+  expected entry and matching SHA-256 hashes for all three entry/renderer assets.
+- Includes intent-aware dialogue, curiosity, constructive challenge and contextual
+  dry humour; table-preserving readers, honest edit-timeout handling, invalid-batch
+  rejection and approval-based correction learning. No new dependencies or migrations.
+- No manual changes to RTR notes or stored profiles; existing startup reindex
+  refreshed derived note bodies (14 of 140, zero failures).
+- Logs: session files/rtr-release-{acr,startup,web-deploy}.log. Deployment
+  credential kept private; unrelated Impeccable cache excluded.
+
 **Section 7: Validation Proof (2026-10-23, RTR reliability and personality):**
 - Synced origin/main before release; already current at a8ded98.
 - Both `npx --no-install tsc --noEmit`, production `npm run build` and
