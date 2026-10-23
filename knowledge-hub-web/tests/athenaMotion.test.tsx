@@ -10,15 +10,15 @@ import { LiveReply } from '../src/components/athena/LiveReply';
 import { ChatBubble } from '../src/components/athena/ChatBubble';
 
 const idle: AthenaMotionState = {
-  pending: false, text: '', activity: '', recording: false, transcribing: false, restoring: false,
+  pending: false, activity: '', recording: false, transcribing: false, restoring: false,
 };
 
-test('motion follows real send, tool activity, streaming and completion without timed delays', () => {
+test('motion waits for the accepted answer instead of revealing provisional model rounds', () => {
   assert.equal(athenaMotionPhase(idle), 'idle');
   assert.equal(athenaMotionPhase({ ...idle, pending: true, activity: 'Sending' }), 'sending');
   assert.equal(athenaMotionPhase({ ...idle, pending: true, activity: 'Reading your Library' }), 'thinking');
-  assert.equal(athenaMotionPhase({ ...idle, pending: true, activity: 'Sending', text: 'First token' }), 'writing');
-  assert.equal(athenaMotionPhase({ ...idle, text: 'Completed answer' }), 'idle');
+  assert.equal(athenaMotionPhase({ ...idle, pending: true, activity: 'Checking references' }), 'thinking');
+  assert.equal(athenaMotionPhase({ ...idle, pending: true, answered: true }), 'writing');
   assert.equal(athenaMotionPhase({ ...idle, activity: 'Stopped' }), 'idle');
   assert.equal(athenaMotionPhase({ ...idle, activity: 'Error' }), 'idle');
   assert.equal(athenaMotionPhase({ ...idle, typing: true }), 'sending');
@@ -31,7 +31,7 @@ test('voice and restored turns use their actual state, not a simulated voice met
   assert.equal(athenaMotionPhase({ ...idle, transcribing: true }), 'thinking');
   assert.equal(athenaMotionPhase({ ...idle, restoring: true }), 'thinking');
   assert.equal(athenaMotionPhase({ ...idle, pending: true, recording: true }), 'thinking');
-  assert.equal(athenaMotionPhase({ ...idle, pending: true, text: 'Recovered stream' }), 'writing');
+  assert.equal(athenaMotionPhase({ ...idle, pending: true, activity: 'Recovered turn' }), 'thinking');
 });
 
 test('scrolling or a compact viewport cannot leave the character over clipped history', () => {
@@ -52,10 +52,9 @@ test('the four-piece character is decorative and adds no keyboard stops', () => 
 
 test('live activity keeps a textual status and a decorative character anchor', () => {
   const props = {
-    activity: 'Searching Library', startedAt: Date.now(), renderContext: {},
-    presenceRef: React.createRef<HTMLSpanElement>(), thinkerRef: React.createRef<HTMLSpanElement>(), arrivalAt: null,
+    activity: 'Searching Library', startedAt: Date.now(), thinkerRef: React.createRef<HTMLSpanElement>(),
   };
-  const thinking = renderToStaticMarkup(<LiveReply {...props} text="" />);
+  const thinking = renderToStaticMarkup(<LiveReply {...props} />);
   assert.match(thinking, /role="status">Searching Library/);
   assert.match(thinking, /ai-presence-think-anchor/);
   assert.doesNotMatch(thinking, /cds--loading/);
@@ -118,7 +117,7 @@ test('answer contracts, holds, leaves its mark and rotates home at the supplied 
   assert.equal(motion.sample(2200 + ATHENA_ANSWER_MS).active, false);
 });
 
-test('stream completion retains the clock; interruption and reduced motion bypass the old sequence', () => {
+test('rerenders retain the answer clock; interruption and reduced motion bypass the old sequence', () => {
   const motion = new AthenaMotion();
   motion.setPhase('writing', 3000, 3000);
   motion.setPhase('writing', 3800, 3000);

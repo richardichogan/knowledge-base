@@ -2,6 +2,26 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, provisional-answer redraw fix):**
+- User confirmed kh-prod-web, West Europe, rg-knowledge-hub-prod, in
+  Alliance Tenant Reporting (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28).
+- Fetched and merged origin/main; already current at 193a97f.
+- Both applications' `npx tsc --noEmit` checks passed.
+- Frontend production build, lint non-regression and diff hygiene passed.
+- Frontend isolated release suite: 174 passed (157 + 6 + 3 + 2 + 6), zero failures.
+- During development, the isolated actual-chat SSE fixture verified that three
+  draft/reset/tool rounds and a populated reconnect snapshot retain the working
+  view; only an accepted answer appears, while stopped/failed drafts stay hidden.
+- Azure authentication and existing SWA target verified; backend remains v235.
+- Existing SWA asset-only release: no infrastructure, roles, identities, secrets,
+  policy, dependency or database changes. Bicep, what-if, provisioning, Docker
+  and RBAC changes are not applicable.
+- Scope: reveal accepted answers once while progress remains live, including
+  alternate-model replies. Backend draft-revision behavior is unchanged.
+- Rollback frontend source: 193a97f. Push release to main and the session branch
+  before deploying the matching local dist.
+- Logs: session files/chat-redraw-release-{build,tests,lint}.log.
+
 **Deployment result (2026-10-23, chat animation and references):**
 - Release source d53fcab2e762eb6167790b9f023de663e5928ff5 pushed atomically
   to main and richardichogan-local-development.

@@ -2,7 +2,6 @@ export type AthenaMotionPhase = 'idle' | 'listening' | 'sending' | 'thinking' | 
 
 export interface AthenaMotionState {
   pending: boolean;
-  text: string;
   activity: string;
   recording: boolean;
   transcribing: boolean;
@@ -13,7 +12,7 @@ export interface AthenaMotionState {
 
 export function athenaMotionPhase(state: AthenaMotionState): AthenaMotionPhase {
   if (state.pending) {
-    if (state.text !== '' || state.answered) return 'writing';
+    if (state.answered) return 'writing';
     return state.activity === 'Sending' ? 'sending' : 'thinking';
   }
   if (state.recording) return 'listening';

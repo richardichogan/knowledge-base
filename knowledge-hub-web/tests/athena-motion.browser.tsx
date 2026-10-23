@@ -26,10 +26,7 @@ async function play(voice = false): Promise<void> {
   setScene(s => ({ ...s, pending: true, question: true, phase: 'thinking' }));
   await delay(1600);
   if (id !== run) return;
-  setScene(s => ({ ...s, phase: 'writing', answerAt: Date.now() }));
-  await delay(900);
-  if (id !== run) return;
-  setScene(s => ({ ...s, pending: false, complete: true }));
+  setScene(s => ({ ...s, phase: 'writing', answerAt: Date.now(), pending: false, complete: true }));
 }
 
 function Fixture(): React.ReactElement {
@@ -56,8 +53,7 @@ function Fixture(): React.ReactElement {
             <div className="ai-bubble-text">You own the positioning alignment task.</div>
           </ChatBubble>
           {scene.question && <ChatBubble role="user"><div className="ai-bubble-text">draft the core IMAGINE story</div></ChatBubble>}
-          {scene.pending && <LiveReply activity={scene.activity} startedAt={Date.now()} text={scene.phase === 'writing' ? answer : ''}
-            renderContext={{}} presenceRef={mark} thinkerRef={thinker} arrivalAt={scene.answerAt} />}
+          {scene.pending && <LiveReply activity={scene.activity} startedAt={Date.now()} thinkerRef={thinker} />}
           {scene.complete && (
             <ChatBubble role="assistant" arrivalAt={scene.answerAt}>
               <div className="ai-reply-heading" aria-hidden="true"><span ref={mark} className="ai-reply-heading__mark" /><span>Athena</span></div>
@@ -109,21 +105,21 @@ async function runChecks(): Promise<string[]> {
     await delay(100);
     check(pieces[0]!.style.transform !== firstTransform, 'Thinking squares must rotate and breathe');
     const answerAt = Date.now();
-    setScene(s => ({ ...s, phase: 'writing', answerAt }));
+    setScene(s => ({ ...s, phase: 'writing', answerAt, pending: false, complete: true }));
     await delay(100);
-    const panel = element<HTMLElement>('.ai-bubble--live .ai-answer-panel');
+    const panel = element<HTMLElement>('.ai-answer-arrival .ai-answer-panel');
     check(panel.getBoundingClientRect().width < 40 && panel.getBoundingClientRect().height < 40, 'Answer must begin as the supplied 36px panel');
     await delay(650);
     check(panel.getBoundingClientRect().width > 200, 'Answer must unfold across the card');
-    check(closeTo(centre(sprite), centre(element('.ai-bubble--live .ai-reply-heading__mark'))), 'Character must contract into the answer corner');
-    setScene(s => ({ ...s, pending: false, complete: true }));
+    check(closeTo(centre(sprite), centre(element('.ai-answer-arrival .ai-reply-heading__mark'))), 'Character must contract into the answer corner');
+    setScene(s => ({ ...s }));
     await delay(100);
-    check(element('.ai-answer-arrival .ai-answer-panel').getBoundingClientRect().width > 200, 'Completing the stream must not restart card expansion');
+    check(element('.ai-answer-arrival .ai-answer-panel').getBoundingClientRect().width > 200, 'Rerendering must not restart card expansion');
     await delay(1350);
     check(closeTo(centre(sprite), centre(element('.ai-presence-anchor'))), 'Character must return home after the answer');
     check(getComputedStyle(element('.ai-answer-arrival .ai-reply-heading__mark')).opacity === '1', 'Answer must retain its grey mark');
     check(element('.ai-messages').scrollWidth <= element('.ai-messages').clientWidth + 1, 'Chat must not overflow horizontally');
-    results.push(`${width}px: idle, travel, morph, rotation, unfold, stream handoff, grey mark and return`);
+    results.push(`${width}px: idle, travel, morph, rotation, single unfold, grey mark and return`);
   }
   setScene({ ...idle, pending: true, question: true, phase: 'thinking', context: 'stop-check' });
   await delay(650);

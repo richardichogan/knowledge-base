@@ -405,7 +405,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }, [promptRequest, pageContext?.projectId, isRestoringHistory]);
   const chatAbortControllerRef = useRef<AbortController | null>(null);
   // The reply being worked on server-side: live activity line + streamed text.
-  const [liveTurn, setLiveTurn] = useState<{ activity: string; text: string; startedAt: number } | null>(null);
+  const [liveTurn, setLiveTurn] = useState<{ activity: string; startedAt: number } | null>(null);
   const liveTurnIdRef = useRef<string | null>(null);
   const turnRunRef = useRef(0);
   // Outputs / Decisions side panel: refresh after replies, open on a changed output.
@@ -803,7 +803,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // after the server response (which a refresh may never receive).
       const requestSessionId = sessionId ?? pendingSessionIdRef.current ?? crypto.randomUUID();
       if (resumeTurnId === undefined && sessionId === null) persistSessionId(requestSessionId, true);
-      setLiveTurn({ activity: 'Sending', text: '', startedAt });
+      setLiveTurn({ activity: 'Sending', startedAt });
       liveTurnIdRef.current = resumeTurnId ?? null;
       const handlers: LiveTurnHandlers = {
         onStarted: (turnId, newSessionId) => {
@@ -813,12 +813,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           if (composerDraft !== undefined) setInput((current) => current === composerDraft ? '' : current);
         },
         onActivity: (activity) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, activity })); },
-        onText: (liveText) => {
-          if (turnRunRef.current === run) {
-            if (liveText !== '') setReplyArrival(current => current ?? { startedAt: Date.now(), complete: false });
-            setLiveTurn((t) => (t === null ? t : { ...t, text: liveText }));
-          }
-        },
+        // Deltas are provisional: tool rounds and evidence repairs can reset them.
+        // Only the successful turn result is an accepted answer to reveal.
+        onText: () => {},
       };
       try {
         // In Athena Desktop, Athena may read and propose changes to the folders he chose on this PC.
@@ -875,7 +872,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         return;
       }
       if (sessionId === null) persistSessionId(result.data.sessionId, true);
-      setReplyArrival(current => ({ startedAt: current?.startedAt ?? Date.now(), complete: true }));
+      setReplyArrival({ startedAt: Date.now(), complete: true });
       appendMessage('assistant', result.data.reply, {
         persona: result.data.persona,
         sources: result.data.sources,
@@ -2001,7 +1998,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   const motionPhase = athenaMotionPhase({
     pending: chatMutation.isPending,
-    text: liveTurn?.text ?? '',
     activity: liveTurn?.activity ?? 'Sending',
     recording: isRecording,
     transcribing: isTranscribing,
@@ -2314,9 +2310,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               </div>
             );
           })()}
-          {chatMutation.isPending && (liveTurn !== null ? (
-            <LiveReply activity={liveTurn.activity} text={liveTurn.text} startedAt={liveTurn.startedAt} renderContext={{ projectNameById }}
-              presenceRef={presenceReplyRef} thinkerRef={presenceThinkRef} arrivalAt={replyArrival?.startedAt ?? null} />
+          {chatMutation.isPending && replyArrival?.complete !== true && (liveTurn !== null ? (
+            <LiveReply activity={liveTurn.activity} startedAt={liveTurn.startedAt} thinkerRef={presenceThinkRef} />
           ) : (
             <ThinkingReply activity="Athena is thinking" presenceRef={presenceThinkRef} />
           ))}

@@ -21,6 +21,7 @@ import { MetadataPanel } from '../src/notes/MetadataPanel';
 import { api } from '../src/services/api';
 import './note-draft-identity';
 import type { ApiResponse } from '../src/types/apiResponse';
+import type { ChatTurnEvent } from '../src/types';
 import type { PlanTask } from '../src/types/task';
 import { localDateKey } from '../src/utils/dateOnly';
 import { runDataReliabilityChecks, SummaryFixture } from './data-reliability.browser';
@@ -857,6 +858,91 @@ async function runChatChecks(): Promise<string[]> {
   return results;
 }
 
+async function runChatResetChecks(): Promise<string[]> {
+  check(!AUTH_ENABLED, 'Reset regression requires fixture-only authentication settings');
+  const originalFetch = window.fetch;
+  const originalStart = api.startChatTurn;
+  let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+  let sessionId = '';
+  let unfoldCount = 0;
+  const encoder = new TextEncoder();
+  const tick = (): Promise<void> => new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(() => { resolve(); })));
+  const send = async (event: ChatTurnEvent): Promise<void> => {
+    if (stream === undefined) throw new Error('Fixture stream not connected');
+    stream.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+    await tick();
+  };
+  const onAnimation = (event: AnimationEvent): void => {
+    if (event.animationName === 'ai-answer-width') unfoldCount++;
+  };
+  document.addEventListener('animationstart', onAnimation);
+  window.fetch = async input => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!url.endsWith('/api/ai/chat/turns/reset-fixture/events')) throw new Error(`Unexpected fixture fetch: ${url}`);
+    return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }), {
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  };
+  api.startChatTurn = async request => {
+    sessionId = request.sessionId!;
+    return success({ turnId: 'reset-fixture', sessionId });
+  };
+  try {
+    await go('/_chat-remount');
+    await go('/chat');
+    await waitFor(() => document.querySelector<HTMLTextAreaElement>('#ai-chat-input')?.disabled === false);
+    const submit = async (): Promise<void> => {
+      stream = undefined;
+      const input = selector<HTMLTextAreaElement>('#ai-chat-input');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Fixture question about references');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick();
+      selector<HTMLFormElement>('.ai-input-row').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await waitFor(() => stream !== undefined && document.querySelector('.ai-presence-think-anchor') !== null);
+    };
+    await submit();
+    await send({ type: 'snapshot', message: 'Fixture question', activity: 'Reading sources', text: 'Provisional reconnected draft' });
+    const thinker = selector('.ai-presence-think-anchor');
+    for (let round = 1; round <= 3; round++) {
+      await send({ type: 'delta', text: `Provisional answer ${round}` });
+      check(!selector('.ai-messages').textContent?.includes('Provisional'), 'Provisional output must never mount as an answer');
+      await send({ type: 'reset' });
+      await send({ type: 'activity', text: `Checking references ${round}` });
+      check(selector('.ai-presence-think-anchor') === thinker, 'Reset must not replace the pending reply');
+      check(selector('.ai-live-activity').textContent?.includes(`Checking references ${round}`) === true, 'Progress remains visible');
+      check(document.querySelector('.ai-answer-arrival') === null, 'Reset must not start answer choreography');
+    }
+    await send({ type: 'done', data: {
+      sessionId, reply: 'Accepted final fixture answer.', assistantMessageId: 'accepted-fixture-answer', pendingActions: [],
+    } });
+    stream!.close();
+    stream = undefined;
+    await waitFor(() => document.querySelector('.ai-answer-arrival')?.textContent?.includes('Accepted final fixture answer.') === true);
+    await new Promise(resolve => window.setTimeout(resolve, 2400));
+    check(unfoldCount === 1, 'Exactly one answer unfold is allowed per successful turn');
+    check(document.querySelector('.ai-presence-think-anchor') === null, 'Accepted answer cannot return to thinking');
+    check(document.querySelectorAll('.ai-answer-arrival').length === 1, 'Only one final answer is rendered');
+    for (const stopped of [true, false]) {
+      await submit();
+      await send({ type: 'delta', text: 'Provisional failed draft' });
+      await send({ type: 'error', message: 'Fixture failure', stopped });
+      stream!.close();
+      stream = undefined;
+      await waitFor(() => !selector<HTMLTextAreaElement>('#ai-chat-input').disabled);
+      check(document.querySelector('.ai-answer-arrival') === null, 'Stopped or failed turns must not animate an answer');
+      check(!selector('.ai-messages').textContent?.includes('Provisional'), 'Failed draft must not leak into history');
+    }
+    return ['Three draft/reset/tool rounds and a populated reconnect snapshot keep one stable working view',
+      'Only the successful final result reveals once; stopped/failed drafts never appear'];
+  } finally {
+    stream?.close();
+    document.removeEventListener('animationstart', onAnimation);
+    window.fetch = originalFetch;
+    api.startChatTurn = originalStart;
+    await go('/_chat-remount');
+  }
+}
+
 async function verifyChatReload(expected: { sessionId: string; draft: string }): Promise<string> {
   let starts = 0;
   api.startChatTurn = async () => {
@@ -900,4 +986,4 @@ async function showGraphReview(): Promise<void> {
   [...document.querySelectorAll<HTMLButtonElement>('.graph-controls__chip')].find(control => control.textContent === 'Relationships')!.click();
   await waitFor(() => document.querySelector('.graph-relationships') !== null);
 }
-Object.assign(window, { runNavigationChecks, runChatChecks, runProjectPickerChecks, verifyChatReload, showGraphReview });
+Object.assign(window, { runNavigationChecks, runChatChecks, runChatResetChecks, runProjectPickerChecks, verifyChatReload, showGraphReview });

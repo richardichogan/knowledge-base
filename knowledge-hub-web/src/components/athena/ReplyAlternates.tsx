@@ -1,7 +1,7 @@
 /**
  * components/athena/ReplyAlternates.tsx — "Ask another model" under one of
  * Athena's replies: re-answer the same question with GPT-4o, GPT-5.4 or
- * GPT-6 Astra (streamed live), compare the answers as tabs, and "Use this
+ * GPT-6 Astra, compare the answers as tabs, and "Use this
  * one" to make an alternative the answer the chat continues from.
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -28,7 +28,7 @@ interface ReplyAlternatesProps {
 export const ReplyAlternates: React.FC<ReplyAlternatesProps> = ({ sessionId, messageId, alternates, models, renderContext, onAdded, onUsed }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  const [running, setRunning] = useState<{ label: string; activity: string; text: string } | null>(null);
+  const [running, setRunning] = useState<{ label: string; activity: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const menuRoot = useRef<HTMLSpanElement>(null);
@@ -48,7 +48,7 @@ export const ReplyAlternates: React.FC<ReplyAlternatesProps> = ({ sessionId, mes
   const ask = (model: ModelChoiceApi): void => {
     setMenuOpen(false);
     setError(null);
-    setRunning({ label: model.label, activity: 'Starting', text: '' });
+    setRunning({ label: model.label, activity: 'Starting' });
     const controller = new AbortController();
     controllerRef.current = controller;
     void api.askAnotherModel(sessionId, messageId, model.id)
@@ -56,7 +56,8 @@ export const ReplyAlternates: React.FC<ReplyAlternatesProps> = ({ sessionId, mes
         if (!start.success) throw new Error(start.error.message);
         return followChatTurn<ChatAlternate>(start.data.turnId, {
           onActivity: (activity) => { setRunning((r) => (r === null ? r : { ...r, activity })); },
-          onText: (text) => { setRunning((r) => (r === null ? r : { ...r, text })); },
+          // Tool preambles and repair drafts may be reset; show only the accepted result.
+          onText: () => {},
         }, controller.signal);
       })
       .then((result) => {
@@ -132,14 +133,7 @@ export const ReplyAlternates: React.FC<ReplyAlternatesProps> = ({ sessionId, mes
       {running !== null && (
         <div className="ai-alts__panel" aria-live="polite">
           <div className="ai-alts__panel-head">{running.label}</div>
-          {running.text !== '' && (
-            <div
-              className="ai-bubble-text ai-bubble-text--md"
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: renderAssistantMessage(running.text, renderContext) }}
-            />
-          )}
-          <InlineLoading description={`${running.text !== '' ? 'Writing' : running.activity}…`} />
+          <InlineLoading description={`${running.activity}…`} />
         </div>
       )}
       {error !== null && <p className="ai-alts__error" role="alert">{error}</p>}
