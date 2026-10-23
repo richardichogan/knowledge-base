@@ -1044,7 +1044,7 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   align-self: stretch;
   background: transparent;
   border: 0;
-  border-radius: var(--kh-radius-lg);
+  border-radius: var(--kh-radius-sm);
   padding: 1.5rem;
   color: var(--cds-text-primary);
 }
@@ -15301,7 +15301,9 @@ fieldset.proj-modal-body {
   .today-section-card__header { display: flex; align-items: center; gap: 0.75rem; }
 }
 
-// Authored Athena v3 choreography; the four small pieces are painted from its geometry.
+// The supplied Athena mark owns its internal animation; this wrapper only travels.
+.ai-brand-mark { display: inline-block; width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
+.ai-brand-mark--welcome { width: 28px; height: 28px; }
 .ai-presence {
   position: absolute;
   top: 0;
@@ -15313,24 +15315,23 @@ fieldset.proj-modal-body {
   visibility: hidden;
   contain: layout style;
 
-  &[data-idle='true'] .ai-presence-glyph { animation: ai-presence-idle 1.7s linear infinite; }
   &[data-paused='true'] * { animation-play-state: paused !important; }
+  athena-mark { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; }
 }
 
 .ai-presence-anchor {
-  width: 1.5rem;
-  height: 1.5rem;
-  flex: 0 0 1.5rem;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   display: inline-block;
 }
 
 .ai-presence-think-anchor {
   position: absolute;
-  width: 3.5rem;
-  height: 3.5rem;
-  left: 50%;
-  top: 4.0625rem;
-  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  left: 24px;
+  top: 1.5rem;
 }
 
 .ai-presence-dock,
@@ -15346,8 +15347,9 @@ fieldset.proj-modal-body {
   color: var(--cds-text-secondary);
 }
 
-.ai-presence-dock { margin-bottom: 1rem; }
-.ai-presence-dock__status {
+.ai-presence-dock { margin-bottom: 24px; padding-top: 10px; }
+.ai-presence-dock__status,
+.ai-presence-announcement {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -15355,46 +15357,28 @@ fieldset.proj-modal-body {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.ai-reply-heading { gap: 0.875rem; margin-bottom: 1rem; min-height: 1rem; }
+.ai-reply-heading { gap: 0.75rem; margin-bottom: 1rem; min-height: 27px; }
 .ai-live-activity { gap: 0.5rem; font-size: var(--kh-text-meta); }
 .ai-bubble--thinking .ai-live-activity {
   display: block;
   width: 100%;
   max-width: 48ch;
-  margin-inline: auto;
-  padding-top: 6.5rem;
+  padding-top: 4.5rem;
+  padding-inline: 24px;
   padding-bottom: 0.375rem;
-  text-align: center;
+  text-align: left;
 }
-.ai-live-activity__label { min-width: 0; overflow-wrap: anywhere; text-align: center; }
+.ai-live-activity__label { min-width: 0; overflow-wrap: anywhere; text-align: left; }
 .ai-live-activity__time { margin-left: 0.5rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ai-live-activity__helper { display: block; margin-top: 0.375rem; color: var(--cds-text-helper); font-size: var(--kh-text-meta); }
 
 .ai-reply-heading__mark {
-  width: 0.75rem;
-  height: 0.75rem;
-  flex: 0 0 0.75rem;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
   display: inline-block;
-  border-radius: 50%;
-  background: var(--ai-motion-past);
-}
-
-.ai-presence-glyph {
-  display: block;
-  width: 0;
-  height: 0;
-
-  &__piece {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 10px;
-    height: 10px;
-    background: var(--ai-motion-color-0);
-    &:nth-child(1) { transform: translate(-10px, -10px); border-radius: 100% 0 0; }
-    &:nth-child(2) { transform: translate(0, -10px); border-radius: 0 100% 0 0; }
-    &:nth-child(3) { transform: translate(-10px, 0); border-radius: 0 0 0 100%; }
-    &:nth-child(4) { border-radius: 0 0 100%; }
-  }
+  background: url('/athena/athena-mark-answer.svg') center / contain no-repeat;
+  opacity: 0.55;
 }
 
 .ai-answer-panel {
@@ -15405,7 +15389,7 @@ fieldset.proj-modal-body {
   height: 100%;
   z-index: -1;
   box-sizing: border-box;
-  border: 1px solid var(--ai-motion-border);
+  border: 1px solid var(--cds-border-subtle-01);
   border-radius: inherit;
   background: var(--cds-layer-01);
   pointer-events: none;
@@ -15414,43 +15398,38 @@ fieldset.proj-modal-body {
 .ai-answer-arrival {
   > .ai-answer-panel {
     animation:
-      ai-answer-width 450ms cubic-bezier(0.33, 1, 0.68, 1) calc(var(--ai-arrival-delay) + 150ms) both,
-      ai-answer-height 450ms cubic-bezier(0.33, 1, 0.68, 1) calc(var(--ai-arrival-delay) + 250ms) both,
-      ai-answer-fade 150ms ease-in-out calc(var(--ai-arrival-delay) + 50ms) both;
+      ai-answer-grow 400ms cubic-bezier(0.4, 0.14, 0.3, 1) var(--ai-arrival-delay) both;
+    transform-origin: 24px 24px;
   }
   > .ai-reply-heading > :last-child {
-    animation: ai-answer-content 350ms cubic-bezier(0.33, 1, 0.68, 1) calc(var(--ai-arrival-delay) + 550ms) both;
+    animation: ai-answer-content 300ms cubic-bezier(0, 0, 0.3, 1) calc(var(--ai-arrival-delay) + 100ms) both;
   }
   > .ai-reply-heading > .ai-reply-heading__mark {
-    animation: ai-answer-fade 300ms ease-in-out calc(var(--ai-arrival-delay) + 1600ms) both;
+    animation: ai-answer-mark 150ms ease-in-out calc(var(--ai-arrival-delay) + 1000ms) both;
   }
   > :not(.ai-answer-panel):not(.ai-reply-heading) {
-    animation: ai-answer-content 350ms cubic-bezier(0.33, 1, 0.68, 1) calc(var(--ai-arrival-delay) + 650ms) both;
+    animation: ai-answer-content 300ms cubic-bezier(0, 0, 0.3, 1) calc(var(--ai-arrival-delay) + 200ms) both;
   }
-  > .ai-output-chips { animation-delay: calc(var(--ai-arrival-delay) + 900ms); }
+  > .ai-output-chips { animation-delay: calc(var(--ai-arrival-delay) + 300ms); }
+  > .ai-reply-references { animation-delay: calc(var(--ai-arrival-delay) + 400ms); }
 }
 .ai-question-arrival {
   animation: ai-question-enter 400ms cubic-bezier(0.33, 1, 0.68, 1) var(--ai-arrival-delay) both;
 }
 .ai-composer--asking .ai-input-field {
-  border-color: var(--ai-motion-color-0);
+  border-color: var(--kh-accent);
   transition: border-color 150ms ease-in-out;
 }
 .ai-composer--listening .ai-mic-button {
-  background: var(--ai-motion-color-2);
-  color: var(--cds-text-on-color);
+  background: var(--kh-accent);
+  color: var(--cds-background);
 }
 
-@keyframes ai-presence-idle {
-  0%, 50%, 100% { transform: scale(1); }
-  25% { transform: scale(1.05); }
-  75% { transform: scale(0.95); }
-}
-@keyframes ai-answer-width { from { width: 36px; } to { width: 100%; } }
-@keyframes ai-answer-height { from { height: 36px; } to { height: 100%; } }
+@keyframes ai-answer-grow { from { transform: scale(var(--ai-answer-scale-x, 1), var(--ai-answer-scale-y, 1)); } to { transform: scale(1); } }
+@keyframes ai-answer-mark { from { opacity: 0; } to { opacity: 0.55; } }
 @keyframes ai-answer-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ai-answer-content {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes ai-question-enter {
@@ -15458,11 +15437,11 @@ fieldset.proj-modal-body {
   to { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ai-presence-glyph,
   .ai-answer-arrival > *,
   .ai-answer-arrival > .ai-reply-heading > *,
   .ai-question-arrival,
   .ai-composer--asking .ai-input-field { animation: none !important; transition: none !important; }
+  .ai-answer-arrival { animation: ai-answer-fade 150ms ease-out; }
 }
 
 // Shown above the composer when a turn was cut off by a server restart.
@@ -15675,7 +15654,7 @@ fieldset.proj-modal-body {
   min-height: 2rem;
   min-width: 0;
   padding: 0.375rem 0.75rem;
-  border: 1px solid var(--ai-motion-color-2);
+  border: 1px solid var(--kh-accent-border);
   border-radius: var(--kh-radius-md);
   background: var(--cds-layer-01);
   color: var(--cds-text-primary);
@@ -15685,12 +15664,12 @@ fieldset.proj-modal-body {
   text-align: left;
   cursor: pointer;
 
-  &:hover:not(:disabled) { border-color: var(--ai-motion-color-1); }
+  &:hover:not(:disabled) { border-color: var(--kh-accent); }
   &:disabled { cursor: default; }
-  &:focus-visible { outline: 2px solid var(--ai-motion-color-1); outline-offset: 1px; }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 1px; }
 }
 
-.ai-output-chip__open { margin-left: auto; color: var(--ai-motion-color-1); font-weight: 400; }
+.ai-output-chip__open { margin-left: auto; color: var(--kh-accent); font-weight: 400; }
 
 .ai-decisions { display: flex; flex-direction: column; gap: 0.75rem; }
 .ai-decisions__tracking { display: flex; align-items: baseline; gap: 0.375rem; font-size: var(--kh-text-body); cursor: pointer; }

@@ -13,7 +13,7 @@ import {
   Button,
   Tile,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, ChatLaunch, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
@@ -25,7 +25,7 @@ import { renderAssistantMessage, handleCodeCopyClick } from '../components/athen
 import { LiveReply, ThinkingReply } from '../components/athena/LiveReply';
 import { AthenaPresence } from '../components/athena/AthenaPresence';
 import { ChatBubble } from '../components/athena/ChatBubble';
-import { athenaMotionPhase } from '../chat/athenaMotion';
+import { athenaMotionPhase, athenaExpressiveEase, microphoneLevel, ATHENA_ANSWER_MS, ATHENA_MIN_THINK_MS, ATHENA_TYPING_IDLE_MS } from '../chat/athenaMotion';
 import { SideTabsPanel } from '../components/SideTabsPanel';
 import { ChatOutputsTab } from '../components/athena/ChatOutputsTab';
 import { ChatDecisionsTab } from '../components/athena/ChatDecisionsTab';
@@ -376,6 +376,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [voiceOutputOn, setVoiceOutputOn] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const promptScrollFrameRef = useRef(0);
+  useEffect(() => () => { window.cancelAnimationFrame(promptScrollFrameRef.current); }, []);
   const conversationRef = useRef<HTMLDivElement>(null);
   const presenceDockRef = useRef<HTMLSpanElement>(null);
   const presenceReplyRef = useRef<HTMLSpanElement>(null);
@@ -383,6 +385,21 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [replyArrival, setReplyArrival] = useState<{ startedAt: number; complete: boolean } | null>(null);
   const [promptArrivalAt, setPromptArrivalAt] = useState<number | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
+  const [typingActive, setTypingActive] = useState(false);
+  const typingTimerRef = useRef<number>();
+  const voiceLevelRef = useRef(0);
+  const noteTyping = (): void => {
+    setTypingActive(true);
+    window.clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = window.setTimeout(() => { setTypingActive(false); }, ATHENA_TYPING_IDLE_MS);
+  };
+  useEffect(() => () => { window.clearTimeout(typingTimerRef.current); }, []);
+  useEffect(() => {
+    if (replyArrival === null) return;
+    const timer = window.setTimeout(() => { setReplyArrival(null); },
+      Math.max(0, replyArrival.startedAt + ATHENA_ANSWER_MS - Date.now()));
+    return () => { window.clearTimeout(timer); };
+  }, [replyArrival]);
   /** After he sends, room below the thread so his prompt can sit at the top while the reply comes in. */
   const [holdPromptTop, setHoldPromptTop] = useState(false);
   const promptRoomRef = useRef<HTMLDivElement>(null);
@@ -845,6 +862,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           handlers,
           signal,
         );
+        if (result.success) {
+          const remaining = ATHENA_MIN_THINK_MS - (Date.now() - startedAt);
+          if (remaining > 0) await new Promise<void>(resolve => { window.setTimeout(resolve, remaining); });
+          if (signal.aborted) throw new axios.CanceledError('Stopped');
+        }
         // He switched chats while it finished: it's saved in its own chat — never show it in this one.
         if (turnRunRef.current !== run) throw new TurnDetachedError();
         return result;
@@ -1162,7 +1184,19 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     const transform = getComputedStyle(el).transform;
     const entranceOffset = transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m42;
     const top = el.getBoundingClientRect().top - entranceOffset - box.getBoundingClientRect().top + box.scrollTop - 8;
-    box.scrollTo({ top: Math.max(0, top), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    window.cancelAnimationFrame(promptScrollFrameRef.current);
+    const target = Math.max(0, top);
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      box.scrollTop = target;
+      return;
+    }
+    const from = box.scrollTop, started = performance.now();
+    const scroll = (now: number): void => {
+      const progress = Math.min(1, (now - started) / 400);
+      box.scrollTop = from + (target - from) * athenaExpressiveEase(progress);
+      promptScrollFrameRef.current = progress < 1 ? window.requestAnimationFrame(scroll) : 0;
+    };
+    promptScrollFrameRef.current = window.requestAnimationFrame(scroll);
   }
 
   /** Jumps to the previous or next of his own messages in the thread. */
@@ -1704,7 +1738,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       const processor = ctx.createScriptProcessor(4096, 1, 1);
       pcmChunksRef.current = [];
       processor.onaudioprocess = (e) => {
-        pcmChunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        const samples = new Float32Array(e.inputBuffer.getChannelData(0));
+        pcmChunksRef.current.push(samples);
+        voiceLevelRef.current = microphoneLevel(samples);
       };
       source.connect(processor);
       processor.connect(ctx.destination);
@@ -1726,6 +1762,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       return;
     }
     processor.disconnect();
+    voiceLevelRef.current = 0;
     stream?.getTracks().forEach((t) => t.stop());
     const nativeSampleRate = ctx.sampleRate;
     await ctx.close();
@@ -2002,7 +2039,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     recording: isRecording,
     transcribing: isTranscribing,
     restoring: messages.length === 0 && (isRestoringHistory || (isNoteLinkedPanel && isNoteSummaryLoading)),
-    typing: inputFocused && input.trim() !== '',
+    typing: inputFocused && typingActive && input.trim() !== '',
     answered: replyArrival !== null,
   });
 
@@ -2073,7 +2110,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       <div ref={conversationRef} className={`ai-conversation${standalone ? ' ai-chat-standalone__body' : compact ? ' ai-chat-compact__body' : ''}`}>
         <AthenaPresence phase={motionPhase} pending={chatMutation.isPending} answerAt={replyArrival?.startedAt ?? null}
           contextKey={currentNoteId ?? sessionId ?? 'new'} host={conversationRef}
-          thread={messagesRef} dock={presenceDockRef} thinker={presenceThinkRef} reply={presenceReplyRef} />
+          thread={messagesRef} dock={presenceDockRef} thinker={presenceThinkRef} reply={presenceReplyRef} voiceLevel={voiceLevelRef} />
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
             <p className="ai-action-desc">{action.description}</p>
@@ -2135,7 +2172,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           )}
           {messages.length === 0 && !isRestoringHistory && historyError === null && !(isNoteLinkedPanel && currentNoteId !== undefined) && (
             <div className="ai-empty">
-              <ChatLaunch size={28} className="ai-empty__icon" />
+              <img src="/athena/athena-mark.svg" alt="" className="ai-brand-mark ai-brand-mark--welcome ai-empty__icon" />
               <p className="ai-empty__title">Athena</p>
               {pageContext ? (
                 <p className="ai-empty__subtitle ai-empty__context">
@@ -2340,7 +2377,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </div>
         )}
 
-        <div className={`ai-composer${isRecording || (inputFocused && input.trim() !== '') ? ' ai-composer--asking' : ''}${isRecording ? ' ai-composer--listening' : ''}`}>
+        <div className={`ai-composer${motionPhase === 'listening' || motionPhase === 'typing' ? ' ai-composer--asking' : ''}${isRecording ? ' ai-composer--listening' : ''}`}>
         <div className="ai-presence-dock">
           <span ref={presenceDockRef} className="ai-presence-anchor" aria-hidden="true" />
           <span className="ai-presence-dock__status" role="status">{isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : ''}</span>
@@ -2430,7 +2467,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             onChange={handleFileSelected}
           />
           <div className="ai-input-field">
-            <ChatMentionSuggestions input={input} textarea={textareaRef} onChange={value => { hasUserWorkRef.current = true; setInput(value); }} onProject={handleProjectChipChange} />
+            <ChatMentionSuggestions input={input} textarea={textareaRef} onChange={value => { hasUserWorkRef.current = true; setInput(value); noteTyping(); }} onProject={handleProjectChipChange} />
             <Button
               type="button"
               kind="ghost"
@@ -2464,7 +2501,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               rows={1}
               placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : pendingFile !== null ? 'Ask a question about the attached file…' : 'Ask Athena…'}
               value={input}
-              onChange={(e) => { hasUserWorkRef.current = true; setInput(e.target.value); }}
+              onChange={(e) => { hasUserWorkRef.current = true; setInput(e.target.value); noteTyping(); }}
               onFocus={() => { setInputFocused(true); }}
               onBlur={() => { setInputFocused(false); }}
               onKeyDown={handleInputKeyDown}

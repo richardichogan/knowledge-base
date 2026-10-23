@@ -9,7 +9,8 @@
     ],
     "motion": [
       { "name": "utility-control", "value": "80ms", "purpose": "Button background, border and colour transitions." },
-      { "name": "answer-sequence", "value": "2100ms", "purpose": "Accepted-answer choreography; bypassed for reduced motion." }
+      { "name": "answer-sequence", "value": "1500ms", "purpose": "400ms accepted-answer entrance, 600ms hold, 500ms return; reduced motion uses static poses and a 150ms fade." },
+      { "name": "mark-state", "value": "240ms", "purpose": "Supplied four-quarter custom element state morph, with a 3.2s stepped thinking loop and 3.4s resting breath." }
     ],
     "breakpoints": [
       { "name": "navigation-narrow", "value": "1100px" },

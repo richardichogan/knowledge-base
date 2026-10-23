@@ -22,6 +22,7 @@ export const ThinkingReply: React.FC<{
     <div className="ai-live-activity">
       <span className="ai-live-activity__label" role="status">{activity}…</span>
       {seconds !== undefined && <span className="ai-live-activity__time" aria-hidden="true">{seconds.toString()}s</span>}
+      {seconds !== undefined && seconds >= 8 && <span className="ai-live-activity__helper">Still working…</span>}
     </div>
   </ChatBubble>
 );

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { AthenaMotion, athenaGlyphFrame, athenaPosition, replyAnchorVisible, type AthenaAnchors, type AthenaMotionPhase, type MotionPoint } from '../../chat/athenaMotion';
+import { AthenaMotion, athenaMarkState, athenaPosition, replyAnchorVisible, ATHENA_RETURN_AT_MS, type AthenaAnchors, type AthenaMotionPhase, type MotionPoint } from '../../chat/athenaMotion';
+import { AthenaMark, type AthenaMarkElement } from './AthenaMark';
 
 interface AthenaPresenceProps {
   phase: AthenaMotionPhase;
@@ -11,19 +12,14 @@ interface AthenaPresenceProps {
   dock: React.RefObject<HTMLSpanElement>;
   thinker: React.RefObject<HTMLSpanElement>;
   reply: React.RefObject<HTMLSpanElement>;
+  voiceLevel?: React.MutableRefObject<number>;
 }
 
-export const AthenaGlyph: React.FC = () => (
-  <span className="ai-presence-glyph" aria-hidden="true">
-    <span className="ai-presence-glyph__piece" />
-    <span className="ai-presence-glyph__piece" />
-    <span className="ai-presence-glyph__piece" />
-    <span className="ai-presence-glyph__piece" />
-  </span>
-);
+export const AthenaGlyph: React.FC = () => <AthenaMark state="resting" />;
 
-export const AthenaPresence: React.FC<AthenaPresenceProps> = ({ phase, pending, answerAt, contextKey, host, thread, dock, thinker, reply }) => {
+export const AthenaPresence: React.FC<AthenaPresenceProps> = ({ phase, pending, answerAt, contextKey, host, thread, dock, thinker, reply, voiceLevel }) => {
   const sprite = useRef<HTMLDivElement>(null);
+  const markElement = useRef<AthenaMarkElement>(null);
   const playback = useRef({ contextKey, motion: new AthenaMotion() });
   const previousAnchors = useRef<{ think: MotionPoint | null; mark: MotionPoint | null }>({ think: null, mark: null });
 
@@ -36,7 +32,6 @@ export const AthenaPresence: React.FC<AthenaPresenceProps> = ({ phase, pending, 
     }
     const { motion } = playback.current;
     motion.setPhase(phase, Date.now(), answerAt);
-    const pieces = [...element.querySelectorAll<HTMLElement>('.ai-presence-glyph__piece')];
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let frame = 0;
     let dirty = true;
@@ -64,7 +59,7 @@ export const AthenaPresence: React.FC<AthenaPresenceProps> = ({ phase, pending, 
           : previousAnchors.current.think ?? (inView(markRect) && answer ? { x: (answer.left + answer.right) / 2 - root.left, y: mark.y + 35 } : dockPoint);
       // Keep the departure point when Stop or the next turn removes its DOM anchor.
       previousAnchors.current = { think, mark };
-      anchors = { dock: dockPoint, row: { x: Math.min(dockPoint.x + 45, root.width - 24), y: dockPoint.y }, think, mark };
+      anchors = { dock: dockPoint, row: dockPoint, think, mark };
       visible = onscreen && !document.hidden && root.width > 0 && root.height > 0
         && (replyAnchorVisible(dockRect, viewport) || inView(markRect) || inView(thinkRect));
       element.dataset.paused = String(!visible);
@@ -76,21 +71,16 @@ export const AthenaPresence: React.FC<AthenaPresenceProps> = ({ phase, pending, 
       if (dirty) measure();
       if (!visible) return;
       const now = Date.now();
-      const { pose, active, voice } = motion.sample(now, reducedMotion.matches);
+      const { pose, active } = motion.sample(now, reducedMotion.matches);
       const position = athenaPosition(pose, anchors);
       element.style.transform = `translate(${position.x}px, ${position.y}px)`;
-      element.dataset.idle = String(!active && pose.row === 0 && pose.think === 0 && pose.mark === 0);
       element.dataset.phase = phase;
-      const shapes = athenaGlyphFrame(pose, reducedMotion.matches ? 0 : now / 1000, voice);
-      shapes.forEach((shape, i) => {
-        const piece = pieces[i]!;
-        piece.style.width = `${shape.size + 0.25}px`;
-        piece.style.height = `${shape.size + 0.25}px`;
-        piece.style.borderRadius = shape.radius.map(r => `${r}px`).join(' ');
-        piece.style.transform = `translate(${shape.x - shape.size / 2}px, ${shape.y - shape.size / 2}px) rotate(${shape.rotation}deg) scale(${shape.scale})`;
-        piece.style.backgroundColor = `color-mix(in srgb, var(--ai-motion-color-0), var(--ai-motion-color-${shape.colorIndex}) ${shape.colorMix * 100}%)`;
-      });
-      if (active) frame = window.requestAnimationFrame(paint);
+      if (markElement.current) {
+        markElement.current.level = voiceLevel?.current ?? 0;
+        markElement.current.setAttribute('state', phase === 'writing' && answerAt !== null && now - answerAt >= ATHENA_RETURN_AT_MS
+          ? 'resting' : athenaMarkState(phase));
+      }
+      if (active || phase === 'listening') frame = window.requestAnimationFrame(paint);
     };
     const update = (): void => {
       dirty = true;
@@ -124,7 +114,9 @@ export const AthenaPresence: React.FC<AthenaPresenceProps> = ({ phase, pending, 
       document.removeEventListener('visibilitychange', visibilityChanged);
       reducedMotion.removeEventListener('change', visibilityChanged);
     };
-  }, [phase, pending, answerAt, contextKey, host, thread, dock, thinker, reply]);
+  }, [phase, pending, answerAt, contextKey, host, thread, dock, thinker, reply, voiceLevel]);
 
-  return <div ref={sprite} className="ai-presence" aria-hidden="true"><AthenaGlyph /></div>;
+  return <><div ref={sprite} className="ai-presence" aria-hidden="true">
+    <AthenaMark markRef={markElement} state={athenaMarkState(phase)} mode={phase === 'listening' ? 'voice' : 'text'} />
+  </div><span className="ai-presence-announcement" role="status">{phase === 'writing' ? 'Athena replied' : ''}</span></>;
 };

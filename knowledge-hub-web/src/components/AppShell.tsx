@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Header } from '@carbon/react';
-import { ChatLaunch, Search, Menu, Tools, Idea, DocumentAdd, Time, WarningAlt } from '@carbon/icons-react';
+import { Search, Menu, Tools, Idea, DocumentAdd, Time, WarningAlt } from '@carbon/icons-react';
 import type { CarbonIconType } from '@carbon/icons-react';
 import type { NavAttention } from '../services/api';
 import { FloatingAIChat } from './FloatingAIChat';
@@ -140,7 +140,7 @@ export const AppShell: React.FC = () => {
             onClick={() => { setPaletteOpen(true); setMenu(null); }}><Search size={20} /></button>
           <button type="button" className="kh-header__utility kh-header__athena"
             title={isThink && !hasEmbeddedAthena ? 'Open a note or canvas to use Athena' : 'Open Athena'} aria-label="Open Athena" disabled={isThink && !hasEmbeddedAthena}
-            onClick={() => { setMenu(null); launchAthena(); }}><ChatLaunch size={20} /></button>
+            onClick={() => { setMenu(null); launchAthena(); }}><img className="ai-brand-mark" src="/athena/athena-mark.svg" alt="" /></button>
           <button type="button" ref={narrow ? mobileRef : toolsRef}
             className={`kh-header__utility${tool || menu ? ' kh-header__utility--active' : ''}`}
             title={narrow ? 'Navigation and Tools' : 'Tools'} aria-label={narrow ? 'Navigation and Tools' : 'Tools'}

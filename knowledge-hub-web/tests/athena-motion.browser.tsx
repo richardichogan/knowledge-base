@@ -20,7 +20,7 @@ let run = 0;
 
 async function play(voice = false): Promise<void> {
   const id = ++run;
-  setScene({ ...idle, context: `fixture-${id}`, phase: voice ? 'listening' : 'sending' });
+  setScene({ ...idle, context: `fixture-${id}`, phase: voice ? 'listening' : 'typing' });
   await delay(1200);
   if (id !== run) return;
   setScene(s => ({ ...s, pending: true, question: true, phase: 'thinking' }));
@@ -95,12 +95,12 @@ async function runChecks(): Promise<string[]> {
     check(closeTo(centre(sprite), centre(element('.ai-presence-anchor'))), 'Idle character must be docked');
     setScene(s => ({ ...s, pending: true, question: true, phase: 'thinking', activity: 'Checking the related project notes and searching your Library for the supporting details before preparing the answer' }));
     await delay(650);
-    check(closeTo(centre(sprite), centre(element('.ai-presence-think-anchor'))), 'Thinking must travel to the centre of the pending reply');
+    check(closeTo(centre(sprite), centre(element('.ai-presence-think-anchor'))), 'Thinking must travel to the left column of the pending reply');
     const status = element<HTMLElement>('.ai-live-activity__label');
-    check(getComputedStyle(status).textAlign === 'center', 'Wrapped progress updates must stay centred');
+    check(getComputedStyle(status).textAlign === 'left', 'Wrapped progress updates must share the content column');
     check(status.getBoundingClientRect().top > element('.ai-presence-think-anchor').getBoundingClientRect().bottom, 'Progress updates must stay below the animation');
-    const pieces = [...document.querySelectorAll<HTMLElement>('.ai-presence-glyph__piece')];
-    check(pieces.every(piece => getComputedStyle(piece).borderRadius === '0px'), 'Thinking pieces must be squares');
+    const pieces = [...element('athena-mark').shadowRoot!.querySelectorAll<HTMLElement>('.box > div')];
+    check(pieces.every(piece => getComputedStyle(piece).borderRadius !== '0px'), 'Thinking retains the supplied quarter-circle shapes');
     const firstTransform = pieces[0]!.style.transform;
     await delay(100);
     check(pieces[0]!.style.transform !== firstTransform, 'Thinking squares must rotate and breathe');
@@ -108,7 +108,7 @@ async function runChecks(): Promise<string[]> {
     setScene(s => ({ ...s, phase: 'writing', answerAt, pending: false, complete: true }));
     await delay(100);
     const panel = element<HTMLElement>('.ai-answer-arrival .ai-answer-panel');
-    check(panel.getBoundingClientRect().width < 40 && panel.getBoundingClientRect().height < 40, 'Answer must begin as the supplied 36px panel');
+    check(panel.getBoundingClientRect().width < panel.parentElement!.getBoundingClientRect().width, 'Answer starts growing from the 72px mark surface');
     await delay(650);
     check(panel.getBoundingClientRect().width > 200, 'Answer must unfold across the card');
     check(closeTo(centre(sprite), centre(element('.ai-answer-arrival .ai-reply-heading__mark'))), 'Character must contract into the answer corner');
@@ -117,9 +117,9 @@ async function runChecks(): Promise<string[]> {
     check(element('.ai-answer-arrival .ai-answer-panel').getBoundingClientRect().width > 200, 'Rerendering must not restart card expansion');
     await delay(1350);
     check(closeTo(centre(sprite), centre(element('.ai-presence-anchor'))), 'Character must return home after the answer');
-    check(getComputedStyle(element('.ai-answer-arrival .ai-reply-heading__mark')).opacity === '1', 'Answer must retain its grey mark');
+    check(getComputedStyle(element('.ai-answer-arrival .ai-reply-heading__mark')).opacity === '0.55', 'Answer retains the supplied mark at 55% opacity');
     check(element('.ai-messages').scrollWidth <= element('.ai-messages').clientWidth + 1, 'Chat must not overflow horizontally');
-    results.push(`${width}px: idle, travel, morph, rotation, single unfold, grey mark and return`);
+    results.push(`${width}px: idle, travel, quarter-circle motion, single unfold, static mark and return`);
   }
   setScene({ ...idle, pending: true, question: true, phase: 'thinking', context: 'stop-check' });
   await delay(650);
@@ -146,10 +146,11 @@ async function runChecks(): Promise<string[]> {
   const host = element<HTMLElement>('.ai-conversation');
   host.style.display = 'none';
   await delay(100);
-  const paused = element<HTMLElement>('.ai-presence-glyph__piece').style.transform;
+  const piece = element('athena-mark').shadowRoot!.querySelector<HTMLElement>('.box > div')!;
+  const paused = piece.style.transform;
   await delay(100);
   check(element('.ai-presence').getAttribute('data-paused') === 'true', 'Hidden panels must pause');
-  check(element<HTMLElement>('.ai-presence-glyph__piece').style.transform === paused, 'Hidden panels must stop painting frames');
+  check(piece.style.transform === paused, 'Hidden panels must stop painting frames');
   host.style.display = '';
   results.push('Scroll fallback and hidden-panel pausing');
   setScene({ ...idle, phase: 'thinking', context: 'visibility-check' });

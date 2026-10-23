@@ -281,11 +281,22 @@ answer. Do not display provisional model rounds as final replies: those rounds
 can be discarded during tool use or evidence repair.
 
 **Athena motion.** The signature mark is four quarter-circle pieces. Typing
-morphs them into a row; thinking expands and rotates them; the accepted answer
-contracts them into its corner mark before returning to the composer. Its
+morphs them into four dots, returning to rest after 1.5 seconds without typing.
+Voice dots follow the captured microphone level. Resting breathes over 3.4 seconds
+with a periodic quarter turn; thinking uses the supplied stepped 3.2-second loop,
+not square pieces. The accepted answer contracts them into its corner mark
+before returning to the composer. State morphs take 240ms; placement travels
+400ms into the thread and 500ms home. The answer surface grows from 72px over
+400ms using transforms; content rises 16px with 100ms stagger steps. After the
+entrance and a 600ms hold, the mark returns to the dock. Every completed answer
+keeps the supplied 27px static mark at 55% opacity. The dock is 24px above the
+composer, aligned with the content column. Its
 dedicated blue palette is not a replacement for the teal application accent.
 Preserve reduced-motion support and hidden/offscreen pausing. Never change
 Windows or browser accessibility settings to make a design animate.
+The supplied custom element is served locally from `/athena/athena-mark.js`;
+its four-quarter animation maths are retained unchanged. See
+`docs/athena-mark.md` for the integration and intentional streaming adaptations.
 
 **Dialogs and images.** Shared dialogs are normally up to 480px wide (660px for
 the wide variant), constrained to the viewport. Image viewing has its own
