@@ -15278,9 +15278,11 @@ fieldset.proj-modal-body {
   .today-section-card__header { display: flex; align-items: center; gap: 0.75rem; }
 }
 
-// The supplied Athena mark owns its internal animation; this wrapper only travels.
+// The supplied ribbon owns its drawing and morphs; the presence wrapper only travels.
 .ai-brand-mark { display: inline-block; width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
-.ai-brand-mark--welcome { width: 28px; height: 28px; }
+.athena-ribbon { display: inline-block; flex-shrink: 0; line-height: 0; border-radius: 50%; background: #161616; }
+.ai-character-heading { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.ai-empty > .athena-ribbon { align-self: center; }
 .ai-presence {
   position: absolute;
   top: 0;
@@ -15293,20 +15295,20 @@ fieldset.proj-modal-body {
   contain: layout style;
 
   &[data-paused='true'] * { animation-play-state: paused !important; }
-  athena-mark { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; }
+  athena-ribbon { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); }
 }
 
 .ai-presence-anchor {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
   display: inline-block;
 }
 
 .ai-presence-think-anchor {
   position: absolute;
-  width: 28px;
-  height: 28px;
+  width: 96px;
+  height: 96px;
   left: 24px;
   top: 1.5rem;
 }
@@ -15340,7 +15342,7 @@ fieldset.proj-modal-body {
   display: block;
   width: 100%;
   max-width: 48ch;
-  padding-top: 4.5rem;
+  padding-top: 8rem;
   padding-inline: 24px;
   padding-bottom: 0.375rem;
   text-align: left;
@@ -15350,12 +15352,10 @@ fieldset.proj-modal-body {
 .ai-live-activity__helper { display: block; margin-top: 0.375rem; color: var(--cds-text-helper); font-size: var(--kh-text-meta); }
 
 .ai-reply-heading__mark {
-  width: 27px;
-  height: 27px;
-  flex: 0 0 27px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   display: inline-block;
-  background: url('/athena/athena-mark-answer.svg') center / contain no-repeat;
-  opacity: 0.55;
 }
 
 .ai-answer-panel {
@@ -15403,7 +15403,7 @@ fieldset.proj-modal-body {
 }
 
 @keyframes ai-answer-grow { from { transform: scale(var(--ai-answer-scale-x, 1), var(--ai-answer-scale-y, 1)); } to { transform: scale(1); } }
-@keyframes ai-answer-mark { from { opacity: 0; } to { opacity: 0.55; } }
+@keyframes ai-answer-mark { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ai-answer-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ai-answer-content {
   from { opacity: 0; transform: translateY(16px); }

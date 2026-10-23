@@ -71,7 +71,7 @@ export function athenaPosition(pose: AthenaPose, anchors: AthenaAnchors): Motion
   return { x: coordinate('x'), y: coordinate('y') };
 }
 
-/** Placement only; the supplied custom element owns all four-quarter animation maths. */
+/** Placement only; the supplied ribbon owns its geometry and mood morphs. */
 export class AthenaMotion {
   private phase: AthenaMotionPhase = 'idle';
   private from: AthenaPose = IDLE;

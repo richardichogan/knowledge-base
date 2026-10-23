@@ -8,7 +8,10 @@ import { UsedLine } from '../src/components/athena/UsedLine';
 import { ReplyAlternates } from '../src/components/athena/ReplyAlternates';
 import type { ContextUsedApi } from '../src/types';
 import type { AthenaMotionPhase } from '../src/chat/athenaMotion';
+import { AthenaRibbon } from '../src/components/athena/AthenaRibbon';
+import { ATHENA_MOODS, useAthenaMood, type AthenaMood } from '../src/chat/athenaMood';
 import '../src/styles/global.scss';
+import './athena-ribbon.fixture.scss';
 
 interface Scene { phase: AthenaMotionPhase; pending: boolean; answerAt: number | null; complete: boolean; question: boolean; context: string; activity: string }
 const idle: Scene = { phase: 'idle', pending: false, answerAt: null, complete: false, question: false, context: 'fixture', activity: 'Thinking' };
@@ -49,14 +52,14 @@ function Fixture(): React.ReactElement {
           host={host} thread={thread} dock={dock} thinker={thinker} reply={mark} />
         <div ref={thread} className="ai-messages">
           <ChatBubble role="assistant">
-            <div className="ai-reply-heading" aria-hidden="true"><span className="ai-reply-heading__mark" /><span>Athena</span></div>
+            <div className="ai-reply-heading" aria-hidden="true"><span className="ai-reply-heading__mark"><AthenaRibbon still /></span><span>Athena</span></div>
             <div className="ai-bubble-text">You own the positioning alignment task.</div>
           </ChatBubble>
           {scene.question && <ChatBubble role="user"><div className="ai-bubble-text">draft the core IMAGINE story</div></ChatBubble>}
           {scene.pending && <LiveReply activity={scene.activity} startedAt={Date.now()} thinkerRef={thinker} />}
           {scene.complete && (
             <ChatBubble role="assistant" arrivalAt={scene.answerAt}>
-              <div className="ai-reply-heading" aria-hidden="true"><span ref={mark} className="ai-reply-heading__mark" /><span>Athena</span></div>
+              <div className="ai-reply-heading" aria-hidden="true"><span ref={mark} className="ai-reply-heading__mark"><AthenaRibbon /></span><span>Athena</span></div>
               <div className="ai-bubble-text">{answer}</div>
               <div className="ai-output-chips"><button className="ai-output-chip">IMAGINE core story · v1 <span className="ai-output-chip__open">Saved to Outputs</span></button></div>
             </ChatBubble>
@@ -99,11 +102,10 @@ async function runChecks(): Promise<string[]> {
     const status = element<HTMLElement>('.ai-live-activity__label');
     check(getComputedStyle(status).textAlign === 'left', 'Wrapped progress updates must share the content column');
     check(status.getBoundingClientRect().top > element('.ai-presence-think-anchor').getBoundingClientRect().bottom, 'Progress updates must stay below the animation');
-    const pieces = [...element('athena-mark').shadowRoot!.querySelectorAll<HTMLElement>('.box > div')];
-    check(pieces.every(piece => getComputedStyle(piece).borderRadius !== '0px'), 'Thinking retains the supplied quarter-circle shapes');
-    const firstTransform = pieces[0]!.style.transform;
+    const canvas = element('.ai-presence athena-ribbon').shadowRoot!.querySelector<HTMLCanvasElement>('.main')!;
+    const firstFrame = canvas.toDataURL();
     await delay(100);
-    check(pieces[0]!.style.transform !== firstTransform, 'Thinking squares must rotate and breathe');
+    check(canvas.toDataURL() !== firstFrame, 'The supplied thinking ribbon must twist and rotate');
     const answerAt = Date.now();
     setScene(s => ({ ...s, phase: 'writing', answerAt, pending: false, complete: true }));
     await delay(100);
@@ -117,9 +119,9 @@ async function runChecks(): Promise<string[]> {
     check(element('.ai-answer-arrival .ai-answer-panel').getBoundingClientRect().width > 200, 'Rerendering must not restart card expansion');
     await delay(1350);
     check(closeTo(centre(sprite), centre(element('.ai-presence-anchor'))), 'Character must return home after the answer');
-    check(getComputedStyle(element('.ai-answer-arrival .ai-reply-heading__mark')).opacity === '0.55', 'Answer retains the supplied mark at 55% opacity');
+    check(getComputedStyle(element('.ai-answer-arrival .ai-reply-heading__mark')).opacity === '1', 'Answer retains the supplied ribbon at its original brightness');
     check(element('.ai-messages').scrollWidth <= element('.ai-messages').clientWidth + 1, 'Chat must not overflow horizontally');
-    results.push(`${width}px: idle, travel, quarter-circle motion, single unfold, static mark and return`);
+    results.push(`${width}px: idle, travel, live ribbon, single unfold and return`);
   }
   setScene({ ...idle, pending: true, question: true, phase: 'thinking', context: 'stop-check' });
   await delay(650);
@@ -146,11 +148,11 @@ async function runChecks(): Promise<string[]> {
   const host = element<HTMLElement>('.ai-conversation');
   host.style.display = 'none';
   await delay(100);
-  const piece = element('athena-mark').shadowRoot!.querySelector<HTMLElement>('.box > div')!;
-  const paused = piece.style.transform;
+  const canvas = element('.ai-presence athena-ribbon').shadowRoot!.querySelector<HTMLCanvasElement>('.main')!;
+  const paused = canvas.toDataURL();
   await delay(100);
   check(element('.ai-presence').getAttribute('data-paused') === 'true', 'Hidden panels must pause');
-  check(piece.style.transform === paused, 'Hidden panels must stop painting frames');
+  check(canvas.toDataURL() === paused, 'Hidden panels must stop painting frames');
   host.style.display = '';
   results.push('Scroll fallback and hidden-panel pausing');
   setScene({ ...idle, phase: 'thinking', context: 'visibility-check' });
@@ -166,6 +168,7 @@ declare global {
     runAthenaMotionChecks: typeof runChecks;
     playAthenaMotion: typeof play;
     setAthenaMotionScene: (scene: Partial<Scene>) => void;
+    runAthenaRibbonChecks: () => Promise<string[]>;
   }
 }
 function ReferencesFixture(): React.ReactElement {
@@ -188,7 +191,7 @@ function ReferencesFixture(): React.ReactElement {
       <div className={`ai-conversation${compact ? ' ai-chat-compact__body' : ''}`}>
         <div className="ai-messages">
           <ChatBubble role="assistant">
-            <div className="ai-reply-heading"><span className="ai-reply-heading__mark" /><span>Athena</span></div>
+            <div className="ai-reply-heading"><span className="ai-reply-heading__mark"><AthenaRibbon still /></span><span>Athena</span></div>
             <div className="ai-bubble-text">You’re welcome, Richard.</div>
             <div className="ai-reply-references">
               <ReplyMeta persona="blog_post" />
@@ -207,4 +210,65 @@ function ReferencesFixture(): React.ReactElement {
 window.runAthenaMotionChecks = runChecks;
 window.playAthenaMotion = play;
 window.setAthenaMotionScene = scene => { ++run; setScene(current => ({ ...current, ...scene })); };
-createRoot(document.getElementById('root')!).render(new URLSearchParams(location.search).has('references') ? <ReferencesFixture /> : <Fixture />);
+
+function RibbonFixture(): React.ReactElement {
+  const [preview, setPreview] = useState<AthenaMood | null>(null);
+  const [phase, setPhase] = useState<AthenaMotionPhase>('idle');
+  const [context, setContext] = useState(0);
+  const { mood, emote, clearEmotion } = useAthenaMood(phase, String(context));
+  const shown = preview ?? mood;
+  return <main className="ribbon-fixture">
+    <h1>Athena Ribbon</h1>
+    <p>Supplied renderer. Synthetic events only; no API calls.</p>
+    <div className="ribbon-fixture__hero"><AthenaRibbon mood={shown} size={240} track /></div>
+    <div className="ribbon-fixture__controls" aria-label="Preview moods">
+      {ATHENA_MOODS.map(m => <button key={m} data-mood={m} aria-pressed={shown === m} onClick={() => { setPreview(m); }}>{m}</button>)}
+    </div>
+    <div className="ribbon-fixture__controls">
+      <button data-event="happy" onClick={() => { setPreview(null); setPhase('idle'); emote('happy'); }}>Positive feedback</button>
+      <button data-event="thinking" onClick={() => { setPreview(null); clearEmotion(); setPhase('thinking'); }}>Request sent</button>
+      <button data-event="answer" onClick={() => { setPreview(null); setPhase('writing'); }}>Accepted answer</button>
+      <button data-event="context" onClick={() => { setPreview(null); setPhase('idle'); setContext(c => c + 1); }}>Switch chat</button>
+    </div>
+    <section className="ribbon-fixture__chat" aria-label="Chat sizes">
+      <div className="ai-character-heading"><AthenaRibbon mood={shown} size={44} silent={false} /><span>Athena</span></div>
+      <div className="ribbon-fixture__message"><AthenaRibbon size={32} still /><span>Previous reply: one settled frame.</span></div>
+      <div className="ribbon-fixture__message"><AthenaRibbon mood={shown} size={32} /><span>Latest reply: {shown}.</span></div>
+    </section>
+    <section className="ribbon-fixture__grid" aria-label="All nine supplied moods">
+      {ATHENA_MOODS.map(m => <figure key={m}><AthenaRibbon mood={m} size={140} /><figcaption>{m}</figcaption></figure>)}
+    </section>
+  </main>;
+}
+
+window.runAthenaRibbonChecks = async () => {
+  const click = (selector: string): void => { element<HTMLButtonElement>(selector).click(); };
+  const header = (): Element => element('.ribbon-fixture__chat athena-ribbon');
+  check(document.querySelectorAll('.ribbon-fixture__grid athena-ribbon').length === 9, 'All nine moods must be present');
+  for (const mood of ATHENA_MOODS) {
+    click(`[data-mood="${mood}"]`);
+    await delay(50);
+    check(header().getAttribute('mood') === mood, `Header must share ${mood}`);
+    check(header().shadowRoot!.querySelectorAll('canvas').length === 2, 'Actual ribbon and glow canvases must render');
+  }
+  check(element('.ribbon-fixture__hero athena-ribbon').getBoundingClientRect().width === 240, 'Welcome character is 240px');
+  check(header().getBoundingClientRect().width === 44, 'Header is 44px');
+  check(element('.ribbon-fixture__message athena-ribbon').hasAttribute('still'), 'Old messages are still');
+  click('[data-event="happy"]');
+  await delay(100);
+  check(header().getAttribute('mood') === 'happy', 'Positive feedback must be happy');
+  await delay(2500);
+  check(header().getAttribute('mood') === 'resting', 'Emotion must decay after 2500ms');
+  click('[data-event="happy"]');
+  await delay(20);
+  click('[data-event="thinking"]');
+  await delay(20);
+  check(header().getAttribute('mood') === 'thinking', 'A new turn must override old emotion');
+  click('[data-event="context"]');
+  await delay(20);
+  check(header().getAttribute('mood') === 'resting', 'Switching chat must clear mood');
+  check(document.documentElement.scrollWidth <= window.innerWidth, 'No horizontal overflow');
+  return ['All nine supplied moods, 240/44/32px sizes, still history, shared mood events, timed emotion decay and context isolation'];
+};
+const params = new URLSearchParams(location.search);
+createRoot(document.getElementById('root')!).render(params.has('ribbon') ? <RibbonFixture /> : params.has('references') ? <ReferencesFixture /> : <Fixture />);

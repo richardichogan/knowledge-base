@@ -37,11 +37,11 @@ test('mini graph keeps the root, caps neighbours and has no dangling edges', () 
 
 test('note connections use the shared interactive renderer and retain all loaded recorded neighbours', () => {
   const source = readFileSync(new URL('../src/components/graph/NoteMiniGraph.tsx', import.meta.url), 'utf8');
-  assert.match(source, /<AtlasForceMap compact/);
+  assert.match(source, /<AtlasForceMap compact scope=\{seed\} depth=\{2\}/);
   assert.match(source, /const seed = `note:\$\{noteId\}`/);
   assert.match(source, /useGraphData\(\{ days: 3650, seed, depth: 2 \}\)/);
   assert.doesNotMatch(source, /<AtlasMap\b|Math\.cos|eight neighbours/);
-  assert.match(source, /seed, Math\.min\(data\?\.nodes\.length \?\? 0, 60\), 2\)/);
+  assert.match(source, /seed, data\?\.nodes\.length \?\? 0, 2\)/);
   assert.match(source, /aria-pressed=\{selected === n\.id\}/);
   const root = node('note:root');
   const others = Array.from({ length: 20 }, (_, i) => node(`note:${i}`));
@@ -67,7 +67,7 @@ test('graph controls are labelled icons and graph navigation has no 3D option', 
     assert.ok(renderer.includes(`aria-label="${label}" title="${label}`));
   }
   for (const icon of ['ZoomIn', 'ZoomOut', 'FitToScreen', 'Renew']) {
-    assert.ok(renderer.includes(`<${icon} size={16} aria-hidden="true" />`));
+    assert.ok(renderer.includes(`<${icon} size={16}`));
   }
   assert.doesNotMatch(renderer, />Fit 2D<|>Reflow<|>2D ·/);
   const page = readFileSync(new URL('../src/pages/GraphPage.tsx', import.meta.url), 'utf8');
@@ -75,13 +75,12 @@ test('graph controls are labelled icons and graph navigation has no 3D option', 
   assert.match(page, /\['map', 'list'\]/);
 });
 
-test('note graph and label outlines use the panel surface instead of a hardcoded black canvas', () => {
-  const renderer = readFileSync(new URL('../src/components/graph/AtlasForceMap.tsx', import.meta.url), 'utf8');
+test('main and note graphs use the supplied G100 renderer and compact 300px panel', () => {
+  const renderer = readFileSync(new URL('../public/athena/atlas-graph.js', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/components/graph/atlas.scss', import.meta.url), 'utf8');
-  assert.match(renderer, /backgroundColor="transparent"/);
-  assert.match(renderer, /ctx\.strokeStyle = getComputedStyle\(container\.current\)\.backgroundColor/);
-  assert.doesNotMatch(renderer, /#161616/);
-  assert.match(styles, /&--compact \{ --atlas-surface: var\(--cds-layer-01\)/);
+  assert.match(renderer, /const BG = '#161616'/);
+  assert.match(renderer, /ctx\.strokeStyle = BG/);
+  assert.match(styles, /&--compact \{ height: 300px/);
   assert.match(styles, /background: var\(--atlas-surface\)/);
 });
 

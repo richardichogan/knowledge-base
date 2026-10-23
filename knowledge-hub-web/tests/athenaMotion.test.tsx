@@ -57,13 +57,11 @@ test('scrolling or a compact viewport cannot leave the mark over clipped history
   ]) assert.equal(replyAnchorVisible(anchor, thread), false);
 });
 
-test('React 18 wrapper forwards custom-element attributes without adding keyboard stops', () => {
+test('compatibility wrapper uses the supplied ribbon without adding keyboard stops', () => {
   const html = renderToStaticMarkup(<AthenaMark state="listening" mode="voice" />);
-  assert.match(html, /<athena-mark/);
-  assert.match(html, /state="listening"/);
-  assert.match(html, /mode="voice"/);
-  assert.match(html, /size="28"/);
-  assert.match(html, /variant="ticks"/);
+  assert.match(html, /<athena-ribbon/);
+  assert.match(html, /mood="listening"/);
+  assert.match(html, /size="32"/);
   assert.match(html, /silent=""/);
   assert.doesNotMatch(html, /tabindex|<button|<input/);
 });
@@ -78,7 +76,7 @@ test('working state retains actual activity and adds a single helper after eight
   assert.doesNotMatch(render(20), /cds--loading/);
 });
 
-test('motion styles use transform growth, supplied corner assets, teal controls and reduced motion', () => {
+test('motion styles preserve answer growth, ribbon slots, controls and reduced motion', () => {
   const scss = readFileSync(new URL('../src/styles/global.scss', import.meta.url), 'utf8');
   const start = scss.indexOf('.ai-presence {');
   const end = scss.indexOf('// Shown above the composer', start);
@@ -86,8 +84,9 @@ test('motion styles use transform growth, supplied corner assets, teal controls 
   assert.match(css, /ai-answer-grow 400ms/);
   assert.match(css, /72|ai-answer-scale-x/);
   assert.match(css, /translateY\(16px\)/);
-  assert.match(css, /athena-mark-answer.svg/);
-  assert.match(css, /opacity: 0.55/);
+  assert.match(css, /athena-ribbon/);
+  assert.match(css, /width: 96px/);
+  assert.match(css, /width: 32px/);
   assert.match(css, /border-color: var\(--kh-accent\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /animation: none !important/);

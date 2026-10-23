@@ -22,16 +22,33 @@
 .atlas {
   display: flex; flex-direction: column; height: 100%; min-height: 560px;
   background: var(--cds-background); overflow: hidden;
-  &__header { display: flex; gap: 1rem; align-items: center; justify-content: space-between; padding: 0.75rem 1rem;
-    h1 { font-size: 1.5rem; font-weight: 600; line-height: 1.4; margin: 0; }
+  &--handoff { background: #161616; color: #f4f4f4; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  &__header { display: flex; gap: 1rem; align-items: end; justify-content: space-between; padding: 1rem 1.5rem; border-bottom: 1px solid #393939;
+    h1 { font-size: var(--kh-text-heading, 24px); font-weight: 600; line-height: 1.4; margin: 0; }
     p { color: var(--cds-text-secondary); margin: 0.25rem 0 0; }
   }
+  &__breadcrumb { display: flex; gap: 0.5rem; font-size: var(--kh-text-meta); color: #a8a8a8; margin-bottom: 0.5rem; }
+  &__summary { display: grid; justify-items: end; gap: 0.5rem; font-size: var(--kh-text-meta); color: #a8a8a8; }
   &__modes { display: flex; gap: 0.25rem; }
-  &__toolbar { display: flex; gap: 0.75rem; align-items: end; padding: 0.5rem 1rem;
+  &__toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; padding: 0.75rem 1.5rem;
     label { display: flex; gap: 0.25rem; flex-direction: column; font-size: var(--kh-text-meta); color: var(--cds-text-secondary); }
     select { max-width: 180px; }
   }
-  &__search { position: relative; flex: 1; max-width: 460px; min-width: 180px; input { width: 100%; } }
+  &__search { position: relative; flex: 1; max-width: 320px; min-width: 180px; input { width: 100%; height: 36px; } }
+  &__types { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  &__dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+  button.atlas__type { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 32px; height: 32px; border-radius: 999px;
+    font-size: var(--kh-text-meta); padding: 0 10px; background: #262626; border-color: #525252; color: #f4f4f4;
+    span:last-child { color: #c6c6c6; }
+    &--off { background: transparent; color: #a8a8a8; border-color: #393939; .atlas__dot { opacity: 0.35; } }
+    &:disabled { cursor: default; opacity: 1; }
+    &:hover:not(:disabled) { background: #353535; }
+  }
+  &__range { display: flex; align-items: center; gap: 0; white-space: nowrap; font-size: var(--kh-text-meta);
+    > span { color: #a8a8a8; margin-right: 0.5rem; }
+    button { min-height: 32px; height: 32px; border-radius: 0; margin-left: -1px; background: transparent; padding: 0 8px; }
+    button[aria-pressed="true"] { color: #f4f4f4; background: #393939; border-color: #6f6f6f; position: relative; }
+  }
   &__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   &__results { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; background: var(--cds-layer-01);
     border: 1px solid var(--cds-border-strong-01); box-shadow: 0 8px 24px #0005; padding: 0.5rem; max-height: 380px; overflow: auto;
@@ -49,13 +66,31 @@
   }
   &__workspace { display: flex; flex: 1; min-height: 240px; overflow: hidden; border-top: 1px solid var(--cds-border-subtle-01); }
   &__stage { flex: 1; min-width: 0; position: relative; overflow: auto; .graph-relationships { padding: 1.5rem; } }
+  button.atlas__show-all { position: absolute; top: 16px; left: 20px; background: #262626; border-color: #525252; }
+  &__legend { position: absolute; bottom: 16px; left: 20px; right: 76px; display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem;
+    font-size: var(--kh-text-meta); color: #c6c6c6; pointer-events: none;
+    > span { display: inline-flex; align-items: center; gap: 0.35rem; background: #161616; }
+  }
   &__empty { padding: 3rem; text-align: start; h2 { margin-bottom: 1rem; } }
-  &__inspector { width: 320px; flex: 0 0 320px; padding: 1.25rem; overflow: auto; border-left: 1px solid var(--cds-border-subtle-01); position: relative;
+  &__inspector { width: 360px; flex: 0 0 360px; box-sizing: border-box; padding: 24px; overflow: auto; background: #1c1c1c; border-left: 1px solid #393939; position: relative;
     h2 { overflow-wrap: anywhere; margin: 0.5rem 0 1rem; padding-right: 1.5rem; }
     p { color: var(--cds-text-secondary); overflow-wrap: anywhere; }
   }
   &__close { position: absolute; top: 0.5rem; right: 0.5rem; }
-  &__kind { color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
+  &__kind { display: flex; align-items: center; gap: 0.5rem; color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
+  &__selected { position: relative; padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid #393939;
+    h2 { font-size: var(--kh-text-heading-small, 20px); }
+  }
+  &__inspector .atlas__quiet { color: #ff8389; }
+  &__edge-detail { padding-bottom: 1rem; border-bottom: 1px solid #393939; margin-bottom: 1.5rem; }
+  button.atlas__athena-action { color: #3ddbd9; border-color: #3ddbd9; background: rgba(61, 219, 217, 0.08);
+    &:hover:not(:disabled) { background: rgba(61, 219, 217, 0.16); }
+    &:active:not(:disabled) { background: rgba(61, 219, 217, 0.24); }
+  }
+  &__insights { border-top: 1px solid #393939; margin-top: 24px; padding-top: 24px;
+    article { padding: 16px 0; border-bottom: 1px solid #393939; }
+    h3 { margin: 0 0 8px; }
+  }
   &__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
   &__connections { list-style: none; padding: 0; margin: 0;
     li { border-bottom: 1px solid var(--cds-border-subtle-01); padding: 0.75rem 0; }
@@ -91,15 +126,17 @@
   &__label { padding: 0.5rem 0.75rem; display: block; background: var(--cds-layer-01); color: var(--cds-text-primary); font: 14px 'IBM Plex Sans', sans-serif; }
 }
 .atlas-force { position: relative; height: 100%; min-height: 260px; overflow: hidden;
-  --atlas-surface: var(--cds-background);
+  --atlas-surface: #161616;
   background: var(--atlas-surface);
+  atlas-graph { position: absolute; inset: 0; }
   canvas { display: block; }
-  &--compact { --atlas-surface: var(--cds-layer-01); height: 360px; min-width: 0; }
-  &__tools { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 2;
-    display: flex; gap: 2px; padding: 2px; border-radius: var(--kh-radius-sm); background: transparent;
+  &--compact { height: 300px; width: 100%; min-width: 0; }
+  &__error { position: absolute; top: 1rem; left: 1rem; right: 1rem; background: #262626; padding: 1rem; color: #ff8389; }
+  &__tools { position: absolute; bottom: 16px; right: 20px; z-index: 2;
+    display: flex; flex-direction: column; gap: 0; border: 1px solid #525252; border-radius: 4px; background: #262626;
     button { display: inline-flex; align-items: center; justify-content: center;
-      width: var(--kh-control-height-compact, 32px); height: var(--kh-control-height-compact, 32px);
-      min-height: var(--kh-control-height-compact, 32px); padding: 0; border: 0;
+      width: 36px; height: 36px;
+      min-height: 36px; padding: 0; border: 0;
       background: transparent; color: var(--cds-text-secondary);
       &:hover:not(:disabled) { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); }
       &:active:not(:disabled) { background: var(--cds-layer-active-01); }
@@ -110,6 +147,29 @@
     background: var(--atlas-surface); color: var(--cds-text-primary); font-size: var(--kh-text-meta);
     line-height: 1.5; overflow-wrap: anywhere; pointer-events: none; }
 }
+.atlas-ask {
+  &__heading { display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+    h2 { margin: 0; font-size: var(--kh-text-body); } athena-ribbon { flex: 0 0 32px; }
+  }
+  label { display: block; color: #c6c6c6; font-size: var(--kh-text-meta); margin: 8px 0; }
+  &__input { display: flex; gap: 8px; input { min-width: 0; flex: 1; } }
+  details { margin: 12px 0; summary { padding: 4px 0; font-size: var(--kh-text-meta); } select { width: 100%; margin-bottom: 8px; } }
+  button.atlas-ask__project { display: block; width: 100%; text-align: start; margin: 8px 0; }
+  .atlas-ask__error { color: #ff8389; margin-top: 12px; }
+  &__answer { margin-top: 16px; }
+  &__question { font-weight: 600; overflow-wrap: anywhere; }
+  &__steps { list-style: none; padding: 0; margin: 16px 0; }
+  &__step { position: relative; padding: 0 0 16px 24px; animation: atlas-step-in 240ms both; animation-delay: var(--atlas-step-delay);
+    &::before { content: ''; position: absolute; top: 8px; left: 0; width: 8px; height: 8px; border-radius: 50%; background: #4589ff; }
+    &:not(:last-child)::after { content: ''; position: absolute; top: 16px; bottom: 0; left: 3px; width: 2px; background: #4589ff; }
+    button { padding: 0; border: 0; background: transparent; min-height: 24px; text-align: start; overflow-wrap: anywhere; }
+    > span { display: block; font-size: var(--kh-text-meta); color: #a8a8a8; }
+    &--quiet > span { color: #ff8389; }
+  }
+  .atlas-ask__coverage { font-size: var(--kh-text-meta); color: #a8a8a8; margin-top: 16px; }
+}
+@keyframes atlas-step-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .atlas-ask__step { animation: none; } }
 .atlas-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden;
   button.atlas-labels__item { position: absolute; pointer-events: auto; min-height: 26px; height: 26px; padding: 3px 7px;
     border: 0; background: var(--cds-background); color: var(--cds-text-primary); font-size: 12px; line-height: 20px;

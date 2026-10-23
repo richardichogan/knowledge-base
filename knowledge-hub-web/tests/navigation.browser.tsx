@@ -873,7 +873,7 @@ async function runChatResetChecks(): Promise<string[]> {
     await tick();
   };
   const onAnimation = (event: AnimationEvent): void => {
-    if (event.animationName === 'ai-answer-width') unfoldCount++;
+    if (event.animationName === 'ai-answer-grow') unfoldCount++;
   };
   document.addEventListener('animationstart', onAnimation);
   window.fetch = async input => {
@@ -911,17 +911,21 @@ async function runChatResetChecks(): Promise<string[]> {
       check(selector('.ai-presence-think-anchor') === thinker, 'Reset must not replace the pending reply');
       check(selector('.ai-live-activity').textContent?.includes(`Checking references ${round}`) === true, 'Progress remains visible');
       check(document.querySelector('.ai-answer-arrival') === null, 'Reset must not start answer choreography');
+      check(selector('.ai-chat-standalone__topbar athena-ribbon').getAttribute('mood') === 'thinking', 'Provisional drafts must not change the shared ribbon mood');
     }
     await send({ type: 'done', data: {
       sessionId, reply: 'Accepted final fixture answer.', assistantMessageId: 'accepted-fixture-answer', pendingActions: [],
+      nextSteps: ['Inspect linked notes'],
     } });
     stream!.close();
     stream = undefined;
     await waitFor(() => document.querySelector('.ai-answer-arrival')?.textContent?.includes('Accepted final fixture answer.') === true);
+    check(selector('.ai-chat-standalone__topbar athena-ribbon').getAttribute('mood') === 'answering', 'Accepted answer must drive answering');
     await new Promise(resolve => window.setTimeout(resolve, 2400));
     check(unfoldCount === 1, 'Exactly one answer unfold is allowed per successful turn');
     check(document.querySelector('.ai-presence-think-anchor') === null, 'Accepted answer cannot return to thinking');
-    check(document.querySelectorAll('.ai-answer-arrival').length === 1, 'Only one final answer is rendered');
+    check([...document.querySelectorAll('.ai-bubble--ai')].filter(b => b.textContent?.includes('Accepted final fixture answer.')).length === 1, 'Only one final answer remains after its entrance ends');
+    check(selector('.ai-chat-standalone__topbar athena-ribbon').getAttribute('mood') === 'curious', 'Real suggestions drive curious after the answer entrance');
     for (const stopped of [true, false]) {
       await submit();
       await send({ type: 'delta', text: 'Provisional failed draft' });
@@ -931,9 +935,11 @@ async function runChatResetChecks(): Promise<string[]> {
       await waitFor(() => !selector<HTMLTextAreaElement>('#ai-chat-input').disabled);
       check(document.querySelector('.ai-answer-arrival') === null, 'Stopped or failed turns must not animate an answer');
       check(!selector('.ai-messages').textContent?.includes('Provisional'), 'Failed draft must not leak into history');
+      if (!stopped) check(selector('.ai-chat-standalone__topbar athena-ribbon').getAttribute('mood') === 'sorry', 'Actual failures show sorry alongside their error text');
     }
     return ['Three draft/reset/tool rounds and a populated reconnect snapshot keep one stable working view',
-      'Only the successful final result reveals once; stopped/failed drafts never appear'];
+      'Only the successful final result reveals once; stopped/failed drafts never appear',
+      'Actual chat header shares thinking, answering, curious and sorry moods'];
   } finally {
     stream?.close();
     document.removeEventListener('animationstart', onAnimation);

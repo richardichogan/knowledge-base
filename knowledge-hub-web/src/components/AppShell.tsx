@@ -140,7 +140,7 @@ export const AppShell: React.FC = () => {
             onClick={() => { setPaletteOpen(true); setMenu(null); }}><Search size={20} /></button>
           <button type="button" className="kh-header__utility kh-header__athena"
             title={isThink && !hasEmbeddedAthena ? 'Open a note or canvas to use Athena' : 'Open Athena'} aria-label="Open Athena" disabled={isThink && !hasEmbeddedAthena}
-            onClick={() => { setMenu(null); launchAthena(); }}><img className="ai-brand-mark" src="/athena/athena-mark.svg" alt="" /></button>
+            onClick={() => { setMenu(null); launchAthena(); }}><img className="ai-brand-mark" src="/athena/ribbon-avatar-64.png" alt="" /></button>
           <button type="button" ref={narrow ? mobileRef : toolsRef}
             className={`kh-header__utility${tool || menu ? ' kh-header__utility--active' : ''}`}
             title={narrow ? 'Navigation and Tools' : 'Tools'} aria-label={narrow ? 'Navigation and Tools' : 'Tools'}

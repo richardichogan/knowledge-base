@@ -14,6 +14,7 @@ interface ReplyFeedbackProps {
   reply: string;
   persona: AthenaPersona | undefined;
   sessionId: string | null;
+  onPositive?: () => void;
 }
 
 type State =
@@ -23,13 +24,18 @@ type State =
   | { step: 'suggested'; memory: AthenaMemory }
   | { step: 'done'; message: string };
 
-export const ReplyFeedback: React.FC<ReplyFeedbackProps> = ({ reply, persona, sessionId }) => {
+export const ReplyFeedback: React.FC<ReplyFeedbackProps> = ({ reply, persona, sessionId, onPositive }) => {
   const [state, setState] = useState<State>({ step: 'idle' });
 
   function like(): void {
     setState({ step: 'liked', memoryId: null });
     void api.sendReplyFeedback({ sessionId, rating: 'up', replyContent: reply, persona: persona ?? 'general' })
-      .then((r) => { if (r.success && r.data.memory !== null) setState({ step: 'liked', memoryId: r.data.memory.id }); })
+      .then((r) => {
+        if (r.success) {
+          onPositive?.();
+          if (r.data.memory !== null) setState({ step: 'liked', memoryId: r.data.memory.id });
+        }
+      })
       .catch(() => { setState({ step: 'idle' }); });
   }
 

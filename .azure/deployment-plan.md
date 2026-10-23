@@ -2,6 +2,55 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, Atlas and Ribbon release):**
+- `git fetch origin` and `git merge --no-edit origin/main` completed twice;
+  the worktree remains current with 3714cd9 and there are no merge conflicts.
+- Both `npx tsc --noEmit` checks and `npm run build` in the frontend passed.
+- Full frontend isolated release suite passed: 216 tests (199 + 6 + 3 + 2 + 6),
+  zero failures. Frontend lint non-regression passed: 23 existing violations,
+  within the existing baseline of 41; no baseline edits.
+- The production build uses the established HTTPS backend and Entra settings,
+  with no embedded API token. Both supplied renderer files and the favicon/
+  192px/512px icons match public-source SHA-256 hashes exactly in dist.
+  Both scripts are loaded by the built entry; no tests directory is shipped.
+- Azure CLI verified the existing SWA hostname, custom domain and West Europe
+  location; the user confirmed this exact production target. SWA CLI is 2.1.0.
+- Backend remains kh-prod-api:v238, ready revision kh-prod-api-vnet--0000235.
+  No backend code, schema, resource, role, identity or secret changes are deployed.
+- Architecture/hosting fit: existing React adapters, graph APIs and static assets;
+  no new dependency or model cost; typed contracts retained. No new secret handling
+  or production-data writes. Thin wrappers around supplied renderers avoid a
+  second physics/animation implementation. Pinned handoff colours are intentional.
+- Desktop and narrow-chat synthetic checks passed before release, including
+  force drag/release, graph paths, nine moods, hidden-instance pausing and the
+  actual chat's three provisional draft/reset rounds revealing only one answer.
+- `git diff --check` passed. Logs are session files:
+  atlas-ribbon-release-{build,tests,lint}.log.
+
+**Current release (2026-10-23, supplied Atlas graph and Athena Ribbon):**
+- User explicitly requested deployment and confirmed the existing production
+  frontend: kh-prod-web, West Europe, rg-knowledge-hub-prod, subscription
+  Alliance Tenant Reporting (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28).
+- Frontend-only AZCLI/SWA application release. The backend and production
+  database remain unchanged; no infrastructure, IAM, secret or dependency changes.
+- Imported the supplied Atlas renderer and ribbon character, wired to existing
+  typed graph/chat contracts. Company focus retains connected record context.
+  Accepted-answer-only presentation remains intact.
+- Fetched origin and merged origin/main; already current at 3714cd9.
+- All validation checks must pass:
+  - Both explicit TypeScript checks and the frontend production build.
+  - Full frontend isolated release suite and frontend lint non-regression check.
+  - Existing target/authentication, production build settings, static asset
+    presence and diff hygiene.
+  - Bicep, what-if, resource provisioning and RBAC changes are not applicable:
+    this deploy only uploads assets to the established Static Web App.
+- Targeted implementation checks already passed: graph adapters/renderer,
+  ribbon geometry/moods/lifecycle, desktop and narrow-chat synthetic fixtures,
+  and actual chat SSE draft/reset/accepted-answer regression.
+- Post-deploy: verify the custom/default public domains and compare deployed
+  entry assets, both supplied renderers and ribbon icons against local hashes.
+- Preserve unrelated pre-existing .impeccable/hook.cache.json changes.
+
 **Section 7: Validation Proof (2026-10-23, demo specification and Think fixes):**
 - origin/main fetched twice; HEAD f9f2f93 includes all remote changes before release.
 - Both explicit TypeScript checks and both production builds passed.

@@ -8,8 +8,12 @@ const frontend = process.argv.includes('--frontend');
 const tests = frontend ? [
   '../knowledge-hub-web/tests/athenaMotion.test.tsx',
   '../knowledge-hub-web/tests/athenaMarkElement.test.ts',
+  '../knowledge-hub-web/tests/athenaRibbonElement.test.ts',
+  '../knowledge-hub-web/tests/athenaMood.test.tsx',
   '../knowledge-hub-web/tests/replyReferences.test.tsx',
   '../knowledge-hub-web/tests/graphAtlas.test.ts',
+  '../knowledge-hub-web/tests/atlasData.test.ts',
+  '../knowledge-hub-web/tests/atlasElement.test.ts',
   '../knowledge-hub-web/tests/diagramUsability.test.ts',
   '../knowledge-hub-web/tests/imageClipboard.test.ts',
   '../knowledge-hub-web/tests/spellingTarget.test.ts',

@@ -24,6 +24,8 @@ import { DataNotice } from '../components/DataNotice';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
 import { LiveReply, ThinkingReply } from '../components/athena/LiveReply';
 import { AthenaPresence } from '../components/athena/AthenaPresence';
+import { AthenaRibbon } from '../components/athena/AthenaRibbon';
+import { useAthenaMood } from '../chat/athenaMood';
 import { ChatBubble } from '../components/athena/ChatBubble';
 import { athenaMotionPhase, athenaExpressiveEase, microphoneLevel, ATHENA_ANSWER_MS, ATHENA_MIN_THINK_MS, ATHENA_TYPING_IDLE_MS } from '../chat/athenaMotion';
 import { SideTabsPanel } from '../components/SideTabsPanel';
@@ -809,6 +811,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // Fresh controller per turn — Stop only ever aborts the request that's actually in flight.
       chatAbortControllerRef.current = new AbortController();
       setReplyArrival(null);
+      clearEmotion();
     },
     mutationFn: async ({ text, composerDraft, pageContext: ctx, resumeTurnId, resumeStartedAt, screenReview }: { text: string; composerDraft?: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string; screenReview?: ChatRequest['screenReview'] }) => {
       // Runs on the server in the background; this view follows it live and
@@ -876,7 +879,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         }
       }
     },
-    onSuccess: (result) => {
+    onSuccess: (result, { text }) => {
       setLiveTurn(null);
       if (!result.success) setReplyArrival(null);
       if (!result.success && result.error.code === 'TURN_GONE' && sessionId !== null) {
@@ -894,6 +897,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         return;
       }
       if (sessionId === null) persistSessionId(result.data.sessionId, true);
+      if (!result.data.reply.trim()) {
+        appendMessage('assistant', 'Error: Athena returned no answer. Please try again.');
+        return;
+      }
       setReplyArrival({ startedAt: Date.now(), complete: true });
       appendMessage('assistant', result.data.reply, {
         persona: result.data.persona,
@@ -909,6 +916,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         contextUsed: result.data.contextUsed,
         nextSteps: result.data.nextSteps,
       });
+      if (result.data.contextUsed?.warnings?.length) emote('unsure', ATHENA_ANSWER_MS);
+      else if (/^(thanks|thank you|cheers)[!.\s]*$/i.test(text.trim())) emote('happy', ATHENA_ANSWER_MS);
+      else if (result.data.outputsChanged?.length) emote('excited', ATHENA_ANSWER_MS);
+      else if (result.data.nextSteps?.length || result.data.pendingActions.length) emote('curious', ATHENA_ANSWER_MS);
       // Athena saved or revised an output: refresh the panel and open it there.
       const changed = result.data.outputsChanged ?? [];
       setPanelRefresh((n) => n + 1);
@@ -1146,6 +1157,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       nextSteps?: string[] | undefined;
     } = {},
   ): void {
+    if (role === 'user') clearEmotion();
+    else if (/^(Error:|⚠️)/.test(content)) emote('sorry');
+    else if (content.startsWith('✅')) emote('excited');
     setMessages((prev) => [
       ...prev,
       {
@@ -1332,6 +1346,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       const contentType = parseAthenaThinkContentTypeChoice(text);
       if (contentType === null) {
         appendMessage('assistant', 'Please reply with either **blog** or **newsletter** so I can save the pending Athena response to Think.');
+        emote('unsure');
         return;
       }
       const save = pendingThinkSave;
@@ -1850,6 +1865,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     const input = action === 'done' ? { status: 'completed' } : { dueDate: snoozeDate };
     void api.updateTask(taskId, input).then((r) => {
       if (!r.success) throw new Error('update failed');
+      if (action === 'done') emote('excited');
       void queryClient.invalidateQueries({ queryKey: ['today-tasks'] });
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
       if (actionsRow) {
@@ -1862,6 +1878,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         actionsRow.appendChild(note);
       }
     }).catch(() => {
+      emote('sorry');
       actionsRow?.querySelectorAll<HTMLButtonElement>('button').forEach((b) => { b.disabled = false; });
       btn.textContent = 'Failed — retry';
     });
@@ -2042,6 +2059,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     typing: inputFocused && typingActive && input.trim() !== '',
     answered: replyArrival !== null,
   });
+  const { mood, emote, clearEmotion } = useAthenaMood(motionPhase, currentNoteId ?? sessionId ?? 'new');
 
   return (
     <div className={standalone ? 'ai-chat-standalone' : compact ? `ai-chat-compact ai-chat-compact--${compactVariant}` : 'page-root'}>
@@ -2079,12 +2097,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
-            <h1 className="page-title">{title ?? 'Athena'}</h1>
+            <div className="ai-character-heading">
+              <AthenaRibbon mood={mood} size={44} silent={false} />
+              <h1 className="page-title">{title ?? 'Athena'}</h1>
+            </div>
           </div>
         </div>
       )}
       {standalone && (
         <div className="ai-chat-standalone__topbar ai-chat-standalone__topbar--minimal">
+          <AthenaRibbon mood={mood} size={44} silent={false} />
           <Button
             size="sm"
             kind="ghost"
@@ -2102,13 +2124,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       )}
       {!standalone && (
         <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact' : 'ai-new-chat-row'}>
+          {compact && <AthenaRibbon mood={mood} size={44} silent={false} />}
           <div className="ai-new-chat-row__actions">
             {actionButtons}
           </div>
         </div>
       )}
       <div ref={conversationRef} className={`ai-conversation${standalone ? ' ai-chat-standalone__body' : compact ? ' ai-chat-compact__body' : ''}`}>
-        <AthenaPresence phase={motionPhase} pending={chatMutation.isPending} answerAt={replyArrival?.startedAt ?? null}
+        <AthenaPresence mood={mood} phase={motionPhase} pending={chatMutation.isPending} answerAt={replyArrival?.startedAt ?? null}
           contextKey={currentNoteId ?? sessionId ?? 'new'} host={conversationRef}
           thread={messagesRef} dock={presenceDockRef} thinker={presenceThinkRef} reply={presenceReplyRef} voiceLevel={voiceLevelRef} />
         {pendingActions.map((action) => (
@@ -2172,7 +2195,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           )}
           {messages.length === 0 && !isRestoringHistory && historyError === null && !(isNoteLinkedPanel && currentNoteId !== undefined) && (
             <div className="ai-empty">
-              <img src="/athena/athena-mark.svg" alt="" className="ai-brand-mark ai-brand-mark--welcome ai-empty__icon" />
+              <AthenaRibbon mood={mood} size={240} track className="ai-empty__icon" />
               <p className="ai-empty__title">Athena</p>
               {pageContext ? (
                 <p className="ai-empty__subtitle ai-empty__context">
@@ -2205,7 +2228,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             >
               {msg.role === 'assistant' && (
                 <div className="ai-reply-heading" aria-hidden="true">
-                  <span className="ai-reply-heading__mark" ref={i === lastAssistantIndex && replyArrival?.complete && !chatMutation.isPending ? presenceReplyRef : undefined} />
+                  <span className="ai-reply-heading__mark" ref={i === lastAssistantIndex && replyArrival?.complete && !chatMutation.isPending ? presenceReplyRef : undefined}>
+                    <AthenaRibbon size={32} mood={i === lastAssistantIndex && !chatMutation.isPending ? mood : 'resting'}
+                      still={i !== lastAssistantIndex || chatMutation.isPending} />
+                  </span>
                   <span>Athena</span>
                 </div>
               )}
@@ -2293,7 +2319,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 />
               )}
               {msg.role === 'assistant' && !/^(Error:|⏹️|⚠️)/.test(msg.content) && (
-                <ReplyFeedback reply={msg.content} persona={msg.persona ?? persona} sessionId={sessionId} />
+                <ReplyFeedback reply={msg.content} persona={msg.persona ?? persona} sessionId={sessionId}
+                  onPositive={() => { emote('happy'); }} />
               )}
               <div className="ai-bubble-footer">
                 <div className="ai-bubble-time" title={formatMessageTime(msg.timestamp)}>
