@@ -8,13 +8,70 @@ import { executeToolCall, getToolDefinitions } from '../src/ai/chatTools.js';
 import { handleConversationTurn } from '../src/ai/conversationService.js';
 import { FoundryClient, type LlmMessage, type LlmToolDefinition } from '../src/ai/foundryClient.js';
 import { emptyContextUsed } from '../src/ai/contextUsage.js';
-import { focusTools, selectRequiredToolChoice } from '../src/ai/toolRouting.js';
+import { focusTools, selectRequiredToolChoice, selectKnowledgeRetrievalChoice } from '../src/ai/toolRouting.js';
 import type { NoteEditProposal } from '../src/ai/noteEdits.js';
 import { blocksToTextWithImages, blockContentSpans } from '../src/utils/noteContent.js';
 
 const sessionId = '11111111-1111-4111-8111-111111111111';
 const otherSession = '22222222-2222-4222-8222-222222222222';
 const outputId = '33333333-3333-4333-8333-333333333333';
+
+test('self-identity is runtime context, not a forced knowledge search or open-note edit', async () => {
+  const tools = await getToolDefinitions();
+  for (const message of [
+    'what do you know about yourself and what your capabilities are?',
+    'Who are you?',
+    'What can you do?',
+    'What tools do you have?',
+  ]) {
+    assert.equal(selectKnowledgeRetrievalChoice(message, tools), undefined);
+    assert.equal(selectRequiredToolChoice(message, tools, [{ label: 'Project docs', url: 'https://example.com' }],
+      'Athena', true), undefined);
+  }
+  assert.equal(selectRequiredToolChoice('we need to fix this i think, what do you think?', tools, [], null, true), undefined);
+  assert.deepEqual(selectRequiredToolChoice('fix this note', tools, [], null, true),
+    { type: 'function', function: { name: 'propose_note_edit' } });
+  assert.deepEqual(selectRequiredToolChoice('rewrite it', tools, [], null, true),
+    { type: 'function', function: { name: 'propose_note_edit' } });
+  assert.deepEqual(selectKnowledgeRetrievalChoice('What decisions did we record about RTR?', tools),
+    { type: 'function', function: { name: 'review_decisions' } });
+});
+
+test('live chat explains first-party identity and filtered runtime capabilities without requiring retrieval', async () => {
+  const db = new Pool();
+  const query = mock.method(db, 'query', async () => ({ rows: [] }));
+  const flag = process.env['KNOWLEDGE_ORCHESTRATION'];
+  process.env['KNOWLEDGE_ORCHESTRATION'] = 'true';
+  let calls = 0;
+  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages, tools, _tokens, choice) => {
+    calls++;
+    assert.equal(choice, 'auto');
+    const prompt = messages.find(message => message.role === 'system')?.content;
+    assert.equal(typeof prompt, 'string');
+    const text = typeof prompt === 'string' ? prompt : '';
+    assert.ok(text.includes('personal thinking partner and working assistant'));
+    assert.ok(text.includes('useful outcomes over impressive prose'));
+    assert.ok(text.includes('first-party runtime context'));
+    assert.ok(text.includes('not automatically the target of every request'));
+    assert.ok(text.includes('Read-only turn: mutation tools are withheld.'));
+    assert.ok(text.includes('Editable note preview: unavailable'));
+    assert.ok(text.includes('none supplied; no local filesystem access'));
+    assert.ok(text.includes('Outputs panel: not visible here'));
+    assert.ok(tools.every(tool => !['propose_note_edit', 'update_note', 'create_task', 'save_output'].includes(tool.function.name)));
+    return { content: 'I am Athena, your thinking partner and working assistant.', toolCalls: [], finishReason: 'stop' };
+  });
+  try {
+    const reply = await handleConversationTurn(db, [], 'what do you know about yourself and what your capabilities are?',
+      'standard', 'general', sessionId, { type: 'note', title: 'YouTube transcript', detail: 'Source material, not Athena documentation.' },
+      undefined, {}, { readOnlyTools: true, noOutputsPanel: true });
+    assert.match(reply, /I am Athena/);
+    assert.equal(calls, 1);
+  } finally {
+    if (flag === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION'];
+    else process.env['KNOWLEDGE_ORCHESTRATION'] = flag;
+    completion.mock.restore(); query.mock.restore(); await db.end();
+  }
+});
 
 test('RTR-style saved tables are readable through the backend note renderer too', () => {
   const table = { type: 'table', content: { rows: [

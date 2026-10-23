@@ -350,8 +350,23 @@ export async function handleConversationTurn(
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
+  const runtimeCapabilities = [
+    '## Current chat runtime capabilities (authoritative for this turn)',
+    `Persona: ${persona ?? 'general'}. ${hooks.readOnlyTools === true ? 'Read-only turn: mutation tools are withheld.' : 'Only the supplied tools can perform actions.'}`,
+    `Editable note preview: ${tools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; Richard must Apply to save' : 'unavailable in this turn'}.`,
+    `Canvas change preview: ${tools.some(tool => tool.function.name === 'propose_map_changes') ? 'available; requires user application' : 'unavailable in this turn'}.`,
+    `Outputs panel: ${hooks.noOutputsPanel === true ? 'not visible here; deliver content in the reply' : 'use supplied output tools if available'}.`,
+    `Connected local folders: ${localFolders.length > 0 ? 'user-selected folders only, through supplied local-file tools' : 'none supplied; no local filesystem access'}.`,
+    `Available action/read tool names: ${tools.map(tool => tool.function.name).join(', ')}.`,
+    'The function schemas describe exact permissions and inputs. Withheld specialised tools are not executable ' +
+      'in this turn; do not infer that the whole app lacks those features. No external search is needed to explain this runtime context.',
+  ].join('\n');
+  const systemMessage = messages.find(message => message.role === 'system');
+  if (systemMessage !== undefined && typeof systemMessage.content === 'string') {
+    systemMessage.content += `\n\n${runtimeCapabilities}`;
+  }
   if (used !== undefined) used.initialSize = {
-    systemChars: baseMessages[0]?.content.length ?? 0,
+    systemChars: typeof systemMessage?.content === 'string' ? systemMessage.content.length : 0,
     historyChars: baseMessages.slice(1, -1).reduce((total, message) => total + message.content.length, 0),
     turnChars: baseMessages.at(-1)?.content.length ?? 0,
     toolSchemaChars: JSON.stringify(tools).length,

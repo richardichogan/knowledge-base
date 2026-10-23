@@ -2,6 +2,33 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, identity and capability grounding):**
+- Fetched origin and merged origin/main; already current at 415a072.
+- Latest production chat read in a READ ONLY transaction: Athena required old
+  PR evidence for her identity and misread a behavioural correction as a note edit.
+- Added stable role/viewpoint, first-party capability authority, per-turn
+  filtered tool/permission snapshot and visible-document subject boundaries.
+  Identity questions no longer force retrieval; tentative pronoun-only discussion
+  does not force a note edit. Explicit note actions retain preview behaviour.
+- Both frontend/backend `npx --no-install tsc --noEmit` passed. Backend
+  production build, lint non-regression and diff checks passed.
+- Backend isolated suite: 461/462 initially passed; new test used "decide" where
+  existing decision routing recognises "decisions". Corrected that assertion
+  without changing production decision behaviour; all 13 tests in the affected
+  focused-context file then passed. No unrelated failures or full-suite rerun.
+- Tests capture real prompt assembly/tool filtering with orchestration enabled,
+  exercise latest-chat wording and verify read-only, local-folder and preview
+  limits. They mock model responses, not a live model personality assessment.
+- Existing authenticated Alliance Tenant Reporting subscription
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), rg-knowledge-hub-prod,
+  kh-prod-api-vnet in UK South. Current image v240; next image v241.
+- Backend-only AZCLI image update; ACR builds unchanged Dockerfile/lockfile
+  from synced GitHub main. Frontend unchanged. No new dependencies, migrations,
+  infrastructure, IAM or secret configuration; provisioning, template/what-if,
+  policy and role-propagation gates not applicable.
+- Logs: session files/athena-identity-{build,lint,tests}.log. Preserve unrelated
+  Impeccable cache. Verify ready revision, 100% traffic and startup after update.
+
 **Deployment result (2026-10-23, RTR reliability and personality):**
 - Source 8ad38e408fc40dc5aaa52711c70062195bac92c9 committed and atomically
   pushed to main and richardichogan-local-development.

@@ -5,6 +5,14 @@ const URL_PATTERN = /\bhttps?:\/\/[^\s<>()]+/i;
 const MIN_PROJECT_TOKEN_CHARS = 4;
 const NOTE_EDIT_PATTERN =
   /\b(?:add|insert|append|prepend|put|write|update|edit|rewrite|re-?word|fix|tidy|clean\s+up|restructure|reformat|reorgani[sz]e|turn|convert|replace|remove|delete|expand|shorten|condense|correct)\b[\s\S]{0,120}\b(?:note|section|paragraph|heading|intro(?:duction)?|conclusion|summary|bullets?|list|checklist|table|action\s+items?|next\s+steps|this|it|top|bottom|end|start)\b/i;
+const EXPLICIT_NOTE_TARGET_PATTERN = /\b(?:note|section|paragraph|heading|intro(?:duction)?|conclusion|summary|bullets?|list|checklist|table|action\s+items?)\b/i;
+const DIRECT_EDIT_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:add|insert|append|prepend|put|write|update|edit|rewrite|re-?word|fix|tidy|clean\s+up|restructure|reformat|reorgani[sz]e|turn|convert|replace|remove|delete|expand|shorten|condense|correct)\b/i;
+const SELF_CAPABILITY_QUESTION_PATTERN =
+  /\b(?:who\s+are\s+you|what\s+(?:are\s+you|can\s+you\s+do)|(?:your|athena['’]s)\s+(?:own\s+)?(?:identity|capabilities|role|purpose|limitations)|(?:about\s+yourself|know\s+about\s+yourself)|what\s+tools\s+(?:do\s+you\s+have|can\s+you\s+use))\b/i;
+
+export function isAssistantCapabilityQuestion(message: string): boolean {
+  return SELF_CAPABILITY_QUESTION_PATTERN.test(message);
+}
 // Requests that mention another destination are not edits to the note.
 const NOT_A_NOTE_EDIT_PATTERN = /\b(?:sparks?|tasks?|plan\s+board|to-?do|calendar|e-?mail|remember|from\s+now\s+on|always|never)\b/i;
 // Asked to change the open mind map (ideas, branches, links).
@@ -105,6 +113,7 @@ const NOT_A_RETRIEVAL_REQUEST_PATTERN =
  * (all projects); structured count/list questions keep their own tools; everything else searches.
  */
 export function selectKnowledgeRetrievalChoice(userMessage: string, tools: LlmToolDefinition[]): LlmToolChoice | undefined {
+  if (isAssistantCapabilityQuestion(userMessage)) return undefined;
   if (!KNOWLEDGE_QUESTION_PATTERN.test(userMessage) || NOT_A_RETRIEVAL_REQUEST_PATTERN.test(userMessage)) return undefined;
   if (STRUCTURED_INTENT_PATTERN.test(userMessage) && tools.some((t) => STRUCTURED_TOOL_NAMES.has(t.function.name))) return undefined;
   const preferred = DECISION_REVIEW_INTENT_PATTERN.test(userMessage) && tools.some((t) => t.function.name === 'review_decisions') ? 'review_decisions' : 'search_knowledge_base';
@@ -132,10 +141,12 @@ export function selectRequiredToolChoice(
       return { type: 'function', function: { name: rememberToolName } };
     }
   }
+  if (isAssistantCapabilityQuestion(userMessage)) return undefined;
 
   // Asked to change the open note: propose an edit (previewed, applied by the
   // user) rather than writing the content into the chat.
-  if (hasEditableNote && NOTE_EDIT_PATTERN.test(userMessage) && !NOT_A_NOTE_EDIT_PATTERN.test(userMessage)) {
+  if (hasEditableNote && NOTE_EDIT_PATTERN.test(userMessage) && !NOT_A_NOTE_EDIT_PATTERN.test(userMessage)
+    && (EXPLICIT_NOTE_TARGET_PATTERN.test(userMessage) || DIRECT_EDIT_REQUEST_PATTERN.test(userMessage))) {
     const editToolName = findToolName(tools, (name) => name === 'propose_note_edit');
     if (editToolName !== undefined) {
       return { type: 'function', function: { name: editToolName } };
