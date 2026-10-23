@@ -2,6 +2,18 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, chat animation and references):**
+- Release source d53fcab2e762eb6167790b9f023de663e5928ff5 pushed atomically
+  to main and richardichogan-local-development.
+- Frontend deployed successfully to kh-prod-web production.
+- https://athena.themicrosoftcloudblog.com and
+  https://nice-mud-0f780fb03.7.azurestaticapps.net both return HTTP 200 and
+  serve the matching release entry. SHA-256 comparisons passed for all four
+  checked assets: index-BZjoIim6.js, AIChatPage-DP98nXnI.js,
+  appBootstrap-C1A_3S8Q.css and appBootstrap-D2Qw9Bgu.js.
+- Backend remains v235; no infrastructure, database or production content writes.
+- Deployment log: session files/chat-motion-release-deploy.log.
+
 **Section 7: Validation Proof (2026-10-23, chat animation and references):**
 - Both applications' `npx tsc --noEmit` checks passed.
 - Frontend production `npm run build` and `npm run lint:check` passed.
