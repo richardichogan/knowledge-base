@@ -2,6 +2,24 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-23, Atlas graph and Athena Ribbon):**
+- Release source 22fd5f0 committed and pushed atomically to main and
+  richardichogan-local-development.
+- SWA CLI 2.1.0 successfully deployed the validated dist to kh-prod-web production.
+- https://athena.themicrosoftcloudblog.com and
+  https://nice-mud-0f780fb03.7.azurestaticapps.net both return HTTP 200 and the
+  expected entry bundle. All 14 checked assets match local SHA-256 hashes on
+  both domains: entry and dynamic app/auth bundles/styles, both renderers,
+  manifest, favicon, PWA icons and launcher/avatar PNGs.
+- Atlas renderer SHA-256:
+  c6b3cecca9d69a2d570c7e8824b5c022c061ad138c21232b463e3f148b3acc3a
+- Ribbon renderer SHA-256:
+  7f95a9099a227271cff72fb4dc5d27afabff6bbefa9fdb75564fa7b3ad8fa70c
+- Backend v238 and production database unchanged. No infrastructure, IAM,
+  identity or secret configuration changes; deployment token stayed in the
+  deploy process environment and was not printed or committed.
+- Deployment log: session files/atlas-ribbon-release-deploy.log.
+
 **Section 7: Validation Proof (2026-10-23, Atlas and Ribbon release):**
 - `git fetch origin` and `git merge --no-edit origin/main` completed twice;
   the worktree remains current with 3714cd9 and there are no merge conflicts.
