@@ -601,7 +601,12 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           "Proposes changes to the Think note that is open next to this chat (shown under 'Document in view'). " +
           "Use it whenever Richard asks you to add to, write into, update, rewrite, restructure, tidy, fix or remove " +
           "content in the open note. The edits are shown to him as a preview with Apply/Discard — they are not saved " +
-          "until he applies them. Reference headings EXACTLY as they appear in the note. Write content as Markdown " +
+          "until he applies them. You cannot click Apply for him: if he asks to apply an existing preview, explain " +
+          "that he must use its Apply button rather than proposing the same edits again. " +
+          "For repairs or consolidation, replace the contradictory content rather than appending overrides or a plan " +
+          "instead of the requested finished content. Check that promised records, tables and references actually " +
+          "exist in the proposed Markdown. Tool acceptance verifies edit targets, not semantic completeness or a saved result. " +
+          "Reference headings EXACTLY as they appear in the note. Write content as Markdown " +
           "(headings, lists, checklists '- [ ]', tables). A SMALL request gets the smallest edit that does the job " +
           "(add_to_section or replace_text). But when he asks for a whole-note or many-section change — rewrite, redraft, expand " +
           "every section, restructure, turn it into a fuller spec — do ALL of it in this turn: never change one section and offer " +
@@ -965,6 +970,7 @@ export async function executeToolCall(
         return { error: 'No editable Think note is open next to this chat. Library documents are read-only.' };
       }
       const { edits, problems } = validateNoteEdits(args['edits']);
+      if (problems.length > 0) return { error: `No edits proposed: ${problems.join('; ')}. Correct the whole edit batch and retry.` };
       if (edits.length === 0) return { error: `No valid edits: ${problems.join('; ') || 'edits array was empty'}` };
       // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.
       const blocks = await loadNoteBlocks(db, turn.noteId);

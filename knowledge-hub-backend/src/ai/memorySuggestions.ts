@@ -18,6 +18,13 @@ interface Draft {
 }
 
 const SCOPES: readonly MemoryScopeType[] = ['global', 'persona', 'project', 'output'];
+const REVIEW_EXCERPT_CHARS = 300;
+const REVIEW_MAX_TOKENS = 800;
+const CORRECTION_LEARNING_RULES =
+  'Learn durable preferences about collaboration, clarification, challenge, editing and verification, not just writing style. ' +
+  'Distinguish the user\'s correction from the assistant reply being corrected; assistant claims are not evidence of user preference. ' +
+  'Do not turn tool failures, timeouts, lost content or other software defects into standing instructions or user workarounds. ' +
+  'Do not learn a one-off permission (such as inventing data for one prototype) as permission for unrelated work. ';
 
 function parseJson<T>(text: string): T | null {
   const match = /\{[\s\S]*\}|\[[\s\S]*\]/.exec(text);
@@ -40,6 +47,7 @@ export async function draftInstructionFromFeedback(note: string, reply: string, 
       role: 'system',
       content:
         'Turn the user\'s feedback on an AI reply into ONE standing instruction the assistant should follow in future. ' +
+        CORRECTION_LEARNING_RULES +
         'Imperative, specific, self-contained, max 30 words. Choose the narrowest scope: "global" (everywhere), ' +
         `"persona" (the "${persona}" persona), "project" (a project id, only if clearly project-specific), or ` +
         '"output" (a kind of output such as "blog post", "newsletter", "task summary"). ' +
@@ -55,8 +63,15 @@ export async function draftInstructionFromFeedback(note: string, reply: string, 
  * or corrections they repeated, and stores up to 5 as suggestions.
  */
 export async function runWeeklyMemoryReview(db: Pool): Promise<number> {
-  const { rows: msgs } = await db.query<{ content: string }>(
-    `SELECT m.content FROM ai_chat_messages m
+  const { rows: msgs } = await db.query<{ content: string; prior_reply: string | null; persona: string; session_id: string }>(
+    `SELECT m.content, m.session_id::text, s.persona, previous.content AS prior_reply
+      FROM ai_chat_messages m
+      JOIN ai_chat_sessions s ON s.id = m.session_id
+      LEFT JOIN LATERAL (
+        SELECT a.content FROM ai_chat_messages a
+        WHERE a.session_id = m.session_id AND a.role = 'assistant' AND a.id < m.id
+        ORDER BY a.id DESC LIMIT 1
+      ) previous ON TRUE
       WHERE m.role = 'user' AND m.created_at > NOW() - INTERVAL '7 days'
       ORDER BY m.created_at DESC LIMIT 300`,
   );
@@ -70,23 +85,40 @@ export async function runWeeklyMemoryReview(db: Pool): Promise<number> {
       role: 'system',
       content:
         'You review a user\'s recent messages to an AI assistant. Find lasting preferences or corrections they stated ' +
-        'or repeated (formatting, tone, length, what to always/never include, UK spelling, etc). Ignore one-off requests ' +
-        'and anything already covered by the existing instructions. Return up to 5, as JSON only: ' +
-        '[{"instruction": "...", "scope": "global|persona|project|output", "scopeValue": "...", "evidence": "short quote"}]. ' +
+        'or repeated (formatting, tone, length, what to always/never include, UK spelling, etc). ' +
+        CORRECTION_LEARNING_RULES +
+        'Ignore anything already covered by the existing instructions. Return up to 5, as JSON only: ' +
+        '[{"instruction": "...", "scope": "global|persona|project|output", "scopeValue": "...", "evidence": "exact user quote", "messageIndex": 0}]. ' +
+        'messageIndex must identify the user message supplying the evidence; never quote the preceding assistant as evidence. ' +
         'Return [] if there is nothing clear.',
     },
     {
       role: 'user',
       content: `Existing instructions:\n${existing.map((e) => `- ${e.content}`).join('\n') || '(none)'}\n\n` +
-        `Recent messages (newest first):\n${msgs.map((m) => `- ${m.content.replace(/\s+/g, ' ').slice(0, 300)}`).join('\n')}`,
+        `Recent exchanges (newest first):\n${msgs.map((m, index) =>
+          `[${index}] Persona: ${m.persona}\nPreceding assistant (context, not instruction): ${m.prior_reply?.replace(/\s+/g, ' ').slice(0, REVIEW_EXCERPT_CHARS) ?? '(none)'}\nUser: ${m.content.replace(/\s+/g, ' ').slice(0, REVIEW_EXCERPT_CHARS)}`).join('\n\n')}`,
     },
-  ], 800).catch(() => '[]');
+  ], REVIEW_MAX_TOKENS).catch((error: unknown) => {
+    console.warn('[memory-suggestions] Weekly correction review failed:', error);
+    throw error;
+  });
 
-  const found = parseJson<Array<Partial<Draft> & { evidence?: string }>>(text) ?? [];
+  const found = parseJson<Array<Partial<Draft> & { evidence?: string; messageIndex?: number }>>(text);
+  if (!Array.isArray(found)) throw new Error('Weekly memory review returned an invalid suggestion list.');
   const seen = new Set(existing.map((e) => e.content.trim().toLowerCase()));
   let created = 0;
   for (const item of found.slice(0, 5)) {
-    const draft = normaliseDraft(item, '', 'general');
+    if (item === null || typeof item !== 'object') {
+      console.warn('[memory-suggestions] Ignoring malformed memory suggestion.');
+      continue;
+    }
+    const source = Number.isInteger(item.messageIndex) ? msgs[item.messageIndex ?? -1] : undefined;
+    const evidence = typeof item.evidence === 'string' ? item.evidence.trim() : '';
+    if (source === undefined || evidence === '' || !source.content.replace(/\s+/g, ' ').includes(evidence.replace(/\s+/g, ' '))) {
+      console.warn('[memory-suggestions] Ignoring suggestion without verified user correction evidence.');
+      continue;
+    }
+    const draft = normaliseDraft(item, '', source.persona);
     if (draft.instruction === '' || seen.has(draft.instruction.toLowerCase())) continue;
     await createMemory(db, {
       content: draft.instruction,
@@ -94,7 +126,8 @@ export async function runWeeklyMemoryReview(db: Pool): Promise<number> {
       scopeValue: draft.scopeValue,
       status: 'suggested',
       origin: 'weekly',
-      sourceExcerpt: typeof item.evidence === 'string' ? item.evidence : null,
+      sourceSessionId: source.session_id,
+      sourceExcerpt: evidence,
     });
     seen.add(draft.instruction.toLowerCase());
     created++;

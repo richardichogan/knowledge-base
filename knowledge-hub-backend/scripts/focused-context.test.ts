@@ -9,10 +9,62 @@ import { handleConversationTurn } from '../src/ai/conversationService.js';
 import { FoundryClient, type LlmMessage, type LlmToolDefinition } from '../src/ai/foundryClient.js';
 import { emptyContextUsed } from '../src/ai/contextUsage.js';
 import { focusTools, selectRequiredToolChoice } from '../src/ai/toolRouting.js';
+import type { NoteEditProposal } from '../src/ai/noteEdits.js';
+import { blocksToTextWithImages, blockContentSpans } from '../src/utils/noteContent.js';
 
 const sessionId = '11111111-1111-4111-8111-111111111111';
 const otherSession = '22222222-2222-4222-8222-222222222222';
 const outputId = '33333333-3333-4333-8333-333333333333';
+
+test('RTR-style saved tables are readable through the backend note renderer too', () => {
+  const table = { type: 'table', content: { rows: [
+    { cells: [{ content: [{ text: 'Case' }] }, { content: [{ text: 'Support' }] }] },
+    { cells: [{ content: [{ text: 'CL-101' }] }, { content: [{ text: '1311000' }] }] },
+    { cells: [[{ text: 'Legacy' }], [{ text: '800' }]] },
+  ] } };
+  assert.equal(blockContentSpans(table).map(span => span.text).join(','), 'Case,Support,CL-101,1311000,Legacy,800');
+  assert.equal(blocksToTextWithImages([table], new Map()), 'Case | Support\nCL-101 | 1311000\nLegacy | 800');
+});
+
+test('a mixed valid and invalid note-edit batch is rejected without leaving a partial preview', async () => {
+  const db = new Pool();
+  const noteEdits: NoteEditProposal[] = [];
+  try {
+    const result = await executeToolCall(db, 'propose_note_edit', JSON.stringify({ edits: [
+      { action: 'append', markdown: 'Concrete fixture', summary: 'Add fixture' },
+      { action: 'replace_section', summary: 'Invalid missing heading and body' },
+    ] }), undefined, { noteId: outputId, noteEdits });
+    assert.match(JSON.stringify(result), /No edits proposed/);
+    assert.deepEqual(noteEdits, []);
+  } finally { await db.end(); }
+});
+
+test('time limit after RTR-style edit production preserves the preview without claiming completion or requesting a retry', async () => {
+  const db = new Pool();
+  const query = mock.method(db, 'query', async () => ({ rows: [] }));
+  let now = 1_000;
+  const clock = mock.method(Date, 'now', () => now);
+  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async () => {
+    now += 60_000;
+    return { content: null, toolCalls: [{ id: 'edit-one', type: 'function' as const, function: { name: 'propose_note_edit',
+      arguments: JSON.stringify({ edits: [{ action: 'replace_all', markdown: '# Fixtures\nComplete synthetic dataset.', summary: 'Replace fixtures' }] }) } }],
+    finishReason: 'tool_calls' };
+  });
+  const noteEdits: NoteEditProposal[] = [];
+  try {
+    const reply = await handleConversationTurn(db, [], 'Rewrite this note with the agreed synthetic data',
+      'standard', 'demo_designer', sessionId, { type: 'note', title: 'RTR', detail: 'Existing requirements' },
+      undefined, { noteId: outputId, noteEdits }, { budgetMs: 30_000 });
+    assert.equal(noteEdits.length, 1);
+    assert.match(reply, /1 proposed edit/);
+    assert.match(reply, /before I could finish checking/);
+    assert.match(reply, /not saved changes/);
+    assert.doesNotMatch(reply, /try again|ask a more specific question/);
+    assert.equal(completion.mock.callCount(), 1);
+  } finally {
+    clock.mock.restore(); completion.mock.restore(); query.mock.restore(); await db.end();
+  }
+});
 
 test('ordinary and source-bound requests do not perform automatic knowledge, graph or past-chat searches', async () => {
   const db = new Pool();
@@ -41,13 +93,21 @@ test('ordinary and source-bound requests do not perform automatic knowledge, gra
       assert.ok(messages.at(-1)?.content.includes('Exact source material'));
       assert.ok(messages[0]?.content.includes('Essential preferences'));
       const systemPrompt = messages[0]?.content ?? '';
-      assert.ok(systemPrompt.includes('Ask one focused question when his answer would materially shape the direction'));
-      assert.ok(systemPrompt.includes('It is fine for that question to be the whole reply'));
+      assert.ok(systemPrompt.includes('asking questions and challenging the thinking are part of the work, not a last resort'));
+      assert.ok(systemPrompt.includes('Start an exploratory exchange with a brief observation or specific challenge and one focused question'));
+      assert.ok(systemPrompt.includes('one question at a time is not a limit of one question per conversation'));
       assert.ok(systemPrompt.includes('Answer clear factual questions directly'));
       assert.ok(systemPrompt.includes('Push back when his premise is unsupported'));
       assert.ok(systemPrompt.includes('pause and wait for his answer rather than answering your own question'));
       assert.ok(systemPrompt.indexOf('## Conversation and constructive challenge') > systemPrompt.indexOf('Essential preferences'));
       assert.ok(systemPrompt.includes('override any older profile instruction to draft before asking questions'));
+      assert.ok(systemPrompt.includes('Do not lead with a refusal, frame questioning as an annoyance'));
+      assert.ok(systemPrompt.includes('Choose the working mode from his current intent and the conversation'));
+      assert.ok(systemPrompt.includes('A clear action request does not need prior discussion or a follow-up question'));
+      assert.ok(systemPrompt.includes('do not keep interviewing after he has decided'));
+      assert.ok(systemPrompt.includes('When he is being playful, reciprocate with a brief dry or wry reply'));
+      assert.ok(systemPrompt.includes('never confuse sarcasm with consent to an action'));
+      assert.ok(systemPrompt.includes('without a defensive joke, forced cheerfulness or a lecture'));
       if (persona === 'brainstorming') {
         assert.ok(messages[0]?.content.includes('Let him answer before developing a detailed critique or alternative'));
         assert.ok(!messages[0]?.content.includes('Ask for clarification only when'));

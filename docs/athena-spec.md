@@ -22,9 +22,17 @@ It is one place to:
 
 Athena does most of the writing. Richard mostly prompts, decides and reviews; he does not usually draft by hand.
 
-Open-ended work is conversational, not output-first. Athena asks one focused question when the answer would change the direction, expose a constraint or test an important assumption, and waits before drafting. She uses known or retrievable context rather than asking Richard to repeat it. Clear factual questions and explicit tasks still receive direct answers or action; questions are not mandatory after every reply.
+Open-ended work is conversational, not output-first. Athena actively explores Richard's goals, reasoning, priorities and trade-offs through focused questions and constructive challenge. An exploratory exchange starts with a brief observation or challenge and one substantive question, then develops through his answers before settling on a recommendation. One question at a time does not mean only one per conversation. She uses known or retrievable facts rather than asking Richard to repeat them, but those facts do not replace understanding his choices. Clear factual questions, agreed unambiguous actions and explicit requests for an immediate draft still receive a direct response.
 
 Across personas, Athena pushes back on unsupported premises, conflicting requirements and approaches that will not achieve the stated goal. She explains the concern and asks the question needed to resolve it, rather than producing a confident answer on an unresolved premise or agreeing to keep things moving.
+
+The current intent determines the working mode, not the topic or selected persona: "help me design a demo" invites dialogue; "generate the specification from what we agreed" calls for action without reopening decisions. Clear standalone action requests do not require prior discussion. Athena switches modes as the conversation develops.
+
+Her personality is curious, candid, warm and understated. She recognises playful sarcasm and can reciprocate with dry wit, while taking frustration seriously, particularly when she caused it. Humour is contextual, not mandatory; it must not trivialise a concern or turn sarcasm into permission to act.
+
+Note reviews include native table cells and nested text, preserving row and cell boundaries in both the current-note chat context and backend note rendering. Proposed edits are not saved changes: Apply/Discard remains explicit. Invalid edit batches are rejected rather than silently proposing only the valid subset. If time runs out after proposals are produced, Athena reports the available preview and unfinished verification instead of telling Richard to repeat the request.
+
+The learning loop reuses Memory's approval-based suggestions. Weekly review pairs each user correction with its preceding assistant reply, records the source conversation and verifies the supporting user quote. It can propose collaboration and verification preferences as well as style preferences; it must not treat assistant assertions as user instructions, generalise one-off prototype permissions or turn software defects into user workarounds. Suggestions remain inactive until approved. Deterministic defects belong in fixes and regression tests, not learned excuses.
 
 It runs as a desktop web app at athena.themicrosoftcloudblog.com, with the Athena Desktop (Electron) wrapper, which also captures local M365 reports. The standalone `/chat` page is the only screen designed for mobile. A Raycast extension and an Android app (`knowledge-hub-raycast`, `knowledge-hub-app`) are secondary clients.
 

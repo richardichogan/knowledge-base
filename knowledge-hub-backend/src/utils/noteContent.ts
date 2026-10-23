@@ -26,9 +26,11 @@ export function blockContentSpans(block: Block): BlockContent[] {
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) { value.forEach(walk); return; }
     if (value === null || typeof value !== 'object') return;
-    const item = value as { text?: unknown; content?: unknown };
+    const item = value as { text?: unknown; content?: unknown; rows?: unknown; cells?: unknown };
     if (typeof item.text === 'string') spans.push({ text: item.text });
     else if (Array.isArray(item.content)) walk(item.content);
+    else if (Array.isArray(item.rows)) walk(item.rows);
+    else if (Array.isArray(item.cells)) walk(item.cells);
   };
   walk(block.content);
   return spans;
@@ -109,7 +111,11 @@ export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<stri
         const analysis = visionByBlobId.get(blobIdFromUrl(block.props.url));
         lines.push(analysis ? `[Image: ${analysis}]` : '[Image: no analysis available]');
       } else {
-        const text = blockContentSpans(block).map((c) => c.text ?? '').join('').trim();
+        const table = block.content as { rows?: Array<{ cells?: unknown[] }> } | undefined;
+        const text = block.type === 'table' && Array.isArray(table?.rows)
+          ? table.rows.map(row => (row.cells ?? []).map(cell =>
+            blockContentSpans({ content: [cell] }).map(span => span.text ?? '').join('')).join(' | ')).join('\n').trim()
+          : blockContentSpans(block).map((c) => c.text ?? '').join('').trim();
         if (text) lines.push(text);
       }
       if (Array.isArray(block.children)) walk(block.children);

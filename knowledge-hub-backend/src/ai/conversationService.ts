@@ -413,7 +413,15 @@ export async function handleConversationTurn(
     const budgetLow = i > 0 && remainingBudgetMs < AI_MIN_TOOL_ROUND_BUDGET_MS;
     if (budgetLow && remainingBudgetMs < AI_WRAP_UP_ROUND_MIN_MS) {
       console.warn(`[ai] Stopping tool loop after ${i} round(s) — turn budget exhausted`);
-      return "This is taking longer than expected — could you try again, or ask a more specific question?";
+      const proposed = toolContext.noteEdits?.length ?? 0;
+      if (proposed > 0) {
+        return `There ${proposed === 1 ? 'is 1 proposed edit' : `are ${proposed} proposed edits`} available in the preview. ` +
+          'The time limit was reached before I could finish checking the complete request. These are not saved changes: ' +
+          'review the preview and Apply or Discard it before requesting further edits. Do not repeat the original request, ' +
+          'as that could duplicate the proposals.';
+      }
+      return 'The time limit was reached before I could finish. I cannot confirm that the whole request is complete. ' +
+        'Check the recorded results before continuing from the unfinished step, rather than repeating the original request.';
     }
     // Out of rounds or time after tools have already run (and may have changed things): one last round with
     // tools off, so she reports what she actually did rather than a canned "couldn't finish".

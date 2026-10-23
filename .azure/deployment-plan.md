@@ -2,6 +2,33 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, RTR reliability and personality):**
+- Synced origin/main before release; already current at a8ded98.
+- Both `npx --no-install tsc --noEmit`, production `npm run build` and
+  `npm run lint:check` commands passed. New lint findings were fixed without
+  changing the baseline. `git diff --check` passed; frontend dist excludes tests.
+- Frontend isolated release suite: 226 tests passed, zero failures.
+- Backend isolated release suite: 451 of 452 passed initially; unrelated
+  timeline zero-query assertion observed a delayed auto-tagging query under
+  suite contention. Reran only scripts/task-calendar.test.ts in credential-free
+  isolation: all five tests passed, including the failing assertion. No suite
+  rerun or unrelated code changes.
+- Focused regressions cover native/legacy table cells in both readers,
+  partial-preview rejection, proposal-aware timeout, intent/personality prompt
+  assembly and approval-only, user-evidenced correction learning.
+- Read-only checks of RTR saved revisions verified 449, 1096 and 813 nonempty
+  table cells preserved by both readers. No production notes or memories edited.
+- Existing authenticated targets in Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), rg-knowledge-hub-prod:
+  kh-prod-api-vnet in UK South (v239 -> v240), kh-prod-web in West Europe.
+- Existing AZCLI application-only recipe: ACR build from synced GitHub main,
+  backend image update and validated frontend SWA upload. Dockerfile and lockfile
+  unchanged. No infrastructure, RBAC, dependency, migration or secret changes;
+  provisioning, what-if, policy and role-propagation gates are not applicable.
+- Logs: session files/rtr-release-{api,web}-{build,lint,tests}.log.
+- Verify latest ready revision/traffic, startup logs and both frontend domains
+  with exact entry/renderer hashes. Preserve unrelated Impeccable cache change.
+
 **Deployment result (2026-10-23, conversational challenge):**
 - Source 34f8df3 committed and atomically pushed to main and working branch.
 - ACR built kh-prod-api:v239 successfully from GitHub main backend source.
