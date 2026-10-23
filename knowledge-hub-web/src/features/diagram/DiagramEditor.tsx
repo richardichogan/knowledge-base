@@ -51,6 +51,7 @@ import { DiagramMetadata } from './DiagramMetadata';
 import { DiagramDescriptionEditor } from './DiagramDescriptionEditor';
 import { descriptionPlainText, descriptionRuns, formatDescription, styledLines } from './diagramMarkdown';
 import { DIAGRAM_FILLS as FILLS, DIAGRAM_STROKES as STROKES, DIAGRAM_TEXT_COLOURS as TEXT_COLOURS, IBM_COLOURS } from './diagramPalette';
+import { applyDiagramSelectionStyle, commonStyleValue, type DiagramNodeStyle, type DiagramEdgeStyle } from './diagramSelectionStyle';
 import { DiagramDrilldown } from './DiagramDrilldown';
 import { exportDiagram, diagramExportBlob, exportFileName, type DiagramExportFormat } from './diagramExport';
 import { ShareEmailModal } from '../../components/ShareEmailModal';
@@ -1928,6 +1929,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const allDashed = selectedEdges.length > 0 && selectedEdges.every((x) => x.dashed);
   const anyBends = selectedEdges.some((x) => x.waypoints.length > 0);
   const only = <T,>(s: Set<T>): T | undefined => (s.size === 1 ? [...s][0] : undefined);
+  const selectionStyle = <DiagramSelectionStyle nodes={selectedNodes} edges={selectedEdges}
+    onChange={(nodes, edges) => { commit(applyDiagramSelectionStyle(docRef.current, sel, nodes, edges)); }} />;
 
   const sheetClass = [
     'dg-sheet',
@@ -2489,6 +2492,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 <IconBtn label="Style" pressed={menu === 'style'} onClick={() => { setMenu(menu === 'style' ? null : 'style'); }}><ColorPalette size={16} /></IconBtn>
                 {menu === 'style' && (
                   <div className="dg-popover dg-popover--context" role="dialog" aria-label="Shape style">
+                    {selectedNodes.length + selectedEdges.length > 1 ? selectionStyle : <>
                     {singleNode?.kind !== 'line' && <Swatches label="Fill" colours={FILLS} value={diagramEditorFill(only(allFills) ?? '')} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: diagramEditorNodeColours(n).textColor, fill: c })); }} />}
                     <Swatches label="Border" colours={STROKES} value={only(allStrokes)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, stroke: c })); }} />
                     <Swatches label="Text" colours={TEXT_COLOURS} value={only(allText)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: c })); }} />
@@ -2498,6 +2502,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                       <output className="dg-stepper__value" aria-live="polite">{fontSize}</output>
                       <button type="button" className="dg-stepper__btn" aria-label="Larger text" disabled={fontSize >= FONT_MAX} onClick={() => { updateNodes(sel.nodes, (n) => ({ ...n, fontSize: Math.min(FONT_MAX, n.fontSize + 1) })); }}>+</button>
                     </div>
+                    <ThicknessField value={singleNode?.strokeWidth ?? 1.5}
+                      onChange={strokeWidth => { updateNodes(sel.nodes, n => ({ ...n, strokeWidth })); }} />
+                    </>}
                   </div>
                 )}
               </div>
@@ -2605,6 +2612,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 {menu === 'edge-colour' && (
                   <div className="dg-popover dg-popover--context" role="dialog" aria-label="Connector style">
                     <Swatches label="Line colour" colours={EDGE_COLOURS} value={only(edgeColours)} onPick={(c) => { updateEdges(sel.edges, (x) => ({ ...x, stroke: c })); }} />
+                    <ThicknessField value={commonStyleValue(selectedEdges.map(edge => edge.strokeWidth ?? 1.5))}
+                      onChange={strokeWidth => { updateEdges(sel.edges, edge => ({ ...edge, strokeWidth })); }} />
                     <label className="dg-field">
                       <span className="dg-field__label">Text size</span>
                       <select className="dg-select" aria-label="Connector text size"
@@ -2732,7 +2741,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             if (first) commit(next);
             else { setDoc(next); markDirty(SAVE_DELAY_MS); }
           }}
-        /> : <p className="dg-properties__empty">{sel.nodes.length + sel.edges.length > 1 ? 'Select one shape or connector to edit its properties.' : 'Select a shape or connector to edit its title and description.'}</p>}
+        /> : selectedNodes.length + selectedEdges.length > 1 ? selectionStyle
+          : <p className="dg-properties__empty">Select a shape or connector to edit its title and description.</p>}
         {isAiFlow && singleId !== undefined && <AiFlowProperties
           key={`ai-${singleId}`} node={singleNode} edge={singleEdge} nextLaneOrder={nextLaneOrder(doc)}
           gateConnector={singleEdge !== undefined && doc.nodes.some((n) => (n.id === singleEdge.sourceId || n.id === singleEdge.targetId) && n.flow?.stepType === 'decision_gate')}
@@ -2812,6 +2822,63 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     </div>
   </>);
 };
+
+function ThicknessField({ value, onChange }: { value: number | undefined; onChange: (width: number) => void }): React.ReactElement {
+  const widths = [0.5, 1, 1.5, 2, 3, 4, 6];
+  return <label className="dg-properties__field">Line / border thickness
+    <select aria-label="Line / border thickness" value={value ?? ''} onChange={event => { onChange(Number(event.target.value)); }}>
+      <option value="" disabled>Mixed</option>
+      {widths.map(width => <option key={width} value={width}>{width} px</option>)}
+      {value !== undefined && !widths.includes(value) && <option value={value}>{value} px</option>}
+    </select>
+  </label>;
+}
+
+function DiagramSelectionStyle({ nodes, edges, onChange }: {
+  nodes: readonly DiagramNode[]; edges: readonly DiagramEdge[];
+  onChange: (nodes: DiagramNodeStyle, edges: DiagramEdgeStyle) => void;
+}): React.ReactElement {
+  const items = [...nodes, ...edges];
+  const filledNodes = nodes.filter(node => node.kind !== 'line');
+  return <div className="dg-properties__fields">
+    <p className="dg-properties__kind">{items.length} selected</p>
+    <p className="dg-properties__hint">Mixed values are left unchanged until you choose a style. Titles and descriptions remain individual.</p>
+    {filledNodes.length > 0 && <Swatches label="Background colour" colours={FILLS}
+      value={commonStyleValue(filledNodes.map(node => diagramEditorFill(node.fill)))}
+      onPick={fill => { onChange({ fill }, {}); }} />}
+    <Swatches label="Line / border colour" colours={STROKES}
+      value={commonStyleValue(items.map(item => 'kind' in item ? diagramEditorNodeColours(item).stroke : diagramEditorInk(item.stroke)))}
+      onPick={stroke => { onChange({ stroke }, { stroke }); }} />
+    {nodes.length > 0 && <Swatches label="Text colour" colours={TEXT_COLOURS}
+      value={commonStyleValue(nodes.map(node => diagramEditorNodeColours(node).textColor))}
+      onPick={textColor => { onChange({ textColor }, {}); }} />}
+    <ThicknessField value={commonStyleValue(items.map(item => item.strokeWidth ?? 1.5))}
+      onChange={strokeWidth => { onChange({ strokeWidth }, { strokeWidth }); }} />
+    {nodes.length > 0 && <div className="dg-properties__field">
+      <span>Border style (shapes)</span>
+      <Segmented label="Selected shape border style" value={commonStyleValue(nodes.map(node => node.strokeStyle ?? 'solid')) ?? ''}
+        options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' }]}
+        onChange={strokeStyle => { onChange({ strokeStyle }, {}); }} />
+    </div>}
+    {edges.length > 0 && <div className="dg-properties__field">
+      <span>Line style (connectors)</span>
+      <Segmented label="Selected connector line style" value={commonStyleValue(edges.map(edge => edge.dashed ? 'dashed' : 'solid')) ?? ''}
+        options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }]}
+        onChange={value => { onChange({}, { dashed: value === 'dashed' }); }} />
+      <span>Arrowheads (connectors)</span>
+      <Segmented label="Selected connector arrowheads" value={commonStyleValue(edges.map(edge => edge.arrows)) ?? ''}
+        options={[{ value: 'none', label: 'None' }, { value: 'end', label: 'End' }, { value: 'start', label: 'Start' }, { value: 'both', label: 'Both' }]}
+        onChange={arrows => { onChange({}, { arrows }); }} />
+    </div>}
+    <label className="dg-properties__field">Text size
+      <select aria-label="Selected text size" value={commonStyleValue(items.map(item => item.fontSize ?? 12)) ?? ''}
+        onChange={event => { const fontSize = Number(event.target.value); onChange({ fontSize }, { fontSize }); }}>
+        <option value="" disabled>Mixed</option>
+        {Array.from({ length: FONT_MAX - FONT_MIN + 1 }, (_, i) => FONT_MIN + i).map(size => <option key={size} value={size}>{size} px</option>)}
+      </select>
+    </label>
+  </div>;
+}
 
 function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onEdgeStyleChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange, onArrowDirectionChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;

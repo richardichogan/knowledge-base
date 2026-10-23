@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Pool } from 'pg';
-import { knowledgeOrchestrationPromptBlocks } from '../src/ai/contextBuilder.js';
+import { assembleMessages, knowledgeOrchestrationPromptBlocks } from '../src/ai/contextBuilder.js';
+import type { AiContext } from '../src/types/aiContext.js';
 import { CONFLICT_AUTHORITY_PROMPT } from '../src/ai/knowledge/evidenceAuthority.js';
 import { createEdgeLoader, createTargetResolver, executeTraverseRelationships, INFERRED_EDGE_TYPES } from '../src/ai/knowledge/traversalLoader.js';
 import { focusTools, selectKnowledgeRetrievalChoice } from '../src/ai/toolRouting.js';
 import { unreadFoundCandidates, openFoundInstruction } from '../src/ai/knowledge/openFound.js';
 import { collectIds, resolveAnswer, stripUnseenIds } from '../src/ai/knowledge/citations.js';
 import { REVIEW_DECISIONS_DEFINITION } from '../src/ai/semanticDecisionReview.js';
-import { TurnBudget, DETERMINISTIC_TOOLS, finalizeKnowledgeAnswer, isDeterministicResultComplete } from '../src/ai/knowledge/budgets.js';
+import { TurnBudget, DETERMINISTIC_TOOLS, finalizeKnowledgeAnswer, isDeterministicResultComplete, searchContentPreview } from '../src/ai/knowledge/budgets.js';
+import { recordTurnAudit, type TurnAuditRow } from '../src/ai/knowledge/turnAudit.js';
 import { STRUCTURED_TOOL_DEFINITIONS, executeStructuredTool } from '../src/ai/knowledge/structuredTools.js';
 import { createLedger, noteFound, noteRead, markUnavailable, ledgerCounts } from '../src/ai/knowledge/evidence.js';
 import { attachEvidence, emptyContextUsed, recordToolSources, recordToolEvidence } from '../src/ai/contextUsage.js';
@@ -83,6 +85,82 @@ test('wiring: exhaustive queries are qualified without a deterministic path; cha
   const challenge = finalizeKnowledgeAnswer('Have you checked everything?', 'Yes.', { budget, counts, retrievalUsed: true, deterministicPath: false });
   assert.match(challenge, /Not necessarily everything\. I found 5 records and read 2/);
   assert.doesNotMatch(challenge, /^Yes/);
+});
+
+test('wiring: ordinary any questions answer first without an exhaustive-search preamble', () => {
+  const turn = { budget: new TurnBudget(), counts: { found: 2, read: 1 }, retrievalUsed: true, deterministicPath: false };
+  const answer = 'The note assigns you one action: get the Enterprise Data Plan from Candela.';
+  for (const query of ['Any actions for me from this meeting?', 'Are there any risks in this note?', 'Any suggestions?']) {
+    assert.equal(finalizeKnowledgeAnswer(query, answer, turn), answer);
+  }
+  for (const query of ['List all actions from this meeting', 'How many tasks are open?', 'Have you checked every note?']) {
+    assert.notEqual(finalizeKnowledgeAnswer(query, answer, turn), answer);
+  }
+  const limited = new TurnBudget();
+  limited.admitSource('x'.repeat(48_001));
+  assert.match(finalizeKnowledgeAnswer('Any actions for me?', answer, { ...turn, budget: limited }), /Not everything was checked/);
+  assert.match(finalizeKnowledgeAnswer('Any actions for me?', answer, { ...turn, counts: { found: 0, read: 0 } }), /did not find any matching record/);
+});
+
+test('wiring: meeting-action response guidance reaches the assembled system prompt', async () => {
+  const context: AiContext = {
+    staticContext: '', projectContext: '', projectReferences: [], activeProjectName: null,
+    ragItems: [], ragQuery: '', memoryItems: [],
+  };
+  const messages = await assembleMessages(context, [], 'Any actions for me from this meeting?', 'general');
+  const prompt = messages[0]?.content ?? '';
+  assert.match(prompt, /lead with actions explicitly assigned to Richard/);
+  assert.match(prompt, /Never invent owners or dates/);
+  assert.match(prompt, /Keep inferred follow-ups separate from explicit assignments/);
+  assert.match(prompt, /not in a generic opening disclaimer/);
+});
+
+test('wiring: search previews reserve source budget for reading records and preserve legacy limits', () => {
+  const text = 'x'.repeat(60_000);
+  assert.equal(withFlag('true', () => searchContentPreview(text)).length, 1_000);
+  assert.equal(withFlag('true', () => searchContentPreview(text, 500)).length, 500);
+  assert.equal(withFlag('true', () => searchContentPreview(text, 8_000)).length, 1_000);
+  assert.equal(withFlag(undefined, () => searchContentPreview(text)), text);
+  assert.equal(withFlag(undefined, () => searchContentPreview(text, 8_000)).length, 8_000);
+  const budget = new TurnBudget();
+  for (let i = 0; i < 10; i++) budget.admitSource(withFlag('true', () => searchContentPreview(text)));
+  assert.equal(budget.partial, false);
+  assert.equal(budget.admitSource('a'.repeat(8_000)).truncated, false);
+});
+
+test('wiring: audit stores the accepted assistant message id for exact review drill-down', async () => {
+  let saved: unknown[] = [];
+  const db = { query: async (_sql: string, values?: unknown[]): Promise<unknown> => { saved = values ?? []; return {}; } };
+  const row: TurnAuditRow = {
+    sessionId: 's1', assistantMessageId: '42', persona: 'general', familiesRead: ['note'],
+    durationMs: 100, modelRounds: 2, retrievalUsed: true, deterministicPath: false,
+    found: 1, read: 1, cited: 1, strippedIds: 0, unverifiedQuotes: 0, repairsUsed: 0,
+    abstained: false, budgetExhausted: [], partial: false, toolErrorCount: 0, unavailableSources: [],
+  };
+  assert.equal(await recordTurnAudit(db, row, { KNOWLEDGE_ORCHESTRATION: 'true' }), true);
+  assert.equal(saved[1], '42');
+});
+
+test('wiring: discarded oversized reads never become evidence or expose their ids as shown sources', () => {
+  const budget = new TurnBudget();
+  const ledger = createLedger();
+  const read = (id: string, content: string) => ({
+    status: 'ok', record: { ref: { kind: 'note', id }, title: id, content },
+  });
+  const accepted = budget.admitResult(read('read-note', 'Actual evidence'));
+  assert.deepEqual(JSON.parse(accepted.content), accepted.result);
+  recordToolEvidence(ledger, 'read_knowledge_record', accepted.result, { kind: 'note', id: 'read-note' });
+  assert.equal(ledgerCounts(ledger).read, 1);
+
+  const discarded = budget.admitResult(read('discarded-note', 'x'.repeat(48_000)));
+  assert.deepEqual(JSON.parse(discarded.content), discarded.result);
+  assert.match(discarded.content, /Source text limit reached/);
+  assert.doesNotMatch(discarded.content, /discarded-note/);
+  recordToolEvidence(ledger, 'read_knowledge_record', discarded.result, { kind: 'note', id: 'discarded-note' });
+  assert.equal(ledgerCounts(ledger).read, 1);
+  assert.equal([...ledger.entries.values()].some(entry => entry.ref.id === 'discarded-note'), false);
+  assert.equal(budget.partial, true);
+  assert.equal(budget.sourceChars, 48_000);
 });
 
 test('wiring: source payload carries lifecycle, availability and warnings additively', () => {

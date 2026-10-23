@@ -13,6 +13,7 @@ import { getOutputsForThink } from '../ai/thinkOutputExport.js';
 import { outputsChangedSince, moveDeliverableToOutputs, removeSavedCopiesFromReply } from '../ai/chatOutputs.js';
 import { emptyContextUsed, getExcludedSources, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
+import { recordTurnAudit, type TurnAuditRow } from '../ai/knowledge/turnAudit.js';
 import { findModelChoice, PERSONA_MODELS } from '../ai/modelChoices.js';
 import { deleteSessionScreenBlobs, reviewScreens, screensToShow } from '../ai/chatScreens.js';
 import { listChatFiles, ensureModelFiles, deleteSessionModelFiles } from '../ai/chatFiles.js';
@@ -183,6 +184,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const localFolders = parseLocalFolders(requestedLocalFolders);
   const openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
   const contextUsed = emptyContextUsed();
+  const audit: { row?: TurnAuditRow } = {};
   const referenced = await resolveChatReferences(db, [
     ...fullHistory.filter(item => item.role === 'user').map(item => item.content),
     message,
@@ -201,7 +203,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
     { noteId: openNoteId, noteEdits, mapChanges, localFolders, localFileWrites },
-    { ...hooks, contextUsed },
+    { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
   hooks.signal?.throwIfAborted();
   // He asked for a deliverable and the model wrote it into the reply instead of saving it:
@@ -235,6 +237,10 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       : message;
   hooks.signal?.throwIfAborted();
   const { assistantMessageId } = await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources, contextUsed });
+  if (audit.row !== undefined) {
+    const row = { ...audit.row, assistantMessageId };
+    setImmediate(() => { void recordTurnAudit(db, row); });
+  }
   if (isFirstMessage) await setSessionTitleIfMissing(db, effectiveSessionId, message);
   // Fire-and-forget AI title from the opening exchange (re-run on the
   // second turn, since first messages are often just "hello"). Never

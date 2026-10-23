@@ -27,6 +27,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/projectIdentity.test.ts',
   '../knowledge-hub-web/tests/apiError.test.ts',
   '../knowledge-hub-web/tests/diagramTheme.test.ts',
+  '../knowledge-hub-web/tests/diagramSelectionStyle.test.ts',
   '../knowledge-hub-web/tests/diagramMural.test.ts',
   '../knowledge-hub-web/tests/diagramLineJumps.test.ts',
   '../knowledge-hub-web/tests/diagramAiFlow.test.ts',

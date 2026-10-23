@@ -81,6 +81,8 @@ export interface TurnHooks {
   readOnlyTools?: boolean;
   /** Filled in with what the reply drew on (the "Used:" line). */
   contextUsed?: ContextUsed;
+  /** Route persists this after the accepted reply has an assistant-message id. */
+  onAudit?: (row: TurnAuditRow) => void;
   /** Spreadsheets loaded into the model's code tool (needs the Responses API route). */
   codeFiles?: { ids: string[]; names: string[] };
   /** Screenshots from this chat to show the model with this message (it sees the pictures, not just their reads). */
@@ -494,7 +496,10 @@ export async function handleConversationTurn(
             unavailableSources: [...new Set(entries.filter((e) => !e.available).map((e) => e.ref.kind))],
             durationMs: Date.now() - turnStart, modelRounds: i + 1,
           };
-          if (persona === undefined || persona === 'general') setImmediate(() => { void recordTurnAudit(db, auditRow); });
+          if (persona === undefined || persona === 'general') {
+            if (hooks.onAudit !== undefined) hooks.onAudit(auditRow);
+            else setImmediate(() => { void recordTurnAudit(db, auditRow); });
+          }
           return finalizeKnowledgeAnswer(userMessage, answerText, { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan, deterministicComplete: deterministicComplete && !budget.partial });
         }
         return response.content;
@@ -544,8 +549,6 @@ export async function handleConversationTurn(
             deterministicComplete &&= isDeterministicResultComplete(result);
           }
           if (RECORD_TOOLS.has(call.function.name)) retrievalRan = true;
-          if (used !== undefined) recordToolSources(used, call.function.name, result);
-          if (ledger !== undefined) recordToolEvidence(ledger, call.function.name, result, parseToolArgs(call.function.arguments));
         }
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
@@ -562,8 +565,14 @@ export async function handleConversationTurn(
       }
       let toolContent = JSON.stringify(result);
       if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name)) {
-        const admitted = budget.admitSource(toolContent);
-        if (admitted.truncated) toolContent = JSON.stringify({ partial: true, note: 'Source text limit reached for this answer; not everything was checked.' });
+        const admitted = budget.admitResult(result);
+        result = admitted.result;
+        toolContent = admitted.content;
+      }
+      // Only register evidence actually sent to the model, not a discarded oversized payload.
+      if (used !== undefined) recordToolSources(used, call.function.name, result);
+      if (ledger !== undefined) {
+        recordToolEvidence(ledger, call.function.name, result, parseToolArgs(call.function.arguments));
         if (used !== undefined) attachEvidence(used, ledger);
       }
       messages.push({ role: 'tool', tool_call_id: call.id, content: toolContent });

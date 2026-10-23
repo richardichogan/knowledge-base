@@ -2,10 +2,13 @@
 // The sheet is light grey, so colours authored for the old dark sheet map to
 // their light equivalents and everything else displays as authored.
 const LIGHT_FILLS: Record<string, string> = {
-  '#262626': '#ffffff', '#1c2d4a': '#edf5ff', '#173b27': '#defbe6', '#3d3215': '#fcf4d6',
-  '#442027': '#fff1f1', '#302342': '#f6f2ff', '#202020': '#f4f4f4',
-  '#0f3433': '#d9fbfb', '#3e1a2b': '#fff0f7',
-  '#012749': '#e5f6ff', '#3e1a00': '#fff2e8',
+  '#262626': '#ffffff', '#1c2d4a': '#a6c8ff', '#173b27': '#6fdc8c', '#3d3215': '#f1c21b',
+  '#442027': '#ffb3b8', '#302342': '#d4bbff', '#202020': '#f4f4f4',
+  '#0f3433': '#3ddbd9', '#3e1a2b': '#ffafd2',
+  '#012749': '#82cfff', '#3e1a00': '#ffb784',
+  '#edf5ff': '#a6c8ff', '#f6f2ff': '#d4bbff', '#e5f6ff': '#82cfff',
+  '#d9fbfb': '#3ddbd9', '#defbe6': '#6fdc8c', '#fff0f7': '#ffafd2',
+  '#fff1f1': '#ffb3b8', '#fcf4d6': '#f1c21b', '#fff2e8': '#ffb784',
 };
 const LIGHT_INK: Record<string, string> = {
   '#f4f4f4': '#161616', '#fff': '#161616', '#ffffff': '#161616', white: '#161616',

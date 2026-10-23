@@ -12,7 +12,7 @@ test('light sheet maps dark-authored colours and keeps custom colours', () => {
   assert.equal(diagramEditorFill('none'), 'none');
 });
 
-test('legacy export colours remain intact while editor appearance is dark', async () => {
+test('legacy export colours remain intact while editor uses the light sheet', async () => {
   const document = emptyDiagram();
   document.nodes.push({ id: 'legacy', kind: 'process', label: 'Original', x: 0, y: 0,
     width: 140, height: 64, parentId: null, assetId: null, fill: '#ffffff',
@@ -24,9 +24,22 @@ test('legacy export colours remain intact while editor appearance is dark', asyn
 
 test('dark-authored shapes render light with readable borders and labels', () => {
   assert.deepEqual(diagramEditorNodeColours({ fill: '#1c2d4a', stroke: '#78a9ff', textColor: '#f4f4f4' }),
-    { fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616' });
+    { fill: '#a6c8ff', stroke: '#0f62fe', textColor: '#161616' });
   assert.deepEqual(diagramEditorNodeColours({ fill: 'none', stroke: '#c6c6c6', textColor: '#f4f4f4' }),
     { fill: 'none', stroke: '#525252', textColor: '#161616' });
   assert.deepEqual(diagramEditorNodeColours({ fill: '#abcdef', stroke: '#161616', textColor: '#161616' }),
     { fill: '#abcdef', stroke: '#161616', textColor: '#161616' });
+});
+
+test('old pale palette fills gain stronger matching hues without changing custom colours', () => {
+  for (const [pale, bold] of [
+    ['#edf5ff', '#a6c8ff'], ['#f6f2ff', '#d4bbff'], ['#e5f6ff', '#82cfff'],
+    ['#d9fbfb', '#3ddbd9'], ['#defbe6', '#6fdc8c'], ['#fff0f7', '#ffafd2'],
+    ['#fff1f1', '#ffb3b8'], ['#fcf4d6', '#f1c21b'], ['#fff2e8', '#ffb784'],
+  ]) {
+    assert.equal(diagramEditorFill(pale), bold);
+    assert.equal(diagramEditorFill(bold), bold);
+    assert.equal(diagramEditorNodeColours({ fill: pale, stroke: '#161616', textColor: '#161616' }).textColor, '#161616');
+  }
+  assert.equal(diagramEditorFill('#123abc'), '#123abc');
 });

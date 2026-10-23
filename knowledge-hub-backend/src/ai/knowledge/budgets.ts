@@ -15,6 +15,14 @@ export function isKnowledgeOrchestrationEnabled(env: NodeJS.ProcessEnv = process
   return /^(1|true|on|yes)$/i.test((env['KNOWLEDGE_ORCHESTRATION'] ?? '').trim());
 }
 
+const SEARCH_PREVIEW_CHARS = 1_000;
+
+/** Discovery leaves room for explicit record reads; the legacy path keeps its existing limits. */
+export function searchContentPreview(text: string, contentChars = Infinity): string {
+  const limit = isKnowledgeOrchestrationEnabled() ? Math.min(contentChars, SEARCH_PREVIEW_CHARS) : contentChars;
+  return text.slice(0, limit);
+}
+
 export class TurnBudget {
   sourceChars = 0;
   retrievalExecutions = 0;
@@ -71,6 +79,14 @@ export class TurnBudget {
     return { text: text.slice(0, room), truncated: true };
   }
 
+  /** Keep the evidence result identical to the valid JSON actually shown to the model. */
+  admitResult(result: unknown): { result: unknown; content: string } {
+    const content = JSON.stringify(result);
+    if (!this.admitSource(content).truncated) return { result, content };
+    const warning = { partial: true, note: 'Source text limit reached for this answer; not everything was checked.' };
+    return { result: warning, content: JSON.stringify(warning) };
+  }
+
   noteModelRounds(rounds: number): void {
     if (rounds >= this.limits.maxModelRounds) this.exhausted.add('model_rounds');
   }
@@ -93,7 +109,7 @@ export function budgetLimitation(budget: TurnBudget): string {
   return `Not everything was checked: ${why}. This answer covers only what I actually read.`;
 }
 
-const EXHAUSTIVE = /\b(all|every|everything|each|count|how many|none|nothing|any|no\s+\w+\s+(?:mention|record|note)s?|complete(?:ly)?|exhaustive(?:ly)?)\b/i;
+const EXHAUSTIVE = /\b(all|every|everything|each|count|how many|none|nothing|no\s+\w+\s+(?:mention|record|note)s?|complete(?:ly)?|exhaustive(?:ly)?)\b/i;
 const CHECKED_EVERYTHING = /\b(have you|did you|are you sure you)\b.*\b(checked|searched|looked|read)\b.*\b(everything|all|every)\b/i;
 
 export function isExhaustiveQuery(query: string): boolean {

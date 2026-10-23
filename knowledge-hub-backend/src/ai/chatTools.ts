@@ -49,7 +49,7 @@ import { createSpark } from '../services/sparkService.js';
 import { loadCurrentProjectContext } from './projectContext.js';
 import { EXCLUSION_GATED_TOOLS, EXCLUSIONS_UNAVAILABLE_RESULT, executeReadKnowledgeRecord } from '../services/knowledge/tool.js';
 import { executeTraverseRelationships } from './knowledge/traversalLoader.js';
-import { isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
+import { isKnowledgeOrchestrationEnabled, searchContentPreview } from './knowledge/budgets.js';
 import { STRUCTURED_TOOL_DEFINITIONS, STRUCTURED_TOOL_NAMES, executeStructuredTool } from './knowledge/structuredTools.js';
 import { getDiscoverSources, inspectDiscoverFeed } from './discoveryContext.js';
 import { retrieveWatchlistRecords } from '../services/discoverWatchlists.js';
@@ -1105,23 +1105,11 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>, cont
     snippet: hit.snippet,
     readRef: hit.readRef,
     ...(hit.duplicates.length > 0 && { duplicates: hit.duplicates }),
-    // For notes, hand the model the actual note text — including any
-    // embedded diagrams/screenshots described via their stored GPT-4V vision
-    // analysis — not just the plain-text summary, which silently drops
-    // images entirely. Without this, Athena can find that a note like
-    // "Supply Chain Demo" exists but has no way to say what its diagram
-    // actually shows.
-    ...(item.source === 'note' && { content: (await buildNoteContentForAI(db, item.body)).slice(0, contentChars ?? Infinity) }),
-    // For ica-document items, item.body IS the actual extracted plain-text
-    // content of the real file (ICA pre-parses PPTX/XLSX server-side) — not
-    // just evidence that a document exists. Without this the model only saw
-    // a 300-char summary and had no way to distinguish "I have the real
-    // document content" from "I found a repo commit that mentions documents".
-    ...(item.source === 'ica-document' && { content: item.body }),
-    // For user-upload items, item.body is the extracted plain-text content
-    // of the file the user attached in chat (docx/xlsx/pptx/pdf/md) — hand
-    // over the real content, not just a truncated summary.
-    ...(item.source === 'user-upload' && { content: item.body }),
+    // Include note/image text rather than summary alone. Orchestration caps search
+    // previews so the source budget remains available for explicit record reads.
+    ...(item.source === 'note' && { content: searchContentPreview(await buildNoteContentForAI(db, item.body), contentChars) }),
+    ...(item.source === 'ica-document' && { content: searchContentPreview(item.body) }),
+    ...(item.source === 'user-upload' && { content: searchContentPreview(item.body) }),
     publishedAt: item.publishedAt,
     // For PRs/issues/MRs/pipelines/deployments this is when the item was
     // created, not when it was last worked on — metadata.updatedAt (surfaced
@@ -1450,7 +1438,7 @@ async function searchLibrary(db: Pool, args: Record<string, unknown>, contentCha
       path,
       url: r.url ?? '',
       excerpt: r.excerpt,
-      content: (r.body ?? '').slice(0, contentChars),
+      content: searchContentPreview(r.body ?? '', contentChars),
     };
   });
 

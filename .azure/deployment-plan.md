@@ -2,6 +2,48 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-23, diagram styling and AI reliability):**
+- Fetched origin and merged origin/main; already current at 8cd688b.
+- Both explicit `npx tsc --noEmit` checks and both production builds passed.
+- Backend isolated release suite: 446 passed, zero failures.
+- Frontend isolated release suites: 189 passed (172 + 6 + 3 + 2 + 6),
+  zero failures. New regressions cover mixed-selection immutable edits,
+  preservation of unselected objects, readable legacy labels and bold fills.
+- Both lint non-regression checks and `git diff --check` passed.
+- Azure CLI target checks succeeded for subscription c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28,
+  UK South backend v235, West Europe SWA kh-prod-web and unused ACR tag v236.
+- Azure MCP used a mismatched tenant; the existing authenticated Azure CLI
+  successfully verified the exact established resources without login changes.
+- Dockerfile and lockfile reviewed; ACR builds this unchanged container recipe.
+  No infrastructure templates, identities, roles or data operations changed;
+  static RBAC changes, Bicep/what-if and provisioning are not applicable.
+- Existing production target remains the one explicitly configured by the user.
+  Confirmation was offered again; user unavailable and requested autonomous work.
+- Logs: session files/v236-{backend,frontend}-{build,tests,lint}.log.
+
+**Diagram styling and AI answer reliability release (2026-10-23):**
+- User explicitly requested deployment, merge and push of the current fixes.
+- Existing AZCLI application-only recipe: backend kh-prod-api-vnet and ACR
+  cad79107555facr (UK South), frontend kh-prod-web (West Europe), resource group
+  rg-knowledge-hub-prod, subscription Alliance Tenant Reporting.
+- Includes shared multi-selection styles, stronger matching-hue diagram fills,
+  AI action-answer calibration, bounded search previews, admitted-only evidence,
+  exact saved-message audit links, and the Claude Design guide.
+- No infrastructure, identity, permission, secret, database schema or dependency
+  changes. Custom diagram colours and stored legacy colours remain intact.
+- Previous backend v235; next image tag must be verified unused before build.
+- All validation checks must pass:
+  - Fetch and merge origin/main before building the release.
+  - Both explicit TypeScript checks, both production builds.
+  - Isolated backend/frontend release suites and lint non-regression.
+  - Diff hygiene and Azure CLI authentication/existing-target checks.
+  - ACR builds the production image from the pushed exact main commit.
+  - Bicep compilation, template validation, what-if and provisioning do not
+    apply: no infrastructure templates or RBAC assignments change.
+- Post-deploy: backend healthy/running revision and startup log review;
+  frontend successful production upload and public release-asset comparison.
+- No browser launch, system-setting changes or production test-content writes.
+
 **Deployment result (2026-10-23, provisional-answer redraw fix):**
 - Release cba34d1 pushed atomically to main and richardichogan-local-development.
 - Frontend deployed successfully to kh-prod-web production after one transient

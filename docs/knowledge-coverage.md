@@ -27,6 +27,11 @@ In chat, the "Used:" line separates **Found** (search candidate, not necessarily
 
 Every knowledge-orchestrated Athena turn (general persona, `KNOWLEDGE_ORCHESTRATION` on) writes one row to `knowledge_turn_audit` (migration 092): ids, counts and a category only. No user or assistant text is stored. Writing is fire-and-forget after the reply is built; a failure is logged and never affects the answer. Rows older than 90 days are pruned nightly.
 
+Normal chat routes record the audit after saving the accepted answer so
+`assistant_message_id` identifies the exact reply. Direct conversation-service
+callers without a persistence hook retain the session-level audit fallback.
+Older rows with a null message id are not backfilled by guessing timestamps.
+
 **Categories** (first match wins, most severe first): `tool_error` (a tool returned an error), `source_unavailable` (a cited/found record was missing or excluded), `wrong_abstain` (the answer declined although records were found or read), `bad_citation` (ids stripped or a citation repair needed), `unverified_quote` (quote not matched to source text), `budget_hit` (a retrieval budget ran out), `found_not_read` (records found, none opened), `partial` (limited without a specific budget), `no_retrieval` (nothing searched), `ok`.
 
 **Nightly review** (`knowledgeNightlyReviewJob`, about 02:00 UTC, claimed once per day, zero model calls) aggregates the previous UTC day into `knowledge_daily_review`: category counts, rates, the 10 worst turns (audit ids and session ids only) and flags. Critical = `tool_error`, `wrong_abstain`, `bad_citation`, `unverified_quote`.
@@ -39,6 +44,53 @@ Every knowledge-orchestrated Athena turn (general persona, `KNOWLEDGE_ORCHESTRAT
 | `lowSample` | fewer than 5 turns (low sample, not an alarm) |
 
 **Reading the report:** `GET /api/health/knowledge` has a `turnReview` section with the latest review and the last 7 days (`trend`, newest first). Check flags first, then `categoryCounts` to see which failure dominates, then look up `worstTurns` ids in `knowledge_turn_audit` to find the session to inspect. A failing section reports "could not be read" and never fails the endpoint.
+
+These categories are **investigation signals, not scored answer quality**.
+`no_retrieval` also includes note edits, answers from the open document, external
+web reads and conversational follow-ups. `bad_citation` includes a repair attempt
+even if the repaired answer succeeded. Do not interpret their rates as proven
+incorrect-answer rates or fix them by indiscriminately forcing more searches.
+
+### Read-only review, 23 October 2026
+
+The latest completed nightly review is for **22 October (UTC)**, generated at
+02:02 UTC on 23 October: 9 turns, comprising 2 `ok`, 2 `tool_error`,
+2 `bad_citation` and 3 `no_retrieval`. It raised `criticalRate` (44.44%) and
+`noRetrievalRate` (33.33%). This is a small first-day sample.
+
+A separate trailing-24-hour snapshot contained 25 turns: 3 `ok`,
+2 `tool_error`, 4 `bad_citation`, 7 `no_retrieval`, 6 `budget_hit` and
+3 `source_unavailable`. All six budget-hit rows named `source_chars`; five
+recorded no explicit record reads. These are overlapping diagnostic concerns:
+category precedence can hide a budget hit behind a more severe category.
+
+Immediate code corrections:
+
+- Remove the bare word "any" as an exhaustive-query trigger. Ordinary questions
+  such as "Any actions for me from this meeting?" no longer receive an
+  unrelated count disclaimer. Explicit exhaustive/count requests, empty-search
+  warnings and real budget limitations keep their safeguards.
+- Instruct action answers to lead with explicit assignments and keep useful
+  inferred follow-ups separate. Do not invent ownership or deadlines.
+- With orchestration on, cap knowledge and Library search body previews at
+  1,000 characters per result. Full-body discovery could exhaust the 48,000
+  character source budget before the explicit reader ran. Explicit ID readers
+  and the total budget are unchanged; the flag-off path retains its limits.
+- Do not register oversized tool payloads as read evidence when those payloads
+  were replaced by a limit warning before reaching the model.
+- Link future normal-chat audits to their saved assistant message.
+
+The usage snapshot showed no failed chat-model calls (137 calls), but three
+failures in 120 `article-project-fit` calls. Model-call success does not establish
+answer correctness. Embeddings accounted for 5,306 calls and about 5.52 million
+input tokens; cost cannot be inferred without the deployed model's rates and
+workload/backfill context. No budget increases, reindexing, historical rewrites
+or production configuration changes were made during this review.
+
+The two tool errors and three unavailable-source turns still require
+tool-specific evidence before changing provider or reader behaviour. The audit
+stores counts rather than tool names/error messages; no root cause is claimed
+from those counts alone.
 
 **Kill switch:** `az containerapp update --name kh-prod-api-vnet --resource-group rg-knowledge-hub-prod --set-env-vars KNOWLEDGE_ORCHESTRATION=false` (also stops audit writes).
 

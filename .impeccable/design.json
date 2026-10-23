@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-23T09:59:00Z",
+  "title": "Athena design guide",
+  "extensions": {
+    "shadows": [
+      { "name": "menu", "value": "0 8px 24px rgba(0,0,0,0.4)", "purpose": "Tool menus." },
+      { "name": "dialog", "value": "0 24px 64px rgba(0,0,0,0.5)", "purpose": "Shared dialogs." }
+    ],
+    "motion": [
+      { "name": "utility-control", "value": "80ms", "purpose": "Button background, border and colour transitions." },
+      { "name": "answer-sequence", "value": "2100ms", "purpose": "Accepted-answer choreography; bypassed for reduced motion." }
+    ],
+    "breakpoints": [
+      { "name": "navigation-narrow", "value": "1100px" },
+      { "name": "navigation-small", "value": "600px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Accent utility button",
+      "kind": "button",
+      "refersTo": "accent-button",
+      "description": "Compact Athena utility action.",
+      "html": "<button class=\"ds-accent\">Save to Think</button>",
+      "css": ".ds-accent{padding:8px 16px;border:1px solid rgba(61,219,217,.25);border-radius:4px;background:rgba(61,219,217,.08);color:#3ddbd9;font:12px 'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;transition:background 80ms,border-color 80ms}.ds-accent:hover{background:rgba(61,219,217,.14);border-color:#3ddbd9}.ds-accent:focus-visible{outline:2px solid #3ddbd9;outline-offset:2px}.ds-accent:disabled{opacity:.45;cursor:not-allowed}"
+    },
+    {
+      "name": "Ghost utility button",
+      "kind": "button",
+      "refersTo": "ghost-button",
+      "description": "Secondary utility action.",
+      "html": "<button class=\"ds-ghost\">Cancel</button>",
+      "css": ".ds-ghost{padding:8px 16px;border:1px solid #525252;border-radius:4px;background:transparent;color:#c6c6c6;font:12px 'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;cursor:pointer}.ds-ghost:hover{border-color:#c6c6c6;color:#f4f4f4}.ds-ghost:focus-visible{outline:2px solid #3ddbd9;outline-offset:2px}"
+    },
+    {
+      "name": "Dialog field",
+      "kind": "input",
+      "description": "Dark field with a persistent label.",
+      "html": "<label class=\"ds-field\">Company name<input placeholder=\"Enter a name\" /></label>",
+      "css": ".ds-field{display:grid;gap:8px;color:#c6c6c6;font:14px system-ui}.ds-field input{min-height:36px;padding:8px 12px;border:1px solid #6f6f6f;border-radius:4px;background:#262626;color:#f4f4f4;font:inherit}.ds-field input:hover{border-color:#c6c6c6}.ds-field input:focus-visible{outline:2px solid #3ddbd9;outline-offset:2px}.ds-field input:disabled{opacity:.5}"
+    },
+    {
+      "name": "Selected destination",
+      "kind": "nav",
+      "description": "Top-header active destination.",
+      "html": "<a class=\"ds-destination\" href=\"#think\" aria-current=\"page\">Think</a>",
+      "css": ".ds-destination{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:2px solid #3ddbd9;background:rgba(61,219,217,.08);color:#f4f4f4;font:600 14px system-ui;text-decoration:none}.ds-destination:hover{background:#393939}.ds-destination:focus-visible{outline:2px solid #3ddbd9;outline-offset:-3px}"
+    },
+    {
+      "name": "Identity chip",
+      "kind": "chip",
+      "refersTo": "identity-chip",
+      "description": "Coloured theme dot and neutral label.",
+      "html": "<span class=\"ds-chip\"><span class=\"ds-dot\" aria-hidden=\"true\"></span>Architecture</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:.3rem;padding:2px 8px;border:1px solid rgba(61,219,217,.32);border-radius:999px;background:rgba(61,219,217,.09);color:#c6c6c6;font:500 12px/1.35 system-ui}.ds-dot{width:7px;height:7px;border-radius:50%;background:#3ddbd9}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Quiet workbench (implementation-derived description)",
+    "overview": "Existing Carbon g100 desktop application with restrained teal actions, dense work surfaces and readable embedded AI. This is documentation, not a redesign.",
+    "keyCharacteristics": ["Dark neutral layers", "Compact controls", "Semantic colour", "Flush-left prose", "Context-preserving panels"],
+    "rules": [
+      { "name": "Single gutter", "body": "Apply horizontal panel padding once; nested sections share the text edge.", "section": "layout" },
+      { "name": "Semantic colour", "body": "Preserve content-type, project and topic meanings; colour is never the only label.", "section": "colors" },
+      { "name": "Diagram fills", "body": "On the off-white diagram sheet use stronger IBM 30 fills paired with darker borders in the same hue family: Blue #a6c8ff, Purple #d4bbff, Cyan #82cfff, Teal #3ddbd9, Green #6fdc8c, Magenta #ffafd2, Red #ffb3b8, Yellow #f1c21b and Orange #ffb784. Preserve custom colours. Shared selection styles leave mixed values unchanged until chosen.", "section": "colors" }
+    ],
+    "dos": ["Use existing tokens and complete interactive states.", "Keep reduced-motion support."],
+    "donts": ["Do not introduce a new UI kit or marketing composition.", "Do not change system accessibility settings."]
+  }
+}

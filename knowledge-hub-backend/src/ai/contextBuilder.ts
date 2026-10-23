@@ -135,9 +135,16 @@ const EVIDENCE_CALIBRATION_BLURB = [
     'directly" or "this proves" are only earned when the evidence is that strong; otherwise say "is being ' +
     'positioned toward" or "the material supports intent here, not delivery."',
   'Never describe the retrieval/search mechanics to him — no "the search results", "auto-retrieved material", ' +
-    '"snippets", "the tool returned", or any commentary about what was found versus not found. Just answer ' +
-    'using what you know; if the evidence is thin, say the conclusion is tentative and why, in plain terms, ' +
-    'not by narrating the retrieval process.',
+    '"snippets", or "the tool returned". Answer first, scoped to the source actually read. If evidence is missing, ' +
+    'say plainly what cannot be confirmed. Include a coverage limitation only when it materially affects the ' +
+    'answer or he requests an exhaustive answer or exact count; put it beside the affected claim, not in a generic opening disclaimer.',
+  'For actions from a meeting or note, lead with actions explicitly assigned to Richard. State each action once, ' +
+    'with a short source reference and a deadline only if recorded. Never invent owners or dates. Say ' +
+    '"I found one explicit action in this note", not that there is exactly one action everywhere. If none is ' +
+    'recorded, say "I could not find an action explicitly assigned to you in this note."',
+  'Keep inferred follow-ups separate from explicit assignments. Include them only when useful, label them ' +
+    '"Possible follow-up", and briefly explain the inference. Discussion, aspirations and another person\'s ' +
+    'responsibilities are not assignments to Richard. Do not repeat an action as a summary, heading, bold sentence and quotation.',
   'Do not circle back to the same framing/phrase more than once in a reply just to fill space. If you\'ve made ' +
     'a point, move on — a second pass restating it without new evidence or a new angle is padding, not rigor. ' +
     'Prefer one tight, precise paragraph over several that repeat the same core claim.',
