@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Approved
+**Status:** Validated
 
 **Release scope (2026-10-24, Athena conversational pacing):**
 - Deploy the requested changes that remove output-first instructions, clarify
@@ -2006,6 +2006,29 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Athena conversational pacing — 2026-10-24 (Validated)
+
+- `git fetch origin` and `git merge origin/main --no-edit` passed; main was
+  current at `71d4a1e` before release. Commit `be82a8a` was pushed to the
+  feature branch and main.
+- Azure CLI authenticated to Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`); production ACA is on v243 and
+  the next backend image tag, v244, is unused.
+- Backend `npm run typecheck`, `npm run build`, changed-source ESLint and
+  `git diff --check` passed.
+- Frontend `npx --no-install tsc --noEmit` and `npm run build` passed.
+  The isolated frontend suite passed (208/208 in its main group; additional
+  groups also passed) in the release run.
+- The initial backend suite exposed a referenced-material routing regression;
+  after fixing it, dialogue and focused-context regressions passed 45/45. The
+  read-only test that had triggered a Rosetta abort in the suite passed
+  separately, 2/2.
+- Dockerfile and lockfile were reviewed; the Docker build copies all numbered
+  SQL migrations into the production image. Migration 098 is exact-match and
+  transactional under the existing startup migration runner.
+- No frontend source, dependencies, infrastructure or IAM changed. No Bicep,
+  what-if, provisioning, policy or RBAC validation applies to this release.
 
 ### People and dark context menu — 2026-10-19 15:03 BST (Validated)
 
