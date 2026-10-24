@@ -8,6 +8,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { SettingsLink } from '../../navigation/SettingsLink';
 import { Button } from '@carbon/react';
 import { Add, ChevronLeft, ChevronRight, Edit, MachineLearningModel, Pin, PinFilled, Search, TrashCan } from '@carbon/icons-react';
 import { api } from '../../services/api';
@@ -186,10 +187,10 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
           <Add className="kh-chat-sidebar__nav-icon" />
           New chat
         </button>
-        <Link to="/memory" className="kh-chat-sidebar__nav-item kh-chat-sidebar__nav-item--quiet" title="What Athena has learned from you">
+        <SettingsLink to="/memory" className="kh-chat-sidebar__nav-item kh-chat-sidebar__nav-item--quiet" title="What Athena has learned from you">
           <MachineLearningModel className="kh-chat-sidebar__nav-icon" />
           Memory
-        </Link>
+        </SettingsLink>
       </nav>
 
       <label className="kh-chat-sidebar__search">

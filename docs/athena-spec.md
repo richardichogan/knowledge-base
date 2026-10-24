@@ -112,6 +112,13 @@ In priority order:
 
 Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search`, `/ai`, `/blog-post`) redirect to the areas above.
 
+Configuration opens in centred, scrollable modals: Memory, Connections and sync,
+Tag Manager, and repository tag/project mappings. Opening these from Tools or
+the command palette preserves the current workspace; Done, close or Escape
+returns to it. Existing settings URLs remain valid, including browser Back.
+People, Companies, Activity, Sources, Knowledge graph, project cockpits and
+Knowledge health remain full-page workspaces.
+
 ### Athena chat motion
 
 Chat uses the supplied [Athena Ribbon](specs/athena-ribbon.md) Canvas renderer: a glowing, twisted cyan ribbon inside a glass sphere, with all nine supplied moods and the original 380ms parameter easing. Its host background is transparent. The welcome character is 240px with pointer tracking; assistant-message characters and the single travelling character stay 56px. Only the latest message animates; older messages use settled `still` poses. The travelling character moves from above the composer to the working slot, then the accepted answer's corner and back without resizing; there is no duplicate header avatar. The existing 1.5-second answer entrance/return plays once for the accepted reply, never provisional text from tool rounds or evidence repairs. Progress stays visible until completion, including when asking another model.

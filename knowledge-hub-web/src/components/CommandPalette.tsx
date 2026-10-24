@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import {
@@ -17,6 +17,7 @@ import {
 } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { PRIMARY_DESTINATIONS, TOOL_GROUPS, type NavigationDestination } from '../navigation/destinations';
+import { settingsLinkState, settingsView } from '../navigation/settings';
 import {
   PALETTE_KIND_LABELS, chatHref, isExternalHref, pushRecent, readRecent, type PaletteTarget,
 } from './commandPaletteItems';
@@ -72,6 +73,7 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
   const dialogRef = useRef<HTMLDialogElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Focus input when opened
   useEffect(() => {
@@ -117,10 +119,11 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
 
   const go = useCallback(
     (path: string) => {
-      navigate(path);
+      const [pathname, search] = path.split('?');
+      navigate(path, { state: pathname && settingsView(pathname, search) ? settingsLinkState(location) : undefined });
       onClose();
     },
-    [navigate, onClose],
+    [navigate, onClose, location],
   );
 
   const openTarget = useCallback((target: PaletteTarget) => {

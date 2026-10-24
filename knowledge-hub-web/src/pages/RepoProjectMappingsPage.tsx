@@ -23,7 +23,7 @@ function buildTagOptions(config: RepoProjectMappingConfig | null): TagOption[] {
 }
 
 /** Repo-to-project mapping settings screen for Today GitHub card grouping. */
-export const RepoProjectMappingsPage: React.FC = () => {
+export const RepoProjectMappingsPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const queryClient = useQueryClient();
   const [selectedByRepo, setSelectedByRepo] = useState<Record<string, string | null>>({});
   const configQuery = useQuery({
@@ -56,9 +56,10 @@ export const RepoProjectMappingsPage: React.FC = () => {
 
   return (
     <main className="page-root today-settings-page">
-      <PageHeader title="Manage repo mapping" subtitle="Map each connected repo/path to a filing project tag." actions={
+      {!embedded && <PageHeader title="Manage repo mapping" subtitle="Map each connected repo/path to a filing project tag." actions={
         <Link className="today-settings-page__back" to="/">Back to Today</Link>
-      } />
+      } />}
+      {embedded && <p className="kh-settings-description">Map each connected repo/path to a filing project tag.</p>}
 
       <div className="today-section-card">
         <div className="today-section-card__header">

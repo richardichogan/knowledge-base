@@ -59,7 +59,7 @@ import type { ShareEmailContent } from '../../types/shareEmail';
 import { diagramMural } from './diagramMural';
 import { MURAL_QUERY, loadMuralStatus } from '../../components/MuralIntegration';
 import { MuralExportDestination } from '../../components/MuralExportDestination';
-import { Link } from 'react-router-dom';
+import { SettingsLink } from '../../navigation/SettingsLink';
 import {
   addFootnote, collapseView, fixTextIssues, footnoteAnchor, footnoteBlock, footnoteHref, footnotesOf, presentationSteps, pruneFootnotes, setLegend,
   DEFAULT_LEGEND, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT, type FootnoteBlock, type PresentationStep,
@@ -2153,7 +2153,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                     <p className="dg-popover__hint">Groups and swimlanes become areas, exported expanded. Icons stay separate images. Mural may adjust fonts, shape borders and routing; line jumps are not transferred. Each export adds a new copy, not a synced diagram.</p>
                     {muralQuery.isPending && <p className="dg-popover__hint" role="status">Checking Mural connection...</p>}
                     {muralQuery.isError && <p className="connection-tokens__error" role="alert">Could not check Mural. <button type="button" className="dg-text-btn" onClick={() => { void muralQuery.refetch(); }}>Retry</button></p>}
-                    {!muralQuery.data?.connected && <p className="dg-popover__hint"><Link to="/my-work?sync=1">Set up or reconnect Mural in Sources / Integrations</Link></p>}
+                    {!muralQuery.data?.connected && <p className="dg-popover__hint"><SettingsLink to="/my-work?sync=1">Set up or reconnect Mural in Connections and sync</SettingsLink></p>}
                     {muralQuery.data?.connected && <MuralExportDestination value={muralBoardUrl ?? muralQuery.data.boardUrl}
                       title={canvas?.title ?? 'Athena diagram'}
                       disabled={exporting || doc.nodes.length === 0}

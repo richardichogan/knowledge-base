@@ -61,6 +61,30 @@
   &__button:disabled { opacity: 0.45; cursor: not-allowed; }
   &__button:focus-visible, &__close:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 3px; }
 }
+.kh-dialog--settings {
+  width: min(1040px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+  &[open] { display: flex; flex-direction: column; }
+  .kh-dialog__header { flex-shrink: 0; padding-bottom: 20px; border-bottom: 1px solid var(--cds-border-subtle-01); }
+  .kh-dialog__header h2 { font-size: var(--kh-panel-title); }
+  .kh-dialog__body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .kh-dialog__actions { flex-shrink: 0; }
+  .page-root, .memory-page { padding: 0; margin: 0; max-width: none; min-height: 0; }
+  .tl-sync-panel { margin: 0; padding: 0; border: 0; background: transparent; }
+  .tag-panel-tabs { margin-bottom: 20px; }
+  .tag-panel-tab:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+  .tag-panel-tab:active { background: var(--cds-layer-active-01); }
+}
+.kh-settings-section, .kh-settings-connections { min-width: 0; }
+.kh-settings-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.kh-settings-description { margin: 0 0 20px; color: var(--cds-text-secondary); font-size: var(--kh-text-body); line-height: 1.6; }
+@media (max-width: 600px) {
+  .kh-dialog--settings {
+    width: calc(100vw - 16px); max-height: calc(100dvh - 16px);
+    .kh-dialog__header, .kh-dialog__body, .kh-dialog__actions { padding-inline: 16px; }
+  }
+}
 .dc-linkedin {
   &__formats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
   &__formats button {

@@ -23,11 +23,11 @@ import { EmailAccountConnections } from '../components/EmailAccountConnections';
 import { ConnectionTokens } from '../components/ConnectionTokens';
 import { MuralIntegration } from '../components/MuralIntegration';
 import { ShareEmailSettings } from '../components/ShareEmailSettings';
-import { useLocation } from 'react-router-dom';
 import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
 import { pollSyncRun } from '../services/syncPolling';
 import { DataNotice } from '../components/DataNotice';
 import { PageHeader } from '../components/PageHeader';
+import { AppDialog } from '../components/AppDialog';
 
 // ── Source metadata ───────────────────────────────────────────────────────────
 
@@ -237,15 +237,11 @@ const TimelineCard: React.FC<{ item: ContentItemSummary; projects: readonly Proj
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeSources }) => {
-  const location = useLocation();
+export const TimelinePage: React.FC<{ excludeSources?: string[]; settingsOnly?: boolean }> = ({ excludeSources, settingsOnly = false }) => {
   const { data: projects = [] } = useProjects();
   const [enabledGroups, setEnabledGroups] = useState<Set<string>>(new Set(ALL_GROUPS));
   const [notification, setNotification] = useState<{ kind: 'success' | 'error'; msg: string } | null>(null);
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
-  React.useEffect(() => {
-    if (new URLSearchParams(location.search).get('sync') === '1') setSyncPanelOpen(true);
-  }, [location.key, location.search]);
   const [isSyncing, setIsSyncing] = useState(false);
   const syncPending = useRef(false);
   const queryClient = useQueryClient();
@@ -328,6 +324,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
   const [loading, setLoading] = useState(false);
 
   const loadPage = useCallback(async (p: number) => {
+    if (settingsOnly) return;
     setLoading(true);
     try {
       const data = requireApiData(await api.getTimeline({ page: p, pageSize: PAGE_SIZE }));
@@ -339,7 +336,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [settingsOnly]);
 
   // Keep refs in sync so the background-sync effect can call loadPage
   loadPageRef.current = loadPage;
@@ -369,10 +366,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
     });
   }
 
-  return (
-    <div className="page-root" role="main">
-      <PageHeader title="Activity" actions={<>
-          <Button
+  const syncButton = <Button
             kind="ghost"
             size="sm"
             renderIcon={Renew}
@@ -385,20 +379,8 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
             disabled={syncMutation.isPending || isSyncing}
           >
             {isSyncing ? 'Syncing…' : 'Sync Now'}
-          </Button>
-          <Button
-            kind="ghost"
-            size="sm"
-            renderIcon={syncPanelOpen ? ChevronUp : ChevronDown}
-            iconDescription="Toggle sync status"
-            onClick={() => { setSyncPanelOpen((v) => !v); }}
-          >
-            Sync Status
-          </Button>
-      </>} />
-
-        {syncPanelOpen && (
-          <div className="tl-sync-panel">
+          </Button>;
+  const syncContent = <div className="tl-sync-panel">
             <MuralIntegration />
             <ShareEmailSettings />
             <ConnectionTokens />
@@ -435,10 +417,9 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
               })}
               {(!sourcesData?.success) && sourcesError === null && <span className="tl-sync-loading">Loading…</span>}
             </div>
-          </div>
-        )}
+          </div>;
 
-        {notification !== null && (
+  const notice = notification !== null && (
           <InlineNotification
             kind={notification.kind}
             title={notification.msg}
@@ -446,7 +427,31 @@ export const TimelinePage: React.FC<{ excludeSources?: string[] }> = ({ excludeS
             onClose={() => { setNotification(null); }}
             className="tl-notification"
           />
-        )}
+        );
+
+  if (settingsOnly) return <div className="kh-settings-connections">
+    <div className="kh-settings-toolbar">{syncButton}</div>
+    {notice}
+    {syncContent}
+  </div>;
+
+  return (
+    <div className="page-root" role="main">
+      <PageHeader title="Activity" actions={<>
+        {syncButton}
+        <Button kind="ghost" size="sm" onClick={() => { setSyncPanelOpen(true); }}>
+          Connections and sync
+        </Button>
+      </>} />
+      {syncPanelOpen && <AppDialog title="Connections and sync" settings
+        onClose={() => { setSyncPanelOpen(false); }} actions={
+          <button type="button" className="kh-dialog__button" onClick={() => { setSyncPanelOpen(false); }}>Done</button>
+        }>
+        <div className="kh-settings-toolbar">{syncButton}</div>
+        {notice}
+        {syncContent}
+      </AppDialog>}
+      {!syncPanelOpen && notice}
 
         <div className="cal-filters">
           {ALL_GROUPS.map((group) => (

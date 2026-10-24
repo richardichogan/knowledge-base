@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { SettingsLink } from '../../navigation/SettingsLink';
 import { useQuery } from '@tanstack/react-query';
 import { Settings } from '@carbon/icons-react';
 import { api } from '../../services/api';
@@ -61,10 +61,10 @@ export const TodayGitHubCard: React.FC = () => {
     <div className="today-section-card">
       <div className="today-section-card__header">
         <span className="today-section-card__title">GitHub activity</span>
-        <Link className="today-github-settings-link" to="/settings/repo-mappings" title="Manage repo mapping">
+        <SettingsLink className="today-github-settings-link" to="/settings/repo-mappings" title="Manage repo mapping">
           <Settings size={16} />
           Manage repo mapping
-        </Link>
+        </SettingsLink>
       </div>
 
       {query.isLoading && <p className="today-github-empty">Loading…</p>}
@@ -72,7 +72,7 @@ export const TodayGitHubCard: React.FC = () => {
       {!query.isLoading && !hasMappings && (
         <p className="today-github-empty">
           No repos mapped yet. Set up repo-to-project mapping in{' '}
-          <Link to="/settings/repo-mappings">settings</Link>.
+          <SettingsLink to="/settings/repo-mappings">settings</SettingsLink>.
         </p>
       )}
 

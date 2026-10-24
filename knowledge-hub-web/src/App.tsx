@@ -15,7 +15,7 @@
  */
 
 import React from 'react';
-import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom';
+import { BrowserRouter, Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Theme } from '@carbon/react';
 import { AppShell } from './components/AppShell';
 import { SignInGate } from './components/SignInGate';
@@ -30,6 +30,8 @@ import { ChatLinkReceiver } from './components/ChatLinkReceiver';
 import { DesktopCommandReceiver } from './components/DesktopCommandReceiver';
 import { DocumentTitleSync } from './navigation/PageTitle';
 import { deferredView } from './utils/deferredView';
+import { SettingsDialog } from './components/SettingsDialog';
+import { settingsBackground, settingsView } from './navigation/settings';
 
 const DiscoverPage = deferredView('Discover', async () => ({ default: (await import('./pages/DiscoverPage')).DiscoverPage }));
 const PlanPage = deferredView('Plan', async () => ({ default: (await import('./pages/PlanPage')).PlanPage }));
@@ -37,12 +39,10 @@ const TimelinePage = deferredView('Activity', async () => ({ default: (await imp
 const NotesPage = deferredView('Think', async () => ({ default: (await import('./notes/NotesPage')).NotesPage }));
 const NotePopout = deferredView('Note', async () => ({ default: (await import('./notes/NotePopout')).NotePopout }));
 const DocumentsPage = deferredView('Library', async () => ({ default: (await import('./pages/DocumentsPage')).DocumentsPage }));
-const MemoryPage = deferredView('Memory', async () => ({ default: (await import('./pages/MemoryPage')).MemoryPage }));
 const AutocueApp = deferredView('Autocue', async () => ({ default: (await import('./features/autocue/AutocueApp')).AutocueApp }));
 const Presenter = deferredView('Presentation', async () => ({ default: (await import('./features/autocue/Presenter')).Presenter }));
 const GraphPage = deferredView('Graph', async () => ({ default: (await import('./pages/GraphPage')).GraphPage }));
 const AIChatPage = deferredView('Athena', async () => ({ default: (await import('./pages/AIChatPage')).AIChatPage }));
-const RepoProjectMappingsPage = deferredView('Project mappings', async () => ({ default: (await import('./pages/RepoProjectMappingsPage')).RepoProjectMappingsPage }));
 const ProjectsPage = deferredView('Projects', async () => ({ default: (await import('./pages/ProjectsPage')).ProjectsPage }));
 const PeoplePage = deferredView('People', async () => ({ default: (await import('./pages/PeoplePage')).PeoplePage }));
 const CompaniesPage = deferredView('Companies', async () => ({ default: (await import('./pages/CompaniesPage')).CompaniesPage }));
@@ -51,6 +51,50 @@ const KnowledgeHealthPage = deferredView('Knowledge health', async () => ({ defa
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
+
+const WorkspaceRoutes: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const view = settingsView(location.pathname, location.search);
+  const background = view === undefined ? undefined : settingsBackground(location);
+  const workspace = view === undefined ? location : background ?? {
+    pathname: '/', search: '', hash: '', state: null, key: 'settings-home',
+  };
+  return <>
+            <Routes location={workspace}>
+              <Route path="/integrations/mural/callback" element={<MuralCallback />} />
+              <Route path="/autocue/*" element={<AutocueApp />} />
+              <Route path="/present" element={<Presenter />} />
+              <Route path="/chat" element={<AIChatPage standalone />} />
+              <Route path="/think/notes/:noteId/popout" element={<NotePopout />} />
+              <Route path="/" element={<AppShell />}>
+                <Route index element={<HomePage />} />
+                <Route path="discover" element={<DiscoverPage />} />
+                <Route path="plan" element={<PlanPage />} />
+                <Route path="my-work" element={<MyWorkPage />} />
+                <Route path="think" element={<ThinkPage />} />
+                <Route path="library" element={<DocumentsPage />} />
+                <Route path="build" element={<BuildPage />} />
+                <Route path="blog-post" element={<Navigate to="/chat" replace />} />
+                <Route path="graph" element={<GraphPage />} />
+                <Route path="health" element={<KnowledgeHealthPage />} />
+                <Route path="timeline" element={<Navigate to="/discover" replace />} />
+                <Route path="search" element={<Navigate to="/discover" replace />} />
+                <Route path="ai" element={<Navigate to="/discover" replace />} />
+                <Route path="tasks" element={<Navigate to="/plan" replace />} />
+                <Route path="calendar" element={<Navigate to="/plan" replace />} />
+                <Route path="notes" element={<Navigate to="/think" replace />} />
+                <Route path="projects" element={<ProjectsPage />} />
+                <Route path="people" element={<PeoplePage />} />
+                <Route path="companies" element={<CompaniesPage />} />
+                <Route path="documents" element={<Navigate to="/library" replace />} />
+                <Route path="*" element={<NotFoundPage />} />
+              </Route>
+            </Routes>
+    {view !== undefined && <SettingsDialog key={view} view={view}
+      onClose={() => { if (background) navigate(-1); else navigate('/', { replace: true }); }} />}
+  </>;
+};
 
 const App: React.FC = () => {
   return (
@@ -64,40 +108,7 @@ const App: React.FC = () => {
             <DesktopCommandReceiver />
             <DocumentTitleSync />
             <GlobalContextMenuProvider>
-            <Routes>
-              <Route path="/integrations/mural/callback" element={<MuralCallback />} />
-              <Route path="/autocue/*" element={<AutocueApp />} />
-              <Route path="/present" element={<Presenter />} />
-              {/* Standalone full-screen chat, no sidebar/nav — for use as a
-                  desktop PWA shortcut (Edge/Chrome "install as app"). */}
-              <Route path="/chat" element={<AIChatPage standalone />} />
-              <Route path="/think/notes/:noteId/popout" element={<NotePopout />} />
-              <Route path="/" element={<AppShell />}>
-                <Route index element={<HomePage />} />
-                <Route path="discover" element={<DiscoverPage />} />
-                <Route path="plan"     element={<PlanPage />} />
-                <Route path="my-work"  element={<MyWorkPage />} />
-                <Route path="think"    element={<ThinkPage />} />
-                <Route path="library"  element={<DocumentsPage />} />
-          <Route path="build"    element={<BuildPage />} />
-                <Route path="memory"   element={<MemoryPage />} />
-                <Route path="blog-post" element={<Navigate to="/chat" replace />} />
-                <Route path="graph"    element={<GraphPage />} />
-                <Route path="settings/repo-mappings" element={<RepoProjectMappingsPage />} />
-                <Route path="health" element={<KnowledgeHealthPage />} />
-                <Route path="timeline"  element={<Navigate to="/discover" replace />} />
-                <Route path="search"    element={<Navigate to="/discover" replace />} />
-                <Route path="ai"        element={<Navigate to="/discover" replace />} />
-                <Route path="tasks"     element={<Navigate to="/plan" replace />} />
-                <Route path="calendar"  element={<Navigate to="/plan" replace />} />
-                <Route path="notes"     element={<Navigate to="/think" replace />} />
-                <Route path="projects"  element={<ProjectsPage />} />
-                <Route path="people" element={<PeoplePage />} />
-                <Route path="companies" element={<CompaniesPage />} />
-                <Route path="documents" element={<Navigate to="/library" replace />} />
-                <Route path="*" element={<NotFoundPage />} />
-              </Route>
-            </Routes>
+            <WorkspaceRoutes />
             </GlobalContextMenuProvider>
           </BrowserRouter>
         </AthenaContextProvider>

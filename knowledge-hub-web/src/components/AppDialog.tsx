@@ -11,7 +11,8 @@ export const AppDialog: React.FC<{
   tone?: 'info' | 'success' | 'danger';
   wide?: boolean;
   alert?: boolean;
-}> = ({ title, onClose, children, actions, tone = 'info', wide = false, alert = false }) => {
+  settings?: boolean;
+}> = ({ title, onClose, children, actions, tone = 'info', wide = false, alert = false, settings = false }) => {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const bodyId = useId();
@@ -43,7 +44,7 @@ export const AppDialog: React.FC<{
     }
   }
   return createPortal(
-    <dialog ref={ref} className={`kh-dialog kh-dialog--${tone}${wide ? ' kh-dialog--wide' : ''}`}
+    <dialog ref={ref} className={`kh-dialog kh-dialog--${tone}${wide ? ' kh-dialog--wide' : ''}${settings ? ' kh-dialog--settings' : ''}`}
       role={alert ? 'alertdialog' : 'dialog'} aria-labelledby={titleId} aria-describedby={alert ? bodyId : undefined} aria-modal="true"
       onCancel={(e) => { e.preventDefault(); onClose(); }}
       onKeyDown={handleKeyDown}

@@ -1,20 +1,21 @@
 /**
  * components/ProjectsModal.tsx
- * Slide-over panel for managing repo → taxonomy tag mappings.
+ * Settings dialog for managing repo → taxonomy tag mappings.
  *
  * Each mapping says: "commits/PRs/releases from these GitHub repos or
  * GitLab paths belong to this tag". No separate project concept —
  * the taxonomy tag IS the project label.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { confirmDialog } from '../services/appDialogs';
 import { Button, InlineLoading, InlineNotification } from '@carbon/react';
-import { Close, Add, Edit, TrashCan, ChevronUp } from '@carbon/icons-react';
+import { Add, Edit, TrashCan, ChevronUp } from '@carbon/icons-react';
 import { useRepoMappings, useCreateRepoMapping, useUpdateRepoMapping, useDeleteRepoMapping } from '../hooks/useRepoMappings';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import type { RepoTagMapping } from '../services/api';
 import { EntityChip } from '../identity';
+import { AppDialog } from './AppDialog';
 
 interface ProjectsModalProps {
   open: boolean;
@@ -53,13 +54,6 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({ open, onClose }) =
   const [addOpen,   setAddOpen]   = useState(false);
   const [addForm,   setAddForm]   = useState<MappingForm>(blankForm());
   const [error,     setError]     = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -108,22 +102,12 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({ open, onClose }) =
 
   const repoCount = (m: RepoTagMapping) => m.githubRepos.length + m.gitlabPaths.length;
 
-  return (
-    <>
-      <div className="tag-panel-backdrop" onClick={onClose} />
-      <div className="tag-panel projects-panel tag-panel--open" role="dialog" aria-label="Repo Mappings" aria-modal="true">
-
-        {/* Header */}
-        <div className="tag-panel-header">
-          <div>
-            <h2 className="tag-panel-title">Repo → Tag Mappings</h2>
-            <p className="projects-panel__subtitle">Map GitHub repos &amp; GitLab paths to taxonomy tags</p>
-          </div>
-          <Button kind="ghost" size="sm" renderIcon={Close} iconDescription="Close" hasIconOnly onClick={onClose} />
-        </div>
-
+  return <AppDialog title="Repo to Tag Mappings" onClose={onClose} settings actions={
+    <button type="button" className="kh-dialog__button" onClick={onClose}>Done</button>
+  }>
+        <p className="kh-settings-description">Map GitHub repos &amp; GitLab paths to taxonomy tags</p>
         {/* Body */}
-        <div className="tag-panel-body">
+        <div className="kh-settings-section">
           {error && (
             <InlineNotification
               kind="error"
@@ -211,9 +195,7 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({ open, onClose }) =
             </button>
           )}
         </div>
-      </div>
-    </>
-  );
+  </AppDialog>;
 };
 
 // ── Form fields ───────────────────────────────────────────────────────────────

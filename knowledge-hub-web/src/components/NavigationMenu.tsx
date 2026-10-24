@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Checkmark } from '@carbon/icons-react';
 import type { NavigationDestination, NavigationGroup } from '../navigation/destinations';
+import { settingsLinkState, settingsView } from '../navigation/settings';
 
 interface Props {
   id: string;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export function NavigationMenu({ id, label, groups, selectedId, attentionIds = [], renderBadge, onAction, onClose, triggerRef, initialFocus }: Props): React.ReactElement {
+  const location = useLocation();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const items = ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]');
@@ -75,7 +77,10 @@ export function NavigationMenu({ id, label, groups, selectedId, attentionIds = [
           'aria-current': selected ? 'page' as const : undefined,
           onClick: () => { onAction(item); },
         };
-        return item.path ? <Link key={item.id} to={item.path} {...common}>{content}</Link>
+        const [pathname, search] = item.path?.split('?') ?? [];
+        return item.path ? <Link key={item.id} to={item.path}
+          state={pathname && settingsView(pathname, search) ? settingsLinkState(location) : undefined}
+          {...common}>{content}</Link>
           : <button key={item.id} type="button" {...common}>{content}</button>;
       })}
     </div>)}

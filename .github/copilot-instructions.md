@@ -52,6 +52,14 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 
 Production is deployed to Azure Container Apps (backend) + Azure Static Web Apps (frontend). There is no CI/CD pipeline — deploys are manual, run from a local/session shell via the Azure CLI. Always `tsc --noEmit` and build locally first (see Code Changes above) before deploying.
 
+### Deployment scope and stopping rule
+
+- A request to deploy existing changes is deployment-only, not permission for another review, feature iteration, refactor or unrelated fix. Follow this runbook against the existing production targets; do not reopen settled infrastructure decisions.
+- Reuse completed validation for unchanged code. Run each required full release suite at most once; after a failure or necessary code fix, rerun only failed or directly affected checks. An interrupted or locally aborted suite is not a reason to restart every suite.
+- Fix genuine release blockers narrowly. If resolving a blocker requires substantial extra work, explain it and ask before expanding the task; never silently ignore a known failure.
+- Keep release bookkeeping consolidated. Do not make repeated documentation-only commits for intermediate check results.
+- Stop after the intended release is pushed, deployed, and confirmed healthy with startup/migration logs and the served frontend checked. Do not append an unsolicited audit or polishing pass.
+
 ### Resources
 
 | Purpose | Resource | Resource Group | Subscription |

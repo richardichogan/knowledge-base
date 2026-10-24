@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Modal } from '@carbon/react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { SettingsLink } from '../navigation/SettingsLink';
 import { isAxiosError } from 'axios';
 import { api } from '../services/api';
 import { describeApiError } from '../services/apiError';
@@ -76,7 +76,7 @@ export const ShareEmailModal: React.FC<{ content: ShareEmailContent; onClose: ()
     <div className="share-email">
       {query.isPending && <p role="status">Checking email settings...</p>}
       {query.isError && <p role="alert">{describeApiError(query.error)} <button type="button" className="connection-tokens__button" onClick={() => { void query.refetch(); }}>Retry settings</button></p>}
-      {query.data && !query.data.configured && <p role="alert">Set up <Link to="/my-work?sync=1" onClick={close}>SMTP2GO in Sources / Integrations</Link> before sending.</p>}
+      {query.data && !query.data.configured && <p role="alert">Set up <SettingsLink to="/my-work?sync=1" onClick={close}>SMTP2GO in Connections and sync</SettingsLink> before sending.</p>}
       <p>From: Athena &lt;{query.data?.from ?? 'share@athena.themicrosoftcloudblog.com'}&gt;
         {query.data?.replyTo && <> · Reply-To: {query.data.replyTo}</>}</p>
       <label htmlFor="share-email-to">Recipients (up to 20, separated by commas)</label>

@@ -113,7 +113,7 @@ const InstructionRow: React.FC<{ m: AthenaMemory; run: MemoryAction; busy: boole
   );
 };
 
-export const MemoryPage: React.FC = () => {
+export const MemoryPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const qc = useQueryClient();
   const { data: memories = [], isLoading, error: loadError, refetch } = useQuery({
     queryKey: ['memories'],
@@ -161,9 +161,14 @@ export const MemoryPage: React.FC = () => {
 
   return (
     <main className="memory-page">
-      <PageHeader title="Memory" subtitle="What Athena has learned from you — she follows these in every matching conversation." actions={
+      {embedded ? <>
+       <p className="kh-settings-description">What Athena has learned from you — she follows these in every matching conversation.</p>
+       <div className="kh-settings-toolbar">
+         <button type="button" className="docs-upload-btn" onClick={() => { setAdding(true); }}><Add size={20} /> Add instruction</button>
+       </div>
+      </> : <PageHeader title="Memory" subtitle="What Athena has learned from you — she follows these in every matching conversation." actions={
         <button type="button" className="docs-upload-btn" onClick={() => { setAdding(true); }}><Add size={20} /> Add instruction</button>
-      } />
+      } />}
 
       {isLoading && <InlineLoading description="Loading memory…" />}
       {loadError !== null && <div className="memory-notice">

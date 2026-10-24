@@ -2,6 +2,19 @@
 
 **Status:** Validated
 
+**Release scope (2026-10-24, settings modals):**
+- User approved configuration as modals and working destinations as pages.
+- Reuse existing settings components for Memory, Connections and sync, tags
+  and repository mappings; preserve the underlying workspace and direct links.
+- Frontend-only update to existing kh-prod-web; backend v244, production data,
+  dependencies, infrastructure and Azure context remain unchanged.
+- Sync main, implement, run affected tests and required typechecks, build once,
+  push and deploy the frontend, then verify its served entry asset.
+- All validation checks pass: existing Azure CLI authentication and SWA
+  resource confirmed; both typechecks, frontend lint non-regression, one
+  frontend release suite and production build passed. No infrastructure,
+  Docker, policy or role-assignment changes apply to this static-only release.
+
 **Release scope (2026-10-24, Athena conversational pacing):**
 - Deploy the requested changes that remove output-first instructions, clarify
   ambiguous in-view concept versus specification reviews, retain explicit
@@ -2021,6 +2034,23 @@ All validation checks pass:
 - Frontend: redeploy the prior known-good build/commit if verification fails.
 
 ## 7. Validation Proof
+
+### Settings modals — 2026-10-24T12:28:57Z (Validated)
+
+- `git fetch origin` and `git merge origin/main --no-edit` confirm current
+  main at `c0723c7`; `git diff --check` passed.
+- Both application `npm run typecheck` checks passed. Backend source is
+  unchanged; reuse its preceding 513/513 release-suite result and v244 image.
+- Frontend `npm run lint:check` passed: 23 existing violations versus a
+  baseline of 41; no new lint violations.
+- Frontend `npm run build` passed; entry `/assets/index-CNhs-zK4.js`.
+- Frontend `npm run test:isolated` passed once: 213/213 main tests and all
+  additional groups (6, 3, 2, 6 and 3). Navigation regressions cover settings
+  route classification, exact background state preservation and direct links.
+- Azure CLI confirms the established Alliance Tenant Reporting subscription
+  and existing `kh-prod-web` in West Europe. No infrastructure, credentials,
+  RBAC, schema or dependency changes. No browser was launched.
+- Build/test logs: session files/settings-modals-{build,tests}.log.
 
 ### Athena conversational pacing — 2026-10-24 (Validated)
 
