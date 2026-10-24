@@ -49,6 +49,8 @@ test('supporting records, configuration and management are separated without los
   assert.equal(selectedTool('/people', '?personId=abc')?.label, 'People');
   assert.equal(selectedTool('/companies', '?companyId=abc')?.label, 'Companies');
   assert.equal(selectedTool('/projects', '')?.label, 'Projects');
+  assert.equal(selectedTool('/jobs', '')?.label, 'Jobs');
+  assert.equal(settingsView('/jobs'), undefined, 'Jobs is a working destination, not a settings modal');
   assert.equal(TOOL_GROUPS[2]!.items.find((item) => item.id === 'projects')?.path, '/projects');
   assert.equal(selectedTool('/my-work', '')?.label, 'Activity');
   assert.equal(selectedTool('/my-work', '?sync=1')?.label, 'Connections and sync');

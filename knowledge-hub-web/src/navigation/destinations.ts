@@ -37,6 +37,7 @@ export const TOOL_GROUPS: NavigationGroup[] = [
     { id: 'memory', path: '/memory', label: 'Memory', icon: MachineLearningModel, description: 'Manage what Athena remembers' },
   ] },
   { label: 'Management', items: [
+    { id: 'jobs', path: '/jobs', label: 'Jobs', icon: CalendarTools, description: 'Scheduled prompts, imports, publishing and audit history' },
     { id: 'projects', path: '/projects', label: 'Projects', icon: Portfolio, description: 'Project setup, goals and cockpit' },
     { id: 'sync', path: '/my-work?sync=1', label: 'Connections and sync', icon: Renew, description: 'Manage connected sources and synchronisation' },
     { id: 'tags', action: 'tags', label: 'Tag Manager', icon: Tag, description: 'Manage tags and review suggestions' },

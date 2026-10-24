@@ -42,6 +42,7 @@ const BADGES: Record<BadgeTab, { icon: CarbonIconType; label: (n: number) => str
   discover: { icon: DocumentAdd, label: (n) => `${n} new article${n === 1 ? '' : 's'} to review since your last visit` },
   plan: { icon: Time, label: (n) => `${n} overdue task${n === 1 ? '' : 's'}` },
   build: { icon: WarningAlt, label: (n) => `${n} build task${n === 1 ? '' : 's'} waiting on you` },
+  jobs: { icon: WarningAlt, label: (n) => `${n} job run${n === 1 ? '' : 's'} needing approval or attention` },
 };
 const isBadgeTab = (id: string): id is BadgeTab => Object.hasOwn(BADGES, id);
 
@@ -82,7 +83,7 @@ export const AppShell: React.FC = () => {
     void refetchAttention();
   }, [onDiscover, refetchAttention]);
   const attention: NavAttention | null = attentionData?.success === true ? attentionData.data : null;
-  const badgeCount = (id: string): number => (attention && isBadgeTab(id) ? attention[id] : 0);
+  const badgeCount = (id: string): number => (attention && isBadgeTab(id) ? attention[id] ?? 0 : 0);
   const newClusters = badgeCount('think') > 0;
 
   const closeMenu = useCallback((restoreFocus: boolean): void => {

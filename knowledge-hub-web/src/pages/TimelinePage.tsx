@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   InlineLoading,
@@ -381,6 +382,7 @@ export const TimelinePage: React.FC<{ excludeSources?: string[]; settingsOnly?: 
             {isSyncing ? 'Syncing…' : 'Sync Now'}
           </Button>;
   const syncContent = <div className="tl-sync-panel">
+            <Link className="tl-sync-jobs-link" to="/jobs?jobId=a7000000-0000-4000-8000-000000000001">Manage sync schedule and audit history in Jobs</Link>
             <MuralIntegration />
             <ShareEmailSettings />
             <ConnectionTokens />

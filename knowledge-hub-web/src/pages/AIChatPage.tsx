@@ -55,6 +55,7 @@ import {
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, LocalFileWrite, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi, ContextUsedApi } from '../types';
+import { JobChatConfirmations } from '../components/jobs/JobReview';
 
 import type { AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
@@ -2156,6 +2157,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         <AthenaPresence mood={mood} phase={motionPhase} pending={chatMutation.isPending} answerAt={replyArrival?.startedAt ?? null}
           contextKey={currentNoteId ?? sessionId ?? 'new'} host={conversationRef}
           thread={messagesRef} dock={presenceDockRef} thinker={presenceThinkRef} reply={presenceReplyRef} voiceLevel={voiceLevelRef} />
+        <JobChatConfirmations sessionId={sessionId} />
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
             <p className="ai-action-desc">{action.description}</p>

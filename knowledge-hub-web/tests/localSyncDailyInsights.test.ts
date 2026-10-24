@@ -71,6 +71,7 @@ test('structured capture retries independently of a successful, unchanged upload
       readText: async () => 'fixture report',
     },
     api: {
+      jobs: async () => ({ managedImport: false, work: null }),
       getLocalIndex: async () => ok([{ localKey: 'key', localHash: 'same', localPath: path }]),
       captureDailyInsights: async () => {
         captures++;

@@ -48,6 +48,7 @@ const PeoplePage = deferredView('People', async () => ({ default: (await import(
 const CompaniesPage = deferredView('Companies', async () => ({ default: (await import('./pages/CompaniesPage')).CompaniesPage }));
 const BuildPage = deferredView('Build', async () => ({ default: (await import('./features/build/BuildPage')).BuildPage }));
 const KnowledgeHealthPage = deferredView('Knowledge health', async () => ({ default: (await import('./pages/KnowledgeHealthPage')).KnowledgeHealthPage }));
+const JobsPage = deferredView('Jobs', async () => ({ default: (await import('./pages/JobsPage')).JobsPage }));
 
 const MyWorkPage: React.FC = () => <TimelinePage excludeSources={['discovered-article', 'email']} />;
 const ThinkPage: React.FC = () => <NotesPage />;
@@ -78,6 +79,7 @@ const WorkspaceRoutes: React.FC = () => {
                 <Route path="blog-post" element={<Navigate to="/chat" replace />} />
                 <Route path="graph" element={<GraphPage />} />
                 <Route path="health" element={<KnowledgeHealthPage />} />
+                <Route path="jobs" element={<JobsPage />} />
                 <Route path="timeline" element={<Navigate to="/discover" replace />} />
                 <Route path="search" element={<Navigate to="/discover" replace />} />
                 <Route path="ai" element={<Navigate to="/discover" replace />} />

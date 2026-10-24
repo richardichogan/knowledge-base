@@ -3,7 +3,9 @@ import type { NextFunction, Request, Response } from 'express';
 import { getDb } from '../db/db.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { getTodaysBriefing, generateMorningBriefing, type Briefing } from '../ai/morningBriefing.js';
-import { generateWeeklyMicrosoftDigest, type WeeklyDigest } from '../ai/weeklyMicrosoftDigest.js';
+import { enqueue, getJob } from '../jobs/store.js';
+import { randomUUID } from 'node:crypto';
+import { env } from '../config/env.js';
 import { getPodcastPrepStatus, generatePodcastPrep, acknowledgePodcastPrep } from '../ai/podcastPrep.js';
 import { ValidationError } from '../types/errors.js';
 import { HTTP_STATUS } from '../config/constants.js';
@@ -120,15 +122,14 @@ todayRouter.post('/briefing', (_req: Request, res: Response, next: NextFunction)
   })();
 });
 
-let digestInFlight: Promise<WeeklyDigest> | null = null;
-
 /** Generates (or regenerates) this week's Microsoft digest on demand. */
 todayRouter.post('/weekly-microsoft-digest', (_req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      digestInFlight ??= generateWeeklyMicrosoftDigest(getDb()).finally(() => { digestInFlight = null; });
-      const body: ApiSuccess<WeeklyDigest> = { success: true, data: await digestInFlight };
-      res.json(body);
+      if (env.NODE_ENV !== 'production') throw new ValidationError('Managed jobs execute only on the production backend.');
+      const job = await getJob(getDb(), 'a7000000-0000-4000-8000-000000000002');
+      const run = await enqueue(getDb(), job, new Date(), `manual:${randomUUID()}`, false, 'manual:weekly-digest');
+      res.json({ success: true, data: run });
     } catch (err) {
       next(err);
     }

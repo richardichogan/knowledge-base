@@ -76,8 +76,10 @@ export function focusTools(
   const wantsTraversal = turn.knowledgeOrchestration === true && RELATIONSHIP_INTENT_PATTERN.test(text);
   const wantsStructured = turn.knowledgeOrchestration === true && STRUCTURED_INTENT_PATTERN.test(text);
   const wantsDemoSpecification = /\bdemo\s+spec(?:ification)?\b/i.test(text);
+  const wantsJobs = /\b(?:jobs?|schedul\w*|automat\w*|recurr\w*|cron|digest|daily\s+insights|m365.*(?:import|sync)|publishing\s+workflow)\b/i.test(text);
   return tools.filter((tool) => {
     const name = tool.function.name;
+    if (name === 'manage_scheduled_jobs' && !wantsJobs) return false;
     if (name === 'get_demo_specification_template' || name === 'create_demo_specification') return wantsDemoSpecification;
     if (STRUCTURED_TOOL_NAMES.has(name)) return wantsStructured;
     if (name === 'traverse_relationships') return wantsTraversal;

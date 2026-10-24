@@ -22,6 +22,7 @@ const MAX_TITLE = 200;
 const MAX_SUMMARY = 1000;
 const MAX_TAKEAWAYS = 10;
 const MAX_TAKEAWAY_CHARS = 300;
+const BLOG_POST_TIMEOUT_MS = 30_000;
 
 export function parsePublishBody(body: unknown): BlogPublishBody {
   const o = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
@@ -58,6 +59,7 @@ export async function sendToBlog(post: BlogPublishBody): Promise<BlogSendResult>
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...post, excerpt: post.excerpt || undefined }),
+    signal: AbortSignal.timeout(BLOG_POST_TIMEOUT_MS),
   });
   const result = await response.json().catch(() => ({})) as { error?: string; details?: string[]; editUrl?: string; url?: string };
   if (response.status === HTTP_STATUS.CONFLICT) {

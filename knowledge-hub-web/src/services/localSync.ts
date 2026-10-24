@@ -8,6 +8,7 @@ import { describeApiError, requireApiData } from './apiError';
 import type { ApiResponse } from '../types/apiResponse';
 import { desktopErrorMessage, getDesktop, type DesktopSkippedFile } from '../types/desktop';
 import { dailyInsightsFiles } from './dailyInsightsSource';
+import { syncDesktopJobs } from './desktopJobs';
 
 export interface DailyInsightsSyncReport {
   path: string;
@@ -97,9 +98,12 @@ export async function syncLocalFolders(): Promise<void> {
     const folders = await desktop.listFolders();
     const reports: DailyInsightsSyncReport[] = [];
     let captured = false;
+    let managedImport = true;
+    try { managedImport = await syncDesktopJobs(scan.files, () => { onSynced?.(); }); }
+    catch (error) { problems.push({ path: 'Scheduled desktop jobs', message: desktopErrorMessage(error) }); }
     // Always retry structured capture, even when the upload index already has this hash.
     // The server's transactional ledger, not this browser, owns durable deduplication.
-    for (const file of dailyInsightsFiles(scan.files, folders)) {
+    for (const file of managedImport ? [] : dailyInsightsFiles(scan.files, folders)) {
       set({ progress: `Processing Daily Insights: ${file.path.split('\\').pop() ?? file.path}` });
       try {
         if (file.size > 1_000_000) throw new Error('Daily Insights report exceeds the capture size limit');

@@ -472,6 +472,7 @@ router.post('/:id/recover-draft', (req: Request, res: Response, next: NextFuncti
 export async function createNoteRecord(
   db: ReturnType<typeof getDb>,
   input: Partial<CreateNoteInput>,
+  stableId?: string,
 ): Promise<Note> {
   if (typeof input.content !== 'string' || input.content.trim() === '') {
     throw new ValidationError('content is required', { content: 'must be a non-empty string' });
@@ -492,10 +493,14 @@ export async function createNoteRecord(
     status: string;
     project_id: string | null;
   }>(
-    `INSERT INTO notes (content, tags, project_id)
+    stableId ? `INSERT INTO notes (content, tags, project_id, id)
+     VALUES ($1, $2, $3, COALESCE($4::uuid, gen_random_uuid()))
+     ON CONFLICT (id) DO UPDATE SET id=notes.id
+     RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`
+      : `INSERT INTO notes (content, tags, project_id)
      VALUES ($1, $2, $3)
      RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`,
-    [input.content.trim(), input.tags ?? [], projectId],
+    stableId ? [input.content.trim(), input.tags ?? [], projectId, stableId] : [input.content.trim(), input.tags ?? [], projectId],
   );
 
   const row = result.rows[0];

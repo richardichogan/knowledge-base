@@ -47,6 +47,7 @@ const LABELS: Record<string, string> = {
   update_diagram: 'Updating a diagram',
   create_mind_map: 'Creating a mind map',
   create_weekly_microsoft_digest: 'Collating this week\'s Microsoft updates',
+  manage_scheduled_jobs: 'Working with scheduled jobs',
 };
 
 /** One line describing a tool call, including what it's looking for when that's short. */

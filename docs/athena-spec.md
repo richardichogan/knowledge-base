@@ -107,7 +107,7 @@ In priority order:
 | **People** (`/people`) | Contacts with email aliases, organisation, role and topics. Import contact reports from Markdown; mention people with `@` in notes and chat. |
 | **Autocue** (`/autocue`) | A full-screen teleprompter for note scripts, paced by the speaker's voice or a gamepad. Runs outside the normal app shell. |
 | **Projects** (`/projects`) | Project goal, role, dates, expected outputs, and the project **cockpit**, which holds the register of questions, risks and issues, and review packets. |
-| **Share** | Manual, review-before-send emails through SMTP2GO (Mural links, draw.io attachments, GitHub note links), Mural export, GitHub note publishing and Bluesky/LinkedIn personal-profile posting from Discover articles. Nothing is sent or posted automatically. |
+| **Share** | Manual, review-before-send emails through SMTP2GO (Mural links, draw.io attachments, GitHub note links), Mural export, GitHub note publishing and Bluesky/LinkedIn personal-profile posting from Discover articles. Automatic publishing is permitted only through an explicitly enabled Jobs workflow with automatic delivery selected. |
 | **Management** | Tag Manager, repo-to-tag and repo-to-project mappings, Knowledge health (AI usage, sync runs, index freshness), practice-exam score history, and voice transcription and speech. |
 
 Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search`, `/ai`, `/blog-post`) redirect to the areas above.
@@ -118,6 +118,51 @@ the command palette preserves the current workspace; Done, close or Escape
 returns to it. Existing settings URLs remain valid, including browser Back.
 People, Companies, Activity, Sources, Knowledge graph, project cockpits and
 Knowledge health remain full-page workspaces.
+
+### Jobs and scheduled prompts
+
+**Tools → Jobs** (`/jobs`) is a working destination for schedules, prompts,
+desktop imports, publishing approvals and audit history. Configuration uses a
+modal. Athena can design and manage the same saved jobs from any chat surface;
+the Jobs screen is not a required setup wizard. Chat proposals display the exact
+configuration and require a user confirmation card before they change a schedule
+or enable publishing. Discussing a possible job does not enable one.
+
+Schedules have an explicit IANA timezone, selected days (workdays, full week or
+weekly days), and one or more local times. Content sync starts with **06:00 and
+13:00 Europe/London**, seven days a week. The former startup/08:00/14:00/20:00
+triggers are removed. Weekly Microsoft updates retains Monday 08:00 and its
+previous-full-Monday-to-Sunday evidence window, Think note, pinned chat and Slack
+summary. Its new blog → Bluesky/LinkedIn delivery chain initially requires
+approval. Both social destinations use the confirmed public blog URL.
+
+Jobs can run a saved grounded Athena prompt, ingest Daily Insights, save a Think
+result or a Markdown file, and deliver through the existing publishing adapters.
+Outputs, prompts and schedules are versioned. Preview generates review artifacts
+but never publishes, imports data or writes production output files. Approval
+applies to the saved version and exact outgoing artifacts; editing a job
+invalidates pending runs/approvals. Automatic delivery is an explicit per-job
+permission, not a default model decision.
+
+Daily Insights ingestion reads `Daily-Briefing-YYYY-MM-DD.md` from a folder already
+authorised on a registered Athena Desktop device. It schedules **ingestion**, not
+M365 Copilot's generation of that file. While the desktop is closed, local jobs
+wait; on reconnect only the latest eligible occurrence catches up. If its dated
+file is late, ingestion waits until the next scheduled occurrence, then records
+the old one as missed. Library file indexing continues separately. The initial
+Daily Insights job is a paused draft until its device, folder and desired
+schedule are confirmed; existing legacy capture continues until this transition.
+Markdown output files use `athena-<run-id>.md` and never overwrite user edits.
+
+Run history records per-step outcomes, source evidence, artifacts, publishing
+links and errors; the audit log records configuration changes, actors, approvals,
+retries and missed occurrences. Successful delivery steps are retained on retry.
+An uncertain blog/social response is **unconfirmed**, not automatically retried:
+check the destination and reconcile its public URL or explicitly confirm that
+nothing was delivered. Pausing prevents new dispatch and later delivery steps;
+it cannot retract an external request already in flight. Archived jobs retain
+their history. Internal indexing, tagging, health and other maintenance timers
+remain separate and are not editable here.
 
 ### Athena chat motion
 

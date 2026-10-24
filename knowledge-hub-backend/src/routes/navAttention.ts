@@ -27,7 +27,7 @@ navAttentionRouter.get('/attention', (req: Request, res: Response, next: NextFun
     try {
       const db = getDb();
       const since = sinceParam(req.query['discoverSince']);
-      const [think, discover, plan, build] = await Promise.all([
+      const [think, discover, plan, build, jobs] = await Promise.all([
         db.query<{ count: string }>(
           `SELECT COUNT(*) AS count FROM spark_clusters
             WHERE spark_count >= $1 AND surfaced = false AND status IN ('active', 'developed')`, [MIN_THEME_SIZE]),
@@ -41,10 +41,12 @@ navAttentionRouter.get('/attention', (req: Request, res: Response, next: NextFun
             WHERE archived = false AND status IN ('backlog', 'in-progress') AND due_date < $1::date`, [workDay(req.query['today'])]),
         db.query<{ count: string }>(
           `SELECT COUNT(*) AS count FROM build_tasks WHERE status IN ('awaiting_approval', 'blocked', 'failed')`),
+        db.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM managed_job_runs WHERE status IN ('awaiting-approval','failed','partial','unconfirmed')`),
       ]);
       res.status(HTTP_STATUS.OK).json({
         success: true,
-        data: { think: count(think.rows), discover: count(discover.rows), plan: count(plan.rows), build: count(build.rows) },
+        data: { think: count(think.rows), discover: count(discover.rows), plan: count(plan.rows), build: count(build.rows), jobs: count(jobs.rows) },
       });
     } catch (err) { next(err); }
   })();

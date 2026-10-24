@@ -68,8 +68,9 @@ explicitly without partial writes; there is no regex-parser fallback.
   source provenance. The original local files are **never deleted**.
 - The capture endpoint (`POST /api/capture/daily-insights`) has its own durable
   transaction/receipt, separate from upload indexing. Failed captures retry on
-  the next sync even if the original file is already indexed. Sync runs on
-  startup, filesystem changes, **Sync now**, and every minute while Desktop is open.
+  the next eligible attempt even if the original file is already indexed.
+  Library indexing still runs on startup, filesystem changes, **Sync now**, and
+  every minute while Desktop is open.
   Unchanged/stale reports reuse the receipt without another model call; identical
   simultaneous requests share extraction within the backend process. AI runs
   before the write transaction; the transaction rechecks receipts for races.
@@ -83,6 +84,28 @@ rebuilt/reinstalled desktop executable (`npm run dist`); the exact authorised
 path fallback works with the existing executable after the web/backend changes
 are deployed. A browser/PWA or cloud backend cannot read this PC's files.
 The Alliance OneDrive configuration is not involved or changed.
+
+### Scheduled imports and file outputs
+
+Use **Tools → Jobs** or discuss the job with Athena in any chat to configure
+its days, times, timezone and source device/folder. Desktop registers its
+already-authorised folders while open; adding a path in chat does not grant
+filesystem access. Jobs uses the existing desktop file bridge, so these controls
+do not require a new Electron build.
+
+Daily Insights starts as an incomplete paused job. Legacy automatic capture
+continues until the configured job is first enabled for this device. After that
+transition the managed schedule governs capture, including while paused; it
+does not fall back to the old minute-by-minute importer. The selected dated
+report is imported once, waiting for late OneDrive delivery until the next
+occurrence. On reopening the app, only the latest eligible scheduled occurrence
+catches up; older missed occurrences are audited, not replayed as a backlog.
+This does not configure M365 Copilot's own report-generation schedule.
+
+Scheduled Markdown outputs use a unique `athena-<run-id>.md` filename in an
+authorised output folder. Existing different content is never overwritten.
+Run results and import warnings are available in Jobs; desktop transport and
+permission failures also appear in Library's sync issues.
 
 ## Develop
 

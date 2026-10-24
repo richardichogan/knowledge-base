@@ -3,14 +3,14 @@ import { runDueWatchlists } from '../services/discoverWatchlists.js';
 import { MS_PER_MINUTE, MS_PER_HOUR, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
-import { runTier1Sync, isSyncInProgress } from './syncOrchestrator.js';
+import { isSyncInProgress } from './syncOrchestrator.js';
+import { tickManagedJobs } from '../jobs/runner.js';
 import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
 import { runTaggingSweepJob } from '../jobs/taggingSweepJob.js';
 import { runKnowledgeNightlyReviewJob } from '../jobs/knowledgeNightlyReviewJob.js';
 import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
 import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
-import { weeklyDigestDue, generateWeeklyMicrosoftDigest } from '../ai/weeklyMicrosoftDigest.js';
 import { tickBuildRunner } from '../build/buildRunner.js';
 import { archiveCompletedTasks } from '../services/taskArchiveService.js';
 import { isConnectionCheckInProgress } from './connectionWork.js';
@@ -21,14 +21,12 @@ import { generatePodcastPrep, PODCAST_PREP_END_UTC_HOUR, PODCAST_PREP_START_UTC_
 /**
  * Scheduler for sync jobs.
  *
- * Runs content discovery every 6 hours during working hours only (08:00–20:00).
- * Schedule: 08:00, 14:00, 20:00 — no overnight runs.
+ * User-facing content sync and digest schedules live in managed_jobs.
  *
  * In development mode, AI-backed jobs (inferred edges, article scoring) are
  * skipped to avoid burning Foundry credits locally.
  */
 
-const SYNC_HOURS = [8, 14, 20]; // Run at these hours only
 const MEMORY_REVIEW_HOUR = 8;
 const SYNC_CHECK_INTERVAL = 5 * MS_PER_MINUTE; // Check every 5 min if it's time to run
 const CONNECTION_CHECK_MINUTES = 15;
@@ -39,12 +37,10 @@ const BUILD_RUNNER_INTERVAL_MS = 2 * MS_PER_MINUTE; // Poll cloud-agent PRs for 
 const timers: ReturnType<typeof setInterval>[] = [];
 let initialTimer: ReturnType<typeof setTimeout> | undefined;
 let started = false;
-let lastSyncHour = -1; // Track the last hour we ran sync to avoid double-runs
 let lastConnectionCheckAt = Date.now();
 let lastArchiveDay = ''; // Date string of the last completed-task archive sweep
 let lastMemoryReviewWeek = ''; // Week key of the last weekly memory review
 let briefingRunning = false;
-let weeklyDigestRunning = false;
 let podcastPrepRunning = false;
 let watchlistsRunning = false;
 /** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
@@ -55,18 +51,6 @@ let lastTaggingSweepAt = 0;
 const KNOWLEDGE_REVIEW_UTC_HOUR = 2;
 const ISO_DATE_LENGTH = 10;
 let lastKnowledgeReviewDay = ''; // UTC date of the last nightly knowledge review attempt
-
-function isWithinWorkingHours(): boolean {
-  const hour = ukClock().hour;
-  return hour >= 8 && hour <= 20;
-}
-
-function shouldRunSync(): boolean {
-  const currentHour = ukClock().hour;
-  if (!SYNC_HOURS.includes(currentHour)) return false;
-  if (lastSyncHour === currentHour) return false;
-  return true;
-}
 
 export function connectionCheckDue(now: number, lastRun: number): boolean {
   return now - lastRun >= CONNECTION_CHECK_INTERVAL_MS;
@@ -80,7 +64,7 @@ export function startSyncScheduler(): void {
   if (started) return;
   if (env.NODE_ENV !== 'production') throw new Error('Scheduled jobs require production mode.');
   started = true;
-  console.warn('[Scheduler] Starting sync scheduler (08:00, 14:00, 20:00 — no overnight)...');
+  console.warn('[Scheduler] Starting managed jobs and internal maintenance...');
 
   const db = getDb();
   function preparePodcastIfDue(): void {
@@ -103,37 +87,21 @@ export function startSyncScheduler(): void {
     console.error('[Scheduler] Note re-index job failed:', err instanceof Error ? err.message : String(err));
   });
 
-  // Initial sync on startup (if within working hours)
   initialTimer = setTimeout(() => {
     initialTimer = undefined;
     if (!started) return;
     preparePodcastIfDue();
-    if (isWithinWorkingHours()) {
-      console.warn('[Scheduler] Running initial sync on startup...');
-      const clock = ukClock();
-      lastSyncHour = clock.hour;
-      runTier1Sync(db, `sync:${clock.day}:${clock.hour}`).catch((err: unknown) => {
-        console.error('[Scheduler] Initial sync failed:', err instanceof Error ? err.message : String(err));
-      });
-    } else {
-      console.warn('[Scheduler] Outside working hours (08:00–20:00) — skipping initial sync.');
-    }
+    void tickManagedJobs(db).catch((error: unknown) => console.error('[Jobs] Startup check failed:', error));
   }, INITIAL_SYNC_DELAY_MS);
+  timers.push(setInterval(() => {
+    if (started) void tickManagedJobs(db).catch((error: unknown) => console.error('[Jobs] Scheduler failed:', error));
+  }, MS_PER_MINUTE));
 
   // Check every 5 minutes if it's time to run the scheduled sync
   timers.push(
     setInterval(() => {
       if (!started) return;
       preparePodcastIfDue();
-      if (shouldRunSync() && !isConnectionCheckInProgress()) {
-        const clock = ukClock();
-        const hour = clock.hour;
-        lastSyncHour = hour;
-        console.warn(`[Scheduler] Running scheduled sync (${hour}:00)...`);
-        runTier1Sync(db, `sync:${clock.day}:${hour}`).catch((err: unknown) => {
-          console.error('[Scheduler] Tier 1 sync failed:', err instanceof Error ? err.message : String(err));
-        });
-      }
       if (!watchlistsRunning && !isSyncInProgress() && !isConnectionCheckInProgress() && !env.isDevelopment) {
         watchlistsRunning = true;
         void runDueWatchlists(db)
@@ -170,21 +138,6 @@ export function startSyncScheduler(): void {
         console.warn('[Scheduler] Checking new/updated connections (15-minute interval)...');
         void runClaimedJob(db, 'connections', String(Math.floor(Date.now() / CONNECTION_CHECK_INTERVAL_MS)), () => runInferredEdgeJob(db)).catch((err: unknown) => {
           console.error('[Scheduler] Inferred edge job failed:', err instanceof Error ? err.message : String(err));
-        });
-      }
-
-      // Weekly Microsoft digest — production only, Mondays from 08:00 UK,
-      // once per week (persisted), after any running sync has finished.
-      if (!env.isDevelopment && !weeklyDigestRunning && !isSyncInProgress()) {
-        void weeklyDigestDue(db).then((due) => {
-          if (!started || !due || weeklyDigestRunning) return;
-          weeklyDigestRunning = true;
-          console.warn('[Scheduler] Generating weekly Microsoft digest...');
-          return runClaimedJob(db, 'weekly-digest', ukClock().week, () => generateWeeklyMicrosoftDigest(db))
-            .then((ran) => { console.warn(`[Scheduler] Weekly Microsoft digest claimed: ${ran.toString()}`); })
-            .finally(() => { weeklyDigestRunning = false; });
-        }).catch((err: unknown) => {
-          console.error('[Scheduler] Weekly Microsoft digest failed:', err instanceof Error ? err.message : String(err));
         });
       }
 

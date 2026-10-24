@@ -25,6 +25,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/composerIntent.test.ts',
   '../knowledge-hub-web/tests/dailyInsightsSource.test.ts',
   '../knowledge-hub-web/tests/localSyncDailyInsights.test.ts',
+  '../knowledge-hub-web/tests/desktopJobs.test.ts',
   '../knowledge-hub-web/tests/people.test.ts',
   '../knowledge-hub-web/tests/entityLinks.test.ts',
   '../knowledge-hub-web/tests/commandPaletteItems.test.ts',
@@ -54,6 +55,8 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/projectOptions.test.ts',
   '../knowledge-hub-web/tests/decisionSemantics.test.tsx',
 ] : [
+  'scripts/managed-jobs.test.ts',
+  'scripts/managed-jobs-api.test.ts',
   'scripts/memory-suggestions.test.ts',
   'scripts/graph-atlas.test.ts',
   'scripts/demo-specification.test.ts',

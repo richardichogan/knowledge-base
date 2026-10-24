@@ -291,6 +291,26 @@ function blogTitle(markdown: string, fallback: string): string {
   return line !== undefined ? line.slice(2).trim() : fallback;
 }
 
+/** Generation only: used by previews and approved job delivery without posting or changing live state. */
+export async function prepareWeeklyMicrosoftDigest(db: Pool, now = new Date(), instructions = ''): Promise<{
+  blog: string; slackText: string; label: string; articleCount: number; sources: DigestArticle[];
+}> {
+  const window = digestWindow(now);
+  const label = windowLabel(window);
+  const fromDiscover = await gatherDigestArticles(db, now);
+  const web = await searchDigestWeek(window, fromDiscover.flatMap(a => a.url ? [a.url] : []));
+  const sources = [...fromDiscover, ...webHitsToArticles(web, window)];
+  if (!sources.length) throw new Error('No Microsoft updates found for the reporting period. Check sources before retrying.');
+  const facts = formatDigestFacts(sources, label);
+  const client = getFoundryClient('weekly-msft-job');
+  const [blog, slackText] = await Promise.all([
+    client.chat('standard', [{ role: 'system', content: BLOG_PROMPT },
+      { role: 'user', content: `${facts}\n\nSaved editorial instructions:\n${instructions}` }], BLOG_MAX_TOKENS),
+    client.chat('standard', [{ role: 'system', content: SLACK_PROMPT }, { role: 'user', content: facts }], SLACK_MAX_TOKENS),
+  ]);
+  return { blog, slackText, label, articleCount: sources.length, sources };
+}
+
 /** Builds the digest, saves the blog note and pinned chat, and posts to Slack when configured. */
 export async function generateWeeklyMicrosoftDigest(db: Pool, now = new Date()): Promise<WeeklyDigest> {
   const previous = await loadState(db);

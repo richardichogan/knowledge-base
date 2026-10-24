@@ -2,6 +2,50 @@
 
 **Status:** Validated
 
+**Release scope (2026-10-24, managed Jobs):**
+- User approved the Jobs plan and explicitly requested deployment, merge and push.
+- Deploy the Jobs workspace, shared chat configuration confirmations, versioned
+  schedules, durable runs, publishing approvals and audit history.
+- Migration 099 adds Jobs tables and seeds content sync at 06:00/13:00 UK,
+  the Monday weekly workflow with approval required, and an incomplete paused
+  M365 import. Existing maintenance schedules and production content remain.
+- Use the existing Container App, ACR and Static Web App; no dependencies,
+  infrastructure, credentials, RBAC assignments or Electron source changes.
+- All validation checks pass:
+  - [x] Fetch and merge origin/main before release checks (already current).
+  - [x] Azure authentication and existing application targets confirmed.
+  - [x] Both typechecks, lint non-regression and local production builds.
+  - [x] One isolated full release suite per application.
+  - [x] Dockerfile/lockfile and automatic migration packaging reviewed.
+  - Infrastructure compilation/what-if, policy changes and identity provisioning
+    are not applicable to this application-only update.
+- Push the same source to the feature branch and main, build the backend from
+  GitHub main with the next live image version, deploy both apps and verify the
+  new revision/startup plus the frontend entry asset. Do not smoke-test by
+  publishing real posts or running jobs against production data.
+
+**Section 7: Validation Proof (2026-10-24, managed Jobs):**
+- `git fetch origin && git merge origin/main` reported already current before
+  final release checks. `git diff --check` passed.
+- Azure CLI authenticated to Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`) at 2026-10-24T14:30:48Z.
+  Existing backend v244 and `kh-prod-web` were confirmed; next image is v245.
+- Both applications passed `npm run typecheck`, `npm run lint:check`,
+  `npm run test:isolated` and `npm run build`. Backend: 530/530 tests.
+  Frontend: 211/211 plus 20/20 bundled UI checks. No full-suite reruns.
+- Focused Jobs tests additionally cover DST, revisions, user-only approvals,
+  stale-device leases, wrong report dates, authorised folders, missed/catch-up
+  schedules, publishing deduplication and uncertain delivery reconciliation.
+  Tests use isolated PGlite/fakes, not production data or real publishing.
+- Unchanged Dockerfile installs from the existing lockfile and copies
+  `src/db/schema.sql` and every `src/db/migrations/*.sql` into the runtime
+  image, including additive migration 099. No dependencies or infrastructure
+  changed. Existing registry authentication uses a secret reference and the
+  Container App identity remains None. No managed-identity provisioning,
+  RBAC/policy changes, Bicep/template validation or what-if is applicable.
+- Logs: session `files/jobs-backend-release.log` and `files/jobs-web-release.log`.
+  Preserve unrelated `.impeccable/hook.cache.json`.
+
 **Release scope (2026-10-24, settings modals):**
 - User approved configuration as modals and working destinations as pages.
 - Reuse existing settings components for Memory, Connections and sync, tags

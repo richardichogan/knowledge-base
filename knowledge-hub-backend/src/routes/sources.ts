@@ -12,6 +12,8 @@ import { env } from '../config/env.js';
 import { emailAccountConnections } from '../integrations/email/accountConnections.js';
 import { getAllianceStatus } from '../integrations/alliance/allianceGraph.js';
 import { listConnectionCredentials, updateConnectionCredential } from '../services/connectionCredentials.js';
+import { audit } from '../jobs/store.js';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -80,11 +82,18 @@ router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
  * POST /api/sources/sync
  * Triggers a manual Tier 1 sync in the background. Returns immediately.
  */
-router.post('/sync', (_req: Request, res: Response, next: NextFunction): void => {
+router.post('/sync', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const { run, completion } = await startTier1Sync(getDb());
-      void completion.catch((error: unknown) => { console.error('[Sources] Manual sync failed:', error); });
+      const actor = (req as AuthenticatedRequest).userId;
+      void completion.then(result => audit(getDb(), 'a7000000-0000-4000-8000-000000000001', null, actor,
+        result.totalErrors ? 'manual-sync-partial' : 'manual-sync-succeeded', { syncRunId: run.id, result }))
+        .catch(async (error: unknown) => {
+          console.error('[Sources] Manual sync failed:', error);
+          await audit(getDb(), 'a7000000-0000-4000-8000-000000000001', null, actor, 'manual-sync-failed', { syncRunId: run.id, message: error instanceof Error ? error.message : 'Failed' });
+        }).catch((error: unknown) => console.error('[Sources] Could not record manual sync failure:', error));
+      await audit(getDb(), 'a7000000-0000-4000-8000-000000000001', null, actor, 'manual-sync-started', { syncRunId: run.id });
       res.status(HTTP_STATUS.ACCEPTED).json({ success: true, data: run });
     } catch (error) { next(error); }
   })();

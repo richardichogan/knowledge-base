@@ -12,6 +12,8 @@ import type { ContentItem } from '../types/contentItem.js';
 import { looksLikeMeetingList, importMeetingList } from '../integrations/ibm/ibmMeetings.js';
 import { captureDailyInsights } from '../services/dailyInsights.js';
 import { dailyReportDate } from '../services/dailyInsightsExtraction.js';
+import { audit } from '../jobs/store.js';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
 const DAILY_INSIGHTS_MAX_CHARS = 250_000;
@@ -33,6 +35,8 @@ router.post('/daily-insights', (req: Request, res: Response, next: NextFunction)
       try { dailyReportDate(filename); }
       catch { throw new ValidationError('Daily briefing filename must contain a valid calendar date', { filename: 'invalid date' }); }
       const result = await captureDailyInsights(getDb(), filename, text, sourcePath, sourceModifiedAt);
+      if (!result.unchanged) await audit(getDb(), 'a7000000-0000-4000-8000-000000000003', null,
+        (req as AuthenticatedRequest).userId, 'explicit-or-legacy-import', { filename, sourcePath, result });
       res.status(HTTP_STATUS.OK).json({ success: true, data: result });
     } catch (error) { next(error); }
   })();

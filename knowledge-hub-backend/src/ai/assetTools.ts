@@ -333,9 +333,8 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         },
       }, ['title', 'ideas']),
     fn('create_weekly_microsoft_digest',
-      'Builds (or rebuilds) this week\'s Microsoft round-up from every Microsoft and GitHub Discover update in the last 7 days: ' +
-        'a blog draft saved to Think and a Slack summary (posted to Slack when connected), pinned as a "Weekly Microsoft updates" chat. ' +
-        'Runs automatically on Monday mornings; call it when asked for the weekly Microsoft summary, digest or round-up.',
+      'Queues the saved Weekly Microsoft updates job using its configured prompt, output destinations and approval policy. ' +
+        'Covers the previous full Monday–Sunday. For changing schedules, prompts or approvals use manage_scheduled_jobs. Returns a run link; do not claim publishing completed.',
       {}, []),
   ];
 }
@@ -354,18 +353,11 @@ export async function executeAssetTool(db: Pool, name: AssetToolName, args: Reco
       case 'update_diagram': return await updateDiagram(args);
       case 'create_mind_map': return await createMindMap(db, args);
       case 'create_weekly_microsoft_digest': {
-        const { generateWeeklyMicrosoftDigest } = await import('./weeklyMicrosoftDigest.js');
-        const d = await generateWeeklyMicrosoftDigest(db);
-        return {
-          success: true,
-          week: d.week,
-          updates: d.articleCount,
-          blogDraftUrl: d.noteUrl,
-          slackPosted: d.slackPosted,
-          ...(d.slackPosted ? {} : { slackNote: env.SLACK_WEBHOOK_URL === undefined ? 'Slack is not connected (SLACK_WEBHOOK_URL unset); the summary is in the pinned chat.' : 'Slack post failed; the summary is in the pinned chat.' }),
-          chatUrl: `${env.FRONTEND_BASE_URL}/chat?session=${d.sessionId}`,
-          slackText: d.slackText,
-        };
+        if (env.NODE_ENV !== 'production') return { error: 'Scheduled job execution is disabled on development servers.' };
+        const { enqueue, getJob } = await import('../jobs/store.js');
+        const job = await getJob(db, 'a7000000-0000-4000-8000-000000000002');
+        const run = await enqueue(db, job, new Date(), `manual:${randomUUID()}`, false, 'chat:weekly-digest');
+        return { queued: true, runId: run.id, url: `${env.FRONTEND_BASE_URL}/jobs?jobId=${job.id}`, approval: job.definition.approval };
       }
     }
   } catch (err) {

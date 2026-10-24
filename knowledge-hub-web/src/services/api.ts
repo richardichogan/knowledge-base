@@ -568,7 +568,7 @@ export interface GraphResponse {
 export type DiscoverSort = 'weighted' | 'editorial' | 'latest';
 
 /** Counts behind the header tab badges. */
-export interface NavAttention { think: number; discover: number; plan: number; build: number }
+export interface NavAttention { think: number; discover: number; plan: number; build: number; jobs?: number }
 
 
 export interface DiscoverItem {
@@ -676,6 +676,10 @@ export interface BlogDraft {
 }
 
 export class KnowledgeHubApi {
+  async jobs<T>(path = '', method: 'GET' | 'POST' | 'PUT' = 'GET', data?: unknown): Promise<T> {
+    const response = await this.client.request<ApiResponse<T>>({ url: `/api/jobs${path}`, method, data, timeout: 120_000 });
+    return requireApiData(response.data);
+  }
   async exportMuralDiagram(diagram: import('../types/mural').MuralDiagramExport): Promise<ApiResponse<{ boardUrl: string; objects: number; connectors: number }>> {
     return (await this.client.post<ApiResponse<{ boardUrl: string; objects: number; connectors: number }>>(
       '/api/integrations/mural/export-diagram', diagram, { timeout: 600_000 })).data;
