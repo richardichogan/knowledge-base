@@ -31,6 +31,21 @@
 - Do not modify or read/write secrets or production content other than the
   application startup migration described above.
 
+**Deployment result (2026-10-24T11:57Z, Athena conversational pacing):**
+- Source commit `995ea0d561cf72c5d779f625efa75fe1c436bdc4` is on the feature
+  branch and main. ACR run `ca7p` built `kh-prod-api:v244`,
+  digest `sha256:5d7841d21a790111ad95824ec6c3058b0207bcd8d914180af7942df65c514737`.
+- ACA revision `kh-prod-api-vnet--0000241` is Healthy and
+  RunningAtMaxScale; it serves 100% of traffic using v244. Startup logs confirm
+  migration 098 completed and 8/8 database connections are ready.
+- Static Web Apps production deployment succeeded and its environment is Ready.
+  The served `/assets/index-b6t61CYm.js` matches the validated local build.
+- `https://athena.themicrosoftcloudblog.com/` serves the deployed app.
+  `https://kh-prod-api-vnet.proudcoast-0a102078.uksouth.azurecontainerapps.io/health`
+  returns `{"status":"ok"}`.
+- ACA identity remains None and ACR uses its existing secret reference; no
+  credentials, roles or infrastructure were changed.
+
 **Deployment result (2026-10-24T10:09Z, LinkedIn publishing):**
 - Source 15f4e993f7b29190d59aa32aef7a401a55d8a64c committed and atomically
   pushed to main and richardichogan-local-development.
