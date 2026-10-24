@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 
 export async function addPublishingSchema(pg: PGlite): Promise<void> {
   await pg.exec(readFileSync(new URL('../src/db/migrations/100_discover_publishing.sql', import.meta.url), 'utf8'));
+  await pg.exec(readFileSync(new URL('../src/db/migrations/101_publishing_schedule.sql', import.meta.url), 'utf8'));
   await pg.exec(`CREATE TABLE IF NOT EXISTS content_items(
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),title TEXT NOT NULL,body TEXT DEFAULT '',url TEXT,source TEXT,
     metadata JSONB DEFAULT '{}',workflow_state TEXT,published_at TIMESTAMPTZ DEFAULT NOW(),
@@ -25,7 +26,7 @@ export async function publishingFixture(): Promise<{ pg: PGlite; db: Pool; close
   const raw = async (sql: string, values?: unknown[]) => {
     if (/pg_advisory_(?:xact_)?lock|pg_advisory_unlock|pg_try_advisory_lock/.test(sql)) return { rows: [{ locked: true }], rowCount: 1 };
     const result = await pg.query(sql, values);
-    return { ...result, rowCount: result.affectedRows ?? result.rows.length };
+    return { ...result, rowCount: result.rows.length || result.affectedRows || 0 };
   };
   const db = {
     query: async (sql: string, values?: unknown[]) => { const release = await acquire(); try { return await raw(sql, values); } finally { release(); } },

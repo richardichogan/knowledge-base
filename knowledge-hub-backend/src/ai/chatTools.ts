@@ -48,7 +48,7 @@ import { getLearnMcpTools, isLearnMcpTool, callLearnMcpTool } from './learnMcpCl
 import { getTavilyMcpTools, isTavilyMcpTool, callTavilyMcpTool } from './tavilyMcpClient.js';
 import { resolveMapChanges, type MapChangeProposal } from './mapEdits.js';
 import type { CanvasFull } from '../services/canvasService.js';
-import { findDiagramContext } from '../services/diagramContext.js';
+import { findDiagramContext, readDiagramPage } from '../services/diagramContext.js';
 import { createSpark } from '../services/sparkService.js';
 import { loadCurrentProjectContext } from './projectContext.js';
 import { EXCLUSION_GATED_TOOLS, EXCLUSIONS_UNAVAILABLE_RESULT, executeReadKnowledgeRecord } from '../services/knowledge/tool.js';
@@ -64,6 +64,7 @@ import { REVIEW_DECISIONS_DEFINITION, REVIEW_DECISIONS_TOOL, executeReviewDecisi
 import { searchPastChats, readPastChat, PAST_CHAT_SEARCH_DEFAULT_LIMIT, PAST_CHAT_SEARCH_MAX_LIMIT, PAST_CHAT_READ_DEFAULT_MESSAGES } from './chatSessionStore.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
+const DIAGRAM_SEARCH_PREVIEW_CHARS = 1000;
 
 const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 const NOTE_CONTENT_TYPES = [
@@ -219,7 +220,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'read_diagram',
-        description: 'Read a saved diagram by its ID from any project, including shapes, descriptions, containment, connector direction and linked-note excerpts. Use IDs from search_diagrams or the open diagram. Always read the chosen diagram before judging gaps or comparing it with requirements: search previews have a smaller content budget and may omit shapes. Image pixels are not analysed. Read-only; cannot edit diagrams.',
+        description: 'Read a saved diagram by its ID from any project, including shapes, descriptions, containment, connector direction and linked notes. In chat the server processes every page through durable task working memory, without a whole-diagram size cap. The synthesis is derived memory, not verbatim source. Use IDs from search_diagrams or the open diagram. Always read before judging gaps: search previews are incomplete. Image pixels are not analysed. Read-only; cannot edit diagrams.',
         parameters: {
           type: 'object',
           properties: { diagramId: { type: 'string', description: 'Saved diagram UUID.' } },
@@ -923,6 +924,11 @@ export async function executeToolCall(
       if (name === 'search_diagrams' && typeof args['query'] !== 'string') {
         return { error: 'Provide a search phrase, or an empty query to list recent diagrams.' };
       }
+      if (name === 'read_diagram' && typeof diagramId === 'string' && args['fullDocument'] === true) {
+        if (turn.sessionId === undefined) return { error: 'A chat session is required for a checkpointed diagram read.' };
+        return readDiagramPage(db, { diagramId, sessionId: turn.sessionId, cursor: args['cursor'],
+          ...(turn.excludedIds !== undefined && { excludedIds: turn.excludedIds }) });
+      }
       const projectId = name === 'search_diagrams' ? args['projectId'] : undefined;
       const result = await findDiagramContext(db, {
         ...(name === 'read_diagram' && typeof diagramId === 'string' ? { diagramId } : {}),
@@ -931,8 +937,11 @@ export async function executeToolCall(
         ...(typeof args['limit'] === 'number' && Number.isFinite(args['limit']) ? { limit: args['limit'] } : {}),
         ...(turn.excludedIds !== undefined ? { excludedIds: turn.excludedIds } : {}),
       });
-      return name === 'read_diagram' && result.results.length === 0
+      if (name === 'read_diagram') return result.results.length === 0
         ? { error: 'Saved diagram not found or excluded from this conversation.' } : result;
+      return { ...result, results: result.results.map(item => ({ ...item,
+        content: item.content.slice(0, DIAGRAM_SEARCH_PREVIEW_CHARS), preview: true })),
+        note: 'Discovery previews only; read_diagram processes the complete saved diagram before comparison or review.' };
     }
     case 'list_tasks':            return listTasks(db, contextualArgs);
     case REVIEW_DECISIONS_TOOL:   return executeReviewDecisions(db, contextualArgs, turn);

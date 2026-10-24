@@ -12,6 +12,7 @@ import { focusTools, selectRequiredToolChoice, selectKnowledgeRetrievalChoice } 
 import type { NoteEditProposal } from '../src/ai/noteEdits.js';
 import { blocksToTextWithImages, blockContentSpans } from '../src/utils/noteContent.js';
 import { readFile } from 'node:fs/promises';
+import { emptyDiagram } from '../src/types/diagram.js';
 
 const sessionId = '11111111-1111-4111-8111-111111111111';
 const otherSession = '22222222-2222-4222-8222-222222222222';
@@ -185,6 +186,76 @@ for (const inView of [false, true]) test(`the actual chat reads a ${inView ? 'ch
     if (flag === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = flag;
     completion.mock.restore(); bulk.mock.restore(); query.mock.restore();
     await db.end(); await pg.close();
+  }
+});
+
+for (const missing of [false, true]) test(`actual diagram chat ${missing ? 'reports a deleted diagram without a spurious source-limit warning' : 'reads every page beyond the ordinary source budget'}`, async () => {
+  const pg = new PGlite();
+  await pg.exec('CREATE TABLE ai_chat_sessions(id uuid PRIMARY KEY)');
+  await pg.query('INSERT INTO ai_chat_sessions VALUES ($1)', [sessionId]);
+  await pg.exec(await readFile(new URL('../src/db/migrations/097_document_reading_memory.sql', import.meta.url), 'utf8'));
+  const db = new Pool();
+  const id = '44444444-4444-4444-8444-444444444444';
+  const source = { ...emptyDiagram(), nodes: [{
+    id: 'step', kind: 'process', label: 'Release',
+    description: `${'Exact diagram requirement. '.repeat(6000)}FINAL-DIAGRAM-ACCEPTANCE`,
+    x: 0, y: 0, width: 100, height: 60, parentId: null, fill: '#fff', stroke: '#000',
+    textColor: '#000', fontSize: 14, assetId: null,
+  }] };
+  const query = mock.method(db, 'query', async (sql: string, values: unknown[] = []) => {
+    if (sql.includes('document_reading_')) return pg.query(sql, values);
+    if (sql.includes('FROM canvases c JOIN canvas_diagrams')) return { rows: missing ? [] : [{
+      id, title: 'Release flow', project: null, description: null, revision: 7,
+      updated_at: '2026-10-24', document: source, linked_notes: [], element_notes: [], assets: [],
+    }] };
+    return { rows: [] };
+  });
+  const flag = process.env['KNOWLEDGE_ORCHESTRATION'];
+  process.env['KNOWLEDGE_ORCHESTRATION'] = 'true';
+  let calls = 0;
+  let pageCalls = 0;
+  const used = emptyContextUsed();
+  const bulk = mock.method(FoundryClient.prototype, 'chatBulk', async messages => {
+    assert.equal(missing, false, 'missing diagrams must not invoke a reading model');
+    const input = JSON.parse(messages[1]!.content);
+    if (input.sourcePage !== undefined) {
+      pageCalls++;
+      assert.ok(input.sourcePage.length <= 12_000);
+      return JSON.stringify({ summary: input.sourcePage.slice(-800), memory: input.sourcePage.slice(-800), excerpts: [] });
+    }
+    return input.summaries.join('\n').slice(-5000);
+  });
+  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages) => {
+    calls++;
+    if (calls === 1) return { content: null, toolCalls: [{ id: 'diagram-read', type: 'function' as const,
+      function: { name: 'read_diagram', arguments: JSON.stringify({ diagramId: id }) } }], finishReason: 'tool_calls' };
+    const result = JSON.parse(String(messages.at(-1)?.content));
+    if (missing) {
+      assert.equal(result.status, 'not_found');
+      return { content: 'The saved diagram is no longer available, so I could not compare it.', toolCalls: [], finishReason: 'stop' };
+    }
+    assert.equal(result.review.complete, true);
+    assert.ok(result.review.readChars > 48_000);
+    assert.match(result.review.summary, /FINAL-DIAGRAM-ACCEPTANCE/);
+    return { content: 'The final step is FINAL-DIAGRAM-ACCEPTANCE.', toolCalls: [], finishReason: 'stop' };
+  });
+  try {
+    const reply = await handleConversationTurn(db, [], 'Read the saved diagram and explain its final step.',
+      'standard', 'general', sessionId, undefined, undefined, {}, { contextUsed: used, onAudit: () => {} });
+    assert.equal(calls, 2);
+    assert.doesNotMatch(reply, /not everything|source material.*reached/i);
+    if (missing) {
+      assert.equal(pageCalls, 0);
+      assert.match(reply, /no longer available/);
+      assert.equal(used.evidence?.counts.read, 0);
+    } else {
+      assert.ok(pageCalls > 10);
+      assert.equal(used.evidence?.counts.read, 1);
+      assert.equal(used.found[0]?.kind, 'diagram');
+    }
+  } finally {
+    if (flag === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = flag;
+    completion.mock.restore(); bulk.mock.restore(); query.mock.restore(); await db.end(); await pg.close();
   }
 });
 

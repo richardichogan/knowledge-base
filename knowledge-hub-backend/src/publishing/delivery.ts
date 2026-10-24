@@ -76,10 +76,10 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
       if (draft.variant === 'blog' && required.length !== PUBLISH_LIMITS.packageDestinations) throw new PublicationDeferred('Blog and LinkedIn drafts are both required.');
       for (const candidate of [draft, ...required]) {
         if (candidate.held || candidate.approval === 'rejected' || candidate.review !== 'pass' || !candidate.reviewedAt
-          || now.getTime() - new Date(candidate.reviewedAt).getTime() > PUBLISH_LIMITS.staleHours * MS_PER_HOUR
-          || new Date(candidate.expiresAt) <= now) throw new PublicationDeferred('Draft is held, expired or awaiting a fresh editorial review.');
+          || now.getTime() - new Date(candidate.reviewedAt).getTime() > PUBLISH_LIMITS.staleHours * MS_PER_HOUR) throw new PublicationDeferred('Draft is held or awaiting a fresh editorial review.');
         if (candidate.reviewedFeedRevision !== settings.find(f => f.id === (candidate.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))?.revision) throw new PublicationDeferred('Feed settings changed since editorial review.');
         if (candidate.variant === 'blog' && candidate.destination !== 'bluesky' && candidate.approval !== 'approved') throw new PublicationDeferred('Both the blog and LinkedIn hook require human approval.');
+        if (candidate.destination === 'bluesky' && candidate.approval !== 'approved') throw new PublicationDeferred('The exact Bluesky draft requires human approval before scheduling.');
         if (candidate.variant === 'blog' && candidate.destination !== 'blog'
           && candidate.reviewedBlogVersion !== required.find(d => d.destination === 'blog')?.version) throw new PublicationDeferred('Hook consistency must be checked against the current blog version.');
       }
@@ -104,6 +104,11 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
           throw new PublicationDeferred('Same-topic promotion needs a distinct argument and at least 24 hours.');
         }
       }
+    }
+    if (context.draftId) {
+      const scheduled = await c.query(`SELECT draft_id FROM publishing_schedule
+        WHERE draft_id=$1 AND version=$2 AND scheduled_at<=$3::timestamptz FOR SHARE`, [context.draftId, context.version, now.toISOString()]);
+      if (!scheduled.rowCount) throw new PublicationDeferred('Waiting for the assigned publishing slot.');
     }
     const result = await c.query<Delivery>(`INSERT INTO publishing_deliveries(identity,destination,topic_id,draft_id,version,account,status,attempted_at)
       VALUES($1,$2,COALESCE($3::uuid,(SELECT topic_id FROM publishing_sources WHERE 'discover:' || item_id=$1 LIMIT 1)),$4,$5,$6,'sending',$7)

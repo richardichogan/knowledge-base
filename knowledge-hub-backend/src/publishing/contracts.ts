@@ -39,6 +39,8 @@ export const PUBLISH_LIMITS = {
   dailyAssessments: 12,
   packageDestinations: 2, half: 2, historyOffset: 10_000,
   sourcesPerTopic: 4,
+  alternatives: 3, exceptionPriority: 90,
+  draftShortlist: 8,
 } as const;
 export function feedId(value: unknown): FeedId {
   if (value !== 'bluesky' && value !== 'blog-linkedin') throw new ValidationError('Choose Bluesky or Blog/LinkedIn.');

@@ -67,6 +67,12 @@ function push(list: UsedSource[], s: UsedSource): void {
 export function recordToolSources(used: ContextUsed, toolName: string, result: unknown): void {
   if (typeof result !== 'object' || result === null) return;
   const r = result as { results?: unknown; documents?: unknown };
+  if (toolName === 'read_diagram' && 'review' in result) {
+    const review = (result as KnowledgeReadResult).review;
+    if (review !== undefined) push(used.found, { id: review.ref.id, kind: 'diagram', title: review.title,
+      url: `/think?mapId=${encodeURIComponent(review.ref.id)}` });
+    return;
+  }
   if (toolName === 'traverse_relationships') recordTraversalSources(used, result);
   else if (toolName === 'list_tasks' || toolName === 'find_files') {
     const rows = (toolName === 'list_tasks' ? (result as { tasks?: unknown }).tasks : (result as { files?: unknown }).files);
@@ -134,7 +140,10 @@ function recordKnowledgeRead(ledger: EvidenceLedger, result: KnowledgeReadResult
 /** Feeds the evidence ledger: search hits are Found; opened records are Read. */
 export function recordToolEvidence(ledger: EvidenceLedger, toolName: string, result: unknown, args: Record<string, unknown> = {}): void {
   if (typeof result !== 'object' || result === null) return;
-  if (toolName === 'read_knowledge_record') { recordKnowledgeRead(ledger, result as KnowledgeReadResult, args); return; }
+  if (toolName === 'read_knowledge_record' || toolName === 'read_diagram' && ('review' in result || 'status' in result)) {
+    recordKnowledgeRead(ledger, result as KnowledgeReadResult, toolName === 'read_diagram' ? { kind: 'diagram', id: args['diagramId'] } : args);
+    return;
+  }
   if ('error' in result) return;
   if (RECORD_TOOLS.has(toolName)) { recordRecordTool(ledger, toolName, result); return; }
   if (STRUCTURED_RESULT_TOOLS.has(toolName)) { recordStructuredTool(ledger, toolName, result, args); return; }

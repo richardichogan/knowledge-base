@@ -5,7 +5,7 @@ import { BlobClient } from '@azure/storage-blob';
 import { Readable } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { PGlite } from '@electric-sql/pglite';
-import { diagramEvidence, findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../src/services/diagramContext.js';
+import { diagramEvidence, findDiagramContext, readDiagramPage, DIAGRAM_READING_GUIDANCE } from '../src/services/diagramContext.js';
 import { DIAGRAM_CALLOUT_TYPES, emptyDiagram, type DiagramNode, type DiagramDocument } from '../src/types/diagram.js';
 import { selectRequiredToolChoice } from '../src/ai/toolRouting.js';
 import { emptyContextUsed, filterExcluded, recordToolSources } from '../src/ai/contextUsage.js';
@@ -114,11 +114,42 @@ test('SQL retrieves saved structure across diagrams, matches metadata and notes,
     const { executeToolCall } = await import('../src/ai/chatTools.js');
     const clientSearch = await executeToolCall(db, 'search_diagrams', '{"query":"Claims platform"}', 'ikea') as typeof found;
     assert.equal(clientSearch.resultCount, 3);
+    assert.ok(clientSearch.results.every(item => item.content.length <= 1000));
+    assert.ok(JSON.stringify(clientSearch).length < 12_000, 'discovery must leave context for reading');
     const reference = await executeToolCall(db, 'read_diagram', JSON.stringify({ diagramId: a }), 'ikea') as typeof found;
     assert.equal(reference.results[0]?.project, 'imagine');
     assert.match(reference.results[0]!.content, /Decision artefact/);
     const excludedReference = await executeToolCall(db, 'read_diagram', JSON.stringify({ diagramId: a }), 'ikea', { excludedIds: new Set([a]) });
     assert.deepEqual(excludedReference, { error: 'Saved diagram not found or excluded from this conversation.' });
+
+    const large = { ...diagram, nodes: [{ ...makeNode(a, 'process', 'Full source'), description: `${'Long diagram detail. '.repeat(6000)}TAIL-DETAIL-973` }] };
+    await pg.query('UPDATE canvas_diagrams SET document=$1 WHERE canvas_id=$2', [JSON.stringify(large), a]);
+    const first = await readDiagramPage(db, { diagramId: a, sessionId: b });
+    assert.ok('record' in first && first.record.nextCursor !== null);
+    const cursor = first.record.nextCursor;
+    assert.equal(first.record.content.length, 12_000);
+    assert.ok(first.record.totalChars > 48_000);
+    let combined = first.record.content;
+    let next = cursor;
+    while (next !== null) {
+      const page = await readDiagramPage(db, { diagramId: a, sessionId: b, cursor: next });
+      assert.ok('record' in page);
+      assert.ok(page.record.content.length <= 12_000);
+      combined += page.record.content;
+      next = page.record.nextCursor;
+    }
+    assert.equal(combined.length, first.record.totalChars);
+    assert.match(combined, /TAIL-DETAIL-973/);
+    await assert.rejects(readDiagramPage(db, { diagramId: a, sessionId: c, cursor }), /Cursor is invalid/);
+    await assert.rejects(readDiagramPage(db, { diagramId: b, sessionId: b, cursor }), /Cursor is invalid/);
+    await assert.rejects(readDiagramPage(db, { diagramId: a, sessionId: b, cursor: `${cursor}x` }), /Cursor is invalid/);
+    const excludedPage = await readDiagramPage(db, { diagramId: a, sessionId: b, excludedIds: new Set([a]) });
+    assert.deepEqual(excludedPage, { status: 'excluded' });
+    await pg.query('UPDATE canvas_diagrams SET revision=revision+1 WHERE canvas_id=$1', [a]);
+    const changed = await readDiagramPage(db, { diagramId: a, sessionId: b, cursor });
+    assert.ok(changed.status === 'unavailable' && changed.code === 'version_changed');
+    await pg.query('UPDATE canvases SET deleted_at=now() WHERE id=$1', [a]);
+    assert.deepEqual(await readDiagramPage(db, { diagramId: a, sessionId: b }), { status: 'not_found' });
   } finally { await pg.close(); }
 });
 

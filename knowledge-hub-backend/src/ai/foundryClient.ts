@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import { AiError } from '../types/errors.js';
+import { AiError, AiOutputLimitError } from '../types/errors.js';
 import {
   AI_DEFAULT_MAX_TOKENS,
   AI_REQUEST_TIMEOUT_MS,
@@ -11,6 +11,51 @@ import { recordAiUsage, tokenUsageFrom } from './aiUsage.js';
 import type { TokenUsage } from './aiUsage.js';
 
 const DEFAULT_CHAT_TEMPERATURE = 0.7;
+const AI_RESPONSE_HEADERS_TIMEOUT_MS = 30_000;
+
+function transportCode(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  if ('code' in error && typeof error.code === 'string') return error.code;
+  return error.cause !== error ? transportCode(error.cause) : undefined;
+}
+
+/** Retry only before headers: no tool execution or partial answer is replayed. */
+async function fetchModelStream(
+  url: string, init: RequestInit, signal: AbortSignal,
+  onActivity?: (line: string) => void,
+): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController();
+    const headersTimeout = setTimeout(() => {
+      controller.abort(new Error('The model endpoint did not send response headers within 30 seconds'));
+    }, AI_RESPONSE_HEADERS_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { ...init, signal: AbortSignal.any([signal, controller.signal]) });
+      clearTimeout(headersTimeout);
+      return response;
+    } catch (error) {
+      clearTimeout(headersTimeout);
+      if (signal.aborted) throw error;
+      const code = transportCode(error);
+      const stalled = controller.signal.aborted;
+      const retryable = stalled || code !== undefined && [
+        'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_SOCKET',
+        'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN',
+      ].includes(code);
+      console.warn('[ai] Model connection failed before response headers', {
+        attempt: attempt + 1, code: stalled ? 'AI_HEADERS_TIMEOUT' : code ?? 'UNKNOWN_TRANSPORT_ERROR',
+        retrying: retryable && attempt === 0,
+      });
+      if (!retryable || attempt > 0) {
+        const failure = new Error(stalled
+          ? 'The model endpoint did not respond within 30 seconds'
+          : `Model connection failed${code !== undefined ? ` (${code})` : ''}`, { cause: error });
+        throw failure;
+      }
+      onActivity?.('Reconnecting to the model after a connection problem');
+    }
+  }
+}
 
 /** A single tool call the model wants the caller to execute. */
 export interface LlmToolCall {
@@ -157,6 +202,7 @@ export class FoundryClient {
     if (endpoint === undefined || endpoint === '' || apiKey === undefined || apiKey === '') {
       if (jsonSchema !== undefined) {
         const data = await this.request('light', messages, undefined, maxTokens, 'auto', timeoutMs, jsonSchema);
+        if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
         if (data.choices[0]?.finish_reason !== 'stop' || !data.choices[0].message.content) throw new AiError('Structured bulk extraction was incomplete or refused');
         return data.choices[0].message.content;
       }
@@ -187,6 +233,7 @@ export class FoundryClient {
     const data = (await response.json()) as ChatCompletionResponse;
     this.logCall('bulk', deployment, 'chat', startedAt, tokenUsageFrom(data.usage));
     const content = data.choices[0]?.message.content;
+    if (jsonSchema !== undefined && data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
     if (jsonSchema !== undefined && data.choices[0]?.finish_reason !== 'stop') throw new AiError('Structured bulk extraction was incomplete or refused');
     if (!content) throw new AiError('Empty response from the bulk model');
     return content;
@@ -286,15 +333,14 @@ export class FoundryClient {
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetchModelStream(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(apiKey !== undefined && { 'api-key': apiKey }),
         } as Record<string, string>,
         body: JSON.stringify(body),
-        signal: signal !== undefined ? AbortSignal.any([timeout, signal]) : timeout,
-      });
+      }, signal !== undefined ? AbortSignal.any([timeout, signal]) : timeout, extras.onActivity);
     } catch (err) {
       throw streamError(model, err, timeoutMs, signal);
     }
@@ -545,11 +591,14 @@ export class AiStoppedError extends AiError {
 function streamError(model: AiModel, err: unknown, timeoutMs: number, signal: AbortSignal | undefined): AiError {
   if (signal?.aborted === true) return new AiStoppedError();
   const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
-  return new AiError(
+  const code = transportCode(err);
+  const error = new AiError(
     isTimeout
       ? `Request to ${model} timed out after ${timeoutMs.toString()}ms`
-      : `Request to ${model} failed: ${err instanceof Error ? err.message : String(err)}`,
+      : `Request to ${model} failed: ${err instanceof Error ? err.message : String(err)}${code !== undefined ? ` [${code}]` : ''}`,
   );
+  error.cause = err;
+  return error;
 }
 
 /** Chat-completions messages and tools translated into a Responses API request body. */

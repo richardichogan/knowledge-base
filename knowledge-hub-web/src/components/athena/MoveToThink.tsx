@@ -14,7 +14,7 @@ interface MoveToThinkProps {
   /** The chat's project, so the note is filed under it. */
   projectId: string;
   disabled: boolean;
-  /** 'header' = the pill at the top of the thread; 'inline' = under a reply, opening upwards. */
+  /** 'header' = an icon in the command bar; 'inline' = under a reply, opening upwards. */
   variant?: 'header' | 'inline';
   /** The older "summary + transcript" export. */
   onExportSummary: () => void;
@@ -75,7 +75,7 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
   }
 
   return (
-    <div className={`ai-move${variant === 'inline' ? ' ai-move--inline' : ''}`} ref={rootRef}
+    <div className={`ai-move ai-move--${variant}`} ref={rootRef}
       onKeyDown={event => { if (event.key === 'Escape' && open) {
         event.preventDefault(); event.stopPropagation();
         if (busy === null) { setOpen(false); rootRef.current?.querySelector('button')?.focus(); }

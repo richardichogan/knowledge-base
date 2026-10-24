@@ -7,10 +7,12 @@ import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { postToBluesky } from '../integrations/social/bluesky.js';
 import { postToLinkedIn, getLinkedInMember } from '../integrations/social/linkedin.js';
 import { articleProse, readPublicPage } from '../utils/articleReading.js';
+import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { assessTopic, editorialServices, readSources, reviewDraft, type EditorialServices } from './editorial.js';
 import { assertSocialOpportunity, deliver, destinationAccount, inWindow, PublicationDeferred, PublicationUnconfirmed } from './delivery.js';
-import { deliveryColumns, draftColumns, event, feeds, holdTopic, intake, sourceColumns, topicColumns } from './store.js';
+import { deliveryColumns, draftColumns, event, feeds, holdTopic, intake, listTopics, sourceColumns, topicColumns } from './store.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type Source, type Topic } from './contracts.js';
+import { refreshSchedule } from './schedule.js';
 
 export interface PublishingServices {
   blog: typeof sendToBlog; bluesky: typeof postToBluesky; linkedin: typeof postToLinkedIn; read: typeof readPublicPage;
@@ -71,7 +73,7 @@ export async function publishDraft(db: Pool, draft: Draft, services = publishing
     title = String(blog.content.title);
     await verifyBlog(url, blog.content, services.read);
   } else {
-    const source = (await db.query<Source>(`SELECT ${sourceColumns} FROM publishing_sources WHERE topic_id=$1 AND read_at IS NOT NULL ORDER BY discovered_at LIMIT 1`, [draft.topicId])).rows[0];
+    const source = (await db.query<Source>(`SELECT ${sourceColumns} FROM publishing_sources WHERE topic_id=$1 AND read_at IS NOT NULL ORDER BY url,discovered_at LIMIT 1`, [draft.topicId])).rows[0];
     if (!source) throw new PublicationDeferred('No fully read source is available.');
     url = source.url; title = source.title;
   }
@@ -97,12 +99,15 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
     await db.query(`UPDATE publishing_topics SET state='held',lease=NULL,lease_until=NULL,error='Editorial worker interrupted. Review or reassess this topic.'
       WHERE state='assessing' AND lease_until<NOW()`);
     await intake(db);
+    const hasDraftCapacity = (await listTopics(db, 0, true)).length < PUBLISH_LIMITS.draftShortlist;
     const lease = randomUUID();
     const topic = (await db.query<Topic>(`UPDATE publishing_topics SET state='assessing',lease=$1,lease_until=NOW()+INTERVAL '15 minutes'
       WHERE id=(SELECT id FROM publishing_topics WHERE state='pending'
+        AND $3
         AND (SELECT COUNT(*) FROM publishing_events WHERE event='preparation-started' AND created_at>NOW()-INTERVAL '24 hours')<$2
-        ORDER BY priority DESC,created_at DESC LIMIT 1 FOR UPDATE SKIP LOCKED)
-      RETURNING ${topicColumns}`, [lease, PUBLISH_LIMITS.dailyAssessments])).rows[0];
+        ORDER BY EXISTS(SELECT 1 FROM publishing_sources s WHERE s.topic_id=publishing_topics.id AND ${microsoftRelevanceSql('s')}) DESC,
+          (SELECT MAX(discovered_at) FROM publishing_sources s WHERE s.topic_id=publishing_topics.id) DESC,priority DESC,created_at DESC LIMIT 1 FOR UPDATE SKIP LOCKED)
+      RETURNING ${topicColumns}`, [lease, PUBLISH_LIMITS.dailyAssessments, hasDraftCapacity])).rows[0];
     if (topic) {
       await event(db, topic.id, 'editorial-worker', 'preparation-started', {});
       try { await assessTopic(db, topic, editorial); }
@@ -119,24 +124,22 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
       try { await reviewDraft(db, review, await readSources(db, review.topicId, editorial), editorial, !delivered.rowCount); }
       catch (error) { await holdTopic(db, review.topicId, false, 'review-worker', error instanceof Error ? error.message : 'Review failed'); console.error('[Publishing] Review failed:', error); }
     }
+    await refreshSchedule(db);
     const settings = await feeds(db);
     const enabled = settings.filter(f => f.enabled && inWindow(f.policy, new Date())).map(f => f.id);
     if (!enabled.length) return;
     const queue = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts d
-      WHERE NOT held AND approval<>'rejected' AND review='pass'
+      WHERE NOT held AND approval='approved' AND review='pass'
+      AND EXISTS(SELECT 1 FROM publishing_schedule s WHERE s.draft_id=d.id AND s.version=d.version AND s.scheduled_at<=NOW())
       AND ((destination='bluesky' AND $1) OR (destination<>'bluesky' AND $2))
       AND topic_id IN(SELECT id FROM publishing_topics WHERE state='ready')
       AND (variant='source' OR NOT EXISTS(SELECT 1 FROM publishing_drafts required WHERE required.topic_id=d.topic_id
         AND required.destination IN ('blog','linkedin') AND (required.approval<>'approved' OR required.held OR required.review<>'pass')))
       AND NOT EXISTS(SELECT 1 FROM publishing_deliveries p WHERE p.draft_id=d.id AND p.version=d.version AND p.status IN ('sent','sending','unconfirmed'))
-      ORDER BY (SELECT priority FROM publishing_topics WHERE id=d.topic_id) DESC,created_at DESC LIMIT 20`,
+      ORDER BY (SELECT scheduled_at FROM publishing_schedule WHERE draft_id=d.id),created_at LIMIT 20`,
     [enabled.includes('bluesky'), enabled.includes('blog-linkedin')])).rows;
     for (const draft of queue) {
       if (!enabled.includes(draft.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin')) continue;
-      if (new Date(draft.expiresAt) <= new Date()) {
-        await db.query("UPDATE publishing_drafts SET held=TRUE,reason='Expired before a publishing opportunity.' WHERE id=$1", [draft.id]);
-        await event(db, draft.topicId, 'publisher', 'draft-expired', { id: draft.id }); continue;
-      }
       try {
         const companions = draft.variant === 'blog' ? (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 AND destination IN ('blog','linkedin')`, [draft.topicId])).rows : [];
         const stale = [draft, ...companions].filter(d => !d.reviewedAt

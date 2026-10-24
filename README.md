@@ -16,6 +16,46 @@ turn, respect the chat's excluded sources, and remain available for follow-up
 questions. Up to five sources are included per turn; long sources are explicitly
 labelled as clipped. The Used sources line lets you inspect or exclude them.
 
+Persona, page context, action and project controls are compact icons in the top
+command bar, alongside the icon-only Save to Think action and chat controls.
+Click a settings icon to expand its current setting. Active grounding and
+actions use teal, and tooltips name the current selection. Popovers open below the
+composer without clipping inside diagram panels and dismiss on Escape or outside
+interaction. Athena's animated presence and next-step suggestions live inside the
+scrolling response area, not a separate composer strip. No divider separates the
+animation from the message field. The animation follows the reply directly
+rather than sitting at the bottom of unused response space. Each reply's source
+attribution, context and references, and alternate-model controls are grouped
+under a collapsed **Response details** menu.
+The ribbon animates in place within the working indicator or latest response;
+it no longer flies between the reply heading and composer or overlays the input.
+Saved reply headings use a still 20px Athena icon; only the working indicator
+and latest response's presence use the full-size animated ribbon.
+As a new answer appears, its small heading icon briefly animates in the answering
+pose with an **Athena · Answering** label before settling back to the still icon.
+Checked replies reveal paragraph by paragraph with a short soft entrance, capped
+at roughly three seconds for long answers. This is presentation after validation,
+not provisional model streaming; reduced-motion users see the answer immediately.
+Typing uses a brighter, more rippled attentive pose with a visible
+**Reading your message…** cue, returning to idle after typing pauses.
+Previous/next message arrows sit at the top-left of the chat command bar,
+separate from the settings and actions on the right.
+While Athena works, the ribbon sits beside the current activity and elapsed time,
+without an activity-history list. These are actual
+operation updates, not model reasoning or estimated percentage progress.
+Streaming model connections allow 30 seconds for response headers. A transient
+connection failure before headers gets one retry within the original request
+deadline, with a visible reconnecting status. This does not replay tools or retry
+partially received answers. Transport failures retain their underlying error code
+and cause rather than reporting only `fetch failed`.
+
+Saved diagram reads also use the checkpointed full-source reader in chat, so
+large diagrams are processed page by page rather than discarded at the ordinary
+retrieval-context limit. Search results remain discovery previews, not completed
+reads. Deleted or excluded diagrams are reported as unavailable; they are not
+described as a source-size failure. Reading checks the diagram and linked-context
+version between pages and before returning a completed review.
+
 Choose **Spec** in the message action selector, or begin with `/spec`, for a
 grounded coding-agent specification: scope/non-goals, requirements, bounded
 implementation steps, acceptance criteria, verification, rollout and stop
@@ -267,18 +307,93 @@ It assesses at most 12 topics per rolling 24 hours, four distinct sources per
 topic, with at most two automatic revisions. Unreadable, oversized or excessive
 source evidence is held rather than silently omitted.
 
-Review shows source text, selection reasons, accuracy/voice findings, immutable
-versions and separate human blog/LinkedIn approvals. Editing invalidates
+The Drafts workspace shows finished, editorially reviewed posts: a compact
+shortlist on the left and the complete selected post on the right, with destination
+tabs. Discovery candidates, empty records and unfinished reviews are not approval
+items. Selection is heavily Microsoft-first and freshness-led; non-Microsoft
+stories require an exceptional, recorded audience-relevance rationale. **Drafts has
+at most eight entries total**, with a blog and its social copies counting as one
+entry. Per-feed caps plus alternatives remain ceilings within that overall limit.
+Sending an entry for scheduling removes its whole topic from Drafts, even when an
+optional social copy is still pending. Scheduled items are separate from the
+eight-entry draft limit and never fill Drafts again merely because they are blocked.
+Every content sync reselects the freshest Microsoft-first candidates and reviews
+the unscheduled shortlist, preparing missing drafts within the existing editorial
+budget. Sync refresh cannot publish, approve or rewrite scheduled copies.
+Refresh failures are logged and recorded in Publishing Audit; incomplete drafts
+are not offered for approval.
+
+Standard Bluesky drafts pair the announcement with a brief proposed Richard-style
+comment: a grounded practical judgement, caveat or implication shaped by saved
+preferences. Voice review rejects bare headline summaries; accuracy review keeps
+interpretation distinct from reported facts and prohibits invented personal
+experience. The comment shares the existing copy/link character allowance and
+still requires Richard's exact-version approval.
+
+Publishing blog packages are **quick takes**, not long articles: target 300–450
+words, maximum 600, one argument, a title of at most 60 characters, no body
+subheadings or lists, and at most two takeaways. Packages include the slug,
+excerpt, summary, categories, tags and original source reference, with no image
+fields. The existing publishing API receives HTML paragraphs and `postType: quick`;
+the source URL is a separate field. LinkedIn copy is 120–150 words with a closing
+question and two or three hashtags. Twitter/X copy is saved with the blog package
+for manual use only, not as another automated destination.
+
+**Send for scheduling** approves the exact version; it does not publish immediately.
+Human approval is required. **Send package for scheduling** approves the exact
+saved Blog and LinkedIn versions together in one transaction; there is no second
+approval step. Both copies remain readable in their destination tabs. A changed
+version rejects the whole approval rather than approving unseen copy. Standalone
+Bluesky uses **Send for scheduling**. Scheduling assigns a persisted, exact-version slot,
+spreading posts across the configured publishing window while respecting account-wide
+spacing and daily limits. The Scheduling agenda shows each destination's planned time
+in its feed timezone, paused state and blockers; approved items without a
+usable slot remain visible rather than disappearing from the shortlist. Blog and
+LinkedIn slots wait for package approval; promotion waits for the verified public blog
+URL. Planned LinkedIn promotion is at least 15 minutes after the blog.
+Automation must be enabled before delivery. Drafts do not expire automatically;
+freshness guides editorial selection, not an arbitrary deadline on approved posts.
+Missed slots roll to the next opening, not a catch-up burst; use
+**Refresh schedule** to recalculate locally without enabling posting. The production
+worker also refreshes the plan and cannot claim a draft before its assigned time.
+Sources, selection reasons,
+accuracy/voice findings and immutable versions remain in secondary disclosures.
+Editing invalidates
 approval; changing the blog also invalidates hook consistency and approval.
-Publication waits for both approvals and a current passed review. Blog-first
+Publication waits for package approval and a current passed review. Blog-first
 delivery verifies the final public article before binding its URL into social
 copy. Blog delivery is never repeated just because a social destination failed.
-Upcoming, History and Audit expose holds, expiry, receipts and reconciliation.
+Scheduling, History and Audit expose queue state, receipts and reconciliation.
 Athena can inspect this same state and propose confirmed feed settings from any
 chat; it cannot grant publishing approvals or reconcile outcomes itself.
 
+Editorial model output uses strict JSON schemas and rejects truncated responses
+before parsing or saving them. Output exhaustion gets one bounded retry; a failed
+revision preserves the saved version. Empty generated copy is rejected before any
+destination is stored or reviewed. Isolated regression tests cover these boundaries;
+`PUBLISHING_EVAL_LIVE=approved node --import tsx/esm scripts/publishing.eval.ts`
+additionally exercises real model calls using synthetic evidence and an isolated
+database, with production telemetry writes intercepted and no publishing calls.
+
+Review revisions return exact sentence/paragraph replacements, not regenerated
+articles or posts. Only those passages are patched into the saved content;
+unaffected text and metadata are retained. Ambiguous, overlapping or stale
+replacements are rejected without saving a version. The patched draft receives
+fresh accuracy and voice checks, with the same bounded revision limit and
+exact-version approval requirements.
+
+Local development uses the same configured database, including real drafts,
+feed settings and exact-version approvals; it is not a separate publishing
+preview. **Send for scheduling** from localhost updates that shared queue.
+Local scheduled jobs and delivery workers remain disabled. Production delivery
+still requires its feed switch and all approval and pacing checks.
+To explicitly prepare a bounded batch without approving or posting anything,
+run `PUBLISHING_PREPARE=approved node --import tsx/esm scripts/prepare-publishing.ts`
+from `knowledge-hub-backend`. Both posting switches must be off. This loads saved
+connection credentials and uses the production worker lock and editorial checks.
+
 Default opportunities are 08:00–20:00 Europe/London, all week. Policies expose
-days, timezone, window, expiry and editorial guidance. Bluesky is capped at
+days, timezone, window and editorial guidance. Bluesky is capped at
 four/day with two-hour spacing; LinkedIn at three/day with three-hour spacing.
 These are ceilings, never targets. Blog-linked Bluesky shares the same cap;
 same-event follow-ups require a distinct argument and a 24-hour gap. Queued

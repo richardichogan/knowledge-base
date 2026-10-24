@@ -75,6 +75,13 @@ export class AiError extends KnowledgeHubError {
   }
 }
 
+export class AiOutputLimitError extends AiError {
+  public constructor() {
+    super('Structured response reached its output token limit.');
+    this.name = 'AiOutputLimitError';
+  }
+}
+
 export class WriteActionNotConfirmedError extends KnowledgeHubError {
   public constructor() {
     super('Write action requires explicit user confirmation before execution', 409, 'WRITE_ACTION_NOT_CONFIRMED');

@@ -6,15 +6,16 @@ import { env } from '../config/env.js';
 import { object, text } from '../jobs/contracts.js';
 import { ValidationError, ConflictError, NotFoundError } from '../types/errors.js';
 import { getLinkedInMember } from '../integrations/social/linkedin.js';
-import { decideDraft, deliveryColumns, draftColumns, event, feeds, holdTopic, listTopics, saveFeed, topicDetail, transaction } from '../publishing/store.js';
+import { approvePackage, decideDraft, deliveryColumns, draftColumns, event, feeds, holdTopic, listTopics, saveFeed, topicDetail, transaction } from '../publishing/store.js';
 import { feedId, PUBLISH_LIMITS, uuid, type Delivery, type Draft } from '../publishing/contracts.js';
 import { editDraft } from '../publishing/editorial.js';
 import { verifyBlog } from '../publishing/worker.js';
 import { destinationAccount } from '../publishing/delivery.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
+import { listSchedule, refreshSchedule } from '../publishing/schedule.js';
 
 export function publishingProduction(): void {
-  if (env.NODE_ENV !== 'production' || env.isDevelopment) throw new ValidationError('Publishing changes are disabled on development servers. Use the production Athena screen or isolated tests.');
+  if (env.NODE_ENV !== 'production' && !env.isDevelopment) throw new ValidationError('Publishing changes require an application server or an isolated production-mode test.');
 }
 export async function reconcilePublishing(db: Pool, id: string, body: Record<string, unknown>, actor: string): Promise<void> {
   const delivery = (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries WHERE id=$1`, [id])).rows[0];
@@ -70,16 +71,27 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
     void Promise.resolve().then(() => action(req)).then(data => res.json({ success: true, data })).catch(next);
   };
   router.get('/feeds', route(() => feeds(getDb())));
-  router.put('/feeds/:id', route(req => {
+  router.get('/schedule', route(() => listSchedule(getDb())));
+  router.post('/schedule/refresh', route(async () => {
+    publishingProduction(); await refreshSchedule(getDb()); return listSchedule(getDb());
+  }));
+  router.put('/feeds/:id', route(async req => {
     publishingProduction(); const b = object(req.body);
-    return saveFeed(getDb(), feedId(req.params.id), b.revision, b.enabled, b.policy, actor(req));
+    const saved = await saveFeed(getDb(), feedId(req.params.id), b.revision, b.enabled, b.policy, actor(req));
+    await refreshSchedule(getDb()); return saved;
   }));
   router.get('/topics', route(req => {
     const offset = Number(req.query.offset ?? 0);
     if (!Number.isInteger(offset) || offset < 0 || offset > PUBLISH_LIMITS.historyOffset) throw new ValidationError('Invalid queue offset.');
-    return listTopics(getDb(), offset);
+    return listTopics(getDb(), offset, true);
   }));
   router.get('/topics/:id', route(req => topicDetail(getDb(), uuid(req.params.id))));
+  router.post('/topics/:id/approve', route(async req => {
+    publishingProduction(); const b = object(req.body); const versions = object(b.versions);
+    await approvePackage(getDb(), uuid(req.params.id), { blog: versions.blog, linkedin: versions.linkedin }, actor(req));
+    await refreshSchedule(getDb());
+    return { saved: true };
+  }));
   router.post('/topics/:id/decision', route(async req => {
     publishingProduction(); const b = object(req.body); const id = uuid(req.params.id);
     if (b.action === 'reassess') {
@@ -91,10 +103,12 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
       if (!['hold', 'reject'].includes(String(b.action))) throw new ValidationError('Choose hold, reject or reassess.');
       await holdTopic(getDb(), id, b.action === 'reject', actor(req), text(b.reason ?? '', 'reason', PUBLISH_LIMITS.maxGuidance));
     }
+    await refreshSchedule(getDb());
     return topicDetail(getDb(), id);
   }));
   router.put('/drafts/:id', route(async req => {
-    publishingProduction(); const b = object(req.body); await editDraft(getDb(), uuid(req.params.id), b.version, b.content, actor(req)); return { saved: true };
+    publishingProduction(); const b = object(req.body); await editDraft(getDb(), uuid(req.params.id), b.version, b.content, actor(req));
+    await refreshSchedule(getDb()); return { saved: true };
   }));
   router.post('/drafts/:id/decision', route(async req => {
     publishingProduction(); const b = object(req.body); const id = uuid(req.params.id);
@@ -104,15 +118,22 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
     if (action === 'resume') {
       await getDb().query("UPDATE publishing_topics SET state='ready',error=NULL WHERE id=(SELECT topic_id FROM publishing_drafts WHERE id=$1) AND state='held'", [id]);
     }
+    await refreshSchedule(getDb());
     return { saved: true };
   }));
   router.post('/drafts/:id/review', route(async req => {
     publishingProduction(); const b = object(req.body);
-    const changed = await getDb().query<{ topic_id: string }>(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,reason='Review requested.'
-      WHERE id=$1 AND version=$2 RETURNING topic_id`, [uuid(req.params.id), b.version]);
-    if (!changed.rowCount) throw new ConflictError('Draft changed; reload.', 'PUBLISHING_CONFLICT');
-    await event(getDb(), changed.rows[0]!.topic_id, actor(req), 'review-requested', { id: req.params.id, version: b.version });
-    return { queued: true };
+    await transaction(getDb(), async c => {
+      const draft = (await c.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE id=$1 FOR UPDATE`, [uuid(req.params.id)])).rows[0];
+      if (!draft || draft.version !== b.version) throw new ConflictError('Draft changed; reload.', 'PUBLISHING_CONFLICT');
+      const delivered = await c.query("SELECT id FROM publishing_deliveries WHERE draft_id=$1 AND status IN ('sent','sending','unconfirmed')", [draft.id]);
+      if (delivered.rowCount) throw new ValidationError('This draft has a delivered or unresolved publication. Reconcile it before requesting another review.');
+      await c.query(`UPDATE publishing_drafts SET review='pending',approval='pending',held=FALSE,reviewed_at=NULL,
+        reason='Review requested.',updated_at=NOW() WHERE id=$1`, [draft.id]);
+      await c.query("UPDATE publishing_topics SET state='ready',error=NULL WHERE id=$1 AND state IN ('held','rejected')", [draft.topicId]);
+      await event(c, draft.topicId, actor(req), 'review-requested', { id: draft.id, version: b.version });
+    });
+    await refreshSchedule(getDb()); return { queued: true };
   }));
   router.post('/drafts/:id/account', route(async req => {
     publishingProduction();
@@ -122,6 +143,7 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
     const member = draft.destination === 'linkedin' ? await getLinkedInMember() : null;
     const account = member?.id ?? destinationAccount(draft.destination);
     await editDraft(getDb(), id, b.version, draft.content, actor(req), { id: account, ...(member ? { name: member.name } : {}) });
+    await refreshSchedule(getDb());
     return { saved: true };
   }));
   router.get('/history', route(async req => {
@@ -135,7 +157,8 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
     return (await getDb().query<Record<string, unknown>>('SELECT id,topic_id AS "topicId",actor,event,detail,created_at AS "createdAt" FROM publishing_events ORDER BY id DESC LIMIT $1 OFFSET $2', [PUBLISH_LIMITS.maxHistory, offset])).rows;
   }));
   router.post('/deliveries/:id/reconcile', route(async req => {
-    publishingProduction(); await reconcilePublishing(getDb(), uuid(req.params.id), object(req.body), actor(req)); return { saved: true };
+    publishingProduction(); await reconcilePublishing(getDb(), uuid(req.params.id), object(req.body), actor(req));
+    await refreshSchedule(getDb()); return { saved: true };
   }));
   return router;
 }

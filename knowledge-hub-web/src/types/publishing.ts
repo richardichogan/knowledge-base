@@ -3,6 +3,10 @@ export interface FeedPolicy {
   timezone: string; startHour: number; endHour: number; days: number[]; expiryHours: number; guidance: string;
 }
 export interface PublishingFeed { id: FeedId; enabled: boolean; revision: number; policy: FeedPolicy }
+export interface ScheduledPost {
+  draftId: string; topicId: string; title: string; destination: 'bluesky' | 'blog' | 'linkedin'; version: number;
+  scheduledAt: string | null; timezone: string; paused: boolean; reason: string;
+}
 export interface PublishingDraft {
   id: string; topicId: string; destination: 'bluesky' | 'blog' | 'linkedin'; variant: 'source' | 'blog';
   version: number; content: Record<string, unknown>; review: string; approval: string; held: boolean;

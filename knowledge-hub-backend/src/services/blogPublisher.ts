@@ -9,7 +9,7 @@ import { POST_TYPES, type PostType } from '../ai/blogDraft.js';
 import { BLOG_CATEGORIES, resolveBlogCategory } from '../ai/blogHouseStyle.js';
 import { findTropes, fixDashes } from '../ai/styleCheck.js';
 
-export interface BlogPublishBody { excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
+export interface BlogPublishBody { slug?: string; sourceUrl?: string; excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
 
 export interface BlogSendResult {
   httpStatus: number;
@@ -23,6 +23,9 @@ const MAX_SUMMARY = 1000;
 const MAX_TAKEAWAYS = 10;
 const MAX_TAKEAWAY_CHARS = 300;
 const BLOG_POST_TIMEOUT_MS = 30_000;
+const QUICK_MAX_WORDS = 600;
+const QUICK_MAX_TITLE = 60;
+const QUICK_MAX_TAKEAWAYS = 2;
 
 export function parsePublishBody(body: unknown): BlogPublishBody {
   const o = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
@@ -36,6 +39,20 @@ export function parsePublishBody(body: unknown): BlogPublishBody {
     throw new ValidationError('Title (200), summary (1,000) and takeaways (10 max, 300 characters each) exceed the blog limits.');
   }
   if (!parsed.title || !parsed.content || !parsed.summary) throw new ValidationError('Title, summary and content are required to publish.');
+  const slug = text(o['slug']);
+  if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) throw new ValidationError('Slug must use lowercase letters, numbers and single hyphens.');
+  const sourceUrl = text(o['sourceUrl']);
+  if (sourceUrl) {
+    let url: URL;
+    try { url = new URL(sourceUrl); } catch { throw new ValidationError('Source URL must be a valid public article URL.'); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new ValidationError('Source URL must be an HTTP or HTTPS article URL without credentials.');
+  }
+  if (postType === 'quick') {
+    const words = parsed.content.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
+    if (words > QUICK_MAX_WORDS || parsed.title.length > QUICK_MAX_TITLE || parsed.keyTakeaways.length > QUICK_MAX_TAKEAWAYS || /<(?:h[1-6]|ul|ol)\b/i.test(parsed.content)) {
+      throw new ValidationError('Quick takes allow at most 600 words, a 60-character title and two takeaways, with paragraphs rather than headings or lists.');
+    }
+  }
   const unknown = parsed.categories.filter(category => resolveBlogCategory(category) === undefined);
   if (unknown.length > 0) {
     throw new ValidationError(`Unknown blog categories: ${unknown.join(', ')}. Use any of: ${BLOG_CATEGORIES.join(', ')}. Other topics such as Dynamics 365 belong in tags. Quick take is a post type, not a category.`);
@@ -46,7 +63,7 @@ export function parsePublishBody(body: unknown): BlogPublishBody {
   const ownContent = parsed.content.replace(/<hr>\s*<p><em>Source:[\s\S]*?<\/em><\/p>\s*$/i, '');
   const tropes = findTropes(parsed.title, parsed.excerpt, parsed.summary, ownContent, ...parsed.keyTakeaways);
   if (tropes.length > 0) throw new ValidationError(`Not sent: the post still contains banned AI writing patterns. Edit these out first: ${tropes.join('; ')}.`);
-  return parsed;
+  return { ...parsed, ...(slug ? { slug } : {}), ...(sourceUrl ? { sourceUrl } : {}) };
 }
 
 /** Sends a post to the blog API and returns the HTTP status + JSON payload to relay to the client. */

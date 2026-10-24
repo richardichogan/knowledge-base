@@ -54,9 +54,41 @@ test('chat proposes the same two feed settings; only user confirmation changes t
     const resolved = (await fixture.db.query<{ status: string; published_at: Date }>('SELECT status,published_at FROM publishing_deliveries WHERE id=$1', [pending.id])).rows[0]!;
     assert.equal(resolved.status, 'sent'); assert.equal(new Date(resolved.published_at).toISOString(), at);
     assert.equal((await call(`/publishing/deliveries/${pending.id}/reconcile`, 'POST', { delivered: false })).status, 422);
+    const topic = (await fixture.db.query<{ id: string }>("INSERT INTO publishing_topics(title,fingerprint,state,error) VALUES('Saved draft','recovery-fixture','held','Truncated model JSON') RETURNING id")).rows[0]!;
+    await fixture.db.query(`INSERT INTO publishing_sources(item_id,topic_id,title,url,discovered_at)
+      VALUES(gen_random_uuid(),$1,'Saved source','https://learn.microsoft.com/fixture',NOW())`, [topic.id]);
+    const draft = (await fixture.db.query<{ id: string }>(`INSERT INTO publishing_drafts(topic_id,destination,variant,content,held,review,approval,expires_at)
+      VALUES($1,'bluesky','source','{"copy":"The complete saved draft."}',TRUE,'revise','approved',NOW()+INTERVAL '1 day') RETURNING id`, [topic.id])).rows[0]!;
+    assert.equal((await call(`/publishing/drafts/${draft.id}/review`, 'POST', { version: 2 })).status, 409);
+    assert.equal((await call(`/publishing/drafts/${draft.id}/review`, 'POST', { version: 1 })).status, 200);
+    const detail = await call(`/publishing/topics/${topic.id}`);
+    const result = detail.body.data as { topic: { state: string; error: string | null }; drafts: Array<{ held: boolean; review: string; approval: string; version: number; content: { copy: string } }> };
+    assert.equal(result.topic.state, 'ready'); assert.equal(result.topic.error, null);
+    assert.equal(result.drafts[0]!.held, false); assert.equal(result.drafts[0]!.review, 'pending');
+    assert.equal(result.drafts[0]!.approval, 'pending'); assert.equal(result.drafts[0]!.version, 1);
+    assert.equal(result.drafts[0]!.content.copy, 'The complete saved draft.');
+    assert.equal((await call(`/publishing/drafts/${draft.id}/decision`, 'POST', { version: 1, action: 'approve' })).status, 422);
+    assert.equal((await fixture.db.query<{ enabled: boolean }>("SELECT enabled FROM publishing_feeds WHERE id='blog-linkedin'")).rows[0]!.enabled, false);
+    await fixture.db.query(`INSERT INTO publishing_deliveries(identity,destination,account,topic_id,draft_id,version,status)
+      VALUES('recovery-uncertain','bluesky','fixture',$1,$2,1,'unconfirmed')`, [topic.id, draft.id]);
+    assert.equal((await call(`/publishing/drafts/${draft.id}/review`, 'POST', { version: 1 })).status, 422);
+    assert.equal((await fixture.db.query("SELECT id FROM publishing_events WHERE topic_id=$1 AND event='review-requested'", [topic.id])).rows.length, 1);
     env.NODE_ENV = 'development';
-    assert.equal((await call('/publishing/feeds/bluesky', 'PUT', { ...changed, enabled: false })).status, 422);
-    await assert.rejects(executePublishingTool(fixture.db, { action: 'save', ...changed }, 'chat'), /disabled/);
+    assert.equal((await call('/publishing/feeds/bluesky', 'PUT', { ...changed, enabled: false })).status, 200);
+    const localFeed = ((await call('/publishing/feeds')).body.data as PublishingFeed[]).find(f => f.id === 'bluesky')!;
+    assert.equal(localFeed.enabled, false);
+    await executePublishingTool(fixture.db, { action: 'save', ...localFeed }, 'chat');
+    assert.equal(((await call('/publishing/feeds')).body.data as PublishingFeed[]).find(f => f.id === 'bluesky')!.revision, localFeed.revision,
+      'chat still proposes rather than applying settings in development');
+    const localProposals = (await call('/jobs/proposals?sessionId=chat')).body.data as Array<{ id: string }>;
+    assert.equal((await call(`/jobs/proposals/${localProposals[0]!.id}/confirm`, 'POST', {})).status, 200,
+      'human-confirmed feed settings work in development without enabling job execution');
+    const schedulable = (await fixture.db.query<{ id: string }>(`INSERT INTO publishing_drafts(topic_id,destination,variant,content,review,reviewed_at,expires_at)
+      VALUES($1,'linkedin','blog','{"copy":"Complete reviewed hook.","account":"fixture"}','pass',NOW(),NOW()+INTERVAL '1 day') RETURNING id`, [topic.id])).rows[0]!;
+    await fixture.db.query(`INSERT INTO publishing_versions(draft_id,version,content)
+      SELECT id,version,content FROM publishing_drafts WHERE id=$1`, [schedulable.id]);
+    assert.equal((await call(`/publishing/drafts/${schedulable.id}/decision`, 'POST', { version: 1, action: 'approve' })).status, 200);
+    assert.equal((await fixture.db.query("SELECT approval FROM publishing_drafts WHERE id=$1", [schedulable.id])).rows[0]!.approval, 'approved');
     assert.equal((await call('/publishing/feeds')).status, 200, 'development reads remain available');
   } finally { env.NODE_ENV = mode; await new Promise<void>(resolve => server.close(() => resolve())); await fixture.close(); }
 });

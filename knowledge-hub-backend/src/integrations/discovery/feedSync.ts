@@ -16,6 +16,7 @@ import { scoreUnscored } from '../cms/discoveredArticlesSync.js';
 import { runProjectFitPass, PROJECT_PROTECT_BOOST } from './projectFit.js';
 import { youtubeVideoId } from './youtube.js';
 import { enrichPendingYouTubeVideos } from './youtubeEvidence.js';
+import { refreshPublishingDrafts } from '../../publishing/refresh.js';
 
 const SYNC_STATE_KEY = 'discovered-articles';
 /** Only articles published this recently are filed — also bounds a brand-new source's first fetch. */
@@ -188,10 +189,15 @@ export async function syncDiscoveryFeeds(db: Pool): Promise<{ indexed: number; e
   const shelved = await shelveStaleArticles(db).catch((err: unknown) => { console.warn('[Discovery] shelving failed:', err); return 0; });
   if (shelved > 0) console.warn(`[Discovery] Shelved ${shelved.toString()} article(s) unactioned for over a week`);
 
+  try { await refreshPublishingDrafts(db); }
+  catch (error) {
+    errors++;
+    console.error('[Discovery] Publishing draft refresh failed:', error);
+  }
   await upsertSyncState(db, SYNC_STATE_KEY, {
     lastSyncAt: new Date(),
     itemCount: indexed,
-    lastError: errors > 0 ? `${errors.toString()} source(s) failed` : null,
+    lastError: errors > 0 ? `${errors.toString()} discovery or draft-refresh error(s); see logs and Publishing Audit` : null,
   });
   return { indexed, errors };
 }

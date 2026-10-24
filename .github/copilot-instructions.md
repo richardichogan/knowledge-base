@@ -23,7 +23,8 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 
 - **Never use `head` or `tail` to truncate command output.** Run the full command or use `grep` to filter specifically.
 - **Never use `curl` to test endpoints.** If an endpoint needs testing, use the existing API client or logs.
-- **Never run full test suites (full unit, full browser, CI-equivalent runs) unless preparing an explicitly requested deployment.** A commit, push or merge alone is NOT permission to run full suites. During development, run only required `tsc --noEmit` checks and narrowly targeted tests for the changed feature or directly affected code. For a deployment, run full suites once after the feature is complete; rerun only failed or affected checks unless new evidence requires broader coverage.
+- **NEVER run test suites mid-development, including targeted or single-feature suites.** Do not run test runners while implementing, debugging or iterating. Suite execution is allowed only after the requested work is complete, immediately before an explicitly requested push or deployment. A request to implement, fix, commit or merge is not permission to run suites.
+- **Full test suites (full unit, full browser, CI-equivalent runs) remain deployment-only.** Before an explicitly requested push, use only directly affected tests; before a deployment, run required full suites once. Rerun only failed or affected checks unless new evidence requires broader coverage. During development, use the required `tsc --noEmit` checks and direct inspection of the actual running application, not suites, synthetic evaluations or repeated verification loops.
 - **Mobile browser testing is for the chat interface only.** All other browser journeys (including navigation, Today, Discover, notes and diagrams) must be desktop-only. Do not launch a local browser without explicit user permission.
 - **Finish the requested feature before testing broadly or verifying in the browser.** Do not get sidetracked into extra checks while the feature is incomplete.
 - **Never pipe to `| cat`** just to disable a pager — use `--no-pager` flags where available (e.g. `git --no-pager`).
@@ -41,6 +42,7 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 
 ## Code Changes
 
+- Follow the user's specification, including data source and workflow, without substituting a different implementation. Athena content in local development uses the production database: real drafts and approvals must work against shared production data, not an isolated snapshot or synthetic preview. Keep local automatic delivery disabled; do not disable requested editing or scheduling just because the application is running in development.
 - Always run `tsc --noEmit` after changes to both `knowledge-hub-web` and `knowledge-hub-backend` before declaring work done.
 - Never deploy to production without an explicit instruction from the user to do so.
 

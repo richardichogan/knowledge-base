@@ -1,10 +1,17 @@
 import type { Pool } from 'pg';
+import { createHash } from 'node:crypto';
+import type { KnowledgeAccess } from '../types/knowledge.js';
+import { ValidationError } from '../types/errors.js';
+import { decodeCursor, encodeCursor } from './knowledge/cursor.js';
 import type { DiagramDocument } from '../types/diagram.js';
 import { checkAiFlow } from './aiFlow.js';
 import { renderNoteAsText } from './noteTextService.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 
 const MAX_GOVERNANCE_FINDINGS = 25;
+const MAX_PREVIEW_NOTES = 5;
+const MAX_PREVIEW_NOTE_CHARS = 2000;
+const MAX_PREVIEW_NOTE_TITLE_CHARS = 500;
 
 export const DIAGRAM_READING_GUIDANCE = [
   'These are saved diagram records, not screenshots. Read shapes, labels, descriptions, explicit parent/container IDs and connectors as evidence.',
@@ -15,7 +22,7 @@ export const DIAGRAM_READING_GUIDANCE = [
   'Footnotes are numbered annotations on a shape or connector (targetId); their text explains that element. The key maps border (stroke) colours to meanings; a shape\'s keyLabel is that meaning. Collapsed containers still contain their child shapes.',
   'elementNotes are Think notes linked to one specific shape, connector or footnote (elementId).',
   'diagramType ai-flow is an AI flow / governance diagram: swimlanes are lanes (lane.order top to bottom, lane.owner is the owning team or persona) and a step\'s lane is its parentId. flow.stepType says whether a step is a human task, Digital Steward (orchestrating agent), Digital Worker, Specialist Agent, decision rules, integration, data operation, channel interaction or external party; flow.agent holds autonomy mode, assertion level, tools, knowledge, guardrails and escalation; flow.controls holds data sensitivity, auth, audit logging, human approval and regulatory tags. Connector flow.edgeType distinguishes primary, supporting, conditional, dependency and control flows. governanceFindings are automatic advisory checks of missing controls, not confirmed incidents; an absent field means not recorded, not that the control does not exist.',
-  'Linked notes are supporting context, not diagram shapes. Asset names identify uploaded icons only: their pixels have not been analysed.',
+  'Linked notes are supporting context, not diagram shapes. Asset names identify uploaded icons only: their pixels have not been analysed. Full checkpointed reads contain the stored nodes/edges and footnotes; summaries are derived memory, not verbatim source.',
   'Truncated content is incomplete: do not claim an omitted shape, connector or detail is absent.',
   'To change a diagram (add shapes, connectors, footnotes or key entries), call update_diagram with its id; to draw a new one, call create_diagram.',
   'You may analyse and recommend changes but cannot modify diagrams. propose_map_changes is for brainstorm canvases only.',
@@ -100,8 +107,8 @@ export function diagramEvidence(document: DiagramDocument, budget = 24_000, sele
 
 export async function findDiagramContext(db: Pool, args: {
   query?: string; diagramId?: string; projectId?: string; limit?: number; selectedId?: string;
-  excludedIds?: ReadonlySet<string>;
-}): Promise<{ results: Array<{ id: string; title: string; project: string | null; url: string; content: string }>; resultCount: number; guidance: string }> {
+  excludedIds?: ReadonlySet<string>; fullSource?: boolean;
+}): Promise<{ results: Array<{ id: string; title: string; project: string | null; url: string; content: string; version: string }>; resultCount: number; guidance: string }> {
   const limit = Math.max(1, Math.min(5, Math.floor(args.limit ?? 3)));
   const query = (args.query ?? '').trim().slice(0, 500);
   const { rows } = await db.query<DiagramRow>(`
@@ -138,15 +145,21 @@ export async function findDiagramContext(db: Pool, args: {
     let noteBudget = 6000;
     for (const note of row.linked_notes) {
       if (args.excludedIds?.has(note.id) === true) continue;
-      if (noteBudget <= 0 || notes.length >= 5) break;
+      if (!args.fullSource && (noteBudget <= 0 || notes.length >= MAX_PREVIEW_NOTES)) break;
       const text = await renderNoteAsText(db, note.content);
-      const share = Math.min(2000, noteBudget);
-      notes.push({ id: note.id, title: (parseNoteContent(note.content).title ?? 'Untitled').slice(0, 500),
+      const share = args.fullSource ? text.length : Math.min(MAX_PREVIEW_NOTE_CHARS, noteBudget);
+      const title = parseNoteContent(note.content).title ?? 'Untitled';
+      notes.push({ id: note.id, title: args.fullSource ? title : title.slice(0, MAX_PREVIEW_NOTE_TITLE_CHARS),
         url: `/think?noteId=${encodeURIComponent(note.id)}`, text: text.slice(0, share), truncated: text.length > share });
       noteBudget -= Math.min(text.length, share);
     }
-    return { id: row.id, title: row.title, project: row.project, url: `/think?mapId=${encodeURIComponent(row.id)}`,
-      content: [
+    const content = args.fullSource ? [
+      JSON.stringify({ title: row.title, description: row.description, project: row.project, revision: row.revision, savedAt: row.updated_at }),
+      JSON.stringify(row.document),
+      JSON.stringify({ elementNotes: row.element_notes.filter(n => args.excludedIds?.has(n.noteId) !== true)
+        .map(n => ({ elementId: n.elementId, noteId: n.noteId, url: `/think?noteId=${encodeURIComponent(n.noteId)}` })) }),
+      JSON.stringify({ linkedNotes: notes, assets: row.assets }),
+    ].join('\n') : [
         JSON.stringify({ title: row.title, description: row.description?.slice(0, 1500) ?? null,
           project: row.project, revision: row.revision, savedAt: row.updated_at }),
         diagramEvidence(row.document, args.diagramId === undefined ? 12_000 : 24_000, args.selectedId),
@@ -155,7 +168,51 @@ export async function findDiagramContext(db: Pool, args: {
           url: `/think?noteId=${encodeURIComponent(n.noteId)}` })) }),
         JSON.stringify({ linkedNotes: notes, omittedLinkedNotes: row.linked_notes.length - notes.length,
           assets: row.assets.slice(0, 100), omittedAssets: Math.max(0, row.assets.length - 100) }),
-      ].join('\n') };
+      ].join('\n');
+    return { id: row.id, title: row.title, project: row.project, url: `/think?mapId=${encodeURIComponent(row.id)}`,
+      content, version: createHash('sha256').update(content).digest('hex') };
   }));
   return { results, resultCount: results.length, guidance: DIAGRAM_READING_GUIDANCE };
+}
+
+const DIAGRAM_PAGE_CHARS = 12_000;
+
+/** Versioned pages feed the existing checkpointed reader, including diagrams larger than one model context. */
+export async function readDiagramPage(db: Pool, args: {
+  diagramId: string; sessionId: string; cursor?: unknown; excludedIds?: ReadonlySet<string>;
+}): Promise<KnowledgeAccess> {
+  let offset = 0;
+  let version: string | undefined;
+  const binding = { ref: `diagram:${args.diagramId}`, sessionId: args.sessionId,
+    scope: JSON.stringify([...(args.excludedIds ?? [])].sort()) };
+  if (args.cursor !== undefined) {
+    if (typeof args.cursor !== 'string') throw new ValidationError('Invalid diagram reading cursor.');
+    const value = decodeCursor(args.cursor, binding);
+    offset = value.offset;
+    version = value.version;
+  }
+  if (args.excludedIds?.has(args.diagramId)) return { status: 'excluded' };
+  const result = await findDiagramContext(db, { diagramId: args.diagramId, fullSource: true,
+    ...(args.excludedIds !== undefined && { excludedIds: args.excludedIds }) });
+  const source = result.results[0];
+  if (!source) return { status: 'not_found' };
+  if (version !== undefined && version !== source.version) return {
+    status: 'unavailable', code: 'version_changed', retryable: true,
+    message: 'The diagram or its linked context changed during reading. Restart to read one consistent version.',
+  };
+  if (offset > source.content.length) throw new ValidationError('Diagram reading offset is beyond the source.');
+  const end = Math.min(offset + DIAGRAM_PAGE_CHARS, source.content.length);
+  const nextCursor = end < source.content.length
+    ? encodeCursor({ ...binding, version: source.version, offset: end }) : null;
+  return {
+    status: nextCursor === null ? 'ok' : 'partial', issues: [],
+    coverage: { totalChars: source.content.length, returnedChars: end - offset, complete: offset === 0 && nextCursor === null },
+    record: {
+      ref: { kind: 'diagram', id: source.id }, title: source.title, projectId: source.project,
+      fields: {}, origin: 'saved-diagram', version: source.version, createdAt: null, updatedAt: null,
+      locator: { internalPath: source.url }, extractionState: 'complete', untrusted: true,
+      content: source.content.slice(offset, end), startOffset: offset, endOffset: end,
+      totalChars: source.content.length, nextCursor,
+    },
+  };
 }

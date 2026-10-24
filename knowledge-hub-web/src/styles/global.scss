@@ -709,28 +709,38 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   flex-shrink: 0;
 }
 
-/* ── Composer intent chips ───────────────────────────────────────────────────
-   Replaces the old detached project dropdown. Shows the per-message action and
-   the thread-scoped project grounding as editable, removable chips directly
-   above the input. Each chip renders an invisible full-bleed <select> as its
-   edit affordance so the control stays keyboard-accessible without needing a
-   custom popover — important because the floating widget is only 400px wide. */
+/* Command-bar icons expand the composer settings into anchored popovers. */
 .kh-composer-chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.375rem;
-  padding: 0 0.25rem 0.5rem;
+  padding: 0;
 }
 
-// Chips + message box (+ attachment status) as one footer unit, divided from
-// the scrolling thread above it.
+.kh-composer-control {
+  position: relative;
+  flex-shrink: 0;
+  &__trigger { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0;
+    border: 1px solid transparent; border-radius: var(--kh-radius-md); background: transparent; color: var(--cds-text-secondary); cursor: pointer; }
+  &__trigger:hover { color: var(--cds-text-primary); background: var(--cds-layer-hover-01); }
+  &__trigger:active { background: var(--cds-layer-active-01); }
+  &__trigger--active, &__trigger[aria-expanded='true'] { color: var(--kh-accent); background: var(--kh-accent-bg); }
+  &__trigger:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  &__panel { position: fixed; inset: auto; margin: 0; width: 280px; box-sizing: border-box; padding: 12px;
+    overflow: auto; border: 1px solid var(--cds-border-subtle-01); border-radius: var(--kh-radius-md);
+    background: var(--cds-layer-02); color: var(--cds-text-primary); box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 1000; }
+  &__label { display: block; font-size: var(--kh-text-meta); color: var(--cds-text-secondary); margin-bottom: 8px; overflow-wrap: anywhere; line-height: 1.5; }
+  &__panel .kh-composer-chip { width: 100%; max-width: none; box-sizing: border-box; border-radius: var(--kh-radius-md); min-height: 36px; }
+  &__panel .kh-composer-chip__value { max-width: none; flex: 1; }
+}
+
+// Message box and attachment status share a borderless footer.
 .ai-composer {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   padding-top: 0.625rem;
-  border-top: 1px solid var(--cds-border-subtle-01);
   min-width: 0;
 }
 
@@ -1080,6 +1090,14 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   gap: 0.5rem;
   margin-top: 0.3rem;
   min-height: 1.5rem;
+}
+
+.ai-bubble--ai .ai-bubble-footer {
+  flex-wrap: wrap;
+
+  .ai-feedback { margin-top: 0; flex-shrink: 0; }
+  .ai-feedback--active { flex-basis: 100%; min-width: 0; }
+  .ai-bubble-time { margin-right: auto; }
 }
 
 .ai-bubble-actions {
@@ -2368,6 +2386,7 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
 }
 
 .ai-chat-standalone__actions {
+  flex: 1;
   margin-bottom: 0; // override .ai-new-chat-row's page-flow margin, this row has its own topbar padding
 }
 
@@ -5131,7 +5150,8 @@ body.kh-pane-resizing {
   }
 
   .ai-bubble:hover .ai-bubble-footer,
-  .ai-bubble:focus-within .ai-bubble-footer {
+  .ai-bubble:focus-within .ai-bubble-footer,
+  .ai-bubble-footer:has(.ai-feedback--active) {
     opacity: 1;
   }
 
@@ -13140,13 +13160,28 @@ $project-colour-map: (
 // ── Athena: reply footer, starters, jump-to-latest ───────────────────────────
 
 // Which persona answered and which of the user's data it used.
+.ai-reply-details {
+  margin-top: 0.5rem;
+  min-width: 0;
+
+  &__toggle {
+    width: fit-content;
+    padding: 0.375rem 0;
+    font-size: var(--kh-text-meta);
+    color: var(--cds-text-secondary);
+    cursor: pointer;
+    border-radius: var(--kh-radius-sm);
+    &:hover { color: var(--cds-text-primary); }
+    &:active, .ai-reply-details[open] > & { color: var(--kh-accent); }
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  }
+}
+
 .ai-reply-references {
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
-  margin-top: 1rem;
-  padding-top: 0.625rem;
-  border-top: 1px solid var(--ai-motion-border);
+  margin-top: 0.375rem;
   &:empty { display: none; }
   .ai-reply-meta, .ai-used { margin-top: 0; }
 }
@@ -13197,25 +13232,27 @@ $project-colour-map: (
 .ai-prompt-nav {
   display: flex;
   align-items: center;
-  border: 1px solid var(--cds-border-subtle-01);
-  border-radius: var(--kh-radius-pill);
-  background: var(--cds-layer-02);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  flex-shrink: 0;
+  margin-right: auto;
+  background: transparent;
   font-size: 0.75rem;
   color: var(--cds-text-secondary);
 
   button {
-    padding: 0.375rem 0.625rem;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
     border: 0;
+    border-radius: var(--kh-radius-md);
     background: none;
     color: var(--cds-text-primary);
     font-size: var(--kh-text-body);
     cursor: pointer;
 
-    &:hover { color: var(--kh-accent); }
+    &:hover { color: var(--kh-accent); background: var(--cds-layer-hover-01); }
+    &:active { background: var(--cds-layer-active-01); }
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
   }
-
-  &__label { padding: 0 0.125rem; white-space: nowrap; }
 }
 
 .ai-jump-latest {
@@ -15287,19 +15324,12 @@ fieldset.proj-modal-body {
 .athena-ribbon { display: inline-block; flex-shrink: 0; line-height: 0; background: transparent; }
 .ai-character-heading { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
 .ai-empty > .athena-ribbon { align-self: center; }
-.ai-presence {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 0;
-  height: 0;
-  z-index: 2;
+.ai-presence-inline {
+  display: inline-flex;
+  width: 56px;
+  height: 56px;
+  vertical-align: top;
   pointer-events: none;
-  visibility: hidden;
-  contain: layout style;
-
-  &[data-paused='true'] * { animation-play-state: paused !important; }
-  athena-ribbon { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); }
 }
 
 .ai-presence-anchor {
@@ -15330,7 +15360,21 @@ fieldset.proj-modal-body {
   color: var(--cds-text-secondary);
 }
 
-.ai-presence-dock { margin-bottom: 24px; padding-top: 10px; }
+.ai-presence-dock--response { flex-shrink: 0; margin-top: 0.5rem; padding-top: 4px; }
+.ai-presence-typing { color: var(--kh-accent); font-size: var(--kh-text-meta); line-height: 1.5; }
+.ai-progress {
+  min-width: 0;
+  color: var(--cds-text-secondary);
+  font-size: var(--kh-text-meta);
+  line-height: 1.5;
+  &__current { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+  &__text { min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  &__label { color: var(--cds-text-primary); overflow-wrap: anywhere; animation: ai-progress-reveal 180ms ease-out; }
+  &__time { color: var(--cds-text-secondary); font-variant-numeric: tabular-nums; }
+  &__helper { margin: 0.75rem 0 0; }
+}
+@keyframes ai-progress-reveal { from { opacity: 0.4; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .ai-progress__label { animation: none; } }
 .ai-presence-dock__status,
 .ai-presence-announcement {
   position: absolute;
@@ -15340,7 +15384,24 @@ fieldset.proj-modal-body {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.ai-reply-heading { gap: 0.75rem; margin-bottom: 1rem; min-height: 27px; }
+.ai-reply-heading { gap: 0.5rem; margin-bottom: 0.5rem; min-height: 24px; }
+.ai-reply-heading--answering {
+  color: var(--kh-accent);
+  .ai-reply-heading__mark { animation: ai-answer-awaken 600ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+}
+.ai-answer-text > [hidden] { display: none; }
+.ai-answer-text__enter { animation: ai-paragraph-arrive 420ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes ai-paragraph-arrive {
+  from { opacity: 0; filter: blur(2px); transform: translateY(6px); }
+  to { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+@keyframes ai-answer-awaken {
+  from { opacity: 0.3; transform: scale(0.85) rotate(-12deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-answer-text__enter, .ai-reply-heading--answering .ai-reply-heading__mark { animation: none; }
+}
 .ai-live-activity { gap: 0.5rem; font-size: var(--kh-text-meta); }
 .ai-bubble--thinking .ai-live-activity {
   display: block;
@@ -15356,9 +15417,9 @@ fieldset.proj-modal-body {
 .ai-live-activity__helper { display: block; margin-top: 0.375rem; color: var(--cds-text-helper); font-size: var(--kh-text-meta); }
 
 .ai-reply-heading__mark {
-  width: 56px;
-  height: 56px;
-  flex: 0 0 56px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   display: inline-block;
 }
 
@@ -15386,7 +15447,7 @@ fieldset.proj-modal-body {
     animation: ai-answer-content 300ms cubic-bezier(0, 0, 0.3, 1) calc(var(--ai-arrival-delay) + 100ms) both;
   }
   > .ai-reply-heading > .ai-reply-heading__mark {
-    animation: ai-answer-mark 150ms ease-in-out calc(var(--ai-arrival-delay) + 1000ms) both;
+    animation:     ai-answer-mark 150ms ease-in-out var(--ai-arrival-delay) both;
   }
   > :not(.ai-answer-panel):not(.ai-reply-heading) {
     animation: ai-answer-content 300ms cubic-bezier(0, 0, 0.3, 1) calc(var(--ai-arrival-delay) + 200ms) both;
@@ -16603,6 +16664,21 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
 
 // "Continue in Think" under the latest reply: small, beside "Ask another model", panel opens upwards.
 .ai-reply-think { position: relative; margin: 0.5rem 0 0; }
+.ai-move--header {
+  flex-shrink: 0;
+  .ai-move__button {
+    width: 2rem;
+    padding: 0;
+    border-color: transparent;
+    border-radius: var(--kh-radius-md);
+    color: var(--cds-text-secondary);
+    &:hover:not(:disabled) { border-color: transparent; color: var(--cds-text-primary); }
+    &:active:not(:disabled) { background: var(--cds-layer-active-01); }
+    &[aria-expanded='true'] { color: var(--kh-accent); background: var(--kh-accent-bg); }
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  }
+  .ai-move__label { display: none; }
+}
 .ai-move--inline {
   position: static; // the panel is sized against the reply, so it fits a narrow chat column
   .ai-move__button { height: 1.75rem; padding: 0 0.75rem; font-size: 0.75rem; border-color: var(--kh-accent); color: var(--kh-accent); }
@@ -17405,7 +17481,15 @@ select optgroup {
   option { font-weight: 400; color: #f4f4f4; }
 }
 // Managed jobs share native configuration dialogs and the workspace theme.
+.kh-dialog--settings:has(.kh-publishing) {
+  height: min(900px, calc(100dvh - 48px));
+  .kh-dialog__body { display: flex; flex-direction: column; flex: 1; }
+}
 .kh-publishing {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   color: var(--cds-text-primary);
   font-size: var(--kh-text-body);
   min-width: 0;
@@ -17435,7 +17519,9 @@ select optgroup {
   summary { cursor: pointer; min-height: 32px; padding-block: 8px; color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
   summary:hover { color: var(--cds-text-primary); }
   details[open] > summary { color: var(--kh-accent); margin-bottom: 8px; }
-  &__meta, &__topic-toggle span { color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
+  &__meta { color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
+  &__settings { border-bottom: 1px solid var(--cds-border-subtle-01); }
+  &__settings > summary { font-size: var(--kh-text-body); }
   &__feeds { display: grid; grid-template-columns: minmax(0, 1fr) auto; border-block: 1px solid var(--cds-border-subtle-01); margin-block: 16px 8px; }
   &__feed { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: start; column-gap: 24px; padding-block: 16px; }
   &__feed + &__feed { border-top: 1px solid var(--cds-border-subtle-01); }
@@ -17448,23 +17534,59 @@ select optgroup {
   &__switch[aria-checked='true'] span::after { inset-inline-start: 17px; background: var(--cds-background); }
   &__form, &__review { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   &__form { margin-block: 8px 16px; }
-  &__fields { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(80px, 100px)); gap: 12px; align-items: start; }
+  &__fields { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(80px, 100px)); gap: 12px; align-items: start; }
   &__days { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 12px; }
   &__days legend { color: var(--cds-text-secondary); font-size: var(--kh-text-meta); margin-bottom: 8px; padding: 0; }
   &__days label { flex-direction: row; align-items: center; }
   &__days input { width: 16px; min-height: 16px; height: 16px; padding: 0; margin: 0; accent-color: var(--kh-accent); }
-  &__actions, &__tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+  &__actions, &__tabs, &__destinations { display: flex; flex-wrap: wrap; gap: 8px; }
   &__actions { align-items: center; }
-  &__tabs { border-bottom: 1px solid var(--cds-border-subtle-01); margin-block: 24px 8px; }
-  &__tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; min-height: 36px; }
-  &__tabs button[aria-pressed='true'] { border-bottom-color: var(--kh-accent); background: var(--kh-accent-bg); color: var(--kh-accent); font-weight: 600; }
-  &__topic, &__history { border-bottom: 1px solid var(--cds-border-subtle-01); }
-  button.kh-publishing__topic-toggle { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 30%); gap: 24px; width: 100%; padding: 12px 0; border: 0; border-radius: 0; text-align: start; line-height: 1.5; }
-  &__topic-toggle strong { font-size: var(--kh-text-body); font-weight: 600; }
-  &__topic-toggle[aria-expanded='true'] strong { color: var(--kh-accent); }
-  &__review { padding-block: 8px 24px; }
+  &__tabs, &__destinations { border-bottom: 1px solid var(--cds-border-subtle-01); }
+  &__tabs { margin-block: 12px 16px; }
+  &__tabs button, &__destinations button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; min-height: 36px; }
+  &__tabs button[aria-pressed='true'], &__destinations button[aria-pressed='true'] { border-bottom-color: var(--kh-accent); background: var(--kh-accent-bg); color: var(--kh-accent); font-weight: 600; }
+  &__workspace { display: grid; grid-template-columns: minmax(200px, 28%) minmax(0, 1fr); gap: 24px; flex: 1; min-height: 280px; }
+  &__workspace--schedule { grid-template-columns: minmax(260px, 36%) minmax(0, 1fr); }
+  &__schedule-toolbar { display: flex; align-items: start; gap: 16px; margin-bottom: 16px; }
+  &__schedule-toolbar p { flex: 1; margin: 0; }
+  &__schedule-toolbar button { flex-shrink: 0; }
+  &__agenda { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  &__schedule-day + &__schedule-day { margin-top: 24px; }
+  &__schedule-day > h3 { font-size: var(--kh-text-meta); color: var(--cds-text-secondary); padding-bottom: 8px; border-bottom: 1px solid var(--cds-border-subtle-01); line-height: 1.5; }
+  button.kh-publishing__schedule-row { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 100%; margin-top: 8px; padding: 12px; text-align: start; line-height: 1.5; overflow-wrap: anywhere; }
+  button.kh-publishing__schedule-row[aria-pressed='true'] { border-color: var(--kh-accent-border); background: var(--kh-accent-bg); }
+  &__schedule-row[aria-pressed='true'] strong { color: var(--kh-accent); }
+  &__schedule-row strong { font-weight: 600; }
+  &__schedule-time { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: var(--kh-text-meta); color: var(--cds-text-secondary); }
+  &__schedule-time time { font-size: var(--kh-text-body); color: var(--cds-text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  &__schedule-status { color: var(--cds-support-success); font-size: var(--kh-text-meta); }
+  &__schedule-status--waiting { color: var(--cds-support-warning); }
+  &__schedule-reason { font-size: var(--kh-text-body); color: var(--cds-text-primary); }
+  &__blocker { padding: 16px; margin-bottom: 24px; background: var(--cds-layer-02); border: 1px solid var(--cds-border-subtle-01); border-radius: var(--kh-radius-md); }
+  &__blocker h3 { color: var(--cds-support-warning); margin-bottom: 8px; }
+  &__blocker p { margin: 0; }
+  &__draft-list, &__reading { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  &__draft-list > h3 { margin-block: 0 12px; }
+  &__draft-list > h3 span { font-size: var(--kh-text-meta); color: var(--cds-text-secondary); font-weight: 400; }
+  button.kh-publishing__draft-row { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 100%; padding: 12px; margin-bottom: 4px; text-align: start; border-color: transparent; line-height: 1.5; overflow-wrap: anywhere; }
+  &__draft-row strong { font-weight: 600; }
+  button.kh-publishing__draft-row[aria-pressed='true'] { border-color: var(--kh-accent-border); background: var(--kh-accent-bg); }
+  &__draft-row[aria-pressed='true'] strong { color: var(--kh-accent); }
+  &__snippet { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--cds-text-secondary); }
+  &__review { padding-bottom: 24px; }
+  &__review-title { line-height: 1.5; overflow-wrap: anywhere; }
   &__review > p { margin: 0; }
-  &__draft { border-top: 1px solid var(--cds-border-subtle-01); padding-top: 24px; min-width: 0; }
+  &__draft { min-width: 0; }
+  &__draft-actions { position: sticky; top: 0; z-index: 1; padding-block: 8px; background: var(--cds-layer-01); border-bottom: 1px solid var(--cds-border-subtle-01); margin-bottom: 12px; }
+  button.kh-publishing__primary { color: var(--cds-background); background: var(--kh-accent); border-color: var(--kh-accent); font-weight: 600; }
+  button.kh-publishing__primary:hover:not(:disabled) { color: var(--cds-background); background: var(--kh-accent); filter: brightness(1.08); }
+  button.kh-publishing__primary:active:not(:disabled) { filter: brightness(0.92); }
+  &__more { margin-inline-start: auto; }
+  &__more > summary { padding: 8px; }
+  &__more[open] { flex-basis: 100%; margin-inline-start: 0; }
+  &__more .kh-publishing__actions { margin-bottom: 8px; }
+  &__post { max-width: 75ch; padding-block: 16px; }
+  &__post > h4 { font-size: var(--kh-panel-title); line-height: 1.5; margin-block: 0 12px; }
   &__draft-heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
   &__draft-heading h3 span { font-size: var(--kh-text-meta); color: var(--cds-text-secondary); font-weight: 400; }
   &__copy { white-space: pre-wrap; }
@@ -17481,10 +17603,20 @@ select optgroup {
   &__notice { color: var(--cds-text-secondary); background: var(--cds-layer-02); padding: 8px 12px; border-radius: var(--kh-radius-md); white-space: pre-wrap; }
   &__error { color: var(--cds-support-error); }
   &__empty { padding-block: 24px; color: var(--cds-text-secondary); }
-  &__history { padding-block: 16px; }
+  &__history { padding-block: 16px; border-bottom: 1px solid var(--cds-border-subtle-01); }
   button.kh-publishing__danger { color: var(--cds-support-error); }
   button.kh-publishing__danger:hover:not(:disabled) { border-color: var(--cds-support-error); }
   &__paging { margin-top: 16px; }
+  @media (max-width: 800px) {
+    &__workspace { grid-template-columns: minmax(180px, 32%) minmax(0, 1fr); gap: 16px; }
+    &__workspace--schedule { grid-template-columns: minmax(240px, 38%) minmax(0, 1fr); }
+    &__fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 600px) {
+    &__workspace { display: flex; flex-direction: column; height: auto; }
+    &__draft-list { max-height: 220px; flex-shrink: 0; }
+    &__reading { overflow: visible; }
+  }
 }
 
 .kh-jobs {

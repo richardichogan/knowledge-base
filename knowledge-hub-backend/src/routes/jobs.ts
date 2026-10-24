@@ -44,9 +44,12 @@ jobsRouter.get('/proposals', route(async req => {
     WHERE session_id=$1 AND status='pending' ORDER BY created_at DESC LIMIT 10`, [session])).rows;
 }));
 jobsRouter.post('/proposals/:id/confirm', route(async req => {
-  production();
   const id = uuid(req.params.id);
   const db = getDb();
+  if (env.isDevelopment) {
+    const pending = await db.query<{ payload: Record<string, unknown> }>("SELECT payload FROM managed_job_proposals WHERE id=$1 AND status='pending'", [id]);
+    if (pending.rows[0]?.payload.operation !== 'feed-settings') production();
+  } else production();
   const proposed = await db.query<{ payload: Record<string, unknown> }>("UPDATE managed_job_proposals SET status='confirming' WHERE id=$1 AND status='pending' RETURNING payload", [id]);
   const p = proposed.rows[0]?.payload;
   if (!p) throw new ConflictError('Proposal already handled.', 'JOB_CONFLICT');

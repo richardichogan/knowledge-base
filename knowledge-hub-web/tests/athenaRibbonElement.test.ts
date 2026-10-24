@@ -197,8 +197,8 @@ test('real mic level clamps and changes only listening ripple without synthetic 
 test('composer typing eases into an attentive tilt and relaxes without resizing or restarting phases', () => {
   const f = fixture({ size: '56', mood: 'listening', interaction: 'typing' });
   f.advance(3000);
-  assert.ok(Math.abs(f.ribbon._p.roll! + 0.12) < 0.001);
-  assert.ok(Math.abs(f.ribbon._p.bright! - 1.12) < 0.001);
+  assert.ok(Math.abs(f.ribbon._p.roll! + 0.35) < 0.001);
+  assert.ok(Math.abs(f.ribbon._p.bright! - 1.5) < 0.001);
   assert.equal(f.ribbon.canvas.width, 112);
   const yaw = f.ribbon._yaw;
   f.ribbon.setAttribute('interaction', 'idle');

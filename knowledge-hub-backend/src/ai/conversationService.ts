@@ -634,10 +634,11 @@ export async function handleConversationTurn(
     for (const call of response.toolCalls) {
       let result: unknown;
       const requestedArgs = parseToolArgs(call.function.arguments);
-      const wholeReadRequested = call.function.name === 'read_knowledge_record' && sessionId !== undefined
-        && requestedArgs['fullDocument'] !== false && (documentReview || requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true)
+      const diagramRead = call.function.name === 'read_diagram';
+      const wholeReadRequested = (call.function.name === 'read_knowledge_record' || diagramRead) && sessionId !== undefined
+        && (diagramRead || requestedArgs['fullDocument'] !== false && (documentReview || requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true))
         && requestedArgs['cursor'] === undefined && requestedArgs['offset'] === undefined && requestedArgs['memoryReviewId'] === undefined;
-      const documentReadKey = JSON.stringify([requestedArgs['kind'], requestedArgs['id']]);
+      const documentReadKey = JSON.stringify(diagramRead ? ['diagram', requestedArgs['diagramId']] : [requestedArgs['kind'], requestedArgs['id']]);
       let canonicalReadKey: string | undefined;
       if (isStopped(hooks)) throw new AiStoppedError();
       onToolCall?.(call.function.name);
@@ -687,7 +688,8 @@ export async function handleConversationTurn(
                 signal: hooks.signal,
                 onProgress: text => { hooks.onActivity?.(text); hooks.onReadingProgress?.(); },
                 read: async cursor => {
-                  const result = await execute(JSON.stringify({ ...args, maxChars: MAX_PAGE_CHARS, ...(cursor !== undefined && { cursor }) }));
+                  const result = await execute(JSON.stringify({ ...args, ...(diagramRead && { fullDocument: true }),
+                    maxChars: MAX_PAGE_CHARS, ...(cursor !== undefined && { cursor }) }));
                   if (typeof result !== 'object' || result === null || !('status' in result)) {
                     throw new Error(typeof result === 'object' && result !== null && 'error' in result ? String(result.error) : 'Document page could not be read.');
                   }
@@ -753,7 +755,10 @@ export async function handleConversationTurn(
       }
       let toolContent = JSON.stringify(result);
       const checkpointReview = typeof result === 'object' && result !== null && 'review' in result;
-      if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !checkpointReview) {
+      const failedRead = typeof result === 'object' && result !== null && ('error' in result
+        || 'status' in result && ['not_found', 'excluded', 'unavailable'].includes(String(result.status)));
+      if (wholeReadRequested && failedRead) failedDocumentReads.add(documentReadKey);
+      if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !checkpointReview && !failedRead) {
         const admitted = budget.admitResult(result, documentReview && call.function.name !== 'read_knowledge_record' ? REVIEW_SUPPORTING_CHARS : undefined);
         result = admitted.result;
         toolContent = admitted.content;

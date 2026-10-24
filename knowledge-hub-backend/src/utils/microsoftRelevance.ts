@@ -6,7 +6,7 @@ const MICROSOFT_RELEVANCE_EXCERPT_CHARS = 2_000;
 /** A Microsoft source or an explicit Microsoft connection in the article, not an invented editorial angle. */
 export function isMicrosoftRelevant(candidate: { title: string; url: string; text?: string }): boolean {
   try {
-    if (/(?:^|\.)(?:microsoft|azure|github|office)\.com$/i.test(new URL(candidate.url).hostname)) return true;
+    if (/(?:^|\.)(?:(?:microsoft|azure|github|office)\.com|github\.blog)$/i.test(new URL(candidate.url).hostname)) return true;
   } catch { /* Articles without a usable URL can still name Microsoft in their text. */ }
   return MICROSOFT_PATTERN.test(candidate.title) || MICROSOFT_PATTERN.test((candidate.text ?? '').slice(0, MICROSOFT_RELEVANCE_EXCERPT_CHARS));
 }
@@ -14,6 +14,6 @@ export function isMicrosoftRelevant(candidate: { title: string; url: string; tex
 /** Same gate for content_items queries; alias must be a caller-owned SQL identifier. */
 export function microsoftRelevanceSql(alias: string): string {
   return `(${alias}.title ~* '${MICROSOFT_SQL_PATTERN}'
-    OR COALESCE(${alias}.url, '') ~* '^https?://([a-z0-9-]+\\.)*(microsoft|azure|github|office)\\.com(:[0-9]+)?([/?#]|$)'
+    OR COALESCE(${alias}.url, '') ~* '^https?://([a-z0-9-]+\\.)*((microsoft|azure|github|office)\\.com|github\\.blog)(:[0-9]+)?([/?#]|$)'
     OR LEFT(COALESCE(${alias}.body, ''), ${MICROSOFT_RELEVANCE_EXCERPT_CHARS}) ~* '${MICROSOFT_SQL_PATTERN}')`;
 }

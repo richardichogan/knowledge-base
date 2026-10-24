@@ -88,7 +88,7 @@
     _target() {
       const target = { ...BASE, ...MOODS[this._mood] };
       if (this.getAttribute('interaction') === 'typing' && this._mood === 'listening') {
-        Object.assign(target, { roll: -0.12, pitch: 0.24, yawSp: 0.025, ripple: 0.015, bright: 1.12, W: 0.105 });
+        Object.assign(target, { roll: -0.35, pitch: 0.16, yawSp: 0.12, ripple: 0.09, rf: 8, bright: 1.5, W: 0.14, scale: 1.1, lean: 0.8 });
       }
       return target;
     }

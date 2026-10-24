@@ -7,6 +7,7 @@ import { captureDailyInsights as captureReport } from '../src/services/dailyInsi
 import { londonTime, parseDailyInsights } from '../src/services/dailyInsightsParser.js';
 import { extractDailyInsights, validateDailyExtraction } from '../src/services/dailyInsightsExtraction.js';
 import { FoundryClient } from '../src/ai/foundryClient.js';
+import { AiOutputLimitError } from '../src/types/errors.js';
 
 const filename = 'Daily-Briefing-2026-10-20.md';
 const captureDailyInsights = (pool: Pool, name: string, text: string, path: string, modified?: string) =>
@@ -247,7 +248,7 @@ test('bulk client requests strict JSON and rejects truncated responses even if t
   const messages = [{ role: 'user' as const, content: 'fixture' }];
   assert.equal(await client.chatBulk(messages, 1000, 1000, 'low', schema), '{}');
   truncated = true;
-  await assert.rejects(client.chatBulk(messages, 1000, 1000, 'low', schema), /incomplete or refused/);
+  await assert.rejects(client.chatBulk(messages, 1000, 1000, 'low', schema), AiOutputLimitError);
 });
 
 test('provider and malformed-output failures leave no receipt or partial tasks', async context => {

@@ -117,13 +117,15 @@ test('compatibility wrapper uses the supplied ribbon without adding keyboard sto
   assert.doesNotMatch(html, /tabindex|<button|<input/);
 });
 
-test('working state retains actual activity and adds a single helper after eight seconds', () => {
+test('working state retains actual activity and adds a single helper after fifteen seconds', () => {
   const render = (seconds: number): string => renderToStaticMarkup(
     <ThinkingReply activity="Searching Library" presenceRef={React.createRef<HTMLSpanElement>()} seconds={seconds} />);
   assert.match(render(3), /role="status">Searching Library/);
-  assert.match(render(3), /ai-presence-think-anchor/);
-  assert.doesNotMatch(render(7), /Still working/);
-  assert.equal([...render(8).matchAll(/Still working/g)].length, 1);
+  assert.match(render(3), /ai-presence-anchor/);
+  assert.match(render(3), /3s elapsed/);
+  assert.doesNotMatch(render(14), /Still working/);
+  assert.equal([...render(15).matchAll(/Still working/g)].length, 1);
+  assert.doesNotMatch(render(20), /<ol|Recent activities/);
   assert.doesNotMatch(render(20), /cds--loading/);
 });
 
@@ -141,9 +143,10 @@ test('motion styles preserve answer growth, ribbon slots, controls and reduced m
   assert.match(css, /\.ai-answer-panel \{[^}]*background: transparent;/);
   assert.match(css, /\.ai-presence-think-anchor \{[^}]*left: 0;/);
   assert.match(scss, /\.ai-bubble--ai \{[^}]*padding: 1\.5rem 0;/);
-  for (const slot of ['ai-presence-anchor', 'ai-presence-think-anchor', 'ai-reply-heading__mark']) {
+  for (const slot of ['ai-presence-anchor', 'ai-presence-think-anchor']) {
     assert.match(css, new RegExp(`\\.${slot} \\{[^}]*width: 56px;[^}]*height: 56px;`));
   }
+  assert.match(css, /\.ai-reply-heading__mark \{[^}]*width: 20px;[^}]*height: 20px;/);
   assert.doesNotMatch(css, /(?:width|height): (?:96|32)px/);
   assert.match(css, /border-color: var\(--kh-accent\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
@@ -151,17 +154,17 @@ test('motion styles preserve answer growth, ribbon slots, controls and reduced m
   assert.doesNotMatch(css, /ai-answer-width|ai-answer-height|ai-presence-idle/);
 });
 
-test('travelling character keeps one size through every lifecycle phase', () => {
+test('active ribbon renders in its anchor, never as a travelling overlay', () => {
+  const source = readFileSync(new URL('../src/components/athena/AthenaPresence.tsx', import.meta.url), 'utf8');
+  assert.match(source, /createPortal/);
+  assert.match(source, /size=\{56\}/);
+  assert.match(source, /ai-presence-inline/);
+  assert.doesNotMatch(source, /athenaPosition|translate\(|AthenaMotion\(/);
   for (const phase of ['idle', 'typing', 'listening', 'sending', 'thinking', 'writing'] as const) {
     const html = renderToStaticMarkup(<AthenaPresence phase={phase} pending={phase === 'thinking'}
-      answerAt={null} contextKey="fixed-size" host={React.createRef<HTMLDivElement>()}
-      thread={React.createRef<HTMLDivElement>()} dock={React.createRef<HTMLSpanElement>()}
-      thinker={React.createRef<HTMLSpanElement>()} reply={React.createRef<HTMLSpanElement>()} />);
-    assert.equal([...html.matchAll(/<athena-ribbon/g)].length, 1);
-    assert.match(html, /<athena-ribbon[^>]*size="56"/);
-    const interaction = phase === 'typing' ? 'typing' : phase === 'listening' ? 'voice' : phase === 'idle' ? 'idle' : null;
-    if (interaction) assert.ok(html.includes(`interaction="${interaction}"`));
-    else assert.doesNotMatch(html, /interaction=/);
+      responseKey="fixed-size" dock={React.createRef<HTMLSpanElement>()}
+      thinker={React.createRef<HTMLSpanElement>()} />);
+    assert.equal(html, '');
   }
 });
 

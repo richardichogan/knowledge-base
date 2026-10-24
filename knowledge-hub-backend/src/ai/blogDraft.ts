@@ -52,7 +52,7 @@ const MAX_STYLE_REWRITES = 5;
 const LONG_WORDS = '600 to 900 words with clear h2 sections';
 
 /** Quick take format (the "short post" option). The opener differs for news sources and the author's own ideas. */
-function quickTakeRules(opening: string): string {
+export function quickTakeRules(opening: string): string {
   return [
     'This is a QUICK TAKE. Follow these rules exactly:',
     '- content is 300 to 450 words, never more than 600.',

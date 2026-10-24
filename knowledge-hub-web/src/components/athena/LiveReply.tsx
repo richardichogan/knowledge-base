@@ -12,17 +12,32 @@ interface LiveReplyProps {
   thinkerRef: React.RefObject<HTMLSpanElement>;
 }
 
+const progressLabel = (activity: string): string => {
+  if (activity === 'Sending') return 'Receiving your message';
+  if (activity === 'Loading context') return 'Gathering your conversation and context';
+  if (activity === 'Loading tools') return 'Preparing the available tools';
+  if (activity === 'Thinking') return 'Working through your request';
+  if (activity === 'Reading what I found') return 'Reviewing the information found';
+  return activity.replace(/[….\s]+$/, '');
+};
+
 export const ThinkingReply: React.FC<{
   activity: string;
   presenceRef: React.RefObject<HTMLSpanElement>;
   seconds?: number;
 }> = ({ activity, presenceRef, seconds }) => (
   <ChatBubble role="assistant" thinking>
-    <span ref={presenceRef} className="ai-presence-think-anchor" aria-hidden="true" />
-    <div className="ai-live-activity">
-      <span className="ai-live-activity__label" role="status">{activity}…</span>
-      {seconds !== undefined && <span className="ai-live-activity__time" aria-hidden="true">{seconds.toString()}s</span>}
-      {seconds !== undefined && seconds >= 8 && <span className="ai-live-activity__helper">Still working…</span>}
+    <div className="ai-progress">
+      <div className="ai-progress__current">
+        <span ref={presenceRef} className="ai-presence-anchor" aria-hidden="true" />
+        <div className="ai-progress__text">
+          <span key={activity} className="ai-progress__label" role="status">{progressLabel(activity)}…</span>
+          {seconds !== undefined && <span className="ai-progress__time">{seconds.toString()}s elapsed</span>}
+        </div>
+      </div>
+      {seconds !== undefined && seconds >= 15 && (
+        <p className="ai-progress__helper">Still working on this step. You can stop at any time.</p>
+      )}
     </div>
   </ChatBubble>
 );
