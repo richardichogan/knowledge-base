@@ -83,6 +83,10 @@ test('note action prompts use the source UUID and confirmed chat decisions, not 
   assert.ok(prompt.includes('Preserve this note unchanged'));
   assert.ok(!isDemoSpecificationRequest('What is a demo specification?'));
   assert.ok(isDemoSpecificationRequest('Create a demo spec from my note'));
+  for (const discussion of ['Should we create a demo specification?', 'Help me think through how to write a demo specification.',
+    "Don't create a demo specification.", 'What do you think of how we generate a demo specification?']) {
+    assert.ok(!isDemoSpecificationRequest(discussion), discussion);
+  }
   assert.equal(focusTools(DEMO_SPECIFICATION_TOOLS, { userMessage: 'What meetings are today?' }).length, 0);
   assert.equal(focusTools(DEMO_SPECIFICATION_TOOLS, { userMessage: prompt }).length, 2);
   assert.equal(focusTools(DEMO_SPECIFICATION_TOOLS, { userMessage: 'Retry with those corrections', recentText: prompt }).length, 2);

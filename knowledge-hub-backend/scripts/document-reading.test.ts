@@ -179,6 +179,6 @@ test('cancellation preserves the last committed checkpoint and rejects fabricate
     })), /Stopped/);
     const row = await pg.query<{ next_offset: number }>('SELECT next_offset FROM document_reading_sessions');
     assert.equal(row.rows[0]?.next_offset, 12_000);
-    assert.throws(() => parseReadingStep(JSON.stringify({ summary: 'ok', memory: 'ok', excerpts: ['invented'] }), 'actual source'), /unverified quotation/);
+    assert.throws(() => parseReadingStep(JSON.stringify({ summary: 'ok', memory: 'ok', excerpts: ['invented'] }), 'actual source'), /not an exact substring/);
   } finally { await pg.close(); }
 });

@@ -33,7 +33,7 @@ import { createRetrievalAudit, flagDeferredRecovery, isOutsideCollectionTool, re
 import { continuationInstruction, openFoundInstruction, unreadFoundCandidates, updatePendingRead, type PendingRead } from './knowledge/openFound.js';
 import { DEFAULT_PAGE_CHARS, MAX_PAGE_CHARS } from '../services/knowledge/projections.js';
 import { modelReadingSteps, readWholeDocument } from './knowledge/documentReading.js';
-import { dialogueRepairInstruction, dialogueTurnMode } from './dialoguePolicy.js';
+import { INLINE_REVIEW_CHARS, dialogueRepairInstruction, dialogueTurnMode, inViewReviewScope, isDialogueOnlyTurn } from './dialoguePolicy.js';
 import type { KnowledgeAccess } from '../types/knowledge.js';
 import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
 import { DEMO_SPECIFICATION_WRITE_TOOL, isDemoSpecificationRequest } from './demoSpecification.js';
@@ -108,7 +108,7 @@ export interface TurnHooks {
 const NO_OUTPUTS_PANEL_NOTE = [
   '## Where he is reading this chat',
   'He is in a compact Athena panel (Think, the floating chat, or his phone) that has NO Outputs panel, Decisions ' +
-    'panel or Screens panel visible. Ignore any instruction to save deliverables with save_output: put the full ' +
+    'panel or Screens panel visible. For a deliverable he has requested, ignore any instruction to save with save_output: put the ' +
     'deliverable (spec, stories, prompt, draft) in your reply itself, with prompts and code in a fenced code block ' +
     'so he can copy them. Do not say you saved anything to Outputs. If an earlier deliverable is listed under ' +
     'Outputs below, he cannot see it here — give him its content in the reply when he needs it.',
@@ -197,6 +197,14 @@ export async function handleConversationTurn(
     })
     : null;
   const context = await buildAiContext(db, userMessage, history, sessionId, persona);
+  const reviewScope = inViewReviewScope(userMessage, pageContext, history);
+  const reviewNoteId = reviewScope === 'specification' && pageContext?.type === 'note'
+    && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(toolContext.noteId ?? '')
+    ? toolContext.noteId : undefined;
+  const inViewOpinion = reviewScope === 'clarify' || reviewScope === 'concept';
+  const inViewNoTools = inViewOpinion || reviewScope === 'specification' && (pageContext?.detail?.length ?? Infinity) <= INLINE_REVIEW_CHARS;
+  const noToolTurn = inViewNoTools || reviewScope !== 'specification' && isDialogueOnlyTurn(history, userMessage);
+  if (inViewOpinion) context.ragItems = [];
   hooks.signal?.throwIfAborted();
   // "Don't use this" items stay out of auto-retrieval and search results for this chat.
   let exclusionsFailed = false;
@@ -262,7 +270,8 @@ export async function handleConversationTurn(
     }
   }
   // Learned standing instructions + liked examples for this persona/project.
-  const standingBlock = await buildStandingInstructionsBlock(db, { persona, projectId: activeProjectId })
+  const standingBlock = await buildStandingInstructionsBlock(db, { persona, projectId: activeProjectId,
+    includeExamples: !inViewOpinion && (reviewScope === 'specification' || dialogueTurnMode(history, userMessage) === 'deliver') })
     .catch((err: unknown) => { console.error('[memory] could not load standing instructions:', err); return ''; });
   // A pasted M365 Copilot meeting list is saved as today's IBM diary before Athena replies.
   let meetingImportNote = '';
@@ -318,16 +327,26 @@ export async function handleConversationTurn(
   const peopleBlock = await buildPeopleContext(db, [userMessage]);
   const localFolders = toolContext.localFolders ?? [];
   const retrievalScope = resolveRetrievalScope(userMessage, history);
-  const documentReview = isDocumentReviewRequest(userMessage);
+  const documentReview = !inViewOpinion && (reviewScope === 'specification' || isDocumentReviewRequest(userMessage));
   const retrievalAudit = createRetrievalAudit(retrievalScope);
   const scopeBlock = retrievalScope === undefined ? '' : `## Enforced retrieval scope for this request\n${JSON.stringify(retrievalScope)}\nUse this collection and window, including on retries. Do not substitute notes or web results. Disclose any defaulted time window. An empty result is not permission to widen the scope.`;
-  const reviewBlock = documentReview ? '## Document review execution\nFind and read the named primary document before supporting chats or web material. Search previews and past discussions are not a substitute. Follow read_knowledge_record nextCursor pages to the end. If a real limit prevents completion, identify the document and how much remains unread; do not describe context omission as a failed database load.' : '';
-  const systemExtras = [RETRIEVAL_DICTIONARY, scopeBlock, reviewBlock, hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const reviewBlock = documentReview && !inViewNoTools ? '## Document review execution\nRead the named primary document before supporting chats or web material. If its identity is supplied, read it directly rather than searching. Search previews and past discussions are not a substitute. Follow read_knowledge_record nextCursor pages to the end. If a real limit prevents completion, identify the document and how much remains unread; do not describe context omission as a failed database load.' : '';
+  const opinionBlock = reviewScope === 'clarify'
+    ? '## Clarify review depth before doing the work\nHe has asked for an opinion without choosing its depth. A quick reaction to the concept and a full review of the specification are different tasks. Ask one short question to choose between those two, then STOP. Do not critique, search, read the specification, or assume he wants either review yet. The document title is orientation only, not evidence of its contents.'
+    : reviewScope === 'concept'
+      ? '## Quick concept reaction requested\nUse the supplied document to discuss the core idea briefly, not implementation completeness. Do not expand into a full specification review, comparison-document search or another artefact. Ask about a consequential unresolved concept choice only when needed; do not re-ask review depth.'
+      : reviewScope === 'specification'
+        ? '## Full review of the specification in view requested\nReview this specification thoroughly. Start with the supplied document, not searches for comparison specifications. Read missing sections of this source if needed; unrelated documents are not required. He has chosen full depth: do not ask him to choose it again.' +
+          (reviewNoteId === undefined ? '' : ` Primary source identity: read_knowledge_record(kind "note", id "${reviewNoteId}", fullDocument true). Do not search for a different specification.`)
+        : '';
+  const systemExtras = [RETRIEVAL_DICTIONARY, scopeBlock, reviewBlock, opinionBlock, hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const safeHistory = await scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant'));
-  const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, pageContext, systemExtras);
+  const reviewPage = reviewScope === 'clarify' && pageContext !== undefined
+    ? { type: pageContext.type, title: pageContext.title } : pageContext;
+  const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, reviewPage, systemExtras);
   hooks.signal?.throwIfAborted();
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
-  const images = hooks.screenImages ?? [];
+  const images = reviewScope === 'clarify' ? [] : hooks.screenImages ?? [];
   const lastUser = messages.map((m) => m.role).lastIndexOf('user');
   if (images.length > 0 && lastUser !== -1) {
     const text = messages[lastUser]!.content as string;
@@ -360,7 +379,7 @@ export async function handleConversationTurn(
     hasOpenDiagram: openDiagram !== null,
     knowledgeOrchestration: isKnowledgeOrchestrationEnabled(),
   });
-  const tools = (hooks.readOnlyTools === true ? focusedTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : focusedTools)
+  const tools = (noToolTurn ? [] : hooks.readOnlyTools === true ? focusedTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : focusedTools)
     .filter(t => !isOutsideCollectionTool(t.function.name, retrievalScope))
     .filter((t) => !specificationOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === DEMO_SPECIFICATION_WRITE_TOOL)
     .filter((t) => specificationOnly || !briefOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'save_output')
@@ -393,7 +412,9 @@ export async function handleConversationTurn(
     && !retrievalScope.families.includes('task')
     && !(retrievalScope.families.includes('canvas') && openDiagram !== null && !/\b(?:latest|other|across|compare|diagrams|find|search)\b/i.test(userMessage))
     ? { type: 'function' as const, function: { name: retrievalScope.tool } } : undefined;
-  const requiredFirstTool = specificationOnly ? { type: 'function' as const, function: { name: 'get_demo_specification_template' } } : scopedFirst ?? selectRequiredToolChoice(
+  const requiredFirstTool = reviewNoteId !== undefined && !inViewNoTools
+    ? { type: 'function' as const, function: { name: 'read_knowledge_record' } }
+    : specificationOnly ? { type: 'function' as const, function: { name: 'get_demo_specification_template' } } : scopedFirst ?? selectRequiredToolChoice(
     userMessage,
     tools,
     context.projectReferences,
@@ -439,11 +460,12 @@ export async function handleConversationTurn(
   const pendingReads = new Map<string, PendingRead>();
   let readingMs = 0;
   let fullDocumentRead = false;
+  const failedDocumentReads = new Set<string>();
   let dialogueRepaired = false;
-  const dialogueMode = dialogueTurnMode(history, userMessage);
-  const bufferDialogueDraft = dialogueMode === 'explore' || dialogueMode === 'follow-up' || dialogueMode === 'correction';
+  const dialogueMode = reviewScope === 'specification' ? 'deliver' : dialogueTurnMode(history, userMessage);
+  const bufferDialogueDraft = inViewOpinion || dialogueMode === 'explore' || dialogueMode === 'follow-up' || dialogueMode === 'correction';
   const repairDialogueReply = async (reply: string): Promise<string> => {
-    const instruction = dialogueRepaired ? null : dialogueRepairInstruction(history, userMessage, reply);
+    const instruction = dialogueRepaired ? null : dialogueRepairInstruction(history, userMessage, reply, reviewScope);
     if (instruction === null) return reply;
     const remaining = turnBudgetMs - (Date.now() - turnStart - readingMs);
     if (remaining < AI_MIN_TOOL_ROUND_BUDGET_MS) {
@@ -491,13 +513,15 @@ export async function handleConversationTurn(
       messages.push({ role: 'user', content: WRAP_UP_INSTRUCTION });
     }
 
-    const roundToolChoice: LlmToolChoice = wrapUp ? 'none' : nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
+    const roundToolChoice: LlmToolChoice = wrapUp || noToolTurn ? 'none' : nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
     nextRoundTool = undefined;
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
     // Streams when someone is following live, or when a specific deployment is chosen (only the streaming call takes one).
-    const response = hooks.onDelta !== undefined || hooks.modelRoute !== undefined
-      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, bufferDialogueDraft ? NOT_FOLLOWED_LIVE : hooks.onDelta ?? NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute, {
-        ...(hooks.codeFiles !== undefined && hooks.codeFiles.ids.length > 0 && {
+    const response = reviewScope === 'clarify'
+      ? { content: 'Do you want a quick reaction to the concept, or a full review of the specification?', toolCalls: [], finishReason: 'stop' }
+      : hooks.onDelta !== undefined || hooks.modelRoute !== undefined
+        ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, bufferDialogueDraft ? NOT_FOLLOWED_LIVE : hooks.onDelta ?? NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute, {
+        ...(!noToolTurn && hooks.codeFiles !== undefined && hooks.codeFiles.ids.length > 0 && {
           builtInTools: [{ type: 'code_interpreter', container: { type: 'auto', file_ids: hooks.codeFiles.ids } }],
         }),
         ...(hooks.onActivity !== undefined && { onActivity: hooks.onActivity }),
@@ -613,10 +637,16 @@ export async function handleConversationTurn(
       const wholeReadRequested = call.function.name === 'read_knowledge_record' && sessionId !== undefined
         && requestedArgs['fullDocument'] !== false && (documentReview || requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true)
         && requestedArgs['cursor'] === undefined && requestedArgs['offset'] === undefined && requestedArgs['memoryReviewId'] === undefined;
+      const documentReadKey = JSON.stringify([requestedArgs['kind'], requestedArgs['id']]);
+      let canonicalReadKey: string | undefined;
       if (isStopped(hooks)) throw new AiStoppedError();
       onToolCall?.(call.function.name);
       hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
       try {
+        if (noToolTurn) throw new Error('This turn uses supplied context for discussion only; no tool actions are permitted.');
+        if (wholeReadRequested && failedDocumentReads.has(documentReadKey)) {
+          throw new Error('This document already failed its bounded reading attempts in this turn. No further model reading was attempted. Report the incomplete coverage; saved checkpoints can be resumed on a later turn.');
+        }
         if ((briefOnly || specificationOnly || hooks.readOnlyTools === true) && !tools.some((tool) => tool.function.name === call.function.name)) {
           throw new Error(READ_ONLY_REFUSAL);
         }
@@ -661,6 +691,18 @@ export async function handleConversationTurn(
                   if (typeof result !== 'object' || result === null || !('status' in result)) {
                     throw new Error(typeof result === 'object' && result !== null && 'error' in result ? String(result.error) : 'Document page could not be read.');
                   }
+                  if ('record' in result && typeof result.record === 'object' && result.record !== null
+                    && 'ref' in result.record) {
+                    const ref = result.record.ref;
+                    if (typeof ref !== 'object' || ref === null || !('kind' in ref) || typeof ref.kind !== 'string'
+                      || !('id' in ref) || typeof ref.id !== 'string') {
+                      throw new Error('Document reader returned an invalid canonical source identity.');
+                    }
+                    canonicalReadKey = JSON.stringify([ref.kind, ref.id]);
+                    if (failedDocumentReads.has(canonicalReadKey)) {
+                      throw new Error('This source already failed reading in this turn, including through another alias. No further reading model call was attempted.');
+                    }
+                  }
                   return result as KnowledgeAccess;
                 },
                 ...modelReadingSteps(readingClient, hooks.signal),
@@ -691,9 +733,13 @@ export async function handleConversationTurn(
           if (RECORD_TOOLS.has(call.function.name)) retrievalRan = true;
         }
       } catch (err) {
+        if (wholeReadRequested) {
+          failedDocumentReads.add(documentReadKey);
+          if (canonicalReadKey !== undefined) failedDocumentReads.add(canonicalReadKey);
+        }
         result = { error: err instanceof Error ? err.message : 'Tool execution failed',
           ...(wholeReadRequested && { readingInterrupted: true,
-            note: 'The full read did not finish. Any committed page checkpoints remain saved; no unvalidated page was counted as read. Continue this source with resumeReading:true (or start a fresh fullDocument:true read if no unfinished checkpoint exists). Do not describe this as an empty or missing body, and do not claim a complete review.' }) };
+            note: 'The full read did not finish. Any committed page checkpoints remain saved; no unvalidated page was counted as read. Do not retry this source again in this turn. Report the actual incomplete coverage. On a later turn, resumeReading:true can continue saved checkpoints. Do not describe this as an empty or missing body, and do not claim a complete review.' }) };
       }
       if (result !== null && typeof result === 'object' && 'error' in result) {
         toolErrorCount++;

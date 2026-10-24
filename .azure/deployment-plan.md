@@ -1,6 +1,35 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Approved
+
+**Release scope (2026-10-24, Athena conversational pacing):**
+- Deploy the requested changes that remove output-first instructions, clarify
+  ambiguous in-view concept versus specification reviews, retain explicit
+  deliverable workflows, and bound repeated whole-document read failures.
+- Apply migration 098, which replaces only the exact active legacy profile
+  instruction that required output before clarification; preserve unrelated
+  profile content, instructions, examples and history.
+- User explicitly requested deployment. Preserve Azure Container Apps +
+  Static Web Apps hosting, production database and existing secret-based
+  registry authentication. No frontend source, dependencies, infrastructure,
+  credentials or RBAC roles changed.
+- Sync origin/main before push/build; existing production subscription and
+  application targets are documented below.
+- All validation checks must pass:
+  - Azure CLI installation/authentication and existing targets confirmed.
+  - Backend and frontend `tsc --noEmit`, production builds and lint
+    non-regression checks.
+  - One isolated full release suite per application; rerun only affected
+    checks for an initial failure.
+  - Inspect unchanged Dockerfile, lockfile and automatic migration packaging.
+  - No infrastructure/IAM changes: Bicep/what-if, provisioning, policy and
+    role-assignment checks are not applicable to this application-only release.
+- Build the backend from synced GitHub main using the next version after
+  production v243. Verify healthy revision, traffic, migrations and startup.
+  Build and deploy the synced frontend to the existing Static Web App, then
+  verify its served production asset hash.
+- Do not modify or read/write secrets or production content other than the
+  application startup migration described above.
 
 **Deployment result (2026-10-24T10:09Z, LinkedIn publishing):**
 - Source 15f4e993f7b29190d59aa32aef7a401a55d8a64c committed and atomically

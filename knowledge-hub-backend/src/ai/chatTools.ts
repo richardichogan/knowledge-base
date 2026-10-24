@@ -171,8 +171,8 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
         description:
           'Full-text search across everything indexed in the knowledge hub: GitHub/GitLab commits, pull ' +
           'requests, issues, releases, deployments, calendar events, emails, blog posts, discovered articles, ' +
-          "and notes. Supports hard source, state and time filters; an explicit collection is a boundary, not a keyword. Use an empty query plus sources to browse. Always call this before answering questions about the user's own projects, activity, " +
-          "or existing content — don't answer from memory alone. For notes, results may include a `content` " +
+          "and notes. Supports hard source, state and time filters; an explicit collection is a boundary, not a keyword. Use an empty query plus sources to browse. Use it when a question about the user's projects, activity " +
+          "or existing content needs evidence not already supplied. Do not search before clarifying undecided intent or review depth. For notes, results may include a `content` " +
           'preview; use read_knowledge_record to read long notes and transcripts in database-backed pages, ' +
           'following nextCursor until the required coverage is complete. Do not fetch a saved record URL as a ' +
           'substitute for its stored body. Any pasted diagram/screenshot is included there as ' +

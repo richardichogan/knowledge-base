@@ -1,5 +1,6 @@
 import type { LlmToolDefinition } from './foundryClient.js';
 import { DEMO_SPECIFICATION_TEMPLATE } from './demoSpecificationTemplate.js';
+import { dialogueTurnMode } from './dialoguePolicy.js';
 
 export const DEMO_SPECIFICATION_VERSION = 'imagine-demo-specification-v1';
 export const DEMO_SPECIFICATION_WRITE_TOOL = 'create_demo_specification';
@@ -67,6 +68,8 @@ export const DEMO_SPECIFICATION_INSTRUCTIONS = [
 
 export function isDemoSpecificationRequest(message: string): boolean {
   const request = message.split('--- BEGIN USE CASE SOURCE ---')[0] ?? '';
+  if (dialogueTurnMode([], request) === 'explore'
+    || /\b(?:do not|don['’]t|not asking you to)\s+(?:create|generate|draft|write|save|prepare|produce)\b/i.test(request)) return false;
   return /\b(?:imagine\s+)?demo\s+spec(?:ification)?\b/i.test(request)
     && /\b(?:create|generate|draft|write|save|prepare|produce)\b/i.test(request);
 }

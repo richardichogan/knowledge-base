@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { assembleMessages } from '../src/ai/contextBuilder.js';
-import { DIALOGUE_POLICY_PROMPT, buildDialogueTurnPrompt, dialogueRepairInstruction, dialogueTurnMode } from '../src/ai/dialoguePolicy.js';
+import { DIALOGUE_POLICY_PROMPT, buildDialogueTurnPrompt, dialogueRepairInstruction, dialogueTurnMode, inViewReviewScope, isDialogueOnlyTurn } from '../src/ai/dialoguePolicy.js';
 import { DIALOGUE_SCENARIOS, SYNTHETIC_DIALOGUE_CONTEXT, dialogueFindings } from './athena-dialogue-fixtures.js';
 import type { AthenaPersona, ConversationMessage } from '../src/types/aiContext.js';
 
@@ -9,6 +9,56 @@ const personas: AthenaPersona[] = [
   'general', 'brainstorming', 'copilot_coach', 'blog_post', 'demo_designer',
   'web_designer', 'podcast_prep', 'podcast_show_notes',
 ];
+
+test('an ambiguous in-view opinion asks concept versus specification before work, without mistaking UI markers for intent', async () => {
+  const page = { type: 'note', title: 'Walking briefing', detail: 'A source-grounded briefing that resumes after interruptions.' };
+  for (const user of ['what do you think?', '[Viewing note: "Walking briefing"]\nwhat do you think?', 'Your thoughts?', 'Review this.']) {
+    assert.equal(inViewReviewScope(user, page), 'clarify', user);
+  }
+  assert.equal(dialogueTurnMode([], '[Viewing note: "Walking briefing"]\nwhat do you think?'), 'explore');
+  assert.equal(dialogueTurnMode([], '[Viewing note: "Walking briefing"]\nRewrite this sentence.'), 'deliver');
+  const question = 'Do you want a quick reaction to the concept or a full review of the specification?';
+  const history: ConversationMessage[] = [{ role: 'assistant', content: question }];
+  for (const user of ['The latter.', 'Full review please.', 'The second.']) {
+    assert.equal(inViewReviewScope(user, page, history), 'specification');
+    const messages = await assembleMessages(SYNTHETIC_DIALOGUE_CONTEXT, history, user, 'general', page);
+    assert.match(messages.at(-2)!.content, /Current turn: explicit delivery request/);
+  }
+  for (const user of ['The former.', 'Just a quick reaction to the concept.', 'Quick concept review.']) {
+    assert.equal(inViewReviewScope(user, page, history), 'concept');
+  }
+  assert.equal(inViewReviewScope('what do you think?', { ...page, detail: 'x'.repeat(200_000) }), 'clarify',
+    'large documents must not be read before depth is chosen');
+  for (const user of ['Compare this against the earlier specification.', 'What do you think? Search for similar designs.', 'Rewrite this note.', 'What can you do?']) {
+    assert.equal(inViewReviewScope(user, page), undefined, user);
+  }
+  const externalReference = 'Any thoughts on the notes from the Dhalia call?';
+  assert.equal(inViewReviewScope(externalReference, page), undefined,
+    'a reference to other saved material is not a review of the open document');
+  assert.equal(isDialogueOnlyTurn([], externalReference), false,
+    'referenced material must be retrieved before continuing the discussion');
+  assert.equal(inViewReviewScope('what do you think?', undefined), undefined);
+  assert.equal(inViewReviewScope('Full review of this specification.', page), 'specification');
+  assert.equal(inViewReviewScope('A quick concept review.', page), 'concept');
+  assert.equal(inViewReviewScope('Review this in full.', page), 'specification');
+  for (const scope of ['concept', 'specification'] as const) {
+    const agreed: ConversationMessage[] = [
+      { role: 'user', content: `[Viewing note: "Walking briefing"]\nA ${scope === 'concept' ? 'quick concept' : 'full'} review please.` },
+      { role: 'assistant', content: 'Understood. I will keep to that depth.' },
+    ];
+    assert.equal(inViewReviewScope('What do you think?', page, agreed), scope, 'use the review depth already chosen');
+    assert.equal(inViewReviewScope('What do you think?', { ...page, title: 'Another document' }, agreed), 'clarify',
+      'a depth choice for a different document is not carried over blindly');
+  }
+  assert.equal(inViewReviewScope('The latter. Search for comparisons as well.', page, history), undefined,
+    'an additional evidence request must not be suppressed by a short-answer prefix');
+  assert.equal(inViewReviewScope('A quick concept review, then save a copy.', page, history), undefined,
+    'an explicit authorised action must not be suppressed by a depth-only response');
+  assert.equal(dialogueRepairInstruction([], 'what do you think?', question, 'clarify'), null);
+  assert.ok(dialogueRepairInstruction([], 'what do you think?', 'It is good. Build a runtime design next.', 'clarify'));
+  assert.equal(dialogueRepairInstruction(history, 'The latter.', 'Detailed critique. '.repeat(200), 'specification'), null,
+    'a requested full review must not be shortened back into an interview');
+});
 
 for (const persona of personas) {
   test(`${persona}: turn policy follows legacy instructions AND previous replies`, async () => {
@@ -74,6 +124,15 @@ test('high-confidence turn hints distinguish exploration, answered questions, de
   assert.equal(dialogueTurnMode(history, 'Thanks.'), 'unspecified', 'acknowledgement should not restart an interview');
   assert.equal(dialogueTurnMode(history, 'No, you are missing it. Stop writing essays.'), 'correction');
   assert.equal(dialogueTurnMode([], 'Unrecognised wording.'), 'unspecified', 'do not invent high-confidence intent');
+  for (const message of ['What if every node were an agent?', 'Help me think through the concept.', 'The latter.']) {
+    assert.ok(isDialogueOnlyTurn(history, message), message);
+  }
+  for (const message of ['Help me think through the concept; save a copy of the agreed outline.',
+    'The latter, and save the design.', 'Search the earlier notes before we discuss this.',
+    'Help me think through it using the previous specification.', 'Read the complete specification.',
+    'What do you think of my schedule?', 'Help me think through the feedback from that meeting.']) {
+    assert.ok(!isDialogueOnlyTurn(history, message), message);
+  }
 });
 
 test('one-repair policy catches conversational overruns but allows completed reasoning without a forced question', () => {
@@ -83,6 +142,7 @@ test('one-repair policy catches conversational overruns but allows completed rea
   assert.equal(dialogueRepairInstruction([], user, 'Who reads it?**'), null, 'markdown is not post-question reasoning');
   assert.ok(dialogueRepairInstruction([], user, 'Detail '.repeat(112)));
   assert.ok(dialogueRepairInstruction([], user, 'Who reads it? If it is an agent then here is the full implementation.'));
+  assert.ok(dialogueRepairInstruction([], user, 'Who reads it? That changes the design.'));
   assert.ok(dialogueRepairInstruction([], user, 'Who reads it? What do they need?'));
   assert.ok(dialogueRepairInstruction([], user, 'The next consequential choice is whether this is UI or domain behaviour.'));
   assert.ok(dialogueRepairInstruction([], user, 'The useful question is whether readers want news or useful experiments.'));

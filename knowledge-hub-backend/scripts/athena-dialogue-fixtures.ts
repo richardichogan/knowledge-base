@@ -1,4 +1,4 @@
-import type { AiContext, AthenaPersona, ConversationMessage } from '../src/types/aiContext.js';
+import type { AiContext, AthenaPersona, ChatPageContext, ConversationMessage } from '../src/types/aiContext.js';
 
 export interface DialogueExpectation {
   mode: 'explore' | 'deliver' | 'banter' | 'repair';
@@ -13,12 +13,31 @@ export interface DialogueExpectation {
 export interface DialogueScenario {
   id: string;
   persona: AthenaPersona;
+  page?: ChatPageContext;
   history?: ConversationMessage[];
   turns: Array<{ user: string; expect: DialogueExpectation }>;
 }
 
 // Synthetic reconstructions of the reported failure modes. No saved chats or customer data.
 export const DIALOGUE_SCENARIOS: DialogueScenario[] = [
+  {
+    id: 'in-view-review-depth',
+    persona: 'general',
+    page: { type: 'note', title: 'Synthetic walking briefing', detail: 'A voice briefing for walks. Users can interrupt, ask about a topic, and resume from the right point. The specification proposes source-linked summaries, spoken follow-up questions and saved listening position. It does not yet define how to recover when interrupted halfway through an answer or distinguish a source fact from an editorial suggestion.' },
+    turns: [
+      { user: 'what do you think?', expect: { mode: 'explore', maxWords: 90, mentions: /(?:concept|idea)[\s\S]*(?:spec|full)|(?:spec|full)[\s\S]*(?:concept|idea)/i } },
+      { user: 'The former. Just a quick concept reaction.', expect: { mode: 'deliver', allowEmbeddedQuestion: true, maxWords: 110, mentions: /brief|walk|listen|interrupt|resume|voice/i, avoids: /full (?:review|specification)|which.*(?:depth|review)/i } },
+      { user: 'It is for architects who want to explore implications, not hear news headlines. In two sentences, give me your recommendation on that concept, no more questions.', expect: { mode: 'deliver', maxWords: 110, mentions: /implic|architect|explor|brief|interrupt/i, avoids: /who.*audience|full review|shall I/i } },
+    ],
+  },
+  {
+    id: 'in-view-full-review',
+    persona: 'general',
+    page: { type: 'note', title: 'Synthetic walking briefing', detail: 'A voice briefing for walks. Users interrupt, ask questions, then resume from the saved point. Sources have titles but there are no source IDs or version guarantees. The player sends audio to a remote service; consent, retention and deletion are unspecified. Offline interruptions are queued, but ordering and recovery from duplicates are undefined. Acceptance criteria say it should be intuitive and reliable, without examples or measurements.' },
+    history: [{ role: 'assistant', content: 'Do you want a quick reaction to the concept or a full review of the specification?' }],
+    turns: [{ user: 'The latter.', expect: { mode: 'deliver', allowEmbeddedQuestion: true, maxWords: 900, mentions: /source|consent|retention|duplicate|acceptance/i,
+      avoids: /quick.*(?:or|versus).*full|would you like|shall I/i } }],
+  },
   {
     id: 'rtr-specification',
     persona: 'general',

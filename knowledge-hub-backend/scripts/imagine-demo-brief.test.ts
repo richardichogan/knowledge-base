@@ -26,6 +26,10 @@ assert.ok(prompt.includes('Do not edit the source note'));
 assert.ok(isImagineDemoBriefRequest('demo_designer', prompt));
 assert.ok(!isImagineDemoBriefRequest('general', prompt));
 assert.ok(!isImagineDemoBriefRequest('demo_designer', 'Make a demo script'));
+for (const discussion of ['What is an IMAGINE demo brief?', 'Should we create an IMAGINE demo brief?',
+  "Don't create an IMAGINE demo brief.", 'Help me think through how to write an IMAGINE demo brief.']) {
+  assert.ok(!isImagineDemoBriefRequest('demo_designer', discussion), discussion);
+}
 assert.ok(!isImagineDemoBriefRequest('demo_designer', 'Summarize this\n--- BEGIN USE CASE SOURCE ---\nIMAGINE demo brief'));
 assert.equal(imagineDemoBriefFilename('# IMAGINE demo brief: Claims & Recovery / MVP'), 'claims-recovery-mvp.md');
 assert.equal(imagineDemoBriefFilename('# IMAGINE demo brief: ../../'), 'imagine-demo-brief.md');

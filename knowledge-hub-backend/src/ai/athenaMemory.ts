@@ -178,7 +178,7 @@ export async function getProfileText(db: Pool, loadLegacyBlob: () => Promise<str
  */
 export async function buildStandingInstructionsBlock(
   db: Pool,
-  opts: { persona?: string | undefined; projectId?: string | null | undefined },
+  opts: { persona?: string | undefined; projectId?: string | null | undefined; includeExamples?: boolean },
 ): Promise<string> {
   const persona = opts.persona ?? 'general';
   const projectId = opts.projectId ?? '';
@@ -192,7 +192,7 @@ export async function buildStandingInstructionsBlock(
       LIMIT $3`,
     [persona, projectId, MAX_INSTRUCTIONS_IN_PROMPT],
   );
-  const examples = await db.query<MemoryRow>(
+  const examples = opts.includeExamples === false ? { rows: [] } : await db.query<MemoryRow>(
     `SELECT ${COLUMNS} FROM athena_memories
       WHERE status = 'active' AND kind = 'example' AND scope_type = 'persona' AND scope_value = $1
       ORDER BY created_at DESC LIMIT $2`,
@@ -210,15 +210,16 @@ export async function buildStandingInstructionsBlock(
   const parts: string[] = [];
   if (rows.length > 0) {
     parts.push(
-      '## Standing instructions from Richard (learned from earlier feedback — always follow)',
-      'Newest first. If two conflict, follow the newer one and briefly mention the conflict.',
+      '## Standing preferences from Richard (apply only to the relevant task)',
+      'His current request and chosen review depth govern this turn. Output-format preferences apply when that output is requested, not as an instruction to create it. Newest first; do not narrate old conflicts when the current intent resolves them.',
       ...rows.map((m) => `- ${m.content}${label(m)}`),
     );
   }
   if (examples.rows.length > 0) {
     parts.push(
       '',
-      '## Replies Richard liked for this persona (match their structure and tone, not their content)',
+      '## Replies Richard liked for this persona (reference for requested outputs, not a default reply structure)',
+      'Reuse relevant tone or formatting only. These examples do not set review depth, reply length, current facts, or permission to act.',
       ...examples.rows.map((m, i) => `### Example ${(i + 1).toString()}\n${m.content.slice(0, EXAMPLE_CHARS)}`),
     );
   }

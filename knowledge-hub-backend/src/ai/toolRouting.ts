@@ -1,6 +1,7 @@
 import type { LlmToolChoice, LlmToolDefinition } from './foundryClient.js';
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
 import { resolveRetrievalScope } from './knowledge/retrievalScope.js';
+import { dialogueTurnMode, referencesOtherMaterial } from './dialoguePolicy.js';
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>()]+/i;
 const MIN_PROJECT_TOKEN_CHARS = 4;
@@ -39,8 +40,6 @@ const PERSONAL_SCHEDULE_PATTERN =
   /\b(?:my|our|today'?s)\s+(?:calendar|diary|schedule|meetings?|appointments?|availability)\b|\bam\s+i\s+(?:free|busy)\b|\bwhat(?:'s|\s+is)\s+on\s+today\b|\bwhat\s+(?:am\s+i\s+doing|do\s+i\s+have)\s+today\b/i;
 // He points at material held somewhere other than the open document ("Robert's feedback", "notes from
 // Dhalia's call", "I've added…", "go find the note"). Answering from the open note alone, or "if…", is wrong.
-const POSSESSIVE = String.raw`\w+(?:['’]s|s['’]?)`;
-const REFERENCED_MATERIAL_PATTERN = new RegExp(String.raw`\b(?:i(?:['’]ve|\s+have)?\s+(?:now\s+|just\s+|already\s+)?(?:provided|added|attached|uploaded|shared|written|captured|saved|included|pasted)\b|${POSSESSIVE}\s+(?:feedback|comments?|input|thoughts|reply|response|write-?up|notes?)\b|feedback\s+from\b|notes?\s+(?:from|on|about)\s+(?:the|my|our|${POSSESSIVE})\s|(?:from|on|in|during)\s+(?:the|my|our|${POSSESSIVE})\s+(?:call|meeting|chat|catch-?up|session|workshop)\b|go\s+(?:and\s+)?(?:find|get|look)\b|find\s+(?:the|my|that|his|her)\s+note|(?:never|don['’]?t|do\s+not)\s+assume\b)`, 'i');
 const OTHER_DAY_PATTERN = /\b(?:tomorrow|yesterday|next|last|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
 const TODAY_REQUEST_PATTERN = /\b(?:today|this\s+(?:morning|afternoon|evening))\b/i;
 
@@ -115,6 +114,9 @@ const NOT_A_RETRIEVAL_REQUEST_PATTERN =
  */
 export function selectKnowledgeRetrievalChoice(userMessage: string, tools: LlmToolDefinition[]): LlmToolChoice | undefined {
   if (isAssistantCapabilityQuestion(userMessage)) return undefined;
+  if (dialogueTurnMode([], userMessage) === 'explore'
+    && !/\b(?:search|find|read|look\s+(?:up|for)|check\s+(?:the|my))\b/i.test(userMessage)
+    && !referencesOtherMaterial(userMessage)) return undefined;
   const scoped = resolveRetrievalScope(userMessage);
   if (scoped?.tool && tools.some(tool => tool.function.name === scoped.tool)) {
     if (scoped.families.includes('task') && STRUCTURED_INTENT_PATTERN.test(userMessage)) return undefined;
@@ -148,6 +150,7 @@ export function selectRequiredToolChoice(
     }
   }
   if (isAssistantCapabilityQuestion(userMessage)) return undefined;
+  if (dialogueTurnMode([], userMessage) === 'explore' && !referencesOtherMaterial(userMessage)) return undefined;
 
   // Asked to change the open note: propose an edit (previewed, applied by the
   // user) rather than writing the content into the chat.
@@ -203,7 +206,7 @@ export function selectRequiredToolChoice(
     }
   }
 
-  if (REFERENCED_MATERIAL_PATTERN.test(userMessage)) {
+  if (referencesOtherMaterial(userMessage)) {
     const searchToolName = findToolName(tools, (name) => name === 'search_knowledge_base');
     if (searchToolName !== undefined) return { type: 'function', function: { name: searchToolName } };
   }

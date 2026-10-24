@@ -18,6 +18,75 @@ const otherSession = '22222222-2222-4222-8222-222222222222';
 const outputId = '33333333-3333-4333-8333-333333333333';
 
 for (const orchestration of ['true', 'false']) {
+  for (const size of [13_000, 200_000]) test(`an ambiguous in-view review clarifies without reading its body or running tools (${orchestration}, ${size})`, async () => {
+    const db = new Pool();
+    const reads: string[] = [];
+    const query = mock.method(db, 'query', async (sql: string) => { reads.push(sql); return { rows: [] }; });
+    const original = process.env['KNOWLEDGE_ORCHESTRATION'];
+    process.env['KNOWLEDGE_ORCHESTRATION'] = orchestration;
+    let calls = 0;
+    const bulk = mock.method(FoundryClient.prototype, 'chatBulk', async () => { throw new Error('No reading model may run before intent is known'); });
+    const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, messages, tools, _tokens, choice, _timeout, onDelta, _signal, _route, options) => {
+      calls++;
+      assert.equal(choice, 'none');
+      assert.equal(tools.length, 0);
+      assert.equal(options?.builtInTools, undefined, 'code execution must also be withheld');
+      const prompt = JSON.stringify(messages);
+      assert.match(prompt, /quick reaction to the concept and a full review/);
+      assert.match(prompt, /Walking briefing/);
+      assert.doesNotMatch(prompt, /PRIVATE_SOURCE_BODY|PRIVATE_IMAGE|PRIVATE_SCREEN/);
+      onDelta?.('Unpublished model draft');
+      return { content: 'Do you want a quick reaction to the concept or a full review of the specification?', toolCalls: [], finishReason: 'stop' };
+    });
+    const deltas: string[] = [];
+    try {
+      const reply = await handleConversationTurn(db, [], 'what do you think?', 'standard', 'general', sessionId,
+        { type: 'note', title: 'Walking briefing', detail: `PRIVATE_SOURCE_BODY${'x'.repeat(size)}`, images: 'PRIVATE_IMAGE' },
+        undefined, {}, { onDelta: text => deltas.push(text), onAudit: () => {},
+          screenImages: [{ label: 'PRIVATE_SCREEN', url: 'data:image/png;base64,AAAA' }],
+          codeFiles: { ids: ['file-private'], names: [] } });
+      assert.match(reply, /concept, or a full review of the specification\?/);
+      assert.equal(calls, 0, 'the scope choice needs no model call or generated-answer repair');
+      assert.deepEqual(deltas, []);
+      assert.ok(!reads.some(sql => /kind = 'example'/.test(sql)), 'old long liked replies do not prime a scope question');
+      assert.ok(!reads.some(sql => /document_reading_|FROM notes|FROM library_documents/i.test(sql)));
+    } finally {
+      if (original === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = original;
+      bulk.mock.restore(); completion.mock.restore(); query.mock.restore(); await db.end();
+    }
+  });
+
+  for (const full of [false, true]) test(`a chosen ${full ? 'full review stays detailed' : 'concept reaction stays conversational'} (${orchestration})`, async () => {
+    const db = new Pool();
+    const query = mock.method(db, 'query', async () => ({ rows: [] }));
+    const original = process.env['KNOWLEDGE_ORCHESTRATION'];
+    process.env['KNOWLEDGE_ORCHESTRATION'] = orchestration;
+    const history = [{ role: 'assistant' as const, content: 'Do you want a quick reaction to the concept or a full review of the specification?' }];
+    const expected = full ? 'Detailed finding about interruption recovery. '.repeat(120)
+      : 'The interruption-aware idea is useful. Is this mainly for capturing thoughts or hearing a curated briefing?';
+    let calls = 0;
+    const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, messages, tools, _tokens, choice) => {
+      calls++;
+      assert.equal(choice, 'none');
+      assert.equal(tools.length, 0);
+      assert.match(JSON.stringify(messages), /SOURCE_BODY_WITH_REQUIREMENTS/);
+      assert.match(JSON.stringify(messages), full ? /He has chosen full depth/ : /Quick concept reaction requested/);
+      return { content: expected, toolCalls: [], finishReason: 'stop' };
+    });
+    try {
+      const reply = await handleConversationTurn(db, history, full ? 'The latter.' : 'The former.',
+        'standard', 'general', sessionId, { type: 'note', title: 'Walking briefing', detail: 'SOURCE_BODY_WITH_REQUIREMENTS' },
+        undefined, {}, { onDelta: () => {}, onAudit: () => {} });
+      assert.equal(reply, expected);
+      assert.equal(calls, 1, 'do not re-ask depth or repair a full review into a short interview');
+    } finally {
+      if (original === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = original;
+      completion.mock.restore(); query.mock.restore(); await db.end();
+    }
+  });
+}
+
+for (const orchestration of ['true', 'false']) {
   test(`actual exploratory chat buffers an essay and repairs once without replaying tools (${orchestration})`, async () => {
     const db = new Pool();
     const query = mock.method(db, 'query', async () => ({ rows: [] }));
@@ -28,6 +97,8 @@ for (const orchestration of ['true', 'false']) {
     const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, messages, tools, _tokens, choice, _timeout, onDelta) => {
       calls++;
       onDelta?.('Unpublished draft');
+      assert.equal(tools.length, 0, 'pure exploration needs no retrieval or action tools');
+      assert.equal(choice, 'none');
       if (calls === 1) return { content: 'Detailed framework. '.repeat(130), toolCalls: [], finishReason: 'stop' };
       assert.equal(calls, 2);
       assert.equal(tools.length, 0, 'a pacing repair cannot repeat a mutation');
@@ -52,7 +123,7 @@ for (const orchestration of ['true', 'false']) {
   });
 }
 
-test('the actual chat reads a newsletter beyond a single context through checkpoint memory, not repeated model tool rounds', async () => {
+for (const inView of [false, true]) test(`the actual chat reads a ${inView ? 'chosen full specification in view' : 'newsletter'} beyond a single context through checkpoint memory, not repeated model tool rounds`, async () => {
   const pg = new PGlite();
   await pg.exec('CREATE TABLE ai_chat_sessions(id uuid PRIMARY KEY)');
   await pg.query('INSERT INTO ai_chat_sessions VALUES ($1)', [sessionId]);
@@ -87,8 +158,12 @@ test('the actual chat reads a newsletter beyond a single context through checkpo
     assert.ok(input.summaries.join('').length <= 18_000);
     return input.summaries.join('\n').slice(-5_000);
   });
-  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages) => {
+  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages, _tools, _tokens, choice) => {
     calls++;
+    if (inView && calls === 1) {
+      assert.deepEqual(choice, { type: 'function', function: { name: 'read_knowledge_record' } });
+      assert.match(JSON.stringify(messages), new RegExp(`Primary source identity:.*${id}`));
+    }
     if (calls === 1) return { content: null, toolCalls: [{ id: 'full', type: 'function' as const,
       function: { name: 'read_knowledge_record', arguments: JSON.stringify({ kind: 'note', id, fullDocument: true }) } }], finishReason: 'tool_calls' };
     const result = JSON.parse(String(messages.at(-1)?.content));
@@ -98,8 +173,9 @@ test('the actual chat reads a newsletter beyond a single context through checkpo
     return { content: `The final entry calls for the evaluation [[cite:note:${id}|ship the evaluation]].`, toolCalls: [], finishReason: 'stop' };
   });
   try {
-    const reply = await handleConversationTurn(db, [], 'Read the full newsletter and summarise every section',
-      'standard', 'general', sessionId, undefined, undefined, {}, { onAudit: row => { audit = row; } });
+    const reply = await handleConversationTurn(db, [], inView ? 'Full review of this specification.' : 'Read the full newsletter and summarise every section',
+      'standard', 'general', sessionId, inView ? { type: 'note', title: 'Full newsletter', detail: body } : undefined,
+      undefined, inView ? { noteId: id } : {}, { onAudit: row => { audit = row; } });
     assert.equal(calls, 2);
     assert.ok(pageCalls > 20);
     assert.match(reply, /final entry calls for the evaluation/);
@@ -109,6 +185,62 @@ test('the actual chat reads a newsletter beyond a single context through checkpo
     if (flag === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = flag;
     completion.mock.restore(); bulk.mock.restore(); query.mock.restore();
     await db.end(); await pg.close();
+  }
+});
+
+test('a failed whole-document read cannot restart its model attempts in the same turn, including through an indexed alias', async () => {
+  const pg = new PGlite();
+  await pg.exec('CREATE TABLE ai_chat_sessions(id uuid PRIMARY KEY)');
+  await pg.query('INSERT INTO ai_chat_sessions VALUES ($1)', [sessionId]);
+  await pg.exec(await readFile(new URL('../src/db/migrations/097_document_reading_memory.sql', import.meta.url), 'utf8'));
+  const db = new Pool();
+  const noteId = '44444444-4444-4444-8444-444444444444';
+  const mirrorId = '55555555-5555-4555-8555-555555555555';
+  const content = JSON.stringify({ title: 'Interrupted review', contentJson: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Requirement: retain source identity.\n'.repeat(600) }] },
+  ] });
+  const query = mock.method(db, 'query', async (sql: string, values: unknown[] = []) => {
+    if (sql.includes('document_reading_')) return pg.query(sql, values);
+    if (sql.includes('SELECT id::text AS id, source, source_id')) return { rows: [{ id: mirrorId, source: 'note', source_id: noteId }] };
+    if (sql.includes('SELECT id::text AS id FROM notes')) return { rows: [{ id: noteId }] };
+    if (sql.includes("FROM content_items WHERE source = 'note'")) return { rows: [{ id: mirrorId }] };
+    if (sql.includes('SELECT content, project_id')) return { rows: [{
+      content, project_id: null, created_at: new Date('2026-10-23'), updated_at: new Date('2026-10-23'), status: 'active',
+    }] };
+    return { rows: [] };
+  });
+  const original = process.env['KNOWLEDGE_ORCHESTRATION'];
+  process.env['KNOWLEDGE_ORCHESTRATION'] = 'true';
+  let readingCalls = 0;
+  const bulk = mock.method(FoundryClient.prototype, 'chatBulk', async () => {
+    readingCalls++;
+    return JSON.stringify({ summary: 'A summary', memory: 'Working memory', excerpts: ['FABRICATED quotation not in source'] });
+  });
+  let calls = 0;
+  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages) => {
+    calls++;
+    if (calls > 1) {
+      assert.match(String(messages.at(-1)?.content), /readingInterrupted|No further reading model call/);
+    }
+    if (calls <= 3) return { content: null, toolCalls: [{
+      id: `retry-${calls}`, type: 'function' as const, function: { name: 'read_knowledge_record',
+        arguments: JSON.stringify({ kind: calls === 3 ? 'content-item' : 'note', id: calls === 3 ? mirrorId : noteId,
+          fullDocument: true, resumeReading: calls > 1, purpose: `changed purpose ${calls}` }) },
+    }], finishReason: 'tool_calls' };
+    return { content: 'The review did not finish. No page checkpoint was validated, so I cannot give a complete critique.', toolCalls: [], finishReason: 'stop' };
+  });
+  try {
+    const reply = await handleConversationTurn(db, [], 'Read the full specification and review every requirement.',
+      'standard', 'general', sessionId, undefined, undefined, {}, { onAudit: () => {} });
+    assert.equal(calls, 4);
+    assert.equal(readingCalls, 2, 'only the original page and its single bounded checkpoint retry reach the reading model');
+    assert.match(reply, /review did not finish/);
+    const { rows } = await pg.query<{ next_offset: number }>('SELECT next_offset FROM document_reading_sessions');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.next_offset, 0, 'rejected pages must never count as read');
+  } finally {
+    if (original === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = original;
+    completion.mock.restore(); bulk.mock.restore(); query.mock.restore(); await db.end(); await pg.close();
   }
 });
 
@@ -181,6 +313,11 @@ for (const scenario of [
 
 test('self-identity is runtime context, not a forced knowledge search or open-note edit', async () => {
   const tools = await getToolDefinitions();
+  for (const message of ['What do you think?', 'Help me think through a demo specification.',
+    'Should we create a diagram?', 'What if we generate a complete plan?']) {
+    assert.equal(selectKnowledgeRetrievalChoice(message, tools), undefined);
+    assert.equal(selectRequiredToolChoice(message, tools, [], null, true), undefined);
+  }
   for (const message of [
     'what do you know about yourself and what your capabilities are?',
     'Who are you?',
@@ -550,6 +687,8 @@ test('a reference to material held elsewhere forces a knowledge search before an
     const choice = selectRequiredToolChoice(message, tools, [], null, true);
     assert.deepEqual(choice, { type: 'function', function: { name: 'search_knowledge_base' } }, message);
   }
+  assert.deepEqual(selectKnowledgeRetrievalChoice('any thoughts on the notes from the Dhalia call?', tools),
+    { type: 'function', function: { name: 'search_knowledge_base' } });
   for (const message of ['what do you think?', 'any additional thoughts?', 'what are your thoughts on this?']) {
     assert.equal(selectRequiredToolChoice(message, tools, [], null, true), undefined, message);
   }

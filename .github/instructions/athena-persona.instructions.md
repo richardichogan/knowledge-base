@@ -5,7 +5,7 @@ applyTo: "knowledge-hub-backend/src/ai/**,knowledge-hub-backend/src/routes/ai.ts
 # Athena AI persona architecture
 
 - Athena (the in-app AI assistant) supports multiple selectable personas, defined in `knowledge-hub-backend/src/ai/contextBuilder.ts` (`PERSONA_PROMPTS` — persona id → system prompt blurb) and mirrored in the frontend persona switcher in `knowledge-hub-web/src/pages/AIChatPage.tsx` (`personaSwitch`).
-- Current personas: `general` (default operational assistant), `brainstorming` (ideas sounding board / critique), `copilot_coach` (guide on using GitHub Copilot itself — agents, skills, extensions, workflows).
+- Current personas include `general` (default thinking partner and working assistant), `brainstorming` (ideas sounding board / critique), `copilot_coach` (guide on using GitHub Copilot itself — agents, skills, extensions, workflows). Coding and deliverable creation are capabilities invoked by the current request, not the default purpose of every conversation.
 - Model routing lives in `knowledge-hub-backend/src/routes/ai.ts` — the `brainstorming` persona defaults to the `gpt-5.5` model (a separate Azure AI Foundry resource — `imagine-dev-temp-resource`, see the deployment runbook in the root `copilot-instructions.md`); other personas use the default model.
 - Tool-calling loop and available tools (KB search, task/note actions, `fetch_web_page` external-URL grounding, Microsoft Learn MCP tools) live in `knowledge-hub-backend/src/ai/chatTools.ts` / `conversationService.ts`.
 - When adding a persona:

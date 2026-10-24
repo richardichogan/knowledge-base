@@ -1,4 +1,4 @@
-import type { ConversationMessage } from '../types/aiContext.js';
+import type { ChatPageContext, ConversationMessage } from '../types/aiContext.js';
 
 /**
  * Applied last during prompt assembly: legacy profile/standing preferences used to
@@ -10,6 +10,11 @@ export const DIALOGUE_POLICY_PROMPT = [
     'or standing instruction says "output first", "never ask questions", or encourages long brainstorms. ' +
     'It does not override safety, evidence requirements, tool permissions, or an explicit current request for a deliverable.',
   'First distinguish a request to THINK TOGETHER from a request to DELIVER. Do not announce this classification.',
+  'Your default relationship is a thinking partner, not a coding agent completing tickets. A conversation ' +
+    'can be useful without ending in a document, plan, prompt or action. Persona selection, an uploaded file, ' +
+    'or a topic involving code is not permission to produce one. If "what do you think?" could mean either ' +
+    'a quick concept reaction or a full specification review, clarify that scope before the work, unless ' +
+    'the conversation has already settled it. Never make him repeat that choice.',
   'THINK TOGETHER: when he is exploring a design, specification, idea, audience, purpose or trade-off, ' +
     'and a consequential choice remains open, your next reply is a conversational move, not the whole solution. ' +
     'Give one concrete observation or challenge, ask the single question whose answer would most change your advice, ' +
@@ -46,33 +51,93 @@ export const DIALOGUE_POLICY_PROMPT = [
 export type DialogueTurnMode = 'explore' | 'follow-up' | 'deliver' | 'correction' | 'unspecified';
 
 const EXPLORATION = /\b(?:help me (?:think|design|explore|work out)|(?:I am|I'm|I’m) (?:trying to work out|thinking (?:of|about)|not sure)|(?:I want|I'd like|I’d like) to explore|what if|let['’]s (?:think|explore|discuss)|think (?:this|it) through)\b/i;
-const DELIVERY = /(?:^|[.!]\s+|\bnow\s+)(?:(?:please|can you|could you|would you)\s+)?(?:draft|write|rewrite|generate|create|save|send|delete|remove|update|change|edit|summari[sz]e|translate|explain|compare|return|give me)\b/i;
+const INTENT_QUESTION = /^(?:should (?:we|i)|do (?:we|i) need to|would it (?:help|be (?:better|useful|worth))|is it worth)\b/i;
+const DELIVERY = /(?:^|[.!?;:,]\s+|\b(?:and|then|now)\s+)(?:(?:please|can you|could you|would you)\s+)?(?:draft|write|rewrite|generate|create|save|send|delete|remove|update|change|edit|produce|prepare|make|build|summari[sz]e|translate|explain|compare|return|give me)\b/i;
 const END_EXPLORATION = /\b(?:no (?:more )?questions|no discussion|just (?:draft|write|generate|do it)|go ahead)\b/i;
 const CORRECTION = /^(?:no[,.!]?\s|you (?:are|'re|’re) (?:still )?(?:missing|wrong)|that(?:'s| is|’s) not what)|\b(?:stop writing|not asking you|you misunderstood)\b/i;
 const FACTUAL_QUESTION = /^(?:(?:in|using) [^,]{1,45},\s*)?(?:what|when|where|who|why|how|which|is|are|does|do|can you explain|explain|compare)\b/i;
 const ACKNOWLEDGEMENT = /^(?:yes|yep|no|okay|ok|thanks|thank you|cheers|great|fine|looks good)[.!\s]*$/i;
 const MAX_DIALOGUE_REPLY_WORDS = 110;
 const MAX_CORRECTION_REPLY_WORDS = 90;
-const MAX_AFTER_QUESTION_WORDS = 6;
 const UNRESOLVED_CHOICE = /\b(?:(?:next|useful|consequential|main design|deciding|real) (?:question|choice|decision) (?:is|now)|(?:question|choice|decision) (?:is|remains) whether)\b/i;
+const POSSESSIVE = String.raw`\w+(?:['’]s|s['’]?)`;
+const REFERENCED_MATERIAL = new RegExp(String.raw`\b(?:i(?:['’]ve|\s+have)?\s+(?:now\s+|just\s+|already\s+)?(?:provided|added|attached|uploaded|shared|written|captured|saved|included|pasted)\b|${POSSESSIVE}\s+(?:feedback|comments?|input|thoughts|reply|response|write-?up|notes?)\b|feedback\s+from\b|notes?\s+(?:from|on|about)\s+(?:the|my|our|${POSSESSIVE})\s|(?:from|on|in|during)\s+(?:the|my|our|${POSSESSIVE})\s+(?:call|meeting|chat|catch-?up|session|workshop)\b|go\s+(?:and\s+)?(?:find|get|look)\b|find\s+(?:the|my|that|his|her)\s+note|(?:never|don['’]?t|do\s+not)\s+assume\b)`, 'i');
+const OPINION = /\b(?:what do you (?:think|reckon)|(?:what(?:'s|’s| is)|give me) your (?:take|view|opinion)|(?:any|your) thoughts|how does (?:this|it) look|does (?:this|it) make sense)\b/i;
+const OTHER_EVIDENCE = /\b(?:search|find|look\s+(?:up|for)|compare|comparison|against|other|elsewhere|latest|verify|fact[\s-]?check|research|web|online|previous|earlier|past|history)\b/i;
+const REVIEW_SCOPE_QUESTION = /\b(?:concept|idea)\b[\s\S]{0,100}\b(?:full|detailed|specification|spec)\b|\b(?:full|detailed|specification|spec)\b[\s\S]{0,100}\b(?:concept|idea)\b/i;
+const REVIEW_SCOPE_HISTORY_MESSAGES = 10;
+export type InViewReviewScope = 'clarify' | 'concept' | 'specification';
+export const INLINE_REVIEW_CHARS = 60_000;
+
+export function dialogueRequestText(message: string): string {
+  return message.replace(/^\s*\[Viewing (?:note|canvas|document):[^\n]*\]\s*/i, '').trim();
+}
+
+export function referencesOtherMaterial(message: string): boolean {
+  return REFERENCED_MATERIAL.test(dialogueRequestText(message));
+}
+
+function chosenReviewScope(text: string, previous?: ConversationMessage): Exclude<InViewReviewScope, 'clarify'> | undefined {
+  if (OTHER_EVIDENCE.test(text) || referencesOtherMaterial(text) || CORRECTION.test(text)) return undefined;
+  if (previous?.role === 'assistant' && previous.content.includes('?') && REVIEW_SCOPE_QUESTION.test(previous.content)) {
+    if (/^(?:(?:the|just|a)\s+)*(?:latter|second|full(?:\s+review)?|spec(?:ification)?)(?:,?\s+please)?[.!]?\s*$/i.test(text)) return 'specification';
+    if (/^(?:(?:the|just|a)\s+)*(?:former|first|quick(?:\s+(?:reaction|review))?(?:\s+to\s+(?:the\s+)?concept)?|concept|idea)(?:,?\s+please)?[.!]?\s*$/i.test(text)) return 'concept';
+  }
+  if (!(OPINION.test(text) || /\b(?:review|critique|assess)\b/i.test(text))) return undefined;
+  if (/\b(?:full|detailed|thorough|complete|technical|implementation)\b[\s\S]{0,50}\b(?:review|critique|assessment)\b|\b(?:review|critique|assess)\b[\s\S]{0,60}\b(?:specification|spec|implementation|in full|thoroughly|fully)\b/i.test(text)) return 'specification';
+  if (/\b(?:quick|brief|concept|idea|high[\s-]level)\b/i.test(text)) return 'concept';
+  return undefined;
+}
+
+/** Resolve review depth before reading: a concept reaction and a specification review are different tasks. */
+export function inViewReviewScope(message: string, page?: ChatPageContext, history: ConversationMessage[] = []): InViewReviewScope | undefined {
+  const text = dialogueRequestText(message);
+  if (page === undefined || !['note', 'document', 'content-item'].includes(page.type) || !page.detail?.trim()) return undefined;
+  if (OTHER_EVIDENCE.test(text) || referencesOtherMaterial(text) || CORRECTION.test(text)) return undefined;
+  if (DELIVERY.test(text) && /\b(?:save|write|rewrite|create|generate|send|delete|remove|update|change|edit|build|make|produce|prepare)\b/i.test(text)) return undefined;
+  const chosen = chosenReviewScope(text, history.at(-1));
+  if (chosen !== undefined) return chosen;
+  const review = OPINION.test(text) || /\b(?:review|critique|assess)\b/i.test(text);
+  if (!review) return undefined;
+  if (DELIVERY.test(text) || END_EXPLORATION.test(text)) return undefined;
+  for (let i = history.length - 1; i >= Math.max(0, history.length - REVIEW_SCOPE_HISTORY_MESSAGES); i--) {
+    const prior = history[i]!;
+    if (prior.role !== 'user') continue;
+    const viewedTitle = /^\s*\[Viewing (?:note|document):\s*"?(.+?)"?\]\s*/i.exec(prior.content)?.[1];
+    if (viewedTitle !== undefined && viewedTitle !== page.title) break;
+    const priorScope = chosenReviewScope(dialogueRequestText(prior.content), history[i - 1]);
+    if (priorScope !== undefined) return priorScope;
+  }
+  return 'clarify';
+}
 
 /**
  * High-confidence pacing hints, never an authorisation or a requirement to ask.
  * Unrecognised language stays model-led under the general contract.
  */
 export function dialogueTurnMode(history: ConversationMessage[], userMessage: string): DialogueTurnMode {
-  const text = userMessage.trim();
+  const text = dialogueRequestText(userMessage);
   if (END_EXPLORATION.test(text) || DELIVERY.test(text)) return 'deliver';
   if (CORRECTION.test(text)) return 'correction';
-  if (EXPLORATION.test(text)) return 'explore';
+  if (EXPLORATION.test(text) || OPINION.test(text) || INTENT_QUESTION.test(text)) return 'explore';
   const previous = history.at(-1);
   if (previous?.role === 'assistant' && (previous.content.includes('?') || UNRESOLVED_CHOICE.test(previous.content)) &&
       !FACTUAL_QUESTION.test(text) && !ACKNOWLEDGEMENT.test(text)) return 'follow-up';
   return 'unspecified';
 }
 
-export function buildDialogueTurnPrompt(history: ConversationMessage[], userMessage: string): string {
-  const mode = dialogueTurnMode(history, userMessage);
+/** Discussion does not need a source sweep or action tools unless the user also requests evidence. */
+export function isDialogueOnlyTurn(history: ConversationMessage[], message: string): boolean {
+  const mode = dialogueTurnMode(history, message);
+  const text = dialogueRequestText(message);
+  return (mode === 'explore' && EXPLORATION.test(text) || mode === 'follow-up' && !text.includes('?'))
+    && !OTHER_EVIDENCE.test(text)
+    && !referencesOtherMaterial(text)
+    && !/\b(?:read|check|look\s+(?:at|into)|calendar|schedule|meetings?|tasks?|feedback)\b/i.test(text);
+}
+
+export function buildDialogueTurnPrompt(history: ConversationMessage[], userMessage: string, modeOverride?: DialogueTurnMode): string {
+  const mode = modeOverride ?? dialogueTurnMode(history, userMessage);
   const hint = mode === 'explore'
     ? 'Current turn: explicit exploration. If a consequential choice remains open, give one concrete observation and one question about that choice, then wait instead of producing the complete solution. If the direction is already settled, conclude without inventing another question. Maximum 100 words.'
     : mode === 'follow-up'
@@ -87,8 +152,15 @@ export function buildDialogueTurnPrompt(history: ConversationMessage[], userMess
 
 /** At most one repair call may be used by the conversation loop, before publishing a final reply. */
 export function dialogueRepairInstruction(
-  history: ConversationMessage[], userMessage: string, reply: string,
+  history: ConversationMessage[], userMessage: string, reply: string, reviewScope?: InViewReviewScope,
 ): string | null {
+  if (reviewScope === 'specification') return null;
+  if (reviewScope === 'clarify') {
+    const words = reply.trim().split(/\s+/).length;
+    return (reply.match(/\?/g) ?? []).length === 1 && REVIEW_SCOPE_QUESTION.test(reply) && words <= MAX_CORRECTION_REPLY_WORDS
+      ? null
+      : 'Ask only one short question: does he want a quick reaction to the concept or a full review of the specification? Do not provide a critique, choose the depth yourself, or add other questions. Wait for his answer.';
+  }
   const mode = dialogueTurnMode(history, userMessage);
   if (mode !== 'explore' && mode !== 'follow-up' && mode !== 'correction') return null;
   const plain = reply.replace(/[*_`]/g, '').trim();
@@ -96,7 +168,7 @@ export function dialogueRepairInstruction(
   const questionCount = (plain.match(/\?/g) ?? []).length;
   const afterQuestion = plain.includes('?') ? plain.slice(plain.indexOf('?') + 1).trim() : '';
   const overshot = words > (mode === 'correction' ? MAX_CORRECTION_REPLY_WORDS : MAX_DIALOGUE_REPLY_WORDS);
-  const answeredOwnQuestion = afterQuestion.split(/\s+/).filter(Boolean).length > MAX_AFTER_QUESTION_WORDS;
+  const answeredOwnQuestion = /[a-z0-9]/i.test(afterQuestion);
   const namedButDidNotAsk = mode !== 'correction' && questionCount === 0 && UNRESOLVED_CHOICE.test(plain);
   if (!overshot && questionCount <= 1 && !answeredOwnQuestion && !namedButDidNotAsk) return null;
   return mode === 'correction'
