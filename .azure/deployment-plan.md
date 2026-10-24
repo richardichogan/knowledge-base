@@ -23,6 +23,25 @@
     and static role-assignment checks are not applicable to this image/web update.
 - Current validation completed; earlier proof below remains historical.
 
+**Deployment result (2026-10-24T06:59Z, recursive reading and dialogue):**
+- Source 9c2e84b2864274b73d149ebbd0a3353db7ec9954 committed and atomically
+  pushed to main and richardichogan-local-development.
+- ACR run ca7m built and pushed v242 successfully. An initial image-update
+  command used a mistyped registry hostname and was rejected; corrected it
+  without changing registry configuration or secrets.
+- Backend kh-prod-api-vnet--0000239 is the latest ready revision, Healthy and
+  RunningAtMaxScale, with 100% latest-revision traffic on v242.
+- Startup applied migrations 096 and 097, completed migrations, and pre-warmed
+  all eight database connections. A separate READ ONLY database transaction
+  confirmed both applied-migration entries and both reading-checkpoint tables.
+  Existing SSL-mode future-semantics warning remains; no startup errors.
+- Validated frontend uploaded to kh-prod-web production. The custom-domain HTML
+  references the local main JavaScript asset, and its served SHA-256 matches the
+  validated build at https://athena.themicrosoftcloudblog.com.
+- No real chats were generated or source documents/profile memories edited
+  during release verification. Live model evaluations used synthetic data only.
+- Deployment logs: session files/recursive-release-{acr,web-deploy,startup}.log.
+
 **Section 7: Validation Proof (2026-10-24T06:54Z, recursive reading and dialogue):**
 - Fetched origin and merged origin/main; already current. Azure CLI 2.79.0
   authenticated to the existing Alliance Tenant Reporting subscription
