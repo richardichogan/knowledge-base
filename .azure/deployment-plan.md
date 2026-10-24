@@ -2,6 +2,24 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-24, Jobs modal):**
+- User requested a quick deployment of the completed Jobs modal/style refinement
+  and mandatory design-guide repository instructions. Frontend-only release to
+  existing `kh-prod-web`; backend v245, data, dependencies and infrastructure
+  remain unchanged.
+- `git fetch origin && git merge origin/main` reported already current.
+  `git diff --check` passed. Azure CLI confirmed the existing Static Web App in
+  Alliance Tenant Reporting, `rg-knowledge-hub-prod`.
+- Both typechecks and frontend lint non-regression already passed for this
+  unchanged implementation; reuse that proof. One frontend isolated release
+  suite passed (210/210 plus 22/22 bundled checks), followed by `npm run build`.
+  Log: session `files/jobs-modal-release.log`.
+- Existing Azure CLI application-only recipe applies. No Docker/backend build,
+  migrations, IAM, provisioning, Bicep/what-if or policy changes are applicable.
+- Push the source to the feature branch and main, deploy the built frontend,
+  confirm production Ready and matching served entry asset, then stop.
+  Preserve unrelated `.impeccable/hook.cache.json`.
+
 **Release scope (2026-10-24, managed Jobs):**
 - User approved the Jobs plan and explicitly requested deployment, merge and push.
 - Deploy the Jobs workspace, shared chat configuration confirmations, versioned

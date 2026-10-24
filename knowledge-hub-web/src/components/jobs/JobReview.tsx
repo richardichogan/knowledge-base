@@ -2,15 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
 import type { JobDefinition, JobProposal } from '../../types/jobs';
+import { jobKinds, outputNames, scheduleLabel } from './jobPresentation';
 
 export function JobSummary({ definition: d }: { definition: JobDefinition }): React.ReactElement {
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const publishes = d.outputs.some(output => ['slack', 'blog', 'bluesky', 'linkedin'].includes(output));
   return <div className="kh-jobs__summary">
     <strong>{d.name}</strong>
-    <p>{d.kind} · {d.schedule.days.map(day => days[day]).join(', ')} at {d.schedule.times.join(', ')} · {d.schedule.timezone}</p>
-    <p>{d.approval === 'required' ? 'Approval before external delivery' : 'Automatic delivery'} · Outputs: {d.outputs.join(', ') || 'source ingestion'}</p>
-    {d.deviceId && <p>Desktop: {d.deviceId} · Input: {d.inputFolder || 'none'} · File output: {d.outputFolder || 'none'}</p>}
-    {d.prompt && <pre className="kh-jobs__content">{d.prompt}</pre>}
+    <p>{scheduleLabel(d.schedule)} <span className="kh-jobs__muted">· {d.schedule.timezone}</span></p>
+    <p className="kh-jobs__muted">{jobKinds[d.kind]} · {d.outputs.map(output => outputNames[output]).join(', ') || 'Source ingestion'}
+      {publishes && ` · ${d.approval === 'required' ? 'Approval required' : 'Automatic publishing'}`}</p>
+    {(d.deviceId || d.prompt) && <details className="kh-jobs__event"><summary>Prompt and file settings</summary>
+      {d.deviceId && <p>Desktop: {d.deviceId} · Input: {d.inputFolder || 'none'} · File output: {d.outputFolder || 'none'}</p>}
+      {d.prompt && <pre className="kh-jobs__content">{d.prompt}</pre>}
+    </details>}
   </div>;
 }
 export function JobArtifacts({ value }: { value: unknown }): React.ReactElement {

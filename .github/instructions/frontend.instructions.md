@@ -6,6 +6,8 @@ applyTo: "knowledge-hub-web/**"
 
 ## Styling — MANDATORY
 
+**You MUST always follow the Athena design guide in `DESIGN.md`. Read it before every UI change and apply it from the outset, not as optional cleanup. A UI change is not complete unless it conforms to the guide. Ask the user before making any departure; do not silently override or rewrite it.**
+
 **Every new UI element must be fully styled before the change is considered complete.**
 
 - Every new component, button, input, modal, panel, list item, badge, or icon added to the frontend MUST have corresponding CSS in `global.scss` (or the relevant component SCSS file).

@@ -121,9 +121,12 @@ Knowledge health remain full-page workspaces.
 
 ### Jobs and scheduled prompts
 
-**Tools → Jobs** (`/jobs`) is a working destination for schedules, prompts,
-desktop imports, publishing approvals and audit history. Configuration uses a
-modal. Athena can design and manage the same saved jobs from any chat surface;
+**Tools → Jobs** (`/jobs`) opens a workspace-preserving modal for schedules,
+prompts, desktop imports, publishing approvals and audit history. Compact
+schedule rows show timing, status and the next run; secondary actions expand
+on demand. Runs/approvals and audit have separate views with shared filters.
+Configuration and run review use focused dialogs. Direct links, including run
+links, open the same modal. Athena can design and manage saved jobs from any chat surface;
 the Jobs screen is not a required setup wizard. Chat proposals display the exact
 configuration and require a user confirmation card before they change a schedule
 or enable publishing. Discussing a possible job does not enable one.

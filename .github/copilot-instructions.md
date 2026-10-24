@@ -9,6 +9,16 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 
 ---
 
+## Athena Design Guide — MUST FOLLOW
+
+- **You MUST always follow the Athena design guide in `DESIGN.md` for every UI change. This is mandatory, not optional guidance or a final polishing step.**
+- Read `DESIGN.md` and the relevant frontend instructions before creating or changing any interface, including pages, modals, panels, chat widgets, controls and their states.
+- Use the guide's existing Athena/Carbon tokens, typography, spacing, hierarchy, components and interaction patterns from the first implementation. Do not introduce generic dashboard styling, raw unstyled controls or a competing visual identity.
+- A UI change is not complete until it conforms to the guide, including relevant loading, empty, error, disabled, hover and keyboard-focus states. Preserve the guide's desktop and compact-chat distinctions.
+- If the requested design conflicts with the guide, ask the user before deviating. Do not silently override or rewrite the guide to justify an implementation.
+
+---
+
 ## Terminal Commands — STRICT RULES
 
 - **Never use `head` or `tail` to truncate command output.** Run the full command or use `grep` to filter specifically.

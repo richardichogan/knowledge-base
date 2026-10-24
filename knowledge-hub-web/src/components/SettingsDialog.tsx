@@ -6,9 +6,10 @@ import type { SettingsView } from '../navigation/settings';
 const Memory = deferredView('Memory', async () => ({ default: (await import('../pages/MemoryPage')).MemoryPage }));
 const Connections = deferredView('Connections and sync', async () => ({ default: (await import('../pages/TimelinePage')).TimelinePage }));
 const RepoMappings = deferredView('Repo project mappings', async () => ({ default: (await import('../pages/RepoProjectMappingsPage')).RepoProjectMappingsPage }));
+const Jobs = deferredView('Jobs', async () => ({ default: (await import('../pages/JobsPage')).JobsPage }));
 
 const TITLES: Record<SettingsView, string> = {
-  memory: 'Memory', sync: 'Connections and sync', 'repo-projects': 'Repo project mappings',
+  memory: 'Memory', sync: 'Connections and sync', 'repo-projects': 'Repo project mappings', jobs: 'Jobs',
 };
 
 export function SettingsDialog({ view, onClose }: { view: SettingsView; onClose: () => void }): React.ReactElement {
@@ -18,5 +19,6 @@ export function SettingsDialog({ view, onClose }: { view: SettingsView; onClose:
     {view === 'memory' && <Memory embedded />}
     {view === 'sync' && <Connections settingsOnly />}
     {view === 'repo-projects' && <RepoMappings embedded />}
+    {view === 'jobs' && <Jobs onClose={onClose} />}
   </AppDialog>;
 }
