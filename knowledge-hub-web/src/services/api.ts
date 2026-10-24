@@ -665,6 +665,9 @@ export interface SocialDraft {
   blueskyConfigured?: boolean;
   /** Link to the Bluesky post when this article has already been posted. */
   blueskyPostUrl?: string | null;
+  linkedinConfigured?: boolean;
+  linkedinPostUrl?: string | null;
+  linkedinPostStatus?: string | null;
 }
 
 export interface BlogDraft {
@@ -1891,6 +1894,16 @@ export class KnowledgeHubApi {
   /** Publishes the reviewed short post and original link to Bluesky; the article moves to Published. */
   async postDiscoverToBluesky(id: string, post: string): Promise<ApiResponse<{ uri: string; url: string }>> {
     return (await this.client.post<ApiResponse<{ uri: string; url: string }>>(`/api/discover/${id}/bluesky-post`, { post }, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+
+  async getLinkedInAccount(): Promise<ApiResponse<{ id: string; name: string }>> {
+    return (await this.client.get<ApiResponse<{ id: string; name: string }>>('/api/discover/linkedin-account')).data;
+  }
+
+  async postDiscoverToLinkedIn(id: string, post: string, memberId: string): Promise<ApiResponse<{ urn: string; url: string; warning?: string }>> {
+    return (await this.client.post<ApiResponse<{ urn: string; url: string; warning?: string }>>(
+      `/api/discover/${id}/linkedin-post`, { post, memberId, confirmed: true }, { timeout: CHAT_TIMEOUT_MS },
+    )).data;
   }
 
   async listNoteExtractions(noteId: string): Promise<ApiResponse<NoteExtraction[]>> {

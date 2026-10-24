@@ -1,5 +1,10 @@
 export const SHORT_POST_LIMIT = 280;
 export const BLUESKY_POST_LIMIT = 300;
+export const LINKEDIN_POST_LIMIT = 3_000;
+
+export function linkedinLength(post: string, url: string | null): number {
+  return [post.trim(), url].filter(Boolean).join('\n\n').length;
+}
 
 /** Bluesky counts graphemes of the full text, which here is the copy, a blank line and the link. */
 export function blueskyLength(post: string, url: string | null): number {

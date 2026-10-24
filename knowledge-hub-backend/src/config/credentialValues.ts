@@ -4,6 +4,7 @@ export const connectionCredentials = [
   { id: 'github-agents', name: 'GitHub build agents', envKey: 'GITHUB_AGENT_TOKEN', detail: 'Optional fine-grained token for the Build pipeline.', fallbackKey: 'GITHUB_ACCESS_TOKEN', fallbackName: 'GitHub token', helpUrl: 'https://github.com/settings/personal-access-tokens' },
   { id: 'blog', name: 'Blog publishing', envKey: 'BLOG_POSTS_API_KEY', detail: 'API key for The Microsoft Cloud Blog.' },
   { id: 'bluesky', name: 'Bluesky', envKey: 'BLUESKY_APP_PASSWORD', detail: 'App password for the configured Bluesky account.', helpUrl: 'https://bsky.app/settings/app-passwords' },
+  { id: 'linkedin', name: 'LinkedIn', envKey: 'LINKEDIN_ACCESS_TOKEN', detail: 'Personal-profile OAuth access token with openid, profile and w_member_social. Renew here when it expires.', helpUrl: 'https://www.linkedin.com/developers/tools/oauth/token-generator' },
   { id: 'ica', name: 'IBM ICA', envKey: 'ICA_API_KEY', detail: 'Coding-agent API key for ICA chat.' },
   { id: 'ica-consulting', name: 'IBM ICA consulting', envKey: 'ICA_CONSULTING_KEY', detail: 'Consulting API key for ICA document collections and files.' },
   { id: 'tavily', name: 'Tavily web search', envKey: 'TAVILY_API_KEY', detail: 'API key for internet search.', helpUrl: 'https://app.tavily.com/' },

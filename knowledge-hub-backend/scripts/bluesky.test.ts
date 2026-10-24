@@ -31,8 +31,7 @@ test('rejects empty and over-length posts before signing in', () => {
 
 test('post route claims the article atomically so concurrent or repeat requests cannot double-post', async () => {
   const id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-  const saved = env.BLUESKY_APP_PASSWORD;
-  (env as { BLUESKY_APP_PASSWORD: string | undefined }).BLUESKY_APP_PASSWORD = undefined;
+  const password = mock.getter(env, 'BLUESKY_APP_PASSWORD', () => undefined);
   let blueskyPost: { status: string; url?: string } | null = null;
   let claims = 0;
   let releaseGate: Promise<void> = Promise.resolve();
@@ -94,7 +93,7 @@ test('post route claims the article atomically so concurrent or repeat requests 
   } finally {
     network.mock.restore();
     query.mock.restore();
-    (env as { BLUESKY_APP_PASSWORD: string | undefined }).BLUESKY_APP_PASSWORD = saved;
+    password.mock.restore();
     await new Promise<void>((resolve) => { server.close(() => { resolve(); }); });
   }
 });

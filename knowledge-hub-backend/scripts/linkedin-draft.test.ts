@@ -123,6 +123,12 @@ test('draft endpoint handles article/email, missing content, invalid IDs and AI 
       const body = await res.json() as { success: boolean; data: Record<string, unknown> };
       assert.equal(typeof body.data['blueskyConfigured'], 'boolean');
       delete body.data['blueskyConfigured'];
+      assert.equal(typeof body.data['linkedinConfigured'], 'boolean');
+      assert.equal(body.data['linkedinPostUrl'], null);
+      assert.equal(body.data['linkedinPostStatus'], null);
+      delete body.data['linkedinConfigured'];
+      delete body.data['linkedinPostUrl'];
+      delete body.data['linkedinPostStatus'];
       assert.deepEqual(body, { success: true, data: { post: `${summary}\n\n${observation}`, sourceUrl: source.url, sourceKind: kind } });
     }
     const calls = queries.length;

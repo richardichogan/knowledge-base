@@ -14,8 +14,9 @@ import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type Linked
 import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
 import { BLOG_CATEGORIES } from '../ai/blogHouseStyle.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
-import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
+import { ConflictError, NotFoundError, ValidationError, WriteActionNotConfirmedError } from '../types/errors.js';
 import { BlueskyPostUnconfirmedError, blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
+import { LINKEDIN_POST_LIMIT, LinkedInPostUnconfirmedError, composeLinkedInText, getLinkedInMember, linkedinConfigured, postToLinkedIn } from '../integrations/social/linkedin.js';
 import { getDiscoverParking, saveDiscoverParking, removeDiscoverParking, type DiscoverParking } from '../services/discoverParking.js';
 import { resolveDiscoveryFeed, readYouTubeVideo } from '../integrations/discovery/youtube.js';
 import { collectYouTubeEvidence, relatedYouTubeArticles } from '../integrations/discovery/youtubeEvidence.js';
@@ -108,6 +109,10 @@ function queryText(value: unknown, name: string, maximum: number): string | unde
   return value.trim() || undefined;
 }
 
+discoverRouter.get('/linkedin-account', (_req: Request, res: Response, next: NextFunction): void => {
+  void getLinkedInMember().then(member => { res.json({ success: true, data: member }); }).catch(next);
+});
+
 discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
@@ -121,8 +126,12 @@ discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: N
         res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid Discover item ID' } });
         return;
       }
-      const { rows } = await getDb().query<LinkedInSource & { bluesky_post_url: string | null }>(
-        `SELECT title, body, source, url, metadata->'blueskyPost'->>'url' AS bluesky_post_url
+      const { rows } = await getDb().query<LinkedInSource & {
+        bluesky_post_url: string | null; linkedin_post_url: string | null; linkedin_post_status: string | null;
+      }>(
+        `SELECT title, body, source, url, metadata->'blueskyPost'->>'url' AS bluesky_post_url,
+           metadata->'linkedinPost'->>'url' AS linkedin_post_url,
+           metadata->'linkedinPost'->>'status' AS linkedin_post_status
          FROM content_items WHERE id = $1 AND source IN ('email', 'discovered-article')`,
         [id],
       );
@@ -136,7 +145,81 @@ discoverRouter.post('/:id/linkedin-draft', (req: Request, res: Response, next: N
         return;
       }
       const draft = await (format === 'short' ? generateShortSocialDraft(source) : generateLinkedInDraft(source));
-      res.json({ success: true, data: { ...draft, blueskyConfigured: blueskyConfigured(), blueskyPostUrl: source.bluesky_post_url } });
+      res.json({ success: true, data: { ...draft, blueskyConfigured: blueskyConfigured(), blueskyPostUrl: source.bluesky_post_url,
+        linkedinConfigured: linkedinConfigured(), linkedinPostUrl: source.linkedin_post_url ?? null, linkedinPostStatus: source.linkedin_post_status ?? null } });
+    } catch (err) { next(err); }
+  })();
+});
+
+discoverRouter.post('/:id/linkedin-post', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const id = req.params['id'];
+      if (!id || !UUID.test(id)) throw new ValidationError('Invalid Discover item ID');
+      const body = req.body as { post?: unknown; memberId?: unknown; confirmed?: unknown } | undefined;
+      if (body?.confirmed !== true) throw new WriteActionNotConfirmedError();
+      if (typeof body.post !== 'string' || body.post.length > LINKEDIN_POST_LIMIT) throw new ValidationError('Post text is required and must fit LinkedIn.');
+      if (typeof body.memberId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(body.memberId)) {
+        throw new ValidationError('Review the connected LinkedIn account before posting.');
+      }
+      composeLinkedInText(body.post, null);
+      const db = getDb();
+      const { rows } = await db.query<{ title: string; url: string | null }>(
+        `UPDATE content_items
+           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('linkedinPost', jsonb_build_object('status', 'posting', 'claimedAt', NOW()))
+         WHERE id = $1 AND source = 'discovered-article' AND metadata->'linkedinPost' IS NULL
+         RETURNING title, url`, [id],
+      );
+      const item = rows[0];
+      if (!item) {
+        const existing = await db.query<{ post_url: string | null; status: string | null }>(
+          `SELECT metadata->'linkedinPost'->>'url' AS post_url, metadata->'linkedinPost'->>'status' AS status
+           FROM content_items WHERE id = $1 AND source = 'discovered-article'`, [id],
+        );
+        const state = existing.rows[0];
+        if (!state) throw new NotFoundError('Discover article');
+        if (state.post_url) throw new ConflictError(`This article is already on LinkedIn: ${state.post_url}`, 'LINKEDIN_ALREADY_POSTED');
+        throw new ConflictError(
+          'An earlier LinkedIn post for this article is in progress or may have gone out. Check your LinkedIn profile; Athena will not send it again.',
+          'LINKEDIN_POST_IN_PROGRESS',
+        );
+      }
+      let posted;
+      try {
+        const link = sourceUrl(item.url);
+        posted = await postToLinkedIn(body.post, link ? { url: link, title: item.title } : null, body.memberId);
+      } catch (err) {
+        try {
+          if (err instanceof LinkedInPostUnconfirmedError) {
+            await db.query(
+              `UPDATE content_items SET metadata = jsonb_set(metadata, '{linkedinPost,status}', '"unconfirmed"')
+               WHERE id = $1 AND metadata->'linkedinPost'->>'status' = 'posting'`, [id],
+            );
+          } else {
+            await db.query(
+              `UPDATE content_items SET metadata = metadata - 'linkedinPost'
+               WHERE id = $1 AND metadata->'linkedinPost'->>'status' = 'posting'`, [id],
+            );
+          }
+        } catch (claimError) {
+          console.error('[linkedin] Could not update the post claim; the existing claim still blocks retries:', claimError);
+        }
+        throw err;
+      }
+      let warning: string | undefined;
+      try {
+        const recorded = await db.query(
+          `UPDATE content_items SET workflow_state = 'published',
+             metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('linkedinPost', jsonb_build_object('status', 'posted', 'url', $2::text, 'urn', $3::text, 'postedAt', NOW()))
+           WHERE id = $1 AND metadata->'linkedinPost'->>'status' = 'posting' RETURNING id`,
+          [id, posted.url, posted.urn],
+        );
+        if (recorded.rows.length !== 1) throw new Error('The published article was not updated.');
+      } catch (recordError) {
+        console.error(`[linkedin] Posted ${posted.url} but could not record it on ${id}:`, recordError);
+        warning = 'Posted to LinkedIn, but Athena could not record the post or move the article to Published. Do not post it again; use the LinkedIn link to check it.';
+      }
+      res.json({ success: true, data: { ...posted, ...(warning !== undefined && { warning }) } });
     } catch (err) { next(err); }
   })();
 });

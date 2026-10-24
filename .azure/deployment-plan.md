@@ -2,6 +2,47 @@
 
 **Status:** Validated
 
+**Section 7: Validation Proof (2026-10-24, LinkedIn publishing):**
+- Fetched origin and merged origin/main: already current at a3aef6c.
+- Azure CLI 2.79.0 authenticated to Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28). Existing backend v242 and
+  kh-prod-web confirmed; release image v243. Existing production runbook
+  fixes the subscription/resource group/location; no resource provisioning.
+- Both `npx --no-install tsc --noEmit` and `npm run build` passed.
+  Lint non-regression passed: backend 561 existing violations against 623;
+  frontend 23 against 41. `git diff --check` passed.
+- One credential-free isolated release suite per app passed: backend 477/477;
+  frontend 207/207 plus 20/20 bundled UI checks. Feature checks also passed
+  standalone during implementation, including concurrent claims, uncertain
+  outcomes, account mismatch, encrypted credential save and modal states.
+- Tests use synthetic articles, isolated PGlite and intercepted provider calls;
+  no production records or real LinkedIn posts were created.
+- Dockerfile/lockfile and migration packaging reviewed unchanged. No new
+  dependencies, migrations, resources or IAM assignments. Registry remains
+  secret-based with identity None; managed-identity role checks and provisioning,
+  Bicep/template/what-if and new-resource policy checks are not applicable.
+- Build and suite logs: session files/linkedin-release-{backend,frontend}-{build,tests}.log.
+  Preserve unrelated .impeccable/hook.cache.json. Token remains user-configured.
+
+**Release scope (2026-10-24, LinkedIn publishing):**
+- Deploy reviewed personal-profile LinkedIn publishing from Discover, encrypted
+  member-token configuration, account-specific confirmation and duplicate guards.
+- User explicitly requested deployment. Preserve existing hosting, database
+  content, secrets and IAM; no migrations, dependencies or infrastructure changes.
+- Sync origin/main before building; publish synced source to feature and main.
+- All validation checks must pass:
+  - Confirm Azure authentication, existing Container App and Static Web App targets.
+  - Run both TypeScript checks, production builds and lint non-regression checks.
+  - Run one isolated release suite per app; rerun only failed/affected checks.
+  - Review unchanged Dockerfile, lockfile and migration packaging.
+  - Existing secret-based registry authentication, no managed identity or IAM
+    changes; provisioning, Bicep/template/what-if and new-resource policy checks
+    are not applicable to this application-only AZCLI release.
+- Build v243 with ACR from synced main; verify healthy ready revision, traffic
+  and startup. Upload validated frontend and verify its served asset hash.
+- LinkedIn token remains user-configured; do not send real LinkedIn posts or
+  write a token during deployment verification.
+
 **Release scope (2026-10-24):**
 - Implement resumable whole-document reading with bounded per-step context,
   durable private reading checkpoints, complete page coverage and explicit

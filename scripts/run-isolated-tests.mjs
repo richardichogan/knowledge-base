@@ -8,6 +8,7 @@ const frontend = process.argv.includes('--frontend');
 const tests = frontend ? [
   '../knowledge-hub-web/tests/noteText.test.ts',
   '../knowledge-hub-web/tests/knowledgeHealthModel.test.ts',
+  '../knowledge-hub-web/tests/socialLength.test.ts',
   '../knowledge-hub-web/tests/completionNotification.test.ts',
   '../knowledge-hub-web/tests/athenaMotion.test.tsx',
   '../knowledge-hub-web/tests/athenaMarkElement.test.ts',
@@ -60,6 +61,9 @@ const tests = frontend ? [
   'scripts/company-relationships.test.ts',
   'scripts/youtube-discovery.test.ts',
   'scripts/share-email.test.ts',
+  'scripts/linkedin.test.ts',
+  'scripts/linkedin-draft.test.ts',
+  'scripts/bluesky.test.ts',
   'scripts/mural.test.ts',
   'scripts/focused-context.test.ts',
   'scripts/project-context.test.ts',
@@ -133,7 +137,7 @@ if (frontend) {
   // bundle in memory so isolated runs never leave generated test files behind.
   const require = createRequire(resolve(web, 'package.json'));
   const { build } = require('esbuild');
-  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx']) {
+  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx', 'tests/linkedinPublishing.test.tsx']) {
     const bundle = await build({
       absWorkingDir: web,
       entryPoints: [entry],

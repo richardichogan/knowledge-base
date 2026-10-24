@@ -620,6 +620,36 @@ secret) and optionally `BLUESKY_IDENTIFIER` (default `richardihogan.bsky.social`
 Without the password the button is hidden and copy-and-paste still works.
 Tests: `node --import tsx/esm --test scripts\bluesky.test.ts`.
 
+**Post to LinkedIn** (Discover articles, **LinkedIn** format) publishes the reviewed
+copy and original link publicly to your connected **personal profile**, with an
+article link attachment. Athena checks the account and names it in the confirmation
+before publishing. It enforces a 3,000-character limit including the URL, records
+the post link, moves the article to **Published**, and prevents duplicate posts.
+LinkedIn and Bluesky have independent publishing records, so an article can be
+shared once to each. Inbox emails cannot be posted directly to either service.
+Copying remains available without credentials and does not publish to LinkedIn.
+
+Setup uses LinkedIn's supported [OAuth token generator](https://www.linkedin.com/developers/tools/oauth/token-generator):
+create a LinkedIn developer app, enable **Share on LinkedIn** and **Sign In with
+LinkedIn using OpenID Connect**, and authorise `openid`, `profile` and
+`w_member_social` for your own profile. Add the resulting **access token** in
+**My Work > Sync Status > Connection tokens and API keys > LinkedIn**. Tokens
+are checked against LinkedIn's member endpoint and stored encrypted/write-only
+using Athena's existing credential storage. Account verification does not prove
+publishing permission; LinkedIn checks `w_member_social` when posting. Alternatively
+set backend `LINKEDIN_ACCESS_TOKEN` (an ACA secret reference in production).
+Never use your LinkedIn password, paste the token in chat or expose it in frontend
+configuration. Tokens expire: renew in the same card; there is no automatic
+refresh, in-app OAuth sign-in, company Page posting, feed sync or analytics.
+
+A timeout, server error or unverifiable publish response leaves a protected
+**unconfirmed** claim. Athena does not automatically retry or mark the article
+Published; check your LinkedIn profile first. If publication succeeds but saving
+the result fails, Athena shows the live post link and an explicit recording
+warning rather than claiming that the workflow update succeeded.
+Targeted tests: from `knowledge-hub-backend`, run
+`node --import tsx/esm --test scripts/linkedin.test.ts scripts/linkedin-draft.test.ts scripts/bluesky.test.ts`.
+
 Browser alerts and confirmations use Athena's styled in-app dialogs throughout
 the web app, with focus trapping, Escape dismissal and Cancel as the initial
 focus for destructive actions.

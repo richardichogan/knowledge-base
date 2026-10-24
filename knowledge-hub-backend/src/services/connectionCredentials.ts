@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { connectionCredentials, replaceCredentialValues, setCredentialValue, type CredentialName } from '../config/credentialValues.js';
 import { EXTERNAL_FETCH_TIMEOUT_MS } from '../config/constants.js';
 import { ConfigurationError, IntegrationError, NotFoundError, ValidationError } from '../types/errors.js';
+import { getLinkedInMember } from '../integrations/social/linkedin.js';
 
 const PREFIX = 'connection-credential:';
 const MIN_ENCRYPTION_KEY_CHARS = 32;
@@ -86,6 +87,10 @@ export async function listConnectionCredentials(db: Pool): Promise<ConnectionCre
 }
 
 async function checkToken(id: string, value: string): Promise<boolean> {
+  if (id === 'linkedin') {
+    await getLinkedInMember(value);
+    return true;
+  }
   if (id !== 'gitlab' && id !== 'github' && id !== 'github-agents') return false;
   const isGitlab = id === 'gitlab';
   const url = isGitlab ? `${env.GITLAB_BASE_URL.replace(/\/$/, '')}/api/v4/user` : 'https://api.github.com/user';

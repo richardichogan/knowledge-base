@@ -183,6 +183,7 @@ export const env = {
   BLUESKY_IDENTIFIER: optionalWithDefault('BLUESKY_IDENTIFIER', 'richardihogan.bsky.social'),
   get BLUESKY_APP_PASSWORD() { return credentialValue('BLUESKY_APP_PASSWORD', optional('BLUESKY_APP_PASSWORD')); },
   BLUESKY_SERVICE: optionalWithDefault('BLUESKY_SERVICE', 'https://bsky.social'),
+  get LINKEDIN_ACCESS_TOKEN() { return credentialValue('LINKEDIN_ACCESS_TOKEN', optional('LINKEDIN_ACCESS_TOKEN')); },
 
   // SMTP (newsletter via SMTP2GO)
   SMTP_HOST: optionalWithDefault('SMTP_HOST', 'mail.smtp2go.com'),
