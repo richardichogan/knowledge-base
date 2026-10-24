@@ -2020,10 +2020,9 @@ All validation checks pass:
 - Frontend `npx --no-install tsc --noEmit` and `npm run build` passed.
   The isolated frontend suite passed (208/208 in its main group; additional
   groups also passed) in the release run.
-- The initial backend suite exposed a referenced-material routing regression;
-  after fixing it, dialogue and focused-context regressions passed 45/45. The
-  read-only test that had triggered a Rosetta abort in the suite passed
-  separately, 2/2.
+- The backend `npm run test:isolated` suite passed 513/513. Dialogue and
+  focused-context regressions passed 45/45 after fixing referenced-material
+  retrieval during exploratory turns.
 - Dockerfile and lockfile were reviewed; the Docker build copies all numbered
   SQL migrations into the production image. Migration 098 is exact-match and
   transactional under the existing startup migration runner.
