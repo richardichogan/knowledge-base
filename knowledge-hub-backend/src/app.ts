@@ -53,6 +53,7 @@ import { knowledgeHealthRouter } from './routes/knowledgeHealth.js';
 import { knowledgeIndexingAdminRouter } from './routes/knowledgeIndexingAdmin.js';
 import { semanticDecisionsRouter } from './routes/semanticDecisions.js';
 import { jobsRouter } from './routes/jobs.js';
+import { publishingRouter } from './routes/publishing.js';
 import { env } from './config/env.js';
 import type { RuntimePhase } from './runtime.js';
 const SERVICE_UNAVAILABLE = 503;
@@ -182,6 +183,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/knowledge', knowledgeIndexingAdminRouter);
   app.use('/api/semantic/decisions', semanticDecisionsRouter);
   app.use('/api/jobs', jobsRouter);
+  app.use('/api/publishing', publishingRouter);
 
   // ── 404 handler ───────────────────────────────────────────────────────────
   app.use((_req: Request, res: Response) => {

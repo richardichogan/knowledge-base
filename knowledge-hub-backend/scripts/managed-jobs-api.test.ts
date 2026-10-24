@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import express from 'express';
 import { PGlite } from '@electric-sql/pglite';
 import type { Pool } from 'pg';
+import { addPublishingSchema } from './publishing-fixture.js';
 
 process.env.DATABASE_URL = 'postgresql://isolated.invalid/jobs-api';
 const { createJobsRouter } = await import('../src/routes/jobs.js');
@@ -15,6 +16,7 @@ const { errorHandler } = await import('../src/middleware/errorHandler.js');
 test('chat and UI share versioned jobs; confirmation is a user endpoint, not a model boolean', async () => {
   const pg = new PGlite();
   await pg.exec(readFileSync(new URL('../src/db/migrations/099_managed_jobs.sql', import.meta.url), 'utf8'));
+  await addPublishingSchema(pg);
   const query = async (sql: string, values?: unknown[]) => {
     const r = await pg.query(sql, values); return { ...r, rowCount: r.affectedRows ?? r.rows.length };
   };

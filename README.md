@@ -256,6 +256,46 @@ cannot clear another turn's metadata. Live reconnect remains in-memory while the
 process survives. These safeguards assume the existing single-replica deployment;
 do not enable multiple replicas without lease/ownership recovery changes.
 
+## Discover publishing feeds
+
+**Discover → Publishing** has two posting-automation switches: **Bluesky** and
+**Blog / LinkedIn**, both initially **off**. Off pauses new publication, not
+editorial preparation; a request already in flight cannot be recalled.
+The existing 06:00 and 13:00 UK content sync is unchanged. Sync only supplies
+candidates; an independent production worker selects, reads, drafts and reviews.
+It assesses at most 12 topics per rolling 24 hours, four distinct sources per
+topic, with at most two automatic revisions. Unreadable, oversized or excessive
+source evidence is held rather than silently omitted.
+
+Review shows source text, selection reasons, accuracy/voice findings, immutable
+versions and separate human blog/LinkedIn approvals. Editing invalidates
+approval; changing the blog also invalidates hook consistency and approval.
+Publication waits for both approvals and a current passed review. Blog-first
+delivery verifies the final public article before binding its URL into social
+copy. Blog delivery is never repeated just because a social destination failed.
+Upcoming, History and Audit expose holds, expiry, receipts and reconciliation.
+Athena can inspect this same state and propose confirmed feed settings from any
+chat; it cannot grant publishing approvals or reconcile outcomes itself.
+
+Default opportunities are 08:00–20:00 Europe/London, all week. Policies expose
+days, timezone, window, expiry and editorial guidance. Bluesky is capped at
+four/day with two-hour spacing; LinkedIn at three/day with three-hour spacing.
+These are ceilings, never targets. Blog-linked Bluesky shares the same cap;
+same-event follow-ups require a distinct argument and a 24-hour gap. Queued
+source promotion is held when a blog argument supersedes it.
+
+The account-wide ledger includes Athena's Jobs and manual Discover social posts,
+not posts made directly on the platforms. Legacy Discover receipts did not store
+an account, so recent/unresolved legacy posts are conservatively attributed to
+the currently selected account. Unknown outcomes reserve capacity until a human
+reconciles them; they are never blindly retried. Confirmed rate-limit rejections
+retry after 5/15/60 minutes; configuration/permanent failures require a user
+decision. Reconciliation records the actual post URL and publication time.
+All writes and worker execution are disabled on development servers because
+local development uses the production content database. Migration 100 runs only
+through normal backend startup/deployment; isolated tests use PGlite and fake
+readers/models/delivery adapters.
+
 ## Email account connection list
 
 **Tools → Connections and sync** lists the Alliance, Hotmail, and Gmail

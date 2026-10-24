@@ -17,6 +17,7 @@
 
 import { validateNoteEdits, checkEditsAgainstNote, noteHeadings } from './noteEdits.js';
 import { JOB_TOOL, executeJobTool } from './jobTools.js';
+import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
 import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
@@ -75,6 +76,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const tavilyTools = await getTavilyMcpTools();
   return [
     JOB_TOOL,
+    PUBLISHING_TOOL,
     ...DEMO_SPECIFICATION_TOOLS,
     REVIEW_DECISIONS_DEFINITION,
     {
@@ -812,6 +814,7 @@ export async function executeToolCall(
       ? { ...args, projectId: activeProjectId }
       : args;
   if (name === 'manage_scheduled_jobs') return executeJobTool(db, args, turn.sessionId);
+  if (name === 'manage_publishing_feeds') return executePublishingTool(db, args, turn.sessionId);
 
   if (turn.exclusionsFailed === true && EXCLUSION_GATED_TOOLS.has(name)) return EXCLUSIONS_UNAVAILABLE_RESULT;
   if (isOutsideCollectionTool(name, turn.retrievalScope)) {

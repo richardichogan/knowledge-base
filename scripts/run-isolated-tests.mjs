@@ -56,6 +56,8 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/decisionSemantics.test.tsx',
 ] : [
   'scripts/managed-jobs.test.ts',
+  'scripts/publishing.test.ts',
+  'scripts/publishing-api.test.ts',
   'scripts/managed-jobs-api.test.ts',
   'scripts/memory-suggestions.test.ts',
   'scripts/graph-atlas.test.ts',
@@ -140,7 +142,7 @@ if (frontend) {
   // bundle in memory so isolated runs never leave generated test files behind.
   const require = createRequire(resolve(web, 'package.json'));
   const { build } = require('esbuild');
-  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx', 'tests/linkedinPublishing.test.tsx', 'tests/jobsReview.test.tsx']) {
+  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx', 'tests/linkedinPublishing.test.tsx', 'tests/jobsReview.test.tsx', 'tests/publishingFeeds.test.tsx']) {
     const bundle = await build({
       absWorkingDir: web,
       entryPoints: [entry],

@@ -2,6 +2,40 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-24, Discover publishing):**
+- User explicitly requested deployment of the completed coordinated publishing
+  feeds and the local Jobs field-alignment fix. Existing Azure Container Apps
+  and Static Web Apps targets only; no dependency, infrastructure, credential,
+  RBAC or Electron changes.
+- `git fetch origin && git merge origin/main` reported already current.
+  `git diff --check` passed. Azure CLI confirmed Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`), backend v245 and `kh-prod-web`.
+- All validation checks pass:
+  - [x] Both applications: `npm run typecheck` (`tsc --noEmit`).
+  - [x] Both lint non-regression checks: backend 556/623, frontend 23/41.
+  - [x] One isolated release suite per application. Frontend 223 tests plus
+    24 bundled UI tests passed. Backend initially 529/532: two older social
+    fixtures needed delivery-ledger support; one calendar test encountered
+    delayed auto-tagging under parallel load. Updated only the social fixtures,
+    then reran both social files (12/12) and calendar file (5/5), all passed.
+    The obsolete hanging LinkedIn fixture was stopped, not the full suite
+    restarted. New publishing tests completed successfully in the release run.
+  - [x] Both local production builds passed; backend typecheck repeated after
+    test-fixture changes. No production DB access or real provider posts.
+  - [x] Dockerfile uses existing package-lock and copies every SQL migration
+    into `dist/db/migrations`, including additive migration 100. It seeds both
+    feed automation switches OFF; existing content sync remains unchanged.
+- Bicep/what-if, policy and role provisioning are not applicable: application
+  update to existing resources, unchanged registry secret-reference auth and
+  Container App identity None. Use the established Azure CLI deployment recipe.
+- Logs: session `files/publishing-backend-release.log`,
+  `files/publishing-web-release.log`, `files/publishing-social-release-retest.log`
+  and `files/publishing-calendar-release-retest.log`.
+- Push identical source to feature branch and main, build next backend image
+  from GitHub main, deploy both apps, verify revision/startup/migration and
+  matching served frontend asset. Leave automation OFF and do not trigger posts.
+  Preserve unrelated `.impeccable/hook.cache.json`.
+
 **Release scope and Section 7: Validation Proof (2026-10-24, Jobs modal):**
 - User requested a quick deployment of the completed Jobs modal/style refinement
   and mandatory design-guide repository instructions. Frontend-only release to

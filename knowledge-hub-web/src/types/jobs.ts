@@ -19,5 +19,6 @@ export interface JobEvent {
   id: string; jobId: string; runId: string | null; actor: string; event: string; detail: unknown; createdAt: string;
 }
 export interface JobProposal {
-  id: string; payload: { operation: 'save' | 'run' | 'approve'; definition: JobDefinition; enabled?: boolean; preview?: boolean; artifacts?: Record<string, unknown> };
+  id: string; payload: { operation: 'save' | 'run' | 'approve'; definition: JobDefinition; enabled?: boolean; preview?: boolean; artifacts?: Record<string, unknown> }
+    | { operation: 'feed-settings'; id: import('./publishing').FeedId; revision: number; enabled: boolean; policy: import('./publishing').FeedPolicy };
 }

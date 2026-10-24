@@ -6,6 +6,7 @@ import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
 import { parseJob, readyToEnable, type JobDefinition, type JobRun } from '../src/jobs/contracts.js';
 import { nextOccurrence, occurrences } from '../src/jobs/schedule.js';
+import { addPublishingSchema } from './publishing-fixture.js';
 
 process.env.DATABASE_URL = 'postgresql://isolated.invalid/jobs';
 process.env.BLOG_POSTS_API_KEY = 'fixture-not-a-secret';
@@ -21,8 +22,10 @@ const definition = (overrides: Partial<JobDefinition> = {}): JobDefinition => ({
 async function fixture(): Promise<{ pg: PGlite; db: Pool }> {
   const pg = new PGlite();
   await pg.exec(migration);
+  await addPublishingSchema(pg);
   await pg.exec('CREATE TABLE sync_state(source TEXT PRIMARY KEY,last_cursor TEXT)');
   const query = async (sql: string, values?: unknown[]) => {
+    if (sql.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 0 };
     const result = await pg.query(sql, values);
     return { ...result, rowCount: result.affectedRows ?? result.rows.length };
   };
@@ -195,11 +198,14 @@ test('blog URL gates socials; a partial social failure resumes without reposting
     claim.run.artifacts = artifacts;
     claim.run.steps = [{ key: 'generate', status: 'succeeded', startedAt: new Date().toISOString(), result: artifacts }];
     const counts = { blog: 0, bluesky: 0, linkedin: 0 };
-    const url = 'https://published.fixture.invalid/update';
+    const url = 'https://blog.fixture.invalid/update';
+    const publicText = 'A practical change for administrators. '.repeat(10);
+    artifacts.blog.content = `<p>${publicText}</p>`;
     const delivery = {
       blog: async () => { counts.blog++; return { httpStatus: 200, payload: { success: true as const, data: { url, editUrl: null, status: 'published' as const } } }; },
       bluesky: async (_copy: string, link: { url: string } | null) => { assert.equal(link?.url, url); counts.bluesky++; return { uri: 'fixture-uri', url: 'https://bsky.app/fixture' }; },
-      linkedin: async (_copy: string, link: { url: string } | null) => { assert.equal(link?.url, url); counts.linkedin++; if (counts.linkedin === 1) throw new Error('Definite rejection'); return { urn: 'fixture-urn', url: 'https://www.linkedin.com/fixture' }; },
+      linkedin: async (_copy: string, link: { url: string } | null) => { assert.equal(link?.url, url); counts.linkedin++; if (counts.linkedin === 1) throw new (await import('../src/types/errors.js')).IntegrationError('linkedin', 'Definite rejection'); return { urn: 'fixture-urn', url: 'https://www.linkedin.com/fixture' }; },
+      read: async () => ({ title: artifacts.blog.title, text: publicText }),
     };
     await executeRun(db, claim.run, claim.lease, delivery);
     assert.equal((await store.getRun(db, run.id)).status, 'partial');
@@ -227,5 +233,34 @@ test('a blog response with no public URL becomes unconfirmed and neither social 
     });
     assert.equal((await store.getRun(db, claim.run.id)).status, 'unconfirmed');
     assert.equal(claim.run.steps.find(s => s.key === 'blog')!.status, 'unconfirmed');
+  } finally { await pg.close(); }
+});
+test('pacing the final social destination keeps the job queued and preserves independent successful posts', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const job = await store.saveJob(db, undefined, 0, definition({ approval: 'automatic', outputs: ['blog', 'bluesky', 'linkedin'] }), true, 'user');
+    await store.enqueue(db, job, new Date(), 'manual:pace', false, 'user');
+    const claim = (await store.leaseRun(db))!;
+    const prose = 'A documented practical change for administrators with clear permissions and a deployment path. '.repeat(10);
+    const blog = { title: 'A practical update', summary: 'A useful change.', content: `<p>${prose}</p>`, excerpt: '' };
+    const receipt = { url: 'https://blog.fixture.invalid/article', status: 'published' };
+    claim.run.artifacts = { markdown: 'Fixture', blog, bluesky: 'A practical administration update.', linkedin: 'The practical implications.',
+      linkedinAccount: { id: 'member' }, publishTargets: { blogHost: 'blog.fixture.invalid', blueskyAccount: env.BLUESKY_IDENTIFIER ?? '(not connected)' } };
+    claim.run.steps = [
+      { key: 'generate', status: 'succeeded', startedAt: new Date().toISOString(), result: claim.run.artifacts },
+      { key: 'blog', status: 'succeeded', startedAt: new Date().toISOString(), result: receipt },
+    ];
+    await db.query(`INSERT INTO publishing_deliveries(identity,destination,account,status,published_at) VALUES('earlier','linkedin','member','sent',NOW())`);
+    let blueSends = 0;
+    const deliveries = {
+      blog: async (): Promise<never> => { assert.fail('The accepted blog must not be republished.'); },
+      bluesky: async () => { blueSends++; return { uri: 'uri', url: 'https://bsky.app/fixture' }; },
+      linkedin: async (): Promise<never> => { assert.fail('LinkedIn must wait for its account-wide spacing.'); },
+      read: async () => ({ title: blog.title, text: prose }),
+    };
+    await executeRun(db, claim.run, claim.lease, deliveries);
+    assert.equal(claim.run.status, 'queued'); assert.equal(blueSends, 1);
+    await executeRun(db, claim.run, claim.lease, deliveries);
+    assert.equal(claim.run.status, 'queued'); assert.equal(blueSends, 1);
   } finally { await pg.close(); }
 });

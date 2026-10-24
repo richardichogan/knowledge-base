@@ -66,10 +66,19 @@ export function JobChatConfirmations({ sessionId }: { sessionId: string | null }
   return <section className="kh-jobs kh-jobs--chat" aria-label="Job confirmations">
     {error && <p role="alert" className="kh-jobs__error">{error}</p>}
     {items.map(item => <article className="kh-jobs__card" key={item.id}>
-      <h3>{item.payload.operation === 'save' ? 'Review job configuration' : item.payload.operation === 'approve' ? 'Approve delivery' : item.payload.preview ? 'Preview job' : 'Run job now'}</h3>
-      <JobSummary definition={item.payload.definition} />
-      {item.payload.artifacts && <JobArtifacts value={item.payload.artifacts} />}
-      <p>{item.payload.operation === 'save' ? item.payload.enabled ? 'Confirming enables this schedule and its stated permissions.' : 'This will save a paused draft.' : 'Confirm only after reviewing the configuration and outgoing content.'}</p>
+      {item.payload.operation === 'feed-settings' ? <>
+        <h3>Review {item.payload.id === 'bluesky' ? 'Bluesky' : 'Blog / LinkedIn'} automation</h3>
+        <p>Posting automation: <strong>{item.payload.enabled ? 'On' : 'Off'}</strong></p>
+        <p>{item.payload.policy.startHour}:00–{item.payload.policy.endHour}:00 · {item.payload.policy.timezone} · {item.payload.policy.days.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}</p>
+        <p>Expires after {item.payload.policy.expiryHours} hours. {item.payload.policy.guidance || 'Standing editorial guidance applies.'}</p>
+        <p>Editorial checks and daily limits still apply. Blog and LinkedIn each require human approval.</p>
+        <a href="/discover?publishing=1">Open publishing review</a>
+      </> : <>
+        <h3>{item.payload.operation === 'save' ? 'Review job configuration' : item.payload.operation === 'approve' ? 'Approve delivery' : item.payload.preview ? 'Preview job' : 'Run job now'}</h3>
+        <JobSummary definition={item.payload.definition} />
+        {item.payload.artifacts && <JobArtifacts value={item.payload.artifacts} />}
+        <p>{item.payload.operation === 'save' ? item.payload.enabled ? 'Confirming enables this schedule and its stated permissions.' : 'This will save a paused draft.' : 'Confirm only after reviewing the configuration and outgoing content.'}</p>
+      </>}
       <div className="kh-jobs__actions">
         <button type="button" disabled={busy} onClick={() => { void decide(item.id, true); }}>Confirm</button>
         <button type="button" disabled={busy} onClick={() => { void decide(item.id, false); }}>Reject</button>

@@ -80,6 +80,7 @@ export function focusTools(
   return tools.filter((tool) => {
     const name = tool.function.name;
     if (name === 'manage_scheduled_jobs' && !wantsJobs) return false;
+    if (name === 'manage_publishing_feeds' && !wantsJobs && !/\b(?:publish\w*|posting|bluesky|bsky|linkedin|editorial|blog)\b/i.test(text)) return false;
     if (name === 'get_demo_specification_template' || name === 'create_demo_specification') return wantsDemoSpecification;
     if (STRUCTURED_TOOL_NAMES.has(name)) return wantsStructured;
     if (name === 'traverse_relationships') return wantsTraversal;

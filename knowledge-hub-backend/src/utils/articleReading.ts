@@ -47,7 +47,7 @@ export function readingExcerpt(text: string, maxChars = MAX_READING_CHARS): { te
 }
 
 /** Shared public-page read for article Sparks and chat; redirects and byte buffering are bounded. */
-export async function readPublicPage(url: string): Promise<{ title: string; text: string }> {
+export async function readPublicPage(url: string): Promise<{ title: string; text: string; finalUrl?: string }> {
   const response = await fetchPublic(url, {
     headers: { 'User-Agent': 'AthenaArticleReader/1.0', Accept: 'text/html, text/plain, application/json, application/xml, text/xml' }, timeoutMs: PAGE_TIMEOUT_MS,
   });
@@ -70,5 +70,5 @@ export async function readPublicPage(url: string): Promise<{ title: string; text
   } finally { await reader.cancel(); }
   const html = /text\/html/i.test(type);
   return { title: html ? decodeEntities(/<title[^>]*>([^<]*)<\/title>/i.exec(raw)?.[1] ?? new URL(url).hostname) : new URL(url).hostname,
-    text: html ? articleProse(raw, response.url || url) : raw.trim() };
+    text: html ? articleProse(raw, response.url || url) : raw.trim(), finalUrl: response.url || url };
 }

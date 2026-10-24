@@ -10,6 +10,7 @@ import { getDb } from '../src/db/db.js';
 import { discoverRouter } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { listConnectionCredentials, updateConnectionCredential } from '../src/services/connectionCredentials.js';
+import { publishingFixture } from './publishing-fixture.js';
 
 const articleId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const member = { sub: 'fixture-member', name: 'Fixture Author' };
@@ -117,13 +118,14 @@ interface RouteFixture {
 }
 
 async function routeFixture(run: (fixture: RouteFixture) => Promise<void>): Promise<void> {
-  const pg = new PGlite();
-  await pg.exec(`CREATE TABLE content_items(id uuid PRIMARY KEY, source text, title text, url text, workflow_state text, metadata jsonb)`);
-  await pg.query("INSERT INTO content_items VALUES ($1,'discovered-article','Article',$2,'to-review',NULL)", [articleId, articleUrl]);
+  const fixture = await publishingFixture();
+  const { pg } = fixture;
+  await pg.query("INSERT INTO content_items(id,source,title,url,workflow_state,metadata) VALUES ($1,'discovered-article','Article',$2,'to-review',NULL)", [articleId, articleUrl]);
   let fail = false;
+  const connect = mock.method(getDb(), 'connect', fixture.db.connect.bind(fixture.db));
   const query = mock.method(getDb(), 'query', async (sql: string, params?: unknown[]) => {
     if (fail && sql.includes("workflow_state = 'published'")) throw new Error('Fixture recording failure');
-    return pg.query(sql, params);
+    return fixture.db.query(sql, params);
   });
   setCredentialValue('LINKEDIN_ACCESS_TOKEN', token);
   const app = express();
@@ -158,7 +160,7 @@ async function routeFixture(run: (fixture: RouteFixture) => Promise<void>): Prom
       state: async () => (await pg.query<{ state: PostState | null }>("SELECT metadata->'linkedinPost' AS state FROM content_items WHERE id=$1", [articleId])).rows[0]!.state,
     });
   } finally {
-    network.mock.restore(); query.mock.restore(); replaceCredentialValues(new Map());
+    network.mock.restore(); query.mock.restore(); connect.mock.restore(); replaceCredentialValues(new Map());
     await new Promise<void>(resolve => { server.close(() => { resolve(); }); });
     await pg.close();
   }
@@ -213,13 +215,16 @@ test('definite LinkedIn rejection releases the claim but uncertain outcomes bloc
     fixture.setPublish(async () => new Response(null, { status: 403 }));
     assert.equal((await fixture.send()).status, 502);
     assert.equal(await fixture.state(), null);
+    assert.equal((await fixture.send()).status, 409, 'a definite failure remains held until explicitly reset');
+  });
+  await routeFixture(async fixture => {
     fixture.setPublish(async () => { throw new Error('Fixture network timeout'); });
     assert.equal((await fixture.send()).status, 502);
     assert.equal((await fixture.state())?.status, 'unconfirmed');
     const article = (await fixture.pg.query<{ workflow_state: string }>('SELECT workflow_state FROM content_items WHERE id=$1', [articleId])).rows[0]!;
     assert.equal(article.workflow_state, 'to-review');
     assert.equal((await fixture.send()).status, 409);
-    assert.equal(fixture.postCalls(), 2);
+    assert.equal(fixture.postCalls(), 1);
   });
 });
 

@@ -9,6 +9,7 @@ import { env } from '../src/config/env.js';
 import { getDb } from '../src/db/db.js';
 import { discoverRouter } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
+import { publishingFixture } from './publishing-fixture.js';
 
 const url = 'https://example.com/news/article';
 
@@ -30,12 +31,15 @@ test('rejects empty and over-length posts before signing in', () => {
 });
 
 test('post route claims the article atomically so concurrent or repeat requests cannot double-post', async () => {
+  const fixture = await publishingFixture();
   const id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
   const password = mock.getter(env, 'BLUESKY_APP_PASSWORD', () => undefined);
   let blueskyPost: { status: string; url?: string } | null = null;
   let claims = 0;
   let releaseGate: Promise<void> = Promise.resolve();
+  const connect = mock.method(getDb(), 'connect', fixture.db.connect.bind(fixture.db));
   const query = mock.method(getDb(), 'query', async (sql: string, values: unknown[]) => {
+    if (!sql.includes('content_items') || sql.includes('publishing_deliveries')) return fixture.db.query(sql, values);
     assert.equal(values[0], id);
     if (/'posting', 'claimedAt'/.test(sql)) {
       assert.match(sql, /metadata->'blueskyPost' IS NULL/);
@@ -93,7 +97,9 @@ test('post route claims the article atomically so concurrent or repeat requests 
   } finally {
     network.mock.restore();
     query.mock.restore();
+    connect.mock.restore();
     password.mock.restore();
     await new Promise<void>((resolve) => { server.close(() => { resolve(); }); });
+    await fixture.close();
   }
 });

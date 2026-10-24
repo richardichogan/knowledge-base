@@ -9,6 +9,8 @@ import { object, parseJob, text, JOB_LIMITS } from '../jobs/contracts.js';
 import { audit, decideRun, enqueue, getJob, getRun, leaseRun, listJobs, pauseJob, persistRun, releaseRun, retryRun, runColumns, saveJob } from '../jobs/store.js';
 import { localClock, nextOccurrence } from '../jobs/schedule.js';
 import { captureDailyInsights } from '../services/dailyInsights.js';
+import { feedId } from '../publishing/contracts.js';
+import { saveFeed } from '../publishing/store.js';
 
 export function createJobsRouter(getDb: () => Pool = defaultGetDb): Router {
 const jobsRouter = Router();
@@ -50,7 +52,8 @@ jobsRouter.post('/proposals/:id/confirm', route(async req => {
   if (!p) throw new ConflictError('Proposal already handled.', 'JOB_CONFLICT');
   try {
     let result: unknown;
-    if (p.operation === 'save') result = await saveJob(db, p.id ? uuid(p.id) : undefined, p.id ? revision(p.revision) : 0, p.definition, p.enabled === true, `chat:${actor(req)}`);
+    if (p.operation === 'feed-settings') result = await saveFeed(db, feedId(p.id), p.revision, p.enabled, p.policy, `chat:${actor(req)}`);
+    else if (p.operation === 'save') result = await saveJob(db, p.id ? uuid(p.id) : undefined, p.id ? revision(p.revision) : 0, p.definition, p.enabled === true, `chat:${actor(req)}`);
     else if (p.operation === 'approve') { await decideRun(db, uuid(p.runId), true, `chat:${actor(req)}`); result = await getRun(db, uuid(p.runId)); }
     else if (p.operation === 'run') {
       const job = await getJob(db, uuid(p.id));
@@ -143,6 +146,10 @@ jobsRouter.post('/runs/:runId/reconcile', route(async req => {
     WHERE id=$1 AND status='unconfirmed' AND updated_at=$4 AND (lease_until IS NULL OR lease_until<NOW()) RETURNING id`,
   [run.id, JSON.stringify(run.steps), status, run.updatedAt]);
   if (!changed.rowCount) throw new ConflictError('Run changed; reload before reconciling.', 'JOB_CONFLICT');
+  if (key === 'bluesky' || key === 'linkedin') await db.query(`UPDATE publishing_deliveries SET status=$2,receipt=$3,
+    published_at=CASE WHEN $2='sent' THEN NOW() ELSE NULL END,next_attempt_at=CASE WHEN $2='failed' THEN NOW() ELSE NULL END,error=NULL
+    WHERE identity=$1 AND destination=$4 AND status IN ('sending','unconfirmed','failed')`,
+  [`jobs:${run.id}:${key}`, b.delivered ? 'sent' : 'failed', JSON.stringify(result), key]);
   await audit(db, run.jobId, run.id, actor(req), 'delivery-reconciled', { step: key, delivered: b.delivered, result });
   return getRun(db, run.id);
 }));

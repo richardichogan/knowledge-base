@@ -21,6 +21,7 @@ import { getDiscoverParking, saveDiscoverParking, removeDiscoverParking, type Di
 import { resolveDiscoveryFeed, readYouTubeVideo } from '../integrations/discovery/youtube.js';
 import { collectYouTubeEvidence, relatedYouTubeArticles } from '../integrations/discovery/youtubeEvidence.js';
 import { upsertContentItem } from '../db/queries.js';
+import { deliver, destinationAccount, PublicationUnconfirmed } from '../publishing/delivery.js';
 
 export const discoverRouter = Router();
 
@@ -163,10 +164,12 @@ discoverRouter.post('/:id/linkedin-post', (req: Request, res: Response, next: Ne
         throw new ValidationError('Review the connected LinkedIn account before posting.');
       }
       composeLinkedInText(body.post, null);
+      const copy = body.post;
+      const memberId = body.memberId;
       const db = getDb();
       const { rows } = await db.query<{ title: string; url: string | null }>(
         `UPDATE content_items
-           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('linkedinPost', jsonb_build_object('status', 'posting', 'claimedAt', NOW()))
+           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('linkedinPost', jsonb_build_object('status', 'posting', 'claimedAt', NOW(), 'ledgerManaged', TRUE))
          WHERE id = $1 AND source = 'discovered-article' AND metadata->'linkedinPost' IS NULL
          RETURNING title, url`, [id],
       );
@@ -187,10 +190,11 @@ discoverRouter.post('/:id/linkedin-post', (req: Request, res: Response, next: Ne
       let posted;
       try {
         const link = sourceUrl(item.url);
-        posted = await postToLinkedIn(body.post, link ? { url: link, title: item.title } : null, body.memberId);
+        posted = await deliver(db, 'linkedin', memberId, { identity: `discover:${id}` },
+          () => postToLinkedIn(copy, link ? { url: link, title: item.title } : null, memberId));
       } catch (err) {
         try {
-          if (err instanceof LinkedInPostUnconfirmedError) {
+          if (err instanceof LinkedInPostUnconfirmedError || err instanceof PublicationUnconfirmed) {
             await db.query(
               `UPDATE content_items SET metadata = jsonb_set(metadata, '{linkedinPost,status}', '"unconfirmed"')
                WHERE id = $1 AND metadata->'linkedinPost'->>'status' = 'posting'`, [id],
@@ -236,7 +240,7 @@ discoverRouter.post('/:id/bluesky-post', (req: Request, res: Response, next: Nex
       // Atomic claim: only one request can move the article from "never posted" to "posting".
       const { rows } = await db.query<{ title: string; body: string; url: string | null }>(
         `UPDATE content_items
-           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('blueskyPost', jsonb_build_object('status', 'posting', 'claimedAt', NOW()))
+           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('blueskyPost', jsonb_build_object('status', 'posting', 'claimedAt', NOW(), 'ledgerManaged', TRUE))
          WHERE id = $1 AND source = 'discovered-article' AND metadata->'blueskyPost' IS NULL
          RETURNING title, body, url`, [id],
       );
@@ -261,10 +265,11 @@ discoverRouter.post('/:id/bluesky-post', (req: Request, res: Response, next: Nex
       const description = item.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
       let posted;
       try {
-        posted = await postToBluesky(copy, link ? { url: link, title: item.title, description } : null);
+        posted = await deliver(db, 'bluesky', destinationAccount('bluesky'), { identity: `discover:${id}` },
+          () => postToBluesky(copy, link ? { url: link, title: item.title, description } : null));
       } catch (err) {
         // Release the claim only when nothing could have been published; otherwise keep it so a retry cannot duplicate.
-        await (err instanceof BlueskyPostUnconfirmedError
+        await (err instanceof BlueskyPostUnconfirmedError || err instanceof PublicationUnconfirmed
           ? db.query(
             `UPDATE content_items SET metadata = jsonb_set(metadata, '{blueskyPost,status}', '"unconfirmed"')
              WHERE id = $1 AND metadata->'blueskyPost'->>'status' = 'posting'`, [id],

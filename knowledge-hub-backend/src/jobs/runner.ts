@@ -15,6 +15,9 @@ import { audit, getJob, leaseRun, persistRun, releaseRun, scheduleDueJobs } from
 import type { JobRun } from './contracts.js';
 import { object, text, JOB_LIMITS } from './contracts.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
+import { assertSocialOpportunity, deliver, destinationAccount, PublicationDeferred, PublicationUnconfirmed } from '../publishing/delivery.js';
+import { verifyBlog } from '../publishing/worker.js';
+import { readPublicPage } from '../utils/articleReading.js';
 
 export class UnconfirmedDelivery extends Error {}
 type StepAction = () => Promise<unknown>;
@@ -22,6 +25,7 @@ export interface JobDeliveries {
   blog: typeof sendToBlog;
   bluesky: typeof postToBluesky;
   linkedin: typeof postToLinkedIn;
+  read?: typeof readPublicPage;
 }
 const deliveries: JobDeliveries = { blog: sendToBlog, bluesky: postToBluesky, linkedin: postToLinkedIn };
 export async function step(db: Pool, run: JobRun, lease: string, key: string, action: StepAction, external = false): Promise<unknown> {
@@ -43,7 +47,7 @@ export async function step(db: Pool, run: JobRun, lease: string, key: string, ac
     await audit(db, run.jobId, run.id, 'worker', 'step-succeeded', { step: key });
     return result;
   } catch (error) {
-    const uncertain = error instanceof UnconfirmedDelivery || error instanceof BlueskyPostUnconfirmedError || error instanceof LinkedInPostUnconfirmedError;
+    const uncertain = error instanceof UnconfirmedDelivery || error instanceof PublicationUnconfirmed || error instanceof BlueskyPostUnconfirmedError || error instanceof LinkedInPostUnconfirmedError;
     run.steps = run.steps.map(s => s.key === key ? { ...s, status: uncertain ? 'unconfirmed' : 'failed',
       error: error instanceof Error ? error.message : 'Step failed', finishedAt: new Date().toISOString() } : s);
     await persistRun(db, run, lease);
@@ -145,6 +149,9 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
       const job = await getJob(db, run.jobId);
       if (job.revision !== run.revision || !job.enabled) { run.status = 'rejected'; return; }
       if (outputs.includes('blog')) {
+        if (outputs.includes('linkedin') && !run.steps.some(s => s.key === 'blog' && s.status === 'succeeded')) {
+          await assertSocialOpportunity(db, 'linkedin', text(object(run.artifacts.linkedinAccount).id, 'LinkedIn account'));
+        }
         const result = await step(db, run, lease, 'blog', async () => {
           const targets = object(run.artifacts.publishTargets);
           if (targets.blogHost !== new URL(env.BLOG_POSTS_URL).host) throw new Error('The blog destination changed. Generate and approve a new run.');
@@ -159,15 +166,18 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
           if (!sent.payload.data.url) throw new UnconfirmedDelivery('Blog accepted the post but returned no public URL. Reconcile before social posting.');
           const url = new URL(sent.payload.data.url);
           if (url.protocol !== 'https:') throw new UnconfirmedDelivery('Blog returned an invalid public URL.');
-          return sent.payload.data;
+          try { return { ...sent.payload.data, ...await verifyBlog(url.href, { ...post }, delivery.read ?? readPublicPage) }; }
+          catch (error) { throw new UnconfirmedDelivery(`Blog accepted but public verification failed: ${error instanceof Error ? error.message : 'unknown error'}`); }
         }, true);
         run.artifacts.blogReceipt = result;
         await persistRun(db, run, lease);
       }
       const link = outputs.includes('blog') ? { url: text(object(run.artifacts.blogReceipt).url, 'published URL'), title: text(object(run.artifacts.blog).title, 'title'),
         description: text(object(run.artifacts.blog).excerpt, 'excerpt') } : null;
+      if (link) await verifyBlog(link.url, object(run.artifacts.blog), delivery.read ?? readPublicPage);
       // Independent destinations retain their successes when another one fails.
       const failures: string[] = [];
+      let deferred = false;
       for (const channel of ['slack', 'bluesky', 'linkedin'] as const) {
         if (!outputs.includes(channel)) continue;
         const current = await getJob(db, run.jobId);
@@ -187,14 +197,19 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
             }
             if (channel === 'bluesky') {
               if (object(run.artifacts.publishTargets).blueskyAccount !== (env.BLUESKY_IDENTIFIER ?? '(not connected)')) throw new Error('The Bluesky account changed. Generate and approve a new run.');
-              return delivery.bluesky(text(run.artifacts.bluesky, 'Bluesky copy'), link);
+              return deliver(db, 'bluesky', destinationAccount('bluesky'), { identity: `jobs:${run.id}:bluesky` },
+                () => delivery.bluesky(text(run.artifacts.bluesky, 'Bluesky copy'), link));
             }
-            return delivery.linkedin(text(run.artifacts.linkedin, 'LinkedIn copy', JOB_LIMITS.linkedinCopy), link, text(object(run.artifacts.linkedinAccount).id, 'LinkedIn account'));
+            const memberId = text(object(run.artifacts.linkedinAccount).id, 'LinkedIn account');
+            return deliver(db, 'linkedin', memberId, { identity: `jobs:${run.id}:linkedin` },
+              () => delivery.linkedin(text(run.artifacts.linkedin, 'LinkedIn copy', JOB_LIMITS.linkedinCopy), link, memberId));
           }, true);
         } catch (error) {
+          if (error instanceof PublicationDeferred) { deferred = true; run.artifacts.error = error.message; continue; }
           failures.push(error instanceof Error ? error.message : 'Delivery failed');
         }
       }
+      if (deferred && !failures.length) { run.status = 'queued'; return; }
       if (outputs.includes('file')) {
         if (failures.length) throw new Error(failures.join('; '));
         run.status = 'waiting-device'; return;
@@ -204,6 +219,7 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
     run.status = 'succeeded';
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Job failed';
+    if (error instanceof PublicationDeferred) { run.status = 'queued'; run.artifacts.error = message; return; }
     run.status = error instanceof UnconfirmedDelivery || run.steps.some(s => s.status === 'unconfirmed') ? 'unconfirmed'
       : run.steps.some(s => s.status === 'succeeded') ? 'partial' : 'failed';
     run.artifacts.error = message;

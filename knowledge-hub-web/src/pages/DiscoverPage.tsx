@@ -23,6 +23,7 @@ import { DiscoverExplore } from '../components/discover/DiscoverExplore';
 import { DiscoverVote } from '../components/discover/DiscoverVote';
 import { DiscoverWatchlists } from '../components/discover/DiscoverWatchlists';
 import { DiscoverInterests } from '../components/discover/DiscoverInterests';
+import { DiscoverPublishing } from '../components/discover/DiscoverPublishing';
 import { buildBriefing, readSinceLastLooked } from '../features/discover/discoverInsights';
 import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
@@ -413,6 +414,7 @@ export const DiscoverPage: React.FC = () => {
   const isParking = activeTab === 'parking-lot';
   const isForYou = activeTab === 'to-review';
   const [interestsOpen, setInterestsOpen] = useState(false);
+  const [publishingOpen, setPublishingOpen] = useState(() => new URLSearchParams(window.location.search).get('publishing') === '1');
   const isCfps  = activeTab === 'cfps';
   const workflowState = isInbox || isParking ? 'to-review' : activeTab as DiscoverWorkflowState;
 
@@ -562,13 +564,15 @@ export const DiscoverPage: React.FC = () => {
       <PageHeader title="Discover" subtitle={isWatchlists ? 'Purpose-led monitoring · private, versioned comparisons' : isCfps
               ? `${(cfpQuery.data?.success ? cfpQuery.data.data : []).length} CFPs to review`
               : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`} actions={
-        <><button type="button" className="dc-sources-toggle" onClick={() => setInterestsOpen(true)}>Interests</button>
+        <><button type="button" className="dc-sources-toggle" onClick={() => setPublishingOpen(true)}>Publishing</button>
+        <button type="button" className="dc-sources-toggle" onClick={() => setInterestsOpen(true)}>Interests</button>
         <button type="button" className="dc-sources-toggle" aria-expanded={sourcesOpen} onClick={() => { setSourcesOpen((o) => !o); }}>
           {sourcesOpen ? 'Hide sources' : 'Sources'}
         </button></>
       } />
       {sourcesOpen && <DiscoverSources onClose={() => { setSourcesOpen(false); }} />}
       {interestsOpen && <DiscoverInterests onClose={() => setInterestsOpen(false)} />}
+      {publishingOpen && <DiscoverPublishing onClose={() => setPublishingOpen(false)} />}
       {preferenceError != null && <DataNotice title="Discovery view could not be remembered or restored" error={preferenceError} />}
 
       {/* ── Discovery views ── */}

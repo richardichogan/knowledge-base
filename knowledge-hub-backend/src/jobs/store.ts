@@ -163,6 +163,7 @@ export async function retryRun(db: Pool, id: string, actor: string): Promise<voi
     WHERE id=$1 AND status IN ('failed','partial') AND (lease_until IS NULL OR lease_until<NOW()) RETURNING id`,
   [id, JSON.stringify(run.steps.filter(s => s.status === 'succeeded' || s.status === 'unconfirmed'))]);
   if (!r.rowCount) throw new ConflictError('This run changed.');
+  await db.query("UPDATE publishing_deliveries SET next_attempt_at=NOW() WHERE identity IN ($1,$2) AND status='failed'", [`jobs:${id}:bluesky`, `jobs:${id}:linkedin`]);
   await audit(db, run.jobId, id, actor, 'retry-requested');
 }
 export async function proposeJob(db: Pool, sessionId: string, payload: unknown): Promise<unknown> {
