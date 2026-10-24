@@ -2,6 +2,24 @@
 
 **Status:** Validated
 
+**Deployment result (2026-10-24T10:09Z, LinkedIn publishing):**
+- Source 15f4e993f7b29190d59aa32aef7a401a55d8a64c committed and atomically
+  pushed to main and richardichogan-local-development.
+- ACR run ca7n built v243 successfully. Backend revision
+  kh-prod-api-vnet--0000240 is latest ready, Healthy and RunningAtMaxScale,
+  receiving 100% latest-revision traffic.
+- Startup confirms port 3000, migrations complete and 8/8 pooled database
+  connections ready. Existing notes already indexed; no reindex work.
+- Frontend uploaded to kh-prod-web production. Custom-domain HTTP 200 and
+  /assets/index-b6t61CYm.js match the validated local build; SHA-256
+  1aa87802138fbf156d77589964c4664262c8363d6d5a7389609e336e6d837423.
+- Production URL: https://athena.themicrosoftcloudblog.com.
+- Existing identity remains None and registry uses its existing secret;
+  no new managed identity, RBAC or infrastructure changes.
+- No LinkedIn token configured or real post sent. User can add their member
+  token in My Work > Sync Status > Connection tokens and API keys > LinkedIn.
+- Logs: session files/linkedin-release-{acr,web-deploy,startup}.log.
+
 **Section 7: Validation Proof (2026-10-24, LinkedIn publishing):**
 - Fetched origin and merged origin/main: already current at a3aef6c.
 - Azure CLI 2.79.0 authenticated to Alliance Tenant Reporting
