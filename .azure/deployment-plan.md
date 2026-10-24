@@ -2,6 +2,47 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-24, Athena evening release):**
+- User explicitly requested merge, push and deploy of all completed publishing,
+  diagram-context and Athena chat refinements, including bounded model transport
+  reconnects. Existing Azure Container Apps and Static Web Apps only.
+- `git fetch origin && git merge origin/main`: already current at `1b916a4`.
+  `git diff --check` passed. Azure confirmed Alliance Tenant Reporting,
+  existing backend image v246, identity None and kh-prod-web.
+- All validation checks pass:
+  - [x] Both applications: `npm run typecheck` (`tsc --noEmit`).
+  - [x] Both lint non-regression checks: backend 553/623, frontend 22/41.
+  - [x] One isolated release suite per app. Backend 545/548 initially; frontend
+    216/220 plus 30/31 bundled UI tests initially. Failures were stale fixture
+    assumptions about output-limit errors, saved draft versions, approved draft
+    immutability, inline presence, historical icon sizing, typing intensity and
+    removed expiry controls. Only affected files were rerun: 27/27 targeted
+    chat/API tests, 35/35 publishing tests and 9/9 publishing UI tests passed.
+  - [x] Both local production builds passed after the final fixture repairs.
+  - [x] Dockerfile uses existing package-lock and copies schema plus all SQL
+    migrations, including additive 101. No dependency or infrastructure changes.
+- Application-only Azure CLI recipe: Bicep/template/what-if, RBAC and policy
+  provisioning are not applicable; existing registry secret-reference auth and
+  identity remain unchanged. No production tests, jobs or provider posts.
+- Preserve both currently enabled publishing switches, approvals and shared
+  production content. Local automatic delivery remains disabled.
+- Proof logs: session files/evening-release-backend.log,
+  evening-release-web.log, evening-release-retest.log,
+  evening-publishing-retest.log and evening-web-build.log.
+- Push identical source to feature branch and main, build v247 from GitHub main,
+  deploy backend and frontend, verify healthy revision/startup and served asset.
+  Preserve unrelated .impeccable/hook.cache.json.
+- Deployment completed at 2026-10-24T21:33Z:
+  - Application source `f89d7aa` pushed atomically to main and feature branch.
+    ACR build `ca7s` succeeded for `kh-prod-api:v247`.
+  - Backend revision `kh-prod-api-vnet--0000244` is Healthy /
+    RunningAtMaxScale, latest ready, with 100% traffic. Startup completed
+    migrations and database warmup; production health returned HTTP 200.
+  - Frontend production environment is Ready. The public custom-domain index
+    serves `/assets/index-DkKq3s9u.js`; its SHA-256 matches the local build.
+  - No publishing switches, approvals, credentials or infrastructure changed
+    as part of deployment verification; no manual jobs or provider posts run.
+
 **Release scope and Section 7: Validation Proof (2026-10-24, Discover publishing):**
 - User explicitly requested deployment of the completed coordinated publishing
   feeds and the local Jobs field-alignment fix. Existing Azure Container Apps
