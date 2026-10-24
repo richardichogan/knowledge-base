@@ -54,7 +54,7 @@ export interface ReadInput extends EvidenceMeta {
 }
 
 export const MAX_LEDGER_ENTRIES = 200;
-const MAX_PASSAGE_CHARS = 48_000;
+const MAX_PASSAGE_CHARS = 240_000;
 
 export const refKey = (ref: EvidenceRef): string => `${ref.kind}:${ref.id}`;
 

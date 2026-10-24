@@ -96,6 +96,7 @@ const UNAVAILABLE_STATUSES = new Set(['not_found', 'unavailable']);
 interface KnowledgeReadResult {
   status?: string; code?: string;
   record?: { ref?: { kind?: string; id?: string }; title?: string; content?: string; version?: string; projectId?: string | null; startOffset?: number };
+  review?: { ref: { kind: string; id: string }; title: string; version: string; complete: boolean; excerpts: Array<{ text: string; start: number }> };
 }
 
 /** read_knowledge_record: opened records are Read; failed or unavailable ones are flagged, excluded ones are dropped. */
@@ -103,9 +104,25 @@ function recordKnowledgeRead(ledger: EvidenceLedger, result: KnowledgeReadResult
   const kind = typeof args['kind'] === 'string' ? args['kind'] : '';
   const id = typeof args['id'] === 'string' ? args['id'] : '';
   if (result.status === 'ok' || result.status === 'partial') {
+    if (result.review !== undefined) {
+      const review = result.review;
+      const previous = ledger.entries.get(`${review.ref.kind}:${review.ref.id}`);
+      if (previous !== undefined && previous.version !== review.version) {
+        ledger.entries.delete(previous.key); ledger.texts.delete(previous.key);
+      }
+      noteRead(ledger, review.ref, { title: review.title, version: review.version,
+        fields: [review.complete ? 'full_stored_document_processed' : 'partial_document_review'] });
+      for (const excerpt of review.excerpts) noteRead(ledger, review.ref, { text: excerpt.text, start: excerpt.start });
+      return;
+    }
     const rec = result.record;
     const ref = { kind: rec?.ref?.kind ?? kind, id: rec?.ref?.id ?? id };
     if (rec === undefined || ref.id === '') return;
+    const previous = ledger.entries.get(`${ref.kind}:${ref.id}`);
+    if (previous?.version !== null && previous?.version !== undefined && rec.version !== undefined && previous.version !== rec.version) {
+      ledger.entries.delete(`${ref.kind}:${ref.id}`);
+      ledger.texts.delete(`${ref.kind}:${ref.id}`);
+    }
     noteRead(ledger, ref, { title: rec.title ?? null, version: rec.version ?? null, projectId: rec.projectId ?? null, text: rec.content ?? '', start: rec.startOffset ?? 0 });
   } else if (id !== '' && result.status === 'excluded') {
     for (const [key, e] of [...ledger.entries]) if (e.ref.id === id) { ledger.entries.delete(key); ledger.texts.delete(key); }

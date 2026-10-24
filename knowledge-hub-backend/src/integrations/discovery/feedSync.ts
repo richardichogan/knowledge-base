@@ -69,7 +69,7 @@ async function checkSource(db: Pool, source: SourceRow): Promise<number> {
   const articles = await readFeed(source.feed_url);
   const cutoff = Date.now() - RECENT_WINDOW_MS;
   const recent = articles
-    .map((a) => ({ ...a, publishedAt: a.publishedAt ?? new Date() }))
+    .map((a) => ({ ...a, publicationDateKnown: a.publishedAt !== null, publishedAt: a.publishedAt ?? new Date() }))
     .filter((a) => a.publishedAt.getTime() >= cutoff && a.publishedAt.getTime() <= Date.now() + 86_400_000)
     .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
     .slice(0, MAX_PER_SOURCE_PER_RUN);
@@ -101,6 +101,7 @@ async function checkSource(db: Pool, source: SourceRow): Promise<number> {
       projectContext: 'msft-blog',
       metadata: {
         originalPublishedAt: a.publishedAt.toISOString(),
+        publicationDateKnown: a.publicationDateKnown,
         discoveredAt,
         sourceTitle: source.title,
         sourceUrl: source.feed_url,

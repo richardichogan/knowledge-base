@@ -65,6 +65,25 @@ test('normal completed turns still replay their result', async () => {
   assert.equal(cancelTurnJob(id), false);
 });
 
+test('checkpoint progress extends document work beyond the original turn deadline without disabling Stop', async () => {
+  const id = randomUUID();
+  const sessionId = randomUUID();
+  let elapsed = 0;
+  const result = new Promise<TurnEvent>(resolve => {
+    startTurnJob(id, sessionId, 'Read the full document', async hooks => {
+      for (let i = 0; i < 4; i++) {
+        await new Promise(done => setTimeout(done, 15));
+        elapsed += 15;
+        hooks.onReadingProgress?.();
+      }
+      return 'Read every page';
+    }, () => {}, true, 40);
+    subscribeTurnJob(id, event => { if (event.type === 'done' || event.type === 'error') resolve(event); });
+  });
+  assert.deepEqual(await result, { type: 'done', data: 'Read every page' });
+  assert.ok(elapsed > 40);
+});
+
 test('Stop before preparation starts prevents the work from running', async () => {
   const id = randomUUID();
   let ran = false;

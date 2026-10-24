@@ -4,6 +4,7 @@
  */
 import { isKnowledgeOrchestrationEnabled } from './budgets.js';
 import { CITATION_FAILURE } from './citations.js';
+import type { RetrievalAudit } from './retrievalScope.js';
 
 export const TURN_CATEGORIES = [
   'ok', 'no_retrieval', 'found_not_read', 'bad_citation', 'unverified_quote', 'wrong_abstain',
@@ -56,14 +57,15 @@ export interface TurnAuditRow extends TurnSignals {
   familiesRead: readonly string[];
   durationMs: number;
   modelRounds: number;
+  retrievalScope?: RetrievalAudit;
 }
 
 export interface AuditDb { query(text: string, values?: unknown[]): Promise<unknown> }
 
 const INSERT_SQL = `INSERT INTO knowledge_turn_audit (session_id, assistant_message_id, persona, retrieval_used, deterministic_path,
   found_count, read_count, cited_count, families_read, stripped_ids, unverified_quotes, repairs_used, abstained, budget_exhausted,
-  partial, tool_error_count, unavailable_sources, duration_ms, model_rounds, category)
-  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`;
+  partial, tool_error_count, unavailable_sources, duration_ms, model_rounds, category, retrieval_scope, environment)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,$22)`;
 
 /** Never throws; resolves false when skipped or failed. Call fire-and-forget after the reply is built. */
 export async function recordTurnAudit(db: AuditDb, row: TurnAuditRow, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
@@ -74,6 +76,7 @@ export async function recordTurnAudit(db: AuditDb, row: TurnAuditRow, env: NodeJ
       row.found, row.read, row.cited, [...row.familiesRead], row.strippedIds, row.unverifiedQuotes, row.repairsUsed, row.abstained,
       [...row.budgetExhausted], row.partial, row.toolErrorCount, [...row.unavailableSources], Math.round(row.durationMs), row.modelRounds,
       classifyTurn(row),
+      row.retrievalScope === undefined ? null : JSON.stringify(row.retrievalScope), env['NODE_ENV'] === 'production' ? 'prod' : 'dev',
     ]);
     return true;
   } catch (err) {

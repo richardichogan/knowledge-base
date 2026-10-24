@@ -42,12 +42,12 @@ test('CTX-03 comparing the open note with "the current spec" retrieves D1, pages
       const search = first(toolResults(round)) as SearchResult;
       const spec = search.results.find((r) => r.id === SPEC_ID);
       assert.ok(spec, 'D1 is retrieved');
-      return [{ name: 'read_knowledge_record', args: { kind: 'content-item', id: spec.id } }];
+      return [{ name: 'read_knowledge_record', args: { kind: 'content-item', id: spec.id, fullDocument: false } }];
     }
     const latest = toolResults(round).at(-1) as ReadResult;
     reads.push(latest);
     if (!latest.record.content.includes('90 days') && latest.record.nextCursor !== null) {
-      return [{ name: 'read_knowledge_record', args: { kind: 'content-item', id: SPEC_ID, cursor: latest.record.nextCursor } }];
+      return [{ name: 'read_knowledge_record', args: { kind: 'content-item', id: SPEC_ID, cursor: latest.record.nextCursor, fullDocument: false } }];
     }
     return 'The note says 30 days; the spec says 90 days.';
   });
@@ -57,7 +57,7 @@ test('CTX-03 comparing the open note with "the current spec" retrieves D1, pages
     assert.equal(reply, 'The note says 30 days; the spec says 90 days.');
     assert.deepEqual(called.slice(0, 2), ['search_knowledge_base', 'read_knowledge_record']);
     assert.ok(called.filter((n) => n === 'read_knowledge_record').length >= 2, 'the section lies beyond the first page');
-    assert.ok(reads.at(-1)?.record.content.includes('90 days'), 'the pertinent section was read');
+    assert.ok(reads.some(read => read.record.content.includes('90 days')), 'the pertinent section was read, even if the review also continued through its appendix');
     assert.equal(reads[0]?.record.content.includes('90 days'), false);
     for (const round of model.rounds) {
       assert.ok(requestText(round).includes(NOTE_TEXT), 'N1 stays in every model request');
@@ -93,7 +93,8 @@ test('CTX-04 the follow-up keeps internal read tools, forces no web search and r
       noteContext, (name) => { called.push(name); }, {}, { contextUsed: emptyContextUsed() });
     assert.equal(reply, 'Update audit log retention is affected.');
     const available = model.rounds[0]!.tools.map((t) => t.function.name);
-    for (const kept of ['list_tasks', 'read_knowledge_record', 'search_knowledge_base']) assert.ok(available.includes(kept), kept);
+    for (const kept of ['list_tasks', 'read_knowledge_record']) assert.ok(available.includes(kept), kept);
+    assert.ok(!available.includes('search_knowledge_base'), 'an explicit live-task question does not offer an unrelated indexed search');
     assert.equal(model.rounds[0]!.toolChoice, 'auto', 'no tool, and in particular no web search, is forced');
     assert.ok(requestText(model.rounds[0]!).includes('the Platform spec requires 90 days'), 'prior turn is retained');
     assert.ok(requestText(model.rounds[0]!).includes(NOTE_TEXT));

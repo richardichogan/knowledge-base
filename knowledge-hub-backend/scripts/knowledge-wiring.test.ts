@@ -6,7 +6,7 @@ import type { AiContext } from '../src/types/aiContext.js';
 import { CONFLICT_AUTHORITY_PROMPT } from '../src/ai/knowledge/evidenceAuthority.js';
 import { createEdgeLoader, createTargetResolver, executeTraverseRelationships, INFERRED_EDGE_TYPES } from '../src/ai/knowledge/traversalLoader.js';
 import { focusTools, selectKnowledgeRetrievalChoice } from '../src/ai/toolRouting.js';
-import { unreadFoundCandidates, openFoundInstruction } from '../src/ai/knowledge/openFound.js';
+import { unreadFoundCandidates, openFoundInstruction, updatePendingRead, continuationInstruction, type PendingRead } from '../src/ai/knowledge/openFound.js';
 import { collectIds, resolveAnswer, stripUnseenIds } from '../src/ai/knowledge/citations.js';
 import { REVIEW_DECISIONS_DEFINITION } from '../src/ai/semanticDecisionReview.js';
 import { TurnBudget, DETERMINISTIC_TOOLS, finalizeKnowledgeAnswer, isDeterministicResultComplete, searchContentPreview } from '../src/ai/knowledge/budgets.js';
@@ -212,6 +212,42 @@ test('wiring: an ok read is recorded as read; an excluded read drops the entry',
   assert.equal(ledgerCounts(ledger).read, 1);
   recordToolEvidence(ledger, 'read_knowledge_record', { status: 'excluded' }, { kind: 'item', id: 'r1' });
   assert.equal(ledger.entries.size, 0);
+});
+
+test('wiring: a changed document version replaces earlier evidence rather than mixing pages', () => {
+  const ledger = createLedger();
+  const args = { kind: 'note', id: 'spec' };
+  recordToolEvidence(ledger, 'read_knowledge_record', {
+    status: 'partial', record: { ref: args, version: 'old', content: 'Old requirement', startOffset: 0 },
+  }, args);
+  recordToolEvidence(ledger, 'read_knowledge_record', {
+    status: 'partial', record: { ref: args, version: 'new', content: '', startOffset: 0 },
+  }, args);
+  assert.deepEqual(ledger.texts.get('note:spec'), ['']);
+  recordToolEvidence(ledger, 'read_knowledge_record', {
+    status: 'ok', record: { ref: args, version: 'new', content: 'New requirement', startOffset: 0 },
+  }, args);
+  assert.equal(ledger.texts.get('note:spec')?.join(''), 'New requirement');
+});
+
+test('wiring: unread continuation survives a context warning and clears only on completion or explicit failure', () => {
+  const pending = new Map<string, PendingRead>();
+  const args = { kind: 'content-item', id: 'mirror' };
+  updatePendingRead(pending, args, { status: 'partial', record: {
+    ref: { kind: 'note', id: 'canonical' }, title: 'RTR', content: 'first', nextCursor: 'cursor',
+    endOffset: 5, totalChars: 10,
+  } });
+  assert.equal(pending.get('canonical')?.cursor, 'cursor');
+  assert.match(continuationInstruction(pending.values()), /unread continuation pages/);
+  updatePendingRead(pending, { kind: 'note', id: 'canonical' }, { partial: true, code: 'budget_exhausted' });
+  assert.equal(pending.size, 1);
+  updatePendingRead(pending, { kind: 'note', id: 'canonical' }, { status: 'ok', record: {
+    ref: { kind: 'note', id: 'canonical' }, nextCursor: null,
+  } });
+  assert.equal(pending.size, 0);
+  pending.set('canonical', { kind: 'note', id: 'canonical', cursor: 'cursor', title: 'RTR', endOffset: 5, totalChars: 10 });
+  updatePendingRead(pending, { kind: 'note', id: 'canonical' }, { status: 'excluded' });
+  assert.equal(pending.size, 0);
 });
 
 test('wiring: deterministic tools count as a path only when the result is complete', () => {

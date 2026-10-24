@@ -7,6 +7,7 @@ import type { HealthSection, HealthUsageTotals, KnowledgeHealth, KnowledgeHealth
 import { requireApiData } from '../services/apiError';
 import { PageHeader } from '../components/PageHeader';
 import { KnowledgeFamilies } from '../components/health/KnowledgeFamilies';
+import { countCell, retrievalQualityStats } from './knowledgeHealthModel';
 import './KnowledgeHealthPage.css';
 
 const number = new Intl.NumberFormat('en-GB');
@@ -40,6 +41,7 @@ export const KnowledgeHealthPage: React.FC = () => {
     retry: false, refetchOnWindowFocus: false,
   });
   const facets = query.data?.usage.available === true ? query.data.usage.data.facets : { features: [], personas: [], deployments: [] };
+  const quality = query.data?.retrievalQuality;
   const facet = (name: 'feature' | 'persona' | 'deployment', label: string, options: string[]) => (
     <Select id={`health-${name}`} labelText={label} size="sm" value={draft[name] ?? ''}
       onChange={event => setDraft(current => ({ ...current, [name]: event.target.value }))}>
@@ -128,6 +130,37 @@ export const KnowledgeHealthPage: React.FC = () => {
                 </ul>
               </>
             )}
+          </section>
+          <section className="kh-health__section" aria-labelledby="health-quality">
+            <h2 id="health-quality">Conversation retrieval quality</h2>
+            {quality === undefined ? <p>Retrieval quality is not measured by this server version.</p>
+              : !quality.available ? <Unavailable title="Retrieval quality" section={quality} /> : (
+                <>
+                  <p className="kh-health__note">{quality.data.note}</p>
+                  <dl className="kh-health__stats">
+                    {retrievalQualityStats(quality.data).map(({ key, label, value }) => (
+                      <div key={key}><dt>{label}</dt><dd className={value === null ? 'kh-health__stat-text' : undefined}>
+                        {countCell(value, n => number.format(n))}
+                      </dd></div>
+                    ))}
+                  </dl>
+                  <p className="kh-health__note">
+                    Legacy/unattributed turns: {number.format(quality.data.legacyUnattributedTurns)}.
+                    These have no environment or scope attribution and are shown separately, never counted as scope-compliant.
+                  </p>
+                  <div className="kh-health__table-wrap" tabIndex={0} role="region" aria-label="Audited turn signals">
+                    <table className="kh-health__table">
+                      <thead><tr><th>Primary signal</th><th>Turns</th><th>Attribution</th></tr></thead>
+                      <tbody>
+                        {[...quality.data.categories.map(row => ({ ...row, attribution: applied.environment ?? 'prod' })),
+                          ...quality.data.legacyCategories.map(row => ({ ...row, attribution: 'Legacy: environment unknown' }))].map(row => (
+                          <tr key={`${row.attribution}|${row.category}`}><td>{row.category.replaceAll('_', ' ')}</td><td>{number.format(row.turns)}</td><td>{row.attribution}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
           </section>
           <section className="kh-health__section" aria-labelledby="health-families">
             <h2 id="health-families">Knowledge coverage</h2>

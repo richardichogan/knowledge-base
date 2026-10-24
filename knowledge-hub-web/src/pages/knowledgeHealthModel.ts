@@ -2,7 +2,7 @@
  * pages/knowledgeHealthModel.ts — wording and formatting for the Knowledge health family table.
  * A null count is shown as "Not measured"; nothing here derives a percentage or a "coverage" figure.
  */
-import type { HealthFamily, HealthFamilyState, HealthSemanticState } from '../services/api';
+import type { HealthFamily, HealthFamilyState, HealthSemanticState, HealthRetrievalQuality } from '../services/api';
 
 export const FAMILY_STATE_LABEL: Record<HealthFamilyState, string> = {
   'up-to-date': 'Up to date',
@@ -27,6 +27,24 @@ const ERROR_LABEL: Record<HealthFamily['errorCategories'][number], string> = {
 };
 
 export const NOT_MEASURED = 'Not measured';
+
+export function retrievalQualityStats(quality: HealthRetrievalQuality): Array<{ key: string; label: string; value: number | null }> {
+  const metrics = [
+    ['Audited turns', 'auditedTurns'], ['Scope measured', 'scopeMeasuredTurns'],
+    ['Explicit collections', 'scopedTurns'], ['Scope drift prevented', 'blockedScopeTurns'],
+    ['Time-constrained turns', 'temporalTurns'], ['Default seven-day windows', 'defaultWindowTurns'],
+    ['Follow-up scopes retained', 'inheritedScopeTurns'], ['Found but not read', 'foundNotRead'],
+    ['Possible deferred retries', 'deferredRecoveryTurns'],
+    ['Full-document reviews', 'documentReviews'], ['Document characters processed', 'documentReadChars'],
+    ['Reading checkpoints saved', 'documentCheckpoints'],
+    ['Unverified quote warnings', 'quoteWarningTurns'], ['Tool errors', 'toolErrorTurns'],
+    ['Retrieval budgets hit', 'budgetHitTurns'], ['No retrieval (not necessarily wrong)', 'noRetrievalTurns'],
+  ] as const;
+  const scopeOnly = new Set(['scopedTurns', 'blockedScopeTurns', 'temporalTurns', 'defaultWindowTurns', 'inheritedScopeTurns', 'deferredRecoveryTurns', 'documentReviews', 'documentReadChars', 'documentCheckpoints']);
+  return metrics.map(([label, key]) => ({
+    key, label, value: quality.scopeMeasuredTurns === 0 && scopeOnly.has(key) ? null : quality[key],
+  }));
+}
 
 export function countCell(value: number | null, format: (n: number) => string = String): string {
   return value === null ? NOT_MEASURED : format(value);

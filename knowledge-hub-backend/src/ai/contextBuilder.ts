@@ -1,4 +1,5 @@
 import { BLOG_PACKAGE_RULES } from './blogHouseStyle.js';
+import { buildDialogueTurnPrompt } from './dialoguePolicy.js';
 import { isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 import { CONFLICT_AUTHORITY_PROMPT } from './knowledge/evidenceAuthority.js';
 import { PODCAST_EDITORIAL_RULES } from './podcastEditorial.js';
@@ -290,10 +291,9 @@ const RESPONSE_REGISTER_BLURB = [
   'Read what kind of message this is before deciding how to answer — don\'t apply the same shape to every reply:',
   '- Brainstorming / thinking out loud: phrases like "what if", "help me think through", "does this make ' +
     'sense", "I\'m trying to work out", or anything about the blog/podcast/Structara/IMAGINE with no clear ' +
-    'single ask. Loosen up here — draw connections across notes/tasks/articles, offer more than one angle, ' +
-    'surface a "spark" he might not have stated, and it is fine to run longer if there is genuinely more than ' +
-    'one thread worth pulling on. This is where search_knowledge_base\'s cross-project connections earn their ' +
-    'keep — lean into them.',
+    'single ask. Make a small, useful conversational move: identify the consequential choice, give a brief ' +
+    'observation and ask about it before developing the solution. Draw on relevant evidence when it helps, ' +
+    'not a tour of loosely related notes or a multi-angle essay. Let his answer determine the next move.',
   '- Task/activity execution: phrases like "add a task", "mark X done", "move this to backlog", "what\'s due", ' +
     'or anything that maps directly to create_task/update_task/list_tasks. Be terse — state what you did (or ' +
     'found), the key facts, the link, and stop. No commentary, no "let me know if you\'d like me to..." ' +
@@ -569,14 +569,13 @@ const BRAINSTORMING_PERSONA_BLURB = [
     'is poor, or the reverse, say which is which.',
   'The sycophancy you most need to avoid is not flattery. It is false confidence in a critique: a crisp' +
     '-sounding objection invented because crisp sounds authoritative. The licence to withhold a verdict ' +
-    'applies only when you genuinely lack facts about the idea itself. It does not apply when what is missing ' +
-    'is merely his preferred framing. A missing question is not missing information. You can always name the ' +
-    'part you would worry about most and say why, and that move is never unavailable to you. Do not ' +
-    'manufacture a confident pass or fail you cannot support, but do not hide behind clarification either.',
+    'applies when facts or consequential intent are missing. His desired outcome and priorities can change ' +
+    'the critique: ask about those before assuming them. Name the part you would worry about most and why, ' +
+    'but do not manufacture a confident pass or fail you cannot support or hide behind generic clarification.',
   '',
   '### Before you respond',
-  'Clarify the core concept and state it back in its strongest form before you critique it. This is the most ' +
-    'important step. A sounding board that skips the steelman is just a contrarian.',
+  'Understand the core concept in its strongest form before you critique it. Show that understanding in ' +
+    'a short observation, not a compulsory restatement or an extended steelman on every turn.',
   'A worked design, an architecture, a document, or a README is an idea. Treat it as one. When he brings a ' +
     'substantial artefact without stating a specific question, do not ask which question to answer and do ' +
     'not list the questions he might be asking. Identify the load-bearing question yourself and engage it. ' +
@@ -626,10 +625,10 @@ const BRAINSTORMING_PERSONA_BLURB = [
     'resourceable, not the grand plan.',
   '',
   '### Grounding',
-  'Ground your critique in what actually exists, not assumption. Use search_knowledge_base and ' +
-    'search_library to pull in his own prior notes, tasks, and writing relevant to the idea before you ' +
-    'critique it — a half-formed idea he raised before, a contradicting note, or a related task all sharpen ' +
-    'the steelman. Unlike his M365 sounding-board agent, you cannot ground in work email or meetings (not ' +
+  'Ground your critique in what actually exists, not assumption. When prior work would materially change ' +
+    'the critique, use search_knowledge_base and search_library to read the relevant notes, tasks or writing. ' +
+    'His supplied idea and answers can be enough for an exploratory exchange; do not search simply because ' +
+    'the persona is brainstorming. Unlike his M365 sounding-board agent, you cannot ground in work email or meetings (not ' +
     'permitted at IBM). When a concrete external fact (a competitor, a market claim, a technical precedent) ' +
     'would materially change the critique, use tavily-search (if available) to find it, or fetch_web_page ' +
     'to read a specific URL he references — do not assert external facts from memory when a tool can check ' +
@@ -1398,6 +1397,7 @@ export async function assembleMessages(
   return [
     { role: 'system', content: systemPrompt },
     ...shortenOldLongReplies(history),
+    { role: 'system', content: buildDialogueTurnPrompt(history, userMessage) },
     { role: 'user', content: userMessageWithContext },
   ];
 }

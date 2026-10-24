@@ -72,15 +72,21 @@ export function startTurnJob(
   jobs.set(job.id, job);
   if (trackForSession) jobBySession.set(sessionId, job.id);
 
+  let deadline: ReturnType<typeof setTimeout>;
+  const refreshDeadline = (): void => {
+    clearTimeout(deadline);
+    deadline = setTimeout(() => {
+      job.controller.abort(new Error('Athena took too long without making progress. Any reading checkpoints were preserved; continue from the saved reading rather than starting over.'));
+    }, budgetMs);
+  };
   const hooks: TurnHooks = {
     onDelta: (text) => { if (!job.controller.signal.aborted) emit(job, { type: 'delta', text }); },
     onReset: () => { if (!job.controller.signal.aborted) emit(job, { type: 'reset' }); },
     onActivity: (text) => { if (!job.controller.signal.aborted) emit(job, { type: 'activity', text }); },
+    onReadingProgress: refreshDeadline,
     signal: job.controller.signal,
   };
-  const deadline = setTimeout(() => {
-    job.controller.abort(new Error('Athena took too long to respond. Please try again.'));
-  }, budgetMs);
+  refreshDeadline();
   void abortable(Promise.resolve().then(() => {
     job.controller.signal.throwIfAborted();
     return run(hooks);

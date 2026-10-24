@@ -117,6 +117,71 @@ export interface KnowledgeHealth {
   index: Section<IndexSection>;
   families: Section<FamiliesSection>;
   turnReview: Section<TurnReviewSection>;
+  retrievalQuality: Section<RetrievalQuality>;
+}
+
+export interface RetrievalQuality {
+  auditedTurns: number;
+  scopeMeasuredTurns: number;
+  legacyUnattributedTurns: number;
+  scopedTurns: number;
+  blockedScopeTurns: number;
+  temporalTurns: number;
+  defaultWindowTurns: number;
+  inheritedScopeTurns: number;
+  deferredRecoveryTurns: number;
+  documentReviews: number;
+  documentReadChars: number;
+  documentCheckpoints: number;
+  foundNotRead: number;
+  quoteWarningTurns: number;
+  toolErrorTurns: number;
+  budgetHitTurns: number;
+  noRetrievalTurns: number;
+  categories: Array<{ category: string; turns: number }>;
+  legacyCategories: Array<{ category: string; turns: number }>;
+  note: string;
+}
+
+async function retrievalQualitySection(db: Pool, filters: HealthFilters, start: string, end: string): Promise<RetrievalQuality> {
+  const { rows } = await db.query<Record<string, unknown>>(
+    `SELECT category, COUNT(*)::int AS turns,
+       COUNT(*) FILTER (WHERE retrieval_scope IS NOT NULL)::int AS measured,
+       COUNT(*) FILTER (WHERE jsonb_array_length(retrieval_scope->'families') > 0)::int AS scoped,
+       COUNT(*) FILTER (WHERE (retrieval_scope->>'blockedCalls')::int > 0)::int AS blocked,
+       COUNT(*) FILTER (WHERE (retrieval_scope->>'temporal')::boolean)::int AS temporal,
+       COUNT(*) FILTER (WHERE (retrieval_scope->>'timeDefaulted')::boolean)::int AS defaulted,
+       COUNT(*) FILTER (WHERE (retrieval_scope->>'inherited')::boolean)::int AS inherited,
+       COUNT(*) FILTER (WHERE (retrieval_scope->>'deferredRecovery')::boolean)::int AS deferred,
+       COALESCE(SUM((retrieval_scope->>'documentReviews')::bigint),0) AS documents,
+       COALESCE(SUM((retrieval_scope->>'documentReadChars')::bigint),0) AS document_chars,
+       COALESCE(SUM((retrieval_scope->>'documentCheckpoints')::bigint),0) AS checkpoints,
+       COUNT(*) FILTER (WHERE retrieval_used AND found_count > 0 AND read_count = 0)::int AS unread,
+       COUNT(*) FILTER (WHERE unverified_quotes > 0)::int AS quotes,
+       COUNT(*) FILTER (WHERE tool_error_count > 0)::int AS errors,
+       COUNT(*) FILTER (WHERE cardinality(budget_exhausted) > 0)::int AS budget
+     FROM knowledge_turn_audit
+     WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND environment = $3
+       AND ($4::text IS NULL OR persona = $4) AND ($5::text IS NULL OR $5 = 'chat')
+     GROUP BY category ORDER BY COUNT(*) DESC, category`, [start, end, filters.environment, filters.persona, filters.feature]);
+  const legacy = await db.query<Record<string, unknown>>(
+    `SELECT category, COUNT(*)::int AS turns FROM knowledge_turn_audit
+     WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND environment IS NULL
+       AND ($3::text IS NULL OR persona = $3) AND ($4::text IS NULL OR $4 = 'chat')
+     GROUP BY category ORDER BY COUNT(*) DESC, category`, [start, end, filters.persona, filters.feature]);
+  const sum = (key: string): number => rows.reduce((n, r: Record<string, unknown>) => n + num(r[key]), 0);
+  return {
+    auditedTurns: sum('turns'), scopeMeasuredTurns: sum('measured'),
+    legacyUnattributedTurns: legacy.rows.reduce((n, r) => n + num(r['turns']), 0),
+    scopedTurns: sum('scoped'), blockedScopeTurns: sum('blocked'), temporalTurns: sum('temporal'),
+    defaultWindowTurns: sum('defaulted'), inheritedScopeTurns: sum('inherited'), deferredRecoveryTurns: sum('deferred'), foundNotRead: sum('unread'),
+    documentReviews: sum('documents'), documentReadChars: sum('document_chars'), documentCheckpoints: sum('checkpoints'),
+    quoteWarningTurns: sum('quotes'), toolErrorTurns: sum('errors'), budgetHitTurns: sum('budget'),
+    noRetrievalTurns: rows.filter(r => r['category'] === 'no_retrieval').reduce((n, r) => n + num(r['turns']), 0),
+    categories: rows.map(r => ({ category: String(r['category']), turns: num(r['turns']) })),
+    legacyCategories: legacy.rows.map(r => ({ category: String(r['category']), turns: num(r['turns']) })),
+    note: 'Completed audited general-persona turns only; not all messages or a response-accuracy score. Signals overlap. A blocked scope attempt is prevented drift, not leaked content. Recovery deferral is a heuristic flag for offering another lookup after a retry, not a proven failure. No retrieval can be correct for conversation. Legacy rows have no scope/environment attribution. Wrong intent, missed recovery and stale claims before instrumentation require conversation review; they cannot be inferred as zero.',
+  };
 }
 
 export interface TurnReviewRow { reviewDate: string; turns: number; categoryCounts: unknown; rates: unknown; worstTurns: unknown; flags: unknown }
@@ -395,12 +460,15 @@ export async function getKnowledgeHealth(
 ): Promise<KnowledgeHealth> {
   const start = new Date(dayStart(filters.from)).toISOString();
   const end = new Date(dayStart(filters.to) + DAY_MS).toISOString();
-  const [usage, syncRuns, index, families, turnReview] = await Promise.all([
+  const [usage, syncRuns, index, families, turnReview, retrievalQuality] = await Promise.all([
     guarded(() => usageSection(db, filters, start, end)),
     guarded(() => syncSection(db)),
     guarded(() => indexSection(db)),
     guarded(() => familiesSection(db, options)),
     guarded(() => turnReviewSection(db)),
+    filters.deployment !== null
+      ? Promise.resolve<Section<RetrievalQuality>>({ available: false, message: 'Turn quality has no per-deployment attribution. Clear the deployment filter to review it.' })
+      : guarded(() => retrievalQualitySection(db, filters, start, end)),
   ]);
-  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview };
+  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview, retrievalQuality };
 }

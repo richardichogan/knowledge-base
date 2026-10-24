@@ -223,6 +223,17 @@ export interface KnowledgeHealth {
   }>;
   /** Optional so an older server that lacks per-family coverage still renders. */
   families?: HealthSection<HealthFamilies>;
+  retrievalQuality?: HealthSection<HealthRetrievalQuality>;
+}
+export interface HealthRetrievalQuality {
+  auditedTurns: number; scopeMeasuredTurns: number; legacyUnattributedTurns: number;
+  scopedTurns: number; blockedScopeTurns: number; temporalTurns: number; defaultWindowTurns: number;
+  inheritedScopeTurns: number; deferredRecoveryTurns: number; foundNotRead: number; quoteWarningTurns: number; toolErrorTurns: number;
+  documentReviews: number; documentReadChars: number; documentCheckpoints: number;
+  budgetHitTurns: number; noRetrievalTurns: number;
+  categories: Array<{ category: string; turns: number }>;
+  legacyCategories: Array<{ category: string; turns: number }>;
+  note: string;
 }
 export type HealthFamilyState = 'up-to-date' | 'partial' | 'unsupported-extraction' | 'not-configured' | 'temporarily-unavailable' | 'excluded';
 export type HealthSemanticState = 'not-configured' | 'coverage-not-measured' | 'pending-work' | 'temporarily-unavailable' | 'up-to-date';

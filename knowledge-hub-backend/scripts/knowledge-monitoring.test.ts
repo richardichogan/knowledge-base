@@ -6,6 +6,7 @@ import type { Pool } from 'pg';
 import { classifyTurn, recordTurnAudit, looksAbstained, type TurnAuditRow, type TurnSignals } from '../src/ai/knowledge/turnAudit.js';
 import { buildDailyReview, runKnowledgeNightlyReviewJob, yesterdayUtc } from '../src/jobs/knowledgeNightlyReviewJob.js';
 import { getKnowledgeHealth, parseHealthQuery } from '../src/health/knowledgeHealth.js';
+import { createRetrievalAudit, resolveRetrievalScope } from '../src/ai/knowledge/retrievalScope.js';
 
 const base: TurnSignals = {
   retrievalUsed: true, deterministicPath: false, found: 3, read: 2, cited: 1, strippedIds: 0, unverifiedQuotes: 0, repairsUsed: 0,
@@ -19,6 +20,7 @@ const row = (o: Partial<TurnAuditRow> = {}): TurnAuditRow => ({
 async function migratedDb(): Promise<PGlite> {
   const db = new PGlite();
   await db.exec(await readFile(new URL('../src/db/migrations/092_knowledge_turn_audit.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../src/db/migrations/096_retrieval_scope_audit.sql', import.meta.url), 'utf8'));
   return db;
 }
 
@@ -52,7 +54,7 @@ test('recorder never throws on DB failure and is skipped when the flag is off', 
   assert.equal(calls.length, 0);
   assert.equal(await recordTurnAudit(spy, row({ strippedIds: 2 }), ON), true);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]?.at(-1), 'bad_citation');
+  assert.equal(calls[0]?.[19], 'bad_citation');
 });
 
 test('recorder inserts a row through the real schema without storing text', async () => {
@@ -121,4 +123,46 @@ test('health turnReview section is isolated and reports latest plus trend', asyn
   assert.ok(health.turnReview.available);
   assert.equal(health.turnReview.data.latest?.reviewDate, '2026-06-09');
   assert.equal(health.turnReview.data.trend.length, 3);
+});
+
+test('Health reports scope/time/recovery signals without treating legacy or no-retrieval turns as accuracy failures', async () => {
+  const db = await migratedDb();
+  try {
+    const scope = resolveRetrievalScope('latest items in Discover', [], new Date('2026-10-24T05:15:00Z'))!;
+    const audit = createRetrievalAudit(scope);
+    audit.blockedCalls = 1;
+    audit.deferredRecovery = true;
+    audit.documentReviews = 1;
+    audit.documentReadChars = 76_848;
+    audit.documentCheckpoints = 7;
+    const prod = { ...ON, NODE_ENV: 'production' };
+    assert.equal(await recordTurnAudit(db, row({ retrievalScope: audit, unverifiedQuotes: 1 }), prod), true);
+    assert.equal(await recordTurnAudit(db, row({ retrievalScope: createRetrievalAudit(), retrievalUsed: false }), prod), true);
+    assert.equal(await recordTurnAudit(db, row({ retrievalScope: audit }), ON), true);
+    await db.query("UPDATE knowledge_turn_audit SET created_at='2026-10-23T12:00:00Z'");
+    await db.query("INSERT INTO knowledge_turn_audit(created_at,category) VALUES ('2026-10-23T12:00:00Z','tool_error')");
+    await db.query("INSERT INTO knowledge_turn_audit(created_at,environment,category) VALUES ('2026-10-24T00:00:00Z','prod','tool_error')");
+    const filters = parseHealthQuery({ from: '2026-10-23', to: '2026-10-23' });
+    const health = await getKnowledgeHealth(db as unknown as Pool, filters);
+    assert.ok(health.retrievalQuality.available);
+    const quality = health.retrievalQuality.data;
+    assert.equal(quality.auditedTurns, 2);
+    assert.equal(quality.scopeMeasuredTurns, 2);
+    assert.equal(quality.scopedTurns, 1);
+    assert.equal(quality.blockedScopeTurns, 1);
+    assert.equal(quality.temporalTurns, 1);
+    assert.equal(quality.defaultWindowTurns, 1);
+    assert.equal(quality.deferredRecoveryTurns, 1);
+    assert.equal(quality.quoteWarningTurns, 1);
+    assert.equal(quality.noRetrievalTurns, 1);
+    assert.equal(quality.documentReviews, 1);
+    assert.equal(quality.documentReadChars, 76_848);
+    assert.equal(quality.documentCheckpoints, 7);
+    assert.equal(quality.legacyUnattributedTurns, 1);
+    assert.deepEqual(quality.legacyCategories, [{ category: 'tool_error', turns: 1 }]);
+    assert.ok(!JSON.stringify(quality).includes('s1'));
+    assert.match(quality.note, /not all messages or a response-accuracy score/);
+    const deployment = await getKnowledgeHealth(db as unknown as Pool, { ...filters, deployment: 'gpt-a' });
+    assert.equal(deployment.retrievalQuality.available, false);
+  } finally { await db.close(); }
 });

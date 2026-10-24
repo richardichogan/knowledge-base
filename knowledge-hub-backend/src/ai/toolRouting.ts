@@ -1,5 +1,6 @@
 import type { LlmToolChoice, LlmToolDefinition } from './foundryClient.js';
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
+import { resolveRetrievalScope } from './knowledge/retrievalScope.js';
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>()]+/i;
 const MIN_PROJECT_TOKEN_CHARS = 4;
@@ -51,7 +52,7 @@ const DISCOVER_ADMIN_TOOLS = new Set([
   'add_discover_source', 'update_discover_source', 'set_discover_item_state', 'inspect_discover_feed', 'create_weekly_microsoft_digest',
 ]);
 const DISCOVER_INTENT_PATTERN =
-  /\b(?:discover|feeds?|rss|atom|subscri\w*|sources?|digest|weekly|monday|articles?|shelve\w*|restore|dismiss\w*|park(?:ed|ing)?|later|newsletters?|podcasts?|blog)\b/i;
+  /\b(?:discover(?:y)?|feeds?|rss|atom|subscri\w*|sources?|digest|weekly|monday|articles?|shelve\w*|restore|dismiss\w*|park(?:ed|ing)?|later|newsletters?|podcasts?|blog)\b/i;
 const DECISION_REVIEW_INTENT_PATTERN =
   /\b(?:decisions?|decided|supersed\w*|assumptions?|revisit|re-?consider|still\s+(?:valid|hold|stand)s?|review\s+(?:date|due)|approval\s+gate)\b/i;
 
@@ -114,6 +115,11 @@ const NOT_A_RETRIEVAL_REQUEST_PATTERN =
  */
 export function selectKnowledgeRetrievalChoice(userMessage: string, tools: LlmToolDefinition[]): LlmToolChoice | undefined {
   if (isAssistantCapabilityQuestion(userMessage)) return undefined;
+  const scoped = resolveRetrievalScope(userMessage);
+  if (scoped?.tool && tools.some(tool => tool.function.name === scoped.tool)) {
+    if (scoped.families.includes('task') && STRUCTURED_INTENT_PATTERN.test(userMessage)) return undefined;
+    return { type: 'function', function: { name: scoped.tool } };
+  }
   if (!KNOWLEDGE_QUESTION_PATTERN.test(userMessage) || NOT_A_RETRIEVAL_REQUEST_PATTERN.test(userMessage)) return undefined;
   if (STRUCTURED_INTENT_PATTERN.test(userMessage) && tools.some((t) => STRUCTURED_TOOL_NAMES.has(t.function.name))) return undefined;
   const preferred = DECISION_REVIEW_INTENT_PATTERN.test(userMessage) && tools.some((t) => t.function.name === 'review_decisions') ? 'review_decisions' : 'search_knowledge_base';

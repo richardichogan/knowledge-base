@@ -2,6 +2,76 @@
 
 **Status:** Validated
 
+**Release scope (2026-10-24):**
+- Implement resumable whole-document reading with bounded per-step context,
+  durable private reading checkpoints, complete page coverage and explicit
+  recovery after interruption. Include specifications and newsletters.
+- Improve conversational question-asking with multi-turn regression and bounded
+  live-model evaluations before release.
+- Include the pending collection-scoping and Health diagnostics changes.
+- Preserve existing Azure Container Apps + Static Web Apps hosting, secrets,
+  database content and approval-based writes. No new infrastructure.
+- Use existing AZCLI production runbook, Alliance Tenant Reporting / UK South;
+  validate, commit, merge/push, build and verify the new revision and web assets.
+- All validation checks must pass:
+  - Azure CLI installation/authentication and existing target confirmed.
+  - Both TypeScript checks, affected tests and one isolated release suite per app.
+  - Backend/frontend production builds and lint non-regression.
+  - Dockerfile/lockfile and automatic migration packaging review; ACR verifies
+    the unchanged container recipe during deployment.
+  - No infrastructure/IAM changes: Bicep/template/what-if, new-resource policy
+    and static role-assignment checks are not applicable to this image/web update.
+- Current validation completed; earlier proof below remains historical.
+
+**Section 7: Validation Proof (2026-10-24T06:54Z, recursive reading and dialogue):**
+- Fetched origin and merged origin/main; already current. Azure CLI 2.79.0
+  authenticated to the existing Alliance Tenant Reporting subscription
+  c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28. Existing production image v241;
+  next image v242. Container Apps and Static Web Apps targets unchanged.
+- Both `npx --no-install tsc --noEmit` checks passed; backend and frontend
+  `npm run build` passed. Lint non-regression passed: backend 561 existing
+  violations against baseline 623, frontend 23 against baseline 41.
+  Frontend retains existing Sass/chunk-size warnings; `git diff --check` passed.
+- Backend isolated suite ran once: 463/465 initially passed. The two failures
+  exposed an over-scoped "this note" comparison and an outdated expectation
+  that task-only requests retain generic search. Fixed the reference boundary,
+  retained explicit manual paging coverage and updated the task-scope expectation.
+  All 9 comparison/scope tests and all 30 subsequently affected conversation,
+  scope and read-only tests passed. No full-suite rerun.
+- Frontend isolated release checks passed: 210 tests plus 17 bundled UI tests.
+  All 15 dialogue-policy deterministic tests were also explicitly observed in a
+  standalone run; actual chat tests cover buffered, single tool-free repair with
+  orchestration both enabled and disabled.
+- Deterministic reading processed more than 1.6 million characters and 100 pages
+  with exact stored coverage and bounded model inputs; interruption/resume,
+  cancellation, source exclusion/version invalidation and private recall passed.
+  Invalid checkpoint quotations retry the same page once; provider errors are
+  surfaced without silently retrying or advancing coverage.
+- Shared runtime live-reading prompts processed all 76,848 synthetic characters
+  across 7 pages and preserved beginning/middle/end facts, figures, an unresolved
+  conflict and newsletter audience (7/7 checks). An initial checkpoint validation
+  failure drove stricter source-page quoting and same-page recovery. A separate
+  adversarial fixture was rejected by Azure content filtering; this was not
+  bypassed or counted as a passing reading/security evaluation.
+- Live dialogue used production prompt assembly and Foundry routes with synthetic
+  multi-turn input, no tools and intercepted usage writes. Baseline RTR produced
+  essays; latest saved RTR/newsletter exchange passed 6/6 after two bounded
+  repairs, allowing a rhetorical question inside the requested newsletter draft.
+  Transcript review confirmed consequential questions and use of the answers.
+  These bounded heuristic evaluations are not a semantic quality guarantee.
+- Dockerfile and existing lockfile reviewed: both new SQL migrations are copied
+  from src/db/migrations into the image and run on startup. ACR will verify the
+  unchanged container recipe. Registry uses the existing secret-based pull
+  configuration, not a new managed identity or role assignment.
+- Existing application-only AZCLI recipe; no provisioning, IAM, new resource,
+  Bicep/template/what-if or policy changes. Database changes add private chat
+  reading checkpoints and count-only retrieval audit fields; source documents
+  and approval-based profile memories are not modified.
+- Evidence: session files/document-reading-live-eval.json,
+  athena-dialogue-{baseline-excerpts,live-standard-repaired,live-standard-rescored}.log,
+  recursive-release-{backend-tests,frontend-tests,affected-tests,backend-build,
+  frontend-build,backend-lint,frontend-lint}.log. Preserve unrelated Impeccable cache.
+
 **Deployment result (2026-10-23, identity and capability grounding):**
 - Source 4fced85 committed and atomically pushed to main and
   richardichogan-local-development; ACR build and v241 update succeeded.

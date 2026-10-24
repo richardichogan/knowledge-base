@@ -23,6 +23,13 @@ export function isTranscriptReviewRequest(query: string): boolean {
   return TRANSCRIPT_REVIEW_QUERY.test(query);
 }
 
+/** A named document review needs room for the source, not just search previews. */
+export function isDocumentReviewRequest(query: string): boolean {
+  return isTranscriptReviewRequest(query)
+    || (/\b(?:specifications?|spec|documents?|notes?|reports?|newsletters?|user\s+stor(?:y|ies))\b/i.test(query)
+      && /\b(?:read|review|look\s+at|summari[sz]e|analy[sz]e|compare|critique|check|full|complete)\b/i.test(query));
+}
+
 export type BudgetKind = 'source_chars' | 'tool_executions' | 'wall_time' | 'aborted' | 'model_rounds';
 
 /** Server flag gating the new orchestration; the previous path stays the default. */
@@ -44,6 +51,7 @@ export class TurnBudget {
   retrievalMs = 0;
   readonly exhausted = new Set<BudgetKind>();
   private readonly limits: BudgetLimits;
+  private supportingChars = 0;
 
   constructor(
     private readonly signal?: AbortSignal,
@@ -71,6 +79,10 @@ export class TurnBudget {
     return Math.max(0, this.limits.retrievalWallMs - this.retrievalMs);
   }
 
+  remainingSourceChars(): number {
+    return Math.max(0, this.limits.sourceChars - this.sourceChars);
+  }
+
   /** Runs one retrieval, timing it against the cumulative wall budget. */
   async runRetrieval<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; reason: BudgetKind }> {
     const gate = this.canStartRetrieval();
@@ -95,9 +107,34 @@ export class TurnBudget {
   }
 
   /** Keep the evidence result identical to the valid JSON actually shown to the model. */
-  admitResult(result: unknown): { result: unknown; content: string } {
-    const content = JSON.stringify(result);
-    if (!this.admitSource(content).truncated) return { result, content };
+  admitResult(result: unknown, supportingLimit?: number): { result: unknown; content: string } {
+    let content = JSON.stringify(result);
+    if (supportingLimit !== undefined && this.supportingChars + content.length > supportingLimit) {
+      if (typeof result === 'object' && result !== null) {
+        const record = result as Record<string, unknown>;
+        const listKey = ['results', 'documents', 'chats'].find(key => Array.isArray(record[key]));
+        if (listKey !== undefined) {
+          const rows = [...record[listKey] as unknown[]];
+          const partial = { ...record, [listKey]: rows, partial: true,
+            note: 'Supporting search results were reduced to reserve context for the requested document. This is a partial sample; read the primary source next.' };
+          while (rows.length > 0) {
+            rows.pop();
+            content = JSON.stringify(partial);
+            if (rows.length > 0 && this.supportingChars + content.length <= supportingLimit && content.length <= this.remainingSourceChars()) {
+              this.admitSource(content);
+              this.supportingChars += content.length;
+              return { result: partial, content };
+            }
+          }
+        }
+      }
+      const warning = { partial: true, code: 'supporting_context_limit', note: 'Supporting lookup omitted to reserve context for the requested document. Read the primary source with read_knowledge_record before drawing conclusions; this is not a failure to load its body.' };
+      return { result: warning, content: JSON.stringify(warning) };
+    }
+    if (!this.admitSource(content).truncated) {
+      if (supportingLimit !== undefined) this.supportingChars += content.length;
+      return { result, content };
+    }
     const warning = { partial: true, note: 'Only part of this source material fit into the answer context; not everything was checked.' };
     return { result: warning, content: JSON.stringify(warning) };
   }
@@ -178,11 +215,12 @@ export const RAW_METADATA_REFUSAL =
 export function finalizeKnowledgeAnswer(
   query: string,
   answer: string,
-  turn: { budget: TurnBudget; counts: { found: number; read: number }; retrievalUsed: boolean; deterministicPath: boolean; deterministicComplete?: boolean },
+  turn: { budget: TurnBudget; counts: { found: number; read: number }; retrievalUsed: boolean; deterministicPath: boolean; deterministicComplete?: boolean; fullDocumentRead?: boolean },
 ): string {
   if (RAW_METADATA_REQUEST_PATTERN.test(query)) return RAW_METADATA_REFUSAL;
   if (isCompletenessChallenge(query)) return completenessAnswer(turn.budget, turn.counts);
-  const qualification = turn.retrievalUsed || turn.deterministicPath
+  const scopedDocumentComplete = turn.fullDocumentRead === true && !/\b(?:all|every)\s+(?:(?:my|the|saved)\s+)?(?:notes?|documents?|specifications?|newsletters?|reports?)\b/i.test(query);
+  const qualification = !scopedDocumentComplete && (turn.retrievalUsed || turn.deterministicPath)
     ? exhaustiveQualification(query, { deterministicPath: turn.deterministicPath, complete: turn.deterministicComplete ?? !turn.budget.partial })
     : null;
   const limit = budgetLimitation(turn.budget);

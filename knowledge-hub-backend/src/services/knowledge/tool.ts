@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { getExcludedSources } from '../../ai/contextUsage.js';
 import { KnowledgeValidationError } from '../../types/knowledge.js';
 import { readKnowledgeRecord } from './reader.js';
+import { recallDocumentMemory } from '../../ai/knowledge/documentReading.js';
 
 /** Tools that can surface source content and therefore must fail closed when exclusions are unknown. */
 export const EXCLUSION_GATED_TOOLS: ReadonlySet<string> = new Set([
@@ -29,7 +30,7 @@ export async function executeReadKnowledgeRecord(db: Pool, args: Record<string, 
     return ids;
   };
   try {
-    return await readKnowledgeRecord(db, {
+    const access = await readKnowledgeRecord(db, {
       kind: args['kind'] as string,
       id: args['id'] as string,
       ...(args['cursor'] !== undefined ? { cursor: args['cursor'] as string } : {}),
@@ -37,6 +38,15 @@ export async function executeReadKnowledgeRecord(db: Pool, args: Record<string, 
       ...(args['maxChars'] !== undefined ? { maxChars: args['maxChars'] as number } : {}),
       ...(args['outputVersion'] !== undefined ? { outputVersion: args['outputVersion'] as number } : {}),
     }, { sessionId, strictProjectId: turn.strictProjectId ?? null, loadExcluded });
+    if (args['memoryReviewId'] !== undefined) {
+      if (!('record' in access)) return access;
+      if (turn.sessionId === undefined || typeof args['memoryReviewId'] !== 'string'
+        || (args['memoryOffset'] !== undefined && (!Number.isSafeInteger(args['memoryOffset']) || Number(args['memoryOffset']) < 0))) {
+        return { error: 'Reading memory requires a saved chat, review ID and nonnegative memoryOffset.' };
+      }
+      return recallDocumentMemory(db, turn.sessionId, args['memoryReviewId'], access.record, Number(args['memoryOffset'] ?? 0));
+    }
+    return access;
   } catch (err) {
     if (err instanceof KnowledgeValidationError) return { status: 'invalid_request', code: err.code, error: err.message };
     throw err;

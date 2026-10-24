@@ -66,7 +66,14 @@ export async function upsertContentItem(
         title     = EXCLUDED.title,
         summary   = EXCLUDED.summary,
         body      = EXCLUDED.body,
-        metadata  = content_items.metadata || EXCLUDED.metadata,
+        published_at = CASE WHEN EXCLUDED.metadata->>'publicationDateKnown' = 'true'
+          THEN EXCLUDED.published_at ELSE content_items.published_at END,
+        metadata  = content_items.metadata || EXCLUDED.metadata || jsonb_build_object(
+          'discoveredAt', COALESCE(NULLIF(content_items.metadata->>'discoveredAt', ''), EXCLUDED.metadata->>'discoveredAt'),
+          'publicationDateKnown', CASE
+            WHEN content_items.metadata->>'publicationDateKnown' = 'true' OR EXCLUDED.metadata->>'publicationDateKnown' = 'true' THEN true
+            WHEN content_items.metadata->>'publicationDateKnown' = 'false' OR EXCLUDED.metadata->>'publicationDateKnown' = 'false' THEN false
+            ELSE NULL END),
         -- Unchanged feed snapshots must not look edited, or they are re-embedded every sweep.
         updated_at = CASE
           WHEN (content_items.title, content_items.summary, content_items.body)

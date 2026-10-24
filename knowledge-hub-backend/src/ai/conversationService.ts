@@ -11,7 +11,7 @@ import { createLedger, ledgerCounts } from './knowledge/evidence.js';
 import { recordTurnAudit, looksAbstained, type TurnAuditRow } from './knowledge/turnAudit.js';
 import { RECORD_TOOLS } from './knowledge/toolRecords.js';
 import { collectIds, resolveAnswer, stripUnseenIds } from './knowledge/citations.js';
-import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, DETERMINISTIC_TOOLS, budgetLimitation, finalizeKnowledgeAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled, isTranscriptReviewRequest } from './knowledge/budgets.js';
+import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, DETERMINISTIC_TOOLS, budgetLimitation, finalizeKnowledgeAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled, isDocumentReviewRequest } from './knowledge/budgets.js';
 
 const RETRIEVAL_TOOLS = new Set(['search_diagrams', 'read_diagram', 'search_knowledge_base', 'search_library', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
@@ -29,7 +29,12 @@ import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
 import { getSessionProjectId, readPastChat, searchReferencedPastChats } from './chatSessionStore.js';
 import { focusTools, selectKnowledgeRetrievalChoice, selectRequiredToolChoice } from './toolRouting.js';
-import { openFoundInstruction, unreadFoundCandidates } from './knowledge/openFound.js';
+import { createRetrievalAudit, flagDeferredRecovery, isOutsideCollectionTool, resolveRetrievalScope, RETRIEVAL_DICTIONARY } from './knowledge/retrievalScope.js';
+import { continuationInstruction, openFoundInstruction, unreadFoundCandidates, updatePendingRead, type PendingRead } from './knowledge/openFound.js';
+import { DEFAULT_PAGE_CHARS, MAX_PAGE_CHARS } from '../services/knowledge/projections.js';
+import { modelReadingSteps, readWholeDocument } from './knowledge/documentReading.js';
+import { dialogueRepairInstruction, dialogueTurnMode } from './dialoguePolicy.js';
+import type { KnowledgeAccess } from '../types/knowledge.js';
 import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
 import { DEMO_SPECIFICATION_WRITE_TOOL, isDemoSpecificationRequest } from './demoSpecification.js';
 import { getCanvas } from '../services/canvasService.js';
@@ -54,6 +59,10 @@ const EXPORT_MAX_TOKENS = 1_500;
 const EXPORT_SEPARATOR = '---';
 const TITLE_SOURCE_CHARS = 1_500;
 const TITLE_MAX_TOKENS = 24;
+const REVIEW_SUPPORTING_CHARS = 24_000;
+const READ_ENVELOPE_CHARS = 4_000;
+const JSON_CHAR_EXPANSION = 6;
+const MIN_READ_PAGE_CHARS = 256;
 const NOT_FOLLOWED_LIVE = (): void => { /* not followed live */ };
 
 const READ_ONLY_REFUSAL = 'This request is read-only: it permits reading context and saving Outputs where allowed. The source note and other records cannot be changed.';
@@ -74,6 +83,8 @@ export interface TurnHooks {
   /** The text streamed so far was a preamble to tool calls — clear it. */
   onReset?: () => void;
   onActivity?: (line: string) => void;
+  /** Background turns use an inactivity deadline while a checkpointed source read is making progress. */
+  onReadingProgress?: (() => void) | undefined;
   signal?: AbortSignal;
   budgetMs?: number;
   /** A specific deployment for the reasoning slot ("Ask another model"; streaming turns only). */
@@ -306,7 +317,12 @@ export async function handleConversationTurn(
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
   const peopleBlock = await buildPeopleContext(db, [userMessage]);
   const localFolders = toolContext.localFolders ?? [];
-  const systemExtras = [hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const retrievalScope = resolveRetrievalScope(userMessage, history);
+  const documentReview = isDocumentReviewRequest(userMessage);
+  const retrievalAudit = createRetrievalAudit(retrievalScope);
+  const scopeBlock = retrievalScope === undefined ? '' : `## Enforced retrieval scope for this request\n${JSON.stringify(retrievalScope)}\nUse this collection and window, including on retries. Do not substitute notes or web results. Disclose any defaulted time window. An empty result is not permission to widen the scope.`;
+  const reviewBlock = documentReview ? '## Document review execution\nFind and read the named primary document before supporting chats or web material. Search previews and past discussions are not a substitute. Follow read_knowledge_record nextCursor pages to the end. If a real limit prevents completion, identify the document and how much remains unread; do not describe context omission as a failed database load.' : '';
+  const systemExtras = [RETRIEVAL_DICTIONARY, scopeBlock, reviewBlock, hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const safeHistory = await scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant'));
   const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
@@ -345,6 +361,7 @@ export async function handleConversationTurn(
     knowledgeOrchestration: isKnowledgeOrchestrationEnabled(),
   });
   const tools = (hooks.readOnlyTools === true ? focusedTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : focusedTools)
+    .filter(t => !isOutsideCollectionTool(t.function.name, retrievalScope))
     .filter((t) => !specificationOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === DEMO_SPECIFICATION_WRITE_TOOL)
     .filter((t) => specificationOnly || !briefOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'save_output')
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
@@ -367,12 +384,16 @@ export async function handleConversationTurn(
   }
   if (used !== undefined) used.initialSize = {
     systemChars: typeof systemMessage?.content === 'string' ? systemMessage.content.length : 0,
-    historyChars: baseMessages.slice(1, -1).reduce((total, message) => total + message.content.length, 0),
+    historyChars: baseMessages.slice(1, -1).filter(message => message.role !== 'system').reduce((total, message) => total + message.content.length, 0),
     turnChars: baseMessages.at(-1)?.content.length ?? 0,
     toolSchemaChars: JSON.stringify(tools).length,
     outputsIndexChars: outputsBlock.length,
   };
-  const requiredFirstTool = specificationOnly ? { type: 'function' as const, function: { name: 'get_demo_specification_template' } } : selectRequiredToolChoice(
+  const scopedFirst = retrievalScope?.tool && tools.some(t => t.function.name === retrievalScope.tool)
+    && !retrievalScope.families.includes('task')
+    && !(retrievalScope.families.includes('canvas') && openDiagram !== null && !/\b(?:latest|other|across|compare|diagrams|find|search)\b/i.test(userMessage))
+    ? { type: 'function' as const, function: { name: retrievalScope.tool } } : undefined;
+  const requiredFirstTool = specificationOnly ? { type: 'function' as const, function: { name: 'get_demo_specification_template' } } : scopedFirst ?? selectRequiredToolChoice(
     userMessage,
     tools,
     context.projectReferences,
@@ -405,9 +426,8 @@ export async function handleConversationTurn(
   // Knowledge orchestration (flagged): evidence ledger, retrieval budgets and citation validation. Off = previous path.
   const orchestrated = isKnowledgeOrchestrationEnabled();
   const ledger = orchestrated ? createLedger() : undefined;
-  const transcriptReview = isTranscriptReviewRequest(userMessage);
   const budget = orchestrated
-    ? new TurnBudget(hooks.signal, transcriptReview ? TRANSCRIPT_REVIEW_BUDGET : undefined)
+    ? new TurnBudget(hooks.signal, documentReview ? TRANSCRIPT_REVIEW_BUDGET : undefined)
     : undefined;
   let citationRepairs = 0;
   const FOUND_OPEN_RESERVE_ROUNDS = 2;
@@ -416,15 +436,40 @@ export async function handleConversationTurn(
   let deterministicRan = false;
   let deterministicComplete = true;
   let toolErrorCount = 0;
+  const pendingReads = new Map<string, PendingRead>();
+  let readingMs = 0;
+  let fullDocumentRead = false;
+  let dialogueRepaired = false;
+  const dialogueMode = dialogueTurnMode(history, userMessage);
+  const bufferDialogueDraft = dialogueMode === 'explore' || dialogueMode === 'follow-up' || dialogueMode === 'correction';
+  const repairDialogueReply = async (reply: string): Promise<string> => {
+    const instruction = dialogueRepaired ? null : dialogueRepairInstruction(history, userMessage, reply);
+    if (instruction === null) return reply;
+    const remaining = turnBudgetMs - (Date.now() - turnStart - readingMs);
+    if (remaining < AI_MIN_TOOL_ROUND_BUDGET_MS) {
+      console.warn('[ai] Dialogue repair unavailable: turn time budget exhausted.');
+      return reply;
+    }
+    dialogueRepaired = true;
+    hooks.onActivity?.('Refining the response');
+    const repaired = await client.chatWithToolsStream(model, [
+      ...messages, { role: 'assistant', content: reply }, { role: 'system', content: instruction },
+    ], [], maxTokens, 'none', remaining, NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute);
+    if (!repaired.content?.trim() || repaired.toolCalls.length > 0 || repaired.finishReason === 'length') {
+      throw new Error('Athena could not produce a complete conversational reply. No actions were retried.');
+    }
+    messages.push({ role: 'system', content: instruction });
+    return repaired.content;
+  };
 
   // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
   const maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS
-    : transcriptReview ? Math.max(AI_MAX_TOOL_ITERATIONS, TRANSCRIPT_REVIEW_BUDGET.maxModelRounds)
+    : documentReview ? Math.max(AI_MAX_TOOL_ITERATIONS, TRANSCRIPT_REVIEW_BUDGET.maxModelRounds)
       : AI_MAX_TOOL_ITERATIONS;
   for (let i = 0; i < maxRounds; i++) {
     if (isStopped(hooks)) throw new AiStoppedError();
     hooks.onActivity?.(i === 0 ? 'Thinking' : 'Reading what I found');
-    const remainingBudgetMs = turnBudgetMs - (Date.now() - turnStart);
+    const remainingBudgetMs = turnBudgetMs - (Date.now() - turnStart - readingMs);
     const budgetLow = i > 0 && remainingBudgetMs < AI_MIN_TOOL_ROUND_BUDGET_MS;
     if (budgetLow && remainingBudgetMs < AI_WRAP_UP_ROUND_MIN_MS) {
       console.warn(`[ai] Stopping tool loop after ${i} round(s) — turn budget exhausted`);
@@ -451,7 +496,7 @@ export async function handleConversationTurn(
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
     // Streams when someone is following live, or when a specific deployment is chosen (only the streaming call takes one).
     const response = hooks.onDelta !== undefined || hooks.modelRoute !== undefined
-      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta ?? NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute, {
+      ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, bufferDialogueDraft ? NOT_FOLLOWED_LIVE : hooks.onDelta ?? NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute, {
         ...(hooks.codeFiles !== undefined && hooks.codeFiles.ids.length > 0 && {
           builtInTools: [{ type: 'code_interpreter', container: { type: 'auto', file_ids: hooks.codeFiles.ids } }],
         }),
@@ -485,6 +530,13 @@ export async function handleConversationTurn(
       }
       if (response.content && response.content.trim() !== '') {
         if (ledger !== undefined && budget !== undefined) {
+          if (documentReview && pendingReads.size > 0 && !wrapUp && !budget.aborted
+            && budget.canStartRetrieval().ok && budget.remainingSourceChars() > READ_ENVELOPE_CHARS && i < maxRounds - FOUND_OPEN_RESERVE_ROUNDS) {
+            hooks.onReset?.();
+            messages.push({ role: 'user', content: continuationInstruction(pendingReads.values()) });
+            nextRoundTool = { type: 'function', function: { name: 'read_knowledge_record' } };
+            continue;
+          }
           // Found but never opened: read the top hit of each family before answering (once per turn).
           if (!openedFound && retrievalRan && !deterministicRan && !wrapUp && !budget.aborted && !budget.partial && i < maxRounds - FOUND_OPEN_RESERVE_ROUNDS) {
             const candidates = unreadFoundCandidates(ledger);
@@ -495,8 +547,9 @@ export async function handleConversationTurn(
               continue;
             }
           }
-          let answerText = response.content;
-          const decision = resolveAnswer(ledger, response.content, { repairsUsed: citationRepairs, canRepair: !wrapUp && !budget.aborted && i < maxRounds - 1 });
+          let answerText = await repairDialogueReply(response.content);
+          if (documentReview && pendingReads.size > 0) budget.noteModelRounds(i + 1);
+          const decision = resolveAnswer(ledger, answerText, { repairsUsed: citationRepairs, canRepair: !wrapUp && !budget.aborted && i < maxRounds - 1 });
           if (used !== undefined) attachEvidence(used, ledger, budget.partial ? [budgetLimitation(budget)] : []);
           if (decision.action === 'repair') {
             citationRepairs++;
@@ -513,6 +566,7 @@ export async function handleConversationTurn(
           const counts = ledgerCounts(ledger);
           const entries = [...ledger.entries.values()];
           // Counts and categories only: the answer text is inspected in memory and never stored.
+          retrievalAudit.deferredRecovery = flagDeferredRecovery(retrievalScope, answerText);
           const auditRow: TurnAuditRow = {
             sessionId: sessionId ?? null, assistantMessageId: null, persona: persona ?? 'general',
             retrievalUsed: retrievalRan, deterministicPath: deterministicRan,
@@ -521,17 +575,21 @@ export async function handleConversationTurn(
             strippedIds: Math.max(0, idsBeforeStrip - collectIds(answerText).size),
             unverifiedQuotes: decision.action === 'partial' ? decision.invalid.filter((v) => v.problem === 'quote_mismatch').length : 0,
             repairsUsed: citationRepairs, abstained: looksAbstained(answerText),
-            budgetExhausted: [...budget.exhausted], partial: budget.partial, toolErrorCount,
+            budgetExhausted: [...budget.exhausted], partial: budget.partial || pendingReads.size > 0, toolErrorCount,
             unavailableSources: [...new Set(entries.filter((e) => !e.available).map((e) => e.ref.kind))],
             durationMs: Date.now() - turnStart, modelRounds: i + 1,
+            retrievalScope: retrievalAudit,
           };
           if (persona === undefined || persona === 'general') {
             if (hooks.onAudit !== undefined) hooks.onAudit(auditRow);
             else setImmediate(() => { void recordTurnAudit(db, auditRow); });
           }
-          return finalizeKnowledgeAnswer(userMessage, answerText, { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan, deterministicComplete: deterministicComplete && !budget.partial });
+          const unreadNote = documentReview && pendingReads.size > 0
+            ? `Document review incomplete: ${[...pendingReads.values()].map(page => `${page.title}: read through character ${page.endOffset} of ${page.totalChars}; continuation remains unread`).join('; ')}.`
+            : '';
+          return finalizeKnowledgeAnswer(userMessage, [answerText, unreadNote].filter(Boolean).join('\n\n'), { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan, deterministicComplete: deterministicComplete && !budget.partial, fullDocumentRead });
         }
-        return response.content;
+        return repairDialogueReply(response.content);
       }
       // A reasoning model (or a content filter) can return an empty visible
       // reply — surfacing that as a blank chat bubble looks like the app is
@@ -551,6 +609,10 @@ export async function handleConversationTurn(
     const roundImages: Array<{ label: string; url: string }> = [];
     for (const call of response.toolCalls) {
       let result: unknown;
+      const requestedArgs = parseToolArgs(call.function.arguments);
+      const wholeReadRequested = call.function.name === 'read_knowledge_record' && sessionId !== undefined
+        && requestedArgs['fullDocument'] !== false && (documentReview || requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true)
+        && requestedArgs['cursor'] === undefined && requestedArgs['offset'] === undefined && requestedArgs['memoryReviewId'] === undefined;
       if (isStopped(hooks)) throw new AiStoppedError();
       onToolCall?.(call.function.name);
       hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
@@ -558,18 +620,67 @@ export async function handleConversationTurn(
         if ((briefOnly || specificationOnly || hooks.readOnlyTools === true) && !tools.some((tool) => tool.function.name === call.function.name)) {
           throw new Error(READ_ONLY_REFUSAL);
         }
-        const gate = budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name) ? budget.canStartRetrieval() : { ok: true as const };
+        const gate = budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !wholeReadRequested ? budget.canStartRetrieval() : { ok: true as const };
         if (!gate.ok) {
           result = { partial: true, note: `${budgetLimitation(budget as TurnBudget)} Do not search again; answer from what was read and say not everything was checked.` };
         } else {
-          const run = async (): Promise<unknown> => filterExcluded(
-            await executeToolCall(db, call.function.name, call.function.arguments, activeProjectId ?? undefined, { sessionId, ...toolContext, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
-            excluded,
-          );
+          let toolArguments = call.function.arguments;
+          if (budget !== undefined && call.function.name === 'read_knowledge_record' && !wholeReadRequested) {
+            const args = parseToolArgs(toolArguments);
+            const room = Math.floor((budget.remainingSourceChars() - READ_ENVELOPE_CHARS) / JSON_CHAR_EXPANSION);
+            if (room < MIN_READ_PAGE_CHARS) {
+              budget.exhausted.add('source_chars');
+              result = { partial: true, code: 'budget_exhausted', note: 'The document page was not read: insufficient context remains. This is a context limit, not a failed body load.' };
+              messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
+              continue;
+            }
+            const requested = args['maxChars'];
+            if (requested === undefined || (typeof requested === 'number' && Number.isSafeInteger(requested) && requested > 0 && requested <= MAX_PAGE_CHARS)) {
+              args['maxChars'] = Math.min(typeof requested === 'number' ? requested : documentReview ? MAX_PAGE_CHARS : DEFAULT_PAGE_CHARS, room);
+              toolArguments = JSON.stringify(args);
+            }
+          }
+          const execute = async (argumentsJson: string): Promise<unknown> => filterExcluded(
+            await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, ...toolContext, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
+            excluded);
+          const args = parseToolArgs(toolArguments);
+          const wholeRead = wholeReadRequested && sessionId !== undefined;
+          const run = async (): Promise<unknown> => {
+            if (!wholeRead) return execute(toolArguments);
+            const started = Date.now();
+            const readingClient = getFoundryClient('document-reading').scoped({ sessionId, persona });
+            try {
+              const reviewed = await readWholeDocument(db, {
+                sessionId, scopeKey: JSON.stringify({ strictProjectId, filter: retrievalScope?.filter }),
+                purpose: typeof args['purpose'] === 'string' ? args['purpose'] : userMessage,
+                resume: args['resumeReading'] === true,
+                signal: hooks.signal,
+                onProgress: text => { hooks.onActivity?.(text); hooks.onReadingProgress?.(); },
+                read: async cursor => {
+                  const result = await execute(JSON.stringify({ ...args, maxChars: MAX_PAGE_CHARS, ...(cursor !== undefined && { cursor }) }));
+                  if (typeof result !== 'object' || result === null || !('status' in result)) {
+                    throw new Error(typeof result === 'object' && result !== null && 'error' in result ? String(result.error) : 'Document page could not be read.');
+                  }
+                  return result as KnowledgeAccess;
+                },
+                ...modelReadingSteps(readingClient, hooks.signal),
+              });
+              if ('review' in reviewed) {
+                fullDocumentRead ||= reviewed.review.complete;
+                retrievalAudit.documentReviews++;
+                retrievalAudit.documentReadChars += reviewed.review.readChars;
+                retrievalAudit.documentCheckpoints += reviewed.review.pagesRead;
+              }
+              return reviewed;
+            } finally { readingMs += Date.now() - started; hooks.onReadingProgress?.(); }
+          };
           if (budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name)) {
             retrievalRan = true;
-            const timed = await budget.runRetrieval(run);
-            result = timed.ok ? timed.value : { partial: true, note: budgetLimitation(budget) };
+            if (wholeRead) result = await run();
+            else {
+              const timed = await budget.runRetrieval(run);
+              result = timed.ok ? timed.value : { partial: true, note: budgetLimitation(budget) };
+            }
           } else {
             result = await run();
           }
@@ -580,7 +691,9 @@ export async function handleConversationTurn(
           if (RECORD_TOOLS.has(call.function.name)) retrievalRan = true;
         }
       } catch (err) {
-        result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
+        result = { error: err instanceof Error ? err.message : 'Tool execution failed',
+          ...(wholeReadRequested && { readingInterrupted: true,
+            note: 'The full read did not finish. Any committed page checkpoints remain saved; no unvalidated page was counted as read. Continue this source with resumeReading:true (or start a fresh fullDocument:true read if no unfinished checkpoint exists). Do not describe this as an empty or missing body, and do not claim a complete review.' }) };
       }
       if (result !== null && typeof result === 'object' && 'error' in result) {
         toolErrorCount++;
@@ -593,11 +706,13 @@ export async function handleConversationTurn(
         result = rest;
       }
       let toolContent = JSON.stringify(result);
-      if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name)) {
-        const admitted = budget.admitResult(result);
+      const checkpointReview = typeof result === 'object' && result !== null && 'review' in result;
+      if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !checkpointReview) {
+        const admitted = budget.admitResult(result, documentReview && call.function.name !== 'read_knowledge_record' ? REVIEW_SUPPORTING_CHARS : undefined);
         result = admitted.result;
         toolContent = admitted.content;
       }
+      if (call.function.name === 'read_knowledge_record') updatePendingRead(pendingReads, parseToolArgs(call.function.arguments), result);
       // Only register evidence actually sent to the model, not a discarded oversized payload.
       if (used !== undefined) recordToolSources(used, call.function.name, result);
       if (ledger !== undefined) {
@@ -617,6 +732,11 @@ export async function handleConversationTurn(
           ]),
         ],
       });
+    }
+    if (documentReview && budget !== undefined && pendingReads.size > 0 && !budget.aborted
+      && budget.canStartRetrieval().ok && budget.remainingSourceChars() > READ_ENVELOPE_CHARS) {
+      messages.push({ role: 'user', content: continuationInstruction(pendingReads.values()) });
+      nextRoundTool = { type: 'function', function: { name: 'read_knowledge_record' } };
     }
   }
 

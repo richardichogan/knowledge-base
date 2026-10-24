@@ -38,8 +38,9 @@ export const DISCOVER_APP_GUIDANCE = [
 
 export function isDiscoverSourceRequest(message: string, history: ConversationMessage[] = []): boolean {
   const direct = (text: string): boolean => (/\b(?:discover(?:y)?|rss|atom|feeds?)\b/i.test(text)
-    && /\b(?:sources?|feeds?|urls?|pages?|subscriptions?)\b/i.test(text))
-    || /\bsources?\b/i.test(text) && /\b(?:this app|your app|source list)\b/i.test(text);
+    && /\b(?:sources?|urls?|pages?|subscriptions?)\b/i.test(text))
+    || /\bsources?\b/i.test(text) && /\b(?:this app|your app|source list)\b/i.test(text)
+    || /\b(?:suggest|recommend|additional|configured|enabled|disabled|subscribe)\b[\s\S]{0,70}\bfeeds?\b/i.test(text);
   if (direct(message)) return true;
   // Resolve short corrections/follow-ups only against the user's recent requests,
   // never against an assistant's invented topic.

@@ -117,7 +117,12 @@ export class IntervalError extends Error {
 
 function parseInstant(value: string, label: string): Date {
   const date = new Date(value);
-  if (!/^\d{4}-\d{2}-\d{2}/.test(value) || Number.isNaN(date.getTime())) throw new IntervalError(`${label} must be an ISO date or timestamp`);
+  const day = value.slice(0, 10);
+  const calendar = new Date(`${day}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}(?:$|T.*(?:Z|[+-]\d{2}:\d{2})$)/.test(value)
+    || Number.isNaN(date.getTime()) || Number.isNaN(calendar.getTime()) || calendar.toISOString().slice(0, 10) !== day) {
+    throw new IntervalError(`${label} must be a real ISO calendar date or timestamp with timezone`);
+  }
   return date;
 }
 

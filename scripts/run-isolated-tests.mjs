@@ -7,6 +7,7 @@ const web = resolve(import.meta.dirname, '../knowledge-hub-web');
 const frontend = process.argv.includes('--frontend');
 const tests = frontend ? [
   '../knowledge-hub-web/tests/noteText.test.ts',
+  '../knowledge-hub-web/tests/knowledgeHealthModel.test.ts',
   '../knowledge-hub-web/tests/completionNotification.test.ts',
   '../knowledge-hub-web/tests/athenaMotion.test.tsx',
   '../knowledge-hub-web/tests/athenaMarkElement.test.ts',
@@ -67,6 +68,8 @@ const tests = frontend ? [
   'scripts/daily-insights.test.ts',
   'scripts/knowledge-manifest.test.ts',
   'scripts/knowledge-evidence.test.ts',
+  'scripts/document-reading.test.ts',
+  'scripts/athena-dialogue.test.ts',
   'scripts/knowledge-read.test.ts',
   'scripts/knowledge-safety.test.ts',
   'scripts/knowledge-context.test.ts',
@@ -87,6 +90,8 @@ const tests = frontend ? [
   'scripts/knowledge-health.test.ts',
   'scripts/knowledge-monitoring.test.ts',
   'scripts/knowledge-search.test.ts',
+  'scripts/retrieval-scope.test.ts',
+  'scripts/discovery-context.test.ts',
   'scripts/knowledge-structured.test.ts',
   'scripts/knowledge-indexing.test.ts',
   'scripts/knowledge-indexing-switch.test.ts',

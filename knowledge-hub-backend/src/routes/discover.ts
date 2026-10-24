@@ -592,7 +592,7 @@ discoverRouter.post('/videos', (req: Request, res: Response, next: NextFunction)
         tags: [video.channel], metadata: {
           sourceTitle: video.channel, sourceGroup: 'YouTube', contentKind: 'youtube-video', videoId: video.videoId,
           durationSeconds: video.durationSeconds, ...evidence.metadata,
-          discoveredAt, status: 'new',
+          discoveredAt, publicationDateKnown: video.publishedAt !== null, status: 'new',
         },
       });
       res.status(result.isNew ? HTTP_STATUS.CREATED : HTTP_STATUS.OK).json({ success: true, data: { id: result.id, title: video.title, isNew: result.isNew } });

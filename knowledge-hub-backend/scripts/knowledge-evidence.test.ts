@@ -2,11 +2,38 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createLedger, noteFound, noteRead, ledgerCounts, summariseLedger, dropFromLedger } from '../src/ai/knowledge/evidence.js';
 import { resolveAnswer, validateCitation, normaliseWhitespace, parseCitations } from '../src/ai/knowledge/citations.js';
-import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, budgetLimitation, completenessAnswer, exhaustiveQualification, isKnowledgeOrchestrationEnabled, isTranscriptReviewRequest } from '../src/ai/knowledge/budgets.js';
+import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, budgetLimitation, completenessAnswer, exhaustiveQualification, isKnowledgeOrchestrationEnabled, isTranscriptReviewRequest, isDocumentReviewRequest } from '../src/ai/knowledge/budgets.js';
 import { authorityLabel, attributionVerb, overclaimProblems, dedupeSyndicated, interpretWatchRun, watchStatement, chatQuoteAllowed } from '../src/ai/knowledge/evidenceAuthority.js';
 import { emptyContextUsed, attachEvidence, recordToolEvidence } from '../src/ai/contextUsage.js';
 
 const ref = (id: string, kind = 'note') => ({ kind, id });
+
+test('document reviews reserve primary-source room independently of supporting lookups', () => {
+  assert.equal(isDocumentReviewRequest('If you look at the RTR product spec we worked on yesterday'), true);
+  assert.equal(isDocumentReviewRequest('Review this specification in full'), true);
+  assert.equal(isDocumentReviewRequest('What format is best for our notes feature?'), false);
+  const budget = new TurnBudget(undefined, TRANSCRIPT_REVIEW_BUDGET);
+  const first = budget.admitResult({ content: 'a'.repeat(15_000) }, 24_000);
+  assert.doesNotMatch(first.content, /supporting_context_limit/);
+  const before = budget.remainingSourceChars();
+  const omitted = budget.admitResult({ content: 'b'.repeat(15_000) }, 24_000);
+  assert.match(omitted.content, /supporting_context_limit/);
+  assert.equal(budget.remainingSourceChars(), before);
+  assert.equal(budget.partial, false);
+  const primary = budget.admitResult({ content: 'primary'.repeat(10_000) });
+  assert.doesNotMatch(primary.content, /Only part/);
+  assert.equal(budget.partial, false);
+  const searchBudget = new TurnBudget(undefined, TRANSCRIPT_REVIEW_BUDGET);
+  const search = searchBudget.admitResult({ results: [
+    { id: 'primary', title: 'RTR specification', content: 'a'.repeat(10_000) },
+    { id: 'related', title: 'Supporting note', content: 'b'.repeat(10_000) },
+    { id: 'distant', title: 'Older chat', content: 'c'.repeat(10_000) },
+  ] }, 24_000);
+  assert.deepEqual(JSON.parse(search.content).results.map((row: { id: string }) => row.id), ['primary', 'related']);
+  assert.equal(JSON.parse(search.content).partial, true);
+  assert.equal(searchBudget.partial, false);
+});
+
 function ledgerWith(text: string, version = 'v1') {
   const l = createLedger();
   noteRead(l, ref('N1'), { text, version, title: 'N1', projectId: 'p1' });
