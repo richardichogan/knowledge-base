@@ -46,7 +46,7 @@ class Host {
 type Ribbon = Host & {
   connectedCallback(): void; disconnectedCallback(): void;
   attributeChangedCallback(name: string, old: string | null, value: string | null): void;
-  mood: string; level: number | null; _p: Record<string, number>; _yaw: number; _spin: number; _energy: number;
+  mood: string; level: number | null; _p: Record<string, number>; _yaw: number; _spin: number; _energy: number; _thinkingTime: number;
 };
 
 function fixture(attrs: Record<string, string> = {}) {
@@ -127,6 +127,30 @@ test('small chat ribbons use thicker strands without changing their size or mood
   assert.equal(f.ribbon.canvas.width, 88);
   assert.equal(f.ribbon._p.bright, 0.85);
   assert.ok(f.ribbon.canvas.peakAlpha >= 0.6, 'Resting chat icon must have visibly bright edge strands');
+});
+
+test('thinking changes tempo smoothly at a fixed canvas size and stops its pulse clock for reduced motion', () => {
+  const f = fixture({ size: '32', mood: 'thinking' });
+  f.step();
+  const tempos: number[] = [];
+  for (let frame = 0; frame < 200; frame++) {
+    const yaw = f.ribbon._yaw;
+    f.step(64);
+    tempos.push((f.ribbon._yaw - yaw) / (f.ribbon._p.yawSp! * 0.064));
+  }
+  assert.ok(Math.min(...tempos) < 0.7);
+  assert.ok(Math.max(...tempos) > 1.3);
+  assert.ok(tempos.every((tempo, i) => i === 0 || Math.abs(tempo - tempos[i - 1]!) < 0.07));
+  assert.equal(f.ribbon.canvas.width, 64);
+  f.reduced(true);
+  const clock = f.ribbon._thinkingTime, yaw = f.ribbon._yaw;
+  f.advance(500);
+  assert.equal(f.ribbon._thinkingTime, clock);
+  assert.equal(f.ribbon._yaw, yaw);
+  const still = fixture({ size: '32', mood: 'thinking', still: '' });
+  still.step();
+  assert.equal(still.ribbon._thinkingTime, 0);
+  assert.equal(still.frames.size + still.timers.size, 0);
 });
 
 test('all nine settled moods render once, remain finite and announce only supported non-silent events', () => {

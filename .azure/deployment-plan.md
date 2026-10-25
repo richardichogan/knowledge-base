@@ -2,6 +2,28 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-25, shared ribbon repair):**
+- User requested a quick deployment of the shared animation visibility repair
+  and variable thinking tempo/pulse. Frontend-only update to existing kh-prod-web
+  in Alliance Tenant Reporting. Backend v247 and database remain unchanged.
+- `git fetch origin && git merge origin/main` reported already current.
+  `git diff --check` passed. Azure account and existing Static Web App confirmed.
+- All validation checks pass:
+  - [x] Both `tsc --noEmit` checks passed after implementation; frontend
+    `npm run typecheck` repeated before release.
+  - [x] Frontend `npm run lint:check`: 22 existing violations / baseline 41.
+  - [x] One frontend `npm run test:isolated`: 205/205 plus 31/31 bundled UI
+    checks passed, including shared presence and thinking tempo regression tests.
+  - [x] Frontend `npm run build` passed.
+- Direct local chat observation confirmed the ribbon remains attached during
+  thinking and after completion; note-panel ribbon resumed after opening.
+- Existing application-only Azure CLI recipe applies. No dependencies,
+  infrastructure, IAM, policy, database or Electron changes; provisioning,
+  Bicep/what-if and Docker/backend builds are not applicable.
+- Proof: session files/ribbon-release-tests.log and ribbon-release-build.log.
+  Push source to feature/main, deploy frontend, verify matching served entry
+  and ribbon assets. Preserve unrelated .impeccable/hook.cache.json.
+
 **Release scope and Section 7: Validation Proof (2026-10-24, Athena evening release):**
 - User explicitly requested merge, push and deploy of all completed publishing,
   diagram-context and Athena chat refinements, including bounded model transport

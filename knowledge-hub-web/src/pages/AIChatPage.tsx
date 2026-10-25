@@ -386,8 +386,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const promptScrollFrameRef = useRef(0);
   useEffect(() => () => { window.cancelAnimationFrame(promptScrollFrameRef.current); }, []);
   const conversationRef = useRef<HTMLDivElement>(null);
-  const presenceDockRef = useRef<HTMLSpanElement>(null);
-  const presenceThinkRef = useRef<HTMLSpanElement>(null);
+  const [presenceDock, setPresenceDock] = useState<HTMLSpanElement | null>(null);
+  const [presenceThinker, setPresenceThinker] = useState<HTMLSpanElement | null>(null);
   const [replyArrival, setReplyArrival] = useState<{ startedAt: number; complete: boolean } | null>(null);
   const [revealingAnswer, setRevealingAnswer] = useState(false);
   const [promptArrivalAt, setPromptArrivalAt] = useState<number | null>(null);
@@ -2114,7 +2114,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   const responsePresence = (
     <div className="ai-presence-dock ai-presence-dock--response">
-      <span ref={presenceDockRef} className="ai-presence-anchor" aria-hidden="true" />
+      <span ref={setPresenceDock} className="ai-presence-anchor" aria-hidden="true" />
       {motionPhase === 'typing' && <span className="ai-presence-typing" role="status">Reading your message…</span>}
       <span className="ai-presence-dock__status" role="status">{isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : ''}</span>
       {motionPhase === 'idle' && input.trim() === '' && !isRestoringHistory && !preparingBrief
@@ -2198,8 +2198,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       )}
       <div ref={conversationRef} className={`ai-conversation${standalone ? ' ai-chat-standalone__body' : compact ? ' ai-chat-compact__body' : ''}`}>
         <AthenaPresence mood={mood} phase={motionPhase} pending={chatMutation.isPending}
-          responseKey={`${currentNoteId ?? sessionId ?? 'new'}:${messages.length}`}
-          dock={presenceDockRef} thinker={presenceThinkRef} voiceLevel={voiceLevelRef} />
+          dock={presenceDock} thinker={presenceThinker} voiceLevel={voiceLevelRef} />
         <JobChatConfirmations sessionId={sessionId} />
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
@@ -2245,7 +2244,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             <div className="ai-note-summary-card">
               <p className="ai-note-summary-card__label">Summary</p>
               {isNoteSummaryLoading ? (
-                <ThinkingReply activity="Summarising this note" presenceRef={presenceThinkRef} />
+                <ThinkingReply activity="Summarising this note" presenceRef={setPresenceThinker} />
               ) : noteSummaryError !== null ? (
                 <div className="ai-history-error" role="alert">
                   <p>Could not summarise this note: {noteSummaryError}</p>
@@ -2411,9 +2410,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             </ChatBubble>
           ))}
           {chatMutation.isPending && replyArrival?.complete !== true && (liveTurn !== null ? (
-            <LiveReply activity={liveTurn.activity} startedAt={liveTurn.startedAt} thinkerRef={presenceThinkRef} />
+            <LiveReply activity={liveTurn.activity} startedAt={liveTurn.startedAt} thinkerRef={setPresenceThinker} />
           ) : (
-            <ThinkingReply activity="Athena is thinking" presenceRef={presenceThinkRef} />
+            <ThinkingReply activity="Athena is thinking" presenceRef={setPresenceThinker} />
           ))}
           {(lastAssistantIndex < 0 || chatMutation.isPending) && responsePresence}
           {holdPromptTop && <div ref={promptRoomRef} className="ai-prompt-room" aria-hidden="true" />}

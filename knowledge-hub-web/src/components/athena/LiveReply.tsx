@@ -9,7 +9,7 @@ import { ChatBubble } from './ChatBubble';
 interface LiveReplyProps {
   activity: string;
   startedAt: number;
-  thinkerRef: React.RefObject<HTMLSpanElement>;
+  thinkerRef: React.Ref<HTMLSpanElement>;
 }
 
 const progressLabel = (activity: string): string => {
@@ -23,7 +23,7 @@ const progressLabel = (activity: string): string => {
 
 export const ThinkingReply: React.FC<{
   activity: string;
-  presenceRef: React.RefObject<HTMLSpanElement>;
+  presenceRef: React.Ref<HTMLSpanElement>;
   seconds?: number;
 }> = ({ activity, presenceRef, seconds }) => (
   <ChatBubble role="assistant" thinking>

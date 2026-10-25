@@ -29,6 +29,10 @@ attribution, context and references, and alternate-model controls are grouped
 under a collapsed **Response details** menu.
 The ribbon animates in place within the working indicator or latest response;
 it no longer flies between the reply heading and composer or overlays the input.
+Live anchor callbacks keep it attached when chat history or progress views are
+replaced, across standalone, note, diagram and floating chats. Thinking smoothly
+alternates faster and slower rotation with a slight size and light pulse in the
+shared renderer; the host stays fixed and reduced-motion/static renders do not pulse.
 Saved reply headings use a still 20px Athena icon; only the working indicator
 and latest response's presence use the full-size animated ribbon.
 As a new answer appears, its small heading icon briefly animates in the answering

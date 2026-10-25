@@ -160,10 +160,14 @@ test('active ribbon renders in its anchor, never as a travelling overlay', () =>
   assert.match(source, /size=\{56\}/);
   assert.match(source, /ai-presence-inline/);
   assert.doesNotMatch(source, /athenaPosition|translate\(|AthenaMotion\(/);
+  assert.doesNotMatch(source, /responseKey|setAnchor|dock\.current|thinker\.current/);
+  const page = readFileSync(new URL('../src/pages/AIChatPage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /ref=\{setPresenceDock\}/);
+  assert.match(page, /presenceRef=\{setPresenceThinker\}/);
+  assert.match(page, /thinkerRef=\{setPresenceThinker\}/);
   for (const phase of ['idle', 'typing', 'listening', 'sending', 'thinking', 'writing'] as const) {
     const html = renderToStaticMarkup(<AthenaPresence phase={phase} pending={phase === 'thinking'}
-      responseKey="fixed-size" dock={React.createRef<HTMLSpanElement>()}
-      thinker={React.createRef<HTMLSpanElement>()} />);
+      dock={null} thinker={null} />);
     assert.equal(html, '');
   }
 });

@@ -43,7 +43,7 @@
       this.attachShadow({ mode: 'open' });
       this._mood = 'resting'; this._p = { ...BASE }; this._yaw = 0.6; this._spin = 0; this._t0 = performance.now(); this._raf = 0;
       this._visible = true; this._nx = 0; this._ny = 0;
-      this._level = null; this._energy = 0; this._reducedTime = null;
+      this._level = null; this._energy = 0; this._reducedTime = null; this._thinkingTime = 0;
       this._mq = matchMedia('(prefers-reduced-motion: reduce)');
       this._wake = () => this._schedule();
     }
@@ -130,7 +130,12 @@
       for (const key in BASE) p[key] += (tgt[key] - p[key]) * k;
       const level = !R && this.getAttribute('interaction') === 'voice' && this._mood === 'listening' ? this._level ?? 0 : 0;
       this._energy = R ? 0 : this._energy + (level - this._energy) * (1 - Math.exp(-dt / (level > this._energy ? 0.08 : 0.3)));
-      if (!R) { this._yaw += p.yawSp * dt; this._spin += p.spin * dt; }
+      if (!R) {
+        const thinking = this._mood === 'thinking';
+        if (thinking) this._thinkingTime += dt;
+        const tempo = thinking ? 1 + 0.45 * Math.sin(this._thinkingTime * 1.25) + 0.2 * Math.sin(this._thinkingTime * 2.1) : 1;
+        this._yaw += p.yawSp * dt * tempo; this._spin += p.spin * dt * tempo;
+      }
       if (!R) this._reducedTime = null;
       else this._reducedTime ??= now / 1000;
       this._draw(R ? this._reducedTime : now / 1000, (now - this._t0) / 1000, R);
@@ -141,6 +146,7 @@
       const s = this._s, ctx = this._ctx, p = this._p, S = this._S, N = this._N, c = s / 2;
       const waiting = !R && this.getAttribute('interaction') === 'idle' && this._mood === 'resting';
       const breath = waiting ? Math.sin(2 * Math.PI * t / 5.6) : 0;
+      const thinkingPulse = !R && this._mood === 'thinking' ? Math.sin(this._thinkingTime * 2.4) : 0;
       const energy = R ? 0 : this._energy;
       const listeningLevel = this.getAttribute('interaction') === 'voice' ? energy : this._level ?? 1;
       ctx.clearRect(0, 0, s, s);
@@ -155,7 +161,7 @@
       const bounce = R ? 0 : p.bounce * Math.abs(Math.sin(t * 4.2)) * 0.05;
       const shake = R ? 0 : p.shake * Math.sin(t * 5.2) * Math.max(0, Math.sin(t * 1.1)) * 0.5;
       const talk = R ? 0 : p.talk * (tt < 3 ? Math.abs(Math.sin(tt * 9)) * (0.6 + 0.4 * Math.sin(tt * 3.3)) : 0.15 * Math.abs(Math.sin(tt * 2)));
-      const scale = s * p.scale * breathe * (1 + 0.06 * talk);
+      const scale = s * p.scale * breathe * (1 + 0.06 * talk + 0.025 * thinkingPulse);
       const yaw = this._yaw + p.yaw0 + shake + this._nx * 0.5, pitch = p.pitch + this._ny * 0.4 - energy * 0.06,
         roll = p.roll + p.lean * this._nx * 0.2 + (waiting ? 0.06 * Math.sin(t * 0.35) : 0);
       const cy0 = c + s * (-bounce + p.sink * 0.06), cx0 = c + p.lean * s * 0.03;
@@ -163,7 +169,7 @@
       const D = 2.6;                                  // camera distance (perspective)
       const pts = new Float32Array((N + 1) * 3);
       ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
-      const bright = p.bright * (1 + 0.1 * breath + 0.32 * energy) * (s < 60 ? 2.5 : 1), CH = 10;
+      const bright = p.bright * (1 + 0.1 * breath + 0.32 * energy + 0.1 * thinkingPulse) * (s < 60 ? 2.5 : 1), CH = 10;
       for (let j = 0; j < S; j++) {
         const v = S === 1 ? 0 : (j / (S - 1)) * 2 - 1, edge = Math.abs(v) > 0.93;
         for (let i = 0; i <= N; i++) {

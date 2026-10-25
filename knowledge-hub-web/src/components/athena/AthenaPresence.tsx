@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { athenaMarkState, type AthenaMotionPhase } from '../../chat/athenaMotion';
 import { AthenaMark } from './AthenaMark';
@@ -8,24 +8,17 @@ import type { AthenaMood } from '../../chat/athenaMood';
 interface AthenaPresenceProps {
   phase: AthenaMotionPhase;
   pending: boolean;
-  responseKey: string;
-  dock: React.RefObject<HTMLSpanElement>;
-  thinker: React.RefObject<HTMLSpanElement>;
+  dock: HTMLSpanElement | null;
+  thinker: HTMLSpanElement | null;
   voiceLevel?: React.MutableRefObject<number>;
   mood?: AthenaMood;
 }
 
 export const AthenaGlyph: React.FC = () => <AthenaMark state="resting" />;
 
-export const AthenaPresence: React.FC<AthenaPresenceProps> = ({ phase, pending, responseKey, dock, thinker, voiceLevel, mood }) => {
+export const AthenaPresence: React.FC<AthenaPresenceProps> = ({ phase, pending, dock, thinker, voiceLevel, mood }) => {
   const ribbon = useRef<AthenaRibbonElement>(null);
-  const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
-
-  // Resolve after refs are attached: the home moves into the newest saved reply.
-  useEffect(() => {
-    const next = (pending || phase === 'thinking' ? thinker.current : null) ?? dock.current;
-    setAnchor(next);
-  }, [pending, phase, responseKey, thinker, dock]);
+  const anchor = (pending || phase === 'thinking' ? thinker : null) ?? dock;
 
   useEffect(() => {
     const element = ribbon.current;
