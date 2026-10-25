@@ -3689,3 +3689,21 @@ Validated on 2026-10-04 (11:10-11:15 BST):
 - Browser suite passed at 1440, 1024 and 390, including the real reload test that preserves the draft and session.
 - `npm run build` passed.
 - Deployed to SWA `kh-prod-web` from `c064710`. Production `index-r_DrYltu.js` and `index-Dg_rYtuc.css` match the local build by SHA-256. The live bundle contains `acquireTokenRedirect` and none of the popup code.
+
+## Release v250 — Athena Blueprint review and card alignment
+
+- Scope: authored Blueprint renderer and sanitiser, click-to-comment review
+  queue, full-screen diagrams, Athena job notices, and per-card style and
+  alignment fixes. Adds backend dependency `htmlparser2`.
+- Validation: both type checks and lint baselines pass. The full suites ran once.
+  Then only the failed or affected checks were rerun: backend `designs.test.ts`
+  passes 5/5, and UI `design-artifact` and `document-review` pass.
+  The UI hang was an open BroadcastChannel, now unref'd under Node.
+- Deployment completed at 2026-10-25T22:11Z:
+  - Source `d9de395` pushed to main and the feature branch. ACR run `ca7v`
+    built `kh-prod-api:v250`.
+  - Revision `kh-prod-api-vnet--0000247` is Healthy / RunningAtMaxScale and
+    serving live design and collaboration requests with HTTP 200 responses.
+  - Frontend production deployment succeeded and serves
+    `/assets/index-DJrYJiPt.js`, which matches the local build.
+  - `.impeccable/hook.cache.json` was preserved and not committed.
