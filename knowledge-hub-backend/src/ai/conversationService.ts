@@ -1,4 +1,6 @@
 import type { NoteEditProposal } from './noteEdits.js';
+import { DESIGN_CHAT_TOOLS, type DesignTurnState } from './designTools.js';
+import { getDesign } from '../designs/designStore.js';
 import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { getFoundryClient, AiStoppedError } from './foundryClient.js';
@@ -144,7 +146,7 @@ function pastChatSearchQuery(message: string): string | null {
 }
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set(['set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set(['save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -173,7 +175,8 @@ export async function handleConversationTurn(
   onToolCall?: (toolName: string) => void,
   /** Per-turn tool context: the open Think note, and a collector for proposed edits to it. */
   toolContext: {
-    noteId?: string | undefined; noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[];
+    noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState;
+    noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[];
     localFolders?: LocalFolder[]; localFileWrites?: LocalFileWriteProposal[];
   } = {},
   /** Live turn hooks (background turns): streamed text, activity lines, Stop, a longer time budget. */
@@ -339,7 +342,16 @@ export async function handleConversationTurn(
         ? '## Full review of the specification in view requested\nReview this specification thoroughly. Start with the supplied document, not searches for comparison specifications. Read missing sections of this source if needed; unrelated documents are not required. He has chosen full depth: do not ask him to choose it again.' +
           (reviewNoteId === undefined ? '' : ` Primary source identity: read_knowledge_record(kind "note", id "${reviewNoteId}", fullDocument true). Do not search for a different specification.`)
         : '';
-  const systemExtras = [RETRIEVAL_DICTIONARY, scopeBlock, reviewBlock, opinionBlock, hooks.noOutputsPanel === true ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const design = toolContext.designOwner ? await getDesign(db, toolContext.designOwner) : undefined;
+  const designBlock = design ? `## Working Design package (server-resolved)
+The conversation belongs to Design ${JSON.stringify(design.title)} (parent ${design.parentNoteId}), not an independent note.
+Active original: ${toolContext.noteId ?? 'none'}. Authoritative section links: ${JSON.stringify(design.selections)}.
+Use read_design_package to read the current originals and revisions before work. Use save_design_documents when asked to revise/create/save sections; it updates those originals or atomically creates and links a genuinely missing section.
+Do not use generic draft creation, demo-specification generation, Outputs, chat-only deliverables, or edit the parent to stand in for a section. "Save in the Spec tab" means save the Spec original in this Design. Do not ask again for permission already given.
+Use case = actors, goals, journey and outcomes; Spec = detailed behaviours, constraints and acceptance; Architecture = technical structure; Diagram = the linked native canvas. HTML is the shared interactive visual within Spec, not an extra document for every tab.
+Call successful tools before claiming a save. There is no Apply preview for direct Design saves. Never invent a panel, button or link. On error report what failed and preserve writing; do not make disconnected substitutes.
+Existing interactive-visual feedback still requires its explicit Accept/Discard workflow. Do not claim to regenerate a visual or mutate a diagram through the document tools.` : '';
+  const systemExtras = [RETRIEVAL_DICTIONARY, scopeBlock, reviewBlock, opinionBlock, designBlock, hooks.noOutputsPanel === true && !design ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const safeHistory = await scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant'));
   const reviewPage = reviewScope === 'clarify' && pageContext !== undefined
     ? { type: pageContext.type, title: pageContext.title } : pageContext;
@@ -364,10 +376,10 @@ export async function handleConversationTurn(
 
   const client = getFoundryClient('chat').scoped({ persona, sessionId });
   hooks.onActivity?.('Loading tools');
-  const allTools = [...await getToolDefinitions(), ...(localFolders.length > 0 ? LOCAL_FILE_TOOLS : [])];
+  const allTools = [...await getToolDefinitions(), ...(design ? DESIGN_CHAT_TOOLS : []), ...(localFolders.length > 0 ? LOCAL_FILE_TOOLS : [])];
   hooks.signal?.throwIfAborted();
-  const briefOnly = isImagineDemoBriefRequest(persona, userMessage);
-  const specificationOnly = isDemoSpecificationRequest(userMessage);
+  const briefOnly = !design && isImagineDemoBriefRequest(persona, userMessage);
+  const specificationOnly = !design && isDemoSpecificationRequest(userMessage);
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
   // The note-edit and map-edit tools are the two largest definitions (about 1,400 tokens between them) and
   // only make sense with a note or canvas open, so they are not sent otherwise.
@@ -380,6 +392,7 @@ export async function handleConversationTurn(
     knowledgeOrchestration: isKnowledgeOrchestrationEnabled(),
   });
   const tools = (noToolTurn ? [] : hooks.readOnlyTools === true ? focusedTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : focusedTools)
+    .filter(t => !design || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, 'get_demo_specification_template'].includes(t.function.name))
     .filter(t => !isOutsideCollectionTool(t.function.name, retrievalScope))
     .filter((t) => !specificationOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === DEMO_SPECIFICATION_WRITE_TOOL)
     .filter((t) => specificationOnly || !briefOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'save_output')
@@ -391,7 +404,7 @@ export async function handleConversationTurn(
     `Persona: ${persona ?? 'general'}. ${hooks.readOnlyTools === true ? 'Read-only turn: mutation tools are withheld.' : 'Only the supplied tools can perform actions.'}`,
     `Editable note preview: ${tools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; Richard must Apply to save' : 'unavailable in this turn'}.`,
     `Canvas change preview: ${tools.some(tool => tool.function.name === 'propose_map_changes') ? 'available; requires user application' : 'unavailable in this turn'}.`,
-    `Outputs panel: ${hooks.noOutputsPanel === true ? 'not visible here; deliver content in the reply' : 'use supplied output tools if available'}.`,
+    `Outputs panel: ${design ? 'Design documents belong in their Design tabs, using save_design_documents' : hooks.noOutputsPanel === true ? 'not visible here; deliver content in the reply' : 'use supplied output tools if available'}.`,
     `Connected local folders: ${localFolders.length > 0 ? 'user-selected folders only, through supplied local-file tools' : 'none supplied; no local filesystem access'}.`,
     `Available action/read tool names: ${tools.map(tool => tool.function.name).join(', ')}.`,
     'The function schemas describe exact permissions and inputs. Withheld specialised tools are not executable ' +
@@ -412,7 +425,9 @@ export async function handleConversationTurn(
     && !retrievalScope.families.includes('task')
     && !(retrievalScope.families.includes('canvas') && openDiagram !== null && !/\b(?:latest|other|across|compare|diagrams|find|search)\b/i.test(userMessage))
     ? { type: 'function' as const, function: { name: retrievalScope.tool } } : undefined;
-  const requiredFirstTool = reviewNoteId !== undefined && !inViewNoTools
+  const requiredFirstTool = design && tools.some(tool => tool.function.name === 'read_design_package')
+    ? { type: 'function' as const, function: { name: 'read_design_package' } }
+    : reviewNoteId !== undefined && !inViewNoTools
     ? { type: 'function' as const, function: { name: 'read_knowledge_record' } }
     : specificationOnly ? { type: 'function' as const, function: { name: 'get_demo_specification_template' } } : scopedFirst ?? selectRequiredToolChoice(
     userMessage,
@@ -429,7 +444,7 @@ export async function handleConversationTurn(
   // output budget is raised well above the chat default — otherwise a long edit is cut off mid-call.
   const editsOpenNote = requiredFirstTool !== undefined && typeof requiredFirstTool === 'object'
     && requiredFirstTool.function.name === 'propose_note_edit';
-  const maxTokens = editsOpenNote || specificationOnly
+  const maxTokens = editsOpenNote || specificationOnly || design
     ? NOTE_EDIT_MAX_TOKENS
     : model === 'reasoning' ? AI_REASONING_MODEL_MAX_TOKENS : AI_CHAT_MAX_TOKENS;
   let editRescued = false;
@@ -532,6 +547,11 @@ export async function handleConversationTurn(
       return "I ran out of steps before I could finish. Some of it may already be done — ask me to check what's in place and carry on from there.";
     }
     if (response.toolCalls.length === 0) {
+      if (design && !(toolContext.designState?.changedNoteIds.length)
+        && /\b(?:I(?:'ve| have)?\s+(?:saved|updated|created|rewritten|revised)|(?:saved|updated)\s+(?:in|to)\s+(?:the|your)\s+(?:Spec|Design|Use case))\b/i.test(response.content ?? '')) {
+        console.warn('[Design chat] Rejected an unconfirmed document-save claim.');
+        return 'No Design documents were saved in this turn. No successful Design save was recorded, so I cannot claim that the tabs were updated. Your existing originals are unchanged.';
+      }
       // Asked to edit the open note but nothing was proposed: she wrote the content into the reply, or her
       // edit call failed and she carried on as if it hadn't. One retry with the edit forced; if that fails
       // too, say so plainly rather than let her claim an edit that doesn't exist.
@@ -648,7 +668,7 @@ export async function handleConversationTurn(
         if (wholeReadRequested && failedDocumentReads.has(documentReadKey)) {
           throw new Error('This document already failed its bounded reading attempts in this turn. No further model reading was attempted. Report the incomplete coverage; saved checkpoints can be resumed on a later turn.');
         }
-        if ((briefOnly || specificationOnly || hooks.readOnlyTools === true) && !tools.some((tool) => tool.function.name === call.function.name)) {
+        if ((design !== undefined || briefOnly || specificationOnly || hooks.readOnlyTools === true) && !tools.some((tool) => tool.function.name === call.function.name)) {
           throw new Error(READ_ONLY_REFUSAL);
         }
         const gate = budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !wholeReadRequested ? budget.canStartRetrieval() : { ok: true as const };

@@ -18,6 +18,7 @@
 import { validateNoteEdits, checkEditsAgainstNote, noteHeadings } from './noteEdits.js';
 import { JOB_TOOL, executeJobTool } from './jobTools.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
+import { executeDesignTool, type DesignTurnState } from './designTools.js';
 import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
@@ -788,7 +789,7 @@ export async function executeToolCall(
   argsJson: string,
   activeProjectId?: string,
   turn: {
-    sessionId?: string | undefined; noteId?: string | undefined; noteEdits?: NoteEditProposal[];
+    sessionId?: string | undefined; noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState; noteEdits?: NoteEditProposal[];
     retrievalScope?: RetrievalScope | undefined; retrievalAudit?: RetrievalAudit | undefined;
     excludedIds?: ReadonlySet<string>;
     /** Exclusions could not be loaded: retrieval tools fail closed. Strict "only project X" scope is server-derived. */
@@ -818,6 +819,18 @@ export async function executeToolCall(
   if (name === 'manage_publishing_feeds') return executePublishingTool(db, args, turn.sessionId);
 
   if (turn.exclusionsFailed === true && EXCLUSION_GATED_TOOLS.has(name)) return EXCLUSIONS_UNAVAILABLE_RESULT;
+  if (name === 'read_design_package' || name === 'save_design_documents') {
+    if (isOutsideCollectionTool(name, turn.retrievalScope)) return { error: 'Design operations are outside this request’s enforced collection scope.', code: 'scope_mismatch' };
+    if (!turn.designOwner) return { error: 'Open the Design in Think before working with its package.' };
+    try { return await executeDesignTool(db, name, turn.designOwner, args, turn, turn.designState); }
+    catch (error) {
+      console.error('[Design chat] Package operation failed:', error);
+      return { error: error instanceof Error ? error.message : 'Design operation failed. No completion has been confirmed.' };
+    }
+  }
+  if (turn.designOwner && ['create_note_draft', 'propose_note_edit', 'update_note', 'create_demo_specification', 'save_output'].includes(name)) {
+    return { error: 'This is a Design conversation. Use read_design_package and save_design_documents to update or create the section in this Design. Do not create a disconnected note.' };
+  }
   if (isOutsideCollectionTool(name, turn.retrievalScope)) {
     if (turn.retrievalAudit !== undefined) turn.retrievalAudit.blockedCalls++;
     return { error: 'This tool is outside the user’s requested collection. Use search_knowledge_base within the supplied source/date/state scope.', code: 'scope_mismatch' };

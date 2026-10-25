@@ -5,7 +5,7 @@
  * routes stay thin and the rules are unit-testable.
  */
 import type { Pool } from 'pg';
-import { ValidationError, NotFoundError } from '../types/errors.js';
+import { ValidationError, NotFoundError, ConflictError } from '../types/errors.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 
@@ -141,12 +141,19 @@ export function parseCreate(b: Record<string, unknown>): UseCaseCreate {
 
 export interface UseCasePatch {
   title?: string; summary?: string; productKind?: ProductKind; projectId?: string | null; repo?: string | null; stage?: UseCaseStage;
+  expectedSummary?: string;
 }
 
 export function parsePatch(b: Record<string, unknown>): UseCasePatch {
   const patch: UseCasePatch = {};
   if (b['title'] !== undefined) patch.title = text(b['title'], 'title', MAX_TITLE, true) as string;
   if (b['summary'] !== undefined) patch.summary = text(b['summary'], 'summary', MAX_SUMMARY, false) ?? '';
+  if (b['expectedSummary'] !== undefined) {
+    if (typeof b['expectedSummary'] !== 'string' || b['expectedSummary'].length > MAX_SUMMARY || patch.summary === undefined) {
+      throw new ValidationError('A reviewed summary needs its original summary and a replacement.');
+    }
+    patch.expectedSummary = b['expectedSummary'];
+  }
   if (b['productKind'] !== undefined) patch.productKind = parseProductKind(b['productKind']);
   if (b['projectId'] !== undefined) patch.projectId = (text(b['projectId'], 'projectId', MAX_ID, false) ?? '') || null;
   if (b['repo'] !== undefined) patch.repo = parseRepo(b['repo']) ?? null;
@@ -319,7 +326,10 @@ export async function updateUseCase(db: Pool, id: string, patch: UseCasePatch): 
   if (patch.stage !== undefined && patch.stage !== current.stage) { set('stage', patch.stage); sets.push('stage_changed_at = NOW()'); }
   sets.push('updated_at = NOW()');
   params.push(id);
-  await db.query(`UPDATE use_cases SET ${sets.join(', ')} WHERE id::text = $${params.length.toString()}`, params);
+  let where = `id::text = $${params.length.toString()}`;
+  if (patch.expectedSummary !== undefined) { params.push(patch.expectedSummary); where += ` AND summary = $${params.length.toString()}`; }
+  const { rows } = await db.query(`UPDATE use_cases SET ${sets.join(', ')} WHERE ${where} RETURNING id`, params);
+  if (rows.length === 0 && patch.expectedSummary !== undefined) throw new ConflictError('The summary changed elsewhere. Reload it and review the current text.', 'USE_CASE_REVIEW_CONFLICT');
   return getUseCase(db, id);
 }
 

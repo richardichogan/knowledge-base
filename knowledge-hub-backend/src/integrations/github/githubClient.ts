@@ -60,6 +60,7 @@ export class GitHubClient {
       method: 'POST',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -69,6 +70,15 @@ export class GitHubClient {
       );
     }
 
+    return response.json() as Promise<T>;
+  }
+
+  public async patch<T>(path: string, body: unknown): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: 'PATCH', headers: { ...this.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new IntegrationError('github', `PATCH ${path} failed: ${response.status} ${response.statusText}`);
     return response.json() as Promise<T>;
   }
 

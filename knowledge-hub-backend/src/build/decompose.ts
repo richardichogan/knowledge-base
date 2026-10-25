@@ -8,6 +8,7 @@
 import { getFoundryClient } from '../ai/foundryClient.js';
 import { AiError, ValidationError } from '../types/errors.js';
 import { BUILD_AGENTS, type BuildAgent } from './githubAgents.js';
+import { HANDOFF_CONTRACT } from './handoffContract.js';
 
 export const MAX_BUILD_TASKS = 20;
 const MAX_TASK_TITLE_CHARS = 250;
@@ -34,6 +35,9 @@ export interface Decomposition {
 
 const TASKS_SYSTEM_PROMPT = `You are a principal engineer decomposing a spec into work for GitHub cloud coding agents.
 Each task becomes ONE GitHub issue that ONE agent implements in ONE pull request, starting from the latest base branch.
+
+${HANDOFF_CONTRACT}
+Preserve relevant visual-reference URLs in task scope. Never turn unresolved questions into implementation steps or acceptance criteria.
 
 Rules:
 - 2 to ${MAX_BUILD_TASKS} tasks. Prefer fewer, cohesive tasks over many tiny ones; never one giant task.

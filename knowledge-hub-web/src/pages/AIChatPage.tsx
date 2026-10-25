@@ -16,6 +16,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { prepareDesignChat } from '../utils/activeBlockNoteEditor';
 import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
@@ -87,7 +88,6 @@ interface PendingThinkSave {
 }
 
 interface AIChatPageProps {
-  prepareDemoBrief?: (() => Promise<string>) | undefined;
   promptRequest?: { prompt: string; sequence: number } | undefined;
   /** Renders without the page header/wrapper padding, for use in a floating widget. */
   compact?: boolean;
@@ -282,7 +282,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   standalone = false,
   pageContext,
   initialPersona,
-  prepareDemoBrief,
   promptRequest,
   title,
   onBusyChange,
@@ -861,7 +860,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         // Only the successful turn result is an accepted answer to reveal.
         onText: () => {},
       };
+      let finishDesign: ((changed: boolean) => Promise<void>) | undefined;
+      let designChanged = true;
       try {
+        if (ctx?.conversationId && isNoteLinkedPanel) finishDesign = await prepareDesignChat(ctx.conversationId);
         // In Athena Desktop, Athena may read and propose changes to the folders he chose on this PC.
       const desktop = getDesktop();
       let localFolders: Array<{ name: string; path: string }> = [];
@@ -889,6 +891,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           handlers,
           signal,
         );
+        if (result.success) designChanged = result.data.designChanged !== undefined;
         if (result.success) {
           const remaining = ATHENA_MIN_THINK_MS - (Date.now() - startedAt);
           if (remaining > 0) await new Promise<void>(resolve => { window.setTimeout(resolve, remaining); });
@@ -902,6 +905,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         if (turnRunRef.current !== run) throw new TurnDetachedError();
         return result;
       } finally {
+        await finishDesign?.(designChanged);
         if (turnRunRef.current === run) {
           liveTurnIdRef.current = null;
         }
@@ -1150,6 +1154,25 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     onBusyChange?.(chatMutation.isPending);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatMutation.isPending]);
+
+  useEffect(() => {
+    if (!isNoteLinkedPanel || !currentNoteId) return;
+    let active = true;
+    const reload = (event: Event): void => {
+      if (!(event instanceof CustomEvent) || (event.detail as { noteId?: string } | null)?.noteId !== currentNoteId || chatMutation.isPending || isRestoringHistory) return;
+      void api.getSessionIdForNote(currentNoteId).then(async result => {
+        if (!result.success) throw new Error(result.error.message);
+        if (!result.data.sessionId || !active) return;
+        const history = await api.getSessionHistory(result.data.sessionId);
+        if (!active) return;
+        if (!history.success) throw new Error(history.error.message);
+        setSessionId(result.data.sessionId);
+        setMessages(stripHistoryContextPrefixes(history.data.messages));
+      }).catch((error: unknown) => { if (active) reportHistoryError(error); });
+    };
+    window.addEventListener('athena-conversation-updated', reload);
+    return () => { active = false; window.removeEventListener('athena-conversation-updated', reload); };
+  }, [currentNoteId, isNoteLinkedPanel, chatMutation.isPending, isRestoringHistory]);
 
   const confirmMutation = useMutation({
     mutationFn: (id: string) => api.confirmAction(id),
@@ -1610,41 +1633,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         // Non-fatal — the next chat() call also carries the persona, so it still takes effect.
       });
     }
-  }
-
-  const [preparingBrief, setPreparingBrief] = useState(false);
-  const [briefError, setBriefError] = useState<string | null>(null);
-  const briefContextRef = useRef({ noteId: currentNoteId, sessionId, input });
-  briefContextRef.current = { noteId: currentNoteId, sessionId, input };
-  const briefMountedRef = useRef(true);
-  useEffect(() => {
-    briefMountedRef.current = true;
-    return () => { briefMountedRef.current = false; };
-  }, []);
-  async function prepareImagineBrief(): Promise<void> {
-    if (prepareDemoBrief === undefined || preparingBrief || chatMutation.isPending || isRestoringHistory) return;
-    const original = briefContextRef.current;
-    if (input.trim() !== '' && !await confirmDialog('Replace your unsent chat prompt with the IMAGINE demo brief request? The Use case note will not change.', {
-      title: 'Prepare demo brief', confirmLabel: 'Replace prompt',
-    })) return;
-    setPreparingBrief(true);
-    setBriefError(null);
-    try {
-      const prompt = await prepareDemoBrief();
-      if (!briefMountedRef.current) return;
-      const current = briefContextRef.current;
-      if (original.noteId !== current.noteId || original.sessionId !== current.sessionId || original.input !== current.input) {
-        setBriefError('The note, chat or unsent prompt changed while preparing the brief. Nothing was replaced; retry in the intended note.');
-        return;
-      }
-      handlePersonaChange('demo_designer');
-      setActionOverride('none');
-      setInput(prompt);
-      textareaRef.current?.focus();
-    } catch (error) {
-      console.error('[IMAGINE brief] Could not read Use case:', error);
-      setBriefError(error instanceof Error ? error.message : 'Could not read the Use case. Your note and prompt are unchanged; retry.');
-    } finally { setPreparingBrief(false); }
   }
 
   const exportMutation = useMutation({
@@ -2117,7 +2105,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       <span ref={setPresenceDock} className="ai-presence-anchor" aria-hidden="true" />
       {motionPhase === 'typing' && <span className="ai-presence-typing" role="status">Reading your message…</span>}
       <span className="ai-presence-dock__status" role="status">{isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : ''}</span>
-      {motionPhase === 'idle' && input.trim() === '' && !isRestoringHistory && !preparingBrief
+      {motionPhase === 'idle' && input.trim() === '' && !isRestoringHistory
         && composerNextSteps.length > 0 && (
         <ComposerSuggestion key={`${currentNoteId ?? sessionId ?? 'new'}:${messages.length}`} steps={composerNextSteps}
           onChoose={step => {
@@ -2434,14 +2422,6 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         )}
 
         <div className={`ai-composer${motionPhase === 'listening' || motionPhase === 'typing' ? ' ai-composer--asking' : ''}${isRecording ? ' ai-composer--listening' : ''}`}>
-        {prepareDemoBrief !== undefined && (
-          <div className="ai-demo-brief-skill">
-            <button type="button" className="ai-demo-brief-skill__button" disabled={preparingBrief || chatMutation.isPending || isRestoringHistory}
-              onClick={() => { void prepareImagineBrief(); }}>{preparingBrief ? 'Reading Use case...' : 'Create IMAGINE demo brief'}</button>
-            <p className="ai-demo-brief-skill__hint">Uses the full live Use case note. Review the prompt, then send; the brief is saved in Outputs for GHCP.</p>
-            {briefError !== null && <p role="alert" className="ai-demo-brief-skill__error">{briefError}</p>}
-          </div>
-        )}
         {compareOpen && <CompareWithPanel onSend={handleCompare} onClose={() => { setCompareOpen(false); }} />}
         {interruptedTurn !== null && interruptedTurn.sessionId === sessionId && !chatMutation.isPending && (
           <div className="ai-interrupted" role="status">

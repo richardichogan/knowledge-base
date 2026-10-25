@@ -13,6 +13,11 @@ test('Plan preferences remember the Use cases view', () => {
   assert.deepEqual(parsePlanPreferences(JSON.stringify(preferences)), preferences);
 });
 
+test('the misplaced Designs preference returns to the task board without changing project scope', () => {
+  const preferences = { version: 1, view: 'designs', project: 'project-fixture', tag: '' };
+  assert.deepEqual(parsePlanPreferences(JSON.stringify(preferences)), { ...preferences, view: 'board' });
+});
+
 test('Plan preferences saved with the removed Calendar view fall back to the board', () => {
   const legacy = { version: 1, view: 'calendar', project: 'project-fixture', tag: '' };
   assert.deepEqual(parsePlanPreferences(JSON.stringify(legacy)), { ...legacy, view: 'board' });

@@ -23,6 +23,8 @@ import {
 import type { ApiResponse } from '../../types/apiResponse';
 import { BranchField, describeBuildError, RepoField, unwrap, useGithubRepos } from './buildShared';
 import { PageHeader } from '../../components/PageHeader';
+import { DocumentHtmlView, DocumentViewToggle, type DocumentViewMode } from '../../components/DocumentView';
+import { DocumentReview } from '../../components/DocumentReview';
 
 const RUNNING_POLL_MS = 20_000;
 const MAX_PARALLEL_CHOICES = [1, 2, 3, 4, 5];
@@ -104,6 +106,8 @@ const FinalMergePanel: React.FC<{ spec: BuildSpec; busy: string | null; onMerge:
 
 const NewSpecForm: React.FC<{ repos: string[]; onCreated: (id: string) => void; onCancel: () => void }> = ({ repos, onCreated, onCancel }) => {
   const [draft, setDraft] = useState({ title: '', repo: '', baseBranch: '', specMarkdown: '', useWorkBranch: true });
+  const [view, setView] = useState<DocumentViewMode>('md');
+  const [reviewPending, setReviewPending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const setBaseBranch = useCallback((baseBranch: string) => { setDraft((d) => ({ ...d, baseBranch })); }, []);
@@ -130,14 +134,21 @@ const NewSpecForm: React.FC<{ repos: string[]; onCreated: (id: string) => void; 
         <WorkBranchToggle checked={draft.useWorkBranch} target={draft.baseBranch}
           onChange={(useWorkBranch) => { setDraft((d) => ({ ...d, useWorkBranch })); }} />
       </div>
-      <label className="build-field build-field--wide">
+      <DocumentViewToggle value={view} onChange={setView} pendingReview={reviewPending} />
+      {view === 'html' ? <DocumentReview source={draft.specMarkdown} version={draft.specMarkdown} disabled={busy} onPendingChange={setReviewPending}
+        onApply={proposal => {
+          if (draft.specMarkdown.split(proposal.find).length !== 2) throw new Error('The source changed. Review it again.');
+          setDraft({ ...draft, specMarkdown: draft.specMarkdown.replace(proposal.find, () => proposal.replacement) });
+        }}>
+        <DocumentHtmlView markdown={draft.specMarkdown} label="New spec HTML view" />
+      </DocumentReview> : <label className="build-field build-field--wide">
         <span className="build-field__label">Spec (markdown)</span>
         <textarea className="build-input build-input--spec" rows={14} value={draft.specMarkdown}
           placeholder="Goal, scope, acceptance criteria, constraints… or send a Think note / Athena output here instead."
           onChange={(e) => { setDraft({ ...draft, specMarkdown: e.target.value }); }} />
-      </label>
+      </label>}
       <div className="build-row">
-        <button type="button" className="docs-upload-btn" disabled={busy || draft.title.trim() === '' || draft.repo.trim() === ''} onClick={create}>
+        <button type="button" className="docs-upload-btn" disabled={busy || reviewPending || draft.title.trim() === '' || draft.repo.trim() === ''} onClick={create}>
           {busy ? 'Creating…' : 'Create spec'}
         </button>
         <button type="button" className="kb-import-btn" onClick={onCancel}>Cancel</button>
@@ -243,6 +254,7 @@ const TaskRow: React.FC<TaskRowProps> = ({ task, tasks, availableAgents, onSpec,
 
 const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => void }> = ({ specId, repos, onDeleted }) => {
   const qc = useQueryClient();
+  const [view, setView] = useState<DocumentViewMode>('md');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const { data: spec, isLoading } = useQuery({
@@ -263,7 +275,8 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
     staleTime: 5 * 60_000,
   });
 
-  const [draft, setDraft] = useState<{ title: string; repo: string; baseBranch: string; specMarkdown: string } | null>(null);
+  const [draft, setDraft] = useState<{ title: string; repo: string; baseBranch: string; specMarkdown: string; expectedSpecMarkdown: string } | null>(null);
+  const [reviewPending, setReviewPending] = useState(false);
   useEffect(() => { setDraft(null); setError(null); }, [specId]);
 
   const applySpec = (s: BuildSpecWithTasks): void => {
@@ -272,9 +285,9 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
     void qc.invalidateQueries({ queryKey: ['build-events', specId] });
   };
 
-  const act = (label: string, p: () => Promise<ApiResponse<BuildSpecWithTasks>>): void => {
+  const act = (label: string, p: () => Promise<ApiResponse<BuildSpecWithTasks>>, onSuccess?: (saved: BuildSpecWithTasks) => void): void => {
     setBusy(label); setError(null);
-    void p().then((r) => { applySpec(unwrap(r)); })
+    void p().then((r) => { const saved = unwrap(r); applySpec(saved); onSuccess?.(saved); })
       .catch((e: unknown) => { setError(describeBuildError(e)); void qc.invalidateQueries({ queryKey: ['build-spec', specId] }); })
       .finally(() => { setBusy(null); });
   };
@@ -283,7 +296,7 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
 
   const editable = EDITABLE.includes(spec.status);
   const branchLocked = spec.workBranch !== null;
-  const current = draft ?? { title: spec.title, repo: spec.repo, baseBranch: spec.baseBranch, specMarkdown: spec.specMarkdown };
+  const current = draft ?? { title: spec.title, repo: spec.repo, baseBranch: spec.baseBranch, specMarkdown: spec.specMarkdown, expectedSpecMarkdown: spec.specMarkdown };
   const dirty = draft !== null && (draft.title !== spec.title || draft.repo !== spec.repo || draft.baseBranch !== spec.baseBranch || draft.specMarkdown !== spec.specMarkdown);
   const setBaseBranch = (baseBranch: string): void => { setDraft({ ...current, baseBranch }); };
   const merged = spec.tasks.filter((t) => t.status === 'merged' || t.status === 'cancelled').length;
@@ -292,8 +305,10 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
   const save = (): void => {
     if (draft === null) return;
     const patch = draft;
-    act('save', () => api.updateBuildSpec(spec.id, patch));
-    setDraft(null);
+    act('save', () => api.updateBuildSpec(spec.id, patch), saved => {
+      setDraft(current => current === patch ? null
+        : current?.expectedSpecMarkdown === patch.expectedSpecMarkdown ? { ...current, expectedSpecMarkdown: saved.specMarkdown } : current);
+    });
   };
 
   return (
@@ -313,7 +328,7 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
 
       <div className="build-row build-detail__actions">
         {DECOMPOSABLE.includes(spec.status) && (
-          <button type="button" className={spec.tasks.length === 0 ? 'docs-upload-btn' : 'kb-import-btn'} disabled={busy !== null || dirty}
+          <button type="button" className={spec.tasks.length === 0 ? 'docs-upload-btn' : 'kb-import-btn'} disabled={busy !== null || dirty || reviewPending}
             onClick={async () => {
               if (spec.tasks.length > 0 && !await confirmDialog('Re-decompose? This replaces the current task list.', { title: 'Replace task list', confirmLabel: 'Re-decompose', tone: 'danger' })) return;
               act('decompose', () => api.buildSpecAction(spec.id, 'decompose'));
@@ -322,7 +337,7 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
           </button>
         )}
         {(spec.status === 'decomposed' || spec.status === 'paused') && (
-          <button type="button" className="docs-upload-btn" disabled={busy !== null || dirty}
+          <button type="button" className="docs-upload-btn" disabled={busy !== null || dirty || reviewPending}
             onClick={() => { act('start', () => api.buildSpecAction(spec.id, 'start')); }}>
             {busy === 'start' ? 'Starting…' : spec.status === 'paused' ? 'Resume' : 'Start build'}
           </button>
@@ -378,15 +393,22 @@ const SpecDetail: React.FC<{ specId: string; repos: string[]; onDeleted: () => v
             <span>Auto-merge when checks pass</span>
           </label>
         </div>
-        <label className="build-field build-field--wide">
+        <DocumentViewToggle value={view} onChange={setView} pendingReview={reviewPending} />
+        {view === 'html' ? <DocumentReview key={spec.id} source={current.specMarkdown} version={current.specMarkdown} disabled={!editable || busy !== null} onPendingChange={setReviewPending}
+          onApply={proposal => {
+            if (current.specMarkdown.split(proposal.find).length !== 2) throw new Error('The source changed. Review it again.');
+            setDraft({ ...current, specMarkdown: current.specMarkdown.replace(proposal.find, () => proposal.replacement) });
+          }}>
+          <DocumentHtmlView markdown={current.specMarkdown} label="Spec HTML view" />
+        </DocumentReview> : <label className="build-field build-field--wide">
           <span className="build-field__label">Spec (markdown)</span>
           <textarea className="build-input build-input--spec" rows={16} value={current.specMarkdown} disabled={!editable}
             onChange={(e) => { setDraft({ ...current, specMarkdown: e.target.value }); }} />
-        </label>
+        </label>}
         {editable && (
           <div className="build-row">
-            <button type="button" className="kb-import-btn" disabled={!dirty || busy !== null} onClick={save}>Save changes</button>
-            {dirty && <button type="button" className="kb-import-btn" onClick={() => { setDraft(null); }}>Discard</button>}
+            <button type="button" className="kb-import-btn" disabled={!dirty || busy !== null || reviewPending} onClick={save}>Save changes</button>
+            {dirty && <button type="button" className="kb-import-btn" disabled={busy !== null || reviewPending} onClick={() => { setDraft(null); }}>Discard</button>}
           </div>
         )}
         {!editable && <p className="build-hint">Pause the build to edit the spec or settings.</p>}

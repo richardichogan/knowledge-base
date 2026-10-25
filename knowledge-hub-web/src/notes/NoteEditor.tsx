@@ -38,7 +38,7 @@ import { MetadataPanel } from './MetadataPanel';
 import { useProjects } from '../hooks/useProjects';
 import { editorSchema } from './editorSchema';
 import { parseTranscript, transcriptToBlocks } from './transcriptPaste';
-import { imagineDemoBriefPrompt, imagineDemoSpecificationPrompt } from './imagineDemoBrief';
+import { imagineDemoSpecificationPrompt } from './imagineDemoBrief';
 import { useAthenaContext } from '../context/AthenaContext';
 import { noteDraftIdentity } from '../services/auth';
 import { captureNoteDraft, removeNoteDraftIfUnchanged, storeNoteDraft, type NoteDraft } from './noteDraftStorage';
@@ -48,8 +48,21 @@ import { ExtractionMarks } from './ExtractionMarks';
 import { EntityLinkMenu } from './EntityLinkMenu';
 import { LinkSuggestionBar } from './LinkSuggestionBar';
 import { inlineText, prepareEntityLinkExport } from './linkLabels';
+import { DocumentHtmlView, DocumentViewToggle, type DocumentViewMode } from '../components/DocumentView';
+import { DocumentReview } from '../components/DocumentReview';
+import { applyReviewedNoteText } from '../utils/noteEditApplier';
+import { runNoteAction } from '../utils/activeBlockNoteEditor';
 
 interface NoteEditorProps {
+  hideProperties?: boolean;
+  externalBusy?: boolean;
+  onBeforeViewChange?: () => Promise<void>;
+  headerContent?: React.ReactNode;
+  bodyContent?: React.ReactNode;
+  visualContent?: React.ReactNode;
+  htmlViewEnabled?: boolean;
+  actionContent?: React.ReactNode;
+  onSaveReady?: (save: (() => Promise<boolean>) | null) => void;
   doc: NoteDocument;
   onSaved: (updated: NoteDocument) => void;
   onDelete?: (id: string) => void;
@@ -135,10 +148,17 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, bodyContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
   const queryClient = useQueryClient();
   const { openAthena, pageContext } = useAthenaContext();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
+  const [documentView, setDocumentView] = useState<DocumentViewMode>('md');
+  const [reviewPending, setReviewPending] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const usesDesignVisual = visualContent !== undefined;
+  const supportsHtmlView = htmlViewEnabled && (usesDesignVisual || contentType === 'spec' || contentType === 'use-case');
+  const showingHtml = supportsHtmlView && documentView === 'html';
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [projectId, setProjectId] = useState(doc.projectId ?? '');
   const [githubModalOpen, setGithubModalOpen] = useState(false);
@@ -402,19 +422,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     const { projectId: _project, githubPath: _path, ...saved } = savedDocRef.current;
     return {
       ...saved,
-      title: extractTitle(editorRef.current.document),
+      title: extractTitle(editorRef.current.document) === UNTITLED_DOCUMENT ? saved.title : extractTitle(editorRef.current.document),
       contentJson: JSON.stringify(editorRef.current.document),
       contentType: contentTypeRef.current,
       ...(projectIdRef.current !== '' && { projectId: projectIdRef.current }),
       ...(githubPathRef.current !== undefined && { githubPath: githubPathRef.current }),
     };
-  }, []);
-  const prepareDemoBrief = useCallback(async (): Promise<string> => {
-    const current = editorRef.current;
-    await prepareEntityLinkExport(current.document);
-    const markdown = await current.blocksToMarkdownLossy(current.document);
-    const title = extractTitle(current.document);
-    return imagineDemoBriefPrompt(title === UNTITLED_DOCUMENT ? savedDocRef.current.title : title, markdown);
   }, []);
 
   const persistDraft = useCallback((): void => {
@@ -496,6 +509,32 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     }
     return ok;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { onSaveReady?.(doSave); return () => { onSaveReady?.(null); }; }, [doSave, onSaveReady]);
+
+  useEffect(() => {
+    if (doc.id !== savedDocRef.current.id || (doc.revision ?? 0) <= (savedDocRef.current.revision ?? 0)) return;
+    if (isDirtyRef.current || saveInFlightRef.current || historyBusyRef.current) {
+      conflictRef.current = true;
+      setSaveConflict(true);
+      setNotification({ kind: 'error', msg: 'This document changed elsewhere. Your writing is retained; resolve it before continuing.' });
+      return;
+    }
+    suppressChangesRef.current = true;
+    try {
+      const blocks = JSON.parse(doc.contentJson) as PartialBlock[];
+      editorRef.current.replaceBlocks(editorRef.current.document, blocks.length ? blocks : [{ type: 'paragraph', content: '' }]);
+      restoredBodyRef.current = JSON.stringify(editorRef.current.document);
+      savedDocRef.current = doc;
+      contentTypeRef.current = doc.contentType; setContentType(doc.contentType);
+      projectIdRef.current = doc.projectId ?? ''; setProjectId(projectIdRef.current);
+      setHistoryRefresh(value => value + 1);
+    } catch (err) {
+      console.error('[NoteEditor] Could not refresh the saved original:', err);
+      conflictRef.current = true; setSaveConflict(true);
+      setNotification({ kind: 'error', msg: 'The saved document could not be refreshed. Your open writing is retained.' });
+    } finally { suppressChangesRef.current = false; }
+  }, [doc]);
 
   const runExclusive = useCallback(async (work: () => Promise<void>, allowReviewedConflict = false): Promise<void> => {
     if (historyBusyRef.current) throw new Error('A note operation is already running. Please wait.');
@@ -606,8 +645,32 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   }
 
   useEffect(() => {
+    if (!showingHtml || usesDesignVisual) return;
+    let active = true;
+    let revision = 0;
+    const render = (): void => {
+      const currentRevision = ++revision;
+      setPreviewHtml(null);
+      setPreviewError(null);
+      void prepareEntityLinkExport(editor.document).then(() => {
+        if (active && revision === currentRevision) setPreviewHtml(editor.blocksToHTMLLossy(editor.document));
+      }).catch((error: unknown) => {
+        console.error('[NoteEditor] HTML preview failed:', error);
+        if (active && revision === currentRevision) setPreviewError('Could not prepare the HTML view. Switch to MD to continue editing.');
+      });
+    };
+    render();
+    const unsubscribe = editor.onChange(render);
+    return () => { active = false; unsubscribe(); };
+  }, [editor, showingHtml, usesDesignVisual]);
+
+  useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let observedBody = JSON.stringify(editor.document);
     const unsubscribe = editor.onChange(() => {
+      const body = JSON.stringify(editor.document);
+      if (body === observedBody) return;
+      observedBody = body;
       if (suppressChangesRef.current) { updateStats(); return; }
       if (restoredBodyRef.current === JSON.stringify(editor.document)) { updateStats(); return; }
       restoredBodyRef.current = null;
@@ -705,6 +768,24 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       setCopying(false);
       setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS);
     }
+  }
+
+  const [preparingEmail, setPreparingEmail] = useState(false);
+  async function shareNoteText(): Promise<void> {
+    setPreparingEmail(true); setExportMenuOpen(false);
+    try {
+      const blocks = structuredClone(editorRef.current.document);
+      const heading = extractTitle(blocks);
+      const title = heading === UNTITLED_DOCUMENT ? savedDocRef.current.title : heading;
+      await prepareEntityLinkExport(blocks);
+      const markdown = await editorRef.current.blocksToMarkdownLossy(blocks);
+      const body = heading === UNTITLED_DOCUMENT ? `# ${title}\n\n${markdown}` : markdown;
+      if (!body.trim() || body.length > 200_000) throw new Error('The note must contain text and be no more than 200,000 characters to share by email.');
+      if (mountedRef.current) setEmailContent({ title, note: { title, markdown: body } });
+    } catch (err) {
+      console.error('[NoteEditor] Could not prepare note email:', err);
+      setNotification({ kind: 'error', msg: err instanceof Error ? err.message : 'Could not prepare the note for email.' });
+    } finally { if (mountedRef.current) setPreparingEmail(false); }
   }
 
   async function handleExportImage(): Promise<void> {
@@ -830,7 +911,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
   return (
     <div className="notes-editor-panel">
-      <fieldset className="notes-editor-lock" disabled={historyBusy} aria-label="Think note" aria-busy={historyBusy}>
+      <fieldset className="notes-editor-lock" disabled={historyBusy || externalBusy} aria-label="Think note" aria-busy={historyBusy || externalBusy}>
       {/* Centre: editor column */}
       <div className="notes-editor-centre">
         {/* Note actions — rendered into the Think page command bar when it
@@ -841,6 +922,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             <button
               type="button"
               className="kb-import-btn"
+              disabled={externalBusy}
               aria-label={exporting ? 'Exporting note' : githubBusy ? 'Publishing note' : 'Note actions'}
               aria-haspopup="menu"
               aria-expanded={exportMenuOpen}
@@ -850,6 +932,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             </button>
             {exportMenuOpen && (
               <ul className="kb-menu" role="menu">
+                {actionContent}
                 {onPresent && (
                   <li role="menuitem">
                     <button type="button" className="kb-menu__item" disabled={historyBusy}
@@ -879,7 +962,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                   </button>
                 </li>
                 <li className="kb-menu__sep" role="separator" />
-                <li role="menuitem">
+                {!usesDesignVisual && <li role="menuitem">
                   <button type="button" className="kb-menu__item" disabled={historyBusy || preparingSpecification}
                     title="Create the full IMAGINE specification from this note and its Athena conversation; keep the source unchanged"
                     onClick={() => {
@@ -899,7 +982,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                     }}>
                     <DocumentExport size={16} /> {preparingSpecification ? 'Preparing specification...' : 'Create demo specification'}
                   </button>
-                </li>
+                </li>}
                 <li role="menuitem">
                   <button type="button" className="kb-menu__item notes-copy-btn" disabled={copying} title="Copy the whole note, including unsaved changes"
                     onClick={() => { setExportMenuOpen(false); void handleCopyNote(); }}>
@@ -934,6 +1017,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                   </li>
                 )}
                 <li className="kb-menu__sep" role="separator" />
+                <li role="menuitem">
+                  <button type="button" className="kb-menu__item" disabled={preparingEmail || externalBusy || historyBusy}
+                    title="Email the current note text, including unsaved writing, with headings, lists and links"
+                    onClick={() => { void shareNoteText(); }}>
+                    <Launch size={16} /> {preparingEmail ? 'Preparing email...' : 'Share note by email'}
+                  </button>
+                </li>
                 <li role="menuitem">
                   <button type="button" className="kb-menu__item" disabled={githubBusy}
                     onClick={() => { setExportMenuOpen(false); if (publication?.status === 'conflict') void reviewGitHub(); else setGithubModalOpen(true); }}>
@@ -1004,6 +1094,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         {draftError && <p role="alert" className="notes-save-status notes-save-status--error">{draftError}</p>}
         <NoteDraftReview identity={recoverySnapshot === `${draftIdentity ?? ''}:${draftEpoch ?? ''}` ? draftIdentity : null}
           noteId={doc.id} currentDraftId={draftId} onRestore={recoverLocalWriting} />
+        {headerContent}
+        {supportsHtmlView && <DocumentViewToggle value={documentView} onChange={value => {
+          if (!onBeforeViewChange) { setDocumentView(value); return; }
+          void onBeforeViewChange().then(() => { setDocumentView(value); }).catch((error: unknown) => {
+            setNotification({ kind: 'error', msg: error instanceof Error ? error.message : 'The current document could not be saved. The view has not changed.' });
+          });
+        }} pendingReview={reviewPending} artifact={usesDesignVisual} />}
 
         {/* Editor scroll area — data-ctx-* enables right-click → Send to Canvas with note context */}
         <div
@@ -1023,22 +1120,43 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           {...(appliedTags.length > 0 ? { 'data-ctx-tag-ids': appliedTags.map((t) => t.id).join(',') } : {})}
         >
           {imagePreview && <ImageViewer image={imagePreview} onClose={() => { setImagePreview(null); }} />}
-          <div className="notes-editor-inner">
+          {visualContent && <div className="kh-design-visual-host" hidden={!showingHtml}>{visualContent}</div>}
+          {showingHtml && !visualContent && <div className="notes-editor-inner">
+            <DocumentReview source={editor.blocksToMarkdownLossy(editor.document)} version={JSON.stringify(editor.document)}
+                  matchMode="text" disabled={historyBusy || saveConflict || previewHtml === null || previewError !== null}
+                  onPendingChange={setReviewPending} onApply={async proposal => {
+                    const matches = (blocks: typeof editor.document): number => blocks.reduce((total, block) =>
+                      total + (Array.isArray(block.content) ? inlineText(block.content).split(proposal.find).length - 1 : 0)
+                      + matches(block.children), 0);
+                    if (matches(editor.document) !== 1) throw new Error('Select a unique passage within one paragraph or list item. No edits applied.');
+                    const snapshot = JSON.stringify(editor.document);
+                    await runNoteAction(doc.id, true, () => {
+                      if (JSON.stringify(editor.document) !== snapshot) throw new Error('The document changed before acceptance. Review the current text.');
+                      applyReviewedNoteText(editor, proposal.find, proposal.replacement);
+                    });
+                  }}>
+                  {previewError !== null ? <p className="kh-document-view__error" role="alert">{previewError}</p>
+                    : previewHtml === null ? <p className="kh-document-view__hint" role="status">Preparing HTML view...</p>
+                    : <DocumentHtmlView html={previewHtml} label={`${doc.title} HTML view`} />}
+                </DocumentReview>
+          </div>}
+          {!showingHtml && bodyContent}
+          <div className="notes-editor-inner" hidden={showingHtml || bodyContent !== undefined}>
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}
-              editable={!historyBusy}
+              editable={!historyBusy && !externalBusy}
             >
               <EntityLinkMenu editor={editor} noteId={doc.id} projectId={projectId}
                 onError={msg => { setNotification({ kind: 'error', msg }); }} />
             </BlockNoteViewWrapper>
           </div>
         </div>
-        <LinkSuggestionBar editor={editor} noteId={doc.id} disabled={historyBusy} />
-        <ExtractionMarks noteId={doc.id} scrollRef={editorScrollRef} />
+        {!showingHtml && !bodyContent && <LinkSuggestionBar editor={editor} noteId={doc.id} disabled={historyBusy} />}
+        {!showingHtml && !bodyContent && <ExtractionMarks noteId={doc.id} scrollRef={editorScrollRef} />}
 
         {/* Bottom toolbar */}
-        <div className="notes-bottom-toolbar kh-command-row">
+        {!showingHtml && !bodyContent && <div className="notes-bottom-toolbar kh-command-row">
           <button
             type="button"
             className={`notes-tb-btn${toolbarState.blockType === 'heading' && toolbarState.level === 1 ? ' notes-tb-btn--active' : ''}`}
@@ -1133,11 +1251,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             <Quotes size={16} />
           </button>
           <span className="notes-tb-stats">{wordCount} words · {readingTime} min read</span>
-        </div>
+        </div>}
       </div>
 
+      </fieldset>
       {/* Right: metadata panel */}
-      <MetadataPanel
+      {(!hideProperties || showingHtml) && <MetadataPanel
+        writingBusy={historyBusy || externalBusy}
         doc={doc}
         onShowEditor={onShowEditor}
         contentType={contentType}
@@ -1147,6 +1267,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           isDirtyRef.current = true;
           if (value === 'use-case') applyUseCaseTemplate();
           persistDraft();
+          void doSave();
         }}
         projectId={projectId}
         projects={projects}
@@ -1174,11 +1295,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         onPushToGitHub={() => { if (publication?.status === 'conflict') void reviewGitHub(); else setGithubModalOpen(true); }}
         onRestoreVersion={restoreVersion}
         historyRefresh={historyRefresh}
-        prepareDemoBrief={prepareDemoBrief}
         {...(onOpenMap !== undefined && { onOpenMap })}
         {...(onMapNote !== undefined && { onMapNote })}
-      />
-      </fieldset>
+      />}
 
       {buildDialogOpen && <SendToBuildDialog source={{ kind: 'note', noteId: doc.id }} onClose={() => { setBuildDialogOpen(false); }} />}
       {emailContent && <ShareEmailModal content={emailContent} onClose={() => { setEmailContent(null); }} />}

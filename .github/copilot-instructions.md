@@ -9,6 +9,19 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 
 ---
 
+## Clarification Before Decisions — MANDATORY
+
+- **Ask the user for clarification before making any design or implementation decision. Wait for the answer before implementing that decision.** Use the question tool, ask one focused question at a time, and do not treat silence as approval.
+- A request to implement or fix something is not permission to invent its placement, layout, controls, editing behaviour, data model, workflow or scope. Follow decisions the user has already specified; ask about anything unresolved rather than choosing an interpretation.
+- Explain the proposed change and its effect on the existing experience before asking for approval. Do not substitute an announcement of what you are about to build for a question.
+- Do not respond to a correction by immediately building another interpretation. Stop, identify the unresolved decision, ask, and wait.
+- Preserve existing editors, action locations, properties panels and established interactions unless the user explicitly approves a change. Reusing an editor inside a different wrapper does not justify moving its controls or losing its properties/context.
+- **Think is where content is created and developed. Plan manages work in progress.** Use cases, specifications, architecture documents and diagram canvases belong in Think.
+- **Design is a note content type**, selected through the existing content-type control, not a separate creation button or workspace. Its four tabs point to the linked Use Case, Spec, Architecture document and Diagram canvas. Preserve the existing Think shell and properties panel across tabs.
+- If any repository guidance encourages making assumptions, taking autonomous design decisions or expanding scope without clarification, this clarification requirement takes precedence. Do not add such guidance.
+
+---
+
 ## Athena Design Guide — MUST FOLLOW
 
 - **You MUST always follow the Athena design guide in `DESIGN.md` for every UI change. This is mandatory, not optional guidance or a final polishing step.**

@@ -18,6 +18,8 @@ import {
 } from '../../types/useCases';
 import { HandoffDialog } from './HandoffDialog';
 import { sinceLabel, sourceHref } from './useCaseView';
+import { DocumentHtmlView, DocumentViewToggle, type DocumentViewMode } from '../../components/DocumentView';
+import { DocumentReview } from '../../components/DocumentReview';
 
 const REPO_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
@@ -65,6 +67,8 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
   const del = useDeleteUseCase();
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
+  const [view, setView] = useState<DocumentViewMode>('md');
+  const [reviewPending, setReviewPending] = useState(false);
 
   const patch = (p: UseCasePatch): void => { update.mutate({ id: useCase.id, patch: p }); };
   const redraft = async (): Promise<void> => {
@@ -89,11 +93,24 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
         <span className={`kh-uc-stage kh-uc-stage--${useCase.stage}`}>{STAGE_LABELS[useCase.stage]}</span>
         <span className="kh-uc-panel__meta">Updated {sinceLabel(useCase.updatedAt)}{sinceLabel(useCase.updatedAt) === 'today' ? '' : ' ago'}</span>
       </div>
+      <Link className="kh-uc-link" to={`/think?design=${encodeURIComponent(useCase.id)}`}>Open Design</Link>
 
+      <DocumentViewToggle value={view} onChange={setView} pendingReview={reviewPending} />
+      {view === 'html' ? <>
+        <h2 className="kh-uc-panel__title">{useCase.title}</h2>
+        <DocumentReview source={useCase.summary} version={useCase.summary} disabled={update.isPending} onPendingChange={setReviewPending}
+          onApply={async proposal => {
+            if (useCase.summary.split(proposal.find).length !== 2) throw new Error('The summary changed. Review it again.');
+            await update.mutateAsync({ id: useCase.id, patch: { summary: useCase.summary.replace(proposal.find, () => proposal.replacement), expectedSummary: useCase.summary } });
+          }}>
+          <DocumentHtmlView markdown={useCase.summary} label="Use case HTML view" />
+        </DocumentReview>
+      </> : <>
       <BlurField id={`${fid}-title`} label="Title" value={useCase.title} maxLength={200} className="kh-uc-input--title"
         validate={(v) => (v === '' ? 'A title is required.' : null)} onSave={(title) => { patch({ title }); }} />
       <BlurField id={`${fid}-summary`} label="Summary" value={useCase.summary} maxLength={4000} multiline
         placeholder="What is the idea, and who is it for?" onSave={(summary) => { patch({ summary }); }} />
+      </>}
 
       <div className="kh-uc-panel__grid">
         <label className="kh-uc-field" htmlFor={`${fid}-stage`}>
@@ -139,7 +156,7 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
             <button type="button" className="kh-btn-ghost" disabled={draft.isPending} onClick={() => { void redraft(); }}>
               {draft.isPending ? 'Redrafting…' : 'Redraft'}
             </button>
-            <button type="button" className="kh-btn-ghost" onClick={() => { setHandoffOpen(true); }}>
+            <button type="button" className="kh-btn-ghost" disabled={reviewPending || update.isPending} onClick={() => { setHandoffOpen(true); }}>
               <Send size={16} /> Hand off…
             </button>
           </div>

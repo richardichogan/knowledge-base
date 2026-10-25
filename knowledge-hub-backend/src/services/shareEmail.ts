@@ -6,6 +6,7 @@ import { XMLValidator } from 'fast-xml-parser';
 import { encryptConnectionValue, decryptConnectionValue } from './connectionCredentials.js';
 import { ConflictError, IntegrationError, ValidationError } from '../types/errors.js';
 import { inviteMuralRecipients, muralBoard } from './mural.js';
+import { renderNoteEmail } from './noteEmail.js';
 
 const CONFIG_KEY = 'integration:smtp2go:config';
 export const SHARE_FROM = 'share@athena.themicrosoftcloudblog.com';
@@ -21,6 +22,8 @@ const MAX_ADDRESS_LENGTH = 254;
 const MAX_REQUEST_ID_LENGTH = 80;
 const MAX_URL_LENGTH = 2048;
 const MAX_FILENAME_LENGTH = 120;
+const MAX_NOTE_TITLE_LENGTH = 500;
+const MAX_NOTE_MARKDOWN_LENGTH = 200_000;
 interface Config { username: string; password: string; replyTo: string }
 export interface ShareEmailResult { accepted: number; rejected: number; muralInvited?: number }
 interface ShareEmailStatus { configured: boolean; username: string; replyTo: string; from: string; host: string; port: number }
@@ -28,6 +31,7 @@ interface Attachment { filename: string; content: Buffer; contentType: string }
 interface ValidatedEmail {
   requestId: string; recipients: string[]; subject: string; message: string; url: string; attachment: Attachment | undefined;
   muralAccess?: 'view' | 'edit';
+  note?: { title: string; markdown: string };
 }
 type Store = Pick<Pool, 'query'>;
 type SendMail = (options: nodemailer.SendMailOptions) => Promise<SMTPTransport.SentMessageInfo>;
@@ -134,10 +138,18 @@ export function validateShareEmail(input: unknown): ValidatedEmail {
     }
     attachment = { filename, content: Buffer.from(file.xml, 'utf8'), contentType: 'application/vnd.jgraph.mxfile' };
   }
-  if (!url && !attachment) throw new ValidationError('Include a Mural/GitHub link or draw.io attachment.');
+  let note: ValidatedEmail['note'];
+  if (data.note !== undefined) {
+    const value = record(data.note);
+    const title = line(value.title, MAX_NOTE_TITLE_LENGTH);
+    if (typeof value.markdown !== 'string' || !value.markdown.trim() || value.markdown.length > MAX_NOTE_MARKDOWN_LENGTH
+      || value.markdown.includes('\0')) throw new ValidationError('Include note text up to 200,000 characters.');
+    note = { title, markdown: value.markdown };
+  }
+  if (!url && !attachment && !note) throw new ValidationError('Include note text, a Mural/GitHub link or draw.io attachment.');
   if (data.muralAccess !== undefined && (data.muralAccess !== 'view' && data.muralAccess !== 'edit'
     || !url.startsWith('https://app.mural.co/'))) throw new ValidationError('Choose View or Edit access for a Mural board only.');
-  return { requestId, recipients, subject, message: data.message, url, attachment,
+  return { requestId, recipients, subject, message: data.message, url, attachment, ...(note ? { note } : {}),
     ...(data.muralAccess === 'view' || data.muralAccess === 'edit' ? { muralAccess: data.muralAccess } : {}) };
 }
 
@@ -167,8 +179,8 @@ export async function sendShareEmail(db: Pool, userId: string, input: unknown, s
   }
   const accessNotice = data.muralAccess
     ? `Mural ${data.muralAccess} invitations were requested separately. Accept your Mural invitation if prompted. Existing permissions and workspace policies still apply.`
-    : 'Links do not grant access to private boards or repositories.';
-  const text = [data.message, data.url, data.attachment ? `Attached: ${data.attachment.filename}` : '',
+    : data.url ? 'Links do not grant access to private boards or repositories.' : '';
+  const text = [data.message, data.note?.markdown, data.url, data.attachment ? `Attached: ${data.attachment.filename}` : '',
     `Shared from Athena. ${accessNotice}`].filter(Boolean).join('\n\n');
   let result: SMTPTransport.SentMessageInfo;
   try {
@@ -178,9 +190,9 @@ export async function sendShareEmail(db: Pool, userId: string, input: unknown, s
       envelope: { from: SHARE_FROM, to: data.recipients },
       ...(config.replyTo ? { replyTo: config.replyTo } : {}),
       subject: data.subject, text,
-      html: `<p>${escapeHtml(data.message).replace(/\r?\n/g, '<br>')}</p>${data.url ? `<p><a href="${escapeHtml(data.url)}">Open shared content</a></p>` : ''}
+      html: `<div style="max-width:720px;margin:0 auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.6;color:#262626;background:#ffffff"><p>${escapeHtml(data.message).replace(/\r?\n/g, '<br>')}</p>${data.note ? renderNoteEmail(data.note.title, data.note.markdown) : ''}${data.url ? `<p><a href="${escapeHtml(data.url)}">Open shared content</a></p>` : ''}
         <p>${escapeHtml(data.attachment ? `Attached: ${data.attachment.filename}` : '')}</p>
-        <p>Shared from Athena. ${escapeHtml(accessNotice)}</p>`,
+        <p style="font-size:12px;color:#525252;border-top:1px solid #c6c6c6;padding-top:16px">Shared from Athena. ${escapeHtml(accessNotice)}</p></div>`,
       attachments: data.attachment ? [data.attachment] : [],
       disableFileAccess: true, disableUrlAccess: true,
       messageId: `<${createHash('sha256').update(key).digest('hex')}@athena.themicrosoftcloudblog.com>`,

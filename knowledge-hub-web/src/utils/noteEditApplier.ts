@@ -18,6 +18,25 @@ function inlineText(block: Block): string {
   return content.map((c: { text?: string }) => c.text ?? '').join('');
 }
 
+/** Bounded visual edits must never fall back to a fuzzy match or flatten rich blocks. */
+export function applyReviewedNoteText(editor: Editor, find: string, replacement: string): void {
+  const matches = flatten(editor.document as Block[]).filter(block => inlineText(block).includes(find));
+  const target = matches[0];
+  if (!find || matches.length !== 1 || inlineText(target).split(find).length !== 2) {
+    throw new Error('Select a unique passage within one paragraph or list item. No edits applied.');
+  }
+  if (target.children?.length || !Array.isArray(target.content)
+    || target.content.some((item: { type?: string }) => item.type !== 'text')) {
+    throw new Error('This passage contains nested or embedded content. Edit it in MD to preserve its structure.');
+  }
+  const current = editor.blocksToMarkdownLossy([target]);
+  if (current.split(find).length !== 2) {
+    throw new Error('The selection crosses formatting boundaries. Select a smaller passage or edit in MD.');
+  }
+  const next = editor.tryParseMarkdownToBlocks(current.replace(find, () => replacement));
+  editor.transact(() => { editor.replaceBlocks([target], next); });
+}
+
 function norm(s: string): string {
   return s.toLowerCase().replace(/^#+\s*/, '').replace(/[“”"'’:.\-–—*_`]/g, '').replace(/\s+/g, ' ').trim();
 }

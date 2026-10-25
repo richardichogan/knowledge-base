@@ -4,6 +4,7 @@
  */
 
 import axios, { type AxiosInstance } from 'axios';
+import type { Design, DesignAsset, DesignDetail, DesignArtifact, DesignFeedback, DesignCollaboration, DesignProposal, DesignPackage, DesignPublication } from '../types/designs';
 import type {
   ApiResponse,
   PaginatedList,
@@ -888,6 +889,7 @@ export class KnowledgeHubApi {
     q?: string; contentType?: string; projectId?: string; tagIds?: string; projectTagIds?: string;
     sort?: 'modified' | 'created' | 'title';
     status?: 'active' | 'archived';
+    structure?: 'flat' | 'designs';
   }): Promise<ApiResponse<PaginatedList<NoteSummary>>> {
     const r = await this.client.get<ApiResponse<PaginatedList<NoteSummary>>>(
       '/api/notes',
@@ -2463,6 +2465,92 @@ export class KnowledgeHubApi {
       `/api/use-cases/${encodeURIComponent(id)}/handoff`, input, { timeout: 120_000 })).data;
   }
 
+  async reviewDocument(input: { document: string; selection: string; instruction: string; matchMode: 'text' | 'markdown' }): Promise<ApiResponse<{ find: string; replacement: string; summary: string }>> {
+    return (await this.client.post<ApiResponse<{ find: string; replacement: string; summary: string }>>(
+      '/api/ai/document-review', input, { timeout: 120_000 })).data;
+  }
+
+  async listDesigns(): Promise<ApiResponse<{ items: Design[]; hasMore: boolean }>> {
+    return (await this.client.get<ApiResponse<{ items: Design[]; hasMore: boolean }>>('/api/designs')).data;
+  }
+  async getDesign(id: string): Promise<ApiResponse<DesignDetail>> {
+    return (await this.client.get<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}`)).data;
+  }
+  async designMembership(type: 'note' | 'canvas', sourceId: string): Promise<ApiResponse<Array<{ id: string; parentNoteId: string; title: string; role: string }>>> {
+    return (await this.client.get<ApiResponse<Array<{ id: string; parentNoteId: string; title: string; role: string }>>>('/api/designs/membership', { params: { type, sourceId } })).data;
+  }
+  async selectDesignAsset(id: string, role: string, sourceId: string, expectedRevision: number): Promise<ApiResponse<DesignDetail>> {
+    return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/selection`, { role, sourceId, expectedRevision })).data;
+  }
+  async designCollaboration(id: string): Promise<ApiResponse<DesignCollaboration>> {
+    return (await this.client.get<ApiResponse<DesignCollaboration>>(`/api/designs/${encodeURIComponent(id)}/collaboration`)).data;
+  }
+  async generateDesignArtifact(id: string, instruction: string, onProgress?: (message: string) => void): Promise<ApiResponse<DesignArtifact>> {
+    if (onProgress) {
+      const signedIn = await getApiToken();
+      const auth = signedIn !== '' ? signedIn : TOKEN;
+      const response = await fetch(`${BASE_URL}/api/designs/${encodeURIComponent(id)}/artifacts`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream',
+          ...(auth !== '' ? { Authorization: `Bearer ${auth}` } : {}) },
+        body: JSON.stringify({ instruction }), signal: AbortSignal.timeout(150_000),
+      });
+      if (!response.ok || !response.body) throw new Error(`Could not start visual generation (${response.status}). Your documents are unchanged.`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) throw new Error('Lost the visual-generation connection before completion. Reopen HTML to check whether the visual was saved before retrying.');
+          buffer += decoder.decode(value, { stream: true });
+          let separator: number;
+          while ((separator = buffer.indexOf('\n\n')) !== -1) {
+            const block = buffer.slice(0, separator); buffer = buffer.slice(separator + 2);
+            const data = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+            if (!data) continue;
+            const event = JSON.parse(data) as { type: string; message?: string; data?: DesignArtifact };
+            if (event.type === 'progress' && typeof event.message === 'string') onProgress(event.message);
+            else if (event.type === 'error') throw new Error(event.message ?? 'Visual generation failed.');
+            else if (event.type === 'done' && event.data) return { success: true, data: event.data };
+          }
+        }
+      } finally { reader.releaseLock(); }
+    }
+    return (await this.client.post<ApiResponse<DesignArtifact>>(`/api/designs/${encodeURIComponent(id)}/artifacts`, { instruction }, { timeout: 150_000 })).data;
+  }
+  async queueDesignFeedback(id: string, input: { requestId: string; artifactId: string; elementId: string; selection: string; instruction: string }): Promise<ApiResponse<DesignFeedback>> {
+    return (await this.client.post<ApiResponse<DesignFeedback>>(`/api/designs/${encodeURIComponent(id)}/feedback`, input)).data;
+  }
+  async proposeDesignFeedback(id: string): Promise<ApiResponse<DesignProposal>> {
+    return (await this.client.post<ApiResponse<DesignProposal>>(`/api/designs/${encodeURIComponent(id)}/proposals`, {}, { timeout: 150_000 })).data;
+  }
+  async discardDesignFeedback(id: string, feedbackId: string): Promise<ApiResponse<{ discarded: true }>> {
+    return (await this.client.delete<ApiResponse<{ discarded: true }>>(`/api/designs/${encodeURIComponent(id)}/feedback/${encodeURIComponent(feedbackId)}`)).data;
+  }
+  async resolveDesignProposal(id: string, proposalId: string, accept: boolean): Promise<ApiResponse<{ noteIds: string[] }>> {
+    return (await this.client.post<ApiResponse<{ noteIds: string[] }>>(`/api/designs/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposalId)}/resolve`, { accept })).data;
+  }
+  async createDesignPackage(id: string, input: { diagramId?: string; diagramRevision?: number; diagramSvg?: string }): Promise<ApiResponse<DesignPackage>> {
+    return (await this.client.post<ApiResponse<DesignPackage>>(`/api/designs/${encodeURIComponent(id)}/packages`, input)).data;
+  }
+  async downloadDesignPackage(id: string, packageId: string): Promise<Blob> {
+    return (await this.client.get<Blob>(`/api/designs/${encodeURIComponent(id)}/packages/${encodeURIComponent(packageId)}/download`, { responseType: 'blob' })).data;
+  }
+  async prepareDesignPublication(id: string, packageId: string, repo: string, folder: string): Promise<ApiResponse<DesignPublication>> {
+    return (await this.client.post<ApiResponse<DesignPublication>>(`/api/designs/${encodeURIComponent(id)}/packages/${encodeURIComponent(packageId)}/prepare`, { repo, folder })).data;
+  }
+  async publishDesignPackage(id: string, packageId: string, publicationId: string): Promise<ApiResponse<{ commitUrl: string }>> {
+    return (await this.client.post<ApiResponse<{ commitUrl: string }>>(`/api/designs/${encodeURIComponent(id)}/packages/${encodeURIComponent(packageId)}/publish`, { publicationId, confirmed: true }, { timeout: 120_000 })).data;
+  }
+  async searchDesignAssets(q: string, sourceType?: 'note' | 'canvas'): Promise<ApiResponse<DesignAsset[]>> {
+    return (await this.client.get<ApiResponse<DesignAsset[]>>('/api/designs/assets/search', { params: { q, sourceType } })).data;
+  }
+  async linkDesignAsset(id: string, asset: Pick<DesignAsset, 'sourceType' | 'sourceId' | 'role'>, remove = false): Promise<ApiResponse<DesignDetail>> {
+    const url = `/api/designs/${encodeURIComponent(id)}/assets`;
+    return remove ? (await this.client.delete<ApiResponse<DesignDetail>>(url, { data: asset })).data
+      : (await this.client.post<ApiResponse<DesignDetail>>(url, asset)).data;
+  }
+
   // ─── Build pipeline (spec → tasks → cloud coding agents) ─────────────────
 
   async listBuildSpecs(): Promise<ApiResponse<BuildSpecSummary[]>> {
@@ -2490,7 +2578,7 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async updateBuildSpec(id: string, patch: Partial<Pick<BuildSpec, 'title' | 'specMarkdown' | 'repo' | 'baseBranch' | 'maxParallel' | 'autoMerge' | 'useWorkBranch'>>): Promise<ApiResponse<BuildSpecWithTasks>> {
+  async updateBuildSpec(id: string, patch: Partial<Pick<BuildSpec, 'title' | 'specMarkdown' | 'repo' | 'baseBranch' | 'maxParallel' | 'autoMerge' | 'useWorkBranch'>> & { expectedSpecMarkdown?: string }): Promise<ApiResponse<BuildSpecWithTasks>> {
     const r = await this.client.patch<ApiResponse<BuildSpecWithTasks>>(`/api/build/specs/${id}`, patch);
     return r.data;
   }

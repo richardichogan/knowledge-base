@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { confirmDialog } from '../services/appDialogs';
 import { TextInput } from '@carbon/react';
 import { TrashCan, Close, SortAscending, GroupObjects, View } from '@carbon/icons-react';
-import type { NoteListItem } from './types';
+import type { ThinkListItem } from './types';
 import { useTaxonomy } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
 import { usePersistedBoolean, usePersistedChoice } from '../hooks/usePersistedState';
@@ -22,7 +22,7 @@ const SORT_LABELS: Record<NoteSortKey, string> = {
 };
 
 interface NoteListProps {
-  notes: NoteListItem[];
+  notes: ThinkListItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
@@ -113,7 +113,7 @@ export const NoteList: React.FC<NoteListProps> = ({
     }
   }
 
-  const resolveNoteProjectId = (note: NoteListItem): string => {
+  const resolveNoteProjectId = (note: ThinkListItem): string => {
     if (note.projectId) return note.projectId;
     const projectTagId = (note.tagIds ?? []).find((id) => tagParentMap.has(id));
     const projectTagName = projectTagId ? tagNameMap.get(projectTagId) : undefined;
@@ -126,7 +126,7 @@ export const NoteList: React.FC<NoteListProps> = ({
     : notes;
 
   // Standalone lists sort locally; paginated lists preserve the server's global order.
-  const compareNotes = (a: NoteListItem, b: NoteListItem): number => {
+  const compareNotes = (a: ThinkListItem, b: ThinkListItem): number => {
     if (sortKey === 'title') return a.title.localeCompare(b.title);
     const field = sortKey === 'created' ? 'createdAt' : 'updatedAt';
     const aTime = new Date(a[field] ?? a.updatedAt).getTime();
@@ -138,7 +138,7 @@ export const NoteList: React.FC<NoteListProps> = ({
 
   // Group by the explicit project first, falling back to older taxonomy-only
   // notes that predate first-class project assignment.
-  const groups = new Map<string, { label: string; notes: NoteListItem[] }>();
+  const groups = new Map<string, { label: string; notes: ThinkListItem[] }>();
   for (const note of sortedNotes) {
     const noteTagIds = note.tagIds ?? [];
     const projectTagId = noteTagIds.find((id) => tagParentMap.has(id));
@@ -266,7 +266,7 @@ export const NoteList: React.FC<NoteListProps> = ({
       <div className="notes-list-pagination">
         <span className="notes-list-pagination__count" role="status">
           {loading ? 'Loading notes…' : unavailable && notes.length === 0 ? 'Notes unavailable'
-            : total !== undefined ? `${sortedNotes.length} of ${total} notes` : `${sortedNotes.length} notes`}
+            : total !== undefined ? `${sortedNotes.length} of ${total} items` : `${sortedNotes.length} items`}
         </span>
         {hasMore && onLoadMore !== undefined && (
           <button type="button" className="notes-list-pagination__more"
@@ -283,7 +283,7 @@ export const NoteList: React.FC<NoteListProps> = ({
 };
 
 const NoteCard: React.FC<{
-  note: NoteListItem; selectedId: string | null;
+  note: ThinkListItem; selectedId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   deleting: boolean;
@@ -318,9 +318,7 @@ const NoteCard: React.FC<{
       onKeyDown={(event) => { activateNoteOnKeyDown(event, () => { onSelect(note.id); }); }}
       data-ctx-title={note.title}
       {...(snippet !== '' ? { 'data-ctx-body': snippet } : {})}
-      data-ctx-type="hub_ref"
-      data-ctx-ref-id={note.id}
-      data-ctx-ref-type="note"
+      data-ctx-type="hub_ref" data-ctx-ref-id={note.id} data-ctx-ref-type="note"
       data-ctx-source={`Note · ${note.contentType}`}
       {...(tagEntries !== undefined ? { 'data-ctx-tags': tagEntries } : {})}
       role="button" tabIndex={0}

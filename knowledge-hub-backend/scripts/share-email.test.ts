@@ -7,6 +7,7 @@ import { PGlite } from '@electric-sql/pglite';
 process.env.CREDENTIAL_ENCRYPTION_KEY = 'fixture-sharing-encryption-key-not-a-real-secret';
 const { shareEmailStatus, saveShareEmailConfig, sendShareEmail, validateShareEmail, SHARE_FROM } = await import('../src/services/shareEmail.js');
 const { encryptConnectionValue } = await import('../src/services/connectionCredentials.js');
+const { renderNoteEmail } = await import('../src/services/noteEmail.js');
 const boardUrl = 'https://app.mural.co/t/test/m/test/123';
 const input = () => ({ requestId: crypto.randomUUID(), confirmed: true, recipients: ['one@example.com', 'TWO@example.com'],
   subject: 'Shared <diagram>', message: 'Please review <script>alert("x")</script>', url: boardUrl });
@@ -62,6 +63,41 @@ test('Email validates explicit confirmation, recipient limits, trusted links and
     { attachment: { ...file, xml: '<mxfile>' } }, { attachment: { ...file, xml: '<!DOCTYPE mxfile><mxfile />' } },
     { attachment: { ...file, xml: 'x'.repeat(4194305) } },
   ]) assert.throws(() => validateShareEmail({ ...input(), ...change }));
+});
+
+test('Note text sharing accepts bounded snapshots and renders safe, formatted email content', async () => {
+  const note = { title: 'Review & approve', markdown: '# Review & approve\n\n**Important** and *emphasised*.\n\n1. First\n2. Second\n\n| Item | Status |\n| --- | --- |\n| Review | Ready |\n\n[Evidence](https://example.com)\n\n<script>alert(1)</script>\n\n[Unsafe](javascript:alert(1))\n\n![Image](https://example.com/image.png)' };
+  const request = { ...input(), url: undefined, note };
+  assert.deepEqual(validateShareEmail(request).note, note);
+  for (const invalid of [{ title: 'Bad\nheader', markdown: 'Text' }, { title: 'Empty', markdown: '' },
+    { title: 'Too big', markdown: 'x'.repeat(200_001) }]) {
+    assert.throws(() => validateShareEmail({ ...request, note: invalid }));
+  }
+  const html = renderNoteEmail(note.title, note.markdown);
+  assert.match(html, /<h1 /);
+  assert.match(html, /<strong>Important<\/strong>/);
+  assert.match(html, /<em>emphasised<\/em>/);
+  assert.match(html, /<ol>/);
+  assert.match(html, /<table /);
+  assert.match(html, /https:\/\/example.com/);
+  assert.ok(!html.includes('<script>') && !html.includes('href="javascript:') && !html.includes('<img'));
+  assert.match(html, /&lt;script&gt;/);
+  const { pool, db } = await fixture();
+  try {
+    await saveShareEmailConfig(pool, settings);
+    let submissions = 0;
+    const send = async (mail: Mail.Options) => {
+      submissions++;
+      assert.ok(String(mail.text).includes(note.markdown));
+      assert.ok(String(mail.html).includes('<strong>Important</strong>'));
+      assert.deepEqual(mail.bcc, ['one@example.com', 'two@example.com']);
+      return result();
+    };
+    await sendShareEmail(pool, 'user', request, send);
+    await sendShareEmail(pool, 'user', request, send);
+    assert.equal(submissions, 1, 'Retrying the identical note snapshot never sends a second copy');
+    await assert.rejects(sendShareEmail(pool, 'user', { ...request, note: { ...note, markdown: 'Different snapshot' } }, send), /already attempted/);
+  } finally { await db.close(); }
 });
 
 async function connectMural(pool: Pool): Promise<void> {

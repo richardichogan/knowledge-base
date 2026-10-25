@@ -14,6 +14,7 @@
 import { env } from '../config/env.js';
 import { AGENT_MENTION, getAgentGitHub, type AgentGitHub, type AgentPullRequest } from './githubAgents.js';
 import * as store from './buildStore.js';
+import { HANDOFF_CONTRACT } from './handoffContract.js';
 import {
   ACTIVE_TASK_STATUSES, SATISFIED_TASK_STATUSES, targetBranchOf,
   type BuildSpec, type BuildTask, type TaskStatus,
@@ -62,7 +63,7 @@ function defaultDeps(): RunnerDeps {
 const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const elapsed = (deps: RunnerDeps, since: string | null): number => (since === null ? 0 : deps.now().getTime() - new Date(since).getTime());
 
-function taskIssueBody(spec: BuildSpec, task: BuildTask, all: BuildTask[]): string {
+export function taskIssueBody(spec: BuildSpec, task: BuildTask, all: BuildTask[]): string {
   const deps = all.filter((t) => task.dependsOn.includes(t.id));
   const lines = [
     task.bodyMarkdown,
@@ -75,7 +76,12 @@ function taskIssueBody(spec: BuildSpec, task: BuildTask, all: BuildTask[]): stri
     for (const d of deps) lines.push(`- ${d.title}${d.prNumber !== null ? ` (#${d.prNumber.toString()})` : ''}`);
   }
   lines.push('', `Open exactly one pull request against \`${targetBranchOf(spec)}\` that implements only this task.`);
-  return lines.join('\n');
+  lines.push('', '## Source specification', '', HANDOFF_CONTRACT,
+    '', 'Read the source for context, but implement only the assigned task above.', '', spec.specMarkdown);
+  const body = lines.join('\n');
+  const MAX_ISSUE_BODY_CHARS = 65_536;
+  if (body.length > MAX_ISSUE_BODY_CHARS) throw new Error('The task and authoritative specification exceed GitHub\'s issue-body limit. Shorten the spec or task before dispatch; no source was truncated.');
+  return body;
 }
 
 const CUSTOM_INSTRUCTIONS =

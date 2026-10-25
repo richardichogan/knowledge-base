@@ -128,7 +128,7 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
       'SELECT note_list_metadata($1) AS metadata', [writing('Wrapped title', 'article', 'Nested text')]);
     assert.deepEqual(metadata.rows[0]?.metadata, { title: 'Wrapped title', contentType: 'article' });
     for (const params of ['page=NaN', 'page=-1', 'page=1.5', 'pageSize=0', 'page=9007199254740991',
-      'sort=invalid', 'tagIds=invalid', 'projectTagIds=invalid', 'q=a&q=b', 'status=all', 'status=active&status=archived']) {
+      'sort=invalid', 'tagIds=invalid', 'projectTagIds=invalid', 'q=a&q=b', 'status=all', 'status=active&status=archived', 'structure=invalid']) {
       const response = await fetch(`http://127.0.0.1:${address.port}/api/notes?${params}`);
       assert.ok(response.status >= 400 && response.status < 500, params);
       assert.equal((await response.json() as { success: boolean }).success, false);
@@ -161,6 +161,44 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     assert.equal(repeatedArchive.body.data.note?.revision, 2);
     assert.equal(queuedIndexing, 2, 'Only accepted writing recovery and actual archive transition queue normal indexing; fixture callbacks never execute.');
     assert.equal((await read('status=archived')).total, 0);
+
+    await db.exec(`
+      CREATE TABLE designs(id UUID PRIMARY KEY,parent_note_id UUID,source_note_id UUID,source_use_case_id UUID);
+      CREATE TABLE design_assets(design_id UUID,source_type TEXT,source_id TEXT,excluded BOOLEAN,
+        PRIMARY KEY(design_id,source_type,source_id));
+      CREATE TABLE note_links(source_note_id UUID,target_note_id UUID);
+      CREATE TABLE use_cases(id UUID PRIMARY KEY,spec_note_id UUID);
+      CREATE TABLE use_case_sources(use_case_id UUID,source_type TEXT,source_id TEXT);
+    `);
+    await db.query('INSERT INTO notes(id,content) VALUES($1,$2),($3,$4)', [
+      id(110), writing('Publishing package', 'design'), id(111), writing('Second package', 'design'),
+    ]);
+    await db.query('INSERT INTO designs VALUES($1,$1,$2,NULL),($3,$3,NULL,$3)', [id(110), id(104), id(111)]);
+    await db.query('INSERT INTO note_links VALUES($1,$2)', [id(104), id(105)]);
+    await db.query("INSERT INTO design_assets VALUES($1,'note',$2,false)", [id(110), id(106)]);
+    await db.query('INSERT INTO use_cases VALUES($1,$2)', [id(111), id(107)]);
+    await db.query("INSERT INTO use_case_sources VALUES($1,'note',$2)", [id(111), id(104)]);
+    const flat = await read();
+    const grouped = await read('structure=designs');
+    const secondPage = await read('structure=designs&page=2');
+    const groupedIds = [...grouped.items, ...secondPage.items].map(item => item.id);
+    assert.equal(flat.total - grouped.total, 4, 'Count distinct originals, including shared memberships, before pagination');
+    for (const hiddenId of [104, 105, 106, 107]) assert.ok(!groupedIds.includes(id(hiddenId)));
+    for (const visibleId of [108, 110, 111]) assert.ok(groupedIds.includes(id(visibleId)));
+    assert.equal(new Set(groupedIds).size, grouped.total);
+    assert.equal(secondPage.hasMore, false);
+    assert.deepEqual(new Set((await read('structure=designs&q=needle')).items.map(item => item.id)),
+      new Set([id(109), id(110), id(111)]), 'Search linked bodies returns their parents, while standalone matches remain visible');
+    await db.query("INSERT INTO design_assets VALUES($1,'note',$2,true)", [id(110), id(105)]);
+    assert.equal((await read('structure=designs')).total, grouped.total + 1, 'Explicit exclusions override inherited links');
+    await db.query("UPDATE notes SET status='archived' WHERE id=$1", [id(110)]);
+    assert.ok((await read('structure=designs&q=Plain%20legacy')).items.some(item => item.id === id(106)),
+      'Archiving a Design reveals originals that have no other active parent');
+    await db.query('UPDATE notes SET content=$2 WHERE id=$1', [id(111), writing('No longer a Design')]);
+    assert.ok((await read('structure=designs&q=needle')).items.some(item => item.id === id(104)),
+      'Retyping the last parent reveals the shared original');
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/notes/${id(104)}`)).status, 200,
+      'Grouping never removes direct access to an original');
   } finally {
     query.mock.restore();
     connect.mock.restore();

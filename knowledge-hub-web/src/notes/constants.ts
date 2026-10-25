@@ -10,6 +10,7 @@ export const UNTITLED_DOCUMENT = 'Untitled';
 // ── Content type options ──────────────────────────────────────────────────────
 
 export type ContentType =
+  | 'design'
   | 'blog'
   | 'podcast'
   | 'podcast-show-notes'
@@ -33,6 +34,7 @@ export interface ContentTypeOption {
 
 /** Stored ids never change — other features key off them. Only labels and grouping are presentational. */
 export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
+  { id: 'design',               label: 'Design',             group: 'Work' },
   { id: 'meeting',              label: 'Meeting notes',      group: 'Work' },
   { id: 'project',              label: 'Project note',       group: 'Work' },
   { id: 'use-case',             label: 'Use case',           group: 'Work' },
@@ -56,6 +58,7 @@ export const CONTENT_TYPE_GROUPS: { label: ContentTypeGroup; options: ContentTyp
 // ── Tag type per content type ─────────────────────────────────────────────────
 
 export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' | 'blue' | 'gray' | 'red' | 'cyan' | 'magenta' | 'orange'> = {
+  design:              'teal',
   blog:                'green',
   podcast:             'teal',
   'podcast-show-notes': 'purple',

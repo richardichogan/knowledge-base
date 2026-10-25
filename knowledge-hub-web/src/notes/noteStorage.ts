@@ -106,8 +106,8 @@ export async function fetchNotes(): Promise<NoteListItem[]> {
   throw new Error('Note list is too large. Use search to narrow the list.');
 }
 
-export async function fetchNotesPage(page = 1, query: NoteListQuery = {}): Promise<NoteListPage> {
-  const result = requireApiData(await api.getNoteSummaries(page, 100, noteListQuery(query)));
+export async function fetchNotesPage(page = 1, query: NoteListQuery = {}, structure: 'flat' | 'designs' = 'flat'): Promise<NoteListPage> {
+  const result = requireApiData(await api.getNoteSummaries(page, 100, { ...noteListQuery(query), structure }));
   const items = result.items.map((n) => ({
     id: n.id,
     title: n.title || UNTITLED_DOCUMENT,

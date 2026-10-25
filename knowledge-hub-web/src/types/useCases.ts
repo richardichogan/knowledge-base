@@ -57,10 +57,10 @@ export interface CreateUseCaseInput {
   repo?: string | null;
   sources?: UseCaseSourceRef[];
 }
-export type UseCasePatch = Partial<Pick<UseCase, 'title' | 'summary' | 'productKind' | 'projectId' | 'repo' | 'stage'>>;
+export type UseCasePatch = Partial<Pick<UseCase, 'title' | 'summary' | 'productKind' | 'projectId' | 'repo' | 'stage'>> & { expectedSummary?: string };
 
 export interface DraftSpecResult { useCase: UseCaseDetail; noteId: string; replaced: boolean }
-export interface HandoffInput { mode: 'github' | 'build'; repo?: string; path?: string }
+export interface HandoffInput { mode: 'github' | 'build'; repo?: string; path?: string; visualLinkIds?: string[] }
 export interface HandoffResult {
   useCase: UseCaseDetail;
   mode: 'github' | 'build';

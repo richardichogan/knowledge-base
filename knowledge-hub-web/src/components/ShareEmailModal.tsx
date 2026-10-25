@@ -11,6 +11,7 @@ import './shareEmail.scss';
 import { requireApiData } from '../services/apiError';
 import { recipientMention, insertRecipient } from '../people/contactText';
 import { ContactCapture } from './ContactCapture';
+import { renderMarkdown } from '../utils/markdown';
 
 export const ShareEmailModal: React.FC<{ content: ShareEmailContent; onClose: () => void }> = ({ content, onClose }) => {
   const query = useQuery({ queryKey: SHARE_EMAIL_QUERY, queryFn: loadShareEmailStatus, staleTime: 0 });
@@ -53,6 +54,7 @@ export const ShareEmailModal: React.FC<{ content: ShareEmailContent; onClose: ()
     // Reuse the exact request on an explicit retry after an ambiguous network response.
     attempt.current ??= { requestId: crypto.randomUUID(), confirmed: true, recipients: addresses, subject, message,
       ...(muralBoard && muralAccess !== 'none' ? { muralAccess } : {}),
+      ...(content.note ? { note: content.note } : {}),
       ...(content.url ? { url: content.url } : {}), ...(content.attachment ? { attachment: content.attachment } : {}) };
     setAttempted(true);
     try {
@@ -111,7 +113,7 @@ export const ShareEmailModal: React.FC<{ content: ShareEmailContent; onClose: ()
       {captureContacts && <ContactCapture text={message} onSaved={person => {
         const email = person.emails[0]; if (email) chooseContact(email);
       }} />}
-      <p>Recipients are hidden from each other. Links do not grant access to private Mural boards or GitHub repositories.</p>
+      <p>Recipients are hidden from each other. {content.note ? 'The full note text will be included in the email. Review the snapshot below before sending.' : 'Links do not grant access to private Mural boards or GitHub repositories.'}</p>
       {muralBoard && <>
         <label htmlFor="share-mural-access">Mural board access</label>
         <select id="share-mural-access" value={muralAccess} disabled={busy || attempted}
@@ -128,6 +130,10 @@ export const ShareEmailModal: React.FC<{ content: ShareEmailContent; onClose: ()
       <textarea id="share-email-message" rows={5} value={message} maxLength={10000} disabled={busy || attempted} onChange={e => { setMessage(e.target.value); }} />
       <div className="share-email__content">
         <h3>Included content</h3>
+        {content.note && <>
+          <p>{content.note.title} · Formatted note text, captured when you opened Share.</p>
+          <div className="share-email__note-preview" aria-label="Note text preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(content.note.markdown) }} />
+        </>}
         {content.url && <a href={content.url} target="_blank" rel="noreferrer">{content.url}</a>}
         {content.attachment && <p>Attachment: {content.attachment.filename} ({Math.ceil(new Blob([content.attachment.xml]).size / 1024)} KiB)</p>}
         {content.url?.includes('github.com/') && <p>This link shows the published GitHub version, which may differ from unsaved or unpublished Think edits.</p>}
@@ -135,7 +141,9 @@ export const ShareEmailModal: React.FC<{ content: ShareEmailContent; onClose: ()
       {busy && <p role="status">{muralBoard && muralAccess !== 'none' ? 'Requesting Mural invitations, then sending once through SMTP2GO.' : 'Sending once through SMTP2GO.'} Do not close this window.</p>}
       {result?.muralInvited !== undefined && <p role="status">Mural confirmed {result.muralInvited} invitation(s). This is not confirmation that recipients have accepted or opened the board.</p>}
       {result && <p role={result.rejected ? 'alert' : 'status'}>
-        SMTP2GO accepted {result.accepted} recipient(s){result.rejected ? `; rejected ${result.rejected}. Check SMTP2GO activity before resending.` : '. This confirms submission, not inbox delivery.'}
+        {result.rejected
+          ? `Email sent to ${result.accepted} recipient(s); ${result.rejected} rejected. Check SMTP2GO activity before resending.`
+          : 'Email sent.'}
       </p>}
       {error && <p className="share-email__error" role="alert">{error}</p>}
     </div>

@@ -61,6 +61,7 @@ export const PROJECT_ICON_KEYS = Object.keys(IDENTITY_ICONS);
 
 /** Icons remain available alongside content-type colours. */
 const CONTENT_TYPE_ICON: Record<string, CarbonIconType> = {
+  design: Diagram,
   note: Notebook,
   code: Code,
   task: Task,

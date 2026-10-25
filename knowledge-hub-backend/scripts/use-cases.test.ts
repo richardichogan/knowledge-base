@@ -7,7 +7,8 @@ import { getDb } from '../src/db/db.js';
 import { useCasesRouter } from '../src/routes/useCases.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { countStalled, defaultLinkTitle, parseCreate, slugify } from '../src/useCases/useCaseStore.js';
-import { copilotPrompt, defaultHandoffPath, handoffUseCase, type HandoffDeps } from '../src/useCases/handoff.js';
+import { copilotPrompt, defaultHandoffPath, handoffUseCase, selectedVisualLinks, type HandoffDeps } from '../src/useCases/handoff.js';
+import { HANDOFF_CONTRACT } from '../src/build/handoffContract.js';
 import { buildSpecPrompt, cleanDraft, draftUseCaseSpec, PER_SOURCE_CHARS, TOTAL_SOURCE_CHARS, type DraftDeps } from '../src/useCases/specDraft.js';
 
 const NOTE = '00000000-0000-4000-8000-0000000000a1';
@@ -250,8 +251,10 @@ test('handoff defaults, copilot prompt, stage changes and the no-spec 400', asyn
   const product = copilotPrompt({ title: 'Inbox zero', productKind: 'product' }, 'me/app', 'docs/specs/inbox-zero.md');
   assert.ok(product.includes('`docs/specs/inbox-zero.md` in me/app'));
   assert.ok(!product.includes('evidence-led-demo'));
+  assert.ok(product.includes(HANDOFF_CONTRACT));
   const demo = copilotPrompt({ title: 'Claims', productKind: 'imagine_demo' }, 'ibm/imagine', 'docs/prds/claims.md');
   assert.ok(demo.includes('new IMAGINE demo') && demo.includes('evidence-led-demo'));
+  assert.ok(demo.includes(HANDOFF_CONTRACT));
   assert.ok(copilotPrompt({ title: 'X', productKind: 'imagine_platform' }, 'a/b', 'p.md').includes('IMAGINE demo platform'));
 
   const db = await fixtureDb();
@@ -281,5 +284,35 @@ test('handoff defaults, copilot prompt, stage changes and the no-spec 400', asyn
     assert.equal(build.buildSpecId, MISSING);
     assert.equal(build.useCase.buildSpecId, MISSING);
     assert.equal(build.prompt, null);
+  });
+});
+
+test('handoff visual references must be selected existing HTTP(S) links', () => {
+    const useCase = { links: [
+      { id: 'mockup', url: 'https://example.com/mockup.html', title: 'Mockup', addedAt: '' },
+      { id: 'unsafe', url: 'javascript:alert(1)', title: 'Unsafe', addedAt: '' },
+      { id: 'credentials', url: 'https://user:password@example.com/mockup', title: 'Private', addedAt: '' },
+      { id: 'invalid', url: 'not a URL', title: 'Broken', addedAt: '' },
+    ] };
+    assert.deepEqual(selectedVisualLinks(useCase, undefined), []);
+    assert.deepEqual(selectedVisualLinks(useCase, ['mockup', 'mockup']), ['https://example.com/mockup.html']);
+    assert.throws(() => selectedVisualLinks(useCase, ['missing']), /no longer attached/);
+    assert.throws(() => selectedVisualLinks(useCase, ['unsafe']), /HTTP/);
+    assert.throws(() => selectedVisualLinks(useCase, ['credentials']), /credentials/);
+    assert.throws(() => selectedVisualLinks(useCase, ['invalid']), /invalid URL/);
+    assert.throws(() => selectedVisualLinks(useCase, Array(9).fill('mockup')), /up to eight/);
+    assert.throws(() => selectedVisualLinks(useCase, [42]), /up to eight/);
+  });
+
+test('reviewed use-case summary accepts only against the original saved summary', async () => {
+    const db = await fixtureDb();
+    await withApp(db, async call => {
+      const created = await call('POST', '', { title: 'Review', productKind: 'imagine_demo', summary: 'Original' });
+      const id = created.json.data.id as string;
+      assert.equal((await call('PATCH', `/${id}`, { summary: 'Accepted', expectedSummary: 'Original' })).status, 200);
+      const stale = await call('PATCH', `/${id}`, { summary: 'Stale proposal', expectedSummary: 'Original' });
+      assert.equal(stale.status, 409);
+      assert.equal(stale.json.error.code, 'USE_CASE_REVIEW_CONFLICT');
+      assert.equal((await call('GET', `/${id}`)).json.data.summary, 'Accepted');
   });
 });

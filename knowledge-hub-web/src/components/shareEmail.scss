@@ -41,6 +41,21 @@
     h3 { margin: 0 0 0.5rem; font-size: var(--kh-section-title, 0.875rem); font-weight: 600; }
   }
   &__error, [role='alert'] { color: var(--cds-text-error); }
+  &__note-preview {
+    max-height: 280px; overflow: auto; margin-top: 12px; padding: 16px;
+    border: 1px solid var(--cds-border-subtle-01); background: var(--cds-layer-02);
+    color: var(--cds-text-primary); border-radius: 4px; overflow-wrap: anywhere;
+    h1, h2, h3, h4, h5, h6 { margin: 16px 0 8px; font-size: var(--kh-section-title); font-weight: 600; text-align: left; }
+    > :first-child { margin-top: 0; }
+    p { margin: 0 0 12px; }
+    ul, ol { padding-left: var(--kh-list-indent, 24px); margin: 8px 0 12px; }
+    ul { list-style: disc; } ol { list-style: decimal; }
+    li { margin: 4px 0; }
+    pre { overflow: auto; padding: 12px; background: var(--cds-layer-01); }
+    blockquote { margin: 12px 0; padding-left: 12px; border-left: 2px solid var(--cds-border-strong-01); }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: 8px; border: 1px solid var(--cds-border-subtle-01); text-align: left; }
+  }
   &__contacts {
     max-height: 220px;
     overflow-y: auto;

@@ -253,6 +253,7 @@ export interface WriteActionProposal {
 }
 
 export interface ChatResponse {
+  designChanged?: { parentNoteId: string; noteIds: string[] };
   reply: string;
   sessionId: string;
   persona?: AthenaPersona;

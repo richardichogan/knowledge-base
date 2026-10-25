@@ -35,6 +35,8 @@ export interface NoteListItem {
   projectId?: string;
 }
 
+export type ThinkListItem = NoteListItem;
+
 export interface GitHubPushPayload {
   repo: string;
   noteId: string;

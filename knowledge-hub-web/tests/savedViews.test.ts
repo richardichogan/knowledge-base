@@ -18,6 +18,11 @@ test('versioned Plan/Discover views round-trip exact scopes, sorts and shareable
   assert.equal(parseSharedView('?noteId=existing', 'plan'), null);
 });
 
+test('native Design and Use Case deep links do not look like malformed shared JSON views', () => {
+  assert.equal(parseSharedView('?view=designs&design=some-id', 'plan'), null);
+  assert.equal(parseSharedView('?view=use-cases&useCase=some-id', 'plan'), null);
+});
+
 test('unknown, malformed, duplicate and oversized views/links fail explicitly without widening scope', () => {
   const record = { id: '11111111-1111-4111-8111-111111111111', name: 'Review', view: DEFAULT_DISCOVER_VIEW };
   for (const value of [{ ...DEFAULT_DISCOVER_VIEW, version: 2 }, { ...DEFAULT_DISCOVER_VIEW, sort: 'invented' },

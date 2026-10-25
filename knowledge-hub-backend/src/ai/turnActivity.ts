@@ -52,6 +52,8 @@ const LABELS: Record<string, string> = {
 
 /** One line describing a tool call, including what it's looking for when that's short. */
 export function describeToolActivity(name: string, argsJson: string): string {
+  if (name === 'read_design_package') return 'Reading the linked Design originals and selected revisions';
+  if (name === 'save_design_documents') return 'Saving requested documents into their Design tabs';
   let detail = '';
   try {
     const args = JSON.parse(argsJson) as Record<string, unknown>;

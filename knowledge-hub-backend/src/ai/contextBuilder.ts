@@ -11,7 +11,6 @@ import { env } from '../config/env.js';
 import { formatRagContext } from './ragRetriever.js';
 import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
-import { IMAGINE_DEMO_BRIEF_SKILL } from './imagineDemoBriefSkill.js';
 import { DEMO_SPECIFICATION_INSTRUCTIONS, isDemoSpecificationRequest } from './demoSpecification.js';
 import { DISCOVER_APP_GUIDANCE, getDiscoverSources, isDiscoverSourceRequest } from './discoveryContext.js';
 import { formatMemoryContext } from './memoryRetriever.js';
@@ -978,7 +977,7 @@ const PERSONA_PROMPTS: Record<string, string> = {
   brainstorming: BRAINSTORMING_PERSONA_BLURB,
   copilot_coach: COPILOT_COACH_PERSONA_BLURB,
   blog_post: BLOG_POST_PERSONA_BLURB,
-  demo_designer: `${DEMO_DESIGNER_PERSONA_BLURB}\n\n${IMAGINE_DEMO_BRIEF_SKILL}`,
+  demo_designer: DEMO_DESIGNER_PERSONA_BLURB,
   web_designer: WEB_DESIGNER_PERSONA_BLURB,
   podcast_prep: PODCAST_PREP_PERSONA_BLURB,
   podcast_show_notes: SHOW_NOTES_PERSONA_BLURB,

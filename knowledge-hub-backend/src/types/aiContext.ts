@@ -29,6 +29,8 @@ export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blo
  * the auto-RAG search query stays limited to what the user actually typed.
  */
 export interface ChatPageContext {
+  /** Original document/canvas currently active inside a Design conversation. */
+  id?: string;
   /** e.g. "note", "canvas", "document", "content-item" */
   type: string;
   title: string;

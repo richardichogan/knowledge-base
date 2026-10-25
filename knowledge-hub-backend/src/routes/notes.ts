@@ -22,6 +22,7 @@ import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, N
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput, ContentItem } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
 import { writeNote, listNoteVersions, getNoteVersion, parseWriting, writingFingerprint, restoreArchivedNote } from '../services/noteVersionService.js';
+import { DESIGN_NOTE_MEMBERSHIPS_SQL } from '../designs/designStore.js';
 import { checkPublication, listRepositoryFolders, listWritableRepositories, publicationRow, publicationView, publishNote, remoteNote, scheduleGitHubPublish, startPublication } from '../services/noteGitHubService.js';
 import { githubMarkdownBlocks } from '../services/noteMarkdown.js';
 import { GitHubClient } from '../integrations/github/githubClient.js';
@@ -251,10 +252,21 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         if (typeof value !== 'string') throw new ValidationError(`${name} must be a string`);
         return value;
       };
+      const structure = filterValue('structure') ?? 'flat';
+      if (structure !== 'flat' && structure !== 'designs') throw new ValidationError('Invalid note list structure');
+      const grouped = structure === 'designs';
+      const prefix = grouped ? `WITH design_note_memberships AS (${DESIGN_NOTE_MEMBERSHIPS_SQL})` : '';
+      if (grouped) conditions.push(`(
+        note_list_metadata(n.content)->>'contentType'='design'
+        OR NOT EXISTS (SELECT 1 FROM design_note_memberships member WHERE member.note_id=n.id::text)
+      )`);
       const q = filterValue('q');
       if (q !== undefined) {
         params.push(`%${q.replace(/[\\%_]/g, '\\$&')}%`);
-        conditions.push(`n.content ILIKE $${params.length}`);
+        conditions.push(grouped ? `(n.content ILIKE $${params.length} OR EXISTS (
+          SELECT 1 FROM design_note_memberships member JOIN notes child ON child.id::text=member.note_id
+          WHERE member.parent_note_id=n.id AND child.status='active' AND child.content ILIKE $${params.length}
+        ))` : `n.content ILIKE $${params.length}`);
       }
       const contentType = filterValue('contentType');
       if (contentType !== undefined) {
@@ -314,7 +326,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
           revision: number;
           list_metadata: { title: string; contentType: string };
         }>(
-          `SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id, n.revision,
+          `${prefix} SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id, n.revision,
                   note_list_metadata(n.content) AS list_metadata,
                   COALESCE(ARRAY_AGG(nt.tag_id ORDER BY nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
            FROM notes n
@@ -326,7 +338,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
           [...params, pageSize, offset],
         ),
         db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM notes n WHERE ${where}`, params,
+          `${prefix} SELECT COUNT(*) AS count FROM notes n WHERE ${where}`, params,
         ),
       ]);
 

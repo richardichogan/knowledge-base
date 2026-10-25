@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 import { validateTaskGraph, normaliseDrafts, type TaskDraft } from '../src/build/decompose.js';
 import {
-  runSpecOnce, ensureWorkBranch, mergeFinalPullRequest, workBranchName,
+  runSpecOnce, ensureWorkBranch, mergeFinalPullRequest, workBranchName, taskIssueBody,
   MAX_FIX_ATTEMPTS, CHECKS_GRACE_MS, NO_PR_TIMEOUT_MS, ATHENA_REQUIRED_CHECKS, type RunnerDeps, type RunnerStore,
 } from '../src/build/buildRunner.js';
 import type { AgentGitHub, AgentPullRequest, CheckSummary, AgentActivity } from '../src/build/githubAgents.js';
 import { GitHubAgentClient } from '../src/build/githubAgents.js';
 import type { BuildSpec, BuildTask, TaskStatus } from '../src/build/buildStore.js';
+import { updateSpec } from '../src/build/buildStore.js';
+import { getDb } from '../src/db/db.js';
 
 // ── validateTaskGraph ──────────────────────────────────────────────────────
 
@@ -57,6 +59,34 @@ function makeTask(id: string, seq: number, over: Partial<BuildTask> = {}): Build
     dispatchedAt: null, mergedAt: null, createdAt: T0.toISOString(), updatedAt: T0.toISOString(), ...over,
   };
 }
+
+test('agent issue retains authoritative Markdown and visual references, never silently truncates', () => {
+  const spec = makeSpec({ specMarkdown: '# Source\n\nKeep approval explicit.\n\nhttps://example.com/mockup.html\n\n## Open questions\nWho approves?' });
+  const task = makeTask('one', 1);
+  const body = taskIssueBody(spec, task, [task]);
+  assert.ok(body.includes(spec.specMarkdown));
+  assert.ok(body.includes('Markdown specification is authoritative'));
+  assert.ok(body.includes('not production code or a second specification'));
+  assert.ok(body.includes('Unresolved questions and unaccepted review comments'));
+  assert.ok(body.includes('implement only the assigned task'));
+  assert.throws(() => taskIssueBody(makeSpec({ specMarkdown: 'x'.repeat(65_536) }), task, [task]), /no source was truncated/);
+});
+
+test('reviewed Build save matches the exact source and editable status atomically', async () => {
+  const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
+  const stub = mock.method(getDb(), 'query', async (sql: string, params?: unknown[]) => {
+    calls.push({ sql, params });
+    return { rows: [], rowCount: 0, command: 'UPDATE', oid: 0, fields: [] };
+  });
+  try {
+    const result = await updateSpec('spec', { specMarkdown: 'New source' }, getDb(), { markdown: ' Original source\n', status: 'draft' });
+    assert.equal(result, null, 'a concurrent update must not look like a successful save');
+    const call = calls[0];
+    assert.ok(call);
+    assert.match(call.sql, /WHERE id = \$2 AND spec_markdown = \$3 AND status = \$4/);
+    assert.deepEqual(call.params, ['New source', 'spec', ' Original source\n', 'draft']);
+  } finally { stub.mock.restore(); }
+});
 
 function makePr(over: Partial<AgentPullRequest> = {}): AgentPullRequest {
   return {

@@ -223,7 +223,8 @@ export async function listAwaitingFinalMergeIds(db: Db = getDb()): Promise<strin
   return rows.map((r) => r.id);
 }
 
-export async function updateSpec(id: string, patch: Partial<BuildSpec>, db: Db = getDb()): Promise<BuildSpec | null> {
+export async function updateSpec(id: string, patch: Partial<BuildSpec>, db: Db = getDb(),
+  expected?: { markdown: string; status: BuildSpec['status'] }): Promise<BuildSpec | null> {
   const sets: string[] = [];
   const values: unknown[] = [];
   for (const [key, column] of Object.entries(SPEC_COLUMNS)) {
@@ -231,8 +232,13 @@ export async function updateSpec(id: string, patch: Partial<BuildSpec>, db: Db =
   }
   if (sets.length === 0) return getSpec(id, db);
   values.push(id);
+  let where = `id = $${values.length}`;
+  if (expected !== undefined) {
+    values.push(expected.markdown, expected.status);
+    where += ` AND spec_markdown = $${values.length - 1} AND status = $${values.length}`;
+  }
   const { rows } = await db.query<Row>(
-    `UPDATE build_specs SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${values.length} RETURNING *`, values,
+    `UPDATE build_specs SET ${sets.join(', ')}, updated_at = NOW() WHERE ${where} RETURNING *`, values,
   );
   return rows[0] === undefined ? null : toSpec(rows[0]);
 }

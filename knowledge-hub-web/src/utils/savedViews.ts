@@ -74,6 +74,7 @@ export function parseSharedView(search: string, kind: WorkspaceView['kind']): Wo
   const values = new URLSearchParams(search).getAll('view');
   if (values.length === 0) return null;
   if (values.length !== 1 || values[0]!.length > 4096) throw new Error('Invalid shared view link.');
+  if (kind === 'plan' && ['board', 'focus', 'use-cases', 'designs'].includes(values[0]!)) return null;
   const view = parseWorkspaceView(JSON.parse(values[0]!) as unknown);
   if (view.kind !== kind) throw new Error('This shared view belongs to a different workspace.');
   return view;

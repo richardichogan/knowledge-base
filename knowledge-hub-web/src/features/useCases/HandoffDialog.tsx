@@ -19,13 +19,14 @@ export const HandoffDialog: React.FC<{ useCase: UseCaseDetail; onClose: () => vo
   const [repo, setRepo] = useState(useCase.handoffRepo ?? useCase.repo ?? '');
   const [path, setPath] = useState(useCase.handoffPath ?? defaultHandoffPath(useCase.title, useCase.productKind));
   const [result, setResult] = useState<HandoffResult | null>(null);
+  const [visualLinkIds, setVisualLinkIds] = useState<string[]>([]);
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
   const handoff = useHandoffUseCase();
   const repoValid = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo.trim());
 
   const submit = (): void => {
     if (!repoValid || handoff.isPending) return;
-    handoff.mutate({ id: useCase.id, input: { mode, repo: repo.trim(), ...(mode === 'github' ? { path: path.trim() } : {}) } }, {
+    handoff.mutate({ id: useCase.id, input: { mode, repo: repo.trim(), visualLinkIds, ...(mode === 'github' ? { path: path.trim() } : {}) } }, {
       onSuccess: (r) => { setResult(r); },
     });
   };
@@ -72,6 +73,7 @@ export const HandoffDialog: React.FC<{ useCase: UseCaseDetail; onClose: () => vo
       </button>
     </>}>
       <form className="kh-uc-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <p className="kh-uc-hint">Markdown is the source of truth. Only accepted changes belong in it; open questions stay open. The generated HTML reading view is not sent as a second specification.</p>
         <fieldset className="kh-uc-modes">
           <legend className="kh-uc-field__label">Who builds it</legend>
           <label className={`kh-uc-mode${mode === 'github' ? ' kh-uc-mode--active' : ''}`}>
@@ -96,6 +98,16 @@ export const HandoffDialog: React.FC<{ useCase: UseCaseDetail; onClose: () => vo
             <input id={`${id}-path`} className="kh-uc-input kh-uc-input--mono" value={path} onChange={(e) => { setPath(e.target.value); }} />
           </label>
         )}
+        <fieldset className="kh-uc-visuals" disabled={handoff.isPending}>
+          <legend className="kh-uc-field__label">Supporting visuals (optional)</legend>
+          <p className="kh-uc-hint">Select only links to useful mockups, HTML prototypes or screenshots. Selected links will be added to the saved spec note as non-authoritative references, then included in either handoff. They are not production code. Save your note first; reload it after handoff. References remain saved if a later handoff step fails.</p>
+          {useCase.links.length ? useCase.links.map(link => <label className="kh-uc-visuals__link" key={link.id}>
+            <input type="checkbox" checked={visualLinkIds.includes(link.id)}
+              disabled={!visualLinkIds.includes(link.id) && visualLinkIds.length >= 8}
+              onChange={event => { setVisualLinkIds(current => event.target.checked ? [...current, link.id] : current.filter(value => value !== link.id)); }} />
+            <span>{link.title}<span className="kh-uc-visuals__url">{link.url}</span></span>
+          </label>) : <p className="kh-uc-hint">No links attached. Add visual links to the use case first, or hand off Markdown only.</p>}
+        </fieldset>
         {handoff.isError && <p className="kh-uc-error" role="alert">{describeApiError(handoff.error)}</p>}
       </form>
     </AppDialog>

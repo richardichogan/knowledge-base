@@ -13,7 +13,7 @@ import { usePageTitle } from '../navigation/PageTitle';
 import type { CarbonIconType } from '@carbon/icons-react';
 import { CenterCircle, Dashboard, Idea, TaskView, Upload } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { TasksPage } from './TasksPage';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { useDueNotifications } from '../hooks/useDueNotifications';
@@ -78,6 +78,10 @@ export const PlanPage: React.FC = () => {
 
   // Fire OS/browser notifications for tasks due today (once per session)
   useDueNotifications();
+
+  if (searchParams.get('view') === 'designs') {
+    return <Navigate replace to={`/think?${searchParams.toString()}`} />;
+  }
 
   return (
     <div className="plan-root" role="main">

@@ -22,7 +22,7 @@ export interface AthenaPageContext {
   /**
    * Stable id of the underlying item (e.g. the note id), when known. Used by
    * the Think-embedded Athena panel to remember which chat belongs to which
-   * note — not sent to the backend as part of the LLM-facing context.
+   * note. The server validates this identity against linked Design assets.
    */
   id?: string;
   /** Stable conversation owner while a nested diagram changes the active context. */

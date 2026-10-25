@@ -53,6 +53,121 @@ deadline, with a visible reconnecting status. This does not replay tools or retr
 partially received answers. Transport failures retain their underlying error code
 and cause rather than reporting only `fetch failed`.
 
+Technical spec and use-case notes offer **MD / HTML** views. MD keeps the
+existing document editor; HTML is a sanitized, formatted review view generated
+from the current document, including unsaved edits. Build specs (new and existing)
+and Use Case summaries offer the same switch; linked specs open in Think with
+both views. Switching views does not save, convert or duplicate the source.
+Other note types are unchanged. Select a passage in HTML, describe the change,
+and ask Athena for a bounded proposal. Before/after source text is shown for
+explicit acceptance or discard; changed sources invalidate stale proposals.
+Think accepts into the live editor with its existing history and autosave
+protection; Build accepts into the draft (Save/Create is still required); Use Case
+summary acceptance saves through its existing update action. Reviewed Build saves
+and summary acceptance reject concurrent source changes rather than overwriting
+them, retaining the local draft on failure. Think selections
+must be unique within one paragraph or list item. Review instructions/proposals
+are temporary, not approved requirements: accept or copy them before leaving
+the view. No changes are applied merely by requesting review.
+
+Use Case handoff sends the source Markdown, never a duplicate HTML rendering.
+Both GitHub Copilot's prompt and Athena Build's spec state that Markdown is
+authoritative and unresolved questions must be raised, not invented away.
+Optionally select up to eight attached links as supporting mockups/prototypes.
+These links are added to the canonical spec note under non-authoritative visual
+references (with a history checkpoint), so both handoff destinations retain them.
+Save the note before handoff and reload it afterwards if references were added.
+Linked visuals are reference material, not production code. No Lavish dependency
+or executable HTML editor is installed.
+
+**Design is a note content type in Think.** Use **New note**, then choose
+**Design** in the existing properties control. Changing type preserves the
+same note ID, writing, history, tags and project. There is no separate New Design
+action or workspace. Think creates/develops content; Plan manages work in progress.
+
+Its four tabs—**Use case, Spec, Architecture, Diagram**—open linked originals.
+The Notes list shows each Design once, not its linked originals as separate
+top-level entries. Standalone documents remain visible. Searching linked writing
+returns its Design; pagination/counts use the same grouping. Archived or
+retyped parents do not hide their originals, and excluded/detached links no
+longer group them. Flat note lookups and document pickers still include originals.
+
+**Share note by email** in note Actions sends a formatted snapshot of the current
+note text (including unsaved writing), without publishing to GitHub. Choose
+recipients, review the text preview and confirm Send. The existing SMTP2GO
+connection, hidden recipients and duplicate-send protection are reused. Headings,
+emphasis, lists, tables and links are formatted in the email, with a plain-text
+alternative; images are linked rather than remotely loaded. Recipients receive
+the actual writing, not access to Athena or private linked content.
+Actions remains in Think's command bar. Properties describes the active original.
+Design is already the parent note; there is no separate parent-editing mode.
+Empty document tabs retain the Design editor/properties.
+Diagrams retain their own established canvas properties. Multiple linked versions
+remain accessible, but require an explicit choice for visual generation/handoff.
+Existing linked note/canvas entries open the corresponding Design tab; multiple
+Design memberships require a parent choice. Standalone assets remain standalone.
+
+Migrations 104/105 add persistence and create separate Design-type parent notes
+for the five originally reviewed Use Cases. Their original content/types/history
+are unchanged. Migration 107 adds parents for the four subsequently reviewed
+standalone Use Cases, also preserving their originals. Already linked assets are
+not given duplicate parents. Migration 106 corrects the four original specification documents to the
+**Spec** tab without rewriting their original note types or content. **Link**
+appears only for an empty section; populated sections open their linked originals.
+Explicit existing references are retained; titles never infer attachments.
+
+Athena's conversation stays attached to the Design parent while tabs expose the
+active original. Athena reads the package's selected documents and exact revisions
+before saving. Explicit requests to revise or save Use case, Spec or Architecture
+update those originals with history; a missing section is created and linked in
+the same transaction. Related section saves are atomic. Generic note/demo-spec
+creation and Outputs cannot stand in for saving a Design section. Native
+references/media are retained through targeted block changes, not lossy rewrites.
+Current writing is saved before the chat turn; tabs are held stable during it and
+saved writing refreshes in place without reloading the page or dropping the chat.
+Concurrent source/version changes reject the save instead of overwriting drafts.
+Migration 108 links the publishing conversation's saved Use Case/latest Spec into
+their correct tabs and retains its original writing and earlier Spec as references.
+
+The **Spec** tab alone offers **MD/HTML**; Use case and Architecture remain
+document editors, and Diagram retains its native canvas. In Spec's **HTML** view,
+Athena creates one shared, source-mapped interactive
+visual directly from the linked requirements; extra direction is optional.
+Creation shows live source-loading, model-generation, validation and saving
+stages with elapsed time and a reduced-motion-aware animation. Stage messages
+come from the server; no invented percentage or simulated model progress is shown.
+The artifact uses the selected Markdown and diagram revisions. Explore screen states,
+fields, journeys and choices; annotate an element or selected text and queue
+feedback. **Ask Athena to propose Markdown changes** records the exact feedback
+in the parent's existing Athena conversation and prepares bounded before/after
+edits plus a revised visual. **Accept all changes** saves the targeted original
+notes, history checkpoints and revised visual atomically. **Discard** changes no
+source writing. Feedback/proposals survive reload; stale sources, versions and
+missing anchors block acceptance. Older feedback remains visible until resolved
+or explicitly discarded.
+
+The artifact is generated from validated declarative visual data, not model
+scripts. Its locally controlled HTML runs in an opaque-origin iframe with no
+same-origin access, network, forms or parent credentials. The interaction bridge
+checks the frame, per-render token, artifact revision, target and payload bounds.
+There is no Lavish CLI, dependency, hook or external artifact hosting.
+
+**Actions → Copilot package** creates an immutable snapshot for both archive
+download and explicitly confirmed GitHub publication. Files include `design.md`
+(preserved parent writing), the available `use-case.md`, `specification.md`,
+`architecture.md`, `visual-design.html`, `diagram.json`, `diagram.svg`, `README.md`
+and `manifest.json`. The manifest records selected original IDs/revisions, source
+mapping, SHA-256 file hashes, missing inputs and open decisions. Stale visuals
+block packaging; missing inputs and pending decisions visibly mark it incomplete.
+Export does not invoke AI or change sources.
+
+Markdown governs requirements; HTML conveys visual/interaction intent; diagrams
+provide structural context. Copilot must clarify conflicts/open decisions, not
+promote unaccepted feedback to requirements. GitHub publishes exactly the same
+snapshot bytes in one non-forced commit, preserving unrelated files and checking
+destination ownership, changed files/branch and the entire returned manifest.
+Nothing is published or deployed automatically.
+
 Saved diagram reads also use the checkpointed full-source reader in chat, so
 large diagrams are processed page by page rather than discarded at the ordinary
 retrieval-context limit. Search results remain discovery previews, not completed
@@ -989,15 +1104,9 @@ tables, quotes, links and inline formatting become native editor blocks; fenced
 code stays literal. Raw HTML remains text and unsafe link schemes are not activated.
 This fixes new transfers; existing saved notes are not automatically rewritten.
 
-Use case notes offer **Create IMAGINE demo brief** in the Think Athena composer
-(where the embedded rail is available). It selects Demo Designer and prepares a
-reviewable request containing the complete live note, including unsaved writing;
-it does not send automatically or change the note. You can also ask Demo Designer
-for an IMAGINE demo brief directly on other chat surfaces.
-
-The skill preserves the nine business sections, access and acceptance tables,
-unresolved decisions/authorization, and the `evidence-led-demo` Build instruction.
-Briefs are versioned Markdown Outputs, not implementation code or approval.
+The Design workflow supersedes the former **Create IMAGINE demo brief** shortcut
+and its injected Athena skill. Previously saved briefs remain versioned Markdown
+Outputs, not implementation code or approval.
 Use **Copy** for GHCP or **Download Markdown brief for GHCP** to place the file in
 `docs/prds/<demo-id>.md` in the target repository. Download/copy never pushes to
 GitHub, runs Build, or authorizes live side effects; `evidence-led-demo` must be

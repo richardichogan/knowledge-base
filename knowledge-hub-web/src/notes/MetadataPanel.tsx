@@ -52,6 +52,7 @@ interface AppliedTag {
 }
 
 interface MetadataPanelProps {
+  writingBusy?: boolean;
   doc: NoteDocument;
   contentType: ContentType;
   onContentTypeChange: (value: ContentType) => void;
@@ -81,7 +82,6 @@ interface MetadataPanelProps {
   onMapNote?: (noteId: string) => void;
   onRestoreVersion: (versionId: string) => Promise<void>;
   historyRefresh: number;
-  prepareDemoBrief: () => Promise<string>;
   onShowEditor?: (() => void) | undefined;
 }
 
@@ -93,6 +93,7 @@ function formatDateTime(iso: string): string {
 }
 
 export const MetadataPanel: React.FC<MetadataPanelProps> = ({
+  writingBusy = false,
   doc,
   contentType,
   onContentTypeChange,
@@ -119,7 +120,6 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   onMapNote,
   onRestoreVersion,
   historyRefresh,
-  prepareDemoBrief,
   onShowEditor,
 }) => {
   const { pageContext, registerAthenaLauncher, request: athenaRequest } = useAthenaContext();
@@ -253,9 +253,10 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
             hidden={tab !== 'athena'}
           >
             <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy} promptRequest={athenaRequest ?? undefined}
-              prepareDemoBrief={contentType === 'use-case' ? prepareDemoBrief : undefined} />
+              />
           </div>
 
+        <fieldset className="notes-editor-lock" disabled={writingBusy} aria-label="Note properties" aria-busy={writingBusy}>
         {tab === 'link' && linkTarget && (
           <div role="tabpanel" id="think-side-panel-link" aria-labelledby="think-side-tab-link" className="notes-meta-tabpanel">
             <LinkPreviewContent target={linkTarget} onClose={closePreview} onBack={linkHistory.length ? () => {
@@ -405,6 +406,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
             {onOpenMap !== undefined && <NoteMaps noteId={doc.id} onOpenMap={onOpenMap} {...(onMapNote !== undefined && { onMapNote })} />}
           </div>
         )}
+        </fieldset>
       </WorkspaceSidePanel>
   );
 };

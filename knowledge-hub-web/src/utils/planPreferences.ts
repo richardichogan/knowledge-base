@@ -14,7 +14,7 @@ export function parsePlanPreferences(raw: string | null): PlanPreferences {
   if (typeof parsed !== 'object' || parsed === null) throw new Error('Invalid Plan preferences.');
   const value = parsed as Record<string, unknown>;
   // Calendar was removed (falls back to the board) and List became Focus.
-  const view = value['view'] === 'calendar' ? 'board' : value['view'] === 'list' ? 'focus' : value['view'];
+  const view = value['view'] === 'calendar' || value['view'] === 'designs' ? 'board' : value['view'] === 'list' ? 'focus' : value['view'];
   const validScope = (scope: unknown): scope is string =>
     typeof scope === 'string' && scope.length <= 256 && [...scope].every(character => character.charCodeAt(0) >= 32);
   if (value['version'] !== 1 || (view !== 'board' && view !== 'focus' && view !== 'use-cases')

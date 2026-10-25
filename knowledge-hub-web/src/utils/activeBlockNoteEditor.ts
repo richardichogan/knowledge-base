@@ -109,6 +109,19 @@ function computeSelectedText(editor: BlockNoteEditor<any, any, any>): string {
 // Id of the Think note the active editor is showing — lets Athena's proposed
 // edits be applied only to the note they were written for.
 let activeNoteId: string | null = null;
+let designChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+
+export function setDesignChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
+  const bridge = { owner, prepare };
+  designChatBridge = bridge;
+  return () => { if (designChatBridge === bridge) designChatBridge = null; };
+}
+
+export async function prepareDesignChat(owner: string): Promise<(changed: boolean) => Promise<void>> {
+  if (designChatBridge?.owner !== owner) throw new Error('Reopen the Design before asking Athena to work on its documents.');
+  return designChatBridge.prepare();
+}
+
 let actionBridge: { noteId: string; run: (protect: boolean, action: () => void) => Promise<void> } | null = null;
 
 export function setNoteActionBridge(noteId: string, run: (protect: boolean, action: () => void) => Promise<void>): () => void {

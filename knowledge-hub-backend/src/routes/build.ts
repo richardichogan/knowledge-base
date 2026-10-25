@@ -191,6 +191,10 @@ buildRouter.patch('/specs/:id', handle(async (req, res) => {
   }
   const md = str(b['specMarkdown'], 'specMarkdown', { max: MAX_SPEC_CHARS });
   if (md !== undefined) patch.specMarkdown = md;
+  const expectedMarkdown = b['expectedSpecMarkdown'];
+  if (expectedMarkdown !== undefined && (typeof expectedMarkdown !== 'string' || expectedMarkdown.length > MAX_SPEC_CHARS || md === undefined)) {
+    throw new ValidationError('A reviewed spec needs its original Markdown and a replacement.');
+  }
   const repo = repoOf(b['repo'], false);
   if (repo !== undefined) patch.repo = repo;
   const branch = branchOf(b['baseBranch']);
@@ -210,7 +214,11 @@ buildRouter.patch('/specs/:id', handle(async (req, res) => {
   const am = boolOf(b['autoMerge'], 'autoMerge');
   if (am !== undefined) patch.autoMerge = am;
   if ('projectId' in b) patch.projectId = str(b['projectId'], 'projectId', { max: 100 }) || null;
-  await store.updateSpec(spec.id, patch);
+  const updated = await store.updateSpec(spec.id, patch, getDb(),
+    typeof expectedMarkdown === 'string' ? { markdown: expectedMarkdown, status: spec.status } : undefined);
+  if (updated === null && expectedMarkdown !== undefined) {
+    throw new ConflictError('The saved spec or build status changed. Your draft is retained; reload and review the current source before saving.', 'BUILD_SPEC_REVIEW_CONFLICT');
+  }
   await sendSpec(res, spec.id);
 }));
 

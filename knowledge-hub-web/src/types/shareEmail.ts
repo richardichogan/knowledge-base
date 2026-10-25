@@ -8,6 +8,7 @@ export interface ShareEmailStatus {
 }
 export interface ShareEmailContent {
   title: string;
+  note?: { title: string; markdown: string };
   url?: string;
   attachment?: { filename: string; xml: string };
 }
@@ -17,6 +18,7 @@ export interface ShareEmailInput {
   recipients: string[];
   subject: string;
   message: string;
+  note?: { title: string; markdown: string };
   url?: string;
   attachment?: { filename: string; xml: string };
   muralAccess?: 'view' | 'edit';

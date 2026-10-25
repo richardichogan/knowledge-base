@@ -21,9 +21,26 @@ const ALLOWED_ATTRS = new Set([
 ]);
 
 const SAFE_HREF = /^(https?:|mailto:|\/(?!\/)|#)/i;
+const SAFE_IMAGE = /^(https?:|\/(?!\/)|data:image\/(?:png|jpeg|gif|webp);base64,)/i;
 
-function clean(node: Element): void {
+function clean(node: Element, documentContent = false): void {
   for (const child of [...node.children]) {
+    if (documentContent && child.tagName === 'IMG') {
+      const source = child.getAttribute('src')?.trim() ?? '';
+      const alt = child.getAttribute('alt') ?? '';
+      const image = document.createElement('img');
+      image.alt = alt;
+      if (SAFE_IMAGE.test(source)) {
+        image.src = source;
+        image.loading = 'lazy';
+        child.replaceWith(image);
+      } else child.replaceWith(document.createTextNode(alt || 'Image unavailable in this view.'));
+      continue;
+    }
+    if (documentContent && child.tagName === 'INPUT' && child.getAttribute('type') === 'checkbox') {
+      child.replaceWith(document.createTextNode(child.hasAttribute('checked') ? '[x] ' : '[ ] '));
+      continue;
+    }
     if (!ALLOWED_TAGS.has(child.tagName)) {
       // Drop scripts/styles/iframes/etc. entirely; keep the text of any
       // other unknown element so formatting glitches don't lose content.
@@ -42,13 +59,13 @@ function clean(node: Element): void {
     if (child.tagName === 'A' && child.getAttribute('target') === '_blank') {
       child.setAttribute('rel', 'noreferrer noopener');
     }
-    clean(child);
+    clean(child, documentContent);
   }
 }
 
 /** Returns `html` with everything outside the formatting allowlist removed. */
-export function sanitizeHtml(html: string): string {
+export function sanitizeHtml(html: string, options: { documentContent?: boolean } = {}): string {
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
-  clean(doc.body);
+  clean(doc.body, options.documentContent);
   return doc.body.innerHTML;
 }

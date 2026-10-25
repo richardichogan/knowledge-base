@@ -37,6 +37,9 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useDesktopCommand } from '../services/desktopCommands';
 import { getDesktop } from '../types/desktop';
 import { authSession } from '../services/authSession';
+import { DesignParent } from '../features/designs/DesignParent';
+import { describeApiError, requireApiData } from '../services/apiError';
+import { AppDialog } from '../components/AppDialog';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -78,7 +81,13 @@ export const NotesPage: React.FC = () => {
   const [sparksPrompt, setSparksPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
   const [selectedId,       setSelectedId]       = useState<string | null>(null);
   const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
-  const [mode,             setMode]             = useState<ViewMode>(() => readThinkLocation(searchParams)?.view ?? 'notes');
+  const [mode,             setMode]             = useState<ViewMode>(() => {
+    const view = readThinkLocation(searchParams)?.view;
+    return view === 'designs' ? 'notes' : view ?? 'notes';
+  });
+  const [selectedDesign, setSelectedDesign] = useState<string | null>(searchParams.get('design'));
+  const [parentChoices, setParentChoices] = useState<Array<{ id: string; parentNoteId: string; title: string; role: string }>>([]);
+  const [choiceSourceId, setChoiceSourceId] = useState<string | null>(null);
   usePageTitle({ view: VIEW_MODES.find((v) => v.key === mode)?.label });
   const [mobilePane, setMobilePane] = useState<'list' | 'editor'>('list');
   const mobile = useMediaQuery('(max-width: 640px)');
@@ -121,8 +130,8 @@ export const NotesPage: React.FC = () => {
   }, []);
   const { data: notePages, isLoading, isError, error: listError, isFetching, refetch,
     hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError } = useInfiniteQuery({
-    queryKey: ['notes-list', listQuery],
-    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery),
+    queryKey: ['notes-list', 'designs', listQuery],
+    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery, 'designs'),
     initialPageParam: 1,
     getNextPageParam: nextNotesPage,
     staleTime: 30_000,
@@ -133,6 +142,10 @@ export const NotesPage: React.FC = () => {
     return loadedNotes(notePages.pages);
   }, [notePages]);
   const noteTotal = notePages?.pages[0]?.total ?? 0;
+  const selectDesign = (id: string, role?: string, assetId?: string): void => {
+    setSelectedDesign(id); setMode('notes'); setMobilePane('editor');
+    setSearchParams({ design: id, ...(role ? { tab: role } : {}), ...(assetId ? { asset: assetId } : {}) }, { replace: true });
+  };
 
   async function refreshNotes(): Promise<void> {
     if (refreshInFlight.current || isFetching) return;
@@ -159,6 +172,12 @@ export const NotesPage: React.FC = () => {
 
   useEffect(() => {
     const location = readThinkLocation(searchParams);
+    const designId = searchParams.get('design');
+    if (designId) {
+      setSelectedDesign(designId); setMode('notes'); setMobilePane('editor');
+      return;
+    }
+    if (location?.view === 'designs') { setMode('notes'); return; }
     if (location?.view === 'sparks') {
       setMode('sparks');
       searchParams.delete('view');
@@ -189,13 +208,25 @@ export const NotesPage: React.FC = () => {
   const latestSelectRef = useRef<string | null>(null);
 
   async function handleSelectNote(id: string): Promise<void> {
-    if (id === selectedId) return;
+    setSelectedDesign(null);
+    if (searchParams.has('design')) {
+      const next = new URLSearchParams(searchParams); next.delete('design'); next.delete('view');
+      setSearchParams(next, { replace: true });
+    }
+    if (id === selectedId && openDoc?.id === id && openDoc.contentType !== 'design') return;
     latestSelectRef.current = id;
     setSelectedId(id); // highlight immediately; the body follows
     try {
       const doc = await fetchNote(id);
       if (latestSelectRef.current !== id) return;
-      if (doc !== null) setOpenDoc(doc);
+      if (doc !== null) {
+        if (doc.contentType === 'design') { setOpenDoc(doc); selectDesign(doc.id); return; }
+        const parents = requireApiData(await api.designMembership('note', id));
+        if (latestSelectRef.current !== id) return;
+        if (parents.length === 1) { selectDesign(parents[0]!.parentNoteId, parents[0]!.role, id); return; }
+        if (parents.length > 1) { setChoiceSourceId(id); setParentChoices(parents); return; }
+        setOpenDoc(doc);
+      }
     } catch (err) {
       console.error('[Think] Could not open note:', err);
       if (latestSelectRef.current !== id) return;
@@ -211,6 +242,7 @@ export const NotesPage: React.FC = () => {
     try {
       const doc = await createNote({ title: 'Untitled', contentType: 'note', contentJson: '[]' });
       if (doc !== null) {
+        setSelectedDesign(null);
         await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
         latestSelectRef.current = doc.id;
         setSelectedId(doc.id);
@@ -354,14 +386,21 @@ export const NotesPage: React.FC = () => {
   // Footnote number from a /think?mapId=…&footnote=n link, shown when the diagram opens.
   const [canvasFootnote, setCanvasFootnote] = useState<number | undefined>(undefined);
   function openMap(mapId: string, tab?: string): void {
-    setMode('canvas');
-    setMobilePane('editor');
-    setCanvasOpenTab(tab);
-    setCanvasFootnote(undefined);
-    setSelectedCanvasId(mapId);
-    if (searchParams.get('mapId') !== mapId || searchParams.has('noteId')) {
-      setSearchParams(diagramLocation(searchParams, mapId), { replace: true });
-    }
+    latestSelectRef.current = mapId;
+    void api.designMembership('canvas', mapId).then(result => {
+      const parents = requireApiData(result);
+      if (latestSelectRef.current !== mapId) return;
+      if (parents.length === 1) { selectDesign(parents[0]!.parentNoteId, 'diagram', mapId); return; }
+      if (parents.length > 1) { setChoiceSourceId(mapId); setParentChoices(parents); return; }
+      setSelectedDesign(null);
+      setMode('canvas');
+      setMobilePane('editor');
+      setCanvasOpenTab(tab);
+      const location = readThinkLocation(searchParams);
+      setCanvasFootnote(location?.view === 'canvas' && location.id === mapId ? location.footnote : undefined);
+      setSelectedCanvasId(mapId);
+      if (searchParams.get('mapId') !== mapId || searchParams.has('noteId')) setSearchParams(diagramLocation(searchParams, mapId), { replace: true });
+    }).catch((error: unknown) => { setCanvasError(describeApiError(error)); });
   }
 
   /** "Canvas" on a note: opens the note's canvas, or creates one with the note as its first card. */
@@ -396,6 +435,7 @@ export const NotesPage: React.FC = () => {
 
   function handleNoteSaved(updated: NoteDocument): void {
     setOpenDoc(updated);
+    if (updated.contentType === 'design') selectDesign(updated.id);
     // Show the accepted save immediately, then reconcile server ordering and filters.
     const preview = buildPreview(updated.contentJson, updated.title);
     const patchRow = (n: NoteListItem): NoteListItem => {
@@ -438,14 +478,15 @@ export const NotesPage: React.FC = () => {
   // previously a re-run reset Athena's context without images and then
   // skipped the lookup, so Athena almost never saw a note's images.
   const imageDescriptionsRef = useRef(new Map<string, string[]>());
-  const noteId = mode === 'notes' ? openDoc?.id ?? null : null;
-  const noteContentJson = mode === 'notes' ? openDoc?.contentJson ?? null : null;
-  const noteTitle = mode === 'notes' ? openDoc?.title ?? null : null;
-  const noteContentType = mode === 'notes' ? openDoc?.contentType ?? null : null;
-  const noteProjectId = mode === 'notes' ? openDoc?.projectId ?? null : null;
+  const noteId = mode === 'notes' && !selectedDesign ? openDoc?.id ?? null : null;
+  const noteContentJson = mode === 'notes' && !selectedDesign ? openDoc?.contentJson ?? null : null;
+  const noteTitle = mode === 'notes' && !selectedDesign ? openDoc?.title ?? null : null;
+  const noteContentType = mode === 'notes' && !selectedDesign ? openDoc?.contentType ?? null : null;
+  const noteProjectId = mode === 'notes' && !selectedDesign ? openDoc?.projectId ?? null : null;
 
   useEffect(() => {
-    if (mode === 'notes' && openDoc !== null) {
+    if (selectedDesign) return undefined;
+    if (mode === 'notes' && !selectedDesign && openDoc !== null) {
       // Give Athena the note's actual text, not just its title/type — otherwise
       // it has nothing to answer questions about the content you're viewing
       // and falls back to (possibly stale/unindexed) RAG search instead.
@@ -505,7 +546,7 @@ export const NotesPage: React.FC = () => {
     // nothing changed, which would otherwise refire this effect (and the image
     // lookup fetch inside it) in a tight loop on a timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
+  }, [mode, selectedDesign, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
 
   return (
     <div className="notes-page" role="main" data-active-pane={mode === 'sparks' ? 'editor' : mobilePane}>
@@ -517,7 +558,7 @@ export const NotesPage: React.FC = () => {
           {mode === 'notes' && <div className="notes-doc-actions-slot kh-command-row" ref={setDocActionsSlot} />}
           {mode === 'canvas' && <button type="button" className="kb-import-btn notes-recycle-launch" aria-haspopup="dialog"
             title="Open canvas recycle bin" onClick={() => { setRecoveryOpen(true); }}><TrashCan size={16} /><span>Recycle bin</span></button>}
-          {mode === 'notes' && openDoc === null && (
+          {mode === 'notes' && !selectedDesign && openDoc === null && (
             <div className="notes-export-anchor notes-more-anchor kh-command-row" ref={moreMenuRef}>
               <button type="button" className="kb-import-btn notes-more-btn" aria-haspopup="menu" aria-expanded={moreMenuOpen}
                 onClick={() => { setMoreMenuOpen((v) => !v); }}>
@@ -549,7 +590,7 @@ export const NotesPage: React.FC = () => {
                 role="tab"
                 aria-selected={mode === key}
                 className={`plan-view-btn${mode === key ? ' plan-view-btn--active' : ''}`}
-                onClick={() => { setSearchParams(key === 'sparks' ? { view: 'sparks' } : {}, { replace: true }); setMode(key); setMobilePane('list'); }}
+                onClick={() => { setSearchParams(key === 'sparks' ? { view: 'sparks' } : {}, { replace: true }); setSelectedDesign(null); setMode(key); setMobilePane('list'); }}
               >
                 <Icon size={16} />
                 {label}
@@ -653,7 +694,7 @@ export const NotesPage: React.FC = () => {
           {mode === 'notes' && (
             <NoteList
               notes={notes}
-              selectedId={selectedId}
+              selectedId={selectedDesign ?? selectedId}
               onSelect={(id) => { setMobilePane('editor'); void handleSelectNote(id); }}
               onDelete={(id) => { void handleDeleteNote(id); }}
               deletingId={deletingNoteId}
@@ -773,7 +814,8 @@ export const NotesPage: React.FC = () => {
           </div>
         ) : (
           <div className="notes-editor-area">
-            {openDoc !== null ? (
+            {selectedDesign ? <DesignParent key={selectedDesign} id={selectedDesign} actionsSlot={docActionsSlot}
+              onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap} /> : openDoc !== null ? (
               <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }}
                 onPresent={getDesktop()?.presentation ? () => { void presentNote().catch(err => {
                   void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
@@ -785,6 +827,13 @@ export const NotesPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {!!parentChoices.length && <AppDialog title="Choose the Design" onClose={() => { setParentChoices([]); }}
+        actions={<button type="button" className="kh-btn-ghost" onClick={() => { setParentChoices([]); }}>Cancel</button>}>
+        <p>This document belongs to more than one Design. Choose which to open.</p>
+        {parentChoices.map(parent => <button type="button" className="kh-btn-ghost" key={parent.id}
+          onClick={() => { selectDesign(parent.parentNoteId, parent.role, choiceSourceId ?? undefined); setParentChoices([]); }}>{parent.title}</button>)}
+      </AppDialog>}
 
       {(importModalOpen || importHasOpened) && <ImportNoteModal
         open={importModalOpen}

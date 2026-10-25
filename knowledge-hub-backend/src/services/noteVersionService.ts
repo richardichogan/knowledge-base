@@ -83,12 +83,25 @@ export interface NoteWrite {
   content?: string; tags?: string[]; projectId?: string | null; expectedRevision?: number | undefined;
   protect?: boolean; restoreId?: string; appendBlocks?: unknown[]; importGitHub?: boolean;
   restoreWriting?: Writing;
+  protectBefore?: boolean;
 }
 /** All note writing and checkpoint decisions share the locked note transaction. */
 export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise<Note> {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+    const result = await writeNoteInTransaction(client, id, input);
+    await client.query('COMMIT');
+    if (result.publish) scheduleGitHubPublish(db, id);
+    return result.note;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally { client.release(); }
+}
+
+/** Caller owns commit/rollback and must schedule publication only after commit. */
+export async function writeNoteInTransaction(client: PoolClient, id: string, input: NoteWrite): Promise<{ note: Note; publish: boolean }> {
     const current = await client.query<NoteRow>("SELECT * FROM notes WHERE id = $1 AND status = 'active' FOR UPDATE", [id]);
     const row = current.rows[0];
     if (!row) throw new NotFoundError('Note not found or archived');
@@ -126,6 +139,8 @@ export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise
       await checkpoint(client, liveDraft ? { ...row, updated_at: time.rows[0]!.now } : row, before, reason, input.restoreId);
     } else if (input.importGitHub && changed) {
       await checkpoint(client, row, before, 'before_github');
+    } else if (input.protectBefore && changed) {
+      await checkpoint(client, row, before, 'before_athena');
     } else if (input.protect) {
       // The supplied content is the live pre-Athena draft, not a proposed replacement.
       await checkpoint(client, { ...row, revision: row.revision + (changed ? 1 : 0), updated_at: time.rows[0]!.now }, after, 'before_athena');
@@ -150,13 +165,7 @@ export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise
          WHERE note_id = $1 AND status <> 'conflict'`, [id]);
       publish = (queued.rowCount ?? 0) > 0;
     }
-    await client.query('COMMIT');
-    if (publish) scheduleGitHubPublish(db, id);
-    return note(result.rows[0]!);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally { client.release(); }
+    return { note: note(result.rows[0]!), publish };
 }
 
 export async function restoreArchivedNote(db: Pool, id: string, expectedRevision: number): Promise<{ note: Note; restored: boolean }> {

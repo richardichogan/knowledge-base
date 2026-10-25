@@ -70,7 +70,7 @@ test('100 of 111 uses the real summary pages, retains loaded rows on failure and
     assert.equal(rows[110]?.id, 'note-110');
     assert.equal(complete.hasNextPage, false);
     assert.deepEqual(calls.map((call) => call.page), [1, 2, 2]);
-    assert.ok(calls.every((call) => JSON.stringify(call.query) === '{"sort":"modified"}'));
+    assert.ok(calls.every((call) => JSON.stringify(call.query) === '{"sort":"modified","structure":"flat"}'));
     const overlap = loadedNotes([
       complete.data!.pages[0]!,
       { ...complete.data!.pages[1]!, items: [note(99), ...complete.data!.pages[1]!.items] },
@@ -152,7 +152,7 @@ test('persisted sort, project grouping and previews keep their existing behavior
 test('load more is outside the scrolling rows, remains retryable and keeps selection', () => {
   const notes = Array.from({ length: 100 }, (_, index) => note(index));
   const html = renderList({ notes, total: 111, hasMore: true, onLoadMore: () => undefined });
-  assert.match(html, /100 of 111 notes/);
+  assert.match(html, /100 of 111 items/);
   assert.match(html, /<\/div><div class="notes-list-pagination">/);
   assert.match(html, /class="notes-list-pagination__more">Load more/);
   const retry = renderList({ notes, total: 111, hasMore: true, loadMoreError: true, onLoadMore: () => undefined });
@@ -162,6 +162,6 @@ test('load more is outside the scrolling rows, remains retryable and keeps selec
   const busy = renderList({ hasMore: true, loadingMore: true, onLoadMore: () => undefined });
   assert.match(busy, /notes-list-pagination__more" disabled=""/);
   const complete = renderList({ notes: [...notes, ...Array.from({ length: 11 }, (_, i) => note(100 + i))], total: 111 });
-  assert.match(complete, /111 of 111 notes/);
+  assert.match(complete, /111 of 111 items/);
   assert.doesNotMatch(complete, /notes-list-pagination__more/);
 });

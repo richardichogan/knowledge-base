@@ -8,6 +8,7 @@ import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationM
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { draftSpecFromSession } from '../ai/specDraft.js';
+import { proposeDocumentRevision } from '../ai/documentReview.js';
 import { chatMentionTargets, resolveChatReferences } from '../ai/chatReferences.js';
 import { getOutputsForThink } from '../ai/thinkOutputExport.js';
 import { outputsChangedSince, moveDeliverableToOutputs, removeSavedCopiesFromReply } from '../ai/chatOutputs.js';
@@ -30,9 +31,16 @@ import { HTTP_STATUS, AI_BACKGROUND_TURN_BUDGET_MS } from '../config/constants.j
 import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { AiModel, ChatPageContext, WriteActionType, WriteActionPayload } from '../types/aiContext.js';
+import { getDesign } from '../designs/designStore.js';
+import type { DesignTurnState } from '../ai/designTools.js';
 
 const router = Router();
 const MAX_MENTION_QUERY_CHARS = 200;
+
+router.post('/document-review', (req: Request, res: Response, next: NextFunction): void => {
+  void proposeDocumentRevision(req.body as Record<string, unknown>)
+    .then(data => { res.json({ success: true, data }); }).catch(next);
+});
 
 router.get('/mention-targets', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
@@ -56,6 +64,7 @@ router.get('/mention-targets', (req: Request, res: Response, next: NextFunction)
  */
 /** The reply payload for one chat turn (POST /chat response data and a background turn's result). */
 export interface ChatTurnResult {
+  designChanged?: { parentNoteId: string; noteIds: string[] };
   reply: string;
   sessionId: string;
   persona: string;
@@ -182,7 +191,19 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const mapChanges: MapChangeProposal[] = [];
   const localFileWrites: LocalFileWriteProposal[] = [];
   const localFolders = parseLocalFolders(requestedLocalFolders);
-  const openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
+  let openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
+  let designOwner: string | undefined;
+  const designState: DesignTurnState = { changedNoteIds: [] };
+  if (openNoteId && /^[0-9a-f-]{36}$/i.test(openNoteId)) {
+    const owner = (await db.query<{ type: string }>("SELECT note_list_metadata(content)->>'contentType' AS type FROM notes WHERE id=$1 AND status='active'", [openNoteId])).rows[0];
+    if (owner?.type === 'design') {
+      const design = await getDesign(db, openNoteId);
+      designOwner = design.parentNoteId;
+      const active = pageContext?.id;
+      if (active && design.assets.some(asset => asset.sourceType === 'note' && asset.sourceId === active && asset.available)) openNoteId = active;
+      else if (active?.startsWith('map:') && design.assets.some(asset => asset.sourceType === 'canvas' && `map:${asset.sourceId}` === active && asset.available)) openNoteId = active;
+    }
+  }
   const contextUsed = emptyContextUsed();
   const audit: { row?: TurnAuditRow } = {};
   const referenced = await resolveChatReferences(db, [
@@ -202,7 +223,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const modelReply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
-    { noteId: openNoteId, noteEdits, mapChanges, localFolders, localFileWrites },
+    { noteId: openNoteId, designOwner, designState, noteEdits, mapChanges, localFolders, localFileWrites },
     { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
   hooks.signal?.throwIfAborted();
@@ -211,7 +232,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   // Deliverables live in Outputs, never also in the reply: if Athena saved one this turn, any pasted
   // copy is taken out of the reply; if she didn't but wrote one he asked for, it's moved to Outputs.
   // (Only where the Outputs panel is shown.)
-  const reply = outputsPanel === false
+  const reply = outputsPanel === false || designOwner !== undefined
     ? modelReply
     : await (toolsUsed.has('save_output')
       ? removeSavedCopiesFromReply(db, effectiveSessionId, turnStartedAt, modelReply)
@@ -287,6 +308,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     mapChanges, mapChangesFor: mapChanges.length > 0 && openNoteId?.startsWith('map:') === true ? openNoteId.slice('map:'.length) : null,
       // Proposed writes to files on his PC, applied by Athena Desktop on "Apply".
       localFileWrites,
+      ...(designOwner && designState.changedNoteIds.length > 0 ? { designChanged: { parentNoteId: designOwner, noteIds: [...new Set(designState.changedNoteIds)] } } : {}),
   };
 }
 
