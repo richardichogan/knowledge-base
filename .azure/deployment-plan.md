@@ -2,6 +2,48 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-25, Designs and note email):**
+- User explicitly requested deployment of the completed native Design workflow,
+  Design-aware Athena tools, grouped Notes list, document review and formatted
+  note email sharing. Existing Azure Container Apps and Static Web Apps only.
+- `git fetch origin && git merge origin/main` reported already current at
+  `9faaeb7`. `git diff --check` passed. Azure CLI confirmed Alliance Tenant
+  Reporting (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`), backend v247 and kh-prod-web.
+- All validation checks pass:
+  - [x] Both `npm run typecheck` checks passed.
+  - [x] Both lint non-regression checks passed: backend 553/623, frontend 22/41.
+    New lint blockers were fixed without changing the baseline.
+  - [x] One full isolated release suite per app, including new Design/review tests.
+    Backend initially 590/594, with stale error wording, a nested async fixture
+    and calendar autotag timing. Affected reruns passed: Design 4/4 and
+    use-case/calendar 16/16. Design GitHub calls and credentials are mocked.
+    Frontend initially 210/211 plus 34/36 bundled checks; affected project-option
+    and note-list fixtures passed 11/11 after updating expected Design type,
+    explicit flat list query and generic item count. No full-suite reruns.
+  - [x] Both local production builds passed.
+  - [x] Unchanged Dockerfile/lockfile packages schema and all SQL migrations,
+    including 102-108 already applied to shared production data in development.
+- Existing application-only Azure CLI recipe applies. No infrastructure,
+  dependency, credential, policy, RBAC or Electron changes. ACA identity is None
+  and ACR authentication retains its existing secret reference; provisioning,
+  Bicep/what-if and managed-identity role assignment are not applicable.
+- Proof: session files/design-release-*.log. No real provider sends or jobs
+  triggered by release checks. Preserve production publishing settings and
+  shared content; local automatic delivery remains disabled.
+- Push identical source to feature branch and main, build v248 from GitHub main,
+  deploy both apps, confirm healthy revision/startup and matching frontend asset.
+  Preserve unrelated `.impeccable/hook.cache.json`.
+- Deployment completed at 2026-10-25T10:13Z:
+  - Source `1ba9962` pushed atomically to main and feature branch.
+    ACR run `ca7t` built and pushed `kh-prod-api:v248`.
+  - Backend revision `kh-prod-api-vnet--0000245` is Healthy /
+    RunningAtMaxScale, latest ready, with 100% traffic. Startup confirms
+    migrations complete and 8/8 database connections ready; health HTTP 200.
+  - Frontend production environment is Ready. Custom-domain HTTP 200 serves
+    `/assets/index-CS8Te9CC.js`; its SHA-256 matches the local production build.
+  - No infrastructure, credentials, role assignments or publishing switches
+    were changed; no real email, provider post or manual job was triggered.
+
 **Release scope and Section 7: Validation Proof (2026-10-25, shared ribbon repair):**
 - User requested a quick deployment of the shared animation visibility repair
   and variable thinking tempo/pulse. Frontend-only update to existing kh-prod-web
