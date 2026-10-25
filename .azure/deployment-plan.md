@@ -1,6 +1,20 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
+
+**Deployment result (2026-10-22, knowledge graph release):**
+- Source 32aafd8 pushed atomically to main and richardichogan-athena-spark-creation.
+- ACR run ca7b built kh-prod-api:v233 successfully. Digest:
+  sha256:8a9fbd49843d0e733ebdf4f69d13db009456a4c87dabdb2cee6fe77749c8c07c.
+- Backend revision kh-prod-api-vnet--0000230 is Healthy / RunningAtMaxScale
+  with 100% traffic. Startup completed migrations and warmed 8/8 DB connections.
+- Matching frontend deployed to kh-prod-web production. Both public domains
+  serve the new entry and six release assets matching local SHA-256 hashes,
+  including GraphPage-cGAlCEce.js and AtlasSpace-CmhYLUSd.js.
+- Live app: https://athena.themicrosoftcloudblog.com/graph.
+- After successful source push and deployment, local Git reported missing
+  worktree metadata. This deployment-result update is local until the workspace
+  Git metadata is restored; no repository metadata outside the worktree was changed.
 
 **Release scope and Section 7: Validation Proof (2026-10-25, shared ribbon repair):**
 - User requested a quick deployment of the shared animation visibility repair
