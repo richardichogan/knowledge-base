@@ -12,6 +12,7 @@ import { GitHubClient } from '../src/integrations/github/githubClient.js';
 import { assetRole, attachAsset, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset } from '../src/designs/designStore.js';
 import { collaboration, digest, parseBlueprint, parseChanges, queueFeedback, renderArtifact, resolveProposal, proposeFeedback, sameSources, sourceSnapshot } from '../src/designs/designArtifacts.js';
 import { createPackage, packageArchive, preparePublication, publishPackage, validateDiagramSvg } from '../src/designs/designPackages.js';
+import { authoredTarget, parseAuthored, renderAuthored, selectionBelongs } from '../src/designs/visualArtifact.js';
 import { DESIGN_CHAT_TOOLS, executeDesignTool, type DesignTurnState } from '../src/ai/designTools.js';
 
 const ROOT = 'b028adff-5851-4203-915f-67f2ab889433';
@@ -28,6 +29,43 @@ const blueprint = {
       components: [{ kind: 'card', label: 'Evidence', detail: 'Verify the claim evidence', targetId: null }, { kind: 'button', label: 'Back', detail: '', targetId: 'entry' }] },
   ],
 };
+
+test('authored visuals are sanitised and must explain purpose, actors, an example and decisions', () => {
+  const sources = [{ id: ROOT }, { id: SPEC }];
+  const body = `<section data-element="how" onclick="steal()"><h1>How it works</h1><script>steal()</script><a href="javascript:steal()">link</a>
+<svg viewBox="0 0 400 80" onload="steal()"><defs><marker id="arrow"><path d="M0 0L6 3L0 6z"/></marker></defs>
+<g data-actor="athena"><rect width="120" height="40" style="fill:url(https://evil.example/x)"/><text x="10" y="24">Athena drafts</text></g>
+<g data-actor="you"><rect x="200" width="120" height="40"/><text x="210" y="24">You approve</text></g><line x1="120" y1="20" x2="200" y2="20" marker-end="url(#arrow)"/></svg>
+<ol><li data-actor="athena">Athena drafts the post.</li><li data-actor="you">You approve the exact text.</li></ol></section>
+<section data-element="example"><h2>Example</h2><div data-walkthrough><div data-step="draft" data-step-title="Draft"><p>Athena drafts.</p><button data-goto="approve">Open draft</button><button>Publish now</button></div>
+<div data-step="approve" data-step-title="Approve"><p>You approve.</p><input value="x"></div></div></section>`;
+  const raw = (overrides: Record<string, unknown> = {}): string => JSON.stringify({ title: 'Publishing', purpose: 'Athena drafts posts; you approve them.', ask: 'Answer 1 decision.', body,
+    regions: [{ id: 'how', title: 'How it works', role: 'flow', sourceIds: [SPEC] }, { id: 'example', title: 'Example', role: 'example', sourceIds: [SPEC] }],
+    decisions: [{ id: 'landing', question: 'Where should approval start?', context: 'Sets the first screen.', recommended: 'Today',
+      options: [{ label: 'Today', consequence: 'Athena shows pending approvals on Today.' }, { label: 'Discover', consequence: 'Approvals stay in Discover.' }], sourceIds: [SPEC] }], ...overrides });
+  const { blueprint, removed } = parseAuthored(raw(), sources);
+  assert.ok(removed >= 5);
+  assert.ok(!/<script|onclick|onload|javascript:|evil\.example|<input|<a /.test(blueprint.body));
+  assert.match(blueprint.body, /<h2>How it works<\/h2>/);
+  assert.match(blueprint.body, /<button data-goto="approve">Open draft<\/button>/);
+  assert.match(blueprint.body, /<span class="mock-button">Publish now<\/span>/);
+  assert.match(blueprint.body, /marker-end="url\(#arrow\)"/);
+  assert.deepEqual(blueprint.openDecisions, ['Where should approval start?']);
+  assert.ok(selectionBelongs(authoredTarget(blueprint, 'how')!.text, 'Athena drafts the  post.'));
+  assert.ok(!selectionBelongs(authoredTarget(blueprint, 'how')!.text, 'Something else'));
+  assert.equal(authoredTarget(blueprint, 'landing')?.decision?.id, 'landing');
+  const html = renderAuthored(blueprint, ROOT, 2);
+  assert.match(html, /What I need from you:/);
+  assert.match(html, /Go to the 1 decision/);
+  assert.match(html, /Athena recommends/);
+  assert.match(html, /connect-src 'none'/);
+  assert.equal((html.match(/<script/g) ?? []).length, 2);
+  assert.throws(() => parseAuthored(raw({ regions: [{ id: 'how', title: 'How', role: 'flow', sourceIds: [SPEC] }] }), sources), /undeclared region/);
+  assert.throws(() => parseAuthored(raw({ body: body.replace('data-actor="you"', 'data-actor="athena"').replace('<li data-actor="you">', '<li>') }), sources), /automatic \(athena\) and human/);
+  assert.throws(() => parseAuthored(raw({ body: body.replace('<div data-step="approve" data-step-title="Approve">', '<div>') }), sources), /at least two/);
+  assert.throws(() => parseAuthored(raw({ decisions: [{ id: 'x', question: 'Q', context: '', recommended: 'Maybe', options: [{ label: 'A', consequence: 'a' }, { label: 'B', consequence: 'b' }], sourceIds: [SPEC] }] }), sources), /does not offer/);
+  assert.throws(() => parseAuthored(raw({ body: `${body}<p>STATE_AWAITING_APPROVAL_V2</p>` }), sources), /internal state/);
+});
 
 test('visual contracts reject unsafe types, ambiguous targets and overlapping anchors', () => {
   assert.equal(assetRole('spec'), 'spec');

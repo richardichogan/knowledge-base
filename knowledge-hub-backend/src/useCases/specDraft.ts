@@ -23,14 +23,14 @@ export interface ProductContext { projectName: string | null; projectDescription
 
 const SOURCE_LABEL: Record<UseCaseSourceType, string> = { discover: 'Discover item', spark: 'Spark', note: 'Think note', canvas: 'Canvas' };
 
-const RULES = `Rules:
+export const RULES = `Rules:
 - Use ONLY what the sources and product context establish. Do not invent requirements, users, numbers, names, systems or decisions. Where something is not covered, write one line: _Not discussed yet._ — never fill a gap with a guess.
 - Treat article claims as claims made by that article, not as facts about Richard's product.
 - Keep the links the sources provide in a "Sources" section, as Markdown links.
 - Be specific and concise: short paragraphs and bullets, no filler, no meta commentary.
 - UK English. Return ONLY the Markdown.`;
 
-const PRODUCT_SYSTEM = `You turn the material Richard has gathered for one use case into the FIRST DRAFT of a product spec that he will refine and then hand to a coding agent. Write Markdown.
+export const PRODUCT_SYSTEM = `You turn the material Richard has gathered for one use case into the FIRST DRAFT of a product spec that he will refine and then hand to a coding agent. Write Markdown.
 
 ${RULES}
 

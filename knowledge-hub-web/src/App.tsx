@@ -18,6 +18,7 @@ import React from 'react';
 import { BrowserRouter, Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Theme } from '@carbon/react';
 import { AppShell } from './components/AppShell';
+import { AthenaJobNotice } from './components/athena/AthenaJobNotice';
 import { SignInGate } from './components/SignInGate';
 import { MuralCallback } from './components/MuralIntegration';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -107,6 +108,7 @@ const App: React.FC = () => {
             <ChatLinkReceiver />
             <DesktopCommandReceiver />
             <DocumentTitleSync />
+            <AthenaJobNotice />
             <GlobalContextMenuProvider>
             <WorkspaceRoutes />
             </GlobalContextMenuProvider>

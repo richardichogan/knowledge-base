@@ -14,14 +14,15 @@ const message = { channel: 'athena-design', token: 'session-token', artifactId: 
 test('Design is an actual existing-flow content type, and the HTML toggle describes its shared artifact', () => {
   assert.equal(CONTENT_TYPE_OPTIONS.filter(type => type.id === 'design').length, 1);
   const html = renderToStaticMarkup(<DocumentViewToggle value="html" artifact onChange={() => {}} />);
-  assert.match(html, /Shared interactive design/);
-  assert.match(html, /aria-pressed="true"[^>]*>HTML/);
+  assert.match(html, /Athena Blueprint: a sectioned visual of the whole spec/);
+  assert.match(html, /aria-pressed="true"[^>]*>Blueprint/);
 });
 test('artifact bridge rejects invalid token, revision, target, choices and payload shapes', () => {
-  assert.deepEqual(readArtifactMessage(message, artifact, 'session-token'), { artifactId: 'artifact', elementId: 'review', selection: 'evidence', choice: null });
+  assert.deepEqual(readArtifactMessage(message, artifact, 'session-token'), { type: 'annotate', selection: { artifactId: 'artifact', elementId: 'review', selection: 'evidence', choice: null } });
   for (const changed of [
     { token: 'foreign-token' }, { revision: 2 }, { artifactId: 'old' }, { elementId: 'deleted' },
     { selection: 'a'.repeat(8001) }, { choice: 'Invented option' }, { extra: 'unexpected' },
   ]) assert.equal(readArtifactMessage({ ...message, ...changed }, artifact, 'session-token'), null);
-  assert.equal(readArtifactMessage({ ...message, choice: 'Manual review' }, artifact, 'session-token')?.choice, 'Manual review');
+  const chosen = readArtifactMessage({ ...message, choice: 'Manual review' }, artifact, 'session-token');
+  assert.equal(chosen?.type === 'annotate' ? chosen.selection.choice : null, 'Manual review');
 });

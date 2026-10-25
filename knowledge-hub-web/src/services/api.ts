@@ -2492,15 +2492,25 @@ export class KnowledgeHubApi {
       const response = await fetch(`${BASE_URL}/api/designs/${encodeURIComponent(id)}/artifacts`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream',
           ...(auth !== '' ? { Authorization: `Bearer ${auth}` } : {}) },
-        body: JSON.stringify({ instruction }), signal: AbortSignal.timeout(150_000),
+        body: JSON.stringify({ instruction }), signal: AbortSignal.timeout(600_000),
       });
       if (!response.ok || !response.body) throw new Error(`Could not start visual generation (${response.status}). Your documents are unchanged.`);
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      // The page enforces its own deadline: a dropped proxy connection can leave read() pending even after the fetch signal fires.
+      const deadline = Date.now() + 300_000;
+      const read = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([reader.read(), new Promise<never>((_, reject) => {
+            timer = setTimeout(() => { reject(new Error('Lost the visual-generation connection before completion. Reopen HTML to check whether the visual was saved before retrying.')); }, Math.max(0, deadline - Date.now()));
+          })]);
+        } finally { clearTimeout(timer); }
+      };
       try {
         for (;;) {
-          const { done, value } = await reader.read();
+          const { done, value } = await read();
           if (done) throw new Error('Lost the visual-generation connection before completion. Reopen HTML to check whether the visual was saved before retrying.');
           buffer += decoder.decode(value, { stream: true });
           let separator: number;
@@ -2514,15 +2524,24 @@ export class KnowledgeHubApi {
             else if (event.type === 'done' && event.data) return { success: true, data: event.data };
           }
         }
-      } finally { reader.releaseLock(); }
+      } finally { void reader.cancel().catch(() => undefined); }
     }
-    return (await this.client.post<ApiResponse<DesignArtifact>>(`/api/designs/${encodeURIComponent(id)}/artifacts`, { instruction }, { timeout: 150_000 })).data;
+    return (await this.client.post<ApiResponse<DesignArtifact>>(`/api/designs/${encodeURIComponent(id)}/artifacts`, { instruction }, { timeout: 600_000 })).data;
   }
   async queueDesignFeedback(id: string, input: { requestId: string; artifactId: string; elementId: string; selection: string; instruction: string }): Promise<ApiResponse<DesignFeedback>> {
     return (await this.client.post<ApiResponse<DesignFeedback>>(`/api/designs/${encodeURIComponent(id)}/feedback`, input)).data;
   }
   async proposeDesignFeedback(id: string): Promise<ApiResponse<DesignProposal>> {
-    return (await this.client.post<ApiResponse<DesignProposal>>(`/api/designs/${encodeURIComponent(id)}/proposals`, {}, { timeout: 150_000 })).data;
+    return (await this.client.post<ApiResponse<DesignProposal>>(`/api/designs/${encodeURIComponent(id)}/proposals`, {}, { timeout: 300_000 })).data;
+  }
+  async applyDesignFeedback(id: string): Promise<ApiResponse<{ noteIds: string[]; remaining: number }>> {
+    return (await this.client.post<ApiResponse<{ noteIds: string[]; remaining: number }>>(`/api/designs/${encodeURIComponent(id)}/apply`, {}, { timeout: 300_000 })).data;
+  }
+  async writeDesignSpec(id: string, replace = false): Promise<ApiResponse<{ noteId: string; title: string; created: boolean }>> {
+    return (await this.client.post<ApiResponse<{ noteId: string; title: string; created: boolean }>>(`/api/designs/${encodeURIComponent(id)}/spec`, { replace }, { timeout: 300_000 })).data;
+  }
+  async editDesignFeedback(id: string, feedbackId: string, instruction: string): Promise<ApiResponse<DesignFeedback>> {
+    return (await this.client.patch<ApiResponse<DesignFeedback>>(`/api/designs/${encodeURIComponent(id)}/feedback/${encodeURIComponent(feedbackId)}`, { instruction })).data;
   }
   async discardDesignFeedback(id: string, feedbackId: string): Promise<ApiResponse<{ discarded: true }>> {
     return (await this.client.delete<ApiResponse<{ discarded: true }>>(`/api/designs/${encodeURIComponent(id)}/feedback/${encodeURIComponent(feedbackId)}`)).data;

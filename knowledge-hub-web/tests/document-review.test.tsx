@@ -9,7 +9,7 @@ test('document view switch labels one source with MD and HTML review modes', () 
   const html = renderToStaticMarkup(<DocumentViewToggle value="html" onChange={() => {}} />);
   assert.match(html, /aria-label="Document view"/);
   assert.match(html, /aria-pressed="true"[^>]*>HTML/);
-  assert.match(html, /Visual review of the same source/);
+  assert.match(html, /Formatted HTML review view/);
   assert.doesNotMatch(html, /Read-only/);
 });
 

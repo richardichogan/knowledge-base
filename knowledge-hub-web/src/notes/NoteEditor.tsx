@@ -61,6 +61,8 @@ interface NoteEditorProps {
   headerContent?: React.ReactNode;
   loading?: boolean;
   bodyContent?: React.ReactNode;
+  /** Rendered after the note body in the editor view. */
+  footerContent?: React.ReactNode;
   visualContent?: React.ReactNode;
   htmlViewEnabled?: boolean;
   actionContent?: React.ReactNode;
@@ -150,7 +152,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, loading = false, bodyContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
   const queryClient = useQueryClient();
   const { openAthena, pageContext } = useAthenaContext();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
@@ -172,6 +174,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const [preparingSpecification, setPreparingSpecification] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const scroll = editorScrollRef.current;
+    if (!scroll || typeof scroll.animate !== 'function' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const fade = scroll.animate(
+      [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 400, easing: 'cubic-bezier(0, 0, 0.38, 0.9)' },
+    );
+    return () => { fade.cancel(); };
+  }, [doc.id]);
 
   // Taxonomy tags for this note
   const { data: noteTagObjects = [] } = useNoteTags(doc.id);
@@ -1173,6 +1184,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                 onError={msg => { setNotification({ kind: 'error', msg }); }} />
             </BlockNoteViewWrapper>
           </div>
+          {!showingHtml && !bodyContent && footerContent}
         </div>
         {!showingHtml && !bodyContent && <LinkSuggestionBar editor={editor} noteId={doc.id} disabled={historyBusy} />}
         {!showingHtml && !bodyContent && <ExtractionMarks noteId={doc.id} scrollRef={editorScrollRef} />}

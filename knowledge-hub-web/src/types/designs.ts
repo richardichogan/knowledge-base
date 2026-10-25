@@ -17,12 +17,23 @@ export interface DesignAsset {
 }
 export interface DesignDetail extends Design { assets: DesignAsset[]; selections: Partial<Record<DesignRole, string>> }
 export interface DesignSource { id: string; role: string; revision: number; title: string; markdown: string; blocks: unknown[]; document?: unknown }
-export interface DesignArtifact {
-  id: string; revision: number; sources: DesignSource[]; html: string;
-  blueprint: { title: string; explanation: string; openDecisions: string[]; elements: Array<{
+export interface LegacyDesignVisual {
+  format?: undefined; title: string; explanation: string; openDecisions: string[]; elements: Array<{
     id: string; title: string; content: string; sourceIds: string[]; choices: string[];
     components: Array<{ kind: string; label: string; detail: string; targetId: string | null }>;
-  }> };
+  }>;
+}
+export interface DesignDecision {
+  id: string; question: string; context: string; options: Array<{ label: string; consequence: string }>; recommended: string | null; sourceIds: string[];
+}
+export interface AuthoredDesignVisual {
+  format: 'authored-v1'; title: string; purpose: string; ask: string; body: string; explanation: string; openDecisions: string[];
+  elements: Array<{ id: string; title: string; role: 'overview' | 'decisions' | 'architecture' | 'flow' | 'data' | 'screens' | 'exceptions' | 'delivery' | 'example' | 'detail'; sourceIds: string[]; text: string }>;
+  decisions: DesignDecision[];
+}
+export interface DesignArtifact {
+  id: string; revision: number; sources: DesignSource[]; html: string;
+  blueprint: LegacyDesignVisual | AuthoredDesignVisual;
 }
 export interface DesignFeedback {
   id: string; artifact_id: string; element_id: string; selection: string; instruction: string;
@@ -32,7 +43,12 @@ export interface DesignProposal {
   id: string; explanation: string; changes: Array<{ noteId: string; blockId: string | null; before: unknown; markdown: string }>;
   previewHtml?: string;
 }
-export interface DesignCollaboration { artifact: DesignArtifact | null; feedback: DesignFeedback[]; proposal: DesignProposal | null; stale: boolean; sourceError: string | null }
+export interface DesignThreadEntry {
+  id: string; status: 'accepted' | 'discarded' | 'pending'; explanation: string; created_at: string;
+  changes: { noteId: string; title: string; markdown: string }[];
+  feedback: { id: string; element_id: string; selection: string; instruction: string }[];
+}
+export interface DesignCollaboration { artifact: DesignArtifact | null; feedback: DesignFeedback[]; proposal: DesignProposal | null; thread?: DesignThreadEntry[]; stale: boolean; sourceError: string | null }
 export interface DesignPackage {
   id: string;
   manifest: { ready: boolean; missingInputs: string[]; openDecisions: string[]; pendingFeedback: number;

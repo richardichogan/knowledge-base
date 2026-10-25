@@ -21,11 +21,10 @@ export const DocumentViewToggle: React.FC<{
           void confirmDialog('This view contains unaccepted review feedback. Switching views discards it without changing the source.',
             { title: 'Discard review feedback?', confirmLabel: 'Discard and switch' }).then(ok => { if (ok) onChange(mode); });
         }}
-        title={mode === 'md' ? 'Markdown document' : artifact ? 'Interactive shared visual artifact' : 'Formatted HTML review view'}>
-        {mode.toUpperCase()}
+        title={mode === 'md' ? 'Markdown document' : artifact ? 'Athena Blueprint: a sectioned visual of the whole spec' : 'Formatted HTML review view'}>
+        {mode === 'html' && artifact ? 'Blueprint' : mode.toUpperCase()}
       </button>
     ))}
-    <span className="kh-document-view__hint">{value === 'html' ? artifact ? 'Shared interactive design — feedback feeds Markdown' : 'Visual review of the same source' : 'Source document'}</span>
   </div>
 );
 
