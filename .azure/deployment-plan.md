@@ -33,6 +33,18 @@
 - Push identical source to feature and main; build v249 from GitHub main,
   deploy backend/frontend, verify revision/startup and served asset identity.
   Preserve unrelated `.impeccable/hook.cache.json`.
+- Deployment completed at 2026-10-25T11:20Z:
+  - Source `7c83fc4` pushed atomically to main and feature branch.
+    ACR run `ca7u` built `kh-prod-api:v249`.
+  - Revision `kh-prod-api-vnet--0000246` is Healthy / RunningAtMaxScale,
+    latest ready, with 100% traffic. Startup applied migration109 successfully
+    and warmed 8/8 database connections; `/health` returned HTTP200.
+  - Frontend production deployment succeeded. Custom-domain HTTP200 serves
+    `/assets/index-DitHGMKT.js`; SHA-256 matches the local build:
+    `615d6277c8e3d88176ef0da0a5d44d0bdfa784af8e08bb451df9c42add731351`.
+  - Local browser observed the 88px non-thinking ribbon, centered in the
+    document area with Loading note text; Actions and side-panel identity
+    stayed unchanged. Email checks used fake sends only.
 
 **Release scope and Section 7: Validation Proof (2026-10-25, Designs and note email):**
 - User explicitly requested deployment of the completed native Design workflow,
