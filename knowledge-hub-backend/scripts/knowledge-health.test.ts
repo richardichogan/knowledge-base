@@ -112,7 +112,8 @@ test('UI-01 health reports per-family capability and measured counts, with unmea
   assert.deepEqual(note?.extraction, { fullText: 1, metadataOnly: 1, atIngestionCap: 0 });
   assert.equal(note?.state, 'unsupported-extraction');
   assert.equal(note?.lastIndexedAt, '2026-03-11T00:00:00.000Z');
-  assert.equal(families.find((f) => f.kind === 'library-document')?.extraction?.atIngestionCap, 1);
+  assert.equal(families.find((f) => f.kind === 'library-document')?.extraction?.atIngestionCap, 0,
+    'a complete 8,000-character repo document is not an ingestion truncation');
   const live = families.find((f) => f.kind === 'project');
   assert.equal(live?.state, 'up-to-date');
   assert.equal(live?.counts.indexed, null);
@@ -138,7 +139,7 @@ test('AC-13 semantic status is never up to date from a provider connection alone
   await db.exec(`INSERT INTO knowledge_indexing_work (ref_id, status, error_code) VALUES ('1','done',NULL),('2','pending',NULL),('3','leased',NULL),('4','failed','SECRET prompt text')`);
   await db.query(`INSERT INTO content_items (source, indexed_at) VALUES ('email','2026-03-10T00:00:00Z')`);
   await db.query(`INSERT INTO sync_runs (id, claim_key, status, started_at, finished_at, results) VALUES
-    ('00000000-0000-4000-8000-000000000002','k2','partial','2026-03-11T01:00:00Z','2026-03-11T01:05:00Z','[{"source":"email","indexed":1,"errors":2,"error":"LEAK"}]')`);
+    ('00000000-0000-4000-8000-000000000002','k2','partial','2026-03-11T01:00:00Z','2026-03-11T01:05:00Z','[{"source":"graph-mail","indexed":1,"errors":2,"error":"LEAK"},{"source":"ica-collections","indexed":0,"errors":1},{"source":"project-docs","indexed":1,"errors":1}]')`);
   const health = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({}), new Date(), { semanticConfigured: true, orchestrationEnabled: true });
   assert.ok(health.families.available);
   const { semantic, families, orchestrationEnabled } = health.families.data;
@@ -148,6 +149,7 @@ test('AC-13 semantic status is never up to date from a provider connection alone
   const connected = families.find((f) => f.kind === 'connected-activity');
   assert.equal(connected?.state, 'temporarily-unavailable');
   assert.deepEqual(connected?.errorCategories, ['sync-errors']);
+  assert.equal(families.find(f => f.kind === 'library-document')?.state, 'temporarily-unavailable');
   const text = JSON.stringify(health.families);
   for (const secret of ['SECRET prompt text', 'LEAK']) assert.ok(!text.includes(secret), `${secret} leaked`);
   assert.ok(!text.includes('100%'));

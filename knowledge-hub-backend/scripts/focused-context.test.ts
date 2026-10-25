@@ -10,6 +10,7 @@ import { FoundryClient, type LlmMessage, type LlmToolDefinition } from '../src/a
 import { emptyContextUsed } from '../src/ai/contextUsage.js';
 import { focusTools, selectRequiredToolChoice, selectKnowledgeRetrievalChoice } from '../src/ai/toolRouting.js';
 import type { NoteEditProposal } from '../src/ai/noteEdits.js';
+import { allowsStructuralNoteEdits, checkEditsAgainstNote } from '../src/ai/noteEdits.js';
 import { blocksToTextWithImages, blockContentSpans } from '../src/utils/noteContent.js';
 import { readFile } from 'node:fs/promises';
 import { emptyDiagram } from '../src/types/diagram.js';
@@ -33,7 +34,7 @@ for (const orchestration of ['true', 'false']) {
       assert.equal(tools.length, 0);
       assert.equal(options?.builtInTools, undefined, 'code execution must also be withheld');
       const prompt = JSON.stringify(messages);
-      assert.match(prompt, /quick reaction to the concept and a full review/);
+      assert.match(prompt, /quick reaction and a detailed document review/);
       assert.match(prompt, /Walking briefing/);
       assert.doesNotMatch(prompt, /PRIVATE_SOURCE_BODY|PRIVATE_IMAGE|PRIVATE_SCREEN/);
       onDelta?.('Unpublished model draft');
@@ -46,7 +47,7 @@ for (const orchestration of ['true', 'false']) {
         undefined, {}, { onDelta: text => deltas.push(text), onAudit: () => {},
           screenImages: [{ label: 'PRIVATE_SCREEN', url: 'data:image/png;base64,AAAA' }],
           codeFiles: { ids: ['file-private'], names: [] } });
-      assert.match(reply, /concept, or a full review of the specification\?/);
+      assert.match(reply, /quick reaction, or a detailed review of the document\?/);
       assert.equal(calls, 0, 'the scope choice needs no model call or generated-answer repair');
       assert.deepEqual(deltas, []);
       assert.ok(!reads.some(sql => /kind = 'example'/.test(sql)), 'old long liked replies do not prime a scope question');
@@ -71,7 +72,7 @@ for (const orchestration of ['true', 'false']) {
       assert.equal(choice, 'none');
       assert.equal(tools.length, 0);
       assert.match(JSON.stringify(messages), /SOURCE_BODY_WITH_REQUIREMENTS/);
-      assert.match(JSON.stringify(messages), full ? /He has chosen full depth/ : /Quick concept reaction requested/);
+      assert.match(JSON.stringify(messages), full ? /The review is already requested/ : /Quick concept reaction requested/);
       return { content: expected, toolCalls: [], finishReason: 'stop' };
     });
     try {
@@ -88,6 +89,34 @@ for (const orchestration of ['true', 'false']) {
 }
 
 for (const orchestration of ['true', 'false']) {
+  test(`an explicit ordinary-note review respects audience instead of asking a stock depth question (${orchestration})`, async () => {
+    const db = new Pool();
+    const query = mock.method(db, 'query', async () => ({ rows: [] }));
+    const original = process.env['KNOWLEDGE_ORCHESTRATION'];
+    process.env['KNOWLEDGE_ORCHESTRATION'] = orchestration;
+    const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, messages, tools, _tokens, choice) => {
+      assert.equal(choice, 'none');
+      assert.equal(tools.length, 0);
+      const prompt = JSON.stringify(messages);
+      assert.match(prompt, /Review of the document in view requested/);
+      assert.match(prompt, /do not impose implementation-readiness checks/);
+      assert.match(prompt, /limited English/);
+      assert.match(prompt, /MANUAL_SOURCE/);
+      return { content: 'Use short sentences and explain the unfamiliar controls.', toolCalls: [], finishReason: 'stop' };
+    });
+    try {
+      const reply = await handleConversationTurn(db, [],
+        'Please review this note and its language for Bulgarian and Spanish guests with limited English.',
+        'standard', 'general', sessionId, { type: 'note', title: 'Guest guide', detail: 'MANUAL_SOURCE' },
+        undefined, {}, { onDelta: () => {}, onAudit: () => {} });
+      assert.equal(reply, 'Use short sentences and explain the unfamiliar controls.');
+      assert.equal(completion.mock.callCount(), 1);
+    } finally {
+      if (original === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = original;
+      completion.mock.restore(); query.mock.restore(); await db.end();
+    }
+  });
+
   test(`actual exploratory chat buffers an essay and repairs once without replaying tools (${orchestration})`, async () => {
     const db = new Pool();
     const query = mock.method(db, 'query', async () => ({ rows: [] }));
@@ -510,6 +539,55 @@ test('a mixed valid and invalid note-edit batch is rejected without leaving a pa
     assert.match(JSON.stringify(result), /No edits proposed/);
     assert.deepEqual(noteEdits, []);
   } finally { await db.end(); }
+});
+
+test('ordinary review and repair requests cannot be widened into whole-note rewrites', async () => {
+  for (const request of ['Review and update where appropriate.', 'do it properly!!!!!', 'Fix the wording without changing formatting.', 'Rewrite this but preserve the existing formatting.']) {
+    assert.equal(allowsStructuralNoteEdits(request), false, request);
+  }
+  assert.equal(allowsStructuralNoteEdits('Rewrite this note from scratch.'), true);
+  const db = new Pool();
+  const edits: NoteEditProposal[] = [];
+  try {
+    const result = await executeToolCall(db, 'propose_note_edit', JSON.stringify({ edits: [
+      { action: 'replace_all', markdown: '# Wi-Fi\nA whole new body', summary: 'Clean up' },
+    ] }), undefined, { noteId: outputId, noteEdits: edits, allowStructuralNoteEdits: false });
+    assert.match(JSON.stringify(result), /not permission to rewrite or reformat/);
+    assert.deepEqual(edits, []);
+  } finally { await db.end(); }
+  assert.ok(checkEditsAgainstNote([{ action: 'replace_text', find: 'same', markdown: 'new', summary: 'Ambiguous' }],
+    [{ type: 'paragraph', content: [{ text: 'same same' }] }]).length > 0);
+});
+
+test('a repair after a formatting complaint uses exact edits instead of conversational mode or another rewrite', async () => {
+  const db = new Pool();
+  const query = mock.method(db, 'query', async (sql: string) => ({ rows: sql.includes('SELECT content FROM notes')
+    ? [{ content: { contentJson: JSON.stringify([
+      { type: 'heading', content: [{ text: 'Guest guide' }] },
+      { type: 'paragraph', content: [{ text: 'Tunr the lights on.' }] },
+    ]) } }] : [] }));
+  let calls = 0;
+  const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, _messages, _tools, _tokens, choice) => {
+    calls++;
+    if (calls === 1) {
+      assert.deepEqual(choice, { type: 'function', function: { name: 'propose_note_edit' } });
+      return { content: null, toolCalls: [{ id: 'wording', type: 'function' as const, function: { name: 'propose_note_edit',
+        arguments: JSON.stringify({ edits: [{ action: 'replace_text', find: 'Tunr', markdown: 'Turn', summary: 'Correct typo without changing formatting' }] }) } }],
+      finishReason: 'tool_calls' };
+    }
+    return { content: 'Proposed the wording correction. Review and Apply it.', toolCalls: [], finishReason: 'stop' };
+  });
+  const noteEdits: NoteEditProposal[] = [];
+  try {
+    await handleConversationTurn(db, [
+      { role: 'user', content: 'You changed all the formatting!' },
+      { role: 'assistant', content: 'I should keep the note formatting and title. Shall I fix it?' },
+    ], 'do it properly!!!!!', 'standard', 'general', sessionId,
+    { type: 'note', title: 'Guest guide', detail: 'Tunr the lights on.' }, undefined,
+    { noteId: outputId, noteEdits }, { onDelta: () => {}, onAudit: () => {} });
+    assert.equal(noteEdits.length, 1);
+    assert.equal(noteEdits[0]?.action, 'replace_text');
+  } finally { completion.mock.restore(); query.mock.restore(); await db.end(); }
 });
 
 test('time limit after RTR-style edit production preserves the preview without claiming completion or requesting a retry', async () => {

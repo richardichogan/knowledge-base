@@ -51,7 +51,7 @@ interface AppliedTag {
   name: string;
 }
 
-interface MetadataPanelProps {
+export interface MetadataPanelProps {
   writingBusy?: boolean;
   doc: NoteDocument;
   contentType: ContentType;

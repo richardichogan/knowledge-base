@@ -8,13 +8,17 @@ Coverage is never a single percentage. Knowledge health shows, per family:
 
 - **State:** Up to date, Partial coverage, Unsupported extraction, Not configured, Temporarily unavailable, or Excluded by design.
 - **Counts:** indexed records (canonical `content_items` rows for the family's sources), plus eligible, pending and failed. A count that cannot be measured is returned as `null` and shown as "Not measured", never as zero.
-- **Extraction distribution:** full text, metadata only (empty body) and at the ingestion size cap (8,000 characters). Per-record extraction state is not recorded, so "failed" and "unsupported" extraction are not separately counted.
+- **Extraction distribution:** stored text, metadata only (empty body) and text at a known source-specific ingestion cap (OneDrive: 250,000 characters; ICA: 20,000; email: 5,000). A search preview limit is not an ingestion limit. At-cap counts are a truncation risk, not proof of missing original text; per-record extraction completeness is not always recorded.
 - **Last indexed** and the **last successful sync**; **error categories** are a fixed vocabulary (`sync-errors`, `sync-run-failed`). No error text, prompt or source body is ever returned.
 - **Semantic search** state. It is never "Up to date" because a provider is connected: it needs measured, drained indexing work with at least one completed item. A configured provider with no measured work reads "Connected, coverage not measured".
 
 Eligible counts and per-family pending/failed counts are not recorded anywhere today, so no record-coverage percentage is shown. Optional tables (indexing work, decision records) are feature-detected; when absent the figures are "Not measured".
 
 In chat, the "Used:" line separates **Found** (search candidate, not necessarily read), **Read** (available to the answer) and **Cited** (supports the answer). Older replies without a `lifecycle` field show explicitly looked-at sources as Read and background retrieval as Found. Deleted or missing targets show "No longer available" and are not linked. External links must be http(s) and are dropped if they carry credentials. Warnings are scoped to the reply or one source; there is no permanent global banner for a temporary optional-provider failure.
+
+Note review and wording updates use unique exact text replacements, preserving block types, styles, links and nested content. They do not authorise a whole-note rewrite. Structural edits require an explicit structural request, and body-edit previews cannot rename or delete the title heading. Full redrafts retain the existing title heading. Proposals are still unsaved until the user clicks Apply; destructive changes retain the existing history checkpoint.
+
+The Notes workspace owns the shared Actions control and side panel independently of each document editor. Switching notes or Design sections keeps those controls mounted; pending loads show the existing Athena ribbon activity with a loading label only inside the document area. A late save from the previous note cannot reopen it over the current selection.
 
 ## Feature flag and indexing switch
 
@@ -34,16 +38,16 @@ Older rows with a null message id are not backfilled by guessing timestamps.
 
 **Categories** (first match wins, most severe first): `tool_error` (a tool returned an error), `source_unavailable` (a cited/found record was missing or excluded), `wrong_abstain` (the answer declined although records were found or read), `bad_citation` (ids stripped or a citation repair needed), `unverified_quote` (quote not matched to source text), `budget_hit` (a retrieval budget ran out), `found_not_read` (records found, none opened), `partial` (limited without a specific budget), `no_retrieval` (nothing searched), `ok`.
 
-**Nightly review** (`knowledgeNightlyReviewJob`, about 02:00 UTC, claimed once per day, zero model calls) aggregates the previous UTC day into `knowledge_daily_review`: category counts, rates, the 10 worst turns (audit ids and session ids only) and flags. Critical = `tool_error`, `wrong_abstain`, `bad_citation`, `unverified_quote`.
+**Nightly review** (`knowledgeNightlyReviewJob`, about 02:00 UTC, claimed once per day, zero model calls) aggregates attributed production turns from the previous UTC day into `knowledge_daily_review`: category counts, rates, the 10 worst turns (audit ids and session ids only) and flags. Development and unattributed audit rows are excluded. Migration 109 marks new snapshots with `environment: prod`; older snapshots remain explicitly unattributed and may mix local tests with production. No historical accuracy is invented by backfilling them. Critical = `tool_error`, `wrong_abstain`, `bad_citation`, `unverified_quote`.
 
 | Flag | Raised when |
 |---|---|
 | `criticalRate` | critical turns above 5% |
-| `noRetrievalRate` | `no_retrieval` above 10% |
+| `noRetrievalRate` | never; the rate remains informational, not a failure flag |
 | `abstainWithEvidence` | `wrong_abstain` above 5% |
 | `lowSample` | fewer than 5 turns (low sample, not an alarm) |
 
-**Reading the report:** `GET /api/health/knowledge` has a `turnReview` section with the latest review and the last 7 days (`trend`, newest first). Check flags first, then `categoryCounts` to see which failure dominates, then look up `worstTurns` ids in `knowledge_turn_audit` to find the session to inspect. A failing section reports "could not be read" and never fails the endpoint.
+**Reading the report:** `GET /api/health/knowledge` has a `turnReview` section with the latest seven snapshots (`trend`, newest first), their environment attribution and an interpretation note. Snapshots cover whole days, not the usage date/persona filters. Check flags first, then `categoryCounts`, then look up `worstTurns` ids in `knowledge_turn_audit` to inspect the actual conversation. No-retrieval turns are excluded from worst-turn rankings, including the read-only projection of legacy snapshots. Stored historical rows are not rewritten. A failing section reports "could not be read" and never fails the endpoint.
 
 These categories are **investigation signals, not scored answer quality**.
 `no_retrieval` also includes note edits, answers from the open document, external
@@ -109,20 +113,20 @@ Never included in any projection: tokens, passwords, signing material, connectio
 
 ## Known partial coverage
 
-- Indexed copies are capped at ingestion (library files at 8,000 characters), so long documents are only fully readable through ID-based readers.
-- Notes have no paged reader yet; note bodies may be truncated in the index.
+- Library searches return bounded previews. `read_knowledge_record` pages stored bodies and supports checkpointed full-document review; this does not recover text omitted during original extraction.
+- Notes have an ID-based paged reader; extraction and index completeness still require measurement.
 - YouTube records are metadata and description only. There is no transcript, so a video must never be described as watched.
 - Connected activity (email, GitLab, GitHub, Microsoft Graph, CMS) is only what has been synced; mailbox and remote state are not claimed complete.
 - Chat decisions have no acceptance, supersession or review state, so acceptance is unknown.
-- People, Sparks, Use cases, Build, Governance and CFP/practice have no chat reader yet and are reported as Not configured.
+- People, Sparks, Build, Governance and CFP/practice have no dedicated chat reader and are reported as Not configured. The open Design package can read its use-case section; this is partial coverage, not global use-case discovery.
 
 ## Audit appendix: families
 
 | Family | Availability | Access path | Reason |
 | --- | --- | --- | --- |
 | project | supported | `get_project_details` | live read tool exists |
-| note | partial | `search_knowledge_base` | no ID-based paged reader; body may be truncated in the index |
-| library-document | partial | `search_library`, `find_files` | content capped; extraction completeness not recorded |
+| note | partial | `search_knowledge_base`; `read_knowledge_record` | paged stored-body reader; extraction/index completeness unmeasured |
+| library-document | partial | `search_library`, `find_files`, `read_knowledge_record` | bounded previews; paged stored-body reading; original extraction completeness unmeasured |
 | discover-article | partial | `inspect_discover_feed`, `search_knowledge_base` | dismissed/parked state needs explicit filters |
 | youtube | partial | `search_knowledge_base` | no transcript |
 | connected-activity | partial | `search_knowledge_base` | last-sync disclosure required |
@@ -135,7 +139,7 @@ Never included in any projection: tokens, passwords, signing material, connectio
 | chat | supported | `search_past_chats`, `read_past_chat` | targeted retrieval exists |
 | output-decision | partial | `read_output` | acceptance unknown |
 | memory | supported | `list_memories` | revoked memories stay excluded |
-| use-case | unavailable | none | no chat reader |
+| use-case | partial | `read_design_package` (open Design only) | open use-case section readable; no global discovery |
 | build | unavailable | none | no chat reader |
 | governance | unavailable | none | no chat reader |
 | podcast-content | partial | `get_content_pipeline` | partial tool coverage |
@@ -157,8 +161,8 @@ Never included in any projection: tokens, passwords, signing material, connectio
 | github-commit | connected-activity | partial | message/metadata only |
 | github-pr | connected-activity | partial | indexed text only |
 | github-issue | connected-activity | partial | indexed text only |
-| github-content-store | library-document | partial | files capped at ingestion |
-| github-doc | library-document | partial | files capped at ingestion |
+| github-content-store | library-document | partial | stored text can be paged; original extraction completeness unmeasured |
+| github-doc | library-document | partial | Markdown text indexed without a document-length cap; search previews are bounded |
 | graph-calendar | connected-activity | partial | entries as synced |
 | graph-todo | connected-activity | partial | items as synced |
 | podcast-episode | podcast-content | partial | episode text as indexed |

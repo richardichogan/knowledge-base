@@ -40,6 +40,7 @@ import { authSession } from '../services/authSession';
 import { DesignParent } from '../features/designs/DesignParent';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { AppDialog } from '../components/AppDialog';
+import { NoteEditorHost } from './NoteEditorHost';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -81,6 +82,7 @@ export const NotesPage: React.FC = () => {
   const [sparksPrompt, setSparksPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
   const [selectedId,       setSelectedId]       = useState<string | null>(null);
   const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
+  const [loadingNoteId, setLoadingNoteId] = useState<string | null>(null);
   const [mode,             setMode]             = useState<ViewMode>(() => {
     const view = readThinkLocation(searchParams)?.view;
     return view === 'designs' ? 'notes' : view ?? 'notes';
@@ -143,7 +145,7 @@ export const NotesPage: React.FC = () => {
   }, [notePages]);
   const noteTotal = notePages?.pages[0]?.total ?? 0;
   const selectDesign = (id: string, role?: string, assetId?: string): void => {
-    setSelectedDesign(id); setMode('notes'); setMobilePane('editor');
+    setSelectedDesign(id); setSelectedId(id); setMode('notes'); setMobilePane('editor');
     setSearchParams({ design: id, ...(role ? { tab: role } : {}), ...(assetId ? { asset: assetId } : {}) }, { replace: true });
   };
 
@@ -208,24 +210,24 @@ export const NotesPage: React.FC = () => {
   const latestSelectRef = useRef<string | null>(null);
 
   async function handleSelectNote(id: string): Promise<void> {
-    setSelectedDesign(null);
-    if (searchParams.has('design')) {
-      const next = new URLSearchParams(searchParams); next.delete('design'); next.delete('view');
-      setSearchParams(next, { replace: true });
-    }
     if (id === selectedId && openDoc?.id === id && openDoc.contentType !== 'design') return;
     latestSelectRef.current = id;
+    setLoadingNoteId(id);
     setSelectedId(id); // highlight immediately; the body follows
     try {
       const doc = await fetchNote(id);
       if (latestSelectRef.current !== id) return;
-      if (doc !== null) {
-        if (doc.contentType === 'design') { setOpenDoc(doc); selectDesign(doc.id); return; }
-        const parents = requireApiData(await api.designMembership('note', id));
-        if (latestSelectRef.current !== id) return;
-        if (parents.length === 1) { selectDesign(parents[0]!.parentNoteId, parents[0]!.role, id); return; }
-        if (parents.length > 1) { setChoiceSourceId(id); setParentChoices(parents); return; }
-        setOpenDoc(doc);
+      if (doc === null) throw new Error('The document is unavailable. Your current document has been kept open.');
+      if (doc.contentType === 'design') { setOpenDoc(doc); selectDesign(doc.id); return; }
+      const parents = requireApiData(await api.designMembership('note', id));
+      if (latestSelectRef.current !== id) return;
+      if (parents.length === 1) { selectDesign(parents[0]!.parentNoteId, parents[0]!.role, id); return; }
+      if (parents.length > 1) { setChoiceSourceId(id); setParentChoices(parents); return; }
+      setSelectedDesign(null);
+      setOpenDoc(doc);
+      if (searchParams.has('design')) {
+        const next = new URLSearchParams(searchParams); next.delete('design'); next.delete('view'); next.delete('tab'); next.delete('asset');
+        setSearchParams(next, { replace: true });
       }
     } catch (err) {
       console.error('[Think] Could not open note:', err);
@@ -233,6 +235,8 @@ export const NotesPage: React.FC = () => {
       latestSelectRef.current = openDoc?.id ?? null;
       setSelectedId(openDoc?.id ?? null);
       await alertDialog(err instanceof Error ? err.message : 'Could not open the note. Its saved content has not been changed.', { title: 'Could not open note', tone: 'danger' });
+    } finally {
+      setLoadingNoteId(current => current === id ? null : current);
     }
   }
 
@@ -434,8 +438,8 @@ export const NotesPage: React.FC = () => {
   }
 
   function handleNoteSaved(updated: NoteDocument): void {
-    setOpenDoc(updated);
-    if (updated.contentType === 'design') selectDesign(updated.id);
+    setOpenDoc(current => current?.id === updated.id ? updated : current);
+    if (updated.contentType === 'design' && latestSelectRef.current === updated.id) selectDesign(updated.id);
     // Show the accepted save immediately, then reconcile server ordering and filters.
     const preview = buildPreview(updated.contentJson, updated.title);
     const patchRow = (n: NoteListItem): NoteListItem => {
@@ -814,9 +818,10 @@ export const NotesPage: React.FC = () => {
           </div>
         ) : (
           <div className="notes-editor-area">
+            <NoteEditorHost enabled={selectedDesign !== null || openDoc !== null || loadingNoteId !== null} loading={loadingNoteId !== null}>
             {selectedDesign ? <DesignParent key={selectedDesign} id={selectedDesign} actionsSlot={docActionsSlot}
-              onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap} /> : openDoc !== null ? (
-              <NoteEditor key={openDoc.id} doc={openDoc} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }}
+              workspaceBusy={loadingNoteId !== null} onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap} /> : openDoc !== null ? (
+              <NoteEditor key={openDoc.id} doc={openDoc} externalBusy={loadingNoteId !== null} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }}
                 onPresent={getDesktop()?.presentation ? () => { void presentNote().catch(err => {
                   void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
                 }); } : undefined}
@@ -824,6 +829,7 @@ export const NotesPage: React.FC = () => {
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>
             )}
+            </NoteEditorHost>
           </div>
         )}
       </div>

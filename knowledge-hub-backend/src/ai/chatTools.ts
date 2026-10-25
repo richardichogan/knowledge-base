@@ -625,7 +625,11 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           "exist in the proposed Markdown. Tool acceptance verifies edit targets, not semantic completeness or a saved result. " +
           "Reference headings EXACTLY as they appear in the note. Write content as Markdown " +
           "(headings, lists, checklists '- [ ]', tables). A SMALL request gets the smallest edit that does the job " +
-          "(add_to_section or replace_text). But when he asks for a whole-note or many-section change — rewrite, redraft, expand " +
+          "(add_to_section or replace_text). Review, update, proofread and wording clean-up mean exact replace_text edits, preserving " +
+          "all existing formatting, lists, links, images and heading levels. The markdown field for replace_text is plain replacement text, " +
+          "not a newly formatted paragraph. Do not turn a request to fix your previous mistake into permission for a clean rewrite. " +
+          "Body edits never rename the note: retain its existing title heading, even during an authorised redraft. " +
+          "But when he explicitly asks for a whole-note or many-section change — rewrite, redraft, expand " +
           "every section, restructure, turn it into a fuller spec — do ALL of it in this turn: never change one section and offer " +
           "to do the rest later, and never ask permission to continue. BIG changes: write them section by section (one edit per section, each " +
           "under about 1,200 words). A very long rewrite can be several propose_note_edit calls in the same turn — each adds to " +
@@ -790,6 +794,7 @@ export async function executeToolCall(
   activeProjectId?: string,
   turn: {
     sessionId?: string | undefined; noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState; noteEdits?: NoteEditProposal[];
+    allowStructuralNoteEdits?: boolean | undefined;
     retrievalScope?: RetrievalScope | undefined; retrievalAudit?: RetrievalAudit | undefined;
     excludedIds?: ReadonlySet<string>;
     /** Exclusions could not be loaded: retrieval tools fail closed. Strict "only project X" scope is server-derived. */
@@ -1026,6 +1031,9 @@ export async function executeToolCall(
       const { edits, problems } = validateNoteEdits(args['edits']);
       if (problems.length > 0) return { error: `No edits proposed: ${problems.join('; ')}. Correct the whole edit batch and retry.` };
       if (edits.length === 0) return { error: `No valid edits: ${problems.join('; ') || 'edits array was empty'}` };
+      if (turn.allowStructuralNoteEdits === false && edits.some(edit => edit.action !== 'replace_text')) {
+        return { error: 'No edits proposed. This is a wording/review correction, not permission to rewrite or reformat the note. Use unique exact replace_text edits with plain replacement text. Preserve headings, title, rich formatting, links, lists, images and all untouched content.' };
+      }
       // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.
       const blocks = await loadNoteBlocks(db, turn.noteId);
       if (blocks !== null) {
@@ -1034,7 +1042,7 @@ export async function executeToolCall(
         if (mismatches.length > 0) {
           return {
             error: `Not proposed — these edits don't match the note: ${mismatches.join('; ')}. Call propose_note_edit again ` +
-              'using the exact headings below, copying any "find" text exactly from one paragraph — or use replace_all for a full rewrite.',
+              'using the exact headings below and copying unique "find" text exactly from one paragraph. Do not switch to a full rewrite to bypass a target mismatch.',
             headingsInNote: noteHeadings(blocks),
           };
         }

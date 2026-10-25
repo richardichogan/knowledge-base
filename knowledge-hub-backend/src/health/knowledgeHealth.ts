@@ -184,20 +184,29 @@ async function retrievalQualitySection(db: Pool, filters: HealthFilters, start: 
   };
 }
 
-export interface TurnReviewRow { reviewDate: string; turns: number; categoryCounts: unknown; rates: unknown; worstTurns: unknown; flags: unknown }
-export interface TurnReviewSection { latest: TurnReviewRow | null; trend: TurnReviewRow[] }
+export interface TurnReviewRow { reviewDate: string; environment: string | null; turns: number; categoryCounts: unknown; rates: unknown; worstTurns: unknown; flags: unknown }
+export interface TurnReviewSection { latest: TurnReviewRow | null; trend: TurnReviewRow[]; note: string }
 
 const TREND_DAYS = 7;
 
-async function turnReviewSection(db: Pool): Promise<TurnReviewSection> {
+async function turnReviewSection(db: Pool, filters: HealthFilters): Promise<TurnReviewSection> {
   const { rows } = await db.query(
-    `SELECT to_char(review_date, 'YYYY-MM-DD') AS review_date, turns, category_counts, rates, worst_turns, flags
-     FROM knowledge_daily_review ORDER BY review_date DESC LIMIT ${TREND_DAYS}`);
+    `SELECT to_char(review_date, 'YYYY-MM-DD') AS review_date, to_jsonb(r)->>'environment' AS environment,
+       turns, category_counts, rates, worst_turns, flags
+     FROM knowledge_daily_review r
+     WHERE to_jsonb(r)->>'environment' = $1 OR to_jsonb(r)->>'environment' IS NULL
+     ORDER BY review_date DESC LIMIT ${TREND_DAYS}`, [filters.environment]);
   const trend = (rows as Array<Record<string, unknown>>).map((r) => ({
-    reviewDate: String(r['review_date']), turns: num(r['turns']), categoryCounts: r['category_counts'], rates: r['rates'],
-    worstTurns: r['worst_turns'], flags: r['flags'],
+    reviewDate: String(r['review_date']), environment: typeof r['environment'] === 'string' ? r['environment'] : null,
+    turns: num(r['turns']), categoryCounts: r['category_counts'], rates: r['rates'],
+    worstTurns: Array.isArray(r['worst_turns'])
+      ? (r['worst_turns'] as Array<{ category?: string }>).filter(turn => turn.category !== 'no_retrieval') : r['worst_turns'],
+    flags: { ...(r['flags'] as Record<string, unknown>), noRetrievalRate: false },
   }));
-  return { latest: trend[0] ?? null, trend };
+  return {
+    latest: trend[0] ?? null, trend,
+    note: 'Nightly snapshots cover whole days and all chat personas, not the usage date/persona filters. New snapshots include attributed production turns only. Older snapshots with environment null may mix local tests, production and unattributed turns; they are not production accuracy scores. No-retrieval rates remain informational and do not raise failure flags or rank a turn among the worst. Other categories are review heuristics, not proof that an answer was wrong.',
+  };
 }
 
 function dayStart(value: string): number {
@@ -334,7 +343,35 @@ async function indexSection(db: Pool): Promise<IndexSection> {
 // Optional tables added by later migrations; absent tables are reported as "not measured", never as zero.
 const INDEXING_WORK_TABLES = ['knowledge_indexing_work'] as const; // migration 089
 const DECISION_TABLES = ['semantic_edges'] as const; // migration 090 (decision relationships; acceptance lives on chat_decisions)
-const INGESTION_BODY_CAP = 8000;
+// Match ingestion limits, not the unrelated size of search previews.
+const INGESTION_BODY_CAP_SQL = `CASE
+  WHEN source = 'onedrive-document' THEN 250000
+  WHEN source = 'ica-document' THEN 20000
+  WHEN source = 'email' THEN 5000
+  ELSE NULL END`;
+const SYNC_CONTENT_SOURCES: Record<string, string[]> = {
+  'graph-mail': ['email'],
+  'alliance-mail': ['email'],
+  'ica-collections': ['ica-document'],
+  'onedrive-documents': ['onedrive-document'],
+  'project-docs': ['github-doc'],
+  'github-content-store': ['github-content-store'],
+  'discovered-articles': ['discovered-article'],
+  'gitlab-commits': ['gitlab-commit'],
+  'gitlab-mrs': ['gitlab-mr'],
+  'gitlab-issues': ['gitlab-issue'],
+  'gitlab-pipelines': ['gitlab-pipeline'],
+  'gitlab-releases': ['gitlab-release'],
+  'gitlab-deployments': ['gitlab-deployment'],
+  'github-commits': ['github-commit'],
+  'github-prs': ['github-pr'],
+  'github-issues': ['github-issue'],
+  'github-actions': ['github-action'],
+  'github-releases': ['github-release'],
+  'github-deployments': ['github-deployment'],
+  'github-pr-reviews': ['github-pr-review'],
+  cms: ['cms-blog', 'cms-newsletter', 'cms-podcast-show-notes', 'cms-session-summary'],
+};
 const SOURCE_ROW_LIMIT = 100;
 const PENDING_STATUSES = new Set(['pending', 'queued', 'leased', 'retry', 'running']);
 const FAILED_STATUSES = new Set(['failed', 'dead', 'error']);
@@ -397,7 +434,7 @@ async function familiesSection(db: Pool, options: KnowledgeHealthOptions): Promi
   const [sourceRows, runRows, work, decisionTable] = await Promise.all([
     db.query(`SELECT source, COUNT(*)::int AS items,
         COUNT(*) FILTER (WHERE body = '')::int AS metadata_only,
-        COUNT(*) FILTER (WHERE length(body) >= ${INGESTION_BODY_CAP})::int AS at_cap,
+        COUNT(*) FILTER (WHERE length(body) >= (${INGESTION_BODY_CAP_SQL}))::int AS at_cap,
         MAX(indexed_at) AS last_indexed_at
       FROM content_items GROUP BY source LIMIT ${SOURCE_ROW_LIMIT}`),
     db.query(`SELECT status, finished_at, results FROM sync_runs ORDER BY started_at DESC, id DESC LIMIT ${RUN_LIMIT}`).catch(() => ({ rows: [] })),
@@ -411,6 +448,7 @@ async function familiesSection(db: Pool, options: KnowledgeHealthOptions): Promi
   }
   // Latest run that mentioned a source decides whether that source is currently erroring.
   const latestErrors = new Map<string, boolean>();
+  const latestSyncKeys = new Set<string>();
   let lastSuccessfulSyncAt: string | null = null;
   const failedRunCategories = new Set<string>();
   for (const row of runRows.rows) {
@@ -419,7 +457,12 @@ async function familiesSection(db: Pool, options: KnowledgeHealthOptions): Promi
     if (r.status === 'failed') failedRunCategories.add('sync-run-failed');
     for (const result of Array.isArray(r.results) ? r.results as Array<Record<string, unknown>> : []) {
       const key = String(result['source'] ?? '');
-      if (key !== '' && !latestErrors.has(key)) latestErrors.set(key, num(result['errors']) > 0);
+      if (key !== '' && !latestSyncKeys.has(key)) {
+        latestSyncKeys.add(key);
+        for (const source of SYNC_CONTENT_SOURCES[key] ?? [key]) {
+          latestErrors.set(source, latestErrors.get(source) === true || num(result['errors']) > 0);
+        }
+      }
     }
   }
   const families: FamilyHealth[] = KNOWLEDGE_FAMILIES.map((family) => {
@@ -465,7 +508,7 @@ export async function getKnowledgeHealth(
     guarded(() => syncSection(db)),
     guarded(() => indexSection(db)),
     guarded(() => familiesSection(db, options)),
-    guarded(() => turnReviewSection(db)),
+    guarded(() => turnReviewSection(db, filters)),
     filters.deployment !== null
       ? Promise.resolve<Section<RetrievalQuality>>({ available: false, message: 'Turn quality has no per-deployment attribution. Clear the deployment filter to review it.' })
       : guarded(() => retrievalQualitySection(db, filters, start, end)),

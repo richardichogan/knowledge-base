@@ -12,14 +12,14 @@ const personas: AthenaPersona[] = [
 
 test('an ambiguous in-view opinion asks concept versus specification before work, without mistaking UI markers for intent', async () => {
   const page = { type: 'note', title: 'Walking briefing', detail: 'A source-grounded briefing that resumes after interruptions.' };
-  for (const user of ['what do you think?', '[Viewing note: "Walking briefing"]\nwhat do you think?', 'Your thoughts?', 'Review this.']) {
+  for (const user of ['what do you think?', '[Viewing note: "Walking briefing"]\nwhat do you think?', 'Your thoughts?']) {
     assert.equal(inViewReviewScope(user, page), 'clarify', user);
   }
   assert.equal(dialogueTurnMode([], '[Viewing note: "Walking briefing"]\nwhat do you think?'), 'explore');
   assert.equal(dialogueTurnMode([], '[Viewing note: "Walking briefing"]\nRewrite this sentence.'), 'deliver');
   const question = 'Do you want a quick reaction to the concept or a full review of the specification?';
   const history: ConversationMessage[] = [{ role: 'assistant', content: question }];
-  for (const user of ['The latter.', 'Full review please.', 'The second.']) {
+  for (const user of ['The latter.', 'Full review please.', 'The second.', 'review']) {
     assert.equal(inViewReviewScope(user, page, history), 'specification');
     const messages = await assembleMessages(SYNTHETIC_DIALOGUE_CONTEXT, history, user, 'general', page);
     assert.match(messages.at(-2)!.content, /Current turn: explicit delivery request/);
@@ -39,8 +39,14 @@ test('an ambiguous in-view opinion asks concept versus specification before work
     'referenced material must be retrieved before continuing the discussion');
   assert.equal(inViewReviewScope('what do you think?', undefined), undefined);
   assert.equal(inViewReviewScope('Full review of this specification.', page), 'specification');
+  assert.equal(inViewReviewScope('Review this.', page), 'specification');
+  assert.equal(inViewReviewScope('can you pease review so far, expand on areas that may not make sense and review the language, our guests spoeak bulgarian and spanish, but limited english', page), 'specification');
+  assert.equal(inViewReviewScope('Review the language for guests with limited English.', { ...page, title: 'House Manual' }), 'specification');
   assert.equal(inViewReviewScope('A quick concept review.', page), 'concept');
   assert.equal(inViewReviewScope('Review this in full.', page), 'specification');
+  assert.equal(inViewReviewScope('review', page, [
+    { role: 'assistant', content: 'Do you want a quick reaction, or a detailed review of the document?' },
+  ]), 'specification');
   for (const scope of ['concept', 'specification'] as const) {
     const agreed: ConversationMessage[] = [
       { role: 'user', content: `[Viewing note: "Walking briefing"]\nA ${scope === 'concept' ? 'quick concept' : 'full'} review please.` },
@@ -58,6 +64,17 @@ test('an ambiguous in-view opinion asks concept versus specification before work
   assert.ok(dialogueRepairInstruction([], 'what do you think?', 'It is good. Build a runtime design next.', 'clarify'));
   assert.equal(dialogueRepairInstruction(history, 'The latter.', 'Detailed critique. '.repeat(200), 'specification'), null,
     'a requested full review must not be shortened back into an interview');
+});
+
+test('casual conversation and runtime questions do not search saved records', () => {
+  for (const message of ['are you working', 'why did that take so long?', 'do you have a personality?', '[Viewing note: "Untitled"]\nhello']) {
+    assert.equal(isDialogueOnlyTurn([], message), true, message);
+  }
+  for (const message of ['Find my personality notes.', 'Are you working on the project tasks?', 'Review the boiler instructions.']) {
+    assert.equal(isDialogueOnlyTurn([], message), false, message);
+  }
+  assert.equal(isDialogueOnlyTurn([{ role: 'assistant', content: 'Save the agreed note now?' }], 'yes'), false,
+    'an action confirmation must retain its tools');
 });
 
 for (const persona of personas) {

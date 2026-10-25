@@ -15,7 +15,30 @@ type Block = any;
 function inlineText(block: Block): string {
   const content: unknown = block?.content;
   if (!Array.isArray(content)) return '';
-  return content.map((c: { text?: string }) => c.text ?? '').join('');
+  return content.map((c: { text?: string; content?: unknown }) => c.text ?? inlineText({ content: c.content })).join('');
+}
+
+function replaceInlineText(content: Block[], find: string, replacement: string): Block[] {
+  const text = inlineText({ content });
+  const start = text.indexOf(find);
+  const end = start + find.length;
+  let offset = 0;
+  let inserted = false;
+  const visit = (items: Block[]): Block[] => items.map(item => {
+    if (item.type === 'link' && Array.isArray(item.content)) return { ...item, content: visit(item.content) };
+    if (item.type !== 'text' || typeof item.text !== 'string') {
+      throw new Error('This passage contains embedded content. Select a plain text passage instead.');
+    }
+    const from = offset;
+    offset += item.text.length;
+    if (offset <= start || from >= end) return item;
+    const prefix = item.text.slice(0, Math.max(0, start - from));
+    const suffix = item.text.slice(Math.max(0, end - from));
+    const insert = inserted ? '' : replacement;
+    inserted = true;
+    return { ...item, text: prefix + insert + suffix };
+  });
+  return visit(content);
 }
 
 /** Bounded visual edits must never fall back to a fuzzy match or flatten rich blocks. */
@@ -108,9 +131,10 @@ function parse(editor: Editor, markdown: string): Block[] {
   return editor.tryParseMarkdownToBlocks(withParagraphBreaks(markdown.trim())) as Block[];
 }
 
-function applyOne(editor: Editor, edit: NoteEdit): void {
+function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined): void {
   const blocks = editor.document as Block[];
   const md = edit.markdown ?? '';
+  const titleId = titleBlock?.id;
   switch (edit.action) {
     case 'append': {
       const last = blocks[blocks.length - 1];
@@ -135,6 +159,7 @@ function applyOne(editor: Editor, edit: NoteEdit): void {
     case 'replace_section': {
       const i = findHeading(blocks, edit.heading ?? '');
       if (i < 0) throw new Error(`Section “${edit.heading ?? ''}” not found`);
+      if (blocks[i].id === titleId) throw new Error('Athena body edits cannot replace the note title. Edit the title directly.');
       const body = sectionBody(blocks, i);
       const replacement = parse(editor, withoutLeadingHeading(md, edit.heading));
       // If the new content brings its own heading, replace the heading too.
@@ -150,25 +175,29 @@ function applyOne(editor: Editor, edit: NoteEdit): void {
     case 'delete_section': {
       const i = findHeading(blocks, edit.heading ?? '');
       if (i < 0) throw new Error(`Section “${edit.heading ?? ''}” not found`);
+      if (blocks[i].id === titleId) throw new Error('Athena body edits cannot delete the note title.');
       editor.removeBlocks([blocks[i], ...sectionBody(blocks, i)]);
       return;
     }
     case 'replace_all': {
       // A full redraft: the whole note body becomes the new content (one ⌘Z step with the rest).
       const replacement = parse(editor, md);
-      if (replacement.length > 0) editor.replaceBlocks(blocks, replacement);
+      if (replacement.length > 0) {
+        if (titleBlock !== undefined) {
+          if (replacement[0]?.type === 'heading' && norm(inlineText(replacement[0])) === norm(inlineText(titleBlock))) replacement.shift();
+          editor.replaceBlocks(blocks, [titleBlock, ...replacement]);
+        } else editor.replaceBlocks(blocks, replacement);
+      }
       return;
     }
     case 'replace_text': {
       const find = edit.find ?? '';
-      const target = flatten(blocks).find((b) => inlineText(b).includes(find))
-        ?? flatten(blocks).find((b) => norm(inlineText(b)).includes(norm(find)));
-      if (target === undefined) throw new Error(`Text “${find.slice(0, 60)}” not found`);
-      const current = editor.blocksToMarkdownLossy([target]);
-      const updated = current.includes(find)
-        ? current.replace(find, md)
-        : inlineText(target).replace(find, md);
-      editor.replaceBlocks([target], parse(editor, updated));
+      const matches = flatten(blocks).filter(b => inlineText(b).includes(find));
+      const target = matches[0];
+      if (!find || matches.length !== 1 || inlineText(target).split(find).length !== 2) throw new Error('The passage is missing or no longer unique. Ask Athena for a current, exact text edit.');
+      if (target.id === titleId) throw new Error('Athena body edits cannot rename the note. Edit its title directly.');
+      if (/[\r\n]/.test(md)) throw new Error('Text edits must stay within the existing paragraph or list item.');
+      editor.updateBlock(target, { content: replaceInlineText(target.content, find, md) });
       return;
     }
   }
@@ -181,10 +210,11 @@ function applyOne(editor: Editor, edit: NoteEdit): void {
 export function applyNoteEdits(editor: Editor, edits: NoteEdit[]): { applied: number; failed: string[] } {
   const failed: string[] = [];
   let applied = 0;
+  const titleBlock = (editor.document as Block[]).find(block => block.type === 'heading' && inlineText(block).trim());
   const run = (): void => {
     for (const edit of edits) {
       try {
-        applyOne(editor, edit);
+        applyOne(editor, edit, titleBlock);
         applied++;
       } catch (err) {
         failed.push(`${edit.summary}: ${err instanceof Error ? err.message : String(err)}`);

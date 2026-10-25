@@ -21,6 +21,7 @@ async function migratedDb(): Promise<PGlite> {
   const db = new PGlite();
   await db.exec(await readFile(new URL('../src/db/migrations/092_knowledge_turn_audit.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../src/db/migrations/096_retrieval_scope_audit.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../src/db/migrations/109_knowledge_review_environment.sql', import.meta.url), 'utf8'));
   return db;
 }
 
@@ -78,7 +79,9 @@ test('review flags follow the thresholds', () => {
   assert.equal(critical.flags.criticalRate, true);
   assert.equal(critical.worstTurns.length, 6);
   const noRet = buildDailyReview([...mk('ok', 89), ...mk('no_retrieval', 11)]);
-  assert.equal(noRet.flags.noRetrievalRate, true);
+  assert.equal(noRet.flags.noRetrievalRate, false);
+  assert.equal(noRet.rates.noRetrievalRate, 0.11, 'retain the informational metric');
+  assert.equal(noRet.worstTurns.length, 0, 'conversation alone is not a failed turn');
   const abstain = buildDailyReview([...mk('ok', 94), ...mk('wrong_abstain', 6)]);
   assert.equal(abstain.flags.abstainWithEvidence, true);
   assert.equal(buildDailyReview([...mk('tool_error', 30)]).worstTurns.length, 10);
@@ -89,12 +92,14 @@ test('nightly job aggregates yesterday, upserts, and prunes rows older than 90 d
   const now = new Date('2026-06-10T02:00:00Z');
   assert.equal(yesterdayUtc(now), '2026-06-09');
   const insert = (at: string, category: string) => db.query(
-    'INSERT INTO knowledge_turn_audit (created_at, category, session_id) VALUES ($1, $2, $3)', [at, category, 'sess']);
+    "INSERT INTO knowledge_turn_audit (created_at, category, session_id, environment) VALUES ($1, $2, $3, 'prod')", [at, category, 'sess']);
   for (let i = 0; i < 6; i++) await insert('2026-06-09T10:00:00Z', 'ok');
   await insert('2026-06-09T11:00:00Z', 'bad_citation');
   await insert('2026-06-08T23:59:00Z', 'tool_error');
   await insert('2026-06-10T00:30:00Z', 'tool_error');
   await insert('2026-03-01T10:00:00Z', 'ok');
+  await db.query(`INSERT INTO knowledge_turn_audit (created_at, category, environment)
+    VALUES ('2026-06-09T12:00:00Z', 'tool_error', 'dev'), ('2026-06-09T12:00:00Z', 'tool_error', NULL)`);
   const review = await runKnowledgeNightlyReviewJob(db as unknown as Pool, now);
   assert.equal(review.turns, 7);
   assert.equal(review.categoryCounts['bad_citation'], 1);
@@ -104,8 +109,10 @@ test('nightly job aggregates yesterday, upserts, and prunes rows older than 90 d
   const reviews = await db.query<{ turns: number; worst_turns: Array<{ category: string }> }>('SELECT turns, worst_turns FROM knowledge_daily_review');
   assert.equal(reviews.rows.length, 1);
   assert.equal(reviews.rows[0]?.worst_turns[0]?.category, 'bad_citation');
+  const snapshot = await db.query<{ environment: string }>('SELECT environment FROM knowledge_daily_review');
+  assert.equal(snapshot.rows[0]?.environment, 'prod');
   const left = await db.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM knowledge_turn_audit');
-  assert.equal(left.rows[0]?.n, 9);
+  assert.equal(left.rows[0]?.n, 11);
 });
 
 test('health turnReview section is isolated and reports latest plus trend', async () => {
@@ -114,6 +121,9 @@ test('health turnReview section is isolated and reports latest plus trend', asyn
   const missing = await getKnowledgeHealth(empty as unknown as Pool, filters, new Date('2026-06-10T10:00:00Z'));
   assert.equal(missing.turnReview.available, false);
   assert.equal(missing.usage.available, false);
+  await empty.exec(await readFile(new URL('../src/db/migrations/092_knowledge_turn_audit.sql', import.meta.url), 'utf8'));
+  const legacySchema = await getKnowledgeHealth(empty as unknown as Pool, filters);
+  assert.equal(legacySchema.turnReview.available, true, 'production-data development does not automatically migrate schema');
 
   const db = await migratedDb();
   for (const day of ['2026-06-07', '2026-06-08', '2026-06-09']) {
@@ -123,6 +133,8 @@ test('health turnReview section is isolated and reports latest plus trend', asyn
   assert.ok(health.turnReview.available);
   assert.equal(health.turnReview.data.latest?.reviewDate, '2026-06-09');
   assert.equal(health.turnReview.data.trend.length, 3);
+  assert.equal(health.turnReview.data.latest?.environment, null, 'legacy snapshots remain explicitly unattributed');
+  assert.match(health.turnReview.data.note, /may mix local tests/);
 });
 
 test('Health reports scope/time/recovery signals without treating legacy or no-retrieval turns as accuracy failures', async () => {

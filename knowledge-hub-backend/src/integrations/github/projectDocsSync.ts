@@ -18,6 +18,7 @@ import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import { NOTE_SUMMARY_MAX_LENGTH } from '../../config/constants.js';
 import type { ContentItem } from '../../types/contentItem.js';
 import { publishedNotePaths, removePublishedNoteCopies } from '../../services/githubDocumentIdentity.js';
+import { normalizeGitHubRepository } from './projectContext.js';
 
 const SOURCE: ContentItem['source'] = 'github-doc';
 
@@ -43,6 +44,7 @@ interface GitBlob {
 interface GitRef {
   object: { sha: string };
 }
+interface Repository { default_branch: string }
 
 interface GitCommit {
   commit: { committer: { date: string } };
@@ -94,20 +96,23 @@ export async function syncProjectDocs(
   const client = new GitHubClient();
 
   for (const project of result.rows) {
-    for (const repo of project.github_repos) {
-      const notePaths = await publishedNotePaths(db, repo);
-      await removePublishedNoteCopies(db, repo);
+    for (const configuredRepo of project.github_repos) {
+      let repo: string;
+      let branch: string;
       let headSha: string;
       try {
-        const ref = await client
-          .get<GitRef>(`/repos/${repo}/git/ref/heads/main`)
-          .catch(() => client.get<GitRef>(`/repos/${repo}/git/ref/heads/master`));
+        repo = normalizeGitHubRepository(configuredRepo);
+        const repository = await client.get<Repository>(`/repos/${repo}`);
+        branch = repository.default_branch;
+        const ref = await client.get<GitRef>(`/repos/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
         headSha = ref.object.sha;
-      } catch {
-        console.warn(`[project-docs] Could not resolve HEAD for ${repo} — skipping`);
+      } catch (error) {
+        console.error(`[project-docs] Could not resolve a repository for ${project.name}: ${error instanceof Error ? error.message : String(error)}`);
         errors++;
         continue;
       }
+      const notePaths = await publishedNotePaths(db, repo);
+      await removePublishedNoteCopies(db, repo);
 
       let tree: GitTree;
       try {
@@ -115,10 +120,14 @@ export async function syncProjectDocs(
           `/repos/${repo}/git/trees/${headSha}`,
           { recursive: '1' },
         );
-      } catch {
-        console.warn(`[project-docs] Could not fetch tree for ${repo} — skipping`);
+      } catch (error) {
+        console.error(`[project-docs] Could not fetch tree for ${repo}: ${error instanceof Error ? error.message : String(error)}`);
         errors++;
         continue;
+      }
+      if (tree.truncated) {
+        console.error(`[project-docs] ${repo}: GitHub returned a truncated tree; document coverage is incomplete.`);
+        errors++;
       }
 
       // All .md files in the repo
@@ -136,7 +145,7 @@ export async function syncProjectDocs(
           try {
             const commits = await client.get<GitCommit[]>(
               `/repos/${repo}/commits`,
-              { path: blob.path, per_page: '1' },
+              { path: blob.path, sha: headSha, per_page: '1' },
             );
             if (commits.length > 0 && commits[0]) {
               publishedAt = commits[0].commit.committer.date;
@@ -163,7 +172,7 @@ export async function syncProjectDocs(
             summary,
             body: plainBody,
             publishedAt,
-            url: `https://github.com/${repo}/blob/main/${blob.path}`,
+            url: `https://github.com/${repo}/blob/${encodeURIComponent(branch)}/${blob.path.split('/').map(encodeURIComponent).join('/')}`,
             projectContext: project.id,
             metadata: {
               repo,

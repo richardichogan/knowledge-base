@@ -138,17 +138,15 @@ export async function runShareEmailChecks(): Promise<string[]> {
   await waitFor(() => composerText().includes('Fixture response lost'));
   check((document.getElementById('share-email-to') as HTMLInputElement).disabled, 'Ambiguous request is frozen for exact retry');
   button('Check / retry same request').click();
-  await waitFor(() => composerText().includes('confirms submission, not inbox delivery'));
+  await waitFor(() => !open());
   check(JSON.stringify(attempts[1]) === JSON.stringify(attempts[2]), 'Explicit retry preserves exact request ID and payload');
   check(smtpSubmissions === 1, 'Lost-response retry does not create another SMTP submission');
-  button('Done').click();
-  await waitFor(() => !open());
   button('Share draw.io fixture').click();
   await waitFor(() => composerText().includes('test.drawio'));
   field('share-email-to', 'one@example.com, two@example.com');
   await new Promise(resolve => setTimeout(resolve, 20));
   button('Send email').click();
-  await waitFor(() => composerText().includes('rejected 1'));
+  await waitFor(() => composerText().includes('1 rejected'));
   check(attempts[3]?.attachment?.xml === '<mxfile><diagram /></mxfile>' && !attempts[3]?.url, 'Composer sends reviewed draw.io attachment without inventing a link');
   check(getComputedStyle(document.querySelector('.share-email input')!).backgroundColor !== 'rgba(0, 0, 0, 0)', 'Composer inputs use intentional themed styling');
   return ['Settings recover from failure and never expose saved passwords', 'Connection verification sends no email',

@@ -21,8 +21,8 @@ type Tab = typeof TABS[number]['role'];
 const isTab = (value: string | null): value is Tab => TABS.some(tab => tab.role === value);
 
 export const DesignParent: React.FC<{
-  id: string; actionsSlot: HTMLElement | null; onOpenNote: (id: string) => void; onOpenMap: (id: string) => void;
-}> = ({ id, actionsSlot, onOpenNote, onOpenMap }) => {
+  id: string; actionsSlot: HTMLElement | null; workspaceBusy?: boolean; onOpenNote: (id: string) => void; onOpenMap: (id: string) => void;
+}> = ({ id, actionsSlot, workspaceBusy = false, onOpenNote, onOpenMap }) => {
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const initialTab = params.get('tab');
@@ -34,7 +34,7 @@ export const DesignParent: React.FC<{
   const [switching, setSwitching] = useState(false);
   const [visualBusy, setVisualBusy] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
-  const busy = visualBusy || chatBusy;
+  const busy = visualBusy || chatBusy || workspaceBusy;
   const chatBusyRef = useRef(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const noteSave = useRef<(() => Promise<boolean>) | null>(null);
@@ -139,9 +139,6 @@ export const DesignParent: React.FC<{
   if (query.isLoading) return <p className="kh-design-loading" role="status">Loading Design...</p>;
   if (!design) return <p className="kh-design-loading kh-uc-error" role="alert">{describeApiError(query.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void query.refetch(); }}>Retry</button></p>;
   const chrome = <div className="kh-design-chrome">
-    <div className="kh-design-links">
-      <p className="kh-design-context">Design: <strong>{design.title}</strong> · Properties: {asset?.available ? asset.title : design.title}</p>
-    </div>
     <div className="kh-design-tabs" role="tablist" aria-label="Design documents" ref={tabsRef} onKeyDown={event => {
       const index = TABS.findIndex(item => item.role === tab);
       const next = event.key === 'ArrowRight' ? (index + 1) % 4 : event.key === 'ArrowLeft' ? (index + 3) % 4 : event.key === 'Home' ? 0 : event.key === 'End' ? 3 : null;
@@ -170,7 +167,7 @@ export const DesignParent: React.FC<{
     {!document.data ? <>{chrome}<p className="kh-design-loading" role={document.isError ? 'alert' : 'status'}>
       {document.isError ? describeApiError(document.error) : 'Loading original document...'}
       {document.isError && <button className="kh-btn-ghost" type="button" onClick={() => { void document.refetch(); }}>Retry</button>}</p></>
-      : <NoteEditor key={`${document.data.id}:${editorEpoch}`} doc={document.data} onSaved={saved} actionsSlot={actionsSlot} externalBusy={busy}
+      : <NoteEditor key={`${document.data.id}:${editorEpoch}`} doc={document.data} onSaved={saved} actionsSlot={actionsSlot} externalBusy={busy || switching} loading={switching}
         hideProperties={asset?.sourceType === 'canvas' && asset.available}
         htmlViewEnabled={tab === 'spec'}
         onOpenMap={onOpenMap} onSaveReady={registerSave} onBeforeViewChange={prepare} headerContent={chrome}

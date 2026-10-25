@@ -63,7 +63,8 @@ export const ShareEmailModal: React.FC<{ content: ShareEmailContent; onClose: ()
         if (response.error.code === 'VALIDATION_ERROR') { attempt.current = null; setAttempted(false); }
         throw new Error(response.error.message);
       }
-      setResult(response.data);
+      if (response.data.rejected === 0) onClose();
+      else setResult(response.data);
     } catch (err) {
       if (isAxiosError(err) && err.response?.status === 422) { attempt.current = null; setAttempted(false); }
       setError(`${describeApiError(err)}${attempt.current ? ' Check SMTP2GO activity and any Mural invitations before composing a new copy.' : ''}`);
@@ -138,7 +139,7 @@ export const ShareEmailModal: React.FC<{ content: ShareEmailContent; onClose: ()
         {content.attachment && <p>Attachment: {content.attachment.filename} ({Math.ceil(new Blob([content.attachment.xml]).size / 1024)} KiB)</p>}
         {content.url?.includes('github.com/') && <p>This link shows the published GitHub version, which may differ from unsaved or unpublished Think edits.</p>}
       </div>
-      {busy && <p role="status">{muralBoard && muralAccess !== 'none' ? 'Requesting Mural invitations, then sending once through SMTP2GO.' : 'Sending once through SMTP2GO.'} Do not close this window.</p>}
+      {busy && <p role="status">{muralBoard && muralAccess !== 'none' ? 'Inviting recipients and sending email...' : 'Sending email...'} Do not close this window.</p>}
       {result?.muralInvited !== undefined && <p role="status">Mural confirmed {result.muralInvited} invitation(s). This is not confirmation that recipients have accepted or opened the board.</p>}
       {result && <p role={result.rejected ? 'alert' : 'status'}>
         {result.rejected

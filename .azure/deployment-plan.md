@@ -2,6 +2,38 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-25, Athena edits, health and stable Notes shell):**
+- User requested fixes, deployment, merge and remote push. Application-only
+  release to the existing production targets; no provisioning or access changes.
+- `git fetch origin && git merge origin/main`: already current at `54b5e10`.
+  Azure account confirmed Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`), current backend v248, identity None.
+- All validation checks pass:
+  - [x] Both `npx tsc --noEmit` checks passed after final changes.
+  - [x] Both lint non-regression checks passed: backend 552/623, web 22/41.
+  - [x] Backend isolated release suite: 565/567 initially; affected
+    focused-context/dialogue rerun passed 41/41 after fixing the mock hook and
+    a possessive-pattern false match in ordinary-note reviews.
+  - [x] Frontend isolated suite passed 225/225 plus 36/36 bundled checks.
+    Affected live desktop fixtures passed: persistent Design/ordinary-note
+    controls and chat identity, operative Actions, preserved Design draft;
+    fake email sends close on full acceptance and retain partial failures.
+  - [x] Both production builds passed. Final web build includes the shared
+    88px Athena ribbon loading state, not the AI-thinking mood.
+  - [x] `git diff --check` passed. Dockerfile/lockfile unchanged; migration109
+    adds nullable review environment and leaves historical records unattributed.
+- Established Azure CLI recipe: CLI/authentication checked; existing app
+  targets only. Bicep/template/what-if/policy provisioning, new Docker context
+  and RBAC changes are not applicable. Existing ACR secret-reference auth stays.
+- Notes shell owns shared controls; only the document loads. Removed the
+  redundant Design/Properties banner. Existing unrelated type-ramp/shadow hook
+  findings were not introduced by this release and remain unchanged.
+- External ICA key, mailbox403 and repository404 access failures remain visible;
+  no credentials, mappings, production switches or permissions changed.
+- Push identical source to feature and main; build v249 from GitHub main,
+  deploy backend/frontend, verify revision/startup and served asset identity.
+  Preserve unrelated `.impeccable/hook.cache.json`.
+
 **Release scope and Section 7: Validation Proof (2026-10-25, Designs and note email):**
 - User explicitly requested deployment of the completed native Design workflow,
   Design-aware Athena tools, grouped Notes list, document review and formatted

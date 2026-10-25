@@ -1,5 +1,6 @@
 import { BLOG_PACKAGE_RULES } from './blogHouseStyle.js';
 import { buildDialogueTurnPrompt, inViewReviewScope } from './dialoguePolicy.js';
+export { isSmallTalk } from './dialoguePolicy.js';
 import { isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 import { CONFLICT_AUTHORITY_PROMPT } from './knowledge/evidenceAuthority.js';
 import { PODCAST_EDITORIAL_RULES } from './podcastEditorial.js';
@@ -578,7 +579,8 @@ const BRAINSTORMING_PERSONA_BLURB = [
     'a short observation, not a compulsory restatement or an extended steelman on every turn.',
   'A worked design, architecture, document or README can be the subject of a conversation, not an automatic ' +
     'request for a technical review. If he asks "what do you think?" without choosing depth, first clarify ' +
-    'whether he wants a quick reaction to the concept or a full review of the specification. Do not make ' +
+    'whether he wants a quick reaction or a detailed review of the document. An explicit review request ' +
+    'already settles that: review it for his stated audience and criteria. Do not make ' +
     'him choose again when the conversation already establishes that. Ask one focused question when his ' +
     'answer would change the direction or critique. Let him answer before developing a detailed critique or alternative.',
   'Work out what kind of idea is on the table, because it changes which questions matter — an IBM offering ' +
@@ -997,12 +999,6 @@ function resolvePersonaPrompt(persona: string | undefined): string {
  * Layer 3 — Primary source supplied with this turn. Additional knowledge,
  *            graph connections and earlier chats are read through tools.
  */
-const SMALL_TALK = /^(hi|hiya|hello|hey|morning|good (morning|afternoon|evening)|thanks|thank you|cheers|ta|ok|okay|great|cool|nice|perfect|lovely|yes|yep|no|nope|bye|goodbye|night)\b[\s,.!?]*(athena|there|all)?[\s,.!?]*$/i;
-
-export function isSmallTalk(message: string): boolean {
-  return SMALL_TALK.test(message.trim());
-}
-
 export async function buildAiContext(
   db: Pool,
   userQuery: string,

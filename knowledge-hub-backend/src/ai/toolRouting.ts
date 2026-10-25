@@ -1,7 +1,7 @@
 import type { LlmToolChoice, LlmToolDefinition } from './foundryClient.js';
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
 import { resolveRetrievalScope } from './knowledge/retrievalScope.js';
-import { dialogueTurnMode, referencesOtherMaterial } from './dialoguePolicy.js';
+import { dialogueTurnMode, isConversationalTurn, referencesOtherMaterial } from './dialoguePolicy.js';
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>()]+/i;
 const MIN_PROJECT_TOKEN_CHARS = 4;
@@ -116,7 +116,7 @@ const NOT_A_RETRIEVAL_REQUEST_PATTERN =
  * (all projects); structured count/list questions keep their own tools; everything else searches.
  */
 export function selectKnowledgeRetrievalChoice(userMessage: string, tools: LlmToolDefinition[]): LlmToolChoice | undefined {
-  if (isAssistantCapabilityQuestion(userMessage)) return undefined;
+  if (isAssistantCapabilityQuestion(userMessage) || isConversationalTurn(userMessage)) return undefined;
   if (dialogueTurnMode([], userMessage) === 'explore'
     && !/\b(?:search|find|read|look\s+(?:up|for)|check\s+(?:the|my))\b/i.test(userMessage)
     && !referencesOtherMaterial(userMessage)) return undefined;
@@ -152,7 +152,7 @@ export function selectRequiredToolChoice(
       return { type: 'function', function: { name: rememberToolName } };
     }
   }
-  if (isAssistantCapabilityQuestion(userMessage)) return undefined;
+  if (isAssistantCapabilityQuestion(userMessage) || isConversationalTurn(userMessage)) return undefined;
   if (dialogueTurnMode([], userMessage) === 'explore' && !referencesOtherMaterial(userMessage)) return undefined;
 
   // Asked to change the open note: propose an edit (previewed, applied by the

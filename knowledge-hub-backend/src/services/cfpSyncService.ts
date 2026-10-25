@@ -64,7 +64,7 @@ export interface CfpItem {
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-const CAP_URL = 'https://callingallpapers.com/api/cfp';
+const CAP_URL = 'https://api.callingallpapers.com/v1/cfp';
 const RSS_URL = 'https://adatosystems.com/feed/';
 const AUTO_ARCHIVE_THRESHOLD = 0.35;
 const SCORE_BATCH_SIZE = 10;
@@ -96,6 +96,7 @@ interface CapEntry {
   tags?: string[];
   eventUri?: string;
   cfpUri?: string;
+  uri?: string;
   dateCfpEnd?: string;
   dateEventStart?: string;
   dateEventEnd?: string;
@@ -106,12 +107,14 @@ interface CapEntry {
  * Fetches open CFPs from CallingAllPapers.
  * Filters out any with a deadline in the past.
  */
-async function fetchFromCallingAllPapers(): Promise<NormalisedCfp[]> {
+export async function fetchFromCallingAllPapers(): Promise<NormalisedCfp[]> {
   const res = await fetch(CAP_URL, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`CallingAllPapers fetch failed: ${res.status}`);
 
-  const json = await res.json() as { cfps?: CapEntry[] };
-  const entries: CapEntry[] = json.cfps ?? (Array.isArray(json) ? (json as CapEntry[]) : []);
+  const json = await res.json() as { cfps?: CapEntry[] } | CapEntry[];
+  const received = Array.isArray(json) ? json : json.cfps;
+  if (!Array.isArray(received)) throw new Error('CallingAllPapers returned an invalid CFP list.');
+  const entries = received.map(entry => ({ ...entry, cfpUri: entry.cfpUri ?? entry.uri }));
   const now = new Date();
 
   return entries

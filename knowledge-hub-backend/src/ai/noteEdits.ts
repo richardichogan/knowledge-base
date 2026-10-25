@@ -24,6 +24,17 @@ export interface NoteEditProposal {
 
 const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all'];
 
+export function allowsStructuralNoteEdits(message: string): boolean {
+  const request = message.replace(/^\s*\[Viewing (?:note|document):[^\n]*\]\s*/i, '');
+  if (/\b(?:keep|preserve|retain|restore|don't change|do not change|without changing)\b[\s\S]{0,80}\b(?:formatting|format|structure|layout)\b/i.test(request)) return false;
+  return /\b(?:rewrite|redraft|restructure|reformat|reorgani[sz]e|format|convert)\b|\b(?:add|insert|append|prepend|remove|delete)\b[\s\S]{0,80}\b(?:section|paragraph|heading|table|list|content)\b/i.test(request);
+}
+
+export function isNoteEditRepairRequest(message: string, recentText: string): boolean {
+  return /\b(?:do|fix|correct|repair)\s+(?:it|this|that)\s+(?:properly|correctly)|\b(?:restore|preserve|keep)\s+(?:the\s+)?(?:original|existing|previous)\s+(?:formatting|format|title)\b/i.test(message)
+    && /\b(?:note|formatting|rewrite|preview|title|Apply)\b/i.test(recentText);
+}
+
 /** Validates the model's proposed edits; returns cleaned edits plus any problems to report back. */
 export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; problems: string[] } {
   const list = Array.isArray(raw) ? raw : [];
@@ -65,7 +76,9 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
 interface NoteBlock { type?: string; props?: { level?: number }; content?: unknown; children?: NoteBlock[] }
 
 function blockText(b: NoteBlock): string {
-  return Array.isArray(b.content) ? (b.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('') : '';
+  const inline = (content: unknown): string => Array.isArray(content) ? content.map((item: { text?: string; content?: unknown }) =>
+    typeof item.text === 'string' ? item.text : inline(item.content)).join('') : '';
+  return inline(b.content);
 }
 
 function norm(s: string): string {
@@ -100,6 +113,7 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
   let headings = noteHeadings(blocks).map((h) => norm(h));
   let texts = flattenBlocks(blocks).map(blockText);
   const problems: string[] = [];
+  const title = blocks.find(block => block.type === 'heading' && blockText(block).trim());
   // `alreadyProposed` edits (earlier calls this turn) shape the headings but aren't reported on again; numbering restarts after them.
   const label = (i: number): string => String(i - alreadyProposed + 1);
   const hasHeading = (target: string): boolean => headings.some((h) => h === target || h.includes(target) || (target.includes(h) && h !== ''));
@@ -107,13 +121,22 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
     const n = label(i);
     const reported = i >= alreadyProposed;
     const wanted = e.heading !== undefined ? norm(e.heading) : '';
+    if (reported && title !== undefined
+      && (e.action === 'replace_text' && e.find !== undefined && blockText(title).includes(e.find)
+        || ['replace_section', 'delete_section'].includes(e.action) && wanted === norm(blockText(title)))) {
+      problems.push(`edit ${n}: body edits must preserve the title heading; edit the note title directly to rename it`);
+    }
+    if (reported && e.action === 'replace_text' && /[\r\n]/.test(e.markdown ?? '')) {
+      problems.push(`edit ${n}: replace_text must contain plain replacement text within the existing paragraph, not multiple paragraphs`);
+    }
     if (reported && wanted !== '' && (e.action === 'add_to_section' || e.action === 'replace_section' || e.action === 'delete_section') && !hasHeading(wanted)) {
       problems.push(`edit ${n}: there is no heading "${e.heading ?? ''}" in the note${i > 0 ? ' (as it will be after the edits before this one)' : ''}`);
     }
     if (reported && e.action === 'replace_text' && e.find !== undefined) {
       const find = e.find;
-      const found = texts.some((t) => t.includes(find)) || texts.some((t) => norm(t).includes(norm(find)));
-      if (!found) problems.push(`edit ${n}: the text to replace ("${find.slice(0, 80)}") is not in the note — "find" must be copied exactly from a single paragraph`);
+      const matches = texts.filter(t => t.includes(find));
+      if (matches.length !== 1 || matches[0]?.indexOf(find) !== matches[0]?.lastIndexOf(find)) problems.push(`edit ${n}: "find" must match exactly once in a single paragraph or list item; copy a unique passage from the note`);
+      else texts = texts.map(text => text.includes(find) ? text.replace(find, () => e.markdown ?? '') : text);
     }
     // Carry this edit's effect on the headings forward.
     const written = markdownHeadings(e.markdown);
@@ -130,7 +153,7 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
     } else if (written.length > 0) {
       headings.push(...written);
     }
-    if (e.action !== 'replace_all' && e.markdown !== undefined) texts = [...texts, ...e.markdown.split('\n').filter((l) => l.trim() !== '')];
+    if (e.action !== 'replace_all' && e.action !== 'replace_text' && e.markdown !== undefined) texts = [...texts, ...e.markdown.split('\n').filter((l) => l.trim() !== '')];
   });
   return problems;
 }

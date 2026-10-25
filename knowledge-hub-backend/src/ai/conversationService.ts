@@ -1,4 +1,5 @@
 import type { NoteEditProposal } from './noteEdits.js';
+import { allowsStructuralNoteEdits, isNoteEditRepairRequest } from './noteEdits.js';
 import { DESIGN_CHAT_TOOLS, type DesignTurnState } from './designTools.js';
 import { getDesign } from '../designs/designStore.js';
 import { buildStandingInstructionsBlock } from './athenaMemory.js';
@@ -206,8 +207,10 @@ export async function handleConversationTurn(
     ? toolContext.noteId : undefined;
   const inViewOpinion = reviewScope === 'clarify' || reviewScope === 'concept';
   const inViewNoTools = inViewOpinion || reviewScope === 'specification' && (pageContext?.detail?.length ?? Infinity) <= INLINE_REVIEW_CHARS;
-  const noToolTurn = inViewNoTools || reviewScope !== 'specification' && isDialogueOnlyTurn(history, userMessage);
-  if (inViewOpinion) context.ragItems = [];
+  const noteEditRepair = toolContext.noteId !== undefined && !toolContext.noteId.includes(':')
+    && isNoteEditRepairRequest(userMessage, history.slice(-TOOL_FOCUS_HISTORY_MESSAGES).map(message => message.content).join('\n'));
+  const noToolTurn = !noteEditRepair && (inViewNoTools || reviewScope !== 'specification' && isDialogueOnlyTurn(history, userMessage));
+  if (noToolTurn) context.ragItems = [];
   hooks.signal?.throwIfAborted();
   // "Don't use this" items stay out of auto-retrieval and search results for this chat.
   let exclusionsFailed = false;
@@ -335,12 +338,12 @@ export async function handleConversationTurn(
   const scopeBlock = retrievalScope === undefined ? '' : `## Enforced retrieval scope for this request\n${JSON.stringify(retrievalScope)}\nUse this collection and window, including on retries. Do not substitute notes or web results. Disclose any defaulted time window. An empty result is not permission to widen the scope.`;
   const reviewBlock = documentReview && !inViewNoTools ? '## Document review execution\nRead the named primary document before supporting chats or web material. If its identity is supplied, read it directly rather than searching. Search previews and past discussions are not a substitute. Follow read_knowledge_record nextCursor pages to the end. If a real limit prevents completion, identify the document and how much remains unread; do not describe context omission as a failed database load.' : '';
   const opinionBlock = reviewScope === 'clarify'
-    ? '## Clarify review depth before doing the work\nHe has asked for an opinion without choosing its depth. A quick reaction to the concept and a full review of the specification are different tasks. Ask one short question to choose between those two, then STOP. Do not critique, search, read the specification, or assume he wants either review yet. The document title is orientation only, not evidence of its contents.'
+    ? '## Clarify review depth before doing the work\nHe has asked for an opinion without choosing its depth. A quick reaction and a detailed document review are different tasks. Ask one short question to choose between those two, then STOP. Do not critique, search, read the document, or assume he wants either review yet. The document title is orientation only, not evidence of its contents.'
     : reviewScope === 'concept'
       ? '## Quick concept reaction requested\nUse the supplied document to discuss the core idea briefly, not implementation completeness. Do not expand into a full specification review, comparison-document search or another artefact. Ask about a consequential unresolved concept choice only when needed; do not re-ask review depth.'
       : reviewScope === 'specification'
-        ? '## Full review of the specification in view requested\nReview this specification thoroughly. Start with the supplied document, not searches for comparison specifications. Read missing sections of this source if needed; unrelated documents are not required. He has chosen full depth: do not ask him to choose it again.' +
-          (reviewNoteId === undefined ? '' : ` Primary source identity: read_knowledge_record(kind "note", id "${reviewNoteId}", fullDocument true). Do not search for a different specification.`)
+        ? '## Review of the document in view requested\nReview the actual document for the purpose, audience and criteria he requested. A note is not automatically a technical specification: do not impose implementation-readiness checks on a house guide or other ordinary writing. Start with the supplied document, not searches for comparisons. Read missing sections of this source if needed; unrelated documents are not required. The review is already requested: do not ask him to choose its depth again. Preserve facts, distinguish uncertain operating instructions from verified ones, and do not invent missing details.' +
+          (reviewNoteId === undefined ? '' : ` Primary source identity: read_knowledge_record(kind "note", id "${reviewNoteId}", fullDocument true). Do not search for a different document.`)
         : '';
   const design = toolContext.designOwner ? await getDesign(db, toolContext.designOwner) : undefined;
   const designBlock = design ? `## Working Design package (server-resolved)
@@ -427,6 +430,8 @@ Existing interactive-visual feedback still requires its explicit Accept/Discard 
     ? { type: 'function' as const, function: { name: retrievalScope.tool } } : undefined;
   const requiredFirstTool = design && tools.some(tool => tool.function.name === 'read_design_package')
     ? { type: 'function' as const, function: { name: 'read_design_package' } }
+    : noteEditRepair && tools.some(tool => tool.function.name === 'propose_note_edit')
+    ? { type: 'function' as const, function: { name: 'propose_note_edit' } }
     : reviewNoteId !== undefined && !inViewNoTools
     ? { type: 'function' as const, function: { name: 'read_knowledge_record' } }
     : specificationOnly ? { type: 'function' as const, function: { name: 'get_demo_specification_template' } } : scopedFirst ?? selectRequiredToolChoice(
@@ -533,7 +538,7 @@ Existing interactive-visual feedback still requires its explicit Accept/Discard 
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
     // Streams when someone is following live, or when a specific deployment is chosen (only the streaming call takes one).
     const response = reviewScope === 'clarify'
-      ? { content: 'Do you want a quick reaction to the concept, or a full review of the specification?', toolCalls: [], finishReason: 'stop' }
+      ? { content: 'Do you want a quick reaction, or a detailed review of the document?', toolCalls: [], finishReason: 'stop' }
       : hooks.onDelta !== undefined || hooks.modelRoute !== undefined
         ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, bufferDialogueDraft ? NOT_FOLLOWED_LIVE : hooks.onDelta ?? NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute, {
         ...(!noToolTurn && hooks.codeFiles !== undefined && hooks.codeFiles.ids.length > 0 && {
@@ -564,7 +569,7 @@ Existing interactive-visual feedback still requires its explicit Accept/Discard 
           messages.push({ role: 'assistant', content: response.content });
           messages.push({
             role: 'user',
-            content: 'No edit has been proposed to the note yet. Call propose_note_edit now with the content you wrote (replace_all for a complete redraft, or section by section for a long one — several calls are fine), then reply in one short line. Do not paste the content in your reply.',
+            content: 'No edit has been proposed to the note yet. Call propose_note_edit now. Use exact replace_text edits for wording, review and clean-up, preserving existing rich formatting and title. A full redraft or structural changes require an explicit request. Several calls are fine. Then reply briefly, distinguishing a proposal from an applied change.',
           });
           const forced = tools.find((t) => t.function.name === 'propose_note_edit');
           if (forced !== undefined) nextRoundTool = { type: 'function', function: { name: 'propose_note_edit' } };
@@ -692,7 +697,7 @@ Existing interactive-visual feedback still requires its explicit Accept/Discard 
             }
           }
           const execute = async (argumentsJson: string): Promise<unknown> => filterExcluded(
-            await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, ...toolContext, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
+            await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, ...toolContext, allowStructuralNoteEdits: allowsStructuralNoteEdits(userMessage), retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
             excluded);
           const args = parseToolArgs(toolArguments);
           const wholeRead = wholeReadRequested && sessionId !== undefined;

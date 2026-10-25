@@ -34,7 +34,8 @@ import {
 import type { ContentType } from './constants';
 import type { NoteDocument, GitHubPublication } from './types';
 import { useNoteTags, useSetNoteTags, useFlatTags } from '../hooks/useTaxonomy';
-import { MetadataPanel } from './MetadataPanel';
+import { MetadataPanel, type MetadataPanelProps } from './MetadataPanel';
+import { useHostedNoteEditor } from './NoteEditorHost';
 import { useProjects } from '../hooks/useProjects';
 import { editorSchema } from './editorSchema';
 import { parseTranscript, transcriptToBlocks } from './transcriptPaste';
@@ -58,6 +59,7 @@ interface NoteEditorProps {
   externalBusy?: boolean;
   onBeforeViewChange?: () => Promise<void>;
   headerContent?: React.ReactNode;
+  loading?: boolean;
   bodyContent?: React.ReactNode;
   visualContent?: React.ReactNode;
   htmlViewEnabled?: boolean;
@@ -148,7 +150,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, bodyContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, loading = false, bodyContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
   const queryClient = useQueryClient();
   const { openAthena, pageContext } = useAthenaContext();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
@@ -908,15 +910,28 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   // Applied tags for metadata panel
   const appliedTags = flatTags.filter((t) => taxonomyTagIds.includes(t.id));
   const identity = useIdentity();
-
-  return (
-    <div className="notes-editor-panel">
-      <fieldset className="notes-editor-lock" disabled={historyBusy || externalBusy} aria-label="Think note" aria-busy={historyBusy || externalBusy}>
-      {/* Centre: editor column */}
-      <div className="notes-editor-centre">
-        {/* Note actions — rendered into the Think page command bar when it
-            provides a slot, otherwise inline above the editor. */}
-        {portalInto(actionsSlot, (
+  const metadata: MetadataPanelProps = {
+    writingBusy: historyBusy || externalBusy, doc, onShowEditor, contentType,
+    onContentTypeChange: value => {
+      setContentType(value); contentTypeRef.current = value; isDirtyRef.current = true;
+      if (value === 'use-case') applyUseCaseTemplate();
+      persistDraft(); void doSave();
+    },
+    projectId, projects, onProjectChange: value => {
+      setProjectId(value); projectIdRef.current = value; isDirtyRef.current = true; void doSave();
+    },
+    taxonomyTagIds, appliedTags,
+    autoTagIds: (noteTagObjects as Array<{ id: string; source?: string }>).filter(tag => tag.source === 'auto').map(tag => tag.id),
+    noteId: doc.id, onTagIdsChange: ids => { void setNoteTagsMutation.mutate(ids); },
+    wordCount, readingTime, blockCount, ghStatus, ghDotColor, githubPath,
+    githubUrl: publication?.url, githubError: githubError || publication?.error || '', githubBusy,
+    onCheckGitHub: () => { void refreshPublication(true); },
+    onPushToGitHub: () => { if (publication?.status === 'conflict') void reviewGitHub(); else setGithubModalOpen(true); },
+    onRestoreVersion: restoreVersion, historyRefresh,
+    ...(onOpenMap !== undefined && { onOpenMap }), ...(onMapNote !== undefined && { onMapNote }),
+  };
+  const showMetadata = !hideProperties || showingHtml;
+  const actions = (
         <div className={actionsSlot ? 'notes-doc-actions kh-command-row' : 'notes-top-bar'}>
           <div className="notes-export-anchor kh-command-row" ref={exportMenuRef}>
             <button
@@ -1082,8 +1097,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             )}
           </div>
         </div>
-        ))}
+  );
+  const viewToggle = supportsHtmlView ? <DocumentViewToggle value={documentView} onChange={value => {
+    if (!onBeforeViewChange) { setDocumentView(value); return; }
+    void onBeforeViewChange().then(() => { setDocumentView(value); }).catch((error: unknown) => {
+      setNotification({ kind: 'error', msg: error instanceof Error ? error.message : 'The current document could not be saved. The view has not changed.' });
+    });
+  }} pendingReview={reviewPending} artifact={usesDesignVisual} /> : null;
+  const hostedEditor = useHostedNoteEditor({ metadata, showMetadata, actions, actionsSlot, viewToggle, header: headerContent, loading });
 
+  return (
+    <div className="notes-editor-panel">
+      <fieldset className="notes-editor-lock" disabled={historyBusy || externalBusy} aria-label="Think note" aria-busy={historyBusy || externalBusy}>
+      <div className="notes-editor-centre">
+        {!hostedEditor && portalInto(actionsSlot, actions)}
         {notification !== null && (
           <span role={notification.kind === 'error' ? 'alert' : 'status'}
             className={`notes-save-status notes-save-status--${notification.kind}${notification.kind === 'success' && notification.msg === 'Saved' ? ' notes-save-status--confirmation' : ''}`}>
@@ -1094,13 +1121,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
         {draftError && <p role="alert" className="notes-save-status notes-save-status--error">{draftError}</p>}
         <NoteDraftReview identity={recoverySnapshot === `${draftIdentity ?? ''}:${draftEpoch ?? ''}` ? draftIdentity : null}
           noteId={doc.id} currentDraftId={draftId} onRestore={recoverLocalWriting} />
-        {headerContent}
-        {supportsHtmlView && <DocumentViewToggle value={documentView} onChange={value => {
-          if (!onBeforeViewChange) { setDocumentView(value); return; }
-          void onBeforeViewChange().then(() => { setDocumentView(value); }).catch((error: unknown) => {
-            setNotification({ kind: 'error', msg: error instanceof Error ? error.message : 'The current document could not be saved. The view has not changed.' });
-          });
-        }} pendingReview={reviewPending} artifact={usesDesignVisual} />}
+        {!hostedEditor && headerContent}
+        {!hostedEditor && viewToggle}
 
         {/* Editor scroll area — data-ctx-* enables right-click → Send to Canvas with note context */}
         <div
@@ -1256,48 +1278,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
       </fieldset>
       {/* Right: metadata panel */}
-      {(!hideProperties || showingHtml) && <MetadataPanel
-        writingBusy={historyBusy || externalBusy}
-        doc={doc}
-        onShowEditor={onShowEditor}
-        contentType={contentType}
-        onContentTypeChange={(value) => {
-          setContentType(value);
-          contentTypeRef.current = value;
-          isDirtyRef.current = true;
-          if (value === 'use-case') applyUseCaseTemplate();
-          persistDraft();
-          void doSave();
-        }}
-        projectId={projectId}
-        projects={projects}
-        onProjectChange={(value) => {
-          setProjectId(value);
-          projectIdRef.current = value;
-          isDirtyRef.current = true;
-          void doSave();
-        }}
-        taxonomyTagIds={taxonomyTagIds}
-        appliedTags={appliedTags}
-        autoTagIds={(noteTagObjects as Array<{ id: string; source?: string }>).filter((t) => t.source === 'auto').map((t) => t.id)}
-        noteId={doc.id}
-        onTagIdsChange={(ids) => { void setNoteTagsMutation.mutate(ids); }}
-        wordCount={wordCount}
-        readingTime={readingTime}
-        blockCount={blockCount}
-        ghStatus={ghStatus}
-        ghDotColor={ghDotColor}
-        githubPath={githubPath}
-        githubUrl={publication?.url}
-        githubError={githubError || publication?.error || ''}
-        githubBusy={githubBusy}
-        onCheckGitHub={() => { void refreshPublication(true); }}
-        onPushToGitHub={() => { if (publication?.status === 'conflict') void reviewGitHub(); else setGithubModalOpen(true); }}
-        onRestoreVersion={restoreVersion}
-        historyRefresh={historyRefresh}
-        {...(onOpenMap !== undefined && { onOpenMap })}
-        {...(onMapNote !== undefined && { onMapNote })}
-      />}
+      {!hostedEditor && showMetadata && <MetadataPanel {...metadata} />}
 
       {buildDialogOpen && <SendToBuildDialog source={{ kind: 'note', noteId: doc.id }} onClose={() => { setBuildDialogOpen(false); }} />}
       {emailContent && <ShareEmailModal content={emailContent} onClose={() => { setEmailContent(null); }} />}

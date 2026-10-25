@@ -7,7 +7,7 @@ import { TURN_CATEGORIES, type TurnCategory } from '../ai/knowledge/turnAudit.js
 
 export const AUDIT_RETENTION_DAYS = 90;
 export const CRITICAL_CATEGORIES: readonly TurnCategory[] = ['bad_citation', 'unverified_quote', 'wrong_abstain', 'tool_error'];
-export const REVIEW_THRESHOLDS = { criticalRate: 0.05, noRetrievalRate: 0.1, abstainWithEvidenceRate: 0.05, minTurns: 5 } as const;
+export const REVIEW_THRESHOLDS = { criticalRate: 0.05, abstainWithEvidenceRate: 0.05, minTurns: 5 } as const;
 const RATE_PRECISION = 10_000;
 const DATE_LENGTH = 10;
 const WORST_TURN_LIMIT = 10;
@@ -15,7 +15,7 @@ const MAX_REVIEW_ROWS = 20_000;
 
 /** Higher = worse. Ok turns never appear among the worst. */
 const SEVERITY: Record<TurnCategory, number> = {
-  ok: 0, no_retrieval: 1, partial: 2, budget_hit: 3, found_not_read: 4, unverified_quote: 5, source_unavailable: 6,
+  ok: 0, no_retrieval: 0, partial: 2, budget_hit: 3, found_not_read: 4, unverified_quote: 5, source_unavailable: 6,
   bad_citation: 7, wrong_abstain: 8, tool_error: 9,
 };
 
@@ -49,7 +49,8 @@ export function buildDailyReview(rows: readonly AuditRowSummary[]): DailyReview 
     turns, categoryCounts, rates, worstTurns,
     flags: {
       criticalRate: rates.criticalRate > REVIEW_THRESHOLDS.criticalRate,
-      noRetrievalRate: rates.noRetrievalRate > REVIEW_THRESHOLDS.noRetrievalRate,
+      // Conversation, spelling and inline document reviews legitimately need no retrieval.
+      noRetrievalRate: false,
       abstainWithEvidence: rates.abstainWithEvidenceRate > REVIEW_THRESHOLDS.abstainWithEvidenceRate,
       lowSample: turns < REVIEW_THRESHOLDS.minTurns,
     },
@@ -65,13 +66,15 @@ export async function runKnowledgeNightlyReviewJob(db: Pool, now: Date = new Dat
   const day = yesterdayUtc(now);
   const { rows } = await db.query(
     `SELECT id, session_id, category, duration_ms FROM knowledge_turn_audit
-     WHERE created_at >= $1::date AND created_at < ($1::date + 1) ORDER BY id LIMIT ${MAX_REVIEW_ROWS}`, [day]);
+     WHERE created_at >= $1::date AND created_at < ($1::date + 1)
+       AND environment = 'prod' ORDER BY id LIMIT ${MAX_REVIEW_ROWS}`, [day]);
   const review = buildDailyReview(rows as AuditRowSummary[]);
   await db.query(
-    `INSERT INTO knowledge_daily_review (review_date, turns, category_counts, rates, worst_turns, flags)
-     VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb)
+    `INSERT INTO knowledge_daily_review (review_date, turns, category_counts, rates, worst_turns, flags, environment)
+     VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, 'prod')
      ON CONFLICT (review_date) DO UPDATE SET turns = EXCLUDED.turns, category_counts = EXCLUDED.category_counts,
-       rates = EXCLUDED.rates, worst_turns = EXCLUDED.worst_turns, flags = EXCLUDED.flags, created_at = now()`,
+       rates = EXCLUDED.rates, worst_turns = EXCLUDED.worst_turns, flags = EXCLUDED.flags,
+       environment = EXCLUDED.environment, created_at = now()`,
     [day, review.turns, JSON.stringify(review.categoryCounts), JSON.stringify(review.rates), JSON.stringify(review.worstTurns), JSON.stringify(review.flags)]);
   await db.query(`DELETE FROM knowledge_turn_audit WHERE created_at < $1::timestamptz - ($2 || ' days')::interval`, [now.toISOString(), String(AUDIT_RETENTION_DAYS)]);
   const flagged = Object.entries(review.flags).filter(([, on]) => on).map(([name]) => name);

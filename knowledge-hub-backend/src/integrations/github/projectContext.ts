@@ -12,6 +12,22 @@
  */
 
 import type { Pool } from 'pg';
+import { ValidationError } from '../../types/errors.js';
+
+export function normalizeGitHubRepository(value: string): string {
+  const name = value.trim().replace(/^https:\/\/github\.com\//i, '').replace(/\/$/, '').replace(/\.git$/i, '');
+  if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(name) || name.split('/').some(part => part === '.' || part === '..')) {
+    throw new ValidationError('Choose a GitHub repository as owner/repository or its https://github.com URL.');
+  }
+  return name;
+}
+
+export function projectGitHubRepositories(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.every((repo): repo is string => typeof repo === 'string')) {
+    throw new ValidationError('GitHub repositories must be a list of repository names or URLs.');
+  }
+  return [...new Set(value.filter(repo => repo.trim()).map(normalizeGitHubRepository))];
+}
 
 interface ProjectRow {
   id: string;
@@ -32,7 +48,7 @@ export async function loadProjectContextCache(db: Pool): Promise<void> {
   const map = new Map<string, string>();
   for (const row of result.rows) {
     for (const repo of row.github_repos) {
-      map.set(repo.toLowerCase(), row.id);
+      map.set(normalizeGitHubRepository(repo).toLowerCase(), row.id);
     }
   }
   repoToProjectCache = map;

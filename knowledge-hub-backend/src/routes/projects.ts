@@ -15,6 +15,7 @@ import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError, NotFoundError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { IDENTITY_COLOURS, IDENTITY_PALETTE, type IdentityColour } from '../services/identityPalette.js';
+import { projectGitHubRepositories } from '../integrations/github/projectContext.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -331,7 +332,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
           (input['importance'] as string | undefined) ?? 'normal',
           Array.isArray(input['expectedOutputs']) ? (input['expectedOutputs'] as string[]).map((value) => value.trim()) : [],
           Array.isArray(input['gitlabPaths']) ? (input['gitlabPaths'] as string[]).filter(Boolean) : [],
-          Array.isArray(input['githubRepos']) ? (input['githubRepos'] as string[]).filter(Boolean) : [],
+          input['githubRepos'] === undefined ? [] : projectGitHubRepositories(input['githubRepos']),
           input['hasIcaDocumentCollection'] === true,
           String(input['icaDocumentCollectionName'] ?? '').trim(),
           String(input['icaDocumentCollectionId'] ?? '').trim(),
@@ -382,7 +383,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (input['startDate'] !== undefined)    add('start_date', validateOptionalDate(input['startDate'], 'startDate'));
       if (input['targetEndDate'] !== undefined) add('target_end_date', validateOptionalDate(input['targetEndDate'], 'targetEndDate'));
       if (Array.isArray(input['gitlabPaths'])) add('gitlab_paths', (input['gitlabPaths'] as string[]).filter(Boolean));
-      if (Array.isArray(input['githubRepos'])) add('github_repos', (input['githubRepos'] as string[]).filter(Boolean));
+      if (input['githubRepos'] !== undefined) add('github_repos', projectGitHubRepositories(input['githubRepos']));
       if (input['hasIcaDocumentCollection'] !== undefined) add('has_ica_document_collection', input['hasIcaDocumentCollection'] === true);
       if (input['icaDocumentCollectionName'] !== undefined) add('ica_document_collection_name', String(input['icaDocumentCollectionName']).trim());
       if (input['icaDocumentCollectionId'] !== undefined) add('ica_document_collection_id', String(input['icaDocumentCollectionId']).trim());
