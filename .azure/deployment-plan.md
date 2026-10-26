@@ -34,6 +34,19 @@
   canonical article and repairs it rather than adding another rewriting pipeline.
 - Earlier requested Jobs, note-width and Blueprint navigation fixes are included.
   Preserve unrelated `.impeccable/hook.cache.json`.
+- Deployment completed on 26 October:
+  - Source `82146fb` pushed atomically to main and the feature branch.
+    ACR run `ca80` built v254; revision `kh-prod-api-vnet--0000251`
+    is Healthy / RunningAtMaxScale and serving successful requests.
+  - Production standard/bulk/reasoning endpoint and secret-reference settings
+    match the requested Foundry project; the main embedding/light route remains
+    unchanged.
+  - SWA production deployment succeeded using the cached official client after
+    its metadata service failed twice. The binary SHA-256 matched its cached
+    Microsoft metadata; no application rebuild or credential changes were needed.
+  - The reviewed draft has 13 read, validated sources and three explicit evidence
+    gaps. Think/chat are saved, note indexing completed and five tags applied.
+    Publication remains unapproved; no blog, social or Slack post was sent.
 
 **Release scope and Section 7: Validation Proof (2026-10-25, Athena edits, health and stable Notes shell):**
 - User requested fixes, deployment, merge and remote push. Application-only
