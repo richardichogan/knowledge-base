@@ -66,6 +66,11 @@ export class TurnBudget {
     return false;
   }
 
+  /** A structured full-document read can expand the budget without resetting consumed work. */
+  useDocumentReviewLimits(): void {
+    Object.assign(this.limits, TRANSCRIPT_REVIEW_BUDGET);
+  }
+
   /** Whether another retrieval tool execution may start. Aborted turns launch nothing new. */
   canStartRetrieval(): { ok: true } | { ok: false; reason: BudgetKind } {
     if (this.aborted) return { ok: false, reason: 'aborted' };
@@ -230,3 +235,15 @@ export function finalizeKnowledgeAnswer(
 
 /** Retrieval ran but registered no record: say so, so an unsupported answer is never read as a confirmed one. */
 export const NOTHING_FOUND_NOTE = 'I did not find any matching record in what I could search, so I cannot confirm this from your saved sources.';
+
+/** Qualify coverage from actual execution, never replace a reply based on words in the request. */
+export function finalizeEvidenceAnswer(
+  answer: string,
+  turn: { budget: TurnBudget; counts: { found: number; read: number }; retrievalUsed: boolean; deterministicPath: boolean; deterministicComplete: boolean },
+): string {
+  const partial = turn.deterministicPath && !turn.deterministicComplete
+    ? 'This is a partial result: the query did not run to completion, so the list and any count are incomplete.' : null;
+  const missing = turn.retrievalUsed && !turn.deterministicPath && turn.counts.found === 0 && turn.counts.read === 0 ? NOTHING_FOUND_NOTE : null;
+  const limit = budgetLimitation(turn.budget);
+  return [partial, missing, answer, limit || null].filter((part): part is string => part !== null).join('\n\n');
+}

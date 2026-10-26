@@ -1,5 +1,5 @@
 import { BLOG_PACKAGE_RULES } from './blogHouseStyle.js';
-import { buildDialogueTurnPrompt, inViewReviewScope } from './dialoguePolicy.js';
+import { buildDialogueTurnPrompt } from './dialoguePolicy.js';
 export { isSmallTalk } from './dialoguePolicy.js';
 import { isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 import { CONFLICT_AUTHORITY_PROMPT } from './knowledge/evidenceAuthority.js';
@@ -12,8 +12,7 @@ import { env } from '../config/env.js';
 import { formatRagContext } from './ragRetriever.js';
 import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
-import { DEMO_SPECIFICATION_INSTRUCTIONS, isDemoSpecificationRequest } from './demoSpecification.js';
-import { DISCOVER_APP_GUIDANCE, getDiscoverSources, isDiscoverSourceRequest } from './discoveryContext.js';
+import { DISCOVER_APP_GUIDANCE } from './discoveryContext.js';
 import { formatMemoryContext } from './memoryRetriever.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
@@ -1002,13 +1001,12 @@ function resolvePersonaPrompt(persona: string | undefined): string {
 export async function buildAiContext(
   db: Pool,
   userQuery: string,
-  history: ConversationMessage[] = [],
+  _history: ConversationMessage[] = [],
   currentSessionId?: string,
   /** Show Notes works only from its transcript: no background retrieval to blend in or dilute it. */
   persona?: string,
 ): Promise<AiContext> {
   const noBackground = persona === 'podcast_show_notes';
-  const discoverSourcesRequest = !noBackground && isDiscoverSourceRequest(userQuery, history);
   const activeProject = currentSessionId !== undefined
     ? await loadActiveSessionProject(db, currentSessionId)
     : null;
@@ -1070,16 +1068,7 @@ export async function buildAiContext(
         'When discussing a named project, call get_project_details for its current saved goal, role, ownership, dates and expected outputs. Do not substitute old profile text or memories for current project information.',
       ].join('\n')
     : '';
-  let discoverContext = '';
-  if (discoverSourcesRequest) {
-    try {
-      discoverContext = `## Current Discover subscriptions (read now; authoritative configuration)\n${JSON.stringify(await getDiscoverSources(db))}\nAnswer the feed/source question using this list. Do not repeat configured URLs as new additions or substitute project documents.`;
-    } catch (error) {
-      console.error('[Athena] Could not load Discover subscriptions:', error);
-      discoverContext = '## Discover configuration read failed\nThe current subscriptions could not be loaded. Retry get_discover_sources; if unavailable, report that failure and do not claim recommendations are non-duplicates.';
-    }
-  }
-  const projectContext = [activeProjectContext, catalogContext, discoverContext].filter((block) => block !== '').join('\n\n');
+  const projectContext = [activeProjectContext, catalogContext].filter((block) => block !== '').join('\n\n');
 
   return {
     staticContext,
@@ -1375,7 +1364,6 @@ export async function assembleMessages(
     buildToolCapabilitiesBlurb(),
     ...(standingInstructions !== '' ? ['---', standingInstructions] : []),
     ...knowledgeOrchestrationPromptBlocks(),
-    ...(isDemoSpecificationRequest(userMessage) ? ['---', 'For this request the following full specification contract overrides shorter demo/brief formats:', DEMO_SPECIFICATION_INSTRUCTIONS] : []),
   ].join('\n\n');
 
   const pageContextBlock = await formatPageContext(pageContext, userMessage);
@@ -1394,8 +1382,7 @@ export async function assembleMessages(
   return [
     { role: 'system', content: systemPrompt },
     ...shortenOldLongReplies(history),
-    { role: 'system', content: buildDialogueTurnPrompt(history, userMessage,
-      inViewReviewScope(userMessage, pageContext, history) === 'specification' ? 'deliver' : undefined) },
+    { role: 'system', content: buildDialogueTurnPrompt(history, userMessage) },
     { role: 'user', content: userMessageWithContext },
   ];
 }

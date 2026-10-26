@@ -75,6 +75,7 @@ const tests = frontend ? [
   'scripts/bluesky.test.ts',
   'scripts/mural.test.ts',
   'scripts/focused-context.test.ts',
+  'scripts/tool-catalog.test.ts',
   'scripts/project-context.test.ts',
   'scripts/content-sync.test.ts',
   'scripts/chat-session-store.test.ts',

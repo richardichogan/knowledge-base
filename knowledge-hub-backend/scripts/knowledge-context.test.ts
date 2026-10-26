@@ -94,7 +94,7 @@ test('CTX-04 the follow-up keeps internal read tools, forces no web search and r
     assert.equal(reply, 'Update audit log retention is affected.');
     const available = model.rounds[0]!.tools.map((t) => t.function.name);
     for (const kept of ['list_tasks', 'read_knowledge_record']) assert.ok(available.includes(kept), kept);
-    assert.ok(!available.includes('search_knowledge_base'), 'an explicit live-task question does not offer an unrelated indexed search');
+    assert.ok(available.includes('search_knowledge_base'), 'words in the request do not hide other permitted read capabilities');
     assert.equal(model.rounds[0]!.toolChoice, 'auto', 'no tool, and in particular no web search, is forced');
     assert.ok(requestText(model.rounds[0]!).includes('the Platform spec requires 90 days'), 'prior turn is retained');
     assert.ok(requestText(model.rounds[0]!).includes(NOTE_TEXT));

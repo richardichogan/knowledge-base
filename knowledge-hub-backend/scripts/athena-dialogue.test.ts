@@ -10,7 +10,7 @@ const personas: AthenaPersona[] = [
   'web_designer', 'podcast_prep', 'podcast_show_notes',
 ];
 
-test('an ambiguous in-view opinion asks concept versus specification before work, without mistaking UI markers for intent', async () => {
+test('review-scope compatibility helpers and model-led prompts preserve the chosen conversational context', async () => {
   const page = { type: 'note', title: 'Walking briefing', detail: 'A source-grounded briefing that resumes after interruptions.' };
   for (const user of ['what do you think?', '[Viewing note: "Walking briefing"]\nwhat do you think?', 'Your thoughts?']) {
     assert.equal(inViewReviewScope(user, page), 'clarify', user);
@@ -22,7 +22,10 @@ test('an ambiguous in-view opinion asks concept versus specification before work
   for (const user of ['The latter.', 'Full review please.', 'The second.', 'review']) {
     assert.equal(inViewReviewScope(user, page, history), 'specification');
     const messages = await assembleMessages(SYNTHETIC_DIALOGUE_CONTEXT, history, user, 'general', page);
-    assert.match(messages.at(-2)!.content, /Current turn: explicit delivery request/);
+    assert.match(messages.at(-2)!.content, /Interpret intent from the whole exchange/);
+    assert.doesNotMatch(messages.at(-2)!.content, /Current turn:/);
+    assert.ok(messages.some(message => message.role === 'assistant' && message.content === question));
+    assert.ok(messages.at(-1)!.content.endsWith(user));
   }
   for (const user of ['The former.', 'Just a quick reaction to the concept.', 'Quick concept review.']) {
     assert.equal(inViewReviewScope(user, page, history), 'concept');

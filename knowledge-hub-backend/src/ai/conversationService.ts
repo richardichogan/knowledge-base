@@ -1,5 +1,4 @@
 import type { NoteEditProposal } from './noteEdits.js';
-import { allowsStructuralNoteEdits, isNoteEditRepairRequest } from './noteEdits.js';
 import { DESIGN_CHAT_TOOLS, type DesignTurnState } from './designTools.js';
 import { getDesign } from '../designs/designStore.js';
 import { buildStandingInstructionsBlock } from './athenaMemory.js';
@@ -14,7 +13,7 @@ import { createLedger, ledgerCounts } from './knowledge/evidence.js';
 import { recordTurnAudit, looksAbstained, type TurnAuditRow } from './knowledge/turnAudit.js';
 import { RECORD_TOOLS } from './knowledge/toolRecords.js';
 import { collectIds, resolveAnswer, stripUnseenIds } from './knowledge/citations.js';
-import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, DETERMINISTIC_TOOLS, budgetLimitation, finalizeKnowledgeAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled, isDocumentReviewRequest } from './knowledge/budgets.js';
+import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, DETERMINISTIC_TOOLS, budgetLimitation, finalizeEvidenceAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 
 const RETRIEVAL_TOOLS = new Set(['search_diagrams', 'read_diagram', 'search_knowledge_base', 'search_library', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
@@ -26,35 +25,28 @@ import type { ToolImages } from './chatTools.js';
 import { buildAiContext, assembleMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
 import { scrubExcludedHistory } from '../services/knowledge/historyScrub.js';
-import { resolveStrictProjectScope } from '../services/knowledge/scope.js';
 import { AI_MAX_TOOL_ITERATIONS, AI_WRAP_UP_ROUND_MIN_MS, SHOW_NOTES_MAX_TOOL_ITERATIONS, AI_CHAT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import type { AiModel, ChatPageContext } from '../types/aiContext.js';
-import { getSessionProjectId, readPastChat, searchReferencedPastChats } from './chatSessionStore.js';
-import { focusTools, selectKnowledgeRetrievalChoice, selectRequiredToolChoice } from './toolRouting.js';
-import { createRetrievalAudit, flagDeferredRecovery, isOutsideCollectionTool, resolveRetrievalScope, RETRIEVAL_DICTIONARY } from './knowledge/retrievalScope.js';
+import { getSessionProjectId } from './chatSessionStore.js';
+import { ToolCatalog, LOAD_TOOLS } from './toolCatalog.js';
+import { createRetrievalAudit, declaredRetrievalScope, RETRIEVAL_DICTIONARY, type RetrievalScope } from './knowledge/retrievalScope.js';
 import { continuationInstruction, openFoundInstruction, unreadFoundCandidates, updatePendingRead, type PendingRead } from './knowledge/openFound.js';
 import { DEFAULT_PAGE_CHARS, MAX_PAGE_CHARS } from '../services/knowledge/projections.js';
 import { modelReadingSteps, readWholeDocument } from './knowledge/documentReading.js';
-import { INLINE_REVIEW_CHARS, dialogueRepairInstruction, dialogueTurnMode, inViewReviewScope, isDialogueOnlyTurn } from './dialoguePolicy.js';
 import type { KnowledgeAccess } from '../types/knowledge.js';
-import { isImagineDemoBriefRequest } from './imagineDemoBriefSkill.js';
-import { DEMO_SPECIFICATION_WRITE_TOOL, isDemoSpecificationRequest } from './demoSpecification.js';
+import { DEMO_SPECIFICATION_WRITE_TOOL } from './demoSpecification.js';
 import { getCanvas } from '../services/canvasService.js';
 import { buildPeopleContext } from '../services/peopleContext.js';
 import { buildCanvasContext } from '../services/canvasContent.js';
 import { findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../services/diagramContext.js';
 import type { MapChangeProposal } from './mapEdits.js';
 import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
-import { looksLikeMeetingList, importMeetingList } from '../integrations/ibm/ibmMeetings.js';
 import { ukClock } from '../sync/ukClock.js';
 
-/** Recent messages that count when deciding whether a follow-up still needs a specialised tool group. */
-const TOOL_FOCUS_HISTORY_MESSAGES = 4;
 const RAG_USED_LIMIT = 10;
 const TOOL_ERROR_LOG_CHARS = 400;
 const MAX_ROUND_SCREENSHOTS = 6;
-const PASTED_EDIT_REPLY_CHARS = 900;
 const NOTE_SUMMARY_MAX_TOKENS = 400;
 const ROLLUP_MAX_TOKENS = 400;
 const SESSION_SUMMARY_MAX_TOKENS = 1_000;
@@ -119,35 +111,9 @@ const NO_OUTPUTS_PANEL_NOTE = [
 
 /** Output budget for a turn that edits the open note: a long redraft must not be cut off. */
 const NOTE_EDIT_MAX_TOKENS = 14_000;
-const PAST_CHAT_QUERY_MIN_TERM_LENGTH = 3;
-const PAST_CHAT_QUERY_MAX_TERMS = 6;
-const PAST_CHAT_QUERY_MIN_DISTINCT_TERMS = 2;
-const PAST_CHAT_CONTEXT_MAX_MATCHES = 3;
-const PAST_CHAT_CONTEXT_MESSAGES = 3;
-const PAST_CHAT_REFERENCE_PATTERN =
-  /\b(?:earlier|previous|prior|past|latest)\b[\s\S]{0,35}\b(?:athena\s+)?(?:chat|conversation|discussion)\b|\b(?:we|you)\s+(?:discussed|talked about|covered)\b|\b(?:chat|conversation|discussion)\b[\s\S]{0,70}\b(?:in think|on mobile|on my phone|earlier|before|today)\b|\bwhat we discussed\b/i;
-const PAST_CHAT_QUERY_STOPWORDS = new Set([
-  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'i', 'you', 'we', 'they', 'my', 'our',
-  'this', 'that', 'these', 'those', 'do', 'does', 'did', 'have', 'has', 'had', 'can', 'could', 'would',
-  'should', 'to', 'of', 'in', 'on', 'at', 'for', 'with', 'and', 'or', 'but', 'as', 'from', 'about',
-  'around', 'based', 'conversation', 'discussion', 'chat', 'think', 'earlier', 'previous', 'prior',
-  'past', 'latest', 'today', 'accurately', 'describing', 'review', 'find', 'read', 'please',
-]);
-
-function pastChatSearchQuery(message: string): string | null {
-  const topicMatch = [
-    /\b(?:conversation|discussion|chat)\s+(?:about|around|on|regarding)\s+(.+?)(?=\s+\b(?:in|on)\s+(?:think|mobile|my phone)\b|\b(?:earlier|before|today)\b|[?.]|$)/i,
-    /\b(?:we|you)\s+(?:discussed|talked about|covered)\s+(.+?)(?=\b(?:earlier|before|today)\b|[?.]|$)/i,
-  ].map((pattern) => pattern.exec(message)).find((match) => match?.[1] !== undefined);
-  const source = topicMatch?.[1] ?? message;
-  const terms = source.toLowerCase().match(/[\p{L}\p{N}-]+/gu)
-    ?.filter((term) => term.length >= PAST_CHAT_QUERY_MIN_TERM_LENGTH && !PAST_CHAT_QUERY_STOPWORDS.has(term)) ?? [];
-  const distinctTerms = [...new Set(terms)].slice(0, PAST_CHAT_QUERY_MAX_TERMS);
-  return distinctTerms.length >= PAST_CHAT_QUERY_MIN_DISTINCT_TERMS ? distinctTerms.join(' ') : null;
-}
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set(['save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set(['save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -201,16 +167,6 @@ export async function handleConversationTurn(
     })
     : null;
   const context = await buildAiContext(db, userMessage, history, sessionId, persona);
-  const reviewScope = inViewReviewScope(userMessage, pageContext, history);
-  const reviewNoteId = reviewScope === 'specification' && pageContext?.type === 'note'
-    && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(toolContext.noteId ?? '')
-    ? toolContext.noteId : undefined;
-  const inViewOpinion = reviewScope === 'clarify' || reviewScope === 'concept';
-  const inViewNoTools = inViewOpinion || reviewScope === 'specification' && (pageContext?.detail?.length ?? Infinity) <= INLINE_REVIEW_CHARS;
-  const noteEditRepair = toolContext.noteId !== undefined && !toolContext.noteId.includes(':')
-    && isNoteEditRepairRequest(userMessage, history.slice(-TOOL_FOCUS_HISTORY_MESSAGES).map(message => message.content).join('\n'));
-  const noToolTurn = !noteEditRepair && (inViewNoTools || reviewScope !== 'specification' && isDialogueOnlyTurn(history, userMessage));
-  if (noToolTurn) context.ragItems = [];
   hooks.signal?.throwIfAborted();
   // "Don't use this" items stay out of auto-retrieval and search results for this chat.
   let exclusionsFailed = false;
@@ -220,43 +176,7 @@ export async function handleConversationTurn(
   const used = hooks.contextUsed;
   if (exclusionsFailed) context.ragItems = [];
   if (excluded.size > 0) context.ragItems = context.ragItems.filter((item) => !excluded.has(item.id));
-  const strictProjectId = await resolveStrictProjectScope(db, userMessage).catch(() => null);
-  let pastChatBlock = '';
-  if (!exclusionsFailed && PAST_CHAT_REFERENCE_PATTERN.test(userMessage)) {
-    const query = pastChatSearchQuery(userMessage);
-    if (query !== null) {
-      hooks.onActivity?.('Finding the earlier conversation');
-      const matches = await searchReferencedPastChats(db, query, sessionId);
-      const candidates = matches.filter((match) => !excluded.has(match.sessionId)).slice(0, PAST_CHAT_CONTEXT_MAX_MATCHES);
-      const readQuery = /\bdecision gates?\b/i.test(query) ? `${query} delegation acceptance` : query;
-      const excerpts = await Promise.all(candidates.map(async (match) => {
-        const chat = await readPastChat(db, match.sessionId, PAST_CHAT_CONTEXT_MESSAGES, readQuery);
-        if (chat === null || chat.messages.length === 0) return null;
-        return {
-          match,
-          text: chat.messages.map((message) => `${message.role.toUpperCase()} (${message.at}): ${message.content}`).join('\n\n'),
-        };
-      }));
-      const retrieved = excerpts.filter((item): item is NonNullable<typeof item> => item !== null);
-      if (retrieved.length > 0) {
-        pastChatBlock = [
-          '## Earlier conversation explicitly referenced by the user',
-          'These are matching passages read directly from saved Athena chats, not topic-related notes. Use them as the source of truth for what was previously discussed. Prefer the exchange that directly answers the user’s reference. Do not substitute a related note or invent what the earlier discussion said. If the passages do not identify one clear conversation or do not contain enough detail, say so and ask rather than guessing.',
-          ...retrieved.map(({ match, text }) =>
-            `### [${match.title}](${match.href})${match.fromThink ? ' (started from Think)' : ''}\n${text}`),
-        ].join('\n\n');
-        if (used !== undefined) {
-          for (const { match } of retrieved) {
-            if (!used.found.some((source) => source.id === match.sessionId)) {
-              used.found.push({
-                id: match.sessionId, kind: 'chat', title: match.title, url: match.href,
-              });
-            }
-          }
-        }
-      }
-    }
-  }
+  let strictProjectId: string | null = null;
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
   let diagramBlock = '';
   if (openDiagram !== null) {
@@ -276,27 +196,9 @@ export async function handleConversationTurn(
     }
   }
   // Learned standing instructions + liked examples for this persona/project.
-  const standingBlock = await buildStandingInstructionsBlock(db, { persona, projectId: activeProjectId,
-    includeExamples: !inViewOpinion && (reviewScope === 'specification' || dialogueTurnMode(history, userMessage) === 'deliver') })
+  const standingBlock = await buildStandingInstructionsBlock(db, { persona, projectId: activeProjectId, includeExamples: true })
     .catch((err: unknown) => { console.error('[memory] could not load standing instructions:', err); return ''; });
-  // A pasted M365 Copilot meeting list is saved as today's IBM diary before Athena replies.
-  let meetingImportNote = '';
   hooks.signal?.throwIfAborted();
-  if (looksLikeMeetingList(userMessage)) {
-    try {
-      const r = await importMeetingList(db, userMessage);
-      meetingImportNote = [
-        '## Meeting list saved',
-        `The user's message is their IBM meeting list for ${r.date}. It has already been saved to their calendar ` +
-          `(${r.imported.toString()} meetings${r.removed > 0 ? `, ${r.removed.toString()} earlier entries no longer listed were removed` : ''}).`,
-        r.tasksCreated.length > 0 ? `Prep tasks added to the Plan: ${r.tasksCreated.join('; ')}.` : 'No new Plan tasks were added.',
-        r.tasksAlreadyThere.length > 0 ? `Already on the Plan (not duplicated): ${r.tasksAlreadyThere.join('; ')}.` : '',
-        'Confirm this briefly, point out clashes and the meetings that need prep, and do NOT call create_task for these meetings.',
-      ].filter(Boolean).join('\n');
-    } catch (err) {
-      console.error('[meetings] import failed:', err);
-    }
-  }
   const clock = ukClock();
   const dateBlock = `Current UK date: ${clock.day}. Use get_today_schedule to read today's meetings when needed.`;
   const mapBlock = mapId !== undefined && openCanvas === null && pageContext?.type === 'canvas'
@@ -332,19 +234,12 @@ export async function handleConversationTurn(
   const sheetsBlock = spreadsheetsBlock(hooks.codeFiles?.names ?? []);
   const peopleBlock = await buildPeopleContext(db, [userMessage]);
   const localFolders = toolContext.localFolders ?? [];
-  const retrievalScope = resolveRetrievalScope(userMessage, history);
-  const documentReview = !inViewOpinion && (reviewScope === 'specification' || isDocumentReviewRequest(userMessage));
-  const retrievalAudit = createRetrievalAudit(retrievalScope);
-  const scopeBlock = retrievalScope === undefined ? '' : `## Enforced retrieval scope for this request\n${JSON.stringify(retrievalScope)}\nUse this collection and window, including on retries. Do not substitute notes or web results. Disclose any defaulted time window. An empty result is not permission to widen the scope.`;
-  const reviewBlock = documentReview && !inViewNoTools ? '## Document review execution\nRead the named primary document before supporting chats or web material. If its identity is supplied, read it directly rather than searching. Search previews and past discussions are not a substitute. Follow read_knowledge_record nextCursor pages to the end. If a real limit prevents completion, identify the document and how much remains unread; do not describe context omission as a failed database load.' : '';
-  const opinionBlock = reviewScope === 'clarify'
-    ? '## Clarify review depth before doing the work\nHe has asked for an opinion without choosing its depth. A quick reaction and a detailed document review are different tasks. Ask one short question to choose between those two, then STOP. Do not critique, search, read the document, or assume he wants either review yet. The document title is orientation only, not evidence of its contents.'
-    : reviewScope === 'concept'
-      ? '## Quick concept reaction requested\nUse the supplied document to discuss the core idea briefly, not implementation completeness. Do not expand into a full specification review, comparison-document search or another artefact. Ask about a consequential unresolved concept choice only when needed; do not re-ask review depth.'
-      : reviewScope === 'specification'
-        ? '## Review of the document in view requested\nReview the actual document for the purpose, audience and criteria he requested. A note is not automatically a technical specification: do not impose implementation-readiness checks on a house guide or other ordinary writing. Start with the supplied document, not searches for comparisons. Read missing sections of this source if needed; unrelated documents are not required. The review is already requested: do not ask him to choose its depth again. Preserve facts, distinguish uncertain operating instructions from verified ones, and do not invent missing details.' +
-          (reviewNoteId === undefined ? '' : ` Primary source identity: read_knowledge_record(kind "note", id "${reviewNoteId}", fullDocument true). Do not search for a different document.`)
-        : '';
+  let retrievalScope: RetrievalScope | undefined;
+  let declaredScopeKey: string | undefined;
+  let documentReview = false;
+  const retrievalAudit = createRetrievalAudit();
+  const reviewBlock = '## Source reading\nInterpret the requested review depth from the conversation, not the document type or isolated words. Ask only if a consequential choice is unresolved. For a full review, read the actual source with read_knowledge_record(fullDocument:true, purpose:the requested review), following saved checkpoints. For a quick reaction use supplied material without inventing missing facts. Search previews are not a full document read. For an earlier discussion, search_past_chats and read_past_chat supply the original exchanges; a related note is not a substitute.' +
+    (toolContext.noteId === undefined ? '' : ` Open record identity: ${JSON.stringify(toolContext.noteId)}. An open record is not automatically the subject of the request.`);
   const design = toolContext.designOwner ? await getDesign(db, toolContext.designOwner) : undefined;
   const designBlock = design ? `## Working Design package (server-resolved)
 The conversation belongs to Design ${JSON.stringify(design.title)} (parent ${design.parentNoteId}), not an independent note.
@@ -355,14 +250,12 @@ Use case = actors, goals, journey and outcomes; Spec = detailed behaviours, cons
 Call successful tools before claiming a save. There is no Apply preview for direct Design saves. Never invent a panel, button or link. On error report what failed and preserve writing; do not make disconnected substitutes.
 Existing interactive-visual feedback still requires its explicit Accept/Discard workflow. Do not claim to regenerate a visual or mutate a diagram through the document tools.
 Writing the whole spec from the use case, or generating the Blueprint, is specialist work: use hand_off_to_specialist (spec-writer or blueprint-designer) instead of writing it yourself. It runs in the background and reports back in this chat; do not wait for it or claim it has finished. Targeted edits to a section stay with save_design_documents.` : '';
-  const systemExtras = [RETRIEVAL_DICTIONARY, scopeBlock, reviewBlock, opinionBlock, designBlock, hooks.noOutputsPanel === true && !design ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, meetingImportNote, mapBlock, pastChatBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const systemExtras = [RETRIEVAL_DICTIONARY, reviewBlock, designBlock, hooks.noOutputsPanel === true && !design ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const safeHistory = await scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant'));
-  const reviewPage = reviewScope === 'clarify' && pageContext !== undefined
-    ? { type: pageContext.type, title: pageContext.title } : pageContext;
-  const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, reviewPage, systemExtras);
+  const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
   const messages: LlmMessage[] = baseMessages.map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
-  const images = reviewScope === 'clarify' ? [] : hooks.screenImages ?? [];
+  const images = hooks.screenImages ?? [];
   const lastUser = messages.map((m) => m.role).lastIndexOf('user');
   if (images.length > 0 && lastUser !== -1) {
     const text = messages[lastUser]!.content as string;
@@ -382,37 +275,32 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
   hooks.onActivity?.('Loading tools');
   const allTools = [...await getToolDefinitions(), ...(design ? DESIGN_CHAT_TOOLS : []), ...(localFolders.length > 0 ? LOCAL_FILE_TOOLS : [])];
   hooks.signal?.throwIfAborted();
-  const briefOnly = !design && isImagineDemoBriefRequest(persona, userMessage);
-  const specificationOnly = !design && isDemoSpecificationRequest(userMessage);
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
-  // The note-edit and map-edit tools are the two largest definitions (about 1,400 tokens between them) and
-  // only make sense with a note or canvas open, so they are not sent otherwise.
-  // Specialised groups (diagram drawing, Discover admin) are only sent when this turn or the last
-  // few messages point at them: fewer, more relevant tools make tool choice more accurate.
-  const focusedTools = focusTools(allTools, {
-    userMessage,
-    recentText: history.slice(-TOOL_FOCUS_HISTORY_MESSAGES).map((message) => message.content).join('\n'),
-    hasOpenDiagram: openDiagram !== null,
-    knowledgeOrchestration: isKnowledgeOrchestrationEnabled(),
-  });
-  const tools = (noToolTurn ? [] : hooks.readOnlyTools === true ? focusedTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : focusedTools)
+  const permittedTools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
     .filter(t => !design || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, 'get_demo_specification_template'].includes(t.function.name))
-    .filter(t => !isOutsideCollectionTool(t.function.name, retrievalScope))
-    .filter((t) => !specificationOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === DEMO_SPECIFICATION_WRITE_TOOL)
-    .filter((t) => specificationOnly || !briefOnly || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'save_output')
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
+  const catalog = new ToolCatalog(permittedTools);
+  const supportsScope = (name: string, scope = retrievalScope, projectId = strictProjectId): boolean => {
+    const filtered = scope !== undefined && Object.keys(scope.filter).length > 0;
+    if (!filtered && projectId === null) return true;
+    if (name === LOAD_TOOLS || WRITE_TOOLS.has(name)) return true;
+    if (name === 'search_knowledge_base' || name === 'read_knowledge_record') return true;
+    if (name === 'fetch_web_page') return filtered && projectId === null;
+    // Other readers do not enforce content filters. Structured queries and Design reads enforce project IDs only.
+    return !filtered && (STRUCTURED_TOOL_NAMES.has(name) || name === 'read_design_package');
+  };
+  if (design) catalog.load(['read_design_package']);
   const runtimeCapabilities = [
     '## Current chat runtime capabilities (authoritative for this turn)',
     `Persona: ${persona ?? 'general'}. ${hooks.readOnlyTools === true ? 'Read-only turn: mutation tools are withheld.' : 'Only the supplied tools can perform actions.'}`,
-    `Editable note preview: ${tools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; Richard must Apply to save' : 'unavailable in this turn'}.`,
-    `Canvas change preview: ${tools.some(tool => tool.function.name === 'propose_map_changes') ? 'available; requires user application' : 'unavailable in this turn'}.`,
+    `Editable note preview: ${permittedTools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; Richard must Apply to save' : 'unavailable in this turn'}.`,
+    `Canvas change preview: ${permittedTools.some(tool => tool.function.name === 'propose_map_changes') ? 'available; requires user application' : 'unavailable in this turn'}.`,
     `Outputs panel: ${design ? 'Design documents belong in their Design tabs, using save_design_documents' : hooks.noOutputsPanel === true ? 'not visible here; deliver content in the reply' : 'use supplied output tools if available'}.`,
     `Connected local folders: ${localFolders.length > 0 ? 'user-selected folders only, through supplied local-file tools' : 'none supplied; no local filesystem access'}.`,
-    `Available action/read tool names: ${tools.map(tool => tool.function.name).join(', ')}.`,
-    'The function schemas describe exact permissions and inputs. Withheld specialised tools are not executable ' +
-      'in this turn; do not infer that the whole app lacks those features. No external search is needed to explain this runtime context.',
+    catalog.describe(),
+    'The loaded function schemas describe exact inputs. No external search is needed to explain this runtime context.',
   ].join('\n');
   const systemMessage = messages.find(message => message.role === 'system');
   if (systemMessage !== undefined && typeof systemMessage.content === 'string') {
@@ -422,38 +310,12 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
     systemChars: typeof systemMessage?.content === 'string' ? systemMessage.content.length : 0,
     historyChars: baseMessages.slice(1, -1).filter(message => message.role !== 'system').reduce((total, message) => total + message.content.length, 0),
     turnChars: baseMessages.at(-1)?.content.length ?? 0,
-    toolSchemaChars: JSON.stringify(tools).length,
+    toolSchemaChars: JSON.stringify(catalog.schemas()).length,
     outputsIndexChars: outputsBlock.length,
   };
-  const scopedFirst = retrievalScope?.tool && tools.some(t => t.function.name === retrievalScope.tool)
-    && !retrievalScope.families.includes('task')
-    && !(retrievalScope.families.includes('canvas') && openDiagram !== null && !/\b(?:latest|other|across|compare|diagrams|find|search)\b/i.test(userMessage))
-    ? { type: 'function' as const, function: { name: retrievalScope.tool } } : undefined;
-  const requiredFirstTool = design && tools.some(tool => tool.function.name === 'read_design_package')
+  const requiredFirstTool = design && permittedTools.some(tool => tool.function.name === 'read_design_package')
     ? { type: 'function' as const, function: { name: 'read_design_package' } }
-    : noteEditRepair && tools.some(tool => tool.function.name === 'propose_note_edit')
-    ? { type: 'function' as const, function: { name: 'propose_note_edit' } }
-    : reviewNoteId !== undefined && !inViewNoTools
-    ? { type: 'function' as const, function: { name: 'read_knowledge_record' } }
-    : specificationOnly ? { type: 'function' as const, function: { name: 'get_demo_specification_template' } } : scopedFirst ?? selectRequiredToolChoice(
-    userMessage,
-    tools,
-    context.projectReferences,
-    context.activeProjectName,
-    noteOpen,
-    mapOutlineResult !== null,
-    openDiagram !== null,
-  ) ?? (isKnowledgeOrchestrationEnabled() && (persona === undefined || persona === 'general') && !briefOnly
-    ? selectKnowledgeRetrievalChoice(userMessage, tools)
-    : undefined);
-  // Asked to change the open note: she may need to write a lot (a full redraft, a long spec), so the
-  // output budget is raised well above the chat default — otherwise a long edit is cut off mid-call.
-  const editsOpenNote = requiredFirstTool !== undefined && typeof requiredFirstTool === 'object'
-    && requiredFirstTool.function.name === 'propose_note_edit';
-  const maxTokens = editsOpenNote || specificationOnly || design
-    ? NOTE_EDIT_MAX_TOKENS
-    : model === 'reasoning' ? AI_REASONING_MODEL_MAX_TOKENS : AI_CHAT_MAX_TOKENS;
-  let editRescued = false;
+    : undefined;
   let nextRoundTool: LlmToolChoice | undefined;
 
   // Reasoning-model turns that also call tools can take long enough,
@@ -469,7 +331,7 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
   const orchestrated = isKnowledgeOrchestrationEnabled();
   const ledger = orchestrated ? createLedger() : undefined;
   const budget = orchestrated
-    ? new TurnBudget(hooks.signal, documentReview ? TRANSCRIPT_REVIEW_BUDGET : undefined)
+    ? new TurnBudget(hooks.signal)
     : undefined;
   let citationRepairs = 0;
   const FOUND_OPEN_RESERVE_ROUNDS = 2;
@@ -480,35 +342,9 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
   let toolErrorCount = 0;
   const pendingReads = new Map<string, PendingRead>();
   let readingMs = 0;
-  let fullDocumentRead = false;
   const failedDocumentReads = new Set<string>();
-  let dialogueRepaired = false;
-  const dialogueMode = reviewScope === 'specification' ? 'deliver' : dialogueTurnMode(history, userMessage);
-  const bufferDialogueDraft = inViewOpinion || dialogueMode === 'explore' || dialogueMode === 'follow-up' || dialogueMode === 'correction';
-  const repairDialogueReply = async (reply: string): Promise<string> => {
-    const instruction = dialogueRepaired ? null : dialogueRepairInstruction(history, userMessage, reply, reviewScope);
-    if (instruction === null) return reply;
-    const remaining = turnBudgetMs - (Date.now() - turnStart - readingMs);
-    if (remaining < AI_MIN_TOOL_ROUND_BUDGET_MS) {
-      console.warn('[ai] Dialogue repair unavailable: turn time budget exhausted.');
-      return reply;
-    }
-    dialogueRepaired = true;
-    hooks.onActivity?.('Refining the response');
-    const repaired = await client.chatWithToolsStream(model, [
-      ...messages, { role: 'assistant', content: reply }, { role: 'system', content: instruction },
-    ], [], maxTokens, 'none', remaining, NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute);
-    if (!repaired.content?.trim() || repaired.toolCalls.length > 0 || repaired.finishReason === 'length') {
-      throw new Error('Athena could not produce a complete conversational reply. No actions were retried.');
-    }
-    messages.push({ role: 'system', content: instruction });
-    return repaired.content;
-  };
-
   // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
-  const maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS
-    : documentReview ? Math.max(AI_MAX_TOOL_ITERATIONS, TRANSCRIPT_REVIEW_BUDGET.maxModelRounds)
-      : AI_MAX_TOOL_ITERATIONS;
+  let maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS : AI_MAX_TOOL_ITERATIONS;
   for (let i = 0; i < maxRounds; i++) {
     if (isStopped(hooks)) throw new AiStoppedError();
     hooks.onActivity?.(i === 0 ? 'Thinking' : 'Reading what I found');
@@ -534,15 +370,16 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
       messages.push({ role: 'user', content: WRAP_UP_INSTRUCTION });
     }
 
-    const roundToolChoice: LlmToolChoice = wrapUp || noToolTurn ? 'none' : nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
+    const tools = catalog.schemas().filter(tool => supportsScope(tool.function.name));
+    const longForm = design || tools.some(tool => ['propose_note_edit', DEMO_SPECIFICATION_WRITE_TOOL, 'save_output', 'save_design_documents'].includes(tool.function.name));
+    const maxTokens = longForm ? NOTE_EDIT_MAX_TOKENS : model === 'reasoning' ? AI_REASONING_MODEL_MAX_TOKENS : AI_CHAT_MAX_TOKENS;
+    const roundToolChoice: LlmToolChoice = wrapUp ? 'none' : nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
     nextRoundTool = undefined;
     const roundTimeoutMs = Math.max(remainingBudgetMs, AI_MIN_TOOL_ROUND_BUDGET_MS);
     // Streams when someone is following live, or when a specific deployment is chosen (only the streaming call takes one).
-    const response = reviewScope === 'clarify'
-      ? { content: 'Do you want a quick reaction, or a detailed review of the document?', toolCalls: [], finishReason: 'stop' }
-      : hooks.onDelta !== undefined || hooks.modelRoute !== undefined
-        ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, bufferDialogueDraft ? NOT_FOLLOWED_LIVE : hooks.onDelta ?? NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute, {
-        ...(!noToolTurn && hooks.codeFiles !== undefined && hooks.codeFiles.ids.length > 0 && {
+    const response = hooks.onDelta !== undefined || hooks.modelRoute !== undefined
+        ? await client.chatWithToolsStream(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs, hooks.onDelta ?? NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute, {
+        ...(hooks.codeFiles !== undefined && hooks.codeFiles.ids.length > 0 && {
           builtInTools: [{ type: 'code_interpreter', container: { type: 'auto', file_ids: hooks.codeFiles.ids } }],
         }),
         ...(hooks.onActivity !== undefined && { onActivity: hooks.onActivity }),
@@ -557,26 +394,6 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
         && /\b(?:I(?:'ve| have)?\s+(?:saved|updated|created|rewritten|revised)|(?:saved|updated)\s+(?:in|to)\s+(?:the|your)\s+(?:Spec|Design|Use case))\b/i.test(response.content ?? '')) {
         console.warn('[Design chat] Rejected an unconfirmed document-save claim.');
         return 'No Design documents were saved in this turn. No successful Design save was recorded, so I cannot claim that the tabs were updated. Your existing originals are unchanged.';
-      }
-      // Asked to edit the open note but nothing was proposed: she wrote the content into the reply, or her
-      // edit call failed and she carried on as if it hadn't. One retry with the edit forced; if that fails
-      // too, say so plainly rather than let her claim an edit that doesn't exist.
-      if (editsOpenNote && (toolContext.noteEdits?.length ?? 0) === 0 && response.content !== null && response.content.trim() !== ''
-        && (response.content.length > PASTED_EDIT_REPLY_CHARS || /\b(propos|apply|preview)/i.test(response.content))) {
-        if (!editRescued) {
-          editRescued = true;
-          hooks.onReset?.();
-          hooks.onActivity?.('Putting that into a proposed edit');
-          messages.push({ role: 'assistant', content: response.content });
-          messages.push({
-            role: 'user',
-            content: 'No edit has been proposed to the note yet. Call propose_note_edit now. Use exact replace_text edits for wording, review and clean-up, preserving existing rich formatting and title. A full redraft or structural changes require an explicit request. Several calls are fine. Then reply briefly, distinguishing a proposal from an applied change.',
-          });
-          const forced = tools.find((t) => t.function.name === 'propose_note_edit');
-          if (forced !== undefined) nextRoundTool = { type: 'function', function: { name: 'propose_note_edit' } };
-          continue;
-        }
-        return "I couldn't put that edit together — it was probably too large for one go. Try asking for it a section at a time (for example \"rewrite the Users section\"), and I'll propose each one for you to apply.";
       }
       if (response.content && response.content.trim() !== '') {
         if (ledger !== undefined && budget !== undefined) {
@@ -597,7 +414,7 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
               continue;
             }
           }
-          let answerText = await repairDialogueReply(response.content);
+          let answerText = response.content;
           if (documentReview && pendingReads.size > 0) budget.noteModelRounds(i + 1);
           const decision = resolveAnswer(ledger, answerText, { repairsUsed: citationRepairs, canRepair: !wrapUp && !budget.aborted && i < maxRounds - 1 });
           if (used !== undefined) attachEvidence(used, ledger, budget.partial ? [budgetLimitation(budget)] : []);
@@ -616,7 +433,6 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
           const counts = ledgerCounts(ledger);
           const entries = [...ledger.entries.values()];
           // Counts and categories only: the answer text is inspected in memory and never stored.
-          retrievalAudit.deferredRecovery = flagDeferredRecovery(retrievalScope, answerText);
           const auditRow: TurnAuditRow = {
             sessionId: sessionId ?? null, assistantMessageId: null, persona: persona ?? 'general',
             retrievalUsed: retrievalRan, deterministicPath: deterministicRan,
@@ -637,9 +453,9 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
           const unreadNote = documentReview && pendingReads.size > 0
             ? `Document review incomplete: ${[...pendingReads.values()].map(page => `${page.title}: read through character ${page.endOffset} of ${page.totalChars}; continuation remains unread`).join('; ')}.`
             : '';
-          return finalizeKnowledgeAnswer(userMessage, [answerText, unreadNote].filter(Boolean).join('\n\n'), { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan, deterministicComplete: deterministicComplete && !budget.partial, fullDocumentRead });
+          return finalizeEvidenceAnswer([answerText, unreadNote].filter(Boolean).join('\n\n'), { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan, deterministicComplete: deterministicComplete && !budget.partial });
         }
-        return repairDialogueReply(response.content);
+        return response.content;
       }
       // A reasoning model (or a content filter) can return an empty visible
       // reply — surfacing that as a blank chat bubble looks like the app is
@@ -670,12 +486,40 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
       onToolCall?.(call.function.name);
       hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
       try {
-        if (noToolTurn) throw new Error('This turn uses supplied context for discussion only; no tool actions are permitted.');
         if (wholeReadRequested && failedDocumentReads.has(documentReadKey)) {
           throw new Error('This document already failed its bounded reading attempts in this turn. No further model reading was attempted. Report the incomplete coverage; saved checkpoints can be resumed on a later turn.');
         }
-        if ((design !== undefined || briefOnly || specificationOnly || hooks.readOnlyTools === true) && !tools.some((tool) => tool.function.name === call.function.name)) {
-          throw new Error(READ_ONLY_REFUSAL);
+        if (!tools.some((tool) => tool.function.name === call.function.name) || !supportsScope(call.function.name)) {
+          if (!supportsScope(call.function.name)) retrievalAudit.blockedCalls++;
+          throw new Error(hooks.readOnlyTools === true ? READ_ONLY_REFUSAL : 'This capability is not loaded or is unavailable in this context. Use load_tools for a permitted capability; no action was executed.');
+        }
+        if (call.function.name === LOAD_TOOLS) {
+          const names = catalog.requestedNames(requestedArgs['names']);
+          const declaration = requestedArgs['retrievalScope'] === undefined ? undefined : declaredRetrievalScope(requestedArgs['retrievalScope']);
+          const scope = declaration?.scope ?? retrievalScope;
+          if (names.some(name => !supportsScope(name, scope, declaration?.projectId ?? strictProjectId))) throw new Error('These tools do not support the declared retrieval boundary. Load search_knowledge_base and read_knowledge_record for scoped content retrieval.');
+          if (declaration !== undefined) {
+            const key = JSON.stringify(declaration);
+            if (declaredScopeKey !== undefined && declaredScopeKey !== key) throw new Error('The explicit retrieval boundary cannot be changed within this turn. Preserve it; report limited coverage rather than widening it.');
+            if (declaration.projectId !== null) {
+              const project = await db.query('SELECT id FROM projects WHERE id=$1', [declaration.projectId]);
+              if (project.rows.length === 0) throw new Error('The declared project ID does not exist.');
+            }
+            declaredScopeKey = key;
+            retrievalScope = declaration.scope;
+            strictProjectId = declaration.projectId;
+            retrievalAudit.families = scope?.families ?? [];
+            retrievalAudit.dateField = scope?.filter.dateField ?? null;
+            retrievalAudit.temporal = scope?.filter.within !== undefined;
+          }
+          result = { ...catalog.load(names), ...(retrievalScope !== undefined && { enforcedScope: retrievalScope, projectId: strictProjectId }) };
+          messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
+          continue;
+        }
+        if (call.function.name === 'read_knowledge_record' && (requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true)) {
+          documentReview = true;
+          budget?.useDocumentReviewLimits();
+          maxRounds = Math.max(maxRounds, TRANSCRIPT_REVIEW_BUDGET.maxModelRounds);
         }
         const gate = budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !wholeReadRequested ? budget.canStartRetrieval() : { ok: true as const };
         if (!gate.ok) {
@@ -698,7 +542,7 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
             }
           }
           const execute = async (argumentsJson: string): Promise<unknown> => filterExcluded(
-            await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, ...toolContext, allowStructuralNoteEdits: allowsStructuralNoteEdits(userMessage), retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
+            await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, userMessage, ...toolContext, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
             excluded);
           const args = parseToolArgs(toolArguments);
           const wholeRead = wholeReadRequested && sessionId !== undefined;
@@ -736,7 +580,6 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
                 ...modelReadingSteps(readingClient, hooks.signal),
               });
               if ('review' in reviewed) {
-                fullDocumentRead ||= reviewed.review.complete;
                 retrievalAudit.documentReviews++;
                 retrievalAudit.documentReadChars += reviewed.review.readChars;
                 retrievalAudit.documentCheckpoints += reviewed.review.pagesRead;

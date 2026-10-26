@@ -250,6 +250,7 @@ button.dw-company-chip { cursor: pointer; &:hover { border-color: var(--kh-accen
   background: transparent; border: 1px solid transparent; border-radius: var(--kh-radius-md);
   &__name { font-size: var(--kh-text-body); font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
   &__state { color: var(--cds-text-secondary); font-size: var(--kh-text-meta); line-height: 1.4; }
+  &__saved { color: var(--kh-accent); font-size: var(--kh-text-meta); line-height: 1.4; }
   &--changes &__state { color: var(--kh-accent); }
   &--missing &__state, &--incomplete &__state { color: var(--cds-support-warning); }
   &:hover { background: var(--cds-layer-hover-01); }
@@ -280,6 +281,21 @@ button.dw-company-chip { cursor: pointer; &:hover { border-color: var(--kh-accen
   &__evidence { margin: 0; max-width: 72ch; line-height: 1.65; overflow-wrap: anywhere; }
 }
 .dw-finding > .dw-details { margin-top: 0; }
+.dw-company-background, .dw-company-developments {
+  display: grid; gap: .5rem; margin-top: 1rem; min-width: 0;
+  > h6 { margin: 0; font-size: var(--kh-section-title); font-weight: 600; line-height: 1.4; }
+  > .dw-hint { margin: 0; line-height: 1.6; max-width: 78ch; }
+}
+.dw-background-sources {
+  list-style: none; padding: 0; margin: 0; display: grid; gap: .75rem;
+  > li { min-width: 0; padding-bottom: .75rem; border-bottom: 1px solid var(--cds-border-subtle-01); }
+  a {
+    color: var(--kh-link-prose); overflow-wrap: anywhere;
+    &:hover { color: var(--kh-link-prose-hover); }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  }
+  p { margin: .25rem 0; line-height: 1.6; overflow-wrap: anywhere; max-width: 78ch; }
+}
 .dw-facts {
   display: grid; gap: .75rem; margin: 0 0 .5rem;
   dt { color: var(--cds-text-secondary); font-size: var(--kh-heading-label); font-weight: 600; line-height: 1.5; }
@@ -295,6 +311,13 @@ button.dw-company-chip { cursor: pointer; &:hover { border-color: var(--kh-accen
   > h4 { margin-bottom: .25rem; }
 }
 .dw-history-entry { margin-top: 0; }
+.dw-company-history {
+  display: grid; gap: .5rem; min-width: 0; padding-top: 1rem;
+  border-top: 1px solid var(--cds-border-subtle-01);
+  > h4 { margin: 0; font-size: var(--kh-section-title); font-weight: 600; }
+  > .dw-hint { margin: 0; max-width: 78ch; line-height: 1.6; }
+  > .dw-actions { align-items: center; }
+}
 .dw-history-company {
   margin-top: 1rem;
   &__name { margin: 0; padding-bottom: .5rem; font-weight: 600; border-bottom: 1px solid var(--cds-border-subtle-01); }

@@ -105,33 +105,52 @@ test('archives unactioned articles after 14 days and low-value ones after 7, nev
   try {
     const low = '{"platform":"Archive","scoringVersion":2}';
     const good = '{"platform":"LinkedIn Standalone","scoringVersion":2}';
-    await pg.exec(`CREATE TABLE content_items (id text, source text, workflow_state text, published_at timestamptz, created_at timestamptz DEFAULT now(), metadata jsonb);
+    await pg.exec(`CREATE TABLE content_items (id text PRIMARY KEY, source text, workflow_state text,
+        published_at timestamptz NOT NULL, indexed_at timestamptz NOT NULL DEFAULT now(),
+        body text NOT NULL DEFAULT 'Preserved article body', metadata jsonb NOT NULL DEFAULT '{}');
       CREATE TABLE discover_parking (article_id text);
-      CREATE TABLE publishing_topics (id text, state text);
+      CREATE TABLE publishing_topics (id text, state text CHECK(state IN ('pending','assessing','ready','held','rejected')));
       CREATE TABLE publishing_sources (item_id text, topic_id text);
+      BEGIN;
       INSERT INTO content_items(id,source,workflow_state,published_at,metadata) VALUES
       ('low-8d','discovered-article','shelved',now()-interval '8 days','${low}'),
       ('low-5d','discovered-article','shelved',now()-interval '5 days','${low}'),
+      ('low-7d','discovered-article','to-review',now()-interval '7 days','${low}'),
+      ('low-over-7d','discovered-article','to-review',now()-interval '7 days 1 second','${low}'),
       ('good-10d','discovered-article','to-review',now()-interval '10 days','${good}'),
       ('good-15d','discovered-article','to-review',now()-interval '15 days','${good}'),
+      ('good-14d','discovered-article','to-review',now()-interval '14 days','${good}'),
+      ('good-over-14d','discovered-article','shelved',now()-interval '14 days 1 second','${good}'),
       ('protected-low-10d','discovered-article','to-review',now()-interval '10 days','{"platform":"Archive","scoringVersion":2,"projectBoost":0.5}'),
+      ('protected-low-15d','discovered-article','to-review',now()-interval '15 days','{"platform":"Archive","scoringVersion":2,"projectBoost":0.5}'),
+      ('restored-low-10d','discovered-article','to-review',now()-interval '10 days','{"platform":"Archive","scoringVersion":2,"restoredAt":"2026-10-25T10:00:00Z"}'),
       ('saved-30d','discovered-article','saved',now()-interval '30 days','${good}'),
+      ('blog-30d','discovered-article','blog',now()-interval '30 days','${good}'),
+      ('published-30d','discovered-article','published',now()-interval '30 days','${good}'),
       ('parked-30d','discovered-article','to-review',now()-interval '30 days','${good}'),
       ('publishing-30d','discovered-article','to-review',now()-interval '30 days','${good}'),
-      ('published-topic-30d','discovered-article','to-review',now()-interval '30 days','${good}'),
+      ('rejected-topic-30d','discovered-article','to-review',now()-interval '30 days','${good}'),
       ('note','note','to-review',now()-interval '30 days','{}');
       INSERT INTO discover_parking VALUES ('parked-30d');
-      INSERT INTO publishing_topics VALUES ('live','ready'),('done','published');
-      INSERT INTO publishing_sources VALUES ('publishing-30d','live'),('published-topic-30d','done');
+      INSERT INTO publishing_topics VALUES ('live','ready'),('rejected','rejected');
+      INSERT INTO publishing_sources VALUES ('publishing-30d','live'),('rejected-topic-30d','rejected');
     `);
     const db = { query: async (sql: string, params?: unknown[]) => pg.query(sql, params) } as unknown as Pool;
-    assert.deepEqual(await archiveAgedArticles(db), { low: 1, aged: 2 });
-    const rows = (await pg.query<{ id: string; workflow_state: string; metadata: Record<string, unknown> }>('SELECT id,workflow_state,metadata FROM content_items')).rows;
+    assert.deepEqual(await archiveAgedArticles(db), { low: 2, aged: 4 });
+    const rows = (await pg.query<{ id: string; workflow_state: string; body: string; metadata: Record<string, unknown> }>('SELECT id,workflow_state,body,metadata FROM content_items')).rows;
     const states = Object.fromEntries(rows.map(row => [row.id, row.workflow_state]));
     assert.deepEqual(states, { 'low-8d': 'archived', 'low-5d': 'shelved', 'good-10d': 'to-review', 'good-15d': 'archived',
+      'low-7d': 'to-review', 'low-over-7d': 'archived', 'good-14d': 'to-review', 'good-over-14d': 'archived',
+      'protected-low-15d': 'archived', 'restored-low-10d': 'to-review', 'blog-30d': 'blog', 'published-30d': 'published',
       'protected-low-10d': 'to-review', 'saved-30d': 'saved', 'parked-30d': 'to-review', 'publishing-30d': 'to-review',
-      'published-topic-30d': 'archived', note: 'to-review' });
+      'rejected-topic-30d': 'archived', note: 'to-review' });
+    assert.ok(rows.every(row => row.body === 'Preserved article body'));
     assert.equal(rows.find(row => row.id === 'good-15d')?.metadata['autoArchived'], true);
+    assert.equal(rows.find(row => row.id === 'good-15d')?.metadata['archivedReason'], 'age-14-days');
+    assert.equal(rows.find(row => row.id === 'low-8d')?.metadata['archivedReason'], 'low-value-7-days');
+    assert.equal(rows.find(row => row.id === 'low-8d')?.metadata['platform'], 'Archive');
+    assert.deepEqual(await archiveAgedArticles(db), { low: 0, aged: 0 });
+    await pg.exec('COMMIT');
   } finally { await pg.close(); }
 });
 

@@ -64,3 +64,15 @@ export interface WatchRun {
   findings: Array<WatchFinding & { id: string }>;
 }
 export interface InterestWeight { kind: 'topic' | 'source'; term: string; weight: number }
+export interface WatchProfileSource {
+  id: string; title: string; url: string; excerpt: string;
+  publishedAt: string | null; retrievedAt: string;
+}
+export interface WatchCompanyProfile {
+  sources: WatchProfileSource[]; researchedAt: string | null; lastAttemptAt: string;
+  error: string | null; searchContext: string;
+}
+export interface WatchCompanyKnowledge {
+  name: string; profile: WatchCompanyProfile | null; findingCount: number;
+  latestFindingRun: WatchRun | null;
+}

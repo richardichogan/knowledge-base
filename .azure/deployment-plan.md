@@ -1,6 +1,50 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
+
+**Release scope and Section 7: Validation Proof (2026-10-26T21:49:16Z, Athena routing and Discover):**
+- User requested deployment, merge and push. Release the existing local search,
+  competitor history, morning roundup, model-led routing and archive-query fix
+  to the established ACA/SWA production targets. No infrastructure changes.
+- `git fetch origin` and `git merge origin/main --no-edit` completed before
+  validation and were rechecked afterwards: already current at `11845aa`.
+- All validation checks pass:
+  - [x] Both `npx tsc --noEmit` checks passed after the final runtime change.
+  - [x] Both local production builds passed.
+  - [x] Backend lint non-regression: 552/623; frontend: 22/41.
+  - [x] One full backend isolated release run: 619/620 initially. The sole
+    failure expected the deliberately removed keyword-generated dialogue hint.
+    Corrected that assertion; the affected conversation group passed 40/40.
+  - [x] Frontend isolated release run: 235/235 plus 39/39 bundled UI checks.
+  - [x] Archive/project-fit checks, outside the main runner, passed 7/7,
+    including exact 7/14-day boundaries, protected records, preserved bodies
+    and idempotence. The fixture now matches real timestamp and topic states.
+  - [x] Actual archive SQL plans successfully against the shared database in
+    a READ ONLY transaction; no articles were changed by this check.
+  - [x] `git diff --check` passed. No full-suite reruns or browser launches.
+- Azure CLI 2.79.0 is authenticated to Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`). Existing backend is v256/revision
+  0000253 with identity None; existing frontend is kh-prod-web (Free).
+  Existing ACR secret-reference authentication remains unchanged. Bicep,
+  provisioning, what-if, new policy/RBAC assignments and Docker-context
+  changes are not applicable to this application-only release.
+- Dockerfile and lockfiles are unchanged. The image copies all SQL migrations,
+  including additive, idempotent migration112 for persistent company profiles,
+  already applied to shared content during the approved local work.
+- Fit: existing chat/tool, Discover and search architecture is retained;
+  hosting is unchanged; no new dependencies or taxonomy/approval queue;
+  specialised schema loading can add a model round, while the roundup adds
+  no model call. Typed boundaries, source exclusions, read-only checks and
+  edit previews remain. No secret handling changes. Reusing these paths is
+  the smaller safer change than adding a classification subsystem.
+- Actual local startup and frontend proxy are healthy. Real-user routing
+  quality is not yet demonstrated: no conversation occurred after the local
+  routing restart when inspected. Automated routing/permission coverage passed.
+- Preserve unrelated `.impeccable/hook.cache.json`. The colour hook finding
+  concerns an existing diagram test fixture, not a UI palette change.
+- Push matching source to feature/main, build v257 from GitHub main, deploy
+  both apps, verify revision/startup/migrations and served frontend bytes,
+  then stop. Evidence logs are in session files/routing-release-*.log.
 
 **Deployment outcome (2026-10-26, Design and diagram release):**
 - Release commit `7d81c1a` pushed atomically to the feature branch and main.

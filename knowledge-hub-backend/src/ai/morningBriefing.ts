@@ -17,6 +17,9 @@ import { setSessionPinned, renameSession } from './chatSessionStore.js';
 import { getSyncState, upsertSyncState } from '../db/queries.js';
 import { buildContentPickFacts } from './contentPick.js';
 import { buildTodayScheduleBlock, workToday, WORK_TIMEZONE } from '../integrations/ibm/ibmMeetings.js';
+import { DISCOVER_RECENCY_HALF_LIFE_DAYS } from '../config/constants.js';
+import { discoverRankSql, discoverDiversitySql } from '../integrations/cms/discoverRank.js';
+import { interestSql } from '../services/discoverInterests.js';
 
 const STATE_KEY = 'morning-briefing';
 export const BRIEFING_HOUR = 9;
@@ -32,6 +35,10 @@ const GITHUB_ITEMS_LIMIT = 250;
 const LIST_LIMIT = 15;
 const BRIEFING_MAX_TOKENS = 1_400;
 const FACTS_MAX_CHARS = 24_000;
+const DISCOVER_ROUNDUP_LIMIT = 3;
+const DISCOVER_SUMMARY_CHARS = 240;
+const DISCOVER_TITLE_CHARS = 200;
+const DISCOVER_SOURCE_CHARS = 100;
 
 export interface Briefing {
   date: string;
@@ -160,6 +167,51 @@ async function gatherFacts(db: Pool, since: Date): Promise<string> {
 
 // ── Generating ────────────────────────────────────────────────────────────────
 
+function roundupText(text: string, maxChars: number): string {
+  const plain = text.replace(/\s+/g, ' ').trim();
+  const bounded = plain.length > maxChars ? `${plain.slice(0, maxChars).trimEnd()}...` : plain;
+  return bounded.replace(/[\\`*_[\]<>]/g, '\\$&');
+}
+
+/** Stored excerpts, not AI recommendations: reuse Discover's live ranking without another model call. */
+export async function buildDiscoverRoundup(db: Pool, since: Date, until: Date): Promise<string> {
+  const interests = interestSql('ci');
+  const { rank } = discoverRankSql('ci', '$3');
+  const { rows } = await db.query<{
+    title: string; excerpt: string; url: string | null; source_title: string; published_at: Date;
+  }>(
+    `WITH ranked AS MATERIALIZED (
+       SELECT ci.id, ci.title, ci.body AS excerpt, ci.url, ci.published_at, ci.metadata,
+              COALESCE(ci.metadata->>'sourceTitle', '') AS source_title,
+              (${rank}) * (${interests.factor}) AS base_rank_score
+       FROM content_items ci
+       WHERE ci.source = 'discovered-article' AND ci.workflow_state = 'to-review'
+         AND ci.published_at > $1 AND ci.published_at <= $2
+         AND ci.metadata->>'publicationDateKnown' = 'true'
+         AND (${interests.eligible}) > 0
+     )
+     SELECT ci.*, ci.base_rank_score * ${discoverDiversitySql('ci')} AS rank_score
+     FROM ranked ci
+     ORDER BY rank_score DESC NULLS LAST, ci.published_at DESC, ci.id ASC LIMIT $4`,
+    [since.toISOString(), until.toISOString(), DISCOVER_RECENCY_HALF_LIFE_DAYS, DISCOVER_ROUNDUP_LIMIT],
+  );
+  const heading = '## Discover roundup';
+  if (rows.length === 0) return `${heading}\nNo newly published articles to review in this briefing window.`;
+
+  const articles = rows.map((row) => {
+    const title = roundupText(row.title, DISCOVER_TITLE_CHARS);
+    const url = row.url !== null && URL.canParse(row.url) ? new URL(row.url) : null;
+    const link = url !== null && (url.protocol === 'https:' || url.protocol === 'http:')
+      ? `[${title}](<${url.href.replace(/</g, '%3C').replace(/>/g, '%3E')}>)`
+      : `${title} (source link unavailable)`;
+    const source = roundupText(row.source_title, DISCOVER_SOURCE_CHARS);
+    const date = row.published_at.toISOString().slice(0, ISO_DATE_CHARS);
+    const summary = roundupText(row.excerpt, DISCOVER_SUMMARY_CHARS);
+    return `- ${link} - ${source ? `${source}, ` : ''}${date}${summary ? `: ${summary}` : ''}`;
+  });
+  return `${heading}\nSaved source excerpts, ordered by your Discover ranking and feedback.\n\n${articles.join('\n')}`;
+}
+
 const BRIEFING_PROMPT = [
   'You are Athena, writing Richard\'s morning briefing. Using ONLY the facts provided, write a short, scannable briefing in UK English Markdown:',
   '1. Start with "## Needs your attention" — only real actions: failed CI runs or deployments, open PRs from others that may need his review, overdue tasks, meetings that need prep, broken integrations he must fix (e.g. an expired key). If nothing, say so in one line.',
@@ -178,12 +230,14 @@ export async function generateMorningBriefing(db: Pool): Promise<Briefing> {
   const since = previous !== null && previous.date !== workToday()
     ? new Date(Math.max(new Date(previous.generatedAt).getTime(), now.getTime() - MAX_LOOKBACK_MS))
     : new Date(now.getTime() - DEFAULT_LOOKBACK_MS);
+  const roundup = await buildDiscoverRoundup(db, since, now);
   const facts = `${await gatherFacts(db, since)}\n\n${await buildContentPickFacts(db).catch((err: unknown) => { console.warn('[Briefing] content pick failed:', err); return ''; })}`;
-  const markdown = await getFoundryClient('morning-brief').chat(
+  const generated = await getFoundryClient('morning-brief').chat(
     'standard',
     [{ role: 'system', content: BRIEFING_PROMPT }, { role: 'user', content: facts }],
     BRIEFING_MAX_TOKENS,
   );
+  const markdown = `${generated}\n\n${roundup}`;
 
   const date = workToday(now);
   const label = new Intl.DateTimeFormat('en-GB', { timeZone: WORK_TIMEZONE, weekday: 'short', day: 'numeric', month: 'short' }).format(now);

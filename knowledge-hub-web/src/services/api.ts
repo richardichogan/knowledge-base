@@ -47,7 +47,7 @@ import type {
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { DiscoverFormat, DiscoverParking, ParkingSelection } from '../types/discover';
-import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight } from '../types/watchlists';
+import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight, WatchCompanyKnowledge } from '../types/watchlists';
 import type { BacklinkPage, EntityLinkTarget, EntityLinkType } from '../notes/entityLinks';
 import type { Person, PersonInput } from '../types/people';
 import type { Company, CompanyInput, CompanyPerson, PersonRelationships } from '../types/companies';
@@ -799,8 +799,8 @@ export class KnowledgeHubApi {
     return (await this.client.delete<ApiResponse<{ deleted: boolean }>>(`/api/people/${encodeURIComponent(id)}`)).data;
   }
 
-  async getLinkTargets(q = '', type?: EntityLinkType, id?: string, exclude?: string): Promise<ApiResponse<EntityLinkTarget[]>> {
-    const result = await this.client.get<ApiResponse<EntityLinkTarget[]>>('/api/notes/link-targets', { params: { q, type, id, exclude } });
+  async getLinkTargets(q = '', type?: EntityLinkType, id?: string, exclude?: string, signal?: AbortSignal): Promise<ApiResponse<EntityLinkTarget[]>> {
+    const result = await this.client.get<ApiResponse<EntityLinkTarget[]>>('/api/notes/link-targets', { params: { q, type, id, exclude }, ...(signal && { signal }) });
     return result.data;
   }
 
@@ -830,10 +830,11 @@ export class KnowledgeHubApi {
 
   async search(
     query: SearchQuery,
+    signal?: AbortSignal,
   ): Promise<ApiResponse<PaginatedList<ContentItemSummary>>> {
     const r = await this.client.get<
       ApiResponse<PaginatedList<ContentItemSummary>>
-    >('/api/search', { params: query });
+    >('/api/search', { params: query, ...(signal && { signal }) });
     return r.data;
   }
 
@@ -1338,8 +1339,8 @@ export class KnowledgeHubApi {
   }
 
   /** Full-text search across all chat titles and message text; returns matching ids and summaries. */
-  async searchChatSessions(query: string): Promise<ApiResponse<{ ids: string[]; sessions?: ChatSessionSummary[] }>> {
-    const r = await this.client.get<ApiResponse<{ ids: string[]; sessions?: ChatSessionSummary[] }>>('/api/ai/sessions/search', { params: { q: query } });
+  async searchChatSessions(query: string, signal?: AbortSignal): Promise<ApiResponse<{ ids: string[]; sessions?: ChatSessionSummary[] }>> {
+    const r = await this.client.get<ApiResponse<{ ids: string[]; sessions?: ChatSessionSummary[] }>>('/api/ai/sessions/search', { params: { q: query }, ...(signal && { signal }) });
     return r.data;
   }
 
@@ -1882,6 +1883,9 @@ export class KnowledgeHubApi {
   }
   async getWatchlistBaselines(id: string): Promise<ApiResponse<WatchBaselineVersion[]>> {
     return (await this.client.get<ApiResponse<WatchBaselineVersion[]>>(`/api/discover/watchlists/${id}/baselines`)).data;
+  }
+  async getWatchlistCompanies(id: string): Promise<ApiResponse<WatchCompanyKnowledge[]>> {
+    return (await this.client.get<ApiResponse<WatchCompanyKnowledge[]>>(`/api/discover/watchlists/${id}/companies`)).data;
   }
   async runWatchlist(id: string): Promise<ApiResponse<WatchRun>> {
     return (await this.client.post<ApiResponse<WatchRun>>(`/api/discover/watchlists/${id}/run`, {}, { timeout: 2 * CHAT_TIMEOUT_MS })).data;

@@ -20,7 +20,7 @@ const otherSession = '22222222-2222-4222-8222-222222222222';
 const outputId = '33333333-3333-4333-8333-333333333333';
 
 for (const orchestration of ['true', 'false']) {
-  for (const size of [13_000, 200_000]) test(`an ambiguous in-view review clarifies without reading its body or running tools (${orchestration}, ${size})`, async () => {
+  for (const size of [13_000, 200_000]) test(`the model interprets an ambiguous in-view review without a forced action (${orchestration}, ${size})`, async () => {
     const db = new Pool();
     const reads: string[] = [];
     const query = mock.method(db, 'query', async (sql: string) => { reads.push(sql); return { rows: [] }; });
@@ -30,13 +30,13 @@ for (const orchestration of ['true', 'false']) {
     const bulk = mock.method(FoundryClient.prototype, 'chatBulk', async () => { throw new Error('No reading model may run before intent is known'); });
     const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, messages, tools, _tokens, choice, _timeout, onDelta, _signal, _route, options) => {
       calls++;
-      assert.equal(choice, 'none');
-      assert.equal(tools.length, 0);
-      assert.equal(options?.builtInTools, undefined, 'code execution must also be withheld');
+      assert.equal(choice, 'auto');
+      assert.ok(tools.some(tool => tool.function.name === 'load_tools'));
+      assert.ok(options?.builtInTools, 'actual attached files determine availability, not a phrase match');
       const prompt = JSON.stringify(messages);
-      assert.match(prompt, /quick reaction and a detailed document review/);
+      assert.match(prompt, /quick reaction or a detailed document review/);
       assert.match(prompt, /Walking briefing/);
-      assert.doesNotMatch(prompt, /PRIVATE_SOURCE_BODY|PRIVATE_IMAGE|PRIVATE_SCREEN/);
+      assert.match(prompt, /PRIVATE_IMAGE|PRIVATE_SCREEN/, 'supplied context remains available for interpreting the request');
       onDelta?.('Unpublished model draft');
       return { content: 'Do you want a quick reaction to the concept or a full review of the specification?', toolCalls: [], finishReason: 'stop' };
     });
@@ -47,10 +47,9 @@ for (const orchestration of ['true', 'false']) {
         undefined, {}, { onDelta: text => deltas.push(text), onAudit: () => {},
           screenImages: [{ label: 'PRIVATE_SCREEN', url: 'data:image/png;base64,AAAA' }],
           codeFiles: { ids: ['file-private'], names: [] } });
-      assert.match(reply, /quick reaction, or a detailed review of the document\?/);
-      assert.equal(calls, 0, 'the scope choice needs no model call or generated-answer repair');
-      assert.deepEqual(deltas, []);
-      assert.ok(!reads.some(sql => /kind = 'example'/.test(sql)), 'old long liked replies do not prime a scope question');
+      assert.match(reply, /quick reaction to the concept or a full review/);
+      assert.equal(calls, 1, 'the model chooses clarification; no keyword classifier or repair model call');
+      assert.deepEqual(deltas, ['Unpublished model draft']);
       assert.ok(!reads.some(sql => /document_reading_|FROM notes|FROM library_documents/i.test(sql)));
     } finally {
       if (original === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = original;
@@ -69,10 +68,11 @@ for (const orchestration of ['true', 'false']) {
     let calls = 0;
     const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, messages, tools, _tokens, choice) => {
       calls++;
-      assert.equal(choice, 'none');
-      assert.equal(tools.length, 0);
+      assert.equal(choice, 'auto');
+      assert.ok(tools.some(tool => tool.function.name === 'read_knowledge_record'));
       assert.match(JSON.stringify(messages), /SOURCE_BODY_WITH_REQUIREMENTS/);
-      assert.match(JSON.stringify(messages), full ? /The review is already requested/ : /Quick concept reaction requested/);
+      assert.match(JSON.stringify(messages), /quick reaction to the concept or a full review/);
+      assert.match(JSON.stringify(messages), full ? /The latter/ : /The former/);
       return { content: expected, toolCalls: [], finishReason: 'stop' };
     });
     try {
@@ -95,11 +95,10 @@ for (const orchestration of ['true', 'false']) {
     const original = process.env['KNOWLEDGE_ORCHESTRATION'];
     process.env['KNOWLEDGE_ORCHESTRATION'] = orchestration;
     const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, messages, tools, _tokens, choice) => {
-      assert.equal(choice, 'none');
-      assert.equal(tools.length, 0);
+      assert.equal(choice, 'auto');
+      assert.ok(tools.some(tool => tool.function.name === 'load_tools'));
       const prompt = JSON.stringify(messages);
-      assert.match(prompt, /Review of the document in view requested/);
-      assert.match(prompt, /do not impose implementation-readiness checks/);
+      assert.match(prompt, /Interpret the requested review depth from the conversation/);
       assert.match(prompt, /limited English/);
       assert.match(prompt, /MANUAL_SOURCE/);
       return { content: 'Use short sentences and explain the unfamiliar controls.', toolCalls: [], finishReason: 'stop' };
@@ -117,7 +116,7 @@ for (const orchestration of ['true', 'false']) {
     }
   });
 
-  test(`actual exploratory chat buffers an essay and repairs once without replaying tools (${orchestration})`, async () => {
+  test(`exploratory chat is model-led without a keyword-triggered second generation (${orchestration})`, async () => {
     const db = new Pool();
     const query = mock.method(db, 'query', async () => ({ rows: [] }));
     const original = process.env['KNOWLEDGE_ORCHESTRATION'];
@@ -127,13 +126,10 @@ for (const orchestration of ['true', 'false']) {
     const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, messages, tools, _tokens, choice, _timeout, onDelta) => {
       calls++;
       onDelta?.('Unpublished draft');
-      assert.equal(tools.length, 0, 'pure exploration needs no retrieval or action tools');
-      assert.equal(choice, 'none');
-      if (calls === 1) return { content: 'Detailed framework. '.repeat(130), toolCalls: [], finishReason: 'stop' };
-      assert.equal(calls, 2);
-      assert.equal(tools.length, 0, 'a pacing repair cannot repeat a mutation');
-      assert.equal(choice, 'none');
-      assert.match(String(messages.at(-1)?.content), /consequential unresolved question/);
+      assert.ok(tools.some(tool => tool.function.name === 'load_tools'));
+      assert.equal(choice, 'auto');
+      assert.equal(calls, 1);
+      assert.match(JSON.stringify(messages), /Interpret intent from the whole exchange/);
       return { content: 'A readable spec and an executable contract are not quite the same job. Who needs to use it first?', toolCalls: [], finishReason: 'stop' };
     });
     try {
@@ -141,8 +137,8 @@ for (const orchestration of ['true', 'false']) {
         'standard', 'general', sessionId, undefined, undefined, {}, {
           onDelta: text => drafts.push(text), onAudit: () => {},
         });
-      assert.equal(calls, 2);
-      assert.deepEqual(drafts, [], 'neither the essay nor its repair is exposed as a provisional answer');
+      assert.equal(calls, 1);
+      assert.deepEqual(drafts, ['Unpublished draft']);
       assert.match(reply, /Who needs to use it first\?/);
       assert.doesNotMatch(reply, /Detailed framework/);
     } finally {
@@ -191,8 +187,8 @@ for (const inView of [false, true]) test(`the actual chat reads a ${inView ? 'ch
   const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages, _tools, _tokens, choice) => {
     calls++;
     if (inView && calls === 1) {
-      assert.deepEqual(choice, { type: 'function', function: { name: 'read_knowledge_record' } });
-      assert.match(JSON.stringify(messages), new RegExp(`Primary source identity:.*${id}`));
+      assert.equal(choice, 'auto');
+      assert.match(JSON.stringify(messages), new RegExp(`Open record identity:.*${id}`));
     }
     if (calls === 1) return { content: null, toolCalls: [{ id: 'full', type: 'function' as const,
       function: { name: 'read_knowledge_record', arguments: JSON.stringify({ kind: 'note', id, fullDocument: true }) } }], finishReason: 'tool_calls' };
@@ -383,7 +379,8 @@ for (const scenario of [
       if (calls > 1) assert.match(String(messages.at(-1)?.content), /unread continuation pages/);
       return { content: null, toolCalls: [{
         id: `page-${calls}`, type: 'function' as const, function: { name: 'read_knowledge_record',
-          arguments: JSON.stringify({ kind: 'note', id: noteId, fullDocument: false, maxChars: 12_000,
+          arguments: JSON.stringify({ kind: 'note', id: noteId, fullDocument: true, maxChars: 12_000,
+            ...(page?.record?.nextCursor ? {} : { offset: 0 }),
             ...(page?.record?.nextCursor ? { cursor: page.record.nextCursor } : {}) }) },
       }], finishReason: 'tool_calls' };
     }
@@ -485,17 +482,21 @@ test('Discover retries keep the actual user collection through prompt assembly, 
     const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages, tools, _tokens, choice) => {
       calls++;
       if (calls === 1) {
-        assert.deepEqual(choice, { type: 'function', function: { name: 'search_knowledge_base' } });
-        assert.ok(!tools.some(tool => tool.function.name === 'search_library'));
+        assert.equal(choice, 'auto');
+        assert.ok(tools.some(tool => tool.function.name === 'search_library'));
         const prompt = messages.find(message => message.role === 'system')?.content;
-        assert.match(String(prompt), /Enforced retrieval scope/);
-        assert.match(String(prompt), /"sources":\["discovered-article"\]/);
+        assert.match(String(prompt), /explicit user-imposed collection/);
+        return { content: null, toolCalls: [{ id: 'scope', type: 'function' as const,
+          function: { name: 'load_tools', arguments: '{"names":["search_knowledge_base"],"retrievalScope":{"sources":["discovered-article"]}}' } }], finishReason: 'tool_calls' };
+      }
+      if (calls === 2) {
+        assert.ok(!tools.some(tool => tool.function.name === 'search_library'));
         // Even an out-of-schema tool call must be refused server-side.
         return { content: null, toolCalls: [{ id: 'wrong', type: 'function' as const,
           function: { name: 'search_library', arguments: '{"query":"log"}' } }], finishReason: 'tool_calls' };
       }
-      if (calls === 2) {
-        assert.match(JSON.stringify(messages.at(-1)), /scope_mismatch/);
+      if (calls === 3) {
+        assert.match(JSON.stringify(messages.at(-1)), /not loaded or is unavailable/);
         return { content: null, toolCalls: [{ id: 'correct', type: 'function' as const,
           function: { name: 'search_knowledge_base', arguments: '{"query":""}' } }], finishReason: 'tool_calls' };
       }
@@ -507,9 +508,9 @@ test('Discover retries keep the actual user collection through prompt assembly, 
         { role: 'user', content: 'any interesting items in the discovery log?' },
         { role: 'assistant', content: 'I read unrelated logging documents and meeting notes.' },
       ], 'shall we try that again', 'standard', 'general', sessionId, undefined, undefined, {}, { onAudit: row => { audit = row; } });
-      assert.equal(calls, 3);
+      assert.equal(calls, 4);
       assert.match(JSON.stringify(audit), /"blockedCalls":1/);
-      assert.match(JSON.stringify(audit), /"inherited":true/);
+      assert.match(JSON.stringify(audit), /"families":\["discover-article"\]/);
       assert.ok(!reads.some(sql => sql.includes('FROM notes') && sql.includes('search_vector')));
     } finally {
       if (flag === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION'];
@@ -570,7 +571,12 @@ test('a repair after a formatting complaint uses exact edits instead of conversa
   const completion = mock.method(FoundryClient.prototype, 'chatWithToolsStream', async (_model, _messages, _tools, _tokens, choice) => {
     calls++;
     if (calls === 1) {
-      assert.deepEqual(choice, { type: 'function', function: { name: 'propose_note_edit' } });
+      assert.equal(choice, 'auto');
+      return { content: null, toolCalls: [{ id: 'load-edit', type: 'function' as const,
+        function: { name: 'load_tools', arguments: '{"names":["propose_note_edit"]}' } }], finishReason: 'tool_calls' };
+    }
+    if (calls === 2) {
+      assert.equal(choice, 'auto');
       return { content: null, toolCalls: [{ id: 'wording', type: 'function' as const, function: { name: 'propose_note_edit',
         arguments: JSON.stringify({ edits: [{ action: 'replace_text', find: 'Tunr', markdown: 'Turn', summary: 'Correct typo without changing formatting' }] }) } }],
       finishReason: 'tool_calls' };
@@ -595,10 +601,13 @@ test('time limit after RTR-style edit production preserves the preview without c
   const query = mock.method(db, 'query', async () => ({ rows: [] }));
   let now = 1_000;
   const clock = mock.method(Date, 'now', () => now);
+  let calls = 0;
   const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async () => {
+    if (++calls === 1) return { content: null, toolCalls: [{ id: 'load-edit', type: 'function' as const,
+      function: { name: 'load_tools', arguments: '{"names":["propose_note_edit"]}' } }], finishReason: 'tool_calls' };
     now += 60_000;
     return { content: null, toolCalls: [{ id: 'edit-one', type: 'function' as const, function: { name: 'propose_note_edit',
-      arguments: JSON.stringify({ edits: [{ action: 'replace_all', markdown: '# Fixtures\nComplete synthetic dataset.', summary: 'Replace fixtures' }] }) } }],
+      arguments: JSON.stringify({ editMode: 'structural', edits: [{ action: 'replace_all', markdown: '# Fixtures\nComplete synthetic dataset.', summary: 'Replace fixtures' }] }) } }],
     finishReason: 'tool_calls' };
   });
   const noteEdits: NoteEditProposal[] = [];
@@ -611,7 +620,7 @@ test('time limit after RTR-style edit production preserves the preview without c
     assert.match(reply, /before I could finish checking/);
     assert.match(reply, /not saved changes/);
     assert.doesNotMatch(reply, /try again|ask a more specific question/);
-    assert.equal(completion.mock.callCount(), 1);
+    assert.equal(completion.mock.callCount(), 2);
   } finally {
     clock.mock.restore(); completion.mock.restore(); query.mock.restore(); await db.end();
   }

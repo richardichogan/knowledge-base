@@ -10,7 +10,9 @@ import { discoverRouter } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { getToolDefinitions, executeToolCall } from '../src/ai/chatTools.js';
 import { listWatchlists, saveWatchlist, runWatchlist, watchlistHistory, parseWatchlist, parseWatchAnalysis,
-  evidenceGroups, runDueWatchlists, retrieveWatchlistRecords, matchesEntity, analyzeWatchEvidence } from '../src/services/discoverWatchlists.js';
+  evidenceGroups, runDueWatchlists, retrieveWatchlistRecords, matchesEntity, analyzeWatchEvidence, watchlistCompanyKnowledge } from '../src/services/discoverWatchlists.js';
+import { loadWatchlistProfiles, refreshWatchlistProfiles } from '../src/services/watchlistProfiles.js';
+import { profileSources } from '../src/services/watchlistSearch.js';
 import { FoundryClient } from '../src/ai/foundryClient.js';
 import { saveInterestWeight, parseInterestWeight } from '../src/services/discoverInterests.js';
 import type { WatchlistInput, WatchFinding, WatchRun, Watchlist } from '../src/types/watchlists.js';
@@ -60,6 +62,9 @@ async function fixture(): Promise<{ pg: PGlite; db: Pool }> {
   await pg.exec(migration);
   await pg.exec(migration);
   await pg.exec(await readFile(new URL('../src/db/migrations/087_discover_parking.sql', import.meta.url), 'utf8'));
+  const profiles = await readFile(new URL('../src/db/migrations/112_watchlist_company_profiles.sql', import.meta.url), 'utf8');
+  await pg.exec(profiles);
+  await pg.exec(profiles);
   return { pg, db: pg as unknown as Pool };
 }
 async function article(pg: PGlite, id = articleId, title = 'Example Product announces managed agents', body = 'Example Product announced a capability. Availability is not documented.'): Promise<void> {
@@ -90,6 +95,63 @@ test('watchlist inputs require explicit user choices and strict bounded typed an
     assert.throws(() => parseWatchAnalysis(JSON.stringify({ summary: 'Unsupported', findings: [{ ...finding(), ...patch }] }), config(), evidence));
   }
   for (const value of [-1, 2.1, NaN, Infinity, '2']) assert.throws(() => parseInterestWeight({ kind: 'topic', term: 'AI', weight: value }));
+});
+
+test('company background accepts undated source excerpts without inventing publication dates', () => {
+  const result = profileSources({ results: [
+    { title: 'Company products', url: 'https://example.com/products', content: 'Product reference.' },
+    { title: 'Unsafe link', url: 'javascript:alert(1)', content: 'Not a usable source.' },
+    { title: 'Empty source', url: 'https://example.com/empty', content: '' },
+  ] }, '2026-10-26T12:00:00Z');
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.publishedAt, null);
+  assert.equal(result[0]?.retrievedAt, '2026-10-26T12:00:00Z');
+});
+
+test('background refresh retains previous sources through sparse results, failures and changed configuration', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const w = await saveWatchlist(db, config());
+    const source = { id: 'first', title: 'Background', url: 'https://example.com/about', excerpt: 'Company capabilities.',
+      publishedAt: null, retrievedAt: '2026-10-26T12:00:00Z' };
+    await refreshWatchlistProfiles(db, w.id, w.config, false, async () => [source]);
+    let repeatedResearch = 0;
+    await refreshWatchlistProfiles(db, w.id, w.config, false, async () => { repeatedResearch++; return [source]; });
+    assert.equal(repeatedResearch, 0, 'Scheduled checks reuse established background');
+    await refreshWatchlistProfiles(db, w.id, w.config, true, async () => [{ ...source, id: 'second', url: 'https://example.com/products' }]);
+    assert.equal((await loadWatchlistProfiles(db, w.id)).get('Example Product')?.sources.length, 2);
+    await refreshWatchlistProfiles(db, w.id, w.config, true, async () => { throw new Error('PRIVATE transport details'); });
+    const retained = (await loadWatchlistProfiles(db, w.id)).get('Example Product');
+    assert.equal(retained?.sources.length, 2);
+    assert.ok(retained?.researchedAt);
+    assert.match(retained?.error ?? '', /Existing knowledge is retained/);
+    assert.doesNotMatch(retained?.error ?? '', /PRIVATE/);
+    await saveWatchlist(db, { ...config(), searchContext: 'Changed scope' }, w.id, w.revision);
+    await refreshWatchlistProfiles(db, w.id, w.config, true, async () => [{ ...source, id: 'stale-result' }]);
+    assert.equal((await loadWatchlistProfiles(db, w.id)).get('Example Product')?.sources.length, 2);
+  } finally { await pg.close(); }
+});
+
+test('company knowledge retrieves earlier findings beyond the latest history page after quiet and failed checks', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const w = await saveWatchlist(db, config());
+    await pg.query(`INSERT INTO discover_watchlist_runs(id,watchlist_id,baseline_version,config,window_start,started_at,status,evidence)
+      VALUES($1,$2,1,$3,NOW()-INTERVAL '120 days',NOW()-INTERVAL '110 days','changes',$4)`,
+    [secondId, w.id, JSON.stringify(w.config), JSON.stringify([{
+      id: articleId, title: 'Original source', url: 'https://example.com/announcement', publishedAt: '2026-07-01T00:00:00Z',
+      excerpt: 'Original evidence', eventKey: 'event', syndicatedIds: [], entities: ['Example Product'],
+    }])]);
+    await pg.query('INSERT INTO discover_watchlist_findings(run_id,finding) VALUES($1,$2)', [secondId, JSON.stringify(finding())]);
+    await pg.query(`INSERT INTO discover_watchlist_runs(watchlist_id,baseline_version,config,window_start,started_at,status)
+      SELECT $1,1,$2,NOW()-INTERVAL '120 days',NOW()-n*INTERVAL '1 day',
+        CASE WHEN n=1 THEN 'failed' ELSE 'no_meaningful_change' END FROM generate_series(1,105) n`, [w.id, JSON.stringify(w.config)]);
+    assert.equal((await watchlistHistory(db, w.id)).some(run => run.id === secondId), false);
+    const knowledge = await watchlistCompanyKnowledge(db, w.id);
+    assert.equal(knowledge[0]?.findingCount, 1);
+    assert.equal(knowledge[0]?.latestFindingRun?.id, secondId);
+    assert.equal(knowledge[0]?.latestFindingRun?.evidence[0]?.url, 'https://example.com/announcement');
+  } finally { await pg.close(); }
 });
 
 test('focused findings require structured fields and validate grounded project identities and relationships', () => {

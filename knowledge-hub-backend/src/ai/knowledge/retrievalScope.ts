@@ -185,7 +185,45 @@ export const RETRIEVAL_DICTIONARY = [
 
 export class RetrievalScopeError extends Error {}
 
-/** Model arguments may narrow, never erase server-derived collection/time/state constraints. */
+export const RETRIEVAL_SCOPE_PARAMETERS = {
+  type: 'object',
+  description: 'Only explicit user-imposed boundaries, not a guess based on mentioned words. Omit for broad or cross-collection work. Immutable for this turn once declared; a subsequent user turn may change it.',
+  properties: {
+    sources: { type: 'array', items: { type: 'string', enum: Object.keys(CONTENT_SOURCE_DISPOSITIONS) }, minItems: 1 },
+    states: { type: 'array', items: { type: 'string', enum: [...DISCOVER_STATES] }, minItems: 1 },
+    parkedOnly: { type: 'boolean' },
+    dateField: { type: 'string', enum: ['published', 'discovered', 'updated'] },
+    within: {
+      type: 'object', properties: {
+        period: { type: 'string', description: 'Europe/London calendar period, e.g. today or last week.' },
+        start: { type: 'string' }, end: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+    projectId: { type: 'string', description: 'Exact saved project ID, only when the user restricts retrieval to this project. The active project is otherwise a preference, not a boundary.' },
+  },
+  additionalProperties: false,
+};
+
+/** Interpret language in the model; validate the resulting structured boundary here. */
+export function declaredRetrievalScope(value: unknown, now = new Date()): { scope: RetrievalScope; projectId: string | null } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new RetrievalScopeError('retrievalScope must be an object.');
+  const args = value as Record<string, unknown>;
+  const keys = new Set(Object.keys(RETRIEVAL_SCOPE_PARAMETERS.properties));
+  if (Object.keys(args).some(key => !keys.has(key))) throw new RetrievalScopeError('Unknown retrievalScope field.');
+  const projectId = args['projectId'];
+  if (projectId !== undefined && (typeof projectId !== 'string' || !projectId.trim())) throw new RetrievalScopeError('projectId must be a saved project ID.');
+  const filter = resolveSearchFilter(args, undefined, now);
+  const families = [...new Set((filter.sources ?? []).map(source =>
+    CONTENT_SOURCE_DISPOSITIONS[source as ContentSource].family))];
+  const knownFamilies = RETRIEVAL_VOCABULARY.filter(entry => families.includes(entry.family)).map(entry => entry.family);
+  return {
+    scope: { families: knownFamilies, tool: Object.keys(filter).length > 0 ? 'search_knowledge_base' : '', inherited: false, filter, timeDefaulted: false },
+    projectId: typeof projectId === 'string' ? projectId : null,
+  };
+}
+
+/** Model arguments may narrow, never erase a declared collection/time/state constraint. */
 export function resolveSearchFilter(args: Record<string, unknown>, scope?: RetrievalScope, now = new Date()): SearchFilter {
   const filter: SearchFilter = { ...scope?.filter };
   const allowedSources = Object.keys(CONTENT_SOURCE_DISPOSITIONS);
@@ -201,13 +239,21 @@ export function resolveSearchFilter(args: Record<string, unknown>, scope?: Retri
     filter[field] = existing === undefined ? requested : existing.filter(v => requested.includes(v));
   }
   if (filter.sources?.includes('discovered-article') && filter.states === undefined) filter.states = ['to-review'];
+  if (args['parkedOnly'] !== undefined) {
+    if (typeof args['parkedOnly'] !== 'boolean') throw new RetrievalScopeError('parkedOnly must be a boolean.');
+    filter.parkedOnly = filter.parkedOnly === true || args['parkedOnly'];
+  }
   const field = args['dateField'];
-  if (field !== undefined && !['published', 'discovered', 'updated'].includes(String(field))) throw new RetrievalScopeError('Unknown dateField.');
+  if (field !== undefined && (typeof field !== 'string' || !['published', 'discovered', 'updated'].includes(field))) throw new RetrievalScopeError('Unknown dateField.');
   if (scope === undefined && (field === 'published' || field === 'discovered' || field === 'updated')) filter.dateField = field;
   if (args['within'] !== undefined) {
     const within = args['within'];
-    if (typeof within !== 'object' || within === null) throw new RetrievalScopeError('within must be a period or start/end object.');
+    if (typeof within !== 'object' || within === null || Array.isArray(within)) throw new RetrievalScopeError('within must be a period or start/end object.');
     const range = within as Record<string, unknown>;
+    if (Object.keys(range).some(key => !['period', 'start', 'end'].includes(key))
+      || range['period'] !== undefined && (range['start'] !== undefined || range['end'] !== undefined)) {
+      throw new RetrievalScopeError('within must contain either a supported period or explicit start and end, without extra fields.');
+    }
     const kind = typeof range['period'] === 'string' ? parseRelativePhrase(range['period']) : null;
     const parsed = kind !== null ? resolveRelativeInterval(kind, now)
       : typeof range['start'] === 'string' && typeof range['end'] === 'string' ? explicitUtcInterval(range['start'], range['end']) : undefined;

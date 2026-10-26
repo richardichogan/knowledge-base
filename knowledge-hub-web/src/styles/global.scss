@@ -8469,6 +8469,23 @@ body.kh-pane-resizing {
 
 .cmd-section {
   margin-bottom: 4px;
+
+  &--error {
+    .cmd-section-title {
+      color: var(--cds-support-error);
+    }
+
+    .cmd-item {
+      flex-wrap: wrap;
+    }
+
+    .cmd-item-sub {
+      flex-basis: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      text-align: left;
+    }
+  }
 }
 
 .cmd-section-title {
@@ -8497,6 +8514,11 @@ body.kh-pane-resizing {
   &--active,
   &:hover {
     background: var(--cds-layer-hover-01);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--cds-focus);
+    outline-offset: -2px;
   }
 }
 

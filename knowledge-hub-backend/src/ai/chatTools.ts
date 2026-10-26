@@ -23,7 +23,7 @@ import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { saveOutputVersion, getOutput, readOutputForChat } from './chatOutputs.js';
-import { buildTodayScheduleBlock } from '../integrations/ibm/ibmMeetings.js';
+import { buildTodayScheduleBlock, looksLikeMeetingList, importMeetingList } from '../integrations/ibm/ibmMeetings.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
 import { DEMO_SPECIFICATION_TOOLS, demoSpecificationForm, renderDemoSpecification } from './demoSpecification.js';
 export { textToBlocks } from './markdownToNoteBlocks.js';
@@ -80,6 +80,17 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   return [
     JOB_TOOL,
     PUBLISHING_TOOL,
+    {
+      type: 'function',
+      function: {
+        name: 'import_meeting_list',
+        description: 'Import the IBM/M365 meeting list the user supplied in this message into today’s diary and its prep tasks. Use when they intend to import it, not when discussing an example or asking not to save. Copy the supplied list verbatim; do not construct meetings from inferred details. Returns actual import results, including deduplicated prep tasks.',
+        parameters: {
+          type: 'object', properties: { text: { type: 'string', description: 'The unmodified meeting list from the current user message.' } },
+          required: ['text'], additionalProperties: false,
+        },
+      },
+    },
     ...agentToolDefinitions(),
     ...DEMO_SPECIFICATION_TOOLS,
     REVIEW_DECISIONS_DEFINITION,
@@ -193,6 +204,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             query: { type: 'string', description: 'Topic words only; empty string to browse sources. Do not search generic words such as interesting/log/latest for collection browsing.' },
             sources: { type: 'array', items: { type: 'string' }, description: 'Hard source filters, e.g. discovered-article for Discover, note for Think notes. App dictionary supplies family mappings.' },
             states: { type: 'array', items: { type: 'string', enum: ['to-review', 'saved', 'blog', 'archived', 'published', 'shelved'] }, description: 'Discover workflow states. Default to-review. Only widen when requested.' },
+            parkedOnly: { type: 'boolean', description: 'Only articles in the Discover parking pool, when requested.' },
             dateField: { type: 'string', enum: ['published', 'discovered', 'updated'] },
             within: { type: 'object', properties: { period: { type: 'string' }, start: { type: 'string' }, end: { type: 'string' } },
               description: 'Either a Europe/London calendar period (today/yesterday/this week/last week/this month/last month), or ISO UTC start/end (end excluded).' },
@@ -642,6 +654,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
         parameters: {
           type: 'object',
           properties: {
+            editMode: { type: 'string', enum: ['preserve_formatting', 'structural'], description: 'Default preserve_formatting: use exact replace_text edits. Select structural only when the user actually requested adding/removing sections, a redraft or restructuring, taking negation and conversation context into account. This only proposes a preview; it does not apply or authorise a save.' },
             edits: {
               type: 'array',
               description: 'One or more edits, applied in order.',
@@ -795,6 +808,7 @@ export async function executeToolCall(
   argsJson: string,
   activeProjectId?: string,
   turn: {
+    userMessage?: string | undefined;
     sessionId?: string | undefined; noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState; noteEdits?: NoteEditProposal[];
     allowStructuralNoteEdits?: boolean | undefined;
     retrievalScope?: RetrievalScope | undefined; retrievalAudit?: RetrievalAudit | undefined;
@@ -843,7 +857,7 @@ export async function executeToolCall(
     if (turn.retrievalAudit !== undefined) turn.retrievalAudit.blockedCalls++;
     return { error: 'This tool is outside the user’s requested collection. Use search_knowledge_base within the supplied source/date/state scope.', code: 'scope_mismatch' };
   }
-  if ((name === 'read_knowledge_record' || name === 'fetch_web_page') && turn.retrievalScope?.filter.sources !== undefined) {
+  if ((name === 'read_knowledge_record' || name === 'fetch_web_page') && turn.retrievalScope !== undefined && Object.keys(turn.retrievalScope.filter).length > 0) {
     const values: unknown[] = [name === 'fetch_web_page' ? args['url'] : args['id']];
     const where = searchFilterSql(turn.retrievalScope.filter, values);
     const { rows } = await db.query(
@@ -995,6 +1009,13 @@ export async function executeToolCall(
     case 'create_spark':          return createSparkFromChat(db, args);
     case 'remember':              return rememberInstruction(db, args, turn.sessionId);
     case 'get_today_schedule': return { schedule: await buildTodayScheduleBlock(db) };
+    case 'import_meeting_list': {
+      const text = typeof args['text'] === 'string' ? args['text'].trim() : '';
+      if (!text || turn.userMessage === undefined || !turn.userMessage.includes(text) || !looksLikeMeetingList(text)) {
+        return { error: 'No meetings imported. Supply an unmodified, supported meeting list from the current user message; do not invent or reconstruct one.' };
+      }
+      return importMeetingList(db, text);
+    }
     case 'read_output': {
       if (turn.sessionId === undefined) return { error: 'No chat to read an output from.' };
       const id = args['output_id'];
@@ -1034,7 +1055,10 @@ export async function executeToolCall(
       const { edits, problems } = validateNoteEdits(args['edits']);
       if (problems.length > 0) return { error: `No edits proposed: ${problems.join('; ')}. Correct the whole edit batch and retry.` };
       if (edits.length === 0) return { error: `No valid edits: ${problems.join('; ') || 'edits array was empty'}` };
-      if (turn.allowStructuralNoteEdits === false && edits.some(edit => edit.action !== 'replace_text')) {
+      const editMode = args['editMode'] ?? 'preserve_formatting';
+      if (editMode !== 'preserve_formatting' && editMode !== 'structural') return { error: 'No edits proposed: editMode must be preserve_formatting or structural.' };
+      const allowStructural = turn.allowStructuralNoteEdits ?? (editMode === 'structural');
+      if (!allowStructural && edits.some(edit => edit.action !== 'replace_text')) {
         return { error: 'No edits proposed. This is a wording/review correction, not permission to rewrite or reformat the note. Use unique exact replace_text edits with plain replacement text. Preserve headings, title, rich formatting, links, lists, images and all untouched content.' };
       }
       // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.
@@ -1179,7 +1203,7 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>, cont
   sessionId?: string | undefined; retrievalScope?: RetrievalScope | undefined; retrievalAudit?: RetrievalAudit | undefined;
   excludedIds?: ReadonlySet<string>; strictProjectId?: string | null; signal?: AbortSignal | undefined;
 } = {}): Promise<unknown> {
-  let query = typeof args['query'] === 'string' ? args['query'].trim() : '';
+  const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
   let filter;
   try { filter = resolveSearchFilter(args, turn.retrievalScope); }
   catch (error) {
@@ -1191,7 +1215,6 @@ async function searchKnowledgeBase(db: Pool, args: Record<string, unknown>, cont
     if (Array.isArray(args['sources']) && args['sources'].some(source => !scopedSources.includes(String(source)))) {
       if (turn.retrievalAudit !== undefined) turn.retrievalAudit.blockedCalls++;
     }
-    if (query.toLowerCase().replace(/\b(?:any|anything|interesting|items?|articles?|in|the|discover(?:y)?|logs?|lists?|feeds?|latest|recent|new|what|is|s)\b/g, '').replace(/[\s?'.-]/g, '') === '') query = '';
   }
   if (query === '' && filter.sources === undefined) return { error: 'A query or explicit sources for browsing is required.' };
   const rawLimit = Number(args['limit']);

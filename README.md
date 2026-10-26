@@ -694,7 +694,7 @@ Implemented: recovery, knowledge health (migration 067), project cockpit and reg
 
 These came from the UX review and competitor research. Item 1 is built; the rest are not. Full detail (current code, what to build, acceptance) is in [docs/planned-features.md](docs/planned-features.md). Order proposed (value against effort); mobile and tablet work is out of scope except `/chat`.
 
-1. **Command palette actions (built).** Cmd+K finds any note, project, spark, diagram, task, use case, Discover article, Athena chat or linked source by title. It runs actions (capture a Spark, ask Athena about this page, open chats, go to Think) and lists recent items first. "New task" and "saved view" actions are still to do (effort S–M).
+1. **Command palette actions (built).** Cmd+K finds any note, project, spark, diagram, task, use case, Discover article, Athena chat or linked source by title. Searches wait until typing pauses for 250 ms; changing the query or closing the palette cancels in-flight browser requests. Each failed search shows its error and a keyboard-accessible Retry action while successful results remain available. Local actions and navigation filter immediately. It runs actions (capture a Spark, ask Athena about this page, open chats, go to Think) and lists recent items first. "New task" and "saved view" actions are still to do (effort S–M).
 2. **Backlinks and unlinked mentions in Think.** A panel on each note listing notes that link to it and text that mentions its title. Chosen instead of deeper folders (M).
 3. **`@` mentions and `[[` wiki links in the note editor.** Type `@` or `[[topic]]` to link to an existing note, or to create a new note with that title. Each link creates a backlink. `@Athena` runs an instruction on a selection, with Athena's text clearly marked as AI-written (M).
 4. **"Why Athena picked this" in Discover.** Merged into item 11 (M).
@@ -792,6 +792,31 @@ Publish live send that HTML to the blog API. Switching views without editing
 preserves the original source; rich rendering and pasted HTML are sanitized.
 
 ## Watchlist history
+
+Company panels keep saved background separate from the latest monitoring check.
+A quiet, incomplete or failed check does not clear previously recorded company
+developments: the last dated findings remain visible, explicitly marked as older,
+with source links and their original comparison-context version. Saved-finding
+counts cover the whole archive, not just the latest page of checks.
+
+Migration 112 stores persistent company background sources. **Run now** refreshes
+background and checks for new developments; scheduled checks initialise missing
+profiles and retry failed background research. Background searches are not
+restricted to the news window, so undated product and company references can be
+retained. Their excerpts are attributed search results, not independently
+verified full-page reviews. Retrieval dates are never presented as publication
+dates. Refreshes merge sources by URL identity and retain older references;
+failed or empty research preserves existing knowledge and shows an actionable
+gap. A changed monitoring configuration rejects stale research writes.
+These retained references and earlier findings are also available to Athena,
+clearly separated from developments in the requested date window.
+
+The latest briefing is not the whole archive. A visible **History** section below
+the company breakdown follows the selected company and shows its saved checks,
+newest first, with expandable findings, source links and comparison-context
+versions. History pages reuse the existing saved reports; no new analysis is run.
+Repeated findings remain dated observations, not automatically inferred trends.
+The full cross-company archive remains under **Earlier checks**.
 
 Watchlist history preserves failed checks even when no coverage was recorded.
 They display a failure and an explicit missing-coverage notice, not a quiet-market
@@ -922,7 +947,51 @@ source project and never overwrites the original. Referenced repository methods
 must be read separately or flagged unavailable. This action does not execute the
 embedded Build instruction or authorize deployment or other live side effects.
 
+## Athena request interpretation
+
+The active chat path interprets requests through the conversation model, not
+keyword-triggered tool selection, forced edits, stock clarification replies or
+regex-derived collection/project restrictions. The current request, previous
+exchanges and supplied document remain available so the model can interpret
+negation, spelling mistakes, corrections and short follow-ups in context.
+
+Core read tools are available immediately. Other permitted capabilities are
+listed in a compact catalogue; `load_tools` loads their existing schemas for a
+later round without executing them. Availability still depends on actual
+read-only mode, the open editor, Design ownership and visible destinations.
+Every tool invocation is checked against the schemas supplied for that round.
+No new tags, taxonomy, approval queue, backfill or automatic tagging work is
+introduced. Existing content tags are unchanged.
+
+Explicit user-imposed source/state/date/project boundaries can be declared as
+typed `retrievalScope` arguments when loading tools. The server validates and
+enforces these boundaries on subsequent retrieval for the rest of that turn;
+readers that cannot enforce them are withheld. Individual queries may narrow
+them but cannot broaden them. These are retrieval boundaries, not a change to
+write permissions or removal of context already supplied. A new user turn can revise the boundary.
+Mentioning a collection is not automatically a restriction to it. The model
+must distinguish hard boundaries from intermediate lookup filters.
+
+Keyword/full-text matching remains a useful retrieval signal alongside semantic
+search; neither a word match nor a search preview establishes that a source has
+been read. Full-document reading budgets follow the structured read request,
+not phrases in the chat. Coverage warnings use actual tool results and limits.
+Note edits remain Apply/Discard previews and default to formatting-preserving
+text replacements; structural proposals require an explicit tool `editMode`.
+Pasted meeting lists are imported through the model-selected
+`import_meeting_list` tool, which accepts only the actual supplied list, not
+invented meeting details. Merely discussing or quoting one no longer triggers
+an import before the model sees the request.
+
 ## Quick LinkedIn posts from Discover
+
+Discover automatically archives unactioned articles older than 14 days, or
+older than 7 days when their current score marks them low-value. Age uses the
+stored `published_at` timestamp, not the last indexing time. Saved and parked
+articles are exempt; existing blog/published and live-publishing safeguards
+remain. Archiving changes the workflow state and records its reason; it does
+not delete the article or its body. Archived items are hidden from the normal
+Discover review list.
 
 Discover article badges show the live weighted **rank**, the default feed order, not the
 original relevance percentage. Rank is relevance weighted by freshness, source
@@ -945,6 +1014,23 @@ ingestion or scoring.
 Discover cards no longer show a rank breakdown or a relevance-feedback form:
 the feedback was stored for review only and never changed ranking, so it was
 removed (the `discover_feedback` table from migration 066 is no longer written).
+The separate **thumbs up/down** controls do affect ranking: explicit votes count
+double in the learned source weight, alongside saved and manually archived
+articles. A down-vote archives a review/shelved article; clicking the active vote
+clears the vote without undoing that archive. Automatic age-based archives do
+not count as negative feedback.
+
+The existing 09:00 UK **Morning briefing** in Athena includes a **Discover
+roundup** of up to three newly published, to-review articles, using the same
+ranking, source diversity and interest/feedback weights as Discover. It covers
+the briefing window (normally since the previous briefing, at most four days;
+24 hours for a first briefing or same-day regeneration). Future and unknown
+publication dates, archived/saved articles and explicitly excluded interests
+are omitted. Each entry carries its source link, publication date and a bounded
+saved source excerpt, not a new AI interpretation. An empty roundup says so explicitly;
+a query failure fails briefing generation rather than claiming no articles.
+This adds no model calls, embeddings or scheduled jobs, leaves the publishing
+**Content pick** unchanged, and keeps automatic local delivery disabled.
 
 The rank sits in its own heading column beside the source and article title,
 so its larger number does not expand the metadata row or push the title down.

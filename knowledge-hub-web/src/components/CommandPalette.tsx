@@ -16,6 +16,7 @@ import {
   Document, Notebook, ArrowRight, Chat, ChatLaunch, Idea, Folder, ChartNetwork, Task, Catalog, Launch, Time,
 } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { describeApiError, requireApiData } from '../services/apiError';
 import { PRIMARY_DESTINATIONS, TOOL_GROUPS, type NavigationDestination } from '../navigation/destinations';
 import { settingsLinkState, settingsView } from '../navigation/settings';
 import {
@@ -53,6 +54,7 @@ interface PaletteItem {
 interface PaletteSection {
   title: string;
   items: PaletteItem[];
+  error?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -65,8 +67,11 @@ interface Props {
   onAskAthena?: (() => void) | undefined;
 }
 
-export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAction, onSparkCapture, onAskAthena }) => {
+export const CommandPalette: React.FC<Props> = props => props.open ? <OpenCommandPalette {...props} /> : null;
+
+const OpenCommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAction, onSparkCapture, onAskAthena }) => {
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [recent, setRecent] = useState<PaletteTarget[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -95,27 +100,37 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
   const term = query.trim();
   const searching = term.length >= 2;
   const needle = term.toLowerCase();
+  const settled = term === debouncedQuery;
+  const searchTerm = settled ? term : '';
 
-  // All three searches only fire for 2+ characters and run in parallel.
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setDebouncedQuery(term); }, 250);
+    return () => { window.clearTimeout(timer); };
+  }, [term]);
+
+  // Changing the term or closing the palette detaches these abortable queries.
   const entityQuery = useQuery({
-    queryKey: ['palette-entities', term],
-    queryFn: () => api.getLinkTargets(term),
-    enabled: searching,
+    queryKey: ['palette-entities', searchTerm],
+    queryFn: async ({ signal }) => requireApiData(await api.getLinkTargets(searchTerm, undefined, undefined, undefined, signal)),
+    enabled: open && searching && settled,
     staleTime: 10_000,
+    retry: false,
   });
   const chatQuery = useQuery({
-    queryKey: ['palette-chats', term],
-    queryFn: () => api.searchChatSessions(term),
-    enabled: searching,
+    queryKey: ['palette-chats', searchTerm],
+    queryFn: async ({ signal }) => requireApiData(await api.searchChatSessions(searchTerm, signal)),
+    enabled: open && searching && settled,
     staleTime: 10_000,
+    retry: false,
   });
   const searchQuery = useQuery({
-    queryKey: ['palette-search', term],
-    queryFn: () => api.search({ q: term, pageSize: 8 }),
-    enabled: searching,
+    queryKey: ['palette-search', searchTerm],
+    queryFn: async ({ signal }) => requireApiData(await api.search({ q: searchTerm, pageSize: 8 }, signal)),
+    enabled: open && searching && settled,
     staleTime: 10_000,
+    retry: false,
   });
-  const fetching = entityQuery.isFetching || chatQuery.isFetching || searchQuery.isFetching;
+  const fetching = searching && (!settled || entityQuery.isFetching || chatQuery.isFetching || searchQuery.isFetching);
 
   const go = useCallback(
     (path: string) => {
@@ -161,24 +176,41 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
   ].filter((item) => !searching || item.label.toLowerCase().includes(needle));
   if (actions.length > 0) sections.push({ title: 'Actions', items: actions });
 
-  if (searching) {
-    const entities = entityQuery.data?.success ? entityQuery.data.data : [];
+  if (searching && settled) {
+    const entities = entityQuery.data ?? [];
     if (entities.length > 0) {
       sections.push({ title: 'Athena items', items: entities.map((item) => targetItem({ kind: item.type, id: item.id, title: item.title, href: item.href }, 'item')) });
     }
-    const chats = chatQuery.data?.success ? chatQuery.data.data.sessions ?? [] : [];
+    const chats = chatQuery.data?.sessions ?? [];
     if (chats.length > 0) {
       sections.push({ title: 'Athena chats', items: chats.slice(0, 6).map((chat) =>
         targetItem({ kind: 'chat', id: chat.id, title: chat.title || 'Untitled chat', href: chatHref(chat.id) }, 'chat')) });
     }
     // Notes are covered by Athena items; library entries without a link cannot be opened.
-    const sources = (searchQuery.data?.success ? searchQuery.data.data.items : [])
+    const sources = (searchQuery.data?.items ?? [])
       .filter((item) => item.source !== 'note' && typeof item.url === 'string' && item.url !== '');
     if (sources.length > 0) {
       sections.push({ title: 'Library', items: sources.map((item) => ({
         ...targetItem({ kind: 'source', id: item.id, title: item.title, href: item.url ?? '' }, 'source'),
         sublabel: item.source,
       })) });
+    }
+    for (const [label, result] of [
+      ['Athena items', entityQuery], ['Athena chats', chatQuery], ['Library', searchQuery],
+    ] as const) {
+      if (result.isError) {
+        sections.push({
+          title: `${label} search unavailable`,
+          error: true,
+          items: [{
+            id: `retry-${label}`,
+            label: result.isFetching ? `Retrying ${label} search...` : `Retry ${label} search`,
+            sublabel: describeApiError(result.error),
+            icon: <ArrowRight size={16} />,
+            action: () => { if (!result.isFetching) void result.refetch(); },
+          }],
+        });
+      }
     }
   }
 
@@ -215,6 +247,7 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
         return;
       }
       if (e.key === 'Escape') { onClose(); return; }
+      if (e.target !== inputRef.current) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setActiveIndex((i) => Math.max(0, Math.min(i + 1, allItems.length - 1)));
@@ -231,6 +264,9 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
 
   // Reset active index when results change
   useEffect(() => { setActiveIndex(0); }, [query]);
+  useEffect(() => {
+    setActiveIndex(index => Math.min(index, Math.max(0, allItems.length - 1)));
+  }, [allItems.length]);
 
   // Scroll active item into view
   useEffect(() => {
@@ -271,7 +307,8 @@ export const CommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAct
             <div className="cmd-empty">No results for &ldquo;{query}&rdquo;</div>
           )}
           {sections.map((section) => (
-            <div key={section.title} className="cmd-section">
+            <div key={section.title} className={`cmd-section${section.error ? ' cmd-section--error' : ''}`}
+              role={section.error ? 'alert' : undefined}>
               <div className="cmd-section-title">{section.title}</div>
               {section.items.map((item) => {
                 const idx = globalIndex++;

@@ -10,6 +10,64 @@ import { CONTENT_FORMATS, formatFitSql } from '../src/integrations/cms/formatFit
 import { isMicrosoftRelevant } from '../src/utils/microsoftRelevance.js';
 import { buildRelevanceSystemPrompt, classifySourceAuthority, SOURCE_AUTHORITY_WEIGHTS } from '../src/integrations/cms/articleScoringPrompt.js';
 import { interestSql, learnedSourceSql } from '../src/services/discoverInterests.js';
+import { buildDiscoverRoundup } from '../src/ai/morningBriefing.js';
+
+test('daily roundup uses feedback ranking, bounds fresh articles, escapes excerpts and exposes failures', async () => {
+  const db = new PGlite();
+  const now = new Date();
+  const since = new Date(now.getTime() - 86_400_000);
+  await db.exec(`CREATE TABLE content_items (
+    id UUID PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '', url TEXT, published_at TIMESTAMPTZ NOT NULL,
+    workflow_state TEXT DEFAULT 'to-review', relevance_score REAL, metadata JSONB DEFAULT '{}');
+    CREATE TABLE discover_interest_weights(kind TEXT,term TEXT,weight REAL);
+    INSERT INTO discover_interest_weights VALUES ('source','excluded',0);`);
+  const add = async (index: number, title: string, source: string, metadata: Record<string, unknown> = {},
+    state = 'to-review', publishedAt = new Date(now.getTime() - 3_600_000), score = 0.8) => {
+    await db.query(`INSERT INTO content_items(id,source,title,body,summary,url,published_at,relevance_score,metadata,workflow_state)
+      VALUES($1,'discovered-article',$2,$3,'via Feed - discovered today',$4,$5,$6,$7,$8)`,
+    [`00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, title,
+      '<script>not markup</script>\n![not an image](https://invalid.example/image) ' + 'x'.repeat(400),
+      `https://example.com/news/${index}(source)`, publishedAt.toISOString(), score,
+      JSON.stringify({ sourceTitle: source, publicationDateKnown: true, ...metadata }), state]);
+  };
+  const query = mock.method(getDb(), 'query', (sql: string, values?: unknown[]) => db.query(sql, values));
+  try {
+    await add(1, 'Neutral', 'Neutral');
+    await add(2, 'Preferred [article]', 'Preferred');
+    await add(3, 'Preferred second', 'Preferred');
+    await add(4, 'Independent', 'Independent');
+    await add(5, 'Preference evidence', 'Preferred', { feedbackVote: 'up' }, 'archived');
+    await add(6, 'Excluded source', 'Excluded', {}, 'to-review', now, 1);
+    await add(7, 'Archived article', 'Archive', {}, 'archived', now, 1);
+    await add(8, 'Saved article', 'Saved', {}, 'saved', now, 1);
+    await add(9, 'Old article', 'Old', {}, 'to-review', since, 1);
+    await add(10, 'Future article', 'Future', {}, 'to-review', new Date(now.getTime() + 86_400_000), 1);
+    await add(11, 'Unknown date', 'Unknown', { publicationDateKnown: false }, 'to-review', now, 1);
+    await add(12, 'Legacy unknown date', 'Legacy', { publicationDateKnown: null }, 'to-review', now, 1);
+    const roundup = await buildDiscoverRoundup(getDb(), since, now);
+    const articles = roundup.split('\n').filter(line => line.startsWith('- '));
+    assert.equal(articles.length, 3);
+    assert.match(articles[0]!, /Preferred \\\[article\\\]/, 'Explicit feedback boosts the preferred source');
+    assert.match(articles[1]!, /Neutral/);
+    assert.match(articles[2]!, /Independent/, 'Source diversity discounts a second story from the same source');
+    assert.match(roundup, /\(<https:\/\/example\.com\/news\/2\(source\)>\)/);
+    assert.doesNotMatch(roundup, /<script>|!\[not an image\]|x{241}|via Feed/);
+    assert.doesNotMatch(roundup, /Excluded source|Archived article|Saved article|Old article|Future article|Unknown date|Legacy unknown date/);
+    assert.equal(await buildDiscoverRoundup(getDb(), since, now), roundup, 'Ties have stable ordering');
+    await db.exec(`UPDATE content_items SET url='javascript:alert(1)'`);
+    const invalidLinks = await buildDiscoverRoundup(getDb(), since, now);
+    assert.match(invalidLinks, /source link unavailable/);
+    assert.doesNotMatch(invalidLinks, /javascript:/);
+    await db.exec(`UPDATE content_items SET workflow_state='archived'`);
+    assert.match(await buildDiscoverRoundup(getDb(), since, now), /No newly published articles to review/);
+    await db.exec('DROP TABLE content_items');
+    await assert.rejects(buildDiscoverRoundup(getDb(), since, now), /content_items/);
+  } finally {
+    query.mock.restore();
+    await db.close();
+  }
+});
 
 test('saved-source boost uses one-time lookups, preserves self-exclusion and never affects eligibility', async () => {
   const db = new PGlite();

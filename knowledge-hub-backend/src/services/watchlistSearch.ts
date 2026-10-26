@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { callTavilyMcpTool, getTavilyMcpTools, isTavilyEnabled } from '../ai/tavilyMcpClient.js';
 import { parseTavilySearch } from '../ai/digestWebSearch.js';
+import type { WatchProfileSource } from '../types/watchlists.js';
 
 export interface WatchSearchArticle { id: string; title: string; body: string; url: string; published_at: Date; metadata: Record<string, unknown> }
 export interface WatchSearchResult { articles: WatchSearchArticle[]; searches: number; failures: number }
+export class WatchProfileResearchError extends Error {}
 
 const RESULTS_PER_SEARCH = 8;
 const DAY = 86_400_000;
@@ -29,6 +31,40 @@ function articleId(url: string): string {
   const hex = createHash('sha256').update(url.replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase()).digest('hex').slice(0, HEX_ID_LENGTH);
   let offset = 0;
   return UUID_PARTS.map(length => { const part = hex.slice(offset, offset + length); offset += length; return part; }).join('-');
+}
+
+export function profileSources(raw: unknown, retrievedAt: string): WatchProfileSource[] {
+  const sources = new Map<string, WatchProfileSource>();
+  for (const hit of parseTavilySearch(raw)) {
+    if (!hit.content) continue;
+    const id = articleId(hit.url);
+    const published = hit.publishedAt ? new Date(hit.publishedAt) : null;
+    sources.set(id, {
+      id, title: hit.title, url: hit.url, excerpt: hit.content, retrievedAt,
+      publishedAt: published && Number.isFinite(published.getTime()) ? published.toISOString() : null,
+    });
+  }
+  return [...sources.values()].slice(0, RESULTS_PER_SEARCH);
+}
+
+/** Background references have no news window; an undated product page is not a new announcement. */
+export async function searchCompanyProfile(name: string, context: string): Promise<WatchProfileSource[]> {
+  if (!isTavilyEnabled()) throw new WatchProfileResearchError('Background research is unavailable because web search is not configured.');
+  const tool = (await getTavilyMcpTools()).find(t => t.function.name === 'tavily_search');
+  if (!tool) throw new WatchProfileResearchError('Background research could not connect to web search. Existing knowledge is retained.');
+  const props = (tool.function.parameters as { properties?: Record<string, unknown> }).properties ?? {};
+  const args: Record<string, unknown> = {
+    query: `"${name}" ${context.slice(0, MAX_QUERY_CONTEXT)} official overview products services capabilities`,
+  };
+  if ('max_results' in props) args['max_results'] = RESULTS_PER_SEARCH;
+  if ('topic' in props) args['topic'] = 'general';
+  const raw = await callTavilyMcpTool('tavily_search', args);
+  if (typeof raw === 'object' && raw !== null && 'error' in raw) {
+    throw new WatchProfileResearchError('Background web research failed. Existing knowledge is retained; Run now retries it.');
+  }
+  const sources = profileSources(raw, new Date().toISOString());
+  if (!sources.length) throw new WatchProfileResearchError('Background research found no usable source excerpts. Further research is needed; existing knowledge is retained.');
+  return sources;
 }
 
 async function searchArgs(query: string, topic: 'news' | 'general', windowStart: Date, now: Date): Promise<Record<string, unknown>> {

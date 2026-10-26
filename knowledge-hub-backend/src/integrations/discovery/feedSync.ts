@@ -2,8 +2,8 @@
  * integrations/discovery/feedSync.ts — article discovery. Reads every active
  * source in `discovery_sources`, files new articles (last 14 days only) into
  * the Discover list as source='discovered-article', scores them, rates them
- * against his focus projects, and shelves articles that have sat unactioned
- * (7 days; 14 for strong ones; 30 for ones directly useful to IMAGINE etc.).
+ * against his focus projects, and archives unactioned articles after 14 days
+ * (7 for low-value ones), preserving saved, parked and publishing content.
  *
  * This replaced reading discovered articles from the blog site's API.
  */
@@ -152,7 +152,7 @@ export async function archiveAgedArticles(db: Pool): Promise<{ low: number; aged
               (ci.metadata->>'platform' = 'Archive' AND COALESCE((ci.metadata->>'scoringVersion')::int, 1) >= 2
                 AND COALESCE(NULLIF(ci.metadata->>'restoredAt', ''), '') = ''
                 AND COALESCE((ci.metadata->>'projectBoost')::numeric, 0) < $1::numeric) AS low,
-              COALESCE(ci.published_at, ci.created_at) AS dated
+              ci.published_at AS dated
          FROM content_items ci
         WHERE ci.source = 'discovered-article' AND ci.workflow_state IN ('to-review', 'shelved')
           AND NOT EXISTS (SELECT 1 FROM discover_parking p WHERE p.article_id = ci.id)

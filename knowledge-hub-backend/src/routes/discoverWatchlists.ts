@@ -1,6 +1,6 @@
 import { Router, type RequestHandler } from 'express';
 import { getDb } from '../db/db.js';
-import { listWatchlists, saveWatchlist, getWatchlist, watchlistHistory, watchlistBaselines, runWatchlist, watchlistId } from '../services/discoverWatchlists.js';
+import { listWatchlists, saveWatchlist, getWatchlist, watchlistHistory, watchlistBaselines, watchlistCompanyKnowledge, runWatchlist, watchlistId } from '../services/discoverWatchlists.js';
 import { listInterestWeights, saveInterestWeight } from '../services/discoverInterests.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { positiveInteger } from '../utils/queryValidation.js';
@@ -17,6 +17,7 @@ discoverMonitoringRouter.get('/watchlists/:id/runs', handle(req => watchlistHist
   page: positiveInteger(req.query['page'], 'page', 1),
 })));
 discoverMonitoringRouter.get('/watchlists/:id/baselines', handle(req => watchlistBaselines(getDb(), watchlistId(req.params['id']))));
+discoverMonitoringRouter.get('/watchlists/:id/companies', handle(req => watchlistCompanyKnowledge(getDb(), watchlistId(req.params['id']))));
 discoverMonitoringRouter.post('/watchlists/:id/run', handle(req => runWatchlist(getDb(), watchlistId(req.params['id']))));
 discoverMonitoringRouter.get('/interests', handle(() => listInterestWeights(getDb())));
 discoverMonitoringRouter.put('/interests', handle(req => saveInterestWeight(getDb(), req.body)));

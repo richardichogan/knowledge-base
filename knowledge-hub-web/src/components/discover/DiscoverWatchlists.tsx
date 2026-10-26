@@ -5,7 +5,7 @@ import { requireApiData } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
 import { DataNotice } from '../DataNotice';
 import { groupProjectsByParent } from '../ProjectOptions';
-import type { Watchlist, WatchlistInput, WatchRelationship, WatchRun, WatchRunStatus } from '../../types/watchlists';
+import type { Watchlist, WatchlistInput, WatchRelationship, WatchRun, WatchRunStatus, WatchCompanyKnowledge, WatchProfileSource } from '../../types/watchlists';
 import '../../styles/discoverWatchlists.scss';
 import { noteDraftIdentity } from '../../services/auth';
 
@@ -235,7 +235,7 @@ function coverageGaps(run: WatchRun): string[] {
   const failures = run.coverage.webFailures ?? 0;
   return [
     ...(run.coverage.missingEntities === undefined ? ['Coverage was not recorded for this check.']
-      : run.coverage.missingEntities.length ? [`No evidence was found for ${run.coverage.missingEntities.join(', ')}.`] : []),
+      : run.coverage.missingEntities.length ? [`No new evidence was collected in this check for ${run.coverage.missingEntities.join(', ')}.`] : []),
     ...(failures > 0 ? [`${count(failures, 'web search', 'web searches')} failed.`] : []),
     ...(run.coverage.truncated ? ['The evidence limit was reached, so some material was not read.'] : []),
   ];
@@ -252,9 +252,9 @@ function companyStates(watchlist: Watchlist, run: WatchRun | undefined): Company
     const base = { name, relationship: relationships.get(name) ?? null, findings };
     if (findings.length) return { ...base, state: 'changes', label: count(findings.length, 'development') };
     if (!run || !run.config.entities.some(e => e.name === name)) return { ...base, state: 'unchecked', label: 'Not checked yet' };
-    if (run.coverage.missingEntities?.includes(name)) return { ...base, state: 'missing', label: 'No evidence found' };
-    if (incomplete) return { ...base, state: 'incomplete', label: 'No change found · coverage incomplete' };
-    return { ...base, state: 'quiet', label: 'No meaningful change found' };
+    if (run.coverage.missingEntities?.includes(name)) return { ...base, state: 'missing', label: 'No new evidence this check' };
+    if (incomplete) return { ...base, state: 'incomplete', label: 'Latest coverage incomplete' };
+    return { ...base, state: 'quiet', label: 'No new developments this check' };
   });
 }
 
@@ -277,8 +277,8 @@ const FindingSources: React.FC<{ run: WatchRun; finding: Finding }> = ({ run, fi
   </li>)}</ul>;
 };
 
-const FindingItem: React.FC<{ run: WatchRun; finding: Finding; open: boolean; onToggle: (open: boolean) => void }> = ({ run, finding, open, onToggle }) => {
-  const anchor = findingAnchor(run, finding);
+const FindingItem: React.FC<{ run: WatchRun; finding: Finding; open: boolean; onToggle: (open: boolean) => void; anchorPrefix?: string }> = ({ run, finding, open, onToggle, anchorPrefix = '' }) => {
+  const anchor = `${anchorPrefix}${findingAnchor(run, finding)}`;
   const sourceCount = new Set(finding.evidenceIds).size;
   return <article className="dw-finding" id={anchor} tabIndex={-1} aria-labelledby={`${anchor}-title`}>
     <p className="dw-finding__meta">{CLAIM_LABELS[finding.kind]} · {finding.field || finding.criterion}</p>
@@ -476,17 +476,55 @@ const COMPANY_NOTE: Record<CompanyState, (name: string, date: string | null) => 
   changes: (_, date) => `Developments recorded in the check on ${date}.`,
   quiet: (name, date) => `No meaningful change was found for ${name} in the check on ${date}.`,
   incomplete: (_, date) => `No development was recorded in the check on ${date}, but coverage was incomplete, so this is not proof of no change.`,
-  missing: (name, date) => `No evidence was found for ${name} in the check on ${date}. This is not proof of no activity.`,
+  missing: (name, date) => `The check on ${date} collected no new evidence for ${name}. Saved background and earlier findings remain available below; this is not proof of no activity.`,
   unchecked: (name, date) => date ? `${name} was not part of the check on ${date}. Run now to include it.` : `${name} has not been checked yet.`,
+};
+
+const CompanyBackground: React.FC<{ knowledge: WatchCompanyKnowledge | undefined; loading: boolean; unavailable: boolean; searchContext: string }> = ({ knowledge, loading, unavailable, searchContext }) => {
+  const profile = knowledge?.profile;
+  const source = (item: WatchProfileSource): React.ReactNode => <li key={item.id}>
+    <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
+    <p>{item.excerpt}</p>
+    <span className="dw-evidence__meta">
+      {item.publishedAt ? `Source dated ${reportDate(item.publishedAt)}` : 'Publication date not supplied'}
+      {' · '}Retrieved {reportDate(item.retrievedAt)}
+    </span>
+  </li>;
+  return <section className="dw-company-background" aria-label="Saved company background">
+    <h6>Saved background</h6>
+    {loading && !knowledge && <p className="dw-hint" role="status">Loading saved company knowledge...</p>}
+    {unavailable && !knowledge && <p className="dw-notice dw-notice--warning" role="status">
+      Saved company knowledge could not be loaded. Use Retry in the error notice above; the current report remains available.</p>}
+    {!loading && !unavailable && !knowledge && <p className="dw-hint">
+      No background record was returned for this company. Its saved checks remain available in History.</p>}
+    {profile?.error && <p className="dw-notice dw-notice--warning" role="status">{profile.error}</p>}
+    {profile && profile.searchContext !== searchContext && <p className="dw-notice dw-notice--warning">
+      These references were researched under an earlier search context. The next check will refresh them without discarding existing sources.</p>}
+    {profile?.sources.length ? <>
+      <p className="dw-hint">Retained source excerpts, not new announcements or independently verified full-page reviews.
+        {' '}Run now refreshes background as well as checking for developments.</p>
+      <ul className="dw-background-sources">{profile.sources.slice(0, 3).map(source)}</ul>
+      {profile.sources.length > 3 && <details className="dw-details"><summary>{profile.sources.length - 3} more saved background sources</summary>
+        <ul className="dw-background-sources">{profile.sources.slice(3).map(source)}</ul>
+      </details>}
+    </> : !loading && knowledge && <p className="dw-hint">
+      Initial background research is needed. Run now or the next scheduled check will research this company without limiting sources to recent news.
+      {knowledge.findingCount > 0 && ' Previously recorded developments are retained below.'}
+    </p>}
+  </section>;
 };
 
 const CompanyBreakdown: React.FC<{
   run: WatchRun | undefined; companies: Company[]; selected: Company; onSelect: (name: string) => void;
   openIds: Set<string>; onToggle: (id: string, open: boolean) => void;
-}> = ({ run, companies, selected, onSelect, openIds, onToggle }) => {
+  knowledge: WatchCompanyKnowledge[] | undefined; knowledgeLoading: boolean; knowledgeUnavailable: boolean; searchContext: string; lastCheck: WatchRun | undefined;
+}> = ({ run, companies, selected, onSelect, openIds, onToggle, knowledge, knowledgeLoading, knowledgeUnavailable, searchContext, lastCheck }) => {
   const base = useId();
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
   const index = companies.indexOf(selected);
+  const known = knowledge?.find(company => company.name === selected.name);
+  const displayRun = selected.findings.length ? run : known?.latestFindingRun;
+  const retained = displayRun && displayRun.id !== lastCheck?.id;
   const onKeyDown = (event: React.KeyboardEvent, current: number): void => {
     const last = companies.length - 1;
     const target = { ArrowDown: current + 1, ArrowRight: current + 1, ArrowUp: current - 1, ArrowLeft: current - 1, Home: 0, End: last }[event.key];
@@ -500,40 +538,87 @@ const CompanyBreakdown: React.FC<{
     <h4 id={`${base}-title`}>Company by company</h4>
     <div className="dw-companies__layout">
       <div role="tablist" aria-label="Companies" aria-orientation="vertical" className="dw-company-tabs">
-        {companies.map((company, i) => <button type="button" role="tab" key={company.name} id={`${base}-tab-${i}`} ref={el => { tabs.current[i] = el; }}
+        {companies.map((company, i) => {
+          const saved = knowledge?.find(item => item.name === company.name);
+          return <button type="button" role="tab" key={company.name} id={`${base}-tab-${i}`} ref={el => { tabs.current[i] = el; }}
           aria-selected={i === index} aria-controls={`${base}-panel`} tabIndex={i === index ? 0 : -1}
           className={`dw-company-tab dw-company-tab--${company.state}`} onClick={() => onSelect(company.name)} onKeyDown={e => onKeyDown(e, i)}>
           <span className="dw-company-tab__name">{company.name}</span>
           <span className="dw-company-tab__state">{company.label}</span>
-        </button>)}
+          {!!saved?.findingCount && <span className="dw-company-tab__saved">{count(saved.findingCount, 'saved finding')}</span>}
+          {!!saved?.profile?.sources.length && <span className="dw-company-tab__saved">Background saved</span>}
+        </button>; })}
       </div>
       <section role="tabpanel" id={`${base}-panel`} aria-labelledby={`${base}-tab-${index}`} tabIndex={0} className="dw-company">
         <header className="dw-company__header">
           <h5>{selected.name}</h5>
           {selected.relationship && <span className="dw-badge">{relationshipLabel(selected.relationship)}</span>}
         </header>
-        <p className={`dw-company__note dw-company__note--${selected.state}`}>{COMPANY_NOTE[selected.state](selected.name, run ? reportDate(run.startedAt) : null)}</p>
-        {run && selected.findings.map(f => <FindingItem key={f.id} run={run} finding={f}
-          open={openIds.has(findingAnchor(run, f))} onToggle={open => onToggle(findingAnchor(run, f), open)} />)}
+        <p className={`dw-company__note dw-company__note--${selected.state}`}>
+          {lastCheck?.status === 'failed' ? `The latest check on ${reportDate(lastCheck.startedAt)} failed. Existing company knowledge has not been cleared.`
+            : COMPANY_NOTE[selected.state](selected.name, run ? reportDate(run.startedAt) : null)}</p>
+        <CompanyBackground knowledge={known} loading={knowledgeLoading} unavailable={knowledgeUnavailable} searchContext={searchContext} />
+        {displayRun && <section className="dw-company-developments" aria-label="Recorded company developments">
+          <h6>{retained ? 'Previously recorded developments' : 'Developments in this check'}</h6>
+          <p className="dw-hint">Recorded {reportDate(displayRun.startedAt)} · comparison context version {displayRun.baselineVersion}.
+            {retained && ' These are retained findings, not new announcements in the latest check.'}
+            {!!known?.findingCount && ` ${count(known.findingCount, 'finding')} across saved history.`}
+          </p>
+          {displayRun.findings.filter(f => f.entity === selected.name).map(f => <FindingItem key={f.id} run={displayRun} finding={f}
+            anchorPrefix={retained ? `${base}-retained-` : ''}
+            open={openIds.has(findingAnchor(displayRun, f))} onToggle={open => onToggle(findingAnchor(displayRun, f), open)} />)}
+        </section>}
+        {!displayRun && !knowledgeLoading && known && <p className="dw-hint">
+          No dated developments have been recorded yet. This is separate from background research and is not a conclusion about the company's activity.</p>}
       </section>
     </div>
   </section>;
 };
 
-const HistoryRun: React.FC<{ run: WatchRun }> = ({ run }) => {
+const HistoryRun: React.FC<{ run: WatchRun; companyName?: string }> = ({ run, companyName }) => {
   const [openIds, toggle] = useOpenSet();
+  const historyId = useId();
   const gaps = coverageGaps(run);
-  const names = [...new Set(run.findings.map(f => f.entity))];
+  const findings = companyName ? run.findings.filter(f => f.entity === companyName) : run.findings;
+  const names = [...new Set(findings.map(f => f.entity))];
   return <details className={`dw-details dw-history-entry dw-run dw-run--${run.status}`}>
-    <summary>{reportDate(run.startedAt)} · {STATUS[run.status]} · {count(run.findings.length, 'development')}</summary>
-    <p className="dw-summary">{run.summary || (run.status === 'running' ? 'Monitoring in progress…' : 'No summary was recorded for this check.')}</p>
+    <summary>{reportDate(run.startedAt)} · {companyName ? 'Check: ' : ''}{STATUS[run.status]} · {count(findings.length, 'development')}</summary>
+    {companyName && <p className="dw-hint">Comparison context version {run.baselineVersion}.
+      {' '}Each check uses its saved monitoring brief; changes to that brief can affect comparisons.</p>}
+    {(!companyName || run.status === 'failed') && <p className="dw-summary">{run.summary || (run.status === 'running' ? 'Monitoring in progress…' : 'No summary was recorded for this check.')}</p>}
+    {companyName && findings.length === 0 && <p className="dw-hint">No developments were recorded for {companyName} in this check. This is not proof of no change.</p>}
     {gaps.length > 0 && <p className="dw-notice dw-notice--warning dw-run__warning">Coverage was incomplete. {gaps.join(' ')} Missing evidence does not mean no change.</p>}
     {names.map(name => <section className="dw-history-company" key={name} aria-label={`${name} developments`}>
       <p className="dw-history-company__name">{name}</p>
-      {run.findings.filter(f => f.entity === name).map(f => <FindingItem key={f.id} run={run} finding={f}
+      {findings.filter(f => f.entity === name).map(f => <FindingItem key={f.id} run={run} finding={f} anchorPrefix={companyName ? historyId : ''}
         open={openIds.has(f.id)} onToggle={open => toggle(f.id, open)} />)}
     </section>)}
   </details>;
+};
+
+const CompanyHistory: React.FC<{ watchlistId: string; companyName: string }> = ({ watchlistId, companyName }) => {
+  const [page, setPage] = useState(1);
+  const history = useQuery({
+    queryKey: ['watchlist-runs', watchlistId, page],
+    queryFn: async () => requireApiData(await api.getWatchlistRuns(watchlistId, page)),
+  });
+  const runs = (history.data ?? []).filter(run => run.status !== 'running'
+    && (run.config.entities.some(entity => entity.name === companyName) || run.findings.some(finding => finding.entity === companyName)));
+  return <section className="dw-company-history" aria-label={`${companyName} history`}>
+    <h4>History · {companyName}</h4>
+    <p className="dw-hint">Saved checks, newest first, for the company selected above. Expand a check to compare its developments and sources over time.
+      {' '}Repeated findings are retained as recorded, not counted as new events or an inferred trend.</p>
+    {history.isError && <DataNotice title="Company history unavailable" error={history.error}
+      onRetry={() => { void history.refetch(); }} busy={history.isFetching} />}
+    {history.isLoading && <p className="dw-hint" role="status">Loading company history...</p>}
+    {history.isSuccess && runs.length === 0 && <p className="dw-hint">No saved checks for {companyName} on this page.</p>}
+    {runs.map(run => <HistoryRun key={run.id} run={run} companyName={companyName} />)}
+    {(page > 1 || history.data?.length === 100) && <div className="dw-actions" aria-label="Company history pages">
+      <button type="button" className="dw-button" disabled={page === 1 || history.isFetching} onClick={() => setPage(value => value - 1)}>Newer checks</button>
+      <span className="dw-hint">History page {page}</span>
+      <button type="button" className="dw-button" disabled={history.data?.length !== 100 || history.isFetching} onClick={() => setPage(value => value + 1)}>Older checks</button>
+    </div>}
+  </section>;
 };
 
 const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void }> = ({ watchlist, onEdit }) => {
@@ -551,12 +636,17 @@ const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void }> = 
     queryFn: async () => requireApiData(await api.getWatchlistBaselines(watchlist.id)) });
   const run = useMutation({
     mutationFn: async () => requireApiData(await api.runWatchlist(watchlist.id)),
-    onSettled: () => { runPending.current = false; setHistoryPage(1); void client.invalidateQueries({ queryKey: ['watchlists'] }); void client.invalidateQueries({ queryKey: ['watchlist-runs', watchlist.id] }); },
+    onSettled: () => { runPending.current = false; setHistoryPage(1); void client.invalidateQueries({ queryKey: ['watchlists'] }); void client.invalidateQueries({ queryKey: ['watchlist-runs', watchlist.id] }); void client.invalidateQueries({ queryKey: ['watchlist-companies', watchlist.id] }); },
   });
   const runs = recent.data ?? [];
   const latest = runs.find(r => r.status !== 'running');
   const briefing = runs.find(r => BRIEFING_STATUSES.has(r.status));
   const running = run.isPending || watchlist.lastRun?.status === 'running' || runs.some(r => r.status === 'running');
+  const knowledge = useQuery({
+    queryKey: ['watchlist-companies', watchlist.id, watchlist.revision, latest?.id],
+    queryFn: async () => requireApiData(await api.getWatchlistCompanies(watchlist.id)),
+    refetchInterval: running ? 5000 : false,
+  });
   const companies = companyStates(watchlist, briefing);
   const selected = companies.find(c => c.name === selectedName) ?? companies.find(c => c.findings.length) ?? companies[0];
   const history = historyPage === 1 ? recent : older;
@@ -586,11 +676,15 @@ const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void }> = 
       </div></header>
     {run.isError && <DataNotice title="Monitoring could not start" error={run.error} />}
     {recent.isError && <DataNotice title="Watchlist history unavailable" error={recent.error} onRetry={() => { void recent.refetch(); }} />}
+    {knowledge.isError && <DataNotice title="Saved company knowledge unavailable" error={knowledge.error}
+      onRetry={() => { void knowledge.refetch(); }} busy={knowledge.isFetching} />}
     <NowSection watchlist={watchlist} latest={latest} briefing={briefing} companies={companies} running={running}
       loading={recent.isLoading} onOpen={openFinding}>
     {selected && <CompanyBreakdown run={briefing} companies={companies} selected={selected} onSelect={setSelectedName}
-      openIds={openIds} onToggle={toggleOpen} />}
+      openIds={openIds} onToggle={toggleOpen} knowledge={knowledge.data} knowledgeLoading={knowledge.isLoading}
+      knowledgeUnavailable={knowledge.isError} searchContext={watchlist.config.searchContext ?? ''} lastCheck={latest} />}
     </NowSection>
+    {selected && <CompanyHistory key={`${watchlist.id}:${selected.name}`} watchlistId={watchlist.id} companyName={selected.name} />}
     <section className="dw-setup" aria-label="Monitoring setup and history">
       <h4>Monitoring setup and history</h4>
       <details className="dw-details"><summary>Monitoring brief</summary>

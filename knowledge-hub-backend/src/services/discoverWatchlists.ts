@@ -3,10 +3,11 @@ import type { Pool } from 'pg';
 import { getFoundryClient } from '../ai/foundryClient.js';
 import type { ConversationMessage } from '../types/aiContext.js';
 import { searchWatchEntities } from './watchlistSearch.js';
+import { loadWatchlistProfiles, refreshWatchlistProfiles } from './watchlistProfiles.js';
 import { loadCurrentProjectContext, formatCurrentProjectContext } from '../ai/projectContext.js';
 import { getProjectContextItems } from '../db/queries.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
-import type { WatchlistInput, Watchlist, WatchBaseline, WatchBaselineVersion, WatchEvidence, WatchFinding, WatchCoverage, WatchRun, WatchRunStatus } from '../types/watchlists.js';
+import type { WatchlistInput, Watchlist, WatchBaseline, WatchBaselineVersion, WatchEvidence, WatchFinding, WatchCoverage, WatchRun, WatchRunStatus, WatchCompanyKnowledge } from '../types/watchlists.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY = 86_400_000;
@@ -347,6 +348,7 @@ export async function runWatchlist(db: Pool, id: string, scheduled = false, anal
   const run = claimed.rows[0];
   if (!run) throw new ConflictError('Watchlist is paused, not due, or already running.', 'WATCHLIST_NOT_RUNNABLE');
   try {
+    await refreshWatchlistProfiles(db, id, run.config, !scheduled);
     const articles = await db.query<ArticleRow>(
       `SELECT id,title,body,url,published_at,metadata FROM content_items
        WHERE source='discovered-article' AND metadata->>'sourceId'=ANY($1::text[])
@@ -409,7 +411,7 @@ export async function runWatchlist(db: Pool, id: string, scheduled = false, anal
   }
   return (await watchlistHistory(db, id)).find(r => r.id === run.id)!;
 }
-export async function watchlistHistory(db: Pool, id: string, options: { page?: number; from?: string; to?: string } = {}): Promise<WatchRun[]> {
+export async function watchlistHistory(db: Pool, id: string, options: { page?: number; from?: string; to?: string; runIds?: string[] } = {}): Promise<WatchRun[]> {
   await getWatchlist(db, id);
   const page = options.page ?? 1;
   const offset = (page - 1) * HISTORY_PAGE_SIZE;
@@ -424,11 +426,38 @@ export async function watchlistHistory(db: Pool, id: string, options: { page?: n
     FROM discover_watchlist_runs r JOIN discover_watchlist_baselines b ON b.watchlist_id=r.watchlist_id AND b.version=r.baseline_version
     WHERE r.watchlist_id=$1 AND ($2::timestamptz IS NULL OR r.started_at >= $2::timestamptz)
       AND ($3::timestamptz IS NULL OR r.started_at < $3::timestamptz+INTERVAL '1 day')
+      AND ($5::uuid[] IS NULL OR r.id=ANY($5::uuid[]))
     ORDER BY r.started_at DESC,r.id LIMIT 100 OFFSET $4`, [id,
-    options.from ? `${options.from}T00:00:00Z` : null, options.to ? `${options.to}T00:00:00Z` : null, offset]);
+    options.from ? `${options.from}T00:00:00Z` : null, options.to ? `${options.to}T00:00:00Z` : null, offset, options.runIds ?? null]);
   return rows.map(r => ({ id: r.id, watchlistId: r.watchlist_id, baselineVersion: r.baseline_version, baseline: r.baseline,
     config: r.config, startedAt: r.started_at.toISOString(), completedAt: r.completed_at?.toISOString() ?? null,
     windowStart: r.window_start.toISOString(), status: r.status, summary: r.summary, coverage: r.coverage, evidence: r.evidence, findings: r.findings }));
+}
+
+export async function watchlistCompanyKnowledge(db: Pool, id: string): Promise<WatchCompanyKnowledge[]> {
+  const watchlist = await getWatchlist(db, id);
+  const profiles = await loadWatchlistProfiles(db, id);
+  const { rows } = await db.query<{ name: string; run_id: string; finding_count: string }>(
+    `SELECT DISTINCT ON (f.finding->>'entity') f.finding->>'entity' AS name,r.id AS run_id,
+       COUNT(*) OVER(PARTITION BY f.finding->>'entity') AS finding_count
+     FROM discover_watchlist_findings f JOIN discover_watchlist_runs r ON r.id=f.run_id
+     WHERE r.watchlist_id=$1 AND r.status IN ('changes','no_meaningful_change','insufficient_coverage')
+       AND f.finding->>'entity'=ANY($2::text[])
+     ORDER BY f.finding->>'entity',r.started_at DESC,r.id DESC`,
+    [id, watchlist.config.entities.map(entity => entity.name)],
+  );
+  const runIds = [...new Set(rows.map(row => row.run_id))];
+  const runs = runIds.length ? await watchlistHistory(db, id, { runIds }) : [];
+  return watchlist.config.entities.map(entity => {
+    const recorded = rows.find(row => row.name === entity.name);
+    const latest = runs.find(run => run.id === recorded?.run_id);
+    const findings = latest?.findings.filter(finding => finding.entity === entity.name) ?? [];
+    const evidenceIds = new Set(findings.flatMap(finding => finding.evidenceIds));
+    return {
+      name: entity.name, profile: profiles.get(entity.name) ?? null, findingCount: Number(recorded?.finding_count ?? 0),
+      latestFindingRun: latest ? { ...latest, findings, evidence: latest.evidence.filter(source => evidenceIds.has(source.id)) } : null,
+    };
+  });
 }
 export async function runDueWatchlists(db: Pool): Promise<void> {
   const { rows } = await db.query<{ id: string }>(`SELECT id FROM discover_watchlists
@@ -454,6 +483,13 @@ export async function retrieveWatchlistRecords(db: Pool, args: Record<string, un
     findings: r.findings.map(f => ({ ...f, changed: f.changed.slice(0, RETRIEVAL_TEXT), matters: f.matters.slice(0, RETRIEVAL_TEXT),
       uncertainty: f.uncertainty.slice(0, RETRIEVAL_TEXT), response: f.response.slice(0, RETRIEVAL_TEXT) })),
   }));
-  return { watchlist: await getWatchlist(db, id), runs, moreRuns: all.length > runs.length,
-    citationRule: 'Cite evidence URLs and run IDs/dates/baseline versions. Private comparison baselines are not public facts. Distinguish insufficient coverage, failed runs and no meaningful change. Do not re-research. Excerpts and long finding text may be shortened; narrow date range for older runs.' };
+  const companies = (await watchlistCompanyKnowledge(db, id)).map(company => ({
+    name: company.name, savedFindingCount: company.findingCount,
+    background: company.profile,
+    latestRecordedAt: company.latestFindingRun?.startedAt ?? null,
+    latestRecordedFindings: company.latestFindingRun?.findings ?? [],
+    latestRecordedEvidence: company.latestFindingRun?.evidence ?? [],
+  }));
+  return { watchlist: await getWatchlist(db, id), runs, companies, moreRuns: all.length > runs.length,
+    citationRule: 'Cite evidence URLs and run IDs/dates/baseline versions. Company background and latestRecorded findings are retained knowledge, possibly outside the requested news window: never present them as new developments. Background sources are search excerpts, not verified full-page reviews; retrievedAt is not a publication date. Private comparison baselines are not public facts. Distinguish insufficient coverage, failed runs and no meaningful change. Do not re-research. Excerpts and long finding text may be shortened; narrow date range for older runs.' };
 }
