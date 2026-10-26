@@ -137,6 +137,41 @@ export async function shelveStaleArticles(db: Pool): Promise<number> {
   return low.rowCount ?? 0;
 }
 
+const LOW_VALUE_ARCHIVE_DAYS = 7;
+const ARCHIVE_DAYS = 14;
+
+/**
+ * Archives unactioned articles by publication age: low-value ones after a week, everything else after two.
+ * Saved, parked, blog and published articles are never touched, nor are sources of live publishing topics.
+ * Marked autoArchived so interest learning does not read age as "not interested".
+ */
+export async function archiveAgedArticles(db: Pool): Promise<{ low: number; aged: number }> {
+  const result = await db.query<{ reason: string }>(
+    `WITH candidates AS (
+       SELECT ci.id,
+              (ci.metadata->>'platform' = 'Archive' AND COALESCE((ci.metadata->>'scoringVersion')::int, 1) >= 2
+                AND COALESCE(NULLIF(ci.metadata->>'restoredAt', ''), '') = ''
+                AND COALESCE((ci.metadata->>'projectBoost')::numeric, 0) < $1::numeric) AS low,
+              COALESCE(ci.published_at, ci.created_at) AS dated
+         FROM content_items ci
+        WHERE ci.source = 'discovered-article' AND ci.workflow_state IN ('to-review', 'shelved')
+          AND NOT EXISTS (SELECT 1 FROM discover_parking p WHERE p.article_id = ci.id)
+          AND NOT EXISTS (SELECT 1 FROM publishing_sources s JOIN publishing_topics t ON t.id = s.topic_id
+                           WHERE s.item_id = ci.id AND t.state IN ('pending', 'assessing', 'ready', 'held'))
+     )
+     UPDATE content_items ci
+        SET workflow_state = 'archived',
+            metadata = ci.metadata || jsonb_build_object('archivedAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+              'autoArchived', true, 'archivedReason', CASE WHEN c.low THEN 'low-value-7-days' ELSE 'age-14-days' END)
+       FROM candidates c
+      WHERE ci.id = c.id
+        AND c.dated < NOW() - make_interval(days => CASE WHEN c.low THEN $2::int ELSE $3::int END)
+      RETURNING CASE WHEN c.low THEN 'low' ELSE 'aged' END AS reason`,
+    [PROJECT_PROTECT_BOOST, LOW_VALUE_ARCHIVE_DAYS, ARCHIVE_DAYS],
+  );
+  return { low: result.rows.filter(r => r.reason === 'low').length, aged: result.rows.filter(r => r.reason === 'aged').length };
+}
+
 let backgroundWork: Promise<void> | null = null;
 
 /** Scores new articles (a few batches) then assesses strong ones, without blocking the caller. */
@@ -187,7 +222,11 @@ export async function syncDiscoveryFeeds(db: Pool): Promise<{ indexed: number; e
   if (!env.isDevelopment) startBackgroundWork(db);
 
   const shelved = await shelveStaleArticles(db).catch((err: unknown) => { console.warn('[Discovery] shelving failed:', err); return 0; });
-  if (shelved > 0) console.warn(`[Discovery] Shelved ${shelved.toString()} article(s) unactioned for over a week`);
+  if (shelved > 0) console.warn(`[Discovery] Shelved ${shelved.toString()} low-value article(s)`);
+  const archived = await archiveAgedArticles(db).catch((err: unknown) => { console.warn('[Discovery] archiving failed:', err); return null; });
+  if (archived && archived.low + archived.aged > 0) {
+    console.warn(`[Discovery] Archived ${archived.low.toString()} low-value article(s) over ${LOW_VALUE_ARCHIVE_DAYS.toString()} days and ${archived.aged.toString()} over ${ARCHIVE_DAYS.toString()} days`);
+  }
 
   try { await refreshPublishingDrafts(db); }
   catch (error) {

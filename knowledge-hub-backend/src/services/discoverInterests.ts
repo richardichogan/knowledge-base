@@ -32,7 +32,7 @@ export function learnedSourceSql(alias: string): string {
   return `COALESCE(((SELECT jsonb_object_agg(a.src, round((0.7 + 0.6 * (a.pos + 2) / (a.pos + a.neg + 4))::numeric, 2)) FROM (
     SELECT f.metadata->>'sourceTitle' AS src,
       SUM(CASE WHEN f.metadata->>'feedbackVote'='up' THEN 2 WHEN f.workflow_state IN ('saved','blog','published') THEN 1 ELSE 0 END) AS pos,
-      SUM(CASE WHEN f.metadata->>'feedbackVote'='down' THEN 2 WHEN f.workflow_state='archived' THEN 1 ELSE 0 END) AS neg
+      SUM(CASE WHEN f.metadata->>'feedbackVote'='down' THEN 2 WHEN f.workflow_state='archived' AND f.metadata->>'autoArchived' IS NULL THEN 1 ELSE 0 END) AS neg
     FROM content_items f
     WHERE f.source='discovered-article' AND f.published_at>NOW()-INTERVAL '180 days'
       AND COALESCE(f.metadata->>'sourceTitle','')<>''

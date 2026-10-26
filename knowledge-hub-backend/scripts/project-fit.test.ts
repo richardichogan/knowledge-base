@@ -8,7 +8,7 @@ process.env['DATABASE_URL'] ??= 'postgresql://isolated.invalid/offline';
 const {
   PROJECT_BOOST, PROJECT_PROTECT_BOOST, buildProjectFitPrompt, markSharedLink, markUserInterest, sharedLinkUrls, focusProjectsKey, loadFocusProjects, parseProjectFitResponse, projectBoost, saveProjectFit,
 } = await import('../src/integrations/discovery/projectFit.js');
-const { shelveStaleArticles } = await import('../src/integrations/discovery/feedSync.js');
+const { shelveStaleArticles, archiveAgedArticles } = await import('../src/integrations/discovery/feedSync.js');
 
 const PROJECTS: FocusProject[] = [
   { id: 'imagine', name: 'IMAGINE', importance: 'high', brief: 'Agent-first claims platform on Azure' },
@@ -98,6 +98,40 @@ test('age never shelves unseen recommendations; explicit low-value triage still 
       'SELECT id,workflow_state FROM content_items')).rows.map(row => [row.id, row.workflow_state]));
     assert.deepEqual(states, { good: 'to-review', strong: 'to-review', low: 'shelved',
       restored: 'to-review', protected: 'to-review', saved: 'saved' });
+  } finally { await pg.close(); }
+});
+test('archives unactioned articles after 14 days and low-value ones after 7, never saved, parked or live publishing sources', async () => {
+  const pg = new PGlite();
+  try {
+    const low = '{"platform":"Archive","scoringVersion":2}';
+    const good = '{"platform":"LinkedIn Standalone","scoringVersion":2}';
+    await pg.exec(`CREATE TABLE content_items (id text, source text, workflow_state text, published_at timestamptz, created_at timestamptz DEFAULT now(), metadata jsonb);
+      CREATE TABLE discover_parking (article_id text);
+      CREATE TABLE publishing_topics (id text, state text);
+      CREATE TABLE publishing_sources (item_id text, topic_id text);
+      INSERT INTO content_items(id,source,workflow_state,published_at,metadata) VALUES
+      ('low-8d','discovered-article','shelved',now()-interval '8 days','${low}'),
+      ('low-5d','discovered-article','shelved',now()-interval '5 days','${low}'),
+      ('good-10d','discovered-article','to-review',now()-interval '10 days','${good}'),
+      ('good-15d','discovered-article','to-review',now()-interval '15 days','${good}'),
+      ('protected-low-10d','discovered-article','to-review',now()-interval '10 days','{"platform":"Archive","scoringVersion":2,"projectBoost":0.5}'),
+      ('saved-30d','discovered-article','saved',now()-interval '30 days','${good}'),
+      ('parked-30d','discovered-article','to-review',now()-interval '30 days','${good}'),
+      ('publishing-30d','discovered-article','to-review',now()-interval '30 days','${good}'),
+      ('published-topic-30d','discovered-article','to-review',now()-interval '30 days','${good}'),
+      ('note','note','to-review',now()-interval '30 days','{}');
+      INSERT INTO discover_parking VALUES ('parked-30d');
+      INSERT INTO publishing_topics VALUES ('live','ready'),('done','published');
+      INSERT INTO publishing_sources VALUES ('publishing-30d','live'),('published-topic-30d','done');
+    `);
+    const db = { query: async (sql: string, params?: unknown[]) => pg.query(sql, params) } as unknown as Pool;
+    assert.deepEqual(await archiveAgedArticles(db), { low: 1, aged: 2 });
+    const rows = (await pg.query<{ id: string; workflow_state: string; metadata: Record<string, unknown> }>('SELECT id,workflow_state,metadata FROM content_items')).rows;
+    const states = Object.fromEntries(rows.map(row => [row.id, row.workflow_state]));
+    assert.deepEqual(states, { 'low-8d': 'archived', 'low-5d': 'shelved', 'good-10d': 'to-review', 'good-15d': 'archived',
+      'protected-low-10d': 'to-review', 'saved-30d': 'saved', 'parked-30d': 'to-review', 'publishing-30d': 'to-review',
+      'published-topic-30d': 'archived', note: 'to-review' });
+    assert.equal(rows.find(row => row.id === 'good-15d')?.metadata['autoArchived'], true);
   } finally { await pg.close(); }
 });
 
