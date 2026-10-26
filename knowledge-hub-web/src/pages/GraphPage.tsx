@@ -8,6 +8,9 @@ import { AtlasAsk } from '../components/graph/AtlasAsk';
 import { atlasAdjacency, atlasContextIds, atlasInsights, buildAtlasData } from '../components/graph/atlasData';
 import { edgeLabel, graphNodeHref, isInferred } from '../components/graph/atlasModel';
 import type { GraphEdge, GraphNode } from '../services/api';
+import { SidePanelClose, SidePanelOpen } from '@carbon/icons-react';
+import { usePersistedBoolean } from '../hooks/usePersistedState';
+import { slidePanels } from '../utils/panelTransition';
 import '../components/graph/atlas.scss';
 
 const EMPTY_NODES: GraphNode[] = [], EMPTY_EDGES: GraphEdge[] = [];
@@ -21,7 +24,13 @@ export const GraphPage: React.FC = () => {
   const [selected, setSelected] = useState<string | null>(seed), [path, setPath] = useState<string[]>([]);
   const [edgeId, setEdgeId] = useState<string | null>(null);
   const [history, setHistory] = useState<Array<string | null>>([]);
-  const [resetVersion, setResetVersion] = useState(0);
+  const [resetVersion, setResetVersion] = useState(0), [layoutVersion, setLayoutVersion] = useState(0);
+  const [inspectorOpen, setInspectorOpenNow] = usePersistedBoolean('kh_atlas_inspector_open', false);
+  // The graph is the hero: the inspector slides in on demand, then the map refits to the new width.
+  const setInspectorOpen = useCallback((next: boolean): void => {
+    slidePanels(() => { setInspectorOpenNow(next); });
+    window.setTimeout(() => { setLayoutVersion(v => v + 1); }, 280);
+  }, [setInspectorOpenNow]);
   const { data, isLoading, isError, error, retry } = useGraphData({ days, seed, depth });
   const nodes = data?.nodes ?? EMPTY_NODES, edges = data?.edges ?? EMPTY_EDGES;
   const allowedEdges = useMemo(() => edges.filter(e => inferred || !isInferred(e)), [edges, inferred]);
@@ -45,6 +54,8 @@ export const GraphPage: React.FC = () => {
   useEffect(() => {
     setSelected(data?.rootId ?? seed); setPath([]); setEdgeId(null);
   }, [seed, data]);
+  const wantsInspector = !!selected || !!edgeId || path.length > 0;
+  useEffect(() => { if (wantsInspector) setInspectorOpenNow(true); }, [wantsInspector, setInspectorOpenNow]);
   function reset(): void {
     setSelected(null); setPath([]); setEdgeId(null); setHidden([]); setQuery(''); setRange(9999); setGroup('');
     setResetVersion(v => v + 1);
@@ -59,11 +70,19 @@ export const GraphPage: React.FC = () => {
   function toggle(type: string): void { setHidden(current => current.includes(type) ? current.filter(t => t !== type) : [...current, type]); setPath([]); }
   return <main className="atlas atlas--handoff" aria-label="Knowledge atlas">
     <header className="atlas__header">
-      <div><nav aria-label="Breadcrumb" className="atlas__breadcrumb"><Link to="/think">Think</Link><span>/ Knowledge graph</span></nav>
-        <h1>Knowledge atlas</h1><p>Projects, people and the ideas between them</p></div>
-      <div className="atlas__summary"><span>{nodes.length} entities · {allowedEdges.length} connections · {atlas.nodes.filter(n => n.hub).length} projects</span>
+      <div className="atlas__title"><h1>Knowledge atlas</h1><p>Projects, people and the ideas between them</p></div>
+      <div className="atlas__summary">
+        <span title={`${data?.stats.truncated ? 'Partial graph: explore a record to load its neighbourhood.' : 'Loaded graph; not exhaustive coverage.'} Activity uses latest saved updates, not a historical event log.`}>
+          {visibleNodes.length === nodes.length ? nodes.length : `${visibleNodes.length} of ${nodes.length}`} entities · {visibleEdges.length} connections · {atlas.nodes.filter(n => n.hub).length} projects{data?.stats.truncated ? ' · partial graph' : ''}</span>
+        {!!history.length && <button className="kh-btn-ghost" onClick={() => {
+          setParams(history.at(-1) ? { seed: history.at(-1)! } : {}); setHistory(h => h.slice(0, -1)); reset();
+        }}>Back</button>}
+        {seed && <button className="kh-btn-ghost" onClick={() => { start(null); }}>Whole atlas</button>}
         <nav className="atlas__modes" aria-label="Graph view">{(['map', 'list'] as const).map(value => <button key={value}
           aria-pressed={mode === value} onClick={() => { setMode(value); }}>{value === 'map' ? 'Graph' : 'Relationships'}</button>)}</nav>
+        <button className="atlas__panel-toggle" aria-expanded={inspectorOpen} aria-controls="atlas-inspector"
+          title={inspectorOpen ? 'Hide the Athena panel' : 'Ask Athena and see details'} onClick={() => { setInspectorOpen(!inspectorOpen); }}>
+          {inspectorOpen ? <SidePanelClose size={16} /> : <SidePanelOpen size={16} />}<span>Athena</span></button>
       </div>
     </header>
     <div className="atlas__toolbar">
@@ -97,16 +116,9 @@ export const GraphPage: React.FC = () => {
         </select></label>
         {seed && <label>Neighbourhood<select value={depth} onChange={e => { setDepth(Number(e.target.value)); }}>
           <option value={1}>One connection</option><option value={2}>Two connections</option></select></label>}
+        <p>{data?.stats.truncated ? 'Partial graph: explore a record to load its neighbourhood.' : 'Loaded graph; not exhaustive coverage.'} Activity uses latest saved updates, not a historical event log.</p>
         <p>Activity dims older records; it does not erase their connections. Type focus retains direct neighbours by default.</p>
       </div></details>
-    </div>
-    <div className="atlas__scope">
-      <button disabled={!history.length} onClick={() => {
-        setParams(history.at(-1) ? { seed: history.at(-1)! } : {}); setHistory(h => h.slice(0, -1)); reset();
-      }}>Back</button>
-      {seed && <button onClick={() => { start(null); }}>Whole atlas</button>}
-      <span>{data?.stats.truncated ? 'Partial graph: explore a record to load its neighbourhood.' : 'Loaded graph; not exhaustive coverage.'}
-        {' '}Showing {visibleNodes.length} entities and {visibleEdges.length} connections. Activity uses latest saved updates, not a historical event log.</span>
     </div>
     {isError && <DataNotice title="Graph data is unavailable" error={error} onRetry={() => { void retry(); }} />}
     <div className="atlas__workspace">
@@ -117,7 +129,7 @@ export const GraphPage: React.FC = () => {
             : mode === 'list' ? <GraphRelationships nodes={visibleNodes} edges={visibleEdges} query={query} truncated={data?.stats.truncated ?? false} onSelect={select} />
               : <AtlasForceMap nodes={nodes} edges={allowedEdges} data={atlas} selected={selected} onSelect={select}
                 path={path} hiddenTypes={hidden} contextIds={[...context]} search={query} range={range} group={group}
-                scope={seed ?? ''} depth={depth} fitVersion={resetVersion} />}
+                scope={seed ?? ''} depth={depth} fitVersion={resetVersion + layoutVersion} />}
         {mode === 'map' && !!nodes.length && <>
           {(selected || path.length > 0 || hidden.length > 0 || query || group || range !== 9999) && <button className="atlas__show-all" onClick={reset}>Show everything</button>}
           <div className="atlas__legend" aria-label="Graph legend">{types.map(([type, meta]) => <span key={type}>
@@ -125,7 +137,7 @@ export const GraphPage: React.FC = () => {
             <span>Dashed: cross-project / inferred links</span></div>
         </>}
       </section>
-      <aside className="atlas__inspector" aria-label="Selected connection details">
+      <aside id="atlas-inspector" className="atlas__inspector" aria-label="Selected connection details" hidden={!inspectorOpen}>
         {node && item && <section className="atlas__selected">
           <button className="atlas__close" aria-label="Close details" onClick={() => { select(null); }}>×</button>
           <span className="atlas__kind"><i className="atlas__dot" style={{ backgroundColor: atlas.types[item.type]!.color }} />{atlas.types[item.type]!.one}</span>

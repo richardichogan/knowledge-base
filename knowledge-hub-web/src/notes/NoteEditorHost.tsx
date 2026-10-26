@@ -37,7 +37,7 @@ export const NoteEditorHost: React.FC<{ enabled: boolean; loading: boolean; chil
         <div className="notes-editor-host__document" aria-busy={pending}>
           {children}
           {pending && <div className="notes-editor-host__loading" role="status" aria-label="Loading note">
-            <AthenaRibbon size={88} mood="resting" label="Loading note" />
+            <AthenaRibbon size={88} mood="thinking" label="Loading note" />
             <span>Loading note...</span>
           </div>}
         </div>

@@ -15463,12 +15463,9 @@ fieldset.proj-modal-body {
 .kh-design-progress {
   margin: 16px 0; padding: 16px; border: 1px solid var(--cds-border-subtle-01); border-radius: var(--kh-radius-md);
   &__heading { display: flex; align-items: center; gap: 12px; font-size: var(--kh-section-title); }
-  &__animation { width: 16px; height: 16px; flex-shrink: 0; border: 2px solid var(--cds-border-subtle-01); border-top-color: var(--kh-accent); border-radius: 50%; animation: kh-design-progress-spin 1s linear infinite; }
   ol { margin: 12px 0 0; padding-left: var(--kh-list-indent); color: var(--cds-text-secondary); }
   li { margin: 0 0 8px; overflow-wrap: anywhere; }
 }
-@keyframes kh-design-progress-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .kh-design-progress__animation { animation: none; } }
 .kh-design-feedback { list-style: none; margin: 0 0 16px; padding: 0; }
 .kh-design-thread {
   margin: 0 0 16px;
@@ -15543,11 +15540,7 @@ fieldset.proj-modal-body {
 .kh-design-chrome button:disabled, .kh-design-visual button:disabled, .kh-design-handoff button:disabled { opacity: 0.5; cursor: not-allowed; }
 .kh-design-chrome button:focus-visible, .kh-design-visual button:focus-visible, .kh-design-handoff button:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
 .kh-design-hint { margin: 0 0 12px; color: var(--cds-text-secondary); font-size: var(--kh-text-body); line-height: 1.6; text-align: left; }
-.kh-design-hint--busy { display: flex; align-items: center; gap: 8px; color: var(--cds-text-primary);
-  &::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--cds-interactive); animation: kh-design-busy-pulse 1.4s ease-in-out infinite; }
-}
-@keyframes kh-design-busy-pulse { 50% { opacity: 0.3; } }
-@media (prefers-reduced-motion: reduce) { .kh-design-hint--busy::before { animation: none; } }
+.kh-design-hint--busy { display: flex; align-items: center; gap: 8px; color: var(--cds-text-primary); }
 .kh-design-tabs {
   display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--cds-border-subtle-01); margin-bottom: 16px;
   button { min-height: 36px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--cds-text-secondary); font: inherit; cursor: pointer; }
@@ -17959,3 +17952,29 @@ select optgroup {
   &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
 }
 .kh-header__badge--jobs { color: var(--cds-text-primary); background: var(--cds-layer-02); }
+// Think side panels slide open and closed (see utils/panelTransition.ts).
+.notes-list-panel, .notes-list-rail { view-transition-name: kh-think-left; }
+.notes-editor-area { view-transition-name: kh-think-main; }
+.kh-workspace-panel[open] { view-transition-name: kh-think-right; }
+::view-transition-group(kh-think-left),
+::view-transition-group(kh-think-main),
+::view-transition-group(kh-atlas-stage),
+::view-transition-group(kh-think-right) {
+  overflow: hidden;
+  animation-duration: 240ms;
+  animation-timing-function: cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+// Keep content at its natural size while the panel width changes, so text never stretches.
+::view-transition-old(kh-think-left), ::view-transition-new(kh-think-left),
+::view-transition-old(kh-think-main), ::view-transition-new(kh-think-main),
+::view-transition-old(kh-atlas-stage), ::view-transition-new(kh-atlas-stage) {
+  width: auto; height: 100%; object-fit: none; object-position: left top;
+  animation-duration: 240ms;
+}
+::view-transition-old(kh-think-right):only-child { animation: kh-think-slide-out-right 240ms cubic-bezier(0.2, 0, 0.38, 0.9) both; }
+::view-transition-new(kh-think-right):only-child { animation: kh-think-slide-in-right 240ms cubic-bezier(0, 0, 0.38, 0.9) both; }
+@keyframes kh-think-slide-in-right { from { transform: translateX(100%); } }
+@keyframes kh-think-slide-out-right { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

@@ -3,6 +3,7 @@ import { SidePanelOpen } from '@carbon/icons-react';
 import { PaneResizer } from './PaneResizer';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { usePersistedBoolean } from '../hooks/usePersistedState';
+import { slidePanels } from '../utils/panelTransition';
 
 export function useResponsivePanelState(
   storageKey: string,
@@ -38,9 +39,9 @@ export function useResponsivePanelState(
 
   const setCollapsed = useCallback<React.Dispatch<React.SetStateAction<boolean>>>((next) => {
     if (overlay) {
-      setCompactOpen(previous => !(typeof next === 'function' ? next(!previous) : next));
+      slidePanels(() => { setCompactOpen(previous => !(typeof next === 'function' ? next(!previous) : next)); });
     } else {
-      setStoredCollapsed(next);
+      slidePanels(() => { setStoredCollapsed(next); });
     }
   }, [overlay, setStoredCollapsed]);
 

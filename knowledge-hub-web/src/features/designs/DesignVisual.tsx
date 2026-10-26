@@ -274,17 +274,6 @@ export const DesignVisual: React.FC<{
     requireAccount(); return requireApiData(await api.editDesignFeedback(designId, value.id, value.text.trim()));
   }, onSuccess: async () => { setEditing(null); await refresh(); } });
   const busy = generate.isPending || queue.isPending || ask.isPending || working || resolve.isPending || discard.isPending || edit.isPending;
-  // Spec edits made outside the visual (the editor or Athena chat) are carried into it automatically, once per revision.
-  const synced = useRef<string | null>(null);
-  const autoSync = !!state?.stale && !state.sourceError && !!artifact && !state.proposal;
-  useEffect(() => {
-    if (!autoSync || !artifact || busy || synced.current === artifact.id) return;
-    synced.current = artifact.id;
-    // Another tab may have updated the visual first; that is not an error once the spec and visual match.
-    generate.mutate(undefined, { onError: () => { void refresh().then(() => {
-      if (!qc.getQueryData<DesignCollaboration>(['design-collaboration', designId])?.stale) generate.reset();
-    }); } });
-  }, [autoSync, artifact, busy, generate, designId, qc, refresh]);
   const lastStep = progress[progress.length - 1];
   const status = generate.isPending ? `Athena is updating the Blueprint from the latest spec · ${elapsed}s${lastStep ? ` · ${lastStep}` : ''}`
     : working ? 'Athena is applying your changes to the Blueprint and the spec'
@@ -320,13 +309,13 @@ export const DesignVisual: React.FC<{
     </header>
     {!!progress.length && (generate.isPending || generate.isError || !artifact) && <section className="kh-design-progress" aria-label="Visual generation progress" aria-busy={generate.isPending}>
       <div className="kh-design-progress__heading">
-        {generate.isPending && <span className="kh-design-progress__animation" aria-hidden="true" />}
+        {generate.isPending && <AthenaRibbon size={24} mood="thinking" />}
         <strong>{generate.isPending ? `${artifact ? 'Athena is updating the Blueprint from the spec' : 'Athena is writing the Blueprint'} · ${elapsed}s` : generate.isError ? 'Blueprint update stopped' : 'Blueprint updated'}</strong>
       </div>
       <p className="kh-design-hint" role="status" aria-live="polite">{progress[progress.length - 1]}</p>
       <ol>{progress.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ol>
     </section>}
-    {state.stale && !generate.isPending && (state.sourceError || synced.current === artifact?.id) && <p className="kh-uc-error" role="alert">{state.sourceError ?? 'The spec changed since this visual was made and the visual could not be updated automatically. Use Regenerate the visual below.'}</p>}
+    {state.stale && !generate.isPending && <p className="kh-uc-error" role="alert">{state.sourceError ?? 'The spec has changed since this Blueprint was made. The Blueprint stays as it is until you choose Regenerate Blueprint below.'}</p>}
     {draftError && <p className="kh-uc-error" role="alert">{draftError}</p>}
     {error && <p className="kh-uc-error" role="alert">{describeApiError(error)}</p>}
     {state.proposal && <section className="kh-design-visual__panel kh-design-visual__panel--proposal" aria-label="Athena's proposed spec changes">

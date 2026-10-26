@@ -41,6 +41,7 @@ import { DesignParent } from '../features/designs/DesignParent';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { AppDialog } from '../components/AppDialog';
 import { NoteEditorHost } from './NoteEditorHost';
+import { slidePanels } from '../utils/panelTransition';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -114,7 +115,8 @@ export const NotesPage: React.FC = () => {
   useEffect(() => { if (importModalOpen) setImportHasOpened(true); }, [importModalOpen]);
   const [sparkModalOpen,   setSparkModalOpen]   = useState(false);
   const [canvasError, setCanvasError] = useState<string | null>(null);
-  const [listCollapsed, setListCollapsed] = usePersistedBoolean('kh_think_list_collapsed', false);
+  const [listCollapsed, setListCollapsedNow] = usePersistedBoolean('kh_think_list_collapsed', false);
+  const setListCollapsed = useCallback((next: boolean): void => { slidePanels(() => { setListCollapsedNow(next); }); }, [setListCollapsedNow]);
   // Incremented rather than set to `true`, so expanding from the rail's search
   // icon can pull focus into the box every time — a boolean would only fire on
   // the first expand of a session.

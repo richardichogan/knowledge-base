@@ -13,6 +13,7 @@ import type { DesignAsset, DesignDetail } from '../../types/designs';
 import { DesignVisual } from './DesignVisual';
 import { DesignHandoff } from './DesignHandoff';
 import { announceAthenaJob } from '../../components/athena/AthenaJobNotice';
+import { AthenaRibbon } from '../../components/athena/AthenaRibbon';
 import { requestCompletionNotifications } from '../../chat/completionNotification';
 import { confirmDialog } from '../../services/appDialogs';
 
@@ -150,8 +151,8 @@ export const DesignParent: React.FC<{
       await Promise.all([qc.invalidateQueries({ queryKey: ['design', id] }), qc.invalidateQueries({ queryKey: ['design-document'] }), refresh()]);
       setEditorEpoch(value => value + 1);
       announceAthenaJob({ ok: true, always: true, tag: `design-spec-${id}`, startedAt: specStartedRef.current,
-        title: `${result.created ? 'Spec written' : 'Spec regenerated'} · Blueprint updating`,
-        body: `“${result.title}” is ready. Athena is now updating the Blueprint from it, which takes a few minutes. Editing unlocks and you'll get a “Blueprint ready” notice when it's done.`,
+        title: result.created ? 'Spec written' : 'Spec regenerated',
+        body: `“${result.title}” is ready. The Blueprint is unchanged; regenerate it from the Spec tab when you want it to match.`,
         url: `/think?design=${encodeURIComponent(id)}&tab=spec` });
     },
     onError: err => {
@@ -175,8 +176,8 @@ export const DesignParent: React.FC<{
     ? <div className={`kh-design-spec-action${footer ? ' kh-design-spec-action--footer' : ''}`}>
       <button type="button" className="kh-btn-accent" disabled={busy || switching} onClick={() => { void startSpec(); }}>
         {specBusy ? 'Athena is writing the spec…' : hasSpec ? 'Regenerate spec from use case' : 'Generate spec with Athena'}</button>
-      <p role={specBusy ? 'status' : undefined}>{specBusy
-        ? `Working for ${Math.max(0, Math.round((now - specStartedRef.current) / 1000))}s. You'll be notified when it's done.`
+      <p role={specBusy ? 'status' : undefined} className={specBusy ? 'kh-design-hint--busy' : undefined}>{specBusy
+        ? <><AthenaRibbon size={20} mood="thinking" />{`Working for ${Math.max(0, Math.round((now - specStartedRef.current) / 1000))}s. You'll be notified when it's done.`}</>
         : hasSpec ? 'Rewrites the spec from this use case. Earlier versions stay in history.' : 'Athena writes a spec from this use case and links it to the Spec tab.'}</p>
     </div> : null;
   const saved = (note: NoteDocument): void => {
@@ -211,7 +212,7 @@ export const DesignParent: React.FC<{
       {!assets.length && <button type="button" className="kh-btn-ghost" disabled={switching || busy} onClick={() => { setLinking(true); }}>Link {TABS.find(item => item.role === tab)!.label.toLowerCase()}</button>}
     </div>
     {specAction(false)}
-    {lockReason && <p className="kh-design-hint kh-design-hint--busy" role="status">{lockReason}</p>}
+    {lockReason && <p className="kh-design-hint kh-design-hint--busy" role="status"><AthenaRibbon size={20} mood="thinking" />{lockReason}</p>}
     {error && <p role="alert" className="kh-uc-error">{error}</p>}
     {selection.isError && <p role="alert" className="kh-uc-error">{describeApiError(selection.error)}</p>}
     {!asset && tab !== 'diagram' && <p className="kh-design-hint">{assets.length ? 'Choose a linked version; none has been assumed.' : 'No document linked. Link an existing original to this tab. The parent writing below is preserved.'}</p>}
