@@ -1,4 +1,4 @@
-import type { LlmToolDefinition } from './foundryClient.js';
+import type { LlmToolDefinition, LlmJsonSchema } from './foundryClient.js';
 import { DEMO_SPECIFICATION_TEMPLATE } from './demoSpecificationTemplate.js';
 import { dialogueTurnMode } from './dialoguePolicy.js';
 
@@ -6,7 +6,7 @@ export const DEMO_SPECIFICATION_VERSION = 'imagine-demo-specification-v1';
 export const DEMO_SPECIFICATION_WRITE_TOOL = 'create_demo_specification';
 const MAX_FIELD_CHARS = 4000;
 const MAX_ADDITIONAL_ROWS = 100;
-const MAX_SPECIFICATION_CHARS = 180_000;
+export const MAX_DEMO_SPECIFICATION_CHARS = 500_000;
 
 interface Field {
   id: string;
@@ -116,14 +116,39 @@ export const DEMO_SPECIFICATION_TOOLS: LlmToolDefinition[] = [
   },
 ];
 
-export function demoSpecificationForm(): unknown {
+const inSections = (sectionName: string, sections?: readonly number[]): boolean =>
+  !sections || sections.includes(Number.parseInt(sectionName, 10));
+
+export function demoSpecificationForm(sections?: readonly number[]): unknown {
+  let currentSection = '';
+  const template = lines.filter(line => {
+    if (line.startsWith('## ')) currentSection = line.slice('## '.length);
+    return !/^\d+\./.test(currentSection) || inSections(currentSection, sections);
+  }).join('\n');
   return {
     templateVersion: DEMO_SPECIFICATION_VERSION,
     instructions: DEMO_SPECIFICATION_INSTRUCTIONS,
-    fields: fields.map(({ id, section: fieldSection, label }) => ({ id, section: fieldSection, label })),
-    tables: tables.map(({ id, section: tableSection, headers }) => ({ id, section: tableSection, headers })),
-    templateMarkdown: DEMO_SPECIFICATION_TEMPLATE,
+    fields: fields.filter(field => inSections(field.section, sections)).map(({ id, section: fieldSection, label }) => ({ id, section: fieldSection, label })),
+    tables: tables.filter(table => inSections(table.section, sections)).map(({ id, section: tableSection, headers }) => ({ id, section: tableSection, headers })),
+    templateMarkdown: sections ? template : DEMO_SPECIFICATION_TEMPLATE,
   };
+}
+
+/** The Design worker uses the same complete field contract as the chat tool. */
+export function demoSpecificationResponseSchema(sections?: readonly number[]): LlmJsonSchema {
+  const string = { type: 'string', minLength: 1, maxLength: MAX_FIELD_CHARS, pattern: '^[^\\r\\n]*$' };
+  const strictObject = (properties: Record<string, unknown>): Record<string, unknown> => ({
+    type: 'object', additionalProperties: false, properties, required: Object.keys(properties),
+  });
+  return { name: 'design_imagine_specification', schema: strictObject({
+    name: string,
+    values: strictObject(Object.fromEntries(fields.filter(field => inSections(field.section, sections)).map(field => [field.id, string]))),
+    additionalRows: strictObject(Object.fromEntries(tables.filter(table => inSections(table.section, sections)).map(table => [table.id, {
+      type: 'array', maxItems: MAX_ADDITIONAL_ROWS,
+      items: { type: 'array', minItems: table.headers.length, maxItems: table.headers.length, items: string },
+    }]))),
+    sectionDetails: strictObject(Object.fromEntries((sections ?? Array.from({ length: 10 }, (_, index) => index + 1)).map(sectionNumber => [String(sectionNumber), string]))),
+  }) };
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {
@@ -141,10 +166,47 @@ function tableRow(cells: string[]): string {
   return `| ${cells.map(cell => cell.replace(/\|/g, '&#124;')).join(' | ')} |`;
 }
 
+export interface DemoSpecificationPart {
+  name: string;
+  values: Record<string, string>;
+  additionalRows: Record<string, string[][]>;
+  sectionDetails: Record<string, string>;
+}
+
+/** Validate each bounded response before using it as context for subsequent sections. */
+export function validateDemoSpecificationPart(input: unknown, sections: readonly number[]): DemoSpecificationPart {
+  const part = record(input, 'Specification section');
+  const expectedFields = fields.filter(field => inSections(field.section, sections));
+  const expectedTables = tables.filter(table => inSections(table.section, sections));
+  const exactRecord = (value: unknown, keys: string[], label: string): Record<string, unknown> => {
+    const entries = record(value, label);
+    if (keys.some(key => !(key in entries)) || Object.keys(entries).some(key => !keys.includes(key))) {
+      throw new Error(`${label} must include exactly the requested fields: ${keys.join(', ')}.`);
+    }
+    return entries;
+  };
+  const values = exactRecord(part['values'], expectedFields.map(field => field.id), 'values');
+  const extra = exactRecord(part['additionalRows'], expectedTables.map(table => table.id), 'additionalRows');
+  const details = exactRecord(part['sectionDetails'], sections.map(String), 'sectionDetails');
+  return {
+    name: answer(part['name'], 'Demo name'),
+    values: Object.fromEntries(expectedFields.map(field => [field.id, answer(values[field.id], field.label)])),
+    additionalRows: Object.fromEntries(expectedTables.map(table => {
+      const rows = extra[table.id];
+      if (!Array.isArray(rows) || rows.length > MAX_ADDITIONAL_ROWS) throw new Error(`${table.id} requires at most ${MAX_ADDITIONAL_ROWS} additional rows.`);
+      return [table.id, rows.map((row, index) => {
+        if (!Array.isArray(row) || row.length !== table.headers.length) throw new Error(`${table.id} row ${index + 1} requires ${table.headers.length} cells.`);
+        return row.map((cell, column) => answer(cell, `${table.id}: ${table.headers[column]}`));
+      })];
+    })),
+    sectionDetails: Object.fromEntries(sections.map(sectionNumber => [String(sectionNumber), answer(details[String(sectionNumber)], `Section ${sectionNumber}`)])),
+  };
+}
+
 /** Rendering the immutable structure server-side makes omissions impossible on this save path. */
 export function renderDemoSpecification(
   input: Record<string, unknown>,
-  sources: { noteUrl: string; chatUrl: string },
+  sources: { noteUrl: string; chatUrl?: string; designUrl?: string },
 ): { title: string; markdown: string } {
   if (input['templateVersion'] !== DEMO_SPECIFICATION_VERSION) throw new Error('Read the current demo specification template before saving.');
   const name = answer(input['name'], 'Demo name');
@@ -183,7 +245,7 @@ export function renderDemoSpecification(
     if (line === '## Build instruction') rendered.push(
       '## Draft provenance',
       '',
-      `Template: ${DEMO_SPECIFICATION_VERSION}. Source Think note: ${sources.noteUrl}. Source conversation: ${sources.chatUrl}.`,
+      `Template: ${DEMO_SPECIFICATION_VERSION}. Source Think note: ${sources.noteUrl}.${sources.chatUrl ? ` Source conversation: ${sources.chatUrl}.` : ''}${sources.designUrl ? ` Source Design: ${sources.designUrl}.` : ''}`,
       'This generated draft is not approval, implementation evidence or authorization. Referenced repository methods require separate source verification.',
       '',
     );
@@ -192,6 +254,6 @@ export function renderDemoSpecification(
     if (sectionNumber && details[sectionNumber] !== undefined) rendered.push('', `**Demo-specific detail:** ${answer(details[sectionNumber], `Section ${sectionNumber}`)}`);
   }
   const markdown = `${rendered.join('\n')}\n`;
-  if (markdown.length > MAX_SPECIFICATION_CHARS) throw new Error(`Demo specification exceeds ${MAX_SPECIFICATION_CHARS} characters. Shorten field answers without omitting fields.`);
+  if (markdown.length > MAX_DEMO_SPECIFICATION_CHARS) throw new Error(`Demo specification has ${markdown.length} characters, exceeding ${MAX_DEMO_SPECIFICATION_CHARS}. Shorten field answers without omitting fields.`);
   return { title: `Demo spec: ${name}`, markdown };
 }

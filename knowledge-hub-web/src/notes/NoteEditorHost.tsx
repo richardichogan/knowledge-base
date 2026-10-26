@@ -43,7 +43,8 @@ export const NoteEditorHost: React.FC<{ enabled: boolean; loading: boolean; chil
         </div>
       </div>
       <div className="notes-editor-host__metadata" hidden={!enabled || !chrome?.showMetadata}>
-        {chrome && <MetadataPanel {...chrome.metadata} writingBusy={pending || chrome.metadata.writingBusy === true} />}
+        {chrome && <MetadataPanel {...chrome.metadata} designPanel={pending ? undefined : chrome.metadata.designPanel}
+          writingBusy={pending || chrome.metadata.writingBusy === true} />}
       </div>
     </div>
   </EditorHostContext.Provider>;

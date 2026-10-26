@@ -59,6 +59,7 @@ interface NoteEditorProps {
   externalBusy?: boolean;
   onBeforeViewChange?: () => Promise<void>;
   headerContent?: React.ReactNode;
+  designPanel?: React.ReactNode;
   loading?: boolean;
   bodyContent?: React.ReactNode;
   /** Rendered after the note body in the editor view. */
@@ -152,7 +153,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, designPanel, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
   const queryClient = useQueryClient();
   const { openAthena, pageContext } = useAthenaContext();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
@@ -922,6 +923,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const appliedTags = flatTags.filter((t) => taxonomyTagIds.includes(t.id));
   const identity = useIdentity();
   const metadata: MetadataPanelProps = {
+    designPanel,
     writingBusy: historyBusy || externalBusy, doc, onShowEditor, contentType,
     onContentTypeChange: value => {
       setContentType(value); contentTypeRef.current = value; isDirtyRef.current = true;

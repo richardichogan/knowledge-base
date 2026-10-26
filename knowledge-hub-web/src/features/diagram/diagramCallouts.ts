@@ -19,7 +19,7 @@ export function calloutLayout(node: DiagramNode): {
   const height = Math.min(32, node.height / 2);
   const size = Math.max(0, Math.min(16, height - 8, node.width - 8));
   return { type: node.calloutType, ...definition, height,
-    icon: { x: node.x + 4, y: node.y + (height - size) / 2, size },
-    text: { x: node.x + 4 + size + 6, y: node.y + height / 2, fontSize: Math.min(12, height / 2, Math.max(0, (node.width - size - 14) / (definition.label.length * 0.56))) },
+    icon: { x: node.x + 8, y: node.y + (height - size) / 2, size },
+    text: { x: node.x + 8 + size + 10, y: node.y + height / 2, fontSize: Math.min(12, height / 2, Math.max(0, (node.width - size - 22) / (definition.label.length * 0.56))) },
   };
 }

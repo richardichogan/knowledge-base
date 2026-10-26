@@ -9,10 +9,13 @@ import { getDb } from '../src/db/db.js';
 import { env } from '../src/config/env.js';
 import { getFoundryClient } from '../src/ai/foundryClient.js';
 import { GitHubClient } from '../src/integrations/github/githubClient.js';
-import { assetRole, attachAsset, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset } from '../src/designs/designStore.js';
-import { collaboration, digest, parseBlueprint, parseChanges, queueFeedback, renderArtifact, resolveProposal, proposeFeedback, sameSources, sourceSnapshot } from '../src/designs/designArtifacts.js';
+import { assetRole, attachAsset, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset, setSpecificationType } from '../src/designs/designStore.js';
+import { writeDesignSpec } from '../src/designs/designSpec.js';
+import { demoSpecificationForm, demoSpecificationResponseSchema } from '../src/ai/demoSpecification.js';
+import { AiError } from '../src/types/errors.js';
+import { collaboration, designModelContext, MAX_DESIGN_MODEL_CONTEXT, digest, parseBlueprint, parseChanges, queueFeedback, renderArtifact, resolveProposal, proposeFeedback, sameSources, sourceSnapshot } from '../src/designs/designArtifacts.js';
 import { createPackage, packageArchive, preparePublication, publishPackage, validateDiagramSvg } from '../src/designs/designPackages.js';
-import { authoredTarget, parseAuthored, renderAuthored, selectionBelongs } from '../src/designs/visualArtifact.js';
+import { AUTHORING_CONTRACT, authoredForModel, authoredTarget, parseAuthored, renderAuthored, selectionBelongs } from '../src/designs/visualArtifact.js';
 import { DESIGN_CHAT_TOOLS, executeDesignTool, type DesignTurnState } from '../src/ai/designTools.js';
 
 const ROOT = 'b028adff-5851-4203-915f-67f2ab889433';
@@ -34,9 +37,9 @@ test('authored visuals are sanitised and must explain purpose, actors, an exampl
   const sources = [{ id: ROOT }, { id: SPEC }];
   const body = `<section data-element="how" onclick="steal()"><h1>How it works</h1><script>steal()</script><a href="javascript:steal()">link</a>
 <svg viewBox="0 0 400 80" onload="steal()"><defs><marker id="arrow"><path d="M0 0L6 3L0 6z"/></marker></defs>
-<g data-actor="athena"><rect width="120" height="40" style="fill:url(https://evil.example/x)"/><text x="10" y="24">Athena drafts</text></g>
-<g data-actor="you"><rect x="200" width="120" height="40"/><text x="210" y="24">You approve</text></g><line x1="120" y1="20" x2="200" y2="20" marker-end="url(#arrow)"/></svg>
-<ol><li data-actor="athena">Athena drafts the post.</li><li data-actor="you">You approve the exact text.</li></ol></section>
+<g data-actor="automatic" data-actor-label="Athena"><rect width="120" height="40" style="fill:url(https://evil.example/x)"/><text x="10" y="24">Athena drafts</text></g>
+<g data-actor="human" data-actor-label="Author"><rect x="200" width="120" height="40"/><text x="210" y="24">You approve</text></g><line x1="120" y1="20" x2="200" y2="20" marker-end="url(#arrow)"/></svg>
+<ol><li data-actor="automatic" data-actor-label="Athena">Athena drafts the post.</li><li data-actor="human" data-actor-label="Author">You approve the exact text.</li></ol></section>
 <section data-element="example"><h2>Example</h2><div data-walkthrough><div data-step="draft" data-step-title="Draft"><p>Athena drafts.</p><button data-goto="approve">Open draft</button><button>Publish now</button></div>
 <div data-step="approve" data-step-title="Approve"><p>You approve.</p><input value="x"></div></div></section>`;
   const raw = (overrides: Record<string, unknown> = {}): string => JSON.stringify({ title: 'Publishing', purpose: 'Athena drafts posts; you approve them.', ask: 'Answer 1 decision.', body,
@@ -61,10 +64,58 @@ test('authored visuals are sanitised and must explain purpose, actors, an exampl
   assert.match(html, /connect-src 'none'/);
   assert.equal((html.match(/<script/g) ?? []).length, 2);
   assert.throws(() => parseAuthored(raw({ regions: [{ id: 'how', title: 'How', role: 'flow', sourceIds: [SPEC] }] }), sources), /undeclared region/);
-  assert.throws(() => parseAuthored(raw({ body: body.replace('data-actor="you"', 'data-actor="athena"').replace('<li data-actor="you">', '<li>') }), sources), /automatic \(athena\) and human/);
+  assert.throws(() => parseAuthored(raw({ body: body.replace('data-actor="human"', 'data-actor="you"') }), sources), /data-actor must classify/);
   assert.throws(() => parseAuthored(raw({ body: body.replace('<div data-step="approve" data-step-title="Approve">', '<div>') }), sources), /at least two/);
   assert.throws(() => parseAuthored(raw({ decisions: [{ id: 'x', question: 'Q', context: '', recommended: 'Maybe', options: [{ label: 'A', consequence: 'a' }, { label: 'B', consequence: 'b' }], sourceIds: [SPEC] }] }), sources), /does not offer/);
   assert.throws(() => parseAuthored(raw({ body: `${body}<p>STATE_AWAITING_APPROVAL_V2</p>` }), sources), /internal state/);
+});
+
+test('IMAGINE Blueprint actors name digital workers and business roles, not the author', () => {
+  const body = `<section data-element="flow"><h2>Flow</h2><svg viewBox="0 0 500 200">
+<g data-actor="automatic" data-actor-label="Evidence Worker"><title>Evidence Worker</title><rect width="120" height="40"/><text>Evidence Worker checks evidence</text></g>
+<g data-actor="automatic" data-actor-label="Close Steward"><title>Close Steward</title><rect y="60" width="120" height="40"/><text>Close Steward presents readiness</text></g>
+<g data-actor="human" data-actor-label="Controller"><title>Controller</title><rect x="250" width="120" height="40"/><text>Controller authorises close</text></g>
+<g data-actor="system" data-actor-label="Teams"><title>Teams</title><rect x="250" y="60" width="120" height="40"/><text>Teams delivers the interaction</text></g>
+</svg><ol><li data-actor="automatic" data-actor-label="Evidence Worker">Evidence Worker checks evidence.</li>
+<li data-actor="human" data-actor-label="Controller">Controller authorises close.</li></ol></section>
+<section data-element="screens"><h2>Screens</h2><div data-walkthrough>
+<div data-step="evidence" data-step-title="Evidence"><p>Evidence Worker produces the readiness pack.</p><button data-goto="approval">Review</button></div>
+<div data-step="approval" data-step-title="Approval"><p>Controller reviews the pack in Teams.</p></div></div></section>`;
+  const raw = (html = body): string => JSON.stringify({ title: 'Smart Close', purpose: 'Digital workers prepare close evidence for the Controller.',
+    ask: 'Review the worker responsibilities.', body: html, decisions: [], regions: [
+      { id: 'flow', title: 'Flow', role: 'flow', sourceIds: [SPEC] },
+      { id: 'screens', title: 'Screens', role: 'screens', sourceIds: [SPEC] },
+    ] });
+  const sources = [{ id: SPEC }];
+  const { blueprint } = parseAuthored(raw(), sources);
+  for (const label of ['Evidence Worker', 'Close Steward', 'Controller', 'Teams']) {
+    assert.ok(blueprint.body.includes(`data-actor-label="${label}"`));
+  }
+  assert.deepEqual(parseAuthored(JSON.stringify(authoredForModel(blueprint)), sources).blueprint, blueprint, 'feedback round trips preserve exact actor labels');
+  const html = renderAuthored(blueprint, ROOT, 4);
+  assert.match(html, /content:attr\(data-actor-label\)/);
+  assert.match(html, /Automatic work/);
+  assert.doesNotMatch(html, /Athena does this automatically|Athena · automatic|You decide or approve/);
+  assert.throws(() => parseAuthored(raw(body.replace('data-actor="automatic"', 'data-actor="athena"')), sources), /data-actor must classify/);
+  assert.doesNotThrow(() => parseAuthored(raw(body.replace(' data-actor-label="Evidence Worker"', '')), sources),
+    'a visible actor name does not need duplicate label metadata');
+  assert.throws(() => parseAuthored(raw(body.replace(' data-actor-label="Evidence Worker"', '').replace('<title>Evidence Worker</title>', '').replace('<text>Evidence Worker checks evidence</text>', '')), sources), /actor name in a label or visible text/);
+  assert.throws(() => parseAuthored(raw(body.replace('data-actor-label="Evidence Worker"', 'data-actor-label=""')), sources), /source actor label/);
+  assert.throws(() => parseAuthored(raw(body.replace('data-actor="automatic"', 'data-actor="invented"')), sources), /data-actor must classify/);
+  assert.throws(() => parseAuthored(raw(body.replace(/ data-actor="[^"]*"/g, '').replace(/ data-actor-label="[^"]*"/g, '')), sources), /flow must identify/);
+  assert.doesNotThrow(() => parseAuthored(raw(body.replace(/data-actor="human"/g, 'data-actor="automatic"')), sources),
+    'a source-defined automated flow does not need an invented human gate');
+  const escaped = parseAuthored(raw(body.replace('data-actor-label="Evidence Worker"', 'data-actor-label="Evidence &amp; Controls &lt;worker&gt;"')), sources);
+  assert.match(escaped.blueprint.body, /data-actor-label="Evidence &amp; Controls &lt;worker&gt;"/);
+  const historical = renderAuthored({ ...blueprint, body: blueprint.body.replace(/data-actor="automatic"/g, 'data-actor="athena"').replace(/data-actor="human"/g, 'data-actor="you"') }, ROOT, 3);
+  assert.match(historical, /\[data-actor=athena\]/, 'old saved visuals keep actor styling without a database rewrite');
+  assert.doesNotMatch(historical, /Athena does this automatically|Athena · automatic/);
+  assert.match(AUTHORING_CONTRACT, /Athena is the Blueprint author, not automatically an actor/);
+  assert.match(AUTHORING_CONTRACT, /For an IMAGINE specification, name the actual digital workers/);
+  assert.match(AUTHORING_CONTRACT, /Correct those everywhere/);
+  assert.match(AUTHORING_CONTRACT, /purpose, ask and each decision question ≤ 300/);
+  assert.throws(() => parseAuthored(JSON.stringify({ ...JSON.parse(raw()), purpose: 'x'.repeat(301) }), sources), /purpose is missing or too long/);
+  assert.doesNotMatch(AUTHORING_CONTRACT, /three horizontal lanes "You", "Athena"|what Athena does middle|If you choose this, Athena will/);
 });
 
 test('visual contracts reject unsafe types, ambiguous targets and overlapping anchors', () => {
@@ -95,6 +146,48 @@ test('visual contracts reject unsafe types, ambiguous targets and overlapping an
     '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>',
     '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://example.com/x.png"/></svg>',
   ]) assert.throws(() => validateDiagramSvg(svg));
+});
+
+test('Blueprint requests retain full large sources once, without changing editable snapshots', () => {
+  const markdown = 'Full specification requirement.\n'.repeat(16_000);
+  const blocks = [{ id: 'body', type: 'paragraph', content: markdown, children: [
+    { id: 'mention', type: 'noteMention', props: { noteId: OTHER } },
+    { id: 'image', type: 'image', props: { url: 'https://example.com/evidence.png' } },
+  ] }];
+  const sources = [
+    { id: SPEC, role: 'spec', revision: 5, title: 'Complete spec', markdown, blocks },
+    { id: ROOT, role: 'design', revision: 1, title: 'Empty source', markdown: 'Source heading', blocks: [] },
+    { id: OTHER, role: 'diagram', revision: 2, title: 'Architecture', markdown: '', blocks: [], document: { nodes: [{ id: 'node' }] } },
+  ];
+  const original = JSON.stringify(sources);
+  assert.ok(original.length > MAX_DESIGN_MODEL_CONTEXT);
+  const previousVisual = { body: '<section>Previous Blueprint</section>' };
+  const visual = JSON.parse(designModelContext(sources, 'visual', { previousVisual, brief: 'Keep all requirements' }));
+  assert.equal(visual.sources[0].markdown, markdown);
+  assert.equal('blocks' in visual.sources[0], false);
+  assert.deepEqual(visual.sources[0], { id: SPEC, role: 'spec', revision: 5, title: 'Complete spec', markdown });
+  assert.deepEqual(visual.sources[2].document, sources[2]!.document);
+  assert.deepEqual(visual.previousVisual, previousVisual);
+  const feedback = [{ instruction: 'Keep evidence and revise the requirement', element_id: 'overview' }];
+  const review = JSON.parse(designModelContext(sources, 'review', { artifact: previousVisual, feedback, allowedIds: [SPEC] }));
+  assert.deepEqual(review.sources[0].blocks, blocks);
+  assert.equal('markdown' in review.sources[0], false);
+  assert.equal(review.sources[1].markdown, 'Source heading');
+  assert.deepEqual(review.sources[2].document, sources[2]!.document);
+  assert.deepEqual(review.feedback, feedback);
+  assert.deepEqual(review.allowedIds, [SPEC]);
+  assert.equal(JSON.stringify(sources), original);
+});
+
+test('Blueprint context limits include the exact previous visual, feedback and allowed IDs payload', () => {
+  for (const mode of ['visual', 'review'] as const) {
+    const context = { previousVisual: { body: '' }, feedback: ['Feedback'], allowedIds: [SPEC] };
+    const overhead = designModelContext([], mode, context).length;
+    context.previousVisual.body = 'x'.repeat(MAX_DESIGN_MODEL_CONTEXT - overhead);
+    assert.equal(designModelContext([], mode, context).length, MAX_DESIGN_MODEL_CONTEXT);
+    context.previousVisual.body += 'x';
+    assert.throws(() => designModelContext([], mode, context), /exceeds 750,000 characters.*nothing was truncated/);
+  }
 });
 
 test('source comparison ignores JSONB object key order but rejects actual writing and revision changes', () => {
@@ -153,7 +246,7 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
   }
   const original = writing('Claims', 'use-case', 'Original requirement');
   await local.query('INSERT INTO notes(id,content) VALUES($1,$2),($3,$4)', [ROOT, original, SPEC, writing('Claims spec', 'spec', 'Original specification')]);
-  for (const file of ['104_design_note_artifacts.sql', '105_design_note_parent_trigger.sql']) await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
+  for (const file of ['104_design_note_artifacts.sql', '105_design_note_parent_trigger.sql', '111_design_specification_type.sql']) await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   let failSecondWrite = false;
   const query = async (sql: string, values?: unknown[]) => {
     if (failSecondWrite && sql.includes('UPDATE notes SET content') && values?.[0] === ROOT) throw new Error('Injected second-source failure');
@@ -175,6 +268,16 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     assert.equal(listed.items.length, 1);
     assert.notEqual(listed.items[0]!.parentNoteId, ROOT);
     let design = await getDesign(getDb(), ROOT);
+    assert.equal(design.specificationType, null);
+    await assert.rejects(writeDesignSpec(getDb(), design.id), /Choose Standard or IMAGINE/);
+    for (const expectedRevision of [undefined, -1, 0.5, '0']) {
+      await assert.rejects(setSpecificationType(getDb(), design.id, { specificationType: 'standard', expectedRevision }), /valid Design revision/);
+    }
+    await assert.rejects(setSpecificationType(getDb(), design.id, { specificationType: 'guessed', expectedRevision: design.revision }), /Standard or IMAGINE/);
+    const initialRevision = design.revision;
+    design = await setSpecificationType(getDb(), design.id, { specificationType: 'imagine', expectedRevision: initialRevision });
+    assert.equal((await getDesign(getDb(), design.id)).specificationType, 'imagine');
+    await assert.rejects(setSpecificationType(getDb(), design.id, { specificationType: 'standard', expectedRevision: initialRevision }), /Design changed/);
     assert.equal(design.sourceNoteId, ROOT);
     assert.equal((await local.query('SELECT content FROM notes WHERE id=$1', [ROOT])).rows[0]?.content, original);
     assert.equal((await local.query('SELECT count(*) AS n FROM notes')).rows[0]?.n, 3);
@@ -339,5 +442,51 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
         }],
       }, {}, chatState), /source changed/);
     } finally { failSecondWrite = false; mock.timers.reset(); }
+
+    let response: string | null = null;
+    let lastCall: unknown[] = [];
+    const requestedSections: number[][] = [];
+    let timeoutOnce = true;
+    let changeTypeDuringGeneration = false;
+    const writerMock = mock.method(getFoundryClient('use-case-spec'), 'chatBulk', async (...args: unknown[]) => {
+      lastCall = args;
+      if (changeTypeDuringGeneration) {
+        const current = await getDesign(getDb(), design.id);
+        await setSpecificationType(getDb(), design.id, { specificationType: 'imagine', expectedRevision: current.revision });
+      }
+      if (response !== null) return response;
+      const request = JSON.parse((args[0] as { content: string }[])[1]!.content) as { sections: number[] };
+      requestedSections.push(request.sections);
+      if (request.sections[0] === 3 && timeoutOnce) { timeoutOnce = false; throw new AiError('Bulk request timed out after 270000ms'); }
+      const form = demoSpecificationForm(request.sections) as { fields: { id: string }[]; tables: { id: string }[] };
+      return JSON.stringify({
+        name: 'Claims',
+        values: Object.fromEntries(form.fields.map(field => [field.id, `Unresolved - confirm ${field.id} with the owner before implementation.`])),
+        additionalRows: Object.fromEntries(form.tables.map(table => [table.id, []])),
+        sectionDetails: Object.fromEntries(request.sections.map(section => [String(section), 'Proposed - reviewer confirms the applicable business rules before implementation.'])),
+      });
+    });
+    try {
+      const imagined = await writeDesignSpec(getDb(), design.id, true);
+      assert.equal(imagined.noteId, SPEC, 'regeneration updates the selected spec in place');
+      assert.deepEqual(lastCall[4], demoSpecificationResponseSchema([10]));
+      assert.deepEqual(requestedSections, [[1], [2], [3], [3], [4], [5], [6], [7], [8], [9], [10]], 'only the timed-out section is regenerated');
+      const imaginedSource = (await sourceSnapshot(getDb(), await getDesign(getDb(), design.id))).find(item => item.id === SPEC)!;
+      assert.equal((imaginedSource.markdown.match(/^## \d+\./gm) ?? []).length, 10);
+      assert.doesNotMatch(imaginedSource.markdown, /Source conversation:/);
+      response = '{}';
+      const beforeInvalid = (await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows;
+      await assert.rejects(writeDesignSpec(getDb(), design.id, true), /incomplete or invalid/);
+      assert.deepEqual((await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows, beforeInvalid);
+      const current = await getDesign(getDb(), design.id);
+      await setSpecificationType(getDb(), design.id, { specificationType: 'standard', expectedRevision: current.revision });
+      response = '# Standard claims specification\n\n## Requirements\n\nThe reviewer must approve the evidence before submission.';
+      await writeDesignSpec(getDb(), design.id, true);
+      assert.equal(lastCall[4], undefined, 'Standard retains the product-spec writer');
+      const beforeConflict = (await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows;
+      changeTypeDuringGeneration = true;
+      await assert.rejects(writeDesignSpec(getDb(), design.id, true), /Design.*changed/);
+      assert.deepEqual((await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows, beforeConflict);
+    } finally { writerMock.mock.restore(); }
   } finally { modelMock.mock.restore(); queryMock.mock.restore(); connectionMock.mock.restore(); await local.close(); }
 });

@@ -89,7 +89,8 @@ test('style detection reports all occurrences without combining independent fiel
   assert.ok(findTropes('The useful bit is not the demo polish, it is the assumption underneath.').some(issue => issue.includes('construction')));
   assert.ok(findTropes('Identity, data protection, and threat information need the same control path.').some(issue => issue.includes('triplet')));
   assert.equal(fixDashes('<a href="https://example.com/a–b">Review — today</a>'),
-    '<a href="https://example.com/a–b">Review, today</a>');
+    '<a href="https://example.com/a–b">Review — today</a>');
+  assert.equal(fixDashes('<p>Review — today</p>'), '<p>Review, today</p>');
 });
 
 test('introductory clauses followed by two items do not trigger triplet repairs', async () => {

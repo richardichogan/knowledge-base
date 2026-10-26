@@ -1,12 +1,45 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { alignMovingBounds, gridSnapEnabled, shapeSnapEnabled, spaceMovingBounds } from '../diagramAlignment';
+import { alignMovingBounds, gridSnapEnabled, shapeSnapEnabled, spaceMovingBounds, snapMovingBounds } from '../diagramAlignment';
 import { normalizeDocument } from '../diagramGeometry';
 import { emptyDiagram, type DiagramNode } from '../diagramTypes';
 
 const node = (id: string, x: number, y: number, width = 100, height = 50): DiagramNode => ({
   id, x, y, width, height, kind: 'process', label: id, parentId: null,
   fill: '#fff', stroke: '#161616', textColor: '#161616', fontSize: 16, assetId: null,
+});
+
+test('off-grid shape targets take priority at different zooms; grid is only the fallback', () => {
+  for (const zoom of [0.5, 1.5, 3]) {
+    const result = snapMovingBounds(node('moving', 0, 0), [node('target', 205, 200)], { x: 205 + 4 / zoom, y: 37 },
+      { zoom, gridSize: 10, shapeSnapping: true });
+    assert.ok(Math.abs(result.delta.x - 205) < 1e-9);
+    assert.equal(result.delta.y, 40);
+  }
+  const free = snapMovingBounds(node('moving', 0, 0), [node('target', 205, 200)], { x: 204, y: 37 },
+    { zoom: 1, gridSize: null, shapeSnapping: false });
+  assert.deepEqual(free.delta, { x: 204, y: 37 });
+  const grid = snapMovingBounds(node('moving', 0, 0), [node('target', 205, 200)], { x: 204, y: 37 },
+    { zoom: 1, gridSize: 10, shapeSnapping: false });
+  assert.deepEqual(grid.delta, { x: 200, y: 40 });
+});
+
+test('nearer equal spacing beats alignment and draws offset witness lines', () => {
+  const result = snapMovingBounds(node('moving', 0, 0),
+    [node('left', 0, 0), node('right', 310, 0), node('aligned', 160, 300)], { x: 156, y: 0 },
+    { zoom: 1.5, gridSize: 10, shapeSnapping: true });
+  assert.equal(result.delta.x, 155);
+  const gaps = result.indicators.filter(indicator => indicator.axis === 'x');
+  assert.deepEqual(gaps.map(indicator => indicator.gap), [55, 55]);
+  assert.ok(gaps.every(indicator => indicator.equal && indicator.position < 0 && indicator.startCross === 0 && indicator.endCross === 0));
+});
+
+test('resize targets use raw points instead of grid rounding', () => {
+  const result = snapMovingBounds({ x: 0, y: 0, width: 0, height: 0 }, [node('target', 205, 200)], { x: 206, y: 37 },
+    { zoom: 2, gridSize: 10, shapeSnapping: true, spacing: false });
+  assert.equal(result.delta.x, 205);
+  assert.equal(result.delta.y, 40);
+  assert.deepEqual(result.indicators, []);
 });
 
 test('guides show all left/centre/right and top/middle/bottom matches, not only the first', () => {

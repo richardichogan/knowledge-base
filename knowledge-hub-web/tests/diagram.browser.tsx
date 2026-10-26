@@ -973,8 +973,8 @@ async function runDiagramChecks(): Promise<string[]> {
   clickButton('Add Process');
   await waitFor(() => count() === baseline + 1);
   await waitFor(() => snapshot.document.nodes.length === baseline + 1);
-  check(snapshot.document.nodes.find(n => !existingNodeIds.has(n.id))?.fontSize === 16,
-    'New shape labels default to 16 px');
+  check(snapshot.document.nodes.find(n => !existingNodeIds.has(n.id))?.fontSize === 14,
+    'New shape labels default to 14 px');
   clickButton('Undo (Ctrl+Z)');
   await waitFor(() => count() === baseline);
   clickButton('Redo (Ctrl+Shift+Z)');
@@ -984,6 +984,13 @@ async function runDiagramChecks(): Promise<string[]> {
   addedNode.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   await waitFor(() => window.document.querySelector('.dg-label-editor') !== null);
   const field = window.document.querySelector<HTMLTextAreaElement>('.dg-label-editor')!;
+  const editingStyle = getComputedStyle(field);
+  check(editingStyle.backgroundColor === 'rgb(255, 255, 255)' && editingStyle.color === 'rgb(22, 22, 22)',
+    'Inline label editing uses opaque white with dark text');
+  check(editingStyle.caretColor === editingStyle.color, 'The label caret remains visible on the editing surface');
+  const selectionStyle = getComputedStyle(field, '::selection');
+  check(selectionStyle.color === 'rgb(255, 255, 255)' && selectionStyle.backgroundColor === 'rgb(15, 98, 254)',
+    'Selected label text remains readable');
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'Browser-verified process');
   field.dispatchEvent(new Event('input', { bubbles: true }));
   await delay(20);
@@ -1101,7 +1108,7 @@ async function runDiagramChecks(): Promise<string[]> {
     check(Math.abs(Number(marker.getAttribute('markerWidth')) * width - 10 * width / 1.5) < 0.001,
       'Arrow size scales proportionally and preserves original size at 1.5 px');
     const xml = new DOMParser().parseFromString(await diagramSvg(snapshot.document, assets, 'white'), 'image/svg+xml');
-    check(xml.querySelector('polyline')?.getAttribute('stroke-width') === String(width), 'Exports preserve connector thickness');
+    check(xml.querySelector('path[marker-end]')?.getAttribute('stroke-width') === String(width), 'Exports preserve connector thickness');
     check(xml.querySelector('marker')?.getAttribute('markerUnits') === 'strokeWidth', 'Export arrowheads scale with line thickness');
   }
   clickButton('Undo (Ctrl+Z)');

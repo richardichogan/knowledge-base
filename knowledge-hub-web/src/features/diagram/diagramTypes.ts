@@ -1,6 +1,9 @@
 export interface DiagramPoint { x: number; y: number }
 export type DiagramPort = 'top' | 'right' | 'bottom' | 'left';
 export type DiagramKind = 'process' | 'decision' | 'terminator' | 'document' | 'arrow' | 'line' | 'text' | 'image' | 'container' | 'swimlane';
+export const DIAGRAM_ICON_NAMES = ['user', 'user-admin', 'bot', 'tool-kit', 'data-base', 'code', 'task', 'document', 'folder', 'cloud', 'chat', 'idea', 'locked', 'decision-tree', 'flow', 'rocket', 'checkmark'] as const;
+export type DiagramIconName = typeof DIAGRAM_ICON_NAMES[number];
+export const DIAGRAM_ICON_KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document'];
 export const DIAGRAM_ARROW_DIRECTIONS = ['right', 'left', 'up', 'down', 'left-right', 'up-down'] as const;
 export type DiagramArrowDirection = typeof DIAGRAM_ARROW_DIRECTIONS[number];
 export const DIAGRAM_CALLOUT_TYPES = ['question', 'risk', 'issue', 'assumption', 'decision', 'action'] as const;
@@ -165,6 +168,10 @@ export interface AiFlowEdge {
   /** Containers and swimlanes only: children hidden, header shown. */
   collapsed?: boolean;
   assetId: string | null;
+  /** Absent: automatic role icon; null: no icon; a name: explicit local icon. */
+  icon?: DiagramIconName | null;
+  /** Absent: automatic role header; empty: no header. Presentation only. */
+  header?: string;
   /** AI-flow step metadata (process, decision, terminator, document). */
   flow?: AiFlowStep;
   /** Swimlanes only: AI-flow lane metadata. */

@@ -51,6 +51,38 @@ export function documentShapePath(r: Rect): string {
   return `M${r.x},${r.y} H${r.x + r.width} V${bottom} Q${r.x + r.width * 0.75},${bottom - depth * 2} ${r.x + r.width / 2},${bottom} Q${r.x + r.width * 0.25},${bottom + depth * 2} ${r.x},${bottom} Z`;
 }
 
+/** Soften only the outline, preserving the diamond's bounds and cardinal ports. */
+export function decisionShapePath(r: Rect): string {
+  const points = [
+    { x: r.x + r.width / 2, y: r.y }, { x: r.x + r.width, y: r.y + r.height / 2 },
+    { x: r.x + r.width / 2, y: r.y + r.height }, { x: r.x, y: r.y + r.height / 2 },
+  ];
+  const fraction = Math.min(0.2, 9 / Math.hypot(r.width / 2, r.height / 2));
+  return points.map((point, i) => {
+    const previous = points[(i + 3) % 4]!;
+    const next = points[(i + 1) % 4]!;
+    return `${i === 0 ? 'M' : 'L'}${point.x + (previous.x - point.x) * fraction},${point.y + (previous.y - point.y) * fraction}`
+      + ` Q${point.x},${point.y} ${point.x + (next.x - point.x) * fraction},${point.y + (next.y - point.y) * fraction}`;
+  }).join(' ') + ' Z';
+}
+
+export function roundedRoutePath(points: readonly DiagramPoint[], radius = 10): string {
+  if (points.length === 0) return '';
+  let path = `M${points[0]!.x},${points[0]!.y}`;
+  for (let i = 1; i < points.length; i++) {
+    const point = points[i]!;
+    const next = points[i + 1];
+    const previous = points[i - 1]!;
+    const incoming = Math.hypot(point.x - previous.x, point.y - previous.y);
+    const outgoing = next === undefined ? 0 : Math.hypot(next.x - point.x, next.y - point.y);
+    const cut = Math.min(radius, incoming / 2, outgoing / 2);
+    if (next === undefined || cut === 0) path += ` L${point.x},${point.y}`;
+    else path += ` L${point.x + (previous.x - point.x) * cut / incoming},${point.y + (previous.y - point.y) * cut / incoming}`
+      + ` Q${point.x},${point.y} ${point.x + (next.x - point.x) * cut / outgoing},${point.y + (next.y - point.y) * cut / outgoing}`;
+  }
+  return path;
+}
+
 /** Shaft thickness as a fraction of the arrow's cross-axis size. */
 export const ARROW_SHAFT = 0.6;
 
@@ -749,7 +781,39 @@ export function fitViewport(bounds: Rect | null, width: number, height: number, 
 // ── Text ─────────────────────────────────────────────────────────────────────
 
 /** Approximate word wrap for SVG text (no DOM measuring). */
-export function wrapText(text: string, maxWidth: number, fontSize: number, maxLines = Infinity): string[] {
+export function wrapText(text: string, maxWidth: number, fontSize: number, maxLines = Infinity, measure?: (text: string) => number): string[] {
+  if (measure !== undefined) {
+    const prefixLength = (value: string, suffix = ''): number => {
+      let low = 0; let high = value.length;
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        if (measure(value.slice(0, middle) + suffix) <= maxWidth) low = middle;
+        else high = middle - 1;
+      }
+      return low;
+    };
+    const lines: string[] = [];
+    for (const paragraph of text.split('\n')) {
+      const words = paragraph.split(/\s+/).filter(Boolean);
+      if (words.length === 0) { lines.push(''); continue; }
+      let line = '';
+      for (let word of words) {
+        if (line && measure(`${line} ${word}`) > maxWidth) { lines.push(line); line = ''; }
+        while (word.length > 1 && measure(word) > maxWidth) {
+          const count = Math.max(1, prefixLength(word));
+          lines.push(word.slice(0, count));
+          word = word.slice(count);
+        }
+        line = line ? `${line} ${word}` : word;
+      }
+      if (line) lines.push(line);
+    }
+    if (lines.length <= maxLines) return lines;
+    const kept = lines.slice(0, Math.max(1, maxLines));
+    const last = kept[kept.length - 1]!;
+    kept[kept.length - 1] = `${last.slice(0, prefixLength(last, '…'))}…`;
+    return kept;
+  }
   const charW = fontSize * 0.56;
   const perLine = Math.max(1, Math.floor(maxWidth / charW));
   const lines: string[] = [];

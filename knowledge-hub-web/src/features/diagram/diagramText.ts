@@ -2,11 +2,39 @@ import type { DiagramNode } from './diagramTypes';
 import { containerHeader, SWIMLANE_HEADER, documentWaveDepth, wrapText, arrowAxis, arrowShaftRect } from './diagramGeometry';
 import { calloutLayout } from './diagramCallouts';
 import { descriptionPlainText } from './diagramMarkdown';
+import type { DiagramRoleLayout } from './DiagramRoleBadge';
+
+let labelContext: CanvasRenderingContext2D | undefined;
+function measureRoleText(fontSize: number): ((text: string) => number) | undefined {
+  // Non-browser consumers retain wrapText's existing estimate.
+  if (typeof document === 'undefined') return undefined;
+  if (labelContext === undefined) {
+    const context = document.createElement('canvas').getContext('2d');
+    if (context === null) throw new Error('Could not initialise diagram text measurement.');
+    labelContext = context;
+  }
+  const context = labelContext;
+  context.font = `600 ${fontSize}px "IBM Plex Sans", system-ui, sans-serif`;
+  return text => context.measureText(text).width;
+}
 
 /** One label layout for the canvas and both export formats. */
-export function diagramTextLayout(node: DiagramNode): {
+export function diagramTextLayout(node: DiagramNode, role?: DiagramRoleLayout | null): {
   lines: string[]; x: number; y: number; anchor: 'start' | 'middle' | 'end'; weight: number; rotation?: string;
 } {
+  if (role !== undefined && role !== null) {
+    const { x, y, width, height } = role.content;
+    const lines = wrapText(descriptionPlainText(node.label), width, node.fontSize,
+      Math.max(1, 1 + Math.floor((height - node.fontSize) / (node.fontSize * 1.25))), measureRoleText(node.fontSize));
+    const horizontal = node.textAlign ?? (node.kind === 'decision' ? 'center' : 'left');
+    const vertical = node.textVerticalAlign ?? 'middle';
+    const halfText = ((lines.length - 1) * node.fontSize * 1.25 + node.fontSize) / 2;
+    return { lines, weight: 600,
+      x: horizontal === 'left' ? x : horizontal === 'right' ? x + width : x + width / 2,
+      y: vertical === 'top' ? y + halfText : vertical === 'bottom' ? y + height - halfText : y + height / 2,
+      anchor: horizontal === 'left' ? 'start' : horizontal === 'right' ? 'end' : 'middle',
+    };
+  }
   const callout = calloutLayout(node);
   const { x, width: w, fontSize: fs } = node;
   const y = node.y + (callout?.height ?? 0);

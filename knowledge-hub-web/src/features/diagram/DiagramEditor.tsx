@@ -33,13 +33,13 @@ import { DiagramChatProvider, DiagramChatTarget, useDiagramChatScope } from './D
 import type { AthenaPageContext } from '../../context/AthenaContext';
 import type { CanvasFullApi } from '../../services/api';
 import {
-  emptyDiagram, DIAGRAM_CALLOUT_TYPES, type DiagramArrowDirection, type DiagramCalloutType, type DiagramDocument, type DiagramEdge, type DiagramKind, type DiagramNode, type DiagramPoint,
+  emptyDiagram, DIAGRAM_CALLOUT_TYPES, DIAGRAM_ICON_KINDS, DIAGRAM_ICON_NAMES, type DiagramIconName, type DiagramArrowDirection, type DiagramCalloutType, type DiagramDocument, type DiagramEdge, type DiagramKind, type DiagramNode, type DiagramPoint,
   type DiagramPort, type DiagramSnapshot,
 } from './diagramTypes';
 import {
   PORTS, RESIZE_HANDLES, MIN_NODE_SIZE, containerHeader, SWIMLANE_HEADER, isContainerKind, nodeRect, boundsOf,
   documentBounds, diagramBounds, normalizeRect, rectContainsRect, portPoint, nearestPort, nodeMap, withDescendants, topLevelSelection,
-  canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, pathD,
+  canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, roundedRoutePath, decisionShapePath,
   pointAlong, insertWaypoint, hitTestNode, hitTestEdge, nodesInRect, alignNodes, distributeNodes, reorderNodes,
   cloneSelection, removeSelection, normalizeDocument, screenToWorld, worldToScreen, clampZoom, zoomAt, fitViewport,
   wrapText, edgeLabelLayout, edgeLabelCenter, fitSize, documentShapePath, arrowShapePath, arrowAxis, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
@@ -51,7 +51,7 @@ import { DiagramMetadata } from './DiagramMetadata';
 import { DiagramDescriptionEditor } from './DiagramDescriptionEditor';
 import { descriptionPlainText, descriptionRuns, formatDescription, styledLines } from './diagramMarkdown';
 import { DIAGRAM_FILLS as FILLS, DIAGRAM_STROKES as STROKES, DIAGRAM_TEXT_COLOURS as TEXT_COLOURS, IBM_COLOURS } from './diagramPalette';
-import { applyDiagramSelectionStyle, commonStyleValue, type DiagramNodeStyle, type DiagramEdgeStyle } from './diagramSelectionStyle';
+import { applyDiagramSelectionStyle, applyDiagramEdgeStyle, commonStyleValue, type DiagramNodeStyle, type DiagramEdgeStyle } from './diagramSelectionStyle';
 import { DiagramDrilldown } from './DiagramDrilldown';
 import { exportDiagram, diagramExportBlob, exportFileName, type DiagramExportFormat } from './diagramExport';
 import { ShareEmailModal } from '../../components/ShareEmailModal';
@@ -69,7 +69,8 @@ import { DiagramLegend } from './DiagramLegend';
 import { DiagramVersions } from './DiagramVersions';
 import { DiagramTextCheck } from './DiagramTextCheck';
 import { DiagramElementNotes } from './DiagramElementNotes';
-import { diagramEditorFill, diagramEditorInk, diagramEditorNodeColours } from './diagramTheme';
+import { diagramEditorFill, diagramEditorNodeColours, diagramNodeRadius, diagramNodeShadow, diagramNodeStrokeWidth, diagramEdgeAppearance, DIAGRAM_SHADOWS } from './diagramTheme';
+import { DiagramRoleBadge, diagramRoleLayout, DIAGRAM_ROLES, DIAGRAM_SHAPE_ICONS } from './DiagramRoleBadge';
 import { diagramBorderDash } from './diagramStroke';
 import { checkAiFlow, defaultGate, layoutAiFlow, nextLaneOrder, EDGE_STYLES, STEP_STYLES, STEP_TYPE_LABELS, type AiFlowSeverity } from './aiFlow';
 import { AI_FLOW_STEP_TYPES, type AiFlowStepType, type DiagramType } from './diagramTypes';
@@ -79,7 +80,7 @@ import {
 } from './diagramAiFlowBadges';
 import { AiFlowProperties, AiFlowGovernance, AiFlowKey } from './DiagramAiFlowPanels';
 import './diagram.scss';
-import { alignMovingBounds, diagramGridSize, gridSnapEnabled, shapeSnapEnabled, spaceMovingBounds, type AlignmentGuide, type SpacingIndicator } from './diagramAlignment';
+import { diagramGridSize, gridSnapEnabled, shapeSnapEnabled, snapMovingBounds, type AlignmentGuide, type SpacingIndicator } from './diagramAlignment';
 import { pasteReadableText } from '../../utils/clipboardText';
 import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
 import { ImageViewer, type ImagePreview } from '../../components/ImageViewer';
@@ -147,11 +148,11 @@ function imageBox(n: DiagramNode): Rect {
 
 function makeNode(kind: DiagramKind, center: P, extra: Partial<DiagramNode> = {}): DiagramNode {
   const d = DEFAULTS[kind];
-  const colours = diagramEditorNodeColours(d);
+  const colours = diagramEditorNodeColours({ ...d, kind });
   const width = extra.width ?? d.width;
   const height = extra.height ?? d.height;
   return {
-    id: newId(), kind, parentId: null, assetId: null, ...d, ...colours, ...extra,
+    id: newId(), kind, parentId: null, assetId: null, ...d, ...colours, fontSize: 14, ...extra,
     width, height, x: Math.round(center.x - width / 2), y: Math.round(center.y - height / 2),
   };
 }
@@ -163,7 +164,7 @@ function makeEdge(sourceId: string, sourcePort: DiagramPort, targetId: string, t
   };
 }
 
-/** Shape kind and stored (light) colours for a new AI flow step; the editor maps them for the dark sheet when drawing. */
+/** Keep semantic defaults in the document; the shared theme supplies its modern appearance. */
 function aiStepNode(type: AiFlowStepType): { kind: DiagramKind; extra: Partial<DiagramNode> } {
   const s = STEP_STYLES[type];
   return {
@@ -220,6 +221,7 @@ function measureImage(url: string): Promise<{ width: number; height: number }> {
 
 export interface DiagramEditorProps {
   canvasId: string;
+  designPanel?: React.ReactNode;
   parentContext?: AthenaPageContext | undefined;
   onDeleted?: (() => void) | undefined;
   onOpenNote?: ((noteId: string) => void) | undefined;
@@ -249,7 +251,7 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = props => {
   return scope ? <DiagramEditorBody {...props} /> : <DiagramChatProvider><DiagramEditorBody {...props} /></DiagramChatProvider>;
 };
 
-const DiagramEditorBody: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote, initialFootnote, onSaveReady, parentContext }) => {
+const DiagramEditorBody: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote, initialFootnote, onSaveReady, parentContext, designPanel }) => {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -287,7 +289,7 @@ const DiagramEditorBody: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, 
       </div>
     );
   }
-  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} initialFootnote={initialFootnote} onSaveReady={onSaveReady} parentContext={parentContext} />;
+  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} initialFootnote={initialFootnote} onSaveReady={onSaveReady} parentContext={parentContext} designPanel={designPanel} />;
 };
 
 // ── Surface ───────────────────────────────────────────────────────────────────
@@ -325,6 +327,7 @@ interface EditingLabel { kind: 'node' | 'edge'; id: string; value: string }
 
 interface SurfaceProps {
   canvasId: string;
+  designPanel?: React.ReactNode;
   parentContext?: AthenaPageContext | undefined;
   initial: DiagramSnapshot;
   onReload: () => void;
@@ -336,7 +339,7 @@ interface SurfaceProps {
 
 const LABEL_OFFSET_MAX = 10000;
 
-const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote, initialFootnote, onSaveReady, parentContext }) => {
+const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote, initialFootnote, onSaveReady, parentContext, designPanel }) => {
   const queryClient = useQueryClient();
   const markerBase = `dg${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
@@ -374,6 +377,17 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const openingDrilldownRef = useRef(false);
   const [athenaOpen, setAthenaOpen] = useState(false);
   const [athenaMounted, setAthenaMounted] = useState(false);
+  const [designOpen, setDesignOpen] = useState(false);
+  const designTabs = designPanel && <div className="kh-design-panel-tabs" role="tablist" aria-label="Diagram side panel">
+    {(['Athena', 'Design', 'Properties'] as const).map(label => {
+      const active = label === 'Design' ? designOpen : label === 'Athena' ? athenaOpen && !designOpen : !athenaOpen && !designOpen;
+      return <button type="button" key={label} role="tab" aria-selected={active} className="notes-meta-tab"
+        onClick={() => {
+          setDesignOpen(label === 'Design'); setAthenaOpen(label === 'Athena'); setPropertiesOpen(true);
+          if (label === 'Athena') setAthenaMounted(true);
+        }}>{label}</button>;
+    })}
+  </div>;
   const [athenaPrompt, setAthenaPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
   const [notesHidden, setNotesHidden] = useState(false);
   const [keyFilter, setKeyFilter] = useState<string | null>(null);
@@ -1055,6 +1069,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const prompt = `Tell me about ${what} in this diagram${description === '' ? '' : ` (described as: ${description})`}. What does it connect to, what might be missing, and how could it be explained better?`;
     setSel(node !== undefined ? { nodes: [targetId], edges: [] } : { nodes: [], edges: [targetId] });
     setAthenaMounted(true);
+    setDesignOpen(false);
     setAthenaOpen(true);
     setAthenaPrompt((p) => ({ prompt, sequence: (p?.sequence ?? 0) + 1 }));
   }, [setSel]);
@@ -1480,16 +1495,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         if (!d.moved && distance(sp, d.startScreen) < DRAG_THRESHOLD_PX) return;
         const rawX = world.x - d.start.x;
         const rawY = world.y - d.start.y;
-        const dx = snapOn ? snap(d.origin.x + rawX, GRID) - d.origin.x : rawX;
-        const dy = snapOn ? snap(d.origin.y + rawY, GRID) - d.origin.y : rawY;
         const moving = withDescendants(d.before.nodes, d.ids);
         const others = collapseView(d.before).nodes.filter(node => !moving.has(node.id) && !isContainerKind(node.kind) && node.kind !== 'line');
         const snapping = shapeSnapEnabled(cur) && !e.altKey;
-        const tolerance = (snapping ? 5 : 0.5) / cur.viewport.zoom;
-        const alignment = alignMovingBounds(d.origin, others, { x: dx, y: dy }, tolerance, snapping);
-        const spaced = spaceMovingBounds(d.origin, others, alignment.delta, tolerance, snapping, alignment.guides.map(guide => guide.axis));
-        const finalGuides = alignMovingBounds(d.origin, others, spaced.delta, 0.5 / cur.viewport.zoom, false).guides;
-        setGuides(e.altKey ? [] : finalGuides);
+        const spaced = snapMovingBounds(d.origin, others, { x: rawX, y: rawY },
+          { zoom: cur.viewport.zoom, gridSize: snapOn ? GRID : null, shapeSnapping: snapping });
+        setGuides(e.altKey ? [] : spaced.guides);
         setSpacing(e.altKey ? [] : spaced.indicators);
         setDoc(translateNodes(d.before, d.ids, spaced.delta.x, spaced.delta.y));
         const host = containerAt(d.before.nodes, world, withDescendants(d.before.nodes, d.ids));
@@ -1498,15 +1509,13 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         return;
       }
       case 'resize': {
-        let point = snapPoint(world, snapOn);
-        const snapping = shapeSnapEnabled(cur) && !e.altKey;
-        const alignment = alignMovingBounds({ ...point, width: 0, height: 0 },
+        const snapping = shapeSnapEnabled(cur) && !e.altKey && !e.shiftKey;
+        const alignment = snapMovingBounds({ x: 0, y: 0, width: 0, height: 0 },
           collapseView(d.before).nodes.filter(node => node.id !== d.id && !isContainerKind(node.kind) && node.kind !== 'line'),
-          { x: 0, y: 0 }, (snapping ? 5 : 0.5) / cur.viewport.zoom, snapping);
+          world, { zoom: cur.viewport.zoom, gridSize: snapOn ? GRID : null, shapeSnapping: snapping, spacing: false });
         const activeGuides = e.altKey || e.shiftKey ? [] : alignment.guides.filter(guide =>
           guide.axis === 'x' ? /[ew]/.test(d.handle) : /[ns]/.test(d.handle));
-        point = { x: point.x + (activeGuides.some(guide => guide.axis === 'x') ? alignment.delta.x : 0),
-          y: point.y + (activeGuides.some(guide => guide.axis === 'y') ? alignment.delta.y : 0) };
+        const point = alignment.delta;
         setGuides(activeGuides);
         const rect = resizeRect(d.origin, d.handle, point, { min: MIN_NODE_SIZE, keepAspect: e.shiftKey });
         setDoc({
@@ -1877,7 +1886,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const singleFootnote = singleId === undefined ? undefined : footnotes.find((f) => f.targetId === singleId);
   const markerIds = useMemo(() => {
     const m = new Map<string, string>();
-    for (const x of doc.edges) if (!m.has(x.stroke)) m.set(x.stroke, `${markerBase}-arrow-${m.size}`);
+    for (const x of doc.edges) {
+      const colour = diagramEdgeAppearance(x).stroke;
+      if (!m.has(colour)) m.set(colour, `${markerBase}-arrow-${m.size}`);
+    }
     if (!m.has(DEFAULT_EDGE_STROKE)) m.set(DEFAULT_EDGE_STROKE, `${markerBase}-arrow-${m.size}`);
     return m;
   }, [doc.edges, markerBase]);
@@ -1934,7 +1946,6 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   const canUndo = history.current.past.length > 0;
   const canRedo = history.current.future.length > 0;
-  const allFills = new Set(selectedNodes.map((n) => n.fill));
   const allStrokes = new Set(selectedNodes.map((n) => n.stroke));
   const allText = new Set(selectedNodes.map((n) => n.textColor));
   const fontSizes = selectedNodes.map((n) => n.fontSize);
@@ -1942,10 +1953,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const parentIds = new Set(topSelected.map((id) => byId.get(id)?.parentId ?? null));
   const commonParent = parentIds.size === 1 ? [...parentIds][0] ?? null : undefined;
   const hostOptions = doc.nodes.filter((n) => isContainerKind(n.kind) && topSelected.length > 0 && topSelected.every((id) => canParent(doc.nodes, id, n.id)));
-  const edgeColours = new Set(selectedEdges.map((x) => x.stroke));
+  const edgeColours = new Set(selectedEdges.map((x) => diagramEdgeAppearance(x).stroke));
   const edgeRoutes = new Set(selectedEdges.map((x) => x.route));
   const edgeArrows = new Set(selectedEdges.map((x) => x.arrows));
-  const allDashed = selectedEdges.length > 0 && selectedEdges.every((x) => x.dashed);
+  const allDashed = selectedEdges.length > 0 && selectedEdges.every((x) => diagramEdgeAppearance(x).dash !== undefined);
   const anyBends = selectedEdges.some((x) => x.waypoints.length > 0);
   const only = <T,>(s: Set<T>): T | undefined => (s.size === 1 ? [...s][0] : undefined);
   const selectionStyle = <DiagramSelectionStyle nodes={selectedNodes} edges={selectedEdges}
@@ -1965,8 +1976,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const renderEdge = (edge: DiagramEdge): React.ReactElement | null => {
                 const route = routes.get(edge.id);
                 if (route === undefined || route === null) return null;
-                const d = lineJumps.paths.get(edge.id) ?? pathD(route);
-                const marker = `url(#${markerIds.get(edge.stroke) ?? ''})`;
+                const appearance = diagramEdgeAppearance(edge);
+                const d = lineJumps.paths.get(edge.id) ?? roundedRoutePath(route);
+                const marker = `url(#${markerIds.get(appearance.stroke) ?? ''})`;
                 const mid = edgeLabelCenter(route, edge);
                 const { lines: labelLines, width: labelW, height: labelH, fontSize: labelFont, lineHeight } = edgeLabelLayout(edge);
                 const lines = editing?.kind === 'edge' && editing.id === edge.id ? [] : labelLines;
@@ -1974,12 +1986,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 const edgeCls = ['dg-edge', selEdgeSet.has(edge.id) ? 'dg-edge--selected' : '', remapped ? 'dg-edge--collapsed' : '', keyFilter !== null ? 'dg-edge--dimmed' : ''].filter(Boolean).join(' ');
                 return (
                   <g key={edge.id} className={edgeCls} data-dg={remapped ? undefined : 'edge'} data-id={edge.id}>
-                    <path className="dg-edge__hit" d={d} strokeWidth={Math.max(14 * inv, (edge.strokeWidth ?? 1.5) + 6 * inv)} />
-                    <path className="dg-edge__halo" d={d} style={{ strokeWidth: (edge.strokeWidth ?? 1.5) * z + 4 }} />
+                    <path className="dg-edge__hit" d={d} strokeWidth={Math.max(14 * inv, appearance.width + 6 * inv)} />
+                    <path className="dg-edge__halo" d={d} style={{ strokeWidth: appearance.width * z + 4 }} />
                     <path
-                      className="dg-edge__line" d={d} stroke={diagramEditorInk(edge.stroke)}
-                      strokeWidth={edge.strokeWidth ?? 1.5}
-                      strokeDasharray={edge.dashed ? '6 4' : undefined}
+                      className="dg-edge__line" d={d} stroke={appearance.stroke}
+                      strokeWidth={appearance.width} strokeLinecap="round" strokeLinejoin="round"
+                      strokeDasharray={appearance.dash}
                       markerEnd={edge.arrows === 'none' || edge.arrows === 'start' ? undefined : marker}
                       markerStart={edge.arrows === 'both' || edge.arrows === 'start' ? marker : undefined}
                       mask={lineJumps.masks.has(edge.id) ? `url(#${markerBase}-jump-${edge.id})` : undefined}
@@ -1987,8 +1999,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                     {lines.length > 0 && (
                       <g className="dg-edge__label" data-dg={remapped ? undefined : 'edge-label'} data-id={edge.id}>
                         {!remapped && <title>Drag to move the label</title>}
-                        <rect x={mid.x - labelW / 2} y={mid.y - labelH / 2} width={labelW} height={labelH} rx={3} />
-                        <text x={mid.x} y={mid.y - labelH / 2 + 3 + labelFont} fontSize={labelFont} textAnchor="middle" fill={diagramEditorInk(edge.stroke === 'none' ? '#161616' : edge.stroke)}>
+                        <rect x={mid.x - labelW / 2} y={mid.y - labelH / 2} width={labelW} height={labelH} rx={labelH / 2} stroke={appearance.labelBorder} />
+                        <text x={mid.x} y={mid.y - labelH / 2 + 3 + labelFont} fontSize={labelFont} fontWeight={600} textAnchor="middle" fill={appearance.label}>
                           {styledTspans(edge.label, lines).map((runs, i) => <tspan key={i} x={mid.x} dy={i === 0 ? 0 : lineHeight}>{runs}</tspan>)}
                         </text>
                       </g>
@@ -2080,7 +2092,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {menu === 'governance' && (
                 <div className="dg-popover dg-popover--end dg-popover--wide" role="dialog" aria-label="Governance findings">
                   <AiFlowGovernance findings={aiFindings}
-                    onSelect={(targetId) => { selectAndRevealTarget(targetId); setAthenaOpen(false); setPropertiesOpen(true); }} />
+                    onSelect={(targetId) => { selectAndRevealTarget(targetId); setDesignOpen(false); setAthenaOpen(false); setPropertiesOpen(true); }} />
                 </div>
               )}
             </div>
@@ -2131,8 +2143,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           </div>
         </div>
         <div className="dg-header__panels">
-          <button type="button" className="dg-text-btn" aria-expanded={propertiesOpen && !athenaOpen} onClick={() => { setAthenaOpen(false); setPropertiesOpen(athenaOpen || !propertiesOpen); }}>Properties</button>
-          <button type="button" className={`dg-text-btn${athenaOpen ? ' dg-text-btn--active' : ''}`} aria-expanded={athenaOpen} onClick={() => { setAthenaMounted(true); setAthenaOpen(!athenaOpen); }}>Athena</button>
+          <button type="button" className="dg-text-btn" aria-expanded={propertiesOpen && !athenaOpen && !designOpen} onClick={() => { setDesignOpen(false); setAthenaOpen(false); setPropertiesOpen(designOpen || athenaOpen || !propertiesOpen); }}>Properties</button>
+          <button type="button" className={`dg-text-btn${athenaOpen ? ' dg-text-btn--active' : ''}`} aria-expanded={athenaOpen && !designOpen} onClick={() => { setDesignOpen(false); setAthenaMounted(true); setAthenaOpen(!athenaOpen); }}>Athena</button>
           <div className="dg-anchor">
             <button type="button" className={`dg-text-btn${menu === 'export' ? ' dg-text-btn--active' : ''}`} aria-expanded={menu === 'export'} aria-haspopup="dialog" onClick={() => { setMenu(menu === 'export' ? null : 'export'); }}>
               <Download size={16} /> Export
@@ -2277,13 +2289,12 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   <h3 className="dg-popover__heading">Add a step</h3>
                   <div className="dg-ai-steps__list">
                     {AI_FLOW_STEP_TYPES.map((t) => {
-                      const s = STEP_STYLES[t];
                       return (
                         <button key={t} type="button" className="dg-ai-steps__item" draggable
                           title={`${STEP_TYPE_LABELS[t]} — click to add, or drag onto the sheet`}
                           onClick={() => { addAiStep(t); }}
                           onDragStart={(e) => { e.dataTransfer.setData(SHAPE_MIME, `ai:${t}`); e.dataTransfer.effectAllowed = 'copy'; }}>
-                          <span className="dg-ai-steps__swatch" style={{ background: diagramEditorFill(s.fill), borderColor: diagramEditorInk(s.stroke) }} aria-hidden="true">{STEP_TYPE_SHORT[t].code}</span>
+                          <span className="dg-ai-steps__swatch" style={{ background: DIAGRAM_ROLES[t].tint, borderColor: DIAGRAM_ROLES[t].colour }} aria-hidden="true">{STEP_TYPE_SHORT[t].code}</span>
                           <span className="dg-ai-steps__name">{STEP_TYPE_LABELS[t]}</span>
                         </button>
                       );
@@ -2308,12 +2319,15 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             onDoubleClick={onDoubleClick} onContextMenu={(e) => { if (dragRef.current?.kind === 'pan') e.preventDefault(); }}
           >
             <defs>
+              <filter id={`${markerBase}-shadow`} x="-20%" y="-30%" width="140%" height="180%">
+                {DIAGRAM_SHADOWS.map((shadow, index) => <feDropShadow key={index} {...shadow} />)}
+              </filter>
               <pattern id={`${markerBase}-grid`} width={gridStep} height={gridStep} patternUnits="userSpaceOnUse" x={(view.x % gridStep) - 1} y={(view.y % gridStep) - 1}>
                 <circle cx={1} cy={1} r={1} className="dg-canvas__dot" />
               </pattern>
               {[...markerIds].map(([colour, id]) => (
                 <marker key={id} id={id} viewBox="0 0 10 10" refX={9} refY={5} markerWidth={20 / 3} markerHeight={20 / 3} markerUnits="strokeWidth" orient="auto-start-reverse">
-                  <path d="M0,1 L10,5 L0,9 z" fill={diagramEditorInk(colour)} />
+                  <path d="M0,1 L10,5 L0,9 z" fill={colour} />
                 </marker>
               ))}
               {[...lineJumps.masks].map(([id, masks]) => (
@@ -2330,7 +2344,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 x2={drag.current.x} y2={drag.current.y} />}
               {display.edges.filter((edge) => edge.behind === true).map(renderEdge)}
               {ordered.map((n) => (
-                <NodeShape key={n.id} node={n} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id}
+                <NodeShape key={n.id} node={n} shadowId={`${markerBase}-shadow`} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id}
                   dimmed={n.kind !== 'line' && keyDim(n.stroke)} hiddenCount={display.hiddenCount.get(n.id) ?? 0}
                   lineJumpPath={lineJumps.paths.get(n.id)} lineMask={lineJumps.masks.has(n.id) ? `url(#${markerBase}-jump-${n.id})` : undefined} aiFlow={isAiFlow} />
               ))}
@@ -2356,7 +2370,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 <g className="dg-ai-overlay" pointerEvents="none">
                   {ordered.map((n) => {
                     const finding = aiFindingMap.get(n.id);
-                    const chips = aiStepChips(n, finding !== undefined);
+                    const role = diagramRoleLayout(n);
+                    const chips = aiStepChips(n, finding !== undefined, n.header !== undefined || (role?.label ?? null) !== null);
                     if (chips.length === 0 && finding === undefined) return null;
                     return (
                       <g key={n.id} data-ai-node={n.id} className={n.kind !== 'line' && keyDim(n.stroke) ? 'dg-ai-overlay--dimmed' : undefined}>
@@ -2508,6 +2523,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                   const label = `${indicator.equal ? '= ' : ''}${Math.round(indicator.gap * 10) / 10}`;
                   const labelWidth = label.length * 7 + 10;
                   return <g key={`${axis}:${index}`} className={`dg-spacing${indicator.equal ? ' dg-spacing--equal' : ''}`}>
+                    {indicator.startCross !== undefined && <line className="dg-spacing__witness"
+                      x1={horizontal ? start : indicator.startCross} y1={horizontal ? indicator.startCross : start} x2={x1} y2={y1} />}
+                    {indicator.endCross !== undefined && <line className="dg-spacing__witness"
+                      x1={horizontal ? end : indicator.endCross} y1={horizontal ? indicator.endCross : end} x2={x2} y2={y2} />}
                     <line x1={x1} y1={y1} x2={x2} y2={y2} />
                     <line x1={x1 - (horizontal ? 0 : cap)} x2={x1 + (horizontal ? 0 : cap)}
                       y1={y1 - (horizontal ? cap : 0)} y2={y1 + (horizontal ? cap : 0)} />
@@ -2557,7 +2576,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 {menu === 'style' && (
                   <div className="dg-popover dg-popover--context" role="dialog" aria-label="Shape style">
                     {selectedNodes.length + selectedEdges.length > 1 ? selectionStyle : <>
-                    {singleNode?.kind !== 'line' && <Swatches label="Fill" colours={FILLS} value={diagramEditorFill(only(allFills) ?? '')} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: diagramEditorNodeColours(n).textColor, fill: c })); }} />}
+                    {singleNode?.kind !== 'line' && <Swatches label="Fill" colours={FILLS} value={commonStyleValue(selectedNodes.map(n => diagramEditorNodeColours(n).fill))} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, ...diagramEditorNodeColours(n), fill: c })); }} />}
                     <Swatches label="Border" colours={STROKES} value={only(allStrokes)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, stroke: c })); }} />
                     <Swatches label="Text" colours={TEXT_COLOURS} value={only(allText)} onPick={(c) => { updateNodes(sel.nodes, (n) => ({ ...n, textColor: c })); }} />
                     <div className="dg-stepper">
@@ -2566,7 +2585,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                       <output className="dg-stepper__value" aria-live="polite">{fontSize}</output>
                       <button type="button" className="dg-stepper__btn" aria-label="Larger text" disabled={fontSize >= FONT_MAX} onClick={() => { updateNodes(sel.nodes, (n) => ({ ...n, fontSize: Math.min(FONT_MAX, n.fontSize + 1) })); }}>+</button>
                     </div>
-                    <ThicknessField value={singleNode?.strokeWidth ?? 1.5}
+                    <ThicknessField value={singleNode === undefined ? undefined : diagramNodeStrokeWidth(singleNode)}
                       onChange={strokeWidth => { updateNodes(sel.nodes, n => ({ ...n, strokeWidth })); }} />
                     </>}
                   </div>
@@ -2668,16 +2687,16 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 options={[{ value: 'none', label: 'No arrows', glyph: <LineGlyph kind="none" /> }, { value: 'end', label: 'Arrow at end', glyph: <LineGlyph kind="end" /> }, { value: 'start', label: 'Arrow at start', glyph: <LineGlyph kind="start" /> }, { value: 'both', label: 'Arrows at both ends', glyph: <LineGlyph kind="both" /> }]}
                 onChange={(v) => { updateEdges(sel.edges, (x) => ({ ...x, arrows: v })); }}
               />
-              <IconBtn label={allDashed ? 'Solid line' : 'Dashed line'} pressed={allDashed} onClick={() => { updateEdges(sel.edges, (x) => ({ ...x, dashed: !allDashed })); }}><LineGlyph kind="dashed" /></IconBtn>
+              <IconBtn label={allDashed ? 'Solid line' : 'Dashed line'} pressed={allDashed} onClick={() => { updateEdges(sel.edges, (x) => applyDiagramEdgeStyle(x, { dashed: !allDashed })); }}><LineGlyph kind="dashed" /></IconBtn>
               <div className="dg-anchor">
                 <IconBtn label="Connector style" pressed={menu === 'edge-colour'} onClick={() => { setMenu(menu === 'edge-colour' ? null : 'edge-colour'); }}>
                   <span className="dg-colour-dot" style={{ background: only(edgeColours) ?? 'transparent' }} />
                 </IconBtn>
                 {menu === 'edge-colour' && (
                   <div className="dg-popover dg-popover--context" role="dialog" aria-label="Connector style">
-                    <Swatches label="Line colour" colours={EDGE_COLOURS} value={only(edgeColours)} onPick={(c) => { updateEdges(sel.edges, (x) => ({ ...x, stroke: c })); }} />
-                    <ThicknessField value={commonStyleValue(selectedEdges.map(edge => edge.strokeWidth ?? 1.5))}
-                      onChange={strokeWidth => { updateEdges(sel.edges, edge => ({ ...edge, strokeWidth })); }} />
+                    <Swatches label="Line colour" colours={EDGE_COLOURS} value={only(edgeColours)} onPick={(c) => { updateEdges(sel.edges, (x) => applyDiagramEdgeStyle(x, { stroke: c })); }} />
+                    <ThicknessField value={commonStyleValue(selectedEdges.map(edge => diagramEdgeAppearance(edge).width))}
+                      onChange={strokeWidth => { updateEdges(sel.edges, edge => applyDiagramEdgeStyle(edge, { strokeWidth })); }} />
                     <label className="dg-field">
                       <span className="dg-field__label">Text size</span>
                       <select className="dg-select" aria-label="Connector text size"
@@ -2736,14 +2755,21 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         </div>
       </div>
 
-      {athenaMounted && <aside className="dg-athena" aria-label="Diagram Athena" hidden={!athenaOpen}>
+      {designPanel && designOpen && <aside className="dg-properties" aria-label="Design">
+        {designTabs}
+        <div className="dg-properties__heading"><h3>Design</h3><IconBtn label="Close Design" onClick={() => { setDesignOpen(false); setPropertiesOpen(false); }}><Close size={16} /></IconBtn></div>
+        {designPanel}
+      </aside>}
+      {athenaMounted && <aside className="dg-athena" aria-label="Diagram Athena" hidden={!athenaOpen || designOpen}>
+        {designTabs}
         <div className="dg-properties__heading"><h3>Athena</h3><IconBtn label="Close Athena" onClick={() => { setAthenaOpen(false); }}><Close size={16} /></IconBtn></div>
         <p className="dg-athena__hint">{saveStatus === 'saved'
           ? 'Athena reads saved shapes, descriptions and connectors, and can compare other diagrams.'
           : 'Changes are not saved yet. Athena can only read the last saved diagram.'}</p>
         <DiagramChatTarget context={athenaContext} prompt={athenaPrompt} visible={athenaOpen} />
       </aside>}
-      {propertiesOpen && !athenaOpen && <aside className="dg-properties" aria-label="Diagram properties">
+      {propertiesOpen && !athenaOpen && !designOpen && <aside className="dg-properties" aria-label="Diagram properties">
+        {designTabs}
         <div className="dg-properties__heading"><h3>Properties</h3><IconBtn label="Close properties" onClick={() => { setPropertiesOpen(false); }}><Close size={16} /></IconBtn></div>
         {canvas !== undefined && <DiagramMetadata canvas={canvas} onSaved={(summary) => {
           queryClient.setQueryData<CanvasFullApi>(['canvas', canvasId], current => current === undefined ? undefined : { ...current, ...summary });
@@ -2757,6 +2783,21 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         <details className="dg-section" open>
         <summary className="dg-section__summary">Shape or connector properties</summary>
         {singleNode !== undefined || singleEdge !== undefined ? <DiagramProperties
+          aiFlow={isAiFlow}
+          onIconChange={icon => {
+            if (singleNode !== undefined) updateNodes([singleNode.id], node => {
+              const rest = { ...node };
+              delete rest.icon;
+              return icon === undefined ? rest : { ...rest, icon };
+            });
+          }}
+          onResetHeader={() => {
+            if (singleNode !== undefined) updateNodes([singleNode.id], node => {
+              const rest = { ...node };
+              delete rest.header;
+              return rest;
+            });
+          }}
           key={singleNode?.id ?? singleEdge?.id}
           item={(singleNode ?? singleEdge)!}
           kind={singleNode === undefined ? 'Connector' : KIND_LABEL[singleNode.kind]}
@@ -2781,17 +2822,17 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             else if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => ({ ...edge, fontSize }));
           }}
           onBackgroundChange={(fill) => {
-            if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, textColor: diagramEditorNodeColours(n).textColor, fill }));
+            if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, ...diagramEditorNodeColours(n), fill }));
           }}
           onBorderChange={(border) => {
-            if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, ...border }));
+            if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, ...diagramEditorNodeColours(n), ...border }));
           }}
           onThicknessChange={(strokeWidth) => {
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, strokeWidth }));
-            else if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => ({ ...edge, strokeWidth }));
+            else if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => applyDiagramEdgeStyle(edge, { strokeWidth }));
           }}
           onEdgeStyleChange={(patch) => {
-            if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => ({ ...edge, ...patch }));
+            if (singleEdge !== undefined) updateEdges([singleEdge.id], edge => applyDiagramEdgeStyle(edge, patch));
           }}
           onAlignmentChange={(alignment) => {
             if (singleNode !== undefined) updateNodes([singleNode.id], n => ({ ...n, ...alignment }));
@@ -2800,7 +2841,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             const current = docRef.current;
             const id = singleNode?.id ?? singleEdge?.id;
             const next = singleNode !== undefined
-              ? { ...current, nodes: current.nodes.map((n) => n.id !== id ? n : field === 'label' ? setNodeLabel(n, value) : { ...n, description: value }) }
+              ? { ...current, nodes: current.nodes.map((n) => n.id !== id ? n : field === 'label' ? setNodeLabel(n, value) : { ...n, [field]: value }) }
               : { ...current, edges: current.edges.map((edge) => edge.id !== id ? edge : { ...edge, [field]: value }) };
             if (first) commit(next);
             else { setDoc(next); markDirty(SAVE_DELAY_MS); }
@@ -2888,7 +2929,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 };
 
 function ThicknessField({ value, onChange }: { value: number | undefined; onChange: (width: number) => void }): React.ReactElement {
-  const widths = [0.5, 1, 1.5, 2, 3, 4, 6];
+  const widths = [0.5, 1, 1.25, 1.5, 2, 3, 4, 6];
   return <label className="dg-properties__field">Line / border thickness
     <select aria-label="Line / border thickness" value={value ?? ''} onChange={event => { onChange(Number(event.target.value)); }}>
       <option value="" disabled>Mixed</option>
@@ -2908,15 +2949,15 @@ function DiagramSelectionStyle({ nodes, edges, onChange }: {
     <p className="dg-properties__kind">{items.length} selected</p>
     <p className="dg-properties__hint">Mixed values are left unchanged until you choose a style. Titles and descriptions remain individual.</p>
     {filledNodes.length > 0 && <Swatches label="Background colour" colours={FILLS}
-      value={commonStyleValue(filledNodes.map(node => diagramEditorFill(node.fill)))}
+      value={commonStyleValue(filledNodes.map(node => diagramEditorNodeColours(node).fill))}
       onPick={fill => { onChange({ fill }, {}); }} />}
     <Swatches label="Line / border colour" colours={STROKES}
-      value={commonStyleValue(items.map(item => 'kind' in item ? diagramEditorNodeColours(item).stroke : diagramEditorInk(item.stroke)))}
+      value={commonStyleValue(items.map(item => 'kind' in item ? diagramEditorNodeColours(item).stroke : diagramEdgeAppearance(item).stroke))}
       onPick={stroke => { onChange({ stroke }, { stroke }); }} />
     {nodes.length > 0 && <Swatches label="Text colour" colours={TEXT_COLOURS}
       value={commonStyleValue(nodes.map(node => diagramEditorNodeColours(node).textColor))}
       onPick={textColor => { onChange({ textColor }, {}); }} />}
-    <ThicknessField value={commonStyleValue(items.map(item => item.strokeWidth ?? 1.5))}
+    <ThicknessField value={commonStyleValue(items.map(item => 'kind' in item ? diagramNodeStrokeWidth(item) : diagramEdgeAppearance(item).width))}
       onChange={strokeWidth => { onChange({ strokeWidth }, { strokeWidth }); }} />
     {nodes.length > 0 && <div className="dg-properties__field">
       <span>Border style (shapes)</span>
@@ -2926,7 +2967,7 @@ function DiagramSelectionStyle({ nodes, edges, onChange }: {
     </div>}
     {edges.length > 0 && <div className="dg-properties__field">
       <span>Line style (connectors)</span>
-      <Segmented label="Selected connector line style" value={commonStyleValue(edges.map(edge => edge.dashed ? 'dashed' : 'solid')) ?? ''}
+      <Segmented label="Selected connector line style" value={commonStyleValue(edges.map(edge => diagramEdgeAppearance(edge).dash !== undefined ? 'dashed' : 'solid')) ?? ''}
         options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }]}
         onChange={value => { onChange({}, { dashed: value === 'dashed' }); }} />
       <span>Arrowheads (connectors)</span>
@@ -2944,9 +2985,12 @@ function DiagramSelectionStyle({ nodes, edges, onChange }: {
   </div>;
 }
 
-function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange, onThicknessChange, onEdgeStyleChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange, onArrowDirectionChange }: {
+function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onResetHeader, onChange, onAlignmentChange, onThicknessChange, onEdgeStyleChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange, onArrowDirectionChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
-  onChange: (field: 'label' | 'description', value: string, first: boolean) => void;
+  aiFlow: boolean;
+  onIconChange: (icon: DiagramIconName | null | undefined) => void;
+  onResetHeader: () => void;
+  onChange: (field: 'label' | 'description' | 'header', value: string, first: boolean) => void;
   onAlignmentChange: (alignment: Partial<Pick<DiagramNode, 'textAlign' | 'textVerticalAlign'>>) => void;
   onThicknessChange: (strokeWidth: number) => void;
   onEdgeStyleChange: (patch: Partial<Pick<DiagramEdge, 'dashed' | 'arrows'>>) => void;
@@ -2957,12 +3001,52 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
   onArrowDirectionChange: (direction: DiagramArrowDirection) => void;
 }): React.ReactElement {
   const firstEdit = useRef(true);
-  const change = (field: 'label' | 'description', value: string): void => {
+  const change = (field: 'label' | 'description' | 'header', value: string): void => {
     onChange(field, value, firstEdit.current);
     firstEdit.current = false;
   };
+  const supportsAppearance = 'kind' in item && DIAGRAM_ICON_KINDS.includes(item.kind);
+  const titleField = <label className="dg-properties__field">Title
+    <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label} spellCheck
+      onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('label', e.target.value); }}
+      onKeyDown={(e) => { formatTitleKey(e, item.label, titleLimit, (value) => { firstEdit.current = true; change('label', value); }); }} />
+  </label>;
   return <div className="dg-properties__fields">
     <p className="dg-properties__kind">{kind}</p>
+    {supportsAppearance && titleField}
+    {'kind' in item && DIAGRAM_ICON_KINDS.includes(item.kind) && <>
+      <div className="dg-properties__field">
+        <label className="dg-properties__field">Header
+          <input aria-label="Shape header" maxLength={80} value={item.header ?? (aiFlow && item.flow ? DIAGRAM_ROLES[item.flow.stepType].label : '')}
+            placeholder="No header" onFocus={() => { firstEdit.current = true; }}
+            onChange={event => { change('header', event.target.value); }} />
+        </label>
+        <div className="dg-shape-presets" role="group" aria-label="Header presets">
+          {['Agent', 'Human', 'Pipeline', ''].map(header => <button type="button" className="dg-text-btn" key={header}
+            aria-pressed={item.header === header} onClick={() => { firstEdit.current = true; change('header', header); }}>
+            {header || 'None'}
+          </button>)}
+          {aiFlow && item.flow && <button type="button" className="dg-text-btn" onClick={onResetHeader}
+            disabled={item.header === undefined}>Use step type</button>}
+        </div>
+        <p className="dg-properties__hint">Display text only; does not change the step type.</p>
+      </div>
+      <details className="dg-shape-icons">
+        <summary>Icon: {item.icon === undefined ? 'Automatic' : item.icon === null ? 'None' : DIAGRAM_SHAPE_ICONS[item.icon].label}</summary>
+        <div className="dg-shape-icons__options" role="group" aria-label="Shape icon">
+          <button type="button" aria-pressed={item.icon === undefined} onClick={() => { onIconChange(undefined); }}>Automatic</button>
+          <button type="button" aria-pressed={item.icon === null} onClick={() => { onIconChange(null); }}>None</button>
+          {DIAGRAM_ICON_NAMES.map(name => {
+            const choice = DIAGRAM_SHAPE_ICONS[name];
+            const Icon = choice.icon;
+            return <button type="button" key={name} aria-pressed={item.icon === name} onClick={() => { onIconChange(name); }}>
+              <Icon size={20} aria-hidden="true" /><span>{choice.label}</span>
+            </button>;
+          })}
+        </div>
+        <p className="dg-properties__hint">Automatic uses the header preset or AI step type. Choose None to hide just the icon.</p>
+      </details>
+    </>}
     {'kind' in item && item.kind === 'text' && <label className="dg-properties__field">Callout type
       <select aria-label="Callout type" value={item.calloutType ?? ''}
         onChange={event => {
@@ -2981,16 +3065,12 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
           { value: 'left-right', label: 'Double-headed horizontal' }, { value: 'up-down', label: 'Double-headed vertical' }]}
         onChange={onArrowDirectionChange} />
     </div>}
-    <label className="dg-properties__field">Title
-      <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label} spellCheck
-        onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('label', e.target.value); }}
-        onKeyDown={(e) => { formatTitleKey(e, item.label, titleLimit, (value) => { firstEdit.current = true; change('label', value); }); }} />
-    </label>
+    {!supportsAppearance && titleField}
     <div className="dg-properties__border">
     {'kind' in item && <>
-      {item.kind !== 'line' && <Swatches label="Background colour" colours={FILLS} value={FILLS.includes(item.fill) ? item.fill : diagramEditorFill(item.fill)}
+      {item.kind !== 'line' && <Swatches label="Background colour" colours={FILLS} value={diagramEditorNodeColours(item).fill}
         onPick={onBackgroundChange} />}
-      <Swatches label={item.kind === 'line' ? 'Line colour' : 'Border colour'} colours={STROKES} value={item.stroke}
+      <Swatches label={item.kind === 'line' ? 'Line colour' : 'Border colour'} colours={STROKES} value={diagramEditorNodeColours(item).stroke}
         onPick={(stroke) => { onBorderChange({ stroke }); }} />
       <div className="dg-properties__field">
         <span>{item.kind === 'line' ? 'Line style' : 'Border style'}</span>
@@ -3002,7 +3082,7 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
     {!('kind' in item) && <>
       <div className="dg-properties__field">
         <span>Line style</span>
-        <Segmented label="Connector line style" value={item.dashed ? 'dashed' : 'solid'}
+        <Segmented label="Connector line style" value={diagramEdgeAppearance(item).dash !== undefined ? 'dashed' : 'solid'}
           options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }]}
           onChange={(value) => { onEdgeStyleChange({ dashed: value === 'dashed' }); }} />
       </div>
@@ -3014,10 +3094,10 @@ function DiagramProperties({ item, kind, titleLimit, onChange, onAlignmentChange
       </div>
     </>}
     <label className="dg-properties__field">{'kind' in item && item.kind !== 'line' ? 'Border thickness' : 'Line thickness'}
-      <select aria-label={'kind' in item && item.kind !== 'line' ? 'Border thickness' : 'Line thickness'} value={item.strokeWidth ?? 1.5}
+      <select aria-label={'kind' in item && item.kind !== 'line' ? 'Border thickness' : 'Line thickness'} value={'kind' in item ? diagramNodeStrokeWidth(item) : diagramEdgeAppearance(item).width}
         onChange={(event) => { onThicknessChange(Number(event.target.value)); }}>
-        {[0.5, 1, 1.5, 2, 3, 4, 6].map(width => <option key={width} value={width}>{width} px</option>)}
-        {item.strokeWidth !== undefined && ![0.5, 1, 1.5, 2, 3, 4, 6].includes(item.strokeWidth)
+        {[0.5, 1, 1.25, 1.5, 2, 3, 4, 6].map(width => <option key={width} value={width}>{width} px</option>)}
+        {item.strokeWidth !== undefined && ![0.5, 1, 1.25, 1.5, 2, 3, 4, 6].includes(item.strokeWidth)
           && <option value={item.strokeWidth}>{item.strokeWidth} px</option>}
       </select>
     </label>
@@ -3082,9 +3162,9 @@ function TextLines({ lines, source, cx, cy, fontSize, color, anchorX, anchor = '
   );
 }
 
-interface NodeShapeProps { node: DiagramNode; asset: AssetState | undefined; selected: boolean; editing: boolean; dimmed?: boolean; hiddenCount?: number; lineJumpPath?: string | undefined; lineMask?: string | undefined; aiFlow?: boolean }
+interface NodeShapeProps { node: DiagramNode; shadowId: string; asset: AssetState | undefined; selected: boolean; editing: boolean; dimmed?: boolean; hiddenCount?: number; lineJumpPath?: string | undefined; lineMask?: string | undefined; aiFlow?: boolean }
 
-const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, editing, dimmed = false, hiddenCount = 0, lineJumpPath, lineMask, aiFlow = false }: NodeShapeProps): React.ReactElement {
+const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, selected, editing, dimmed = false, hiddenCount = 0, lineJumpPath, lineMask, aiFlow = false }: NodeShapeProps): React.ReactElement {
   const { x, y, width: w, height: h, fontSize: fs } = n;
   const { fill, stroke, textColor: color } = diagramEditorNodeColours(n);
   const cx = x + w / 2;
@@ -3092,7 +3172,9 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
   const source = editing ? '' : n.label;
   const label = descriptionPlainText(source);
   const border = { strokeDasharray: diagramBorderDash(n), strokeLinecap: n.strokeStyle === 'dotted' ? 'round' as const : 'butt' as const };
-  const common = { className: 'dg-node__body', fill, stroke, strokeWidth: n.strokeWidth ?? 1.5, ...border, pointerEvents: 'all' as const };
+  const common = { className: 'dg-node__body', fill, stroke, strokeWidth: diagramNodeStrokeWidth(n), ...border, pointerEvents: 'all' as const };
+  const role = diagramRoleLayout(n, aiFlow);
+  const radius = diagramNodeRadius(n);
   let body: React.ReactNode;
   let text: React.ReactNode = null;
   const maxLines = (avail: number): number => Math.max(1, Math.floor(avail / (fs * 1.25)));
@@ -3118,11 +3200,11 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       break;
     }
     case 'process':
-      body = <rect {...common} x={x} y={y} width={w} height={h} rx={6} />;
+      body = <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />;
       text = <TextLines source={source} lines={wrapText(label, w - 16, fs, maxLines(h - 8))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'decision':
-      body = <polygon {...common} points={`${cx},${y} ${x + w},${cy} ${cx},${y + h} ${x},${cy}`} />;
+      body = <path {...common} d={decisionShapePath(n)} />;
       text = <TextLines source={source} lines={wrapText(label, w * 0.62, fs, maxLines(h * 0.6))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'terminator':
@@ -3130,7 +3212,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
       text = <TextLines source={source} lines={wrapText(label, w - h * 0.6, fs, maxLines(h - 8))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'text':
-      body = <rect {...common} x={x} y={y} width={w} height={h} rx={2} />;
+      body = <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />;
       text = <TextLines source={source} lines={wrapText(label, w - 8, fs, maxLines(h))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'image': {
@@ -3157,7 +3239,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
     case 'container':
       body = (
         <>
-          <rect {...common} x={x} y={y} width={w} height={h} rx={4} />
+          <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />
           <line className="dg-node__divider" x1={x} y1={y + containerHeader(n).height} x2={x + w} y2={y + containerHeader(n).height} stroke={stroke} strokeWidth={n.strokeWidth ?? 1} {...border} />
         </>
       );
@@ -3183,8 +3265,8 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
     }
   }
   const callout = calloutLayout(n);
-  if (n.kind !== 'line' && (callout !== null || n.kind === 'container' || n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined)) {
-    const layout = diagramTextLayout({ ...n, label: source });
+  if (n.kind !== 'line' && (role !== null || callout !== null || n.kind === 'container' || n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined)) {
+    const layout = diagramTextLayout({ ...n, label: source }, role);
     text = <TextLines source={source} lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
   }
   const collapsible = n.kind === 'container' || n.kind === 'swimlane';
@@ -3192,7 +3274,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
   let extra: React.ReactNode = null;
   if (collapsed) {
     const badge = hiddenCount > 0 ? `+${hiddenCount}` : '';
-    body = <rect {...common} x={x} y={y} width={w} height={h} rx={4} />;
+    body = <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />;
     text = <TextLines source={source} lines={wrapText(label, Math.max(20, w - 76), fs, 1)} cx={x + 30} cy={y + h / 2} anchor="start" fontSize={fs} color={color} weight={600} />;
     extra = badge === '' ? null : (
       <g className="dg-collapse-badge" pointerEvents="none">
@@ -3215,11 +3297,13 @@ const NodeShape = React.memo(function NodeShape({ node: n, asset, selected, edit
   const cls = ['dg-node', `dg-node--${n.kind}`, n.stroke === 'none' ? 'dg-node--borderless' : '', selected ? 'dg-node--selected' : '', dimmed ? 'dg-node--dimmed' : '', collapsed ? 'dg-node--collapsed' : ''].filter(Boolean).join(' ');
   return (
     <g className={cls} data-dg="node" data-id={n.id}>
-      {body}
+      <g filter={diagramNodeShadow(n) ? `url(#${shadowId})` : undefined}>{body}</g>
       {text}
+      {role !== null && <DiagramRoleBadge layout={role} />}
       {callout !== null && <g className="dg-callout" data-callout-type={callout.type} pointerEvents="none">
         <title>{callout.label} callout</title>
-        <path className="dg-callout__icon" d={callout.path} stroke={color}
+        <rect x={callout.icon.x - 4} y={callout.icon.y - 4} width={callout.icon.size + 8} height={callout.icon.size + 8} rx={7} fill="#fcf4d6" />
+        <path className="dg-callout__icon" d={callout.path} stroke="#8e6a00"
           transform={`translate(${callout.icon.x} ${callout.icon.y}) scale(${callout.icon.size / 20})`} />
         <text className="dg-callout__type" x={callout.text.x} y={callout.text.y} fontSize={callout.text.fontSize} fill={color}
           dominantBaseline="central">{callout.label}</text>
@@ -3277,8 +3361,8 @@ function AiFindingMark({ at, severity, title }: { at: P; severity: AiFlowSeverit
   return (
     <g className="dg-ai-finding" data-ai-finding={severity}>
       <title>{title}</title>
-      <circle cx={at.x} cy={at.y} r={AI_FINDING_RADIUS} fill={c.fill} stroke="#161616" strokeWidth={1.5} />
-      <text x={at.x} y={at.y} fontSize={10} fontWeight={700} fill={c.text} textAnchor="middle" dominantBaseline="central">!</text>
+      <circle cx={at.x} cy={at.y} r={AI_FINDING_RADIUS} fill={c.fill} stroke="#ffffff" strokeWidth={2} />
+      <text x={at.x} y={at.y} fontSize={10} fontWeight={700} fill={c.text} textAnchor="middle" dominantBaseline="central">{severity === 'info' ? 'i' : '!'}</text>
     </g>
   );
 }

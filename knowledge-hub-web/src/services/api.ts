@@ -2485,6 +2485,9 @@ export class KnowledgeHubApi {
   async selectDesignAsset(id: string, role: string, sourceId: string, expectedRevision: number): Promise<ApiResponse<DesignDetail>> {
     return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/selection`, { role, sourceId, expectedRevision })).data;
   }
+  async setDesignSpecificationType(id: string, specificationType: 'standard' | 'imagine', expectedRevision: number): Promise<ApiResponse<DesignDetail>> {
+    return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/specification-type`, { specificationType, expectedRevision })).data;
+  }
   async designCollaboration(id: string): Promise<ApiResponse<DesignCollaboration>> {
     return (await this.client.get<ApiResponse<DesignCollaboration>>(`/api/designs/${encodeURIComponent(id)}/collaboration`)).data;
   }
@@ -2545,6 +2548,9 @@ export class KnowledgeHubApi {
   }
   async acknowledgeAgentJob(id: string): Promise<void> {
     await this.client.post(`/api/agent-jobs/${encodeURIComponent(id)}/ack`, {});
+  }
+  async listDesignAgentJobs(subjectId: string): Promise<ApiResponse<AgentJob[]>> {
+    return (await this.client.get<ApiResponse<AgentJob[]>>('/api/agent-jobs', { params: { subjectType: 'design', subjectId, limit: 10 } })).data;
   }
   /** Streams every live specialist job, then each change, until the signal aborts or the connection drops. */
   async streamAgentJobs(onJob: (job: AgentJob) => void, signal: AbortSignal): Promise<void> {

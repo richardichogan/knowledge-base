@@ -2,6 +2,43 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-26, Design and diagram release):**
+- User requested deploy, merge and push. Existing ACA/SWA application targets
+  only, in Alliance Tenant Reporting. No infrastructure or credential changes.
+- `git fetch origin` and `git merge origin/main --no-edit`: already current;
+  `git merge-base --is-ancestor origin/main HEAD` passed. Git emits a shared
+  packed-refs lock warning during maintenance; no lock was removed.
+- Both `npm run typecheck` checks passed. Both `npm run lint:check` checks
+  passed after removing unused bindings and naming new numeric constants:
+  frontend 22/41, backend 552/623. Both production builds passed.
+- Frontend `npm run test:isolated`: 240/240 plus 37/37 bundled UI checks.
+  Backend isolated suite: 630/631 initially; the stale protected-link
+  punctuation expectation was corrected, with the affected file passing.
+- Additional isolated checks covered design generation, specification form,
+  diagram persistence, HTTP deadlines and snapping. Initial 71 passes exposed
+  an unawaited nested timeout test and floating-point exact-equality assertion;
+  only those files were rerun, passing 15/15. No full-suite reruns.
+- Earlier actual desktop checks verified local shape header/icon persistence,
+  undo restoration, SVG/PNG export, off-grid snapping and final text alignment.
+  They did not leave authored diagram changes. Test suites use scrubbed
+  environments and fixture databases, not production integrations.
+- Change-for-fit report: (1) existing native Properties, Design jobs and refresh
+  services retained; (2) ACA/SWA and manual deployment assumptions unchanged;
+  (3) undici is the sole new direct dependency, required for explicit long HTTP
+  deadlines, with bounded retries/candidate intake; (4) mirrored node types and
+  strict validation preserve contracts; (5) no secrets added, installed local
+  icons and existing sanitisation retained; (6) smallest safer version is the
+  existing editor/service extension, not a replacement renderer or job system.
+- Dockerfile/lockfile checked; the image includes additive migration111 for
+  specification content type. ACR builds the synced GitHub main source.
+  Current backend v254/revision0000251, identity None; existing ACR
+  secret-reference authentication stays unchanged. Bicep/what-if, provisioning
+  and new RBAC assignments do not apply to this application-only release.
+- Diagram hook warnings concern documented approved colours, test colour
+  fixtures and pre-existing styles. Preserve unrelated hook cache and sidecar.
+- Deploy v255 and the matching local frontend build; verify startup/migration
+  logs, revision readiness and served frontend asset identity, then stop.
+
 **Release scope and Section 7: Validation Proof (2026-10-26, facts-first weekly recovery):**
 - Application-only update to the existing Container App and Static Web App.
   Preserve publication approval and disabled Slack delivery. Switch standard

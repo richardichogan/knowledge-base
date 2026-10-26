@@ -1,4 +1,7 @@
 import type { DiagramDocument, DiagramNode } from './diagramTypes';
+import { createElement } from 'react';
+import { DiagramRoleBadge, diagramRoleLayout, type DiagramRoleLayout } from './DiagramRoleBadge';
+import { diagramEditorNodeColours, diagramEdgeAppearance, diagramNodeRadius, diagramNodeShadow, diagramNodeStrokeWidth, DIAGRAM_SHADOWS } from './diagramTheme';
 import { collapseView, footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
 import { diagramTextLayout } from './diagramText';
 import { descriptionPlainText, styledLines } from './diagramMarkdown';
@@ -6,7 +9,7 @@ import { calloutLayout } from './diagramCallouts';
 import { diagramDrawioXml } from './diagramDrawio';
 import { diagramBorderDash } from './diagramStroke';
 import { diagramLineJumpGeometry } from './diagramLineJumps';
-import { arrowShapePath, boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
+import { arrowShapePath, boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, decisionShapePath, roundedRoutePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
 import { checkAiFlow } from './aiFlow';
 import {
   AI_CHIP_COLOURS, AI_CHIP_FONT, AI_FINDING_RADIUS, AI_SEVERITY_COLOURS, aiEdgeChip, aiEdgeFindingAnchor, aiFindingAnchor, aiLaneOwnerLayout,
@@ -43,8 +46,8 @@ function textLines(lines: string[], x: number, y: number, fontSize: number, colo
   return `<text font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" fill="${escapeXml(colour)}" text-anchor="${anchor}" dominant-baseline="central" font-weight="${weight}">${content.map((line, i) => `<tspan x="${x}" y="${top + i * fontSize * 1.25}">${line}</tspan>`).join('')}</text>`;
 }
 
-function nodeText(node: DiagramNode, titleShift = 0): string {
-  const layout = diagramTextLayout(node);
+function nodeText(node: DiagramNode, titleShift = 0, role?: DiagramRoleLayout | null): string {
+  const layout = diagramTextLayout(node, role);
   const text = textLines(layout.lines, layout.x, layout.y, node.fontSize, node.textColor, layout.anchor, layout.weight, node.label);
   const rotated = layout.rotation ? `<g transform="${layout.rotation}">${text}</g>` : text;
   return titleShift !== 0 && layout.rotation ? `<g transform="translate(${titleShift} 0)">${rotated}</g>` : rotated;
@@ -57,13 +60,13 @@ function chipSvg(chip: AiChip): string {
 
 function findingSvg(at: { x: number; y: number }, target: AiTargetFindings): string {
   const c = AI_SEVERITY_COLOURS[target.severity];
-  return `<g data-ai-finding="${target.severity}"><title>${escapeXml(target.findings.map((f) => f.message).join('\n'))}</title><circle cx="${at.x}" cy="${at.y}" r="${AI_FINDING_RADIUS}" fill="${c.fill}" stroke="white" stroke-width="1.5"/><text x="${at.x}" y="${at.y}" ${FONT} font-size="10" font-weight="700" fill="${c.text}" text-anchor="middle" dominant-baseline="central">!</text></g>`;
+  return `<g data-ai-finding="${target.severity}"><title>${escapeXml(target.findings.map((f) => f.message).join('\n'))}</title><circle cx="${at.x}" cy="${at.y}" r="${AI_FINDING_RADIUS}" fill="${c.fill}" stroke="#ffffff" stroke-width="2"/><text x="${at.x}" y="${at.y}" ${FONT} font-size="10" font-weight="700" fill="${c.text}" text-anchor="middle" dominant-baseline="central">${target.severity === 'info' ? 'i' : '!'}</text></g>`;
 }
 
 function calloutHeader(node: DiagramNode): string {
   const callout = calloutLayout(node);
   if (callout === null) return '';
-  return `<g data-callout-type="${callout.type}"><title>${callout.label} callout</title><path d="${callout.path}" fill="none" stroke="${escapeXml(node.textColor)}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(${callout.icon.x} ${callout.icon.y}) scale(${callout.icon.size / 20})"/><text x="${callout.text.x}" y="${callout.text.y}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${callout.text.fontSize}" fill="${escapeXml(node.textColor)}" font-weight="600" dominant-baseline="central">${callout.label}</text></g>`;
+  return `<g data-callout-type="${callout.type}"><title>${callout.label} callout</title><rect x="${callout.icon.x - 4}" y="${callout.icon.y - 4}" width="${callout.icon.size + 8}" height="${callout.icon.size + 8}" rx="7" fill="#fcf4d6"/><path d="${callout.path}" fill="none" stroke="#8e6a00" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(${callout.icon.x} ${callout.icon.y}) scale(${callout.icon.size / 20})"/><text x="${callout.text.x}" y="${callout.text.y}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${callout.text.fontSize}" fill="${escapeXml(node.textColor)}" font-weight="600" dominant-baseline="central">${callout.label}</text></g>`;
 }
 
 export interface DiagramExportOptions {
@@ -126,6 +129,14 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     `<mask id="${maskIds.get(id)}" maskUnits="userSpaceOnUse" x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}"><rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="white"/>${masks.map(mask => `<path d="${mask.d}" fill="none" stroke="black" stroke-width="${mask.width}"/>`).join('')}</mask>`);
   const embedded = new Map<string, string>();
   const aiFlow = isAiFlowDoc(source);
+  const roleSvgs = new Map<string, string>();
+  if (document.nodes.some(node => diagramRoleLayout(node, aiFlow) !== null)) {
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    for (const node of document.nodes) {
+      const layout = diagramRoleLayout(node, aiFlow);
+      if (layout !== null) roleSvgs.set(node.id, renderToStaticMarkup(createElement(DiagramRoleBadge, { layout })));
+    }
+  }
   const aiFindings = aiFlow && options.aiFindings !== false ? findingsByTarget(checkAiFlow(source)) : new Map<string, AiTargetFindings>();
   for (const node of document.nodes) {
     if (node.assetId !== null && !embedded.has(node.assetId)) {
@@ -137,8 +148,10 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
       embedded.set(node.assetId, await readDataUrl(asset));
     }
   }
-  const nodes = renderOrder(document.nodes).map((node) => {
-    const strokeWidth = node.strokeWidth ?? 1.5;
+  const nodes = renderOrder(document.nodes).map((stored) => {
+    const node = { ...stored, ...diagramEditorNodeColours(stored) };
+    const role = diagramRoleLayout(node, aiFlow);
+    const strokeWidth = diagramNodeStrokeWidth(stored);
     const dash = diagramBorderDash(node);
     const borderStyle = `${dash === undefined ? '' : ` stroke-dasharray="${dash}"`}${node.strokeStyle === 'dotted' ? ' stroke-linecap="round"' : ''}`;
     const colour = `fill="${escapeXml(node.fill)}" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}`;
@@ -152,13 +165,14 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     } else if (node.kind === 'arrow') {
       shape = `<path d="${arrowShapePath(node, node.arrowDirection)}" ${colour} stroke-linejoin="round"/>`;
     } else if (node.kind === 'decision') {
-      shape = `<polygon points="${node.x + node.width / 2},${node.y} ${node.x + node.width},${node.y + node.height / 2} ${node.x + node.width / 2},${node.y + node.height} ${node.x},${node.y + node.height / 2}" ${colour}/>`;
+      shape = `<path d="${decisionShapePath(node)}" ${colour}/>`;
     } else {
-      const radius = node.kind === 'terminator' ? Math.min(node.width, node.height) / 2 : node.kind === 'process' ? 6 : node.kind === 'text' ? 2 : node.kind === 'swimlane' ? 0 : 4;
+      const radius = diagramNodeRadius(node);
       shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${radius}" ${colour}/>`;
       if (node.kind === 'container') shape += `<line x1="${node.x}" x2="${node.x + node.width}" y1="${node.y + containerHeader(node).height}" y2="${node.y + containerHeader(node).height}" stroke="${escapeXml(node.stroke)}" stroke-width="${node.strokeWidth ?? 1}"${borderStyle}/>`;
       if (node.kind === 'swimlane') shape += `<rect x="${node.x}" y="${node.y}" width="${SWIMLANE_HEADER}" height="${node.height}" fill="${node.stroke === 'none' ? '#e0e0e0' : escapeXml(node.stroke)}" fill-opacity="0.1" stroke="${escapeXml(node.stroke)}" stroke-width="${strokeWidth}"${borderStyle}/>`;
     }
+    if (diagramNodeShadow(stored)) shape = `<g filter="url(#diagram-shadow)">${shape}</g>`;
     if (node.assetId !== null && embedded.has(node.assetId)) {
       const captionHeight = node.label.trim() ? Math.round(node.fontSize * 1.3 + 10) : 0;
       shape += `<image x="${node.x + 4}" y="${node.y + 4}" width="${Math.max(1, node.width - 8)}" height="${Math.max(1, node.height - captionHeight - 8)}" preserveAspectRatio="xMidYMid meet" href="${escapeXml(embedded.get(node.assetId) ?? '')}"/>`;
@@ -171,20 +185,22 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     const shifted = owner !== null && node.textAlign === undefined && node.textVerticalAlign === undefined ? owner.titleShift : 0;
     const ownerSvg = owner === null ? '' : `<g data-ai-lane-owner="true" transform="${owner.rotation}">${textLines([owner.text], owner.x, owner.y, owner.fontSize, node.textColor, 'middle', 400)}</g>`;
     const finding = aiFindings.get(node.id);
-    const chips = aiFlow ? aiStepChips(node, finding !== undefined).map(chipSvg).join('') : '';
+    const chips = aiFlow ? aiStepChips(node, finding !== undefined, node.header !== undefined || (role?.label ?? null) !== null).map(chipSvg).join('') : '';
     const findingMark = finding === undefined ? '' : findingSvg(aiFindingAnchor(node), finding);
-    return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node, shifted)}${ownerSvg}${calloutHeader(node)}${chips}${findingMark}</g>`;
+    return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node, shifted, role)}${roleSvgs.get(node.id) ?? ''}${ownerSvg}${calloutHeader(node)}${chips}${findingMark}</g>`;
   });
-  const definitions: string[] = [...maskDefinitions];
+  const shadow = `<filter id="diagram-shadow" x="-20%" y="-30%" width="140%" height="180%">${DIAGRAM_SHADOWS.map(s => `<feDropShadow dx="${s.dx}" dy="${s.dy}" stdDeviation="${s.stdDeviation}" flood-color="${s.floodColor}" flood-opacity="${s.floodOpacity}"/>`).join('')}</filter>`;
+  const definitions: string[] = [...maskDefinitions, shadow];
   const edgeSvg = document.edges.map((edge, i) => {
+    const appearance = diagramEdgeAppearance(edge);
     const points = edgeRoute(edge, byId) ?? [];
     if (points.length < 2) throw new Error(`Connector "${descriptionPlainText(edge.label)}" is not attached to two shapes`);
-    definitions.push(`<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${20 / 3}" markerHeight="${20 / 3}" markerUnits="strokeWidth" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${escapeXml(edge.stroke)}"/></marker>`);
+    definitions.push(`<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${20 / 3}" markerHeight="${20 / 3}" markerUnits="strokeWidth" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${escapeXml(appearance.stroke)}"/></marker>`);
     const middle = edgeLabelCenter(points, edge);
     const jump = lineJumps.paths.get(edge.id);
-    const path = `<${jump === undefined ? `polyline points="${points.map((p) => `${p.x},${p.y}`).join(' ')}"` : `path d="${jump}"`} fill="none" stroke="${escapeXml(edge.stroke)}" stroke-width="${edge.strokeWidth ?? 1.5}"${edge.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.arrows === 'end' || edge.arrows === 'both' ? ` marker-end="url(#arrow-${i})"` : ''}${edge.arrows === 'both' || edge.arrows === 'start' ? ` marker-start="url(#arrow-${i})"` : ''}${maskFor(edge.id)}/>`;
+    const path = `<path d="${jump ?? roundedRoutePath(points)}" fill="none" stroke="${escapeXml(appearance.stroke)}" stroke-width="${appearance.width}" stroke-linecap="round" stroke-linejoin="round"${appearance.dash === undefined ? '' : ` stroke-dasharray="${appearance.dash}"`}${edge.arrows === 'end' || edge.arrows === 'both' ? ` marker-end="url(#arrow-${i})"` : ''}${edge.arrows === 'both' || edge.arrows === 'start' ? ` marker-start="url(#arrow-${i})"` : ''}${maskFor(edge.id)}/>`;
     const { lines, width: labelW, height: labelH, fontSize, lineHeight } = edgeLabelLayout(edge);
-    const label = edge.label.trim() ? `<rect x="${middle.x - labelW / 2}" y="${middle.y - labelH / 2}" width="${labelW}" height="${labelH}" rx="3" fill="white" fill-opacity="0.92"/><text x="${middle.x}" y="${middle.y - labelH / 2 + 3 + fontSize}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" text-anchor="middle" fill="${edge.stroke === 'none' ? '#161616' : escapeXml(edge.stroke)}">${lineSvg(edge.label, lines).map((line, j) => `<tspan x="${middle.x}" dy="${j === 0 ? 0 : lineHeight}">${line}</tspan>`).join('')}</text>` : '';
+    const label = edge.label.trim() ? `<rect x="${middle.x - labelW / 2}" y="${middle.y - labelH / 2}" width="${labelW}" height="${labelH}" rx="${labelH / 2}" fill="white" stroke="${appearance.labelBorder}" stroke-width="1"/><text x="${middle.x}" y="${middle.y - labelH / 2 + 3 + fontSize}" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="${fontSize}" font-weight="600" text-anchor="middle" fill="${escapeXml(appearance.label)}">${lineSvg(edge.label, lines).map((line, j) => `<tspan x="${middle.x}" dy="${j === 0 ? 0 : lineHeight}">${line}</tspan>`).join('')}</text>` : '';
     const edgeChip = aiFlow ? aiEdgeChip(edge, points) : null;
     const edgeFinding = aiFindings.get(edge.id);
     const aiMarks = `${edgeChip === null ? '' : chipSvg(edgeChip)}${edgeFinding === undefined ? '' : findingSvg(aiEdgeFindingAnchor(points), edgeFinding)}`;
@@ -197,7 +213,7 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     const at = footnoteAnchor(document, target, byId);
     return at === null ? [] : [marker(at.x, at.y, i + 1)];
   });
-  const grid = includeGrid ? `<pattern id="export-grid" width="${source.gridSize ?? 10}" height="${source.gridSize ?? 10}" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r="1" fill="#d0d0d0"/></pattern>` : '';
+  const grid = includeGrid ? `<pattern id="export-grid" width="${source.gridSize ?? 10}" height="${source.gridSize ?? 10}" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r="1" fill="#e0e0e0"/></pattern>` : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${bounds.x} ${bounds.y} ${width} ${height}"><defs>${grid}${definitions.join('')}</defs>${background === 'white' ? `<rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="white"/>` : ''}${includeGrid ? `<rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="url(#export-grid)"/>` : ''}${behindEdges.join('')}${nodes.join('')}${edges.join('')}${markers.join('')}${extras.join('')}</svg>`;
   return { svg, width, height };
 }

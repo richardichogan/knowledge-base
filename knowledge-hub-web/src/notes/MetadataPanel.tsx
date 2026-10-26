@@ -34,7 +34,7 @@ import { ProjectOptions } from '../components/ProjectOptions';
 import { UnlinkedMentions } from './UnlinkedMentions';
 import { NoteMiniGraph } from '../components/graph/NoteMiniGraph';
 
-const SIDE_PANEL_TABS = ['athena', 'metadata', 'connections', 'history', 'link'] as const;
+const SIDE_PANEL_TABS = ['athena', 'design', 'metadata', 'connections', 'history', 'link'] as const;
 type SidePanelTab = typeof SIDE_PANEL_TABS[number];
 
 // Module constant (not an inline literal) so the width hook gets a stable object.
@@ -52,6 +52,7 @@ interface AppliedTag {
 }
 
 export interface MetadataPanelProps {
+  designPanel?: React.ReactNode;
   writingBusy?: boolean;
   doc: NoteDocument;
   contentType: ContentType;
@@ -93,6 +94,7 @@ function formatDateTime(iso: string): string {
 }
 
 export const MetadataPanel: React.FC<MetadataPanelProps> = ({
+  designPanel,
   writingBusy = false,
   doc,
   contentType,
@@ -132,7 +134,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const [linkHistory, setLinkHistory] = useState<EntityLinkTarget[]>([]);
   const previewOrigin = React.useRef<HTMLElement | null>(null);
   const previousTab = React.useRef<SidePanelTab>('athena');
-  const tab: SidePanelTab = storedTab === 'link' && !linkTarget ? 'athena' : storedTab;
+  const tab: SidePanelTab = (storedTab === 'link' && !linkTarget) || (storedTab === 'design' && !designPanel) ? 'athena' : storedTab;
   const useCaseLaunch = launchFromRef('note', doc.id, doc.title);
   const [width, setWidth] = usePersistedPaneWidth('think-side-panel', SIDE_PANEL_WIDTH);
   const panelRef = React.useRef<HTMLDialogElement>(null);
@@ -203,6 +205,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
   const tabs: { id: SidePanelTab; label: string }[] = [
     { id: 'athena', label: 'Athena' },
+    ...(designPanel ? [{ id: 'design' as const, label: 'Design' }] : []),
     { id: 'metadata', label: 'Metadata' },
     { id: 'connections', label: 'Connections' },
     { id: 'history', label: 'History' },
@@ -256,6 +259,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
               />
           </div>
 
+        {tab === 'design' && designPanel && <div role="tabpanel" id="think-side-panel-design"
+          aria-labelledby="think-side-tab-design" className="notes-meta-tabpanel">{designPanel}</div>}
         <fieldset className="notes-editor-lock" disabled={writingBusy} aria-label="Note properties" aria-busy={writingBusy}>
         {tab === 'link' && linkTarget && (
           <div role="tabpanel" id="think-side-panel-link" aria-labelledby="think-side-tab-link" className="notes-meta-tabpanel">

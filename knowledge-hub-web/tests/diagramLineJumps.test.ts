@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { diagramLineJumpGeometry, lineJumpGeometry, type StrokeRoute } from '../src/features/diagram/diagramLineJumps';
 import { emptyDiagram, type DiagramNode } from '../src/features/diagram/diagramTypes';
-import { lineGeometry } from '../src/features/diagram/diagramGeometry';
+import { lineGeometry, roundedRoutePath } from '../src/features/diagram/diagramGeometry';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
 import { diagramDrawioXml } from '../src/features/diagram/diagramDrawio';
 
@@ -103,15 +103,27 @@ test('SVG and PNG source share bridge paths, styles, arrowheads and unchanged la
   assert.equal(arcs(d), 1);
   for (const background of ['white', 'transparent'] as const) {
     const svg = await diagramSvg(document, new Map(), background);
-    assert.ok(svg.includes(`<path d="${d}" fill="none" stroke="#0f62fe" stroke-width="4" stroke-dasharray="6 4" marker-end="url(#arrow-1)" marker-start="url(#arrow-1)"`));
+    assert.ok(svg.includes(`<path d="${d}" fill="none" stroke="#0f62fe" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 4" marker-end="url(#arrow-1)" marker-start="url(#arrow-1)"`));
     assert.ok(svg.includes('>Flow</tspan>'));
-    assert.ok(svg.includes('<polyline'));
+    assert.ok(svg.includes('stroke="#8d8d8d"'), 'the other connector uses the modern standard ink');
     assert.ok(svg.includes('mask="url(#jump-0)"'));
     assert.ok(svg.includes('<mask id="jump-0" maskUnits="userSpaceOnUse"'));
   }
   assert.deepEqual(document, before);
   const xml = diagramDrawioXml(document, new Map());
   assert.equal((xml.match(/jumpStyle=arc;jumpSize=6/g) ?? []).length, 2);
+});
+
+test('rounded connector bends preserve endpoints and clear bridge arcs', () => {
+  const points = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 60 }];
+  const before = structuredClone(points);
+  assert.equal(roundedRoutePath(points), 'M0,0 L10,0 Q20,0 20,10 L20,60');
+  assert.deepEqual(points, before);
+  assert.doesNotMatch(roundedRoutePath([points[0]!, points[0]!, points[2]!]), /NaN|Infinity/);
+  const route = { ...stroke('rounded', [[50, 0], [50, 100], [100, 100]]), cornerRadius: 10 };
+  const geometry = lineJumpGeometry([horizontal, route]);
+  assert.match(geometry.paths.get('rounded')!, /A6 6 90 0 1 50 56 L50 90 Q50 100 60 100 L100 100/);
+  assert.equal(geometry.masks.get('under')?.length, 1);
 });
 
 test('standalone-line export shares the live bridge, dotted stroke and no arrowheads', async () => {

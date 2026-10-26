@@ -231,15 +231,77 @@ Use the existing radius scale: **2px** small, **4px** controls/cards,
 panels. Use fine borders and precise alignment rather than heavy outlines or
 oversized rounding.
 
-The diagram editor is an intentional exception to the dark surfaces: it uses
-a **light-grey sheet**, stronger IBM 30 node fills paired with darker borders
-from the same hue family, and dark ink inside dark application
-chrome. Editor-only colour mappings do not rewrite saved colours or exports.
-Fill choices are Blue `#a6c8ff`, Purple `#d4bbff`, Cyan `#82cfff`,
+The standard and agentic diagram editors are an intentional exception to dark
+surfaces, following the user-approved **Athena Modern Diagrams** reference:
+a **white sheet** with `#e0e0e0` dots, white step cards with 12px corners,
+1px `#e0e0e0` borders and soft, neutral shadows (0/2/3px at 8% and
+0/0.5/0.5px at 10%, `#161616`). This appearance is shared by the editor
+and SVG/PNG exports, including previews. Stored geometry and metadata are
+not migrated. Transparent exports remain transparent; draw.io retains its
+native shapes and stored colours.
+
+Decisions use softened diamonds, `#fffbeb` fill and `#f1c21b` borders;
+agentic gates use `#fff1f1` and `#fa4d56`. Groups use 20px corners and
+`#f7f4ff` / `#e8daff` tint/border, retaining their existing header and
+collapse controls. Terminator and document silhouettes remain identifiable.
+Notes retain their semantic glyphs, in yellow `#fcf4d6` / `#8e6a00` tiles.
+New labels default to 14px IBM Plex Sans; preserve existing text sizes and
+explicit alignments. Role labels use 9px semibold; status/control chips use
+9px type in 16px-high pills.
+Inline label editing uses an opaque white surface, dark text and caret, and
+white selected text on the blue focus colour. Keep its existing position and
+Enter/Shift+Enter/Escape behaviour.
+
+Agentic role tiles use Human `#edf5ff` / `#0f62fe` / `#0043ce`,
+Steward `#fff0f7` / `#d02670` / `#9f1853`,
+Worker `#f6f2ff` / `#8a3ffc` / `#6929c4`,
+Specialist `#fff2e8` / `#eb6200` / `#8a3800`, and
+System `#f4f4f4` / `#525252` / `#393939` (tint/icon/ink).
+Channel retains `#d9fbfb` / `#007d79` / `#005d5d`; gates retain red.
+Use the installed Carbon icons, never remote icon/font requests. Labels come
+from existing metadata: do not invent owners, actor roles or group numbers
+for ordinary flowcharts. Small or explicitly aligned nodes retain their
+existing label layout and type chip rather than crowding in an icon tile.
+Process, decision, terminator and document shapes expose **Header** and **Icon**
+in the existing Properties panel. Headers support custom text, Agent/Human/Pipeline
+presets, or none; icons support automatic, none or a local Carbon glyph. These
+are independent presentation settings, never changes to an AI step's semantics.
+Explicit choices reserve space inside the existing shape without moving or
+resizing it; long headers ellipsize. Automatic agentic headings retain the
+metadata defaults above. Standard header presets use purple Agent, green Human
+(`#defbe6` / `#24a148` / `#0e6027`) and blue Pipeline tiles. Existing titles,
+Properties controls and inline text editing remain in place.
+Cards keep the **icon on the left**. The header and main text form a
+**left-aligned text block to its right**, separated from the icon tile by 4px,
+inside an 8px card inset. Centre that text block **top-to-bottom** within the
+shape; the icon shares its vertical midpoint. Do not horizontally centre the
+text or stack it under the icon. Default glyphs are 22px inside 28px tiles.
+Browser wrapping measures the rendered font without a second padding inset.
+Preserve authored line breaks, font sizes, explicit alignment settings and
+shape geometry in editor and SVG/PNG exports.
+
+Shape edges/centres and equal-spacing targets are measured from the raw pointer;
+the nearest target wins per axis within eight screen pixels. Grid snapping is
+the fallback, not a pre-rounding step. Distance guidewires sit outside shapes,
+with dotted witnesses, end caps and zoom-stable values; equal gaps are purple.
+Preserve separate Snap controls, Alt bypass and Shift aspect-ratio resizing.
+PII uses `#fff1f1` / `#a2191f`; controls use `#defbe6` / `#0e6027`;
+Future retains its dashed blue outline. Real findings alone produce
+blue information, yellow warning and red blocking dots.
+
+Connectors use rounded bends without changing their routes, ports or line
+jumps. Standard lines are 1.5px `#8d8d8d`; No/rework is dashed red
+`#da1e28` (4/4). Agentic async/flow uses `#6f6f6f`, sync uses
+1.25px `#a8a8a8` (4/4), and control uses red (5/4). Existing authored
+data-blue/custom strokes remain intact. White branch pills use green Yes
+(`#198038`, border `#a7f0ba`) or red No (border `#ffd7d9`).
+
+Recognised shipped defaults receive the modern appearance. Other custom
+colours remain available; the legacy contrast palette is retained for
+non-default shapes. Fill choices include Blue `#a6c8ff`, Purple `#d4bbff`, Cyan `#82cfff`,
 Teal `#3ddbd9`, Green `#6fdc8c`, Magenta `#ffafd2`, Red `#ffb3b8`,
 Yellow `#f1c21b` and Orange `#ffb784`, plus white, grey and no fill.
-Existing pale/legacy palette colours receive the stronger editor appearance;
-custom colours remain unchanged. Newly chosen fills are saved as selected.
+Newly chosen fills are saved as selected.
 Multi-selection supports shared colours, thickness, text size and line styles
 in Properties and contextual styling; mixed values stay unchanged until chosen.
 Preserve alignment guides and selectable 5/10/20/40 grid spacing (default 10).

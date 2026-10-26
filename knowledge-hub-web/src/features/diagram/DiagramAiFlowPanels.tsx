@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   AGENT_MODE_BADGES, AGENT_MODE_LABELS, ASSERTION_LABELS, EDGE_STYLES, EDGE_TYPE_LABELS, INTERACTION_LABELS, MEMORY_LABELS,
   GATE_ACCEPTANCE_FAILURE_LABELS, GATE_DELEGATION_FAILURE_LABELS, GATE_EVALUATION_LABELS, GATE_KIND_LABELS, GATE_OUTCOME_LABELS,
-  SENSITIVITY_LABELS, STATE_LABELS, STEP_STYLES, STEP_TYPE_LABELS, VOLUME_LABELS, defaultGate, gateChecksAcceptance, gateChecksDelegation, isAiStep,
+  SENSITIVITY_LABELS, STATE_LABELS, STEP_TYPE_LABELS, VOLUME_LABELS, defaultGate, gateChecksAcceptance, gateChecksDelegation, isAiStep,
   type AiFlowFinding, type AiFlowSeverity,
 } from './aiFlow';
 import {
@@ -17,7 +17,8 @@ import {
   type AiFlowGateDelegation, type AiFlowGateShared, type AiFlowOperations, type AiFlowStep, type AiFlowStepType, type DiagramEdge, type DiagramKind, type DiagramNode,
 } from './diagramTypes';
 import { AI_CHIP_COLOURS, AI_SEVERITY_COLOURS, AI_SEVERITY_LABELS, ASSERTION_SHORT, STEP_TYPE_SHORT, applyStepStyle, hasStepStyle, parseAiList, type AiChipTone } from './diagramAiFlowBadges';
-import { diagramEditorFill, diagramEditorInk } from './diagramTheme';
+import { DIAGRAM_ROLES } from './DiagramRoleBadge';
+import { diagramEditorInk } from './diagramTheme';
 
 const TEXT_MAX = 500;
 const LANE_ORDER_LIMIT = 10000;
@@ -441,7 +442,7 @@ export function AiFlowKey(): React.ReactElement {
         <ul className="dg-ai-key__list">
           {AI_FLOW_STEP_TYPES.map((t) => (
             <li key={t} className="dg-ai-key__row">
-              <span className="dg-ai-key__swatch" style={{ background: diagramEditorFill(STEP_STYLES[t].fill), borderColor: diagramEditorInk(STEP_STYLES[t].stroke) }}>{STEP_TYPE_SHORT[t].code}</span>
+              <span className="dg-ai-key__swatch" style={{ background: DIAGRAM_ROLES[t].tint, borderColor: DIAGRAM_ROLES[t].colour }}>{STEP_TYPE_SHORT[t].code}</span>
               <span>{STEP_TYPE_LABELS[t]}</span>
             </li>
           ))}

@@ -1,6 +1,7 @@
 export const DESIGN_ROLES = ['use_case', 'spec', 'architecture', 'diagram', 'reference'] as const;
 export const DESIGN_STATUSES = ['draft', 'in_review', 'ready', 'archived'] as const;
 export type DesignRole = typeof DESIGN_ROLES[number];
+export type SpecificationType = 'standard' | 'imagine';
 export const DESIGN_ROLE_LABELS: Record<DesignRole, string> = {
   use_case: 'Use case', spec: 'Specification', architecture: 'Architecture', diagram: 'Diagrams', reference: 'References',
 };
@@ -9,7 +10,7 @@ export const DESIGN_STATUS_LABELS: Record<typeof DESIGN_STATUSES[number], string
 };
 export interface Design {
   id: string; parentNoteId: string; title: string; summary: string; projectId: string | null; sourceUseCaseId: string | null; sourceNoteId: string | null;
-  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string;
+  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string; specificationType: SpecificationType | null;
 }
 export interface DesignAsset {
   sourceType: 'note' | 'canvas' | 'usecase' | 'link'; sourceId: string; title: string; role: DesignRole;

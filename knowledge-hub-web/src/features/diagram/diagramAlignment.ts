@@ -3,7 +3,10 @@ import type { DiagramNode, DiagramPoint } from './diagramTypes';
 type Axis = 'x' | 'y';
 interface Bounds { x: number; y: number; width: number; height: number }
 export interface AlignmentGuide { axis: Axis; value: number; kind: 'edge' | 'centre' }
-export interface SpacingIndicator { axis: Axis; start: number; end: number; position: number; gap: number; equal: boolean }
+export interface SpacingIndicator {
+  axis: Axis; start: number; end: number; position: number; gap: number; equal: boolean;
+  startCross?: number; endCross?: number;
+}
 
 export const gridSnapEnabled = (doc: { grid: boolean; snapToGrid?: boolean }): boolean => doc.snapToGrid ?? doc.grid;
 export const shapeSnapEnabled = (doc: { snapToShapes?: boolean }): boolean => doc.snapToShapes ?? true;
@@ -47,7 +50,7 @@ export function alignMovingBounds(
 /** Nearest visible gaps, plus equal-spacing targets between or alongside adjacent shapes. */
 export function spaceMovingBounds(
   bounds: Bounds, others: readonly DiagramNode[], delta: DiagramPoint, tolerance: number,
-  snapping = true, lockedAxes: readonly Axis[] = [],
+  snapping = true, lockedAxes: readonly Axis[] = [], guideOffset = 0, crossTolerance = 0,
 ): { delta: DiagramPoint; indicators: SpacingIndicator[] } {
   const result = { ...delta };
   const indicators: SpacingIndicator[] = [];
@@ -56,8 +59,8 @@ export function spaceMovingBounds(
     const cross = axis === 'x' ? 'y' : 'x';
     const crossDimension = axis === 'x' ? 'height' : 'width';
     const moving = { ...bounds, x: bounds.x + result.x, y: bounds.y + result.y };
-    const nearby = others.filter(node => node[cross] < moving[cross] + moving[crossDimension]
-      && node[cross] + node[crossDimension] > moving[cross]);
+    const nearby = others.filter(node => node[cross] < moving[cross] + moving[crossDimension] + crossTolerance
+      && node[cross] + node[crossDimension] > moving[cross] - crossTolerance);
     const before = nearby.filter(node => node[axis] + node[dimension] <= moving[axis])
       .sort((a, b) => b[axis] + b[dimension] - a[axis] - a[dimension]);
     const after = nearby.filter(node => node[axis] >= moving[axis] + moving[dimension])
@@ -82,21 +85,50 @@ export function spaceMovingBounds(
     const rightGap = b ? b[axis] - moving[axis] - moving[dimension] : undefined;
     const same = (left: number | undefined, right: number | undefined): boolean =>
       left !== undefined && right !== undefined && Math.abs(left - right) < 0.5;
-    const position = moving[cross] + moving[crossDimension] / 2;
+    const position = guideOffset === 0 ? moving[cross] + moving[crossDimension] / 2
+      : Math.min(moving[cross], ...[a, b, previous, following].filter((node): node is DiagramNode => node !== undefined).map(node => node[cross])) - guideOffset;
+    const add = (from: Bounds, to: Bounds, gap: number, equal: boolean): void => {
+      indicators.push({ axis, start: from[axis] + from[dimension], end: to[axis], position, gap, equal,
+        ...(guideOffset > 0 ? { startCross: from[cross], endCross: to[cross] } : {}) });
+    };
     if (a && leftGap !== undefined) {
       const equal = same(leftGap, rightGap) || same(leftGap, referenceBefore);
-      indicators.push({ axis, start: a[axis] + a[dimension], end: moving[axis], position, gap: leftGap, equal });
-      if (previous && same(leftGap, referenceBefore)) indicators.push({ axis, start: previous[axis] + previous[dimension],
-        end: a[axis], position, gap: referenceBefore!, equal: true });
+      add(a, moving, leftGap, equal);
+      if (previous && referenceBefore !== undefined && same(leftGap, referenceBefore)) add(previous, a, referenceBefore, true);
     }
     if (b && rightGap !== undefined) {
       const equal = same(rightGap, leftGap) || same(rightGap, referenceAfter);
-      indicators.push({ axis, start: moving[axis] + moving[dimension], end: b[axis], position, gap: rightGap, equal });
-      if (following && same(rightGap, referenceAfter)) indicators.push({ axis, start: b[axis] + b[dimension],
-        end: following[axis], position, gap: referenceAfter!, equal: true });
+      add(moving, b, rightGap, equal);
+      if (following && referenceAfter !== undefined && same(rightGap, referenceAfter)) add(b, following, referenceAfter, true);
     }
   }
   return { delta: result, indicators };
+}
+
+/** Measure shape and equal-gap targets before grid rounding, independently on each axis. */
+export function snapMovingBounds(
+  bounds: Bounds, others: readonly DiagramNode[], raw: DiagramPoint,
+  options: { zoom: number; gridSize: number | null; shapeSnapping: boolean; spacing?: boolean },
+): { delta: DiagramPoint; guides: AlignmentGuide[]; indicators: SpacingIndicator[] } {
+  const { zoom, gridSize, shapeSnapping } = options;
+  const tolerance = 8 / zoom;
+  const alignment = alignMovingBounds(bounds, others, raw, tolerance);
+  const spacing = options.spacing === false ? undefined : spaceMovingBounds(bounds, others, raw, tolerance, true, [], 16 / zoom, 12 / zoom);
+  const delta = { ...raw };
+  for (const axis of ['x', 'y'] as const) {
+    const candidates: number[] = [];
+    if (shapeSnapping) {
+      if (alignment.guides.some(guide => guide.axis === axis)) candidates.push(alignment.delta[axis]);
+      if (spacing?.indicators.some(indicator => indicator.axis === axis && indicator.equal)) candidates.push(spacing.delta[axis]);
+    }
+    const nearest = candidates.sort((a, b) => Math.abs(a - raw[axis]) - Math.abs(b - raw[axis]))[0];
+    delta[axis] = nearest ?? (gridSize === null ? raw[axis] : Math.round((bounds[axis] + raw[axis]) / gridSize) * gridSize - bounds[axis]);
+  }
+  return {
+    delta,
+    guides: alignMovingBounds(bounds, others, delta, 0.5 / zoom, false).guides,
+    indicators: options.spacing === false ? [] : spaceMovingBounds(bounds, others, delta, 0.5 / zoom, false, [], 16 / zoom, 12 / zoom).indicators,
+  };
 }
 
 export function diagramGridSize(value: unknown): number {

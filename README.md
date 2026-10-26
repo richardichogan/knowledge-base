@@ -116,6 +116,57 @@ not given duplicate parents. Migration 106 corrects the four original specificat
 appears only for an empty section; populated sections open their linked originals.
 Explicit existing references are retained; titles never infer attachments.
 
+When a Design note is selected, the existing right-hand panel offers a single
+**Design** tab with **Actions**, **Activity** and **Outputs** sections. It is
+absent for standalone notes. Athena and document properties remain available,
+including the diagram's native properties. The document area no longer repeats
+generation controls above and below the writing.
+
+Choose **Specification type: Standard / IMAGINE** under Design actions.
+Migration 111 saves that choice on the Design; existing
+Designs require an explicit choice, never one inferred from their title.
+Changing the choice does not rewrite any document. The Spec writer (including
+Blueprint prerequisites) uses the saved type: Standard writes a product spec;
+IMAGINE fills the complete versioned demo-specification form one section per
+request and renders its mandatory sections and tables server-side.
+Activity shows actual section progress and failures. A timed-out section is retried
+once without regenerating completed sections. Validated sections are checkpointed
+on the specialist job, not saved as partial specs; a later retry reuses them only
+when the template, selected source content/revisions and Design revision match.
+Complete demo specifications and their generation inputs share a 500,000-character
+limit, so an accepted document remains readable by its next generation. Per-field,
+table-shape and revision checks still apply. Finalizing a complete checkpoint can
+explicitly prohibit further model calls; changed sources then require a new decision.
+Blueprint generation reads each note's complete Markdown once, without duplicating
+its editor blocks. Feedback instead receives complete native blocks, including IDs,
+children, media and mentions needed for precise edits (Markdown is retained for
+sources without blocks). Both requests retain diagram documents and have a
+750,000-character serialized-input bound, including the previous Blueprint,
+direction or feedback and allowed source IDs. Nothing is truncated. Stored source
+snapshots remain complete for revision checks, history and feedback acceptance.
+Blueprint actors and screen names come from the selected use case/specification,
+not from Athena's role as the author. IMAGINE Blueprints name the digital workers,
+Digital Steward and human business roles responsible for each action. Actor
+markers classify automatic work, humans and systems and identify the actor in a
+source-named label or visible text; they do not require an Athena lane or invent
+a human approval gate.
+Generation and feedback both correct unsupported actor assignments from older
+Blueprints. Existing stored visuals retain their styling without the old
+hard-coded "Athena does this automatically" legend.
+Bulk model requests longer than five minutes use explicit HTTP header/body
+timeouts and an overall abort deadline, rather than native fetch's independent
+five-minute header limit. Blueprint generation retains its nine-minute deadline;
+transport failures include their error code and never save a partial Blueprint.
+Invalid or incomplete form responses
+do not replace the existing spec. Regeneration preserves note history and
+rejects concurrent source or type changes. Both writers are instructed to
+include requirements rather than defer to missing specifications, and to
+distinguish supplied facts, proposed detail and unresolved business decisions.
+Selecting IMAGINE does not approve simulations or authorise live integrations.
+Outputs open the existing linked document tabs; earlier document versions stay
+in History. Failed Spec writer activity remains visible after reload with a
+Retry action.
+
 Athena's conversation stays attached to the Design parent while tabs expose the
 active original. Athena reads the package's selected documents and exact revisions
 before saving. Explicit requests to revise or save Use case, Spec or Architecture
@@ -420,9 +471,9 @@ do not enable multiple replicas without lease/ownership recovery changes.
 **Discover → Publishing** has two posting-automation switches: **Bluesky** and
 **Blog / LinkedIn**, both initially **off**. Off pauses new publication, not
 editorial preparation; a request already in flight cannot be recalled.
-The existing 06:00 and 13:00 UK content sync is unchanged. Sync only supplies
-candidates; an independent production worker selects, reads, drafts and reviews.
-It assesses at most 12 topics per rolling 24 hours, four distinct sources per
+The existing 06:00 and 13:00 UK content sync supplies candidates and refreshes
+drafts; an independent production worker also selects, reads, drafts and reviews.
+The background worker assesses at most 12 topics per rolling 24 hours, four distinct sources per
 topic, with at most two automatic revisions. Unreadable, oversized or excessive
 source evidence is held rather than silently omitted.
 
@@ -437,10 +488,16 @@ Sending an entry for scheduling removes its whole topic from Drafts, even when a
 optional social copy is still pending. Scheduled items are separate from the
 eight-entry draft limit and never fill Drafts again merely because they are blocked.
 Every content sync reselects the freshest Microsoft-first candidates and reviews
-the unscheduled shortlist, preparing missing drafts within the existing editorial
-budget. Sync refresh cannot publish, approve or rewrite scheduled copies.
+the unscheduled shortlist. Each sync processes at most eight candidate topics,
+allowing up to eight new-topic assessments even when the background worker's
+rolling allowance is exhausted or Drafts is full. Newer reviewed drafts displace
+older proposals in the shortlist; existing draft history is retained. The
+background worker's limit and all editorial gates remain in place.
+Sync refresh cannot publish, approve or rewrite scheduled copies.
 Refresh failures are logged and recorded in Publishing Audit; incomplete drafts
-are not offered for approval.
+are not offered for approval. Refresh audit reports selected topics, assessment
+attempts and completions, actually recorded reviews, skips and failures separately;
+selection alone is never reported as a completed review.
 
 Standard Bluesky drafts pair the announcement with a brief proposed Richard-style
 comment: a grounded practical judgement, caveat or implication shaped by saved
@@ -1018,8 +1075,10 @@ the distance to nearby shapes in diagram units; purple `=` indicators mark equal
 gaps, including a repeated gap alongside two neighbours. The **Snap** menu's
 **Grid snap** and **Shape and equal-spacing snap** are independent, saved toggles; shape snapping includes equal
 spacing. Grid visibility is separate. Hold **Alt** to temporarily bypass snapping
-and guides. Existing diagrams keep their previous snapping behaviour until a
-control is changed.
+and guides. Shape/equal-gap targets now take priority over the grid within eight
+screen pixels; the nearest target wins on each axis. Distance guidewires sit
+outside the shapes with dotted witnesses and end caps. Existing saved Snap
+preferences are preserved, and resizing uses the same shape-before-grid priority.
 
 Athena-generated process diagrams use centred rows, consistent 80-unit gaps
 between connected columns and 40-unit gaps between branches. Unconnected
@@ -1163,15 +1222,24 @@ Use **Copy** for GHCP or **Download Markdown brief for GHCP** to place the file 
 GitHub, runs Build, or authorizes live side effects; `evidence-led-demo` must be
 available to the downstream coding agent.
 
-The diagram's filled shapes use dark neutral or tinted surfaces with light
-labels and borders, including legacy white/pastel shapes when opened in the
-editor. New shapes and fill choices use the dark palette. Custom colours and
-existing saved artwork/export colours are preserved.
+Standard and agentic diagrams use the **Athena Modern Diagrams** finish:
+white rounded cards, soft shadows, tinted decisions and groups, a white dotted
+sheet, rounded connectors and white branch-label pills. Agentic steps show
+locally bundled Carbon role icons and lighter governance chips. Roles and
+findings come from existing metadata; ordinary shapes acquire no invented
+owners. The editor and SVG/PNG exports share their appearance, including
+export previews; exports still offer white or transparent backgrounds.
+Recognised default styles are adapted at render time, without migrating saved
+documents. Custom colours, shape kinds, positions, connections, text settings,
+properties and grid/snap controls remain available. Draw.io retains native
+shapes and stored colours. See `DESIGN.md` for the diagram-specific palette.
 
-The diagram editing sheet uses Athena's dark theme with a subdued grid and
-contrast-adjusted connectors and transparent labels. Saved shape colours and
-PNG/SVG export colours are unchanged; exports still offer white or transparent
-backgrounds.
+For process, decision, terminator and document shapes, **Properties → Header**
+accepts custom text or Agent/Human/Pipeline presets; **None** removes it.
+**Properties → Icon** offers local Carbon icons, **Automatic** or **None**.
+Automatic follows a chosen header preset or the existing AI step type.
+Headers and icons are presentation-only, remain separate from the Title and
+underlying role, and are saved with the diagram and included in SVG/PNG exports.
 
 Select one diagram shape or connector to edit its **Title** and **Description**
 in the right-hand **Properties** panel. Title is the visible label (including

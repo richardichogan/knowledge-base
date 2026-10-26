@@ -12,12 +12,12 @@ import type { AiAssertionLevel, AiFlowInteraction, AiFlowStepType, DiagramDocume
 import { SWIMLANE_HEADER, documentWaveDepth, pointAlong, wrapText } from './diagramGeometry';
 
 export const AI_CHIP_FONT = 9;
-export const AI_CHIP_HEIGHT = 14;
+export const AI_CHIP_HEIGHT = 16;
 const CHIP_GAP = 4;
 const CHIP_PAD = 5;
 const CHAR_W = AI_CHIP_FONT * 0.6;
 const FINDING_RESERVE = 16;
-export const AI_FINDING_RADIUS = 7;
+export const AI_FINDING_RADIUS = 8;
 export const AI_LANE_OWNER_FONT = 10;
 const LANE_TITLE_SHIFT = -7;
 const LANE_OWNER_SHIFT = 8;
@@ -28,21 +28,21 @@ export type AiChipTone =
 
 export interface AiChip { key: string; text: string; title: string; tone: AiChipTone; x: number; y: number; width: number; height: number }
 
-/** Chip colours; solid enough to read on both the light export and the dark editor sheet. */
+/** Modern chips use tinted surfaces, dark ink and an outline only for Future. */
 export const AI_CHIP_COLOURS: Record<AiChipTone, { fill: string; stroke: string; text: string; dashed?: boolean }> = {
-  type: { fill: '#f4f4f4', stroke: '#6f6f6f', text: '#161616' },
-  'autonomy-1': { fill: '#198038', stroke: '#198038', text: '#ffffff' },
-  'autonomy-2': { fill: '#0f62fe', stroke: '#0f62fe', text: '#ffffff' },
-  'autonomy-3': { fill: '#8a3ffc', stroke: '#8a3ffc', text: '#ffffff' },
-  'autonomy-4': { fill: '#da1e28', stroke: '#da1e28', text: '#ffffff' },
+  type: { fill: '#f4f4f4', stroke: 'none', text: '#393939' },
+  'autonomy-1': { fill: '#defbe6', stroke: 'none', text: '#0e6027' },
+  'autonomy-2': { fill: '#edf5ff', stroke: 'none', text: '#0043ce' },
+  'autonomy-3': { fill: '#f6f2ff', stroke: 'none', text: '#6929c4' },
+  'autonomy-4': { fill: '#fff1f1', stroke: 'none', text: '#a2191f' },
   assertion: { fill: '#393939', stroke: '#393939', text: '#ffffff' },
-  sensitive: { fill: '#da1e28', stroke: '#da1e28', text: '#ffffff' },
-  restricted: { fill: '#ff832b', stroke: '#ff832b', text: '#161616' },
-  data: { fill: '#e0e0e0', stroke: '#8d8d8d', text: '#161616' },
-  controls: { fill: '#198038', stroke: '#198038', text: '#ffffff' },
-  tools: { fill: '#e8daff', stroke: '#8a3ffc', text: '#491d8b' },
+  sensitive: { fill: '#fff1f1', stroke: 'none', text: '#a2191f' },
+  restricted: { fill: '#fff2e8', stroke: 'none', text: '#8a3800' },
+  data: { fill: '#f4f4f4', stroke: 'none', text: '#393939' },
+  controls: { fill: '#defbe6', stroke: 'none', text: '#0e6027' },
+  tools: { fill: '#f6f2ff', stroke: 'none', text: '#6929c4' },
   future: { fill: '#ffffff', stroke: '#0f62fe', text: '#0043ce', dashed: true },
-  interaction: { fill: '#ffffff', stroke: '#6f6f6f', text: '#161616' },
+  interaction: { fill: '#ffffff', stroke: '#e0e0e0', text: '#525252' },
 };
 
 export const AI_SEVERITY_COLOURS: Record<AiFlowSeverity, { fill: string; text: string }> = {
@@ -102,7 +102,7 @@ function placeRow(specs: ChipSpec[], start: number, room: number, cy: number, al
 }
 
 /** The chips for one AI flow step: type and autonomy along the top edge, data and controls along the bottom. */
-export function aiStepChips(n: DiagramNode, reserveFinding = false): AiChip[] {
+export function aiStepChips(n: DiagramNode, reserveFinding = false, roleInside = false): AiChip[] {
   const flow = n.flow;
   if (flow === undefined) return [];
   const inset = rowInset(n);
@@ -129,7 +129,7 @@ export function aiStepChips(n: DiagramNode, reserveFinding = false): AiChip[] {
   const typeSpec: ChipSpec = { key: 'type', text: type.text, short: type.code, title: `Step type: ${STEP_TYPE_LABELS[flow.stepType]}`, tone: 'type' };
   const rightChips = placeRow(topRight, right, right - left, topY, 'end');
   const rightStart = rightChips.length === 0 ? right : rightChips[0]!.x - CHIP_GAP;
-  const top = [...placeRow([typeSpec], left, rightStart - left, topY, 'start'), ...rightChips];
+  const top = [...placeRow(roleInside ? [] : [typeSpec], left, rightStart - left, topY, 'start'), ...rightChips];
 
   const bottom: ChipSpec[] = [];
   const sensitivity = controls?.sensitivity;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Lexer, type Tokens } from 'marked';
-import { demoSpecificationForm, renderDemoSpecification, DEMO_SPECIFICATION_VERSION, isDemoSpecificationRequest } from '../src/ai/demoSpecification.js';
+import { demoSpecificationForm, demoSpecificationResponseSchema, renderDemoSpecification, validateDemoSpecificationPart, DEMO_SPECIFICATION_VERSION, isDemoSpecificationRequest } from '../src/ai/demoSpecification.js';
 import { DEMO_SPECIFICATION_TEMPLATE } from '../src/ai/demoSpecificationTemplate.js';
 import { textToBlocks } from '../src/ai/markdownToNoteBlocks.js';
 import { imagineDemoSpecificationPrompt } from '../../knowledge-hub-web/src/notes/imagineDemoBrief.js';
@@ -16,6 +16,35 @@ const sources = { noteUrl: 'https://example.test/think?noteId=source', chatUrl: 
 const makeInput = () => ({
   templateVersion: DEMO_SPECIFICATION_VERSION, name: 'Claims recovery',
   values: Object.fromEntries(form.fields.map(field => [field.id, `Unresolved - owner not assigned; blocks ${field.id}; resolve by owner review.`])),
+});
+test('Design IMAGINE response contract includes every mandatory field and repeatable table', () => {
+  const schema = demoSpecificationResponseSchema().schema as {
+    properties: { values: { required: string[] }; additionalRows: { required: string[] }; sectionDetails: { required: string[] } };
+  };
+  assert.deepEqual(schema.properties.values.required, form.fields.map(field => field.id));
+  assert.deepEqual(schema.properties.additionalRows.required, form.tables.map(table => table.id));
+  assert.equal(schema.properties.sectionDetails.required.length, 10);
+});
+test('section groups partition the full form without losing fields or accepting incomplete groups', () => {
+  const fieldIds: string[] = [];
+  const tableIds: string[] = [];
+  for (const sections of [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]) {
+    const group = demoSpecificationForm(sections) as typeof form;
+    fieldIds.push(...group.fields.map(field => field.id));
+    tableIds.push(...group.tables.map(table => table.id));
+    const input = {
+      name: 'Claims',
+      values: Object.fromEntries(group.fields.map(field => [field.id, 'Unresolved - owner decision required.'])),
+      additionalRows: Object.fromEntries(group.tables.map(table => [table.id, []])),
+      sectionDetails: Object.fromEntries(sections.map(section => [String(section), 'Proposed - confirm with the business owner.'])),
+    };
+    assert.equal(validateDemoSpecificationPart(input, sections).name, 'Claims');
+    assert.throws(() => validateDemoSpecificationPart({ ...input, sectionDetails: {} }, sections), /exactly/);
+    assert.throws(() => validateDemoSpecificationPart({ ...input, values: { ...input.values, invented: 'value' } }, sections), /exactly/);
+  }
+  assert.deepEqual(fieldIds, form.fields.map(field => field.id));
+  assert.deepEqual(tableIds, form.tables.map(table => table.id));
+  assert.equal(new Set(fieldIds).size, fieldIds.length);
 });
 
 test('server renders all ten sections, every field, every fixed requirement, table and exact build instruction', () => {

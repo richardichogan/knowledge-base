@@ -13,6 +13,9 @@ export async function refreshPublishingDrafts(db: Pool, services: EditorialServi
     await lock.query('SELECT pg_advisory_lock(hashtext($1))', [key]);
     acquired = true;
     await event(db, null, 'content-sync', 'draft-refresh-started', { limit: PUBLISH_LIMITS.draftShortlist });
+    const auditStart = (await db.query<{ id: string }>('SELECT MAX(id)::text AS id FROM publishing_events')).rows[0]!.id;
+    const assessed = new Set<string>();
+    let assessmentAttempts = 0;
     await intake(db);
     const candidates = (await db.query<Topic>(`SELECT ${topicColumns} FROM publishing_topics t
       WHERE state IN ('pending','ready')
@@ -34,11 +37,15 @@ export async function refreshPublishingDrafts(db: Pool, services: EditorialServi
           const claimed = await db.query<Topic>(`UPDATE publishing_topics SET state='assessing',lease=$2,
             lease_until=NOW()+INTERVAL '15 minutes' WHERE id=$1 AND state='pending'
             AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1)
-            AND (SELECT COUNT(*) FROM publishing_events WHERE event='preparation-started'
-              AND created_at>NOW()-INTERVAL '24 hours')<$3 RETURNING ${topicColumns}`, [topic.id, lease, PUBLISH_LIMITS.dailyAssessments]);
-          if (!claimed.rowCount) continue;
+            RETURNING ${topicColumns}`, [topic.id, lease]);
+          if (!claimed.rowCount) {
+            await event(db, topic.id, 'content-sync', 'draft-refresh-skipped', { reason: 'Topic changed or is no longer an unassessed pending candidate.' });
+            continue;
+          }
+          // The candidate limit bounds this sync independently of the background worker's rolling allowance.
+          assessmentAttempts++;
           await event(db, topic.id, 'content-sync', 'preparation-started', {});
-          try { await assessTopic(db, claimed.rows[0]!, services); }
+          try { await assessTopic(db, claimed.rows[0]!, services); assessed.add(topic.id); }
           finally { await db.query('UPDATE publishing_topics SET lease=NULL,lease_until=NULL WHERE id=$1 AND lease=$2', [topic.id, lease]); }
         } else {
           const sources = await readSources(db, topic.id, services);
@@ -59,8 +66,20 @@ export async function refreshPublishingDrafts(db: Pool, services: EditorialServi
       }
     }
     const shortlist = await listTopics(db, 0, true);
+    const outcomes = (await db.query<{ topicId: string; event: string; draftId: string | null }>(`
+      SELECT topic_id AS "topicId",event,detail->>'draftId' AS "draftId" FROM publishing_events
+      WHERE id>$1 AND topic_id=ANY($2::uuid[])
+        AND event IN ('review-pass','review-revise','review-hold','review-error','draft-refresh-error')`,
+    [auditStart, candidates.map(topic => topic.id)])).rows;
+    const reviews = outcomes.filter(outcome => ['review-pass', 'review-revise', 'review-hold'].includes(outcome.event));
+    const reviewed = new Set(reviews.map(outcome => outcome.topicId));
+    const failed = new Set(outcomes.filter(outcome => outcome.event.endsWith('-error')).map(outcome => outcome.topicId));
     await event(db, null, 'content-sync', 'draft-refresh-completed', {
-      limit: PUBLISH_LIMITS.draftShortlist, reviewedTopics: candidates.length, drafts: shortlist.map(t => t.id),
+      limit: PUBLISH_LIMITS.draftShortlist, selectedTopics: candidates.length, assessmentAttempts, assessedTopics: assessed.size,
+      reviewedTopics: reviewed.size, reviewedDrafts: new Set(reviews.flatMap(outcome => outcome.draftId ? [outcome.draftId] : [])).size,
+      failedTopics: failed.size,
+      skippedTopics: candidates.filter(topic => !assessed.has(topic.id) && !reviewed.has(topic.id) && !failed.has(topic.id)).length,
+      drafts: shortlist.map(t => t.id),
     });
   } finally {
     try { if (acquired) await lock.query('SELECT pg_advisory_unlock(hashtext($1))', [key]); }

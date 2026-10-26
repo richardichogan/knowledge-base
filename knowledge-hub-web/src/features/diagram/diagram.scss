@@ -1,7 +1,7 @@
 // Diagram editor — dark Carbon chrome and drawing sheet.
 // Block prefix: dg-. Image picker panel (.dg-icons*) lives in diagramIntegration.scss.
 
-$dg-sheet-bg: #f4f4f4;
+$dg-sheet-bg: #ffffff;
 $dg-select: #0f62fe;
 $dg-ink: #161616;
 
@@ -30,9 +30,38 @@ $dg-ink: #161616;
   line { stroke: #525252; stroke-width: 1; vector-effect: non-scaling-stroke; }
   rect { fill: $dg-sheet-bg; stroke: #525252; stroke-width: 1; }
   text { fill: $dg-ink; font-family: inherit; font-size: 11px; }
+  .dg-spacing__witness { stroke-dasharray: 2 3; }
   &--equal {
     line, rect { stroke: #8a3ffc; }
     text { fill: #6929c4; font-weight: 600; }
+  }
+}
+.dg-shape-presets {
+  display: flex; flex-wrap: wrap; gap: 0.25rem;
+  .dg-text-btn[aria-pressed='true'] { background: var(--cds-layer-selected-01); border-color: var(--kh-accent); }
+  .dg-text-btn:active:not(:disabled) { background: var(--cds-layer-active-01); }
+}
+.dg-shape-icons {
+  color: var(--cds-text-primary); font-size: var(--kh-text-body);
+  summary {
+    cursor: pointer; padding: 0.5rem; border: 1px solid var(--cds-border-subtle-01);
+    border-radius: var(--kh-radius-sm); background: var(--cds-layer-01);
+    &:hover { background: var(--cds-layer-hover-01); }
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 1px; }
+  }
+  &[open] summary { border-color: var(--kh-accent); }
+  &__options {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.25rem; padding-block: 0.5rem;
+    button {
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.25rem;
+      min-height: 3rem; padding: 0.375rem; color: var(--cds-text-primary); background: var(--cds-layer-01);
+      border: 1px solid var(--cds-border-subtle-01); border-radius: var(--kh-radius-sm);
+      font: inherit; font-size: 0.75rem; cursor: pointer;
+      &:hover { background: var(--cds-layer-hover-01); border-color: var(--kh-accent); }
+      &:active { background: var(--cds-layer-active-01); }
+      &[aria-pressed='true'] { background: var(--cds-layer-selected-01); border-color: var(--kh-accent); }
+      &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 1px; }
+    }
   }
 }
 .dg-chat-target, .dg-chat-host { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; }
@@ -710,7 +739,7 @@ $dg-ink: #161616;
   touch-action: none;
   user-select: none;
   cursor: default;
-  &__dot { fill: #8d8d8d; fill-opacity: 0.6; }
+  &__dot { fill: #e0e0e0; }
   &__grid { pointer-events: none; }
 }
 
@@ -746,9 +775,11 @@ $dg-ink: #161616;
   &__halo { fill: none; stroke: $dg-select; stroke-opacity: 0; stroke-width: 6px; vector-effect: non-scaling-stroke; pointer-events: none; }
   &__line { fill: none; pointer-events: none; }
   &__label {
-    rect { fill: $dg-sheet-bg; fill-opacity: 0.92; }
+    rect { fill: $dg-sheet-bg; stroke-width: 1; }
     text { font-family: 'IBM Plex Sans', system-ui, sans-serif; user-select: none; }
   }
+
+  .dg-role { pointer-events: none; user-select: none; }
   &:hover &__halo { stroke-opacity: 0.15; }
   &--selected &__halo, &--selected:hover &__halo { stroke-opacity: 0.3; }
 }
@@ -824,12 +855,14 @@ $dg-ink: #161616;
   padding: 0.25rem;
   resize: none;
   overflow: hidden;
-  background: rgba(38, 38, 38, 0.97);
+  background: $dg-sheet-bg;
   color: $dg-ink;
+  caret-color: $dg-ink;
   border: 2px solid $dg-select;
   font-family: 'IBM Plex Sans', system-ui, sans-serif;
   line-height: 1.25;
   text-align: center;
+  &::selection { background: $dg-select; color: #ffffff; }
   &:focus { outline: none; box-shadow: 0 0 0 3px rgba(15, 98, 254, 0.2); }
   &--single { white-space: nowrap; }
 }

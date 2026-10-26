@@ -172,7 +172,86 @@ test('content-sync refresh reviews unscheduled copy but preserves approved packa
     assert.deepEqual((await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [scheduled.id])).rows, original);
     assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 0);
     assert.ok((await store.listTopics(f.db, 0, true)).some(t => t.id === pending.id));
-    assert.equal((await f.db.query("SELECT * FROM publishing_events WHERE event='draft-refresh-completed'")).rows.length, 1);
+    const completed = (await f.db.query<{ detail: Record<string, unknown> }>("SELECT detail FROM publishing_events WHERE event='draft-refresh-completed'")).rows;
+    assert.equal(completed.length, 1);
+    assert.deepEqual(completed[0]!.detail, { limit: 8, selectedTopics: 1, assessmentAttempts: 0, assessedTopics: 0,
+      reviewedTopics: 1, reviewedDrafts: 1, failedTopics: 0, skippedTopics: 0, drafts: [pending.id] });
+  } finally { await f.close(); }
+});
+test('content sync replaces a full shortlist with fresh reviewed proposals despite an exhausted rolling allowance', async () => {
+  const f = await publishingFixture();
+  let assessments = 0;
+  try {
+    const oldIds: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const old = await topic(f.db); await source(f.db, old.id); oldIds.push(old.id);
+      if (i === 7) {
+        await draft(f.db, old.id, 'blog', 'blog'); await draft(f.db, old.id, 'linkedin', 'blog');
+      } else await draft(f.db, old.id);
+    }
+    await f.db.query("UPDATE publishing_sources SET discovered_at=NOW()-INTERVAL '2 days'");
+    await f.db.query("UPDATE publishing_drafts SET approval='pending'");
+    await f.db.query('DELETE FROM publishing_schedule');
+    assert.equal((await store.listTopics(f.db, 0, true)).length, 8);
+    const approved = await topic(f.db); await source(f.db, approved.id); await draft(f.db, approved.id);
+    const originalDrafts = (await f.db.query('SELECT * FROM publishing_drafts ORDER BY id')).rows;
+    const originalSchedule = (await f.db.query('SELECT * FROM publishing_schedule ORDER BY draft_id')).rows;
+    for (let i = 0; i < 12; i++) await store.event(f.db, null, 'editorial-worker', 'preparation-started', {});
+    for (let i = 0; i < 9; i++) {
+      await f.db.query(`INSERT INTO content_items(title,url,source,metadata)
+        VALUES($1,$2,'discovered-article',jsonb_build_object('discoveredAt',NOW()-($3::int * INTERVAL '1 minute')))`,
+      [`Microsoft fresh arrival ${i}`, `https://source.fixture.invalid/fresh-${i}`, i]);
+    }
+    await refreshPublishingDrafts(f.db, { ...editorial.editorialServices,
+      preferences: async () => '', read: async () => ({ title: 'Microsoft evidence', text: prose }),
+      chat: async system => {
+        if (system.includes('Select BEFORE')) {
+          assessments++;
+          return { relatedTopicId: null, blog: false, bluesky: true, priority: 80, rationale: 'Substantive fresh Microsoft evidence.',
+            exceptionReason: null, distinctArgument: false };
+        }
+        if (system.includes('Create ONLY')) return { bluesky: { copy: 'Check the documented permissions before enabling this Microsoft capability.' } };
+        assert.match(system, /review only/);
+        return { outcome: 'pass', findings: [] };
+      },
+    });
+    assert.equal(assessments, 8, 'a sync has its own bounded allowance, not the exhausted rolling gate');
+    assert.equal((await f.db.query("SELECT id FROM publishing_topics WHERE state='pending'")).rowCount, 1, 'the ninth arrival waits for a later bounded refresh');
+    assert.deepEqual((await f.db.query('SELECT * FROM publishing_drafts WHERE topic_id=ANY($1::uuid[]) ORDER BY id', [[...oldIds, approved.id]])).rows,
+      originalDrafts, 'approved work and previous draft history remain intact');
+    assert.deepEqual((await f.db.query('SELECT * FROM publishing_schedule ORDER BY draft_id')).rows, originalSchedule);
+    const shortlist = await store.listTopics(f.db, 0, true);
+    assert.equal(shortlist.length, 8);
+    assert.equal(shortlist.filter(t => t.title.startsWith('Microsoft fresh arrival')).length, 7, 'new reviewed posts replace old proposals within the per-feed cap');
+    assert.ok(shortlist.some(t => t.id === oldIds[7]), 'the existing blog package remains a separate destination');
+    assert.ok(shortlist.every(t => t.drafts.every(d => d.approval === 'pending' && d.review === 'pass')));
+    assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rowCount, 0);
+    const detail = (await f.db.query<{ detail: Record<string, unknown> }>("SELECT detail FROM publishing_events WHERE event='draft-refresh-completed'")).rows[0]!.detail;
+    assert.deepEqual({ ...detail, drafts: [] }, { limit: 8, selectedTopics: 8, assessmentAttempts: 8, assessedTopics: 8,
+      reviewedTopics: 8, reviewedDrafts: 8, skippedTopics: 0, failedTopics: 0, drafts: [] });
+  } finally { await f.close(); }
+});
+test('refresh audit distinguishes selection, assessment, skipped claims and failed sources from completed reviews', async () => {
+  const f = await publishingFixture();
+  try {
+    const skipped = await topic(f.db); await source(f.db, skipped.id);
+    const rejected = await topic(f.db); await source(f.db, rejected.id);
+    const failed = await topic(f.db); await source(f.db, failed.id);
+    await f.db.query("UPDATE publishing_topics SET state='pending' WHERE id=ANY($1::uuid[])", [[rejected.id, failed.id]]);
+    await f.db.query("UPDATE publishing_sources SET read_at=NULL,url='https://source.fixture.invalid/failure' WHERE topic_id=$1", [failed.id]);
+    await refreshPublishingDrafts(f.db, { ...editorial.editorialServices, preferences: async () => '',
+      read: async () => { throw new Error('Evidence unavailable'); },
+      chat: async system => {
+        assert.match(system, /Select BEFORE/);
+        return { relatedTopicId: null, blog: false, bluesky: false, priority: 10, rationale: 'Insufficient substance.',
+          exceptionReason: null, distinctArgument: false };
+      },
+    });
+    const detail = (await f.db.query<{ detail: Record<string, unknown> }>("SELECT detail FROM publishing_events WHERE event='draft-refresh-completed'")).rows[0]!.detail;
+    assert.deepEqual(detail, { limit: 8, selectedTopics: 3, assessmentAttempts: 2, assessedTopics: 1,
+      reviewedTopics: 0, reviewedDrafts: 0, skippedTopics: 1, failedTopics: 1, drafts: [] });
+    assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE event='draft-refresh-skipped' AND topic_id=$1", [skipped.id])).rowCount, 1);
+    assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rowCount, 0);
   } finally { await f.close(); }
 });
 test('non-Microsoft topics need an exceptional explicit relevance rationale before drafting', async () => {

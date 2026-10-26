@@ -13,7 +13,7 @@ import { cardSummaryBlocks, mapMarkdown, mapOutline, updateCanvas, type CanvasFu
 import { buildCanvasContext } from '../src/services/canvasContent.js';
 import { suggestionsFor } from '../src/services/mapSuggestions.js';
 import { resolveMapChanges } from '../src/ai/mapEdits.js';
-import { DIAGRAM_CALLOUT_TYPES, emptyDiagram, type DiagramDocument, type DiagramEdge, type DiagramNode } from '../src/types/diagram.js';
+import { DIAGRAM_CALLOUT_TYPES, DIAGRAM_ICON_NAMES, emptyDiagram, type DiagramDocument, type DiagramEdge, type DiagramNode } from '../src/types/diagram.js';
 import { ConflictError, ValidationError } from '../src/types/errors.js';
 
 const NONE = new Set<string>();
@@ -43,6 +43,23 @@ function rejects(fn: () => unknown, field: RegExp): void {
 }
 
 // ─── Document validation ─────────────────────────────────────────────────────
+
+test('shape headers and icons round-trip without weakening strict validation', () => {
+  for (const icon of [...DIAGRAM_ICON_NAMES, null, undefined]) {
+    const input = doc([node({ ...(icon !== undefined ? { icon } : {}), header: 'Custom header' })]);
+    assert.deepEqual(validateDiagramDocument(JSON.parse(JSON.stringify(input)), NONE), input);
+  }
+  const hidden = doc([node({ icon: null, header: '' })]);
+  assert.deepEqual(validateDiagramDocument(hidden, NONE), hidden);
+  for (const icon of ['unknown', 'https://example.org/icon.svg', '<svg/>', {}, 1]) {
+    rejects(() => validateDiagramDocument({ ...doc([]), nodes: [{ ...node(), icon }] }, NONE), /icon/);
+  }
+  for (const header of [null, {}, 1, 'x'.repeat(81)]) {
+    rejects(() => validateDiagramDocument({ ...doc([]), nodes: [{ ...node(), header }] }, NONE), /header/);
+  }
+  rejects(() => validateDiagramDocument(doc([node({ kind: 'line', icon: 'bot' })]), NONE), /icon/);
+  rejects(() => validateDiagramDocument(doc([node({ kind: 'text', header: 'Agent' })]), NONE), /header/);
+});
 
 test('independent grid and shape snap preferences round-trip and remain optional for old diagrams', () => {
   assert.deepEqual(validateDiagramDocument(emptyDiagram(), NONE), emptyDiagram());

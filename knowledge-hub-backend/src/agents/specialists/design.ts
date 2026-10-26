@@ -13,13 +13,15 @@ import { writeDesignSpec } from '../../designs/designSpec.js';
 import { scheduleNoteIndexing } from '../../routes/notes.js';
 import { scheduleGitHubPublish } from '../../services/noteGitHubService.js';
 import { registerSpecialist, type Prerequisite } from '../registry.js';
+import { ValidationError } from '../../types/errors.js';
 
 export const SPEC_WRITER = 'spec-writer';
 export const BLUEPRINT_DESIGNER = 'blueprint-designer';
 const MAX_INSTRUCTION = 4_000;
 
-async function resolveDesign(db: Pool, id: string): Promise<{ id: string; title: string; url: string }> {
+async function resolveDesign(db: Pool, id: string, requireSpecificationType = false): Promise<{ id: string; title: string; url: string }> {
   const design = await getDesign(db, id);
+  if (requireSpecificationType && !design.specificationType) throw new ValidationError('Choose Standard or IMAGINE beside Generate spec in this Design first.');
   return { id: design.id, title: design.title, url: `/think?design=${encodeURIComponent(design.id)}` };
 }
 
@@ -42,12 +44,11 @@ registerSpecialist({
   name: 'Spec writer',
   description: 'Writes or rewrites a Design\'s spec from its use case. Earlier versions stay in note history.',
   subjectType: 'design',
-  resolveSubject: resolveDesign,
+  resolveSubject: (db, id) => resolveDesign(db, id, true),
   overwrites: async (db, designId) => (await specState(db, designId)) !== 'missing',
-  run: async ({ db, subjectId, progress, signal }) => {
+  run: async ({ db, jobId, subjectId, input, progress, signal }) => {
     progress('Reading the use case, architecture and diagrams');
-    progress('Writing the spec from the use case');
-    const result = await writeDesignSpec(db, subjectId, true, signal);
+    const result = await writeDesignSpec(db, subjectId, true, signal, progress, jobId, input['checkpointOnly'] === true);
     for (const note of result.notes) scheduleNoteIndexing(getDb(), note);
     for (const noteId of result.publish) scheduleGitHubPublish(getDb(), noteId);
     progress(result.created ? 'Spec saved and linked to the Design' : 'Spec saved; the previous version is in note history');
@@ -71,6 +72,7 @@ registerSpecialist({
   prerequisites: async (db, designId): Promise<Prerequisite[]> => {
     const state = await specState(db, designId);
     if (state === 'current') return [];
+    await resolveDesign(db, designId, true);
     return [{
       specialist: SPEC_WRITER,
       input: {},

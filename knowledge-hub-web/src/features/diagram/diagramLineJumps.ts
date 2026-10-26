@@ -1,10 +1,12 @@
 import type { DiagramDocument, DiagramPoint } from './diagramTypes';
 import { edgeRoute, linePoints, nodeMap, renderOrder } from './diagramGeometry';
+import { diagramEdgeAppearance } from './diagramTheme';
 
 export interface StrokeRoute {
   id: string;
   points: readonly DiagramPoint[];
   width: number;
+  cornerRadius?: number;
 }
 
 interface Segment {
@@ -116,7 +118,16 @@ export function lineJumpGeometry(strokes: readonly StrokeRoute[]): LineJumpGeome
           }
         }
       }
-      d += ` L${xy(b)}`;
+      const next = stroke.points[i + 2];
+      const nextLength = next === undefined ? 0 : Math.hypot(next.x - b.x, next.y - b.y);
+      const nextJumps = owned.get(i + 1);
+      const endClearance = list === undefined ? length : length - Math.max(...list.map(jump => jump.end)) - END_CLEARANCE;
+      const startClearance = nextJumps === undefined ? nextLength : Math.min(...nextJumps.map(jump => jump.start)) - END_CLEARANCE;
+      const cut = Math.max(0, Math.min(stroke.cornerRadius ?? 0, length / 2, nextLength / 2, endClearance, startClearance));
+      if (next === undefined || cut === 0) d += ` L${xy(b)}`;
+      else d += ` L${xy({ x: b.x - dx * cut / length, y: b.y - dy * cut / length })} Q${xy(b)} ${xy({
+        x: b.x + (next.x - b.x) * cut / nextLength, y: b.y + (next.y - b.y) * cut / nextLength,
+      })}`;
     }
     result.set(stroke.id, d);
   }
@@ -136,7 +147,7 @@ export function diagramLineJumpGeometry(
   for (const edge of document.edges) {
     if (!visible(edge.stroke)) continue;
     const points = routes === undefined ? edgeRoute(edge, byId) : routes.get(edge.id);
-    if (points !== null && points !== undefined) strokes.push({ id: edge.id, points, width: edge.strokeWidth ?? 1.5 });
+    if (points !== null && points !== undefined) strokes.push({ id: edge.id, points, width: diagramEdgeAppearance(edge).width, cornerRadius: 10 });
   }
   return lineJumpGeometry(strokes);
 }

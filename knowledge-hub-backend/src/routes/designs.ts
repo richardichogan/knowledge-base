@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { KnowledgeHubError, ValidationError } from '../types/errors.js';
-import { assetDesigns, attachAsset, detachAsset, getDesign, listDesigns, requiredText, searchAssets, selectDesignAsset } from '../designs/designStore.js';
+import { assetDesigns, attachAsset, detachAsset, getDesign, listDesigns, requiredText, searchAssets, selectDesignAsset, setSpecificationType } from '../designs/designStore.js';
 import { applyFeedback, collaboration, discardFeedback, editFeedback, generateArtifact, proposeFeedback, queueFeedback, resolveProposal } from '../designs/designArtifacts.js';
 import { createPackage, getPackage, packageArchive, preparePublication, publishPackage } from '../designs/designPackages.js';
 import { scheduleNoteIndexing } from './notes.js';
@@ -36,6 +36,7 @@ designsRouter.get('/:id', wrap(req => getDesign(getDb(), id(req))));
 designsRouter.post('/:id/assets', wrap(req => attachAsset(getDb(), id(req), body(req))));
 designsRouter.delete('/:id/assets', wrap(req => detachAsset(getDb(), id(req), body(req))));
 designsRouter.post('/:id/selection', wrap(req => selectDesignAsset(getDb(), id(req), body(req))));
+designsRouter.post('/:id/specification-type', wrap(req => setSpecificationType(getDb(), id(req), body(req))));
 designsRouter.get('/:id/collaboration', wrap(req => collaboration(getDb(), id(req))));
 // One Blueprint run per design and instruction: other tabs that ask while it runs join it instead of paying for a duplicate.
 type ArtifactRun = { result: ReturnType<typeof generateArtifact>; progress: string[]; listeners: Set<(message: string) => void> };

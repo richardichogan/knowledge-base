@@ -15,8 +15,8 @@ export const IBM_COLOURS: Readonly<Record<string, string>> = {
   '#ffffff': 'White', '#161616': 'IBM Gray 100', '#525252': 'IBM Gray 70',
 };
 export const DIAGRAM_FILLS = [
-  '#ffffff', '#e0e0e0', 'none',
+  '#ffffff', '#e0e0e0', 'none', '#fffbeb', '#f7f4ff',
   '#a6c8ff', '#d4bbff', '#82cfff', '#3ddbd9', '#6fdc8c', '#ffafd2', '#ffb3b8', '#f1c21b', '#ffb784',
 ];
-export const DIAGRAM_STROKES = ['#161616', '#525252', '#0f62fe', '#198038', '#b28600', '#da1e28', '#8a3ffc', '#1192e8', '#007d79', '#d02670', '#f1c21b', '#eb6200', 'none'];
+export const DIAGRAM_STROKES = ['#e0e0e0', '#8d8d8d', '#161616', '#525252', '#0f62fe', '#198038', '#b28600', '#da1e28', '#8a3ffc', '#1192e8', '#007d79', '#d02670', '#f1c21b', '#eb6200', 'none'];
 export const DIAGRAM_TEXT_COLOURS = ['#161616', '#525252', '#ffffff', ...DIAGRAM_STROKES.filter(colour => !['#161616', '#525252', 'none'].includes(colour))];

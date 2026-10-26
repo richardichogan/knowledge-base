@@ -9,9 +9,12 @@ import type { ConversationMessage, AiModel } from '../types/aiContext.js';
 import type { ModelRoute } from './modelChoices.js';
 import { recordAiUsage, tokenUsageFrom } from './aiUsage.js';
 import type { TokenUsage } from './aiUsage.js';
+import { request as requestHttp } from 'undici';
+import { STATUS_CODES } from 'node:http';
 
 const DEFAULT_CHAT_TEMPERATURE = 0.7;
 const AI_RESPONSE_HEADERS_TIMEOUT_MS = 30_000;
+const NATIVE_FETCH_HEADERS_TIMEOUT_MS = 300_000;
 
 function transportCode(error: unknown): string | undefined {
   if (!(error instanceof Error)) return undefined;
@@ -215,18 +218,30 @@ export class FoundryClient {
     }
     const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? 'gpt-5.4';
     const startedAt = Date.now();
+    const signal = AbortSignal.timeout(timeoutMs);
     let response: Response;
     try {
-      response = await fetch(`${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+      const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
+      const options = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({ messages, max_completion_tokens: maxTokens, reasoning_effort: reasoningEffort,
           ...(jsonSchema !== undefined && { response_format: { type: 'json_schema', json_schema: { ...jsonSchema, strict: true } } }) }),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+        signal,
+      } as const;
+      if (timeoutMs > NATIVE_FETCH_HEADERS_TIMEOUT_MS) {
+        // Native fetch has a separate five-minute headers deadline; AbortSignal alone cannot extend it.
+        const result = await requestHttp(url, { ...options, headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
+        response = new Response(await result.body.text(), { status: result.statusCode, statusText: STATUS_CODES[result.statusCode] ?? '' });
+      } else {
+        response = await fetch(url, options);
+      }
     } catch (err) {
-      const isTimeout = err instanceof Error && err.name === 'TimeoutError';
-      const failure = new AiError(isTimeout ? `Bulk request timed out after ${timeoutMs.toString()}ms` : `Bulk request failed: ${err instanceof Error ? err.message : String(err)}`);
+      const code = transportCode(err);
+      const isTimeout = signal.aborted || err instanceof Error && err.name === 'TimeoutError'
+        || code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT';
+      const failure = new AiError(isTimeout ? `Bulk request timed out after ${timeoutMs.toString()}ms${code ? ` (${code})` : ''}`
+        : `Bulk request failed: ${err instanceof Error ? err.message : String(err)}${code ? ` (${code})` : ''}`);
       this.logCall('bulk', deployment, 'chat', startedAt, undefined, failure);
       throw failure;
     }

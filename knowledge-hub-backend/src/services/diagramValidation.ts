@@ -12,7 +12,7 @@ import { ValidationError } from '../types/errors.js';
 import {
   AI_AGENT_MODES, AI_ASSERTION_LEVELS, AI_FLOW_EDGE_TYPES, AI_FLOW_INTERACTIONS, AI_FLOW_STATES, AI_FLOW_STEP_KINDS, AI_FLOW_STEP_TYPES,
   AI_FLOW_VOLUMES, AI_GATE_ACCEPTANCE_FAILURES, AI_GATE_DELEGATION_FAILURES, AI_GATE_EVALUATIONS, AI_GATE_KINDS, AI_GATE_OUTCOMES,
-  AI_MEMORY_SCOPES, DATA_SENSITIVITIES, DIAGRAM_ARROW_DIRECTIONS, DIAGRAM_CALLOUT_TYPES, DIAGRAM_TYPES,
+  AI_MEMORY_SCOPES, DATA_SENSITIVITIES, DIAGRAM_ARROW_DIRECTIONS, DIAGRAM_CALLOUT_TYPES, DIAGRAM_TYPES, DIAGRAM_ICON_NAMES, DIAGRAM_ICON_KINDS,
 } from '../types/diagram.js';
 import type {
   AiFlowAgent, AiFlowControls, AiFlowEdge, AiFlowGate, AiFlowGateAcceptance, AiFlowGateDelegation, AiFlowGateShared, AiFlowLane, AiFlowOperations, AiFlowStep, AiFlowStepType,
@@ -28,6 +28,7 @@ export const DIAGRAM_LIMITS = {
   minNodeSize: 1,
   maxNodeSize: 100_000,
   maxNodeLabelChars: 2000,
+  maxNodeHeaderChars: 80,
   maxEdgeLabelChars: 500,
   maxDescriptionChars: 10_000,
   maxFootnotes: 200,
@@ -185,12 +186,14 @@ function validatePoint(v: unknown, path: string): DiagramPoint {
 }
 
 function validateNode(v: unknown, path: string): DiagramNode {
-  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd', 'arrowDirection', 'collapsed', 'calloutType', 'flow', 'lane']);
+  const o = exactObject(v, NODE_KEYS, path, ['description', 'textAlign', 'textVerticalAlign', 'strokeWidth', 'strokeStyle', 'lineStart', 'lineEnd', 'arrowDirection', 'collapsed', 'calloutType', 'flow', 'lane', 'icon', 'header']);
   const c = DIAGRAM_LIMITS.maxCoordinate;
   const kind = oneOf(o['kind'], KINDS, `${path}.kind`);
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
   if (assetId !== null && kind !== 'image') fail(`${path}.assetId`, 'is only allowed on image nodes');
   if (o['calloutType'] !== undefined && kind !== 'text') fail(`${path}.calloutType`, 'is only allowed on text nodes');
+  if (o['icon'] !== undefined && !DIAGRAM_ICON_KINDS.includes(kind)) fail(`${path}.icon`, 'is only allowed on process, decision, terminator and document nodes');
+  if (o['header'] !== undefined && !DIAGRAM_ICON_KINDS.includes(kind)) fail(`${path}.header`, 'is only allowed on process, decision, terminator and document nodes');
   if (o['arrowDirection'] !== undefined && kind !== 'arrow') fail(`${path}.arrowDirection`, 'is only allowed on arrow nodes');
   const linePoint = (value: unknown, field: string): DiagramPoint => {
     if (kind !== 'line') fail(`${path}.${field}`, 'is only allowed on lines');
@@ -223,6 +226,8 @@ function validateNode(v: unknown, path: string): DiagramNode {
     ...(o['flow'] !== undefined ? { flow: validateFlowStep(o['flow'], kind, `${path}.flow`) } : {}),
     ...(o['lane'] !== undefined ? { lane: validateFlowLane(o['lane'], kind, `${path}.lane`) } : {}),
     assetId,
+    ...(o['icon'] !== undefined ? { icon: o['icon'] === null ? null : oneOf(o['icon'], DIAGRAM_ICON_NAMES, `${path}.icon`) } : {}),
+    ...(o['header'] !== undefined ? { header: str(o['header'], `${path}.header`, DIAGRAM_LIMITS.maxNodeHeaderChars) } : {}),
   };
 }
 

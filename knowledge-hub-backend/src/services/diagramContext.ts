@@ -71,6 +71,8 @@ export function diagramEvidence(document: DiagramDocument, budget = 24_000, sele
     const record = take({
       id: node.id, kind: node.kind, label: clipped(node.label, 800),
       ...(node.calloutType !== undefined ? { calloutType: node.calloutType } : {}),
+      ...(node.icon !== undefined ? { icon: node.icon } : {}),
+      ...(node.header !== undefined ? { header: node.header } : {}),
       description: clipped(node.description ?? '', 1500), parentId: node.parentId,
       bounds: { x: node.x, y: node.y, width: node.width, height: node.height },
       assetId: node.assetId, ...(node.id === selectedId ? { selected: true } : {}),

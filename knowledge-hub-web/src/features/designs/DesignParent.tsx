@@ -9,7 +9,7 @@ import { deferredView } from '../../utils/deferredView';
 import { setDesignChatBridge } from '../../utils/activeBlockNoteEditor';
 import { useAthenaContext } from '../../context/AthenaContext';
 import type { NoteDocument } from '../../notes/types';
-import type { DesignAsset, DesignDetail } from '../../types/designs';
+import type { DesignAsset, DesignDetail, SpecificationType } from '../../types/designs';
 import { DesignVisual } from './DesignVisual';
 import { DesignHandoff } from './DesignHandoff';
 import { rememberAgentJob, useAgentJobFinished, useAgentJobs } from '../../services/agentJobStore';
@@ -52,7 +52,11 @@ export const DesignParent: React.FC<{
   const tabsRef = useRef<HTMLDivElement>(null);
   const query = useQuery({ queryKey: ['design', id], queryFn: async () => requireApiData(await api.getDesign(id)) });
   const design = query.data;
-  const { active: job } = useAgentJobs(design?.id);
+  const { active: job, jobs: liveJobs } = useAgentJobs(design?.id);
+  const history = useQuery({ queryKey: ['design-agent-jobs', id], enabled: !!design,
+    queryFn: async () => requireApiData(await api.listDesignAgentJobs(design!.id)) });
+  const latestJob = job ?? [...new Map([...(history.data ?? []), ...liveJobs].map(item => [item.id, item])).values()]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   const specBusy = job?.specialist === 'spec-writer';
   const busy = visualBusy || chatBusy || workspaceBusy || !!job;
   const assets = design?.assets.filter(asset => asset.role === tab) ?? [];
@@ -137,6 +141,15 @@ export const DesignParent: React.FC<{
     },
     onSuccess: async updated => { qc.setQueryData(['design', id], updated); await refresh(); },
   });
+  const specificationType = useMutation({
+    mutationFn: async (type: SpecificationType) => {
+      await prepare();
+      return requireApiData(await api.setDesignSpecificationType(id, type, design!.revision));
+    },
+    onMutate: () => { setError(null); },
+    onSuccess: updated => { qc.setQueryData(['design', id], updated); },
+    onError: err => { setError(describeApiError(err)); },
+  });
   useEffect(() => {
     if (!job) return;
     setNow(Date.now());
@@ -145,7 +158,8 @@ export const DesignParent: React.FC<{
   }, [job]);
   // A specialist finished on this Design: show what it wrote.
   const finished = useCallback((done: AgentJob): void => {
-    void Promise.all([qc.invalidateQueries({ queryKey: ['design', id] }), qc.invalidateQueries({ queryKey: ['design-document'] }), refresh()])
+    void Promise.all([qc.invalidateQueries({ queryKey: ['design', id] }), qc.invalidateQueries({ queryKey: ['design-document'] }),
+      qc.invalidateQueries({ queryKey: ['design-agent-jobs', id] }), refresh()])
       .then(() => { if (done.status === 'done') setEditorEpoch(value => value + 1); })
       .catch((err: unknown) => { setError(describeApiError(err)); });
   }, [id, qc, refresh]);
@@ -153,6 +167,7 @@ export const DesignParent: React.FC<{
   // Athena hands the spec to the Spec writer and carries on; the Design stays locked until it reports back.
   const spec = useMutation({
     mutationFn: async () => {
+      if (!design?.specificationType) throw new Error('Choose Standard or IMAGINE before generating a spec.');
       await prepare();
       const result = requireApiData(await api.handOffToSpecialist('spec-writer', design!.id, {}, true));
       if (result.status === 'needs_confirmation') throw new Error(result.message);
@@ -171,20 +186,69 @@ export const DesignParent: React.FC<{
       : chatBusy ? 'Athena is working on this Design in the chat. Editing unlocks when the reply finishes.'
         : workspaceBusy ? 'Opening the note…' : switching ? 'Saving and switching documents…' : null;
   const startSpec = async (): Promise<void> => {
+    if (!design?.specificationType || specificationType.isPending) return;
     if (hasSpec && !await confirmDialog('Athena will replace the current spec with a new one written from this use case. Any edits, images or files in the spec will be overwritten. Earlier versions stay in note history.',
       { title: 'Regenerate the spec?', confirmLabel: 'Continue', tone: 'danger' })) return;
     spec.mutate();
   };
-  const specAction = (footer: boolean): React.ReactNode => tab === 'use_case' && asset?.available && asset.sourceType === 'note'
-    ? <div className={`kh-design-spec-action${footer ? ' kh-design-spec-action--footer' : ''}`}>
-      <button type="button" className="kh-btn-accent" disabled={busy || switching || spec.isPending} onClick={() => { void startSpec(); }}>
+  const useCases = design?.assets.filter(item => item.role === 'use_case' && item.available && item.sourceType === 'note') ?? [];
+  const hasUseCase = useCases.length === 1 || useCases.some(item => item.sourceId === design?.selections.use_case);
+  const designPanel = <div className="kh-design-work">
+    <section aria-label="Design actions">
+      <h3>Actions</h3>
+      <label className="kh-design-spec-action__type">
+        <span>Specification type</span>
+        <select value={design?.specificationType ?? ''} disabled={busy || switching || spec.isPending || specificationType.isPending}
+          onChange={event => {
+            const value = event.target.value;
+            if (value === 'standard' || value === 'imagine') specificationType.mutate(value);
+          }}>
+          <option value="" disabled>Choose a type</option>
+          <option value="standard">Standard</option>
+          <option value="imagine">IMAGINE</option>
+        </select>
+      </label>
+      {specificationType.isPending && <span className="kh-design-spec-action__saving" role="status">Saving type...</span>}
+      <button type="button" className="kh-btn-accent" disabled={busy || switching || spec.isPending || specificationType.isPending || !design?.specificationType || !hasUseCase} onClick={() => { void startSpec(); }}>
         {specBusy ? 'The Spec writer is working…' : hasSpec ? 'Regenerate spec from use case' : 'Generate spec with Athena'}</button>
-      <p role={specBusy ? 'status' : undefined} className={specBusy ? 'kh-design-hint--busy' : undefined}>{specBusy
-        ? <><AthenaRibbon size={20} mood="thinking" />{job?.status === 'running'
-          ? `Athena handed this to the Spec writer · ${jobSeconds}s${jobStep ? ` · ${jobStep}` : ''}. You'll be notified when it's done.`
-          : 'Athena handed this to the Spec writer. It starts shortly.'}</>
-        : hasSpec ? 'Rewrites the spec from this use case. Earlier versions stay in history.' : 'Athena writes a spec from this use case and links it to the Spec tab.'}</p>
-    </div> : null;
+      <p>{!hasUseCase ? 'Link and select a use case before generating a spec.'
+        : !design?.specificationType ? 'Choose a specification type. The choice is saved on this Design.'
+          : 'Uses the selected use case. The existing spec stays intact until the new version is ready.'}</p>
+      {error && <p role="alert" className="kh-design-work__error">{error}</p>}
+    </section>
+    <section aria-label="Design activity">
+      <h3>Activity</h3>
+      {job ? <div role="status" className="kh-design-work__activity">
+        <AthenaRibbon size={24} mood="thinking" />
+        <div><strong>{job.specialistName} · {job.status === 'running' ? `${jobSeconds}s` : 'Queued'}</strong>
+          <p>{jobStep ?? 'Waiting to start.'}</p></div>
+      </div> : visualBusy || chatBusy ? <p role="status">{visualStatus ?? 'Athena is working on this Design.'}</p>
+        : latestJob ? <div>
+          <strong>{latestJob.specialistName} · {latestJob.status === 'done' ? 'Completed' : 'Could not finish'}</strong>
+          <p className={latestJob.status === 'failed' ? 'kh-design-work__error' : undefined}
+            role={latestJob.status === 'failed' ? 'alert' : undefined}>{latestJob.error ?? latestJob.summary}</p>
+          {latestJob.status === 'failed' && latestJob.specialist === 'spec-writer' && <>
+            <p>The existing spec was not replaced.</p>
+            <button type="button" className="kh-btn-ghost" disabled={busy || switching || spec.isPending || specificationType.isPending || !hasUseCase || !design?.specificationType}
+              onClick={() => { void startSpec(); }}>Retry Spec writer</button>
+          </>}
+        </div> : <p>{history.isLoading ? 'Loading activity...' : 'No generation activity yet.'}</p>}
+      {history.isError && <p role="alert" className="kh-design-work__error">{describeApiError(history.error)}
+        {' '}<button type="button" className="kh-btn-ghost" onClick={() => { void history.refetch(); }}>Reload activity</button></p>}
+    </section>
+    <section aria-label="Design outputs">
+      <h3>Outputs</h3>
+      <ul className="kh-design-work__outputs">{TABS.map(item => {
+        const linked = design?.assets.filter(output => output.role === item.role) ?? [];
+        return <li key={item.role}><strong>{item.label}</strong>
+          {!linked.length ? <p>Not linked</p> : linked.map(output => <button key={output.sourceId} type="button"
+            className="kh-design-work__output" disabled={!output.available || busy || switching}
+            onClick={() => { void switchTo(item.role, output.sourceId); }}>{output.title}{!output.available ? ' (unavailable)' : ''}</button>)}
+        </li>;
+      })}</ul>
+      <p>Open a document, then use History to see or restore earlier versions.</p>
+    </section>
+  </div>;
   const saved = (note: NoteDocument): void => {
     qc.setQueryData(['design-document', documentId, editorEpoch], note);
     void qc.invalidateQueries({ queryKey: ['notes-list'] });
@@ -216,9 +280,8 @@ export const DesignParent: React.FC<{
         onClick={() => { selection.mutate(asset.sourceId); }}>Use this version for visuals and handoff</button>}
       {!assets.length && <button type="button" className="kh-btn-ghost" disabled={switching || busy} onClick={() => { setLinking(true); }}>Link {TABS.find(item => item.role === tab)!.label.toLowerCase()}</button>}
     </div>
-    {specAction(false)}
     {lockReason && <p className="kh-design-hint kh-design-hint--busy" role="status"><AthenaRibbon size={20} mood="thinking" />{lockReason}</p>}
-    {error && <p role="alert" className="kh-uc-error">{error}</p>}
+    {error && !spec.isError && !specificationType.isError && <p role="alert" className="kh-uc-error">{error}</p>}
     {selection.isError && <p role="alert" className="kh-uc-error">{describeApiError(selection.error)}</p>}
     {!asset && tab !== 'diagram' && <p className="kh-design-hint">{assets.length ? 'Choose a linked version; none has been assumed.' : 'No document linked. Link an existing original to this tab. The parent writing below is preserved.'}</p>}
     {asset && !asset.available && <p className="kh-uc-error" role="alert">The linked document is unavailable or archived. Its original has not been replaced.</p>}
@@ -230,10 +293,10 @@ export const DesignParent: React.FC<{
       : <NoteEditor key={`${document.data.id}:${editorEpoch}`} doc={document.data} onSaved={saved} actionsSlot={actionsSlot} externalBusy={busy || switching} loading={switching}
         hideProperties={asset?.sourceType === 'canvas' && asset.available}
         htmlViewEnabled={tab === 'spec'}
-        onOpenMap={onOpenMap} onSaveReady={registerSave} onBeforeViewChange={prepare} headerContent={chrome} footerContent={specAction(true)}
+        onOpenMap={onOpenMap} onSaveReady={registerSave} onBeforeViewChange={prepare} headerContent={chrome} designPanel={designPanel}
         actionContent={<li role="menuitem"><button type="button" className="kb-menu__item" onClick={() => { setHandoff(true); }}>Copilot package...</button></li>}
         bodyContent={asset?.available && asset.sourceType === 'canvas' ? <div className="kh-design-diagram-body">
-          <DiagramEditor canvasId={asset.sourceId} parentContext={{ type: 'note', id: design.parentNoteId, title: design.title }}
+          <DiagramEditor canvasId={asset.sourceId} designPanel={designPanel} parentContext={{ type: 'note', id: design.parentNoteId, title: design.title }}
             onSaveReady={registerDiagramSave} onOpenNote={onOpenNote} onDeleted={() => { void query.refetch(); }} /></div>
           : tab === 'diagram' ? <section className="kh-design-diagram-empty" aria-label="Diagram canvas">
             <h3>{asset ? 'Diagram unavailable' : assets.length ? 'Choose a diagram canvas' : 'No diagram canvas linked'}</h3>

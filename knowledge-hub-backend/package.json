@@ -48,6 +48,7 @@
     "pdf-parse": "^2.4.5",
     "pg": "^8.12.0",
     "pptxjs": "^0.0.0",
+    "undici": "^6.21.3",
     "winston": "^3.13.1"
   },
   "devDependencies": {
