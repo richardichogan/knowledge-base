@@ -7,7 +7,7 @@ import { env } from '../config/env.js';
 import { ValidationError } from '../types/errors.js';
 import { POST_TYPES, type PostType } from '../ai/blogDraft.js';
 import { BLOG_CATEGORIES, resolveBlogCategory } from '../ai/blogHouseStyle.js';
-import { findTropes, fixDashes } from '../ai/styleCheck.js';
+import { findTropes, findWeeklyTropes, fixDashes } from '../ai/styleCheck.js';
 
 export interface BlogPublishBody { slug?: string; sourceUrl?: string; excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
 
@@ -61,7 +61,7 @@ export function parsePublishBody(body: unknown): BlogPublishBody {
   parsed.title = fixDashes(parsed.title); parsed.excerpt = fixDashes(parsed.excerpt); parsed.summary = fixDashes(parsed.summary);
   parsed.content = fixDashes(parsed.content); parsed.keyTakeaways = parsed.keyTakeaways.map(fixDashes);
   const ownContent = parsed.content.replace(/<hr>\s*<p><em>Source:[\s\S]*?<\/em><\/p>\s*$/i, '');
-  const tropes = findTropes(parsed.title, parsed.excerpt, parsed.summary, ownContent, ...parsed.keyTakeaways);
+  const tropes = (postType === 'weekly' ? findWeeklyTropes : findTropes)(parsed.title, parsed.excerpt, parsed.summary, ownContent, ...parsed.keyTakeaways);
   if (tropes.length > 0) throw new ValidationError(`Not sent: the post still contains banned AI writing patterns. Edit these out first: ${tropes.join('; ')}.`);
   return { ...parsed, ...(slug ? { slug } : {}), ...(sourceUrl ? { sourceUrl } : {}) };
 }

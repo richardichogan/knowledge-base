@@ -33,8 +33,9 @@ const MAX_ARTICLES = 80;
 const MAX_MESSAGE_CENTER = 40;
 const MESSAGE_CENTER_SOURCE_ID = 'message-center';
 const SUMMARY_CHARS = 320;
-const BLOG_MAX_TOKENS = 5_000;
-const SLACK_MAX_TOKENS = 1_200;
+// The standard slot is a reasoning model: hidden reasoning shares these budgets, so a tight cap truncates the package.
+const BLOG_MAX_TOKENS = 20_000;
+const SLACK_MAX_TOKENS = 6_000;
 const SLACK_TIMEOUT_MS = 15_000;
 
 export interface DigestArticle {
@@ -47,6 +48,12 @@ export interface DigestArticle {
   publishedAt: string;
   score: number | null;
   shelved: boolean;
+  selectionReason?: string;
+  body?: string;
+  bodyExcerpted?: boolean;
+  readAt?: string;
+  verifiedClaims?: string[];
+  validationReason?: string;
 }
 
 export interface WeeklyDigest {
@@ -117,7 +124,7 @@ export function windowLabel(w: DigestWindow): string {
 }
 
 /** Web search hits as digest entries (grouped under "Web search"; GitHub hits count as GitHub). */
-export function webHitsToArticles(hits: WebSearchHit[], w: DigestWindow): DigestArticle[] {
+export function webHitsToArticles(hits: WebSearchHit[], _w: DigestWindow): DigestArticle[] {
   return hits.map((h, i) => ({
     id: `web-${i.toString()}`,
     title: h.title,
@@ -125,7 +132,7 @@ export function webHitsToArticles(hits: WebSearchHit[], w: DigestWindow): Digest
     summary: h.content,
     source: WEB_SEARCH_SOURCE,
     group: /(^|\.)github\.(blog|com)$/i.test(safeHost(h.url)) ? 'GitHub' : 'Microsoft',
-    publishedAt: h.publishedAt !== null && Number.isFinite(Date.parse(h.publishedAt)) ? new Date(h.publishedAt).toISOString() : w.start.toISOString(),
+    publishedAt: h.publishedAt !== null && Number.isFinite(Date.parse(h.publishedAt)) ? new Date(h.publishedAt).toISOString() : '',
     score: null,
     shelved: false,
   }));
@@ -168,8 +175,8 @@ export async function gatherDigestArticles(db: Pool, now = new Date()): Promise<
       WHERE source = 'discovered-article'
         AND metadata->>'sourceGroup' = ANY($1::text[])
         AND (COALESCE(metadata->>'sourceId', '') = $6) = $7
-        AND COALESCE(published_at, indexed_at) >= $2
-        AND COALESCE(published_at, indexed_at) < $3
+        AND published_at >= $2
+        AND published_at < $3
       ORDER BY (metadata->>'compositeScore')::numeric DESC NULLS LAST, COALESCE(published_at, indexed_at) DESC
       LIMIT $4`,
     [[...DIGEST_SOURCE_GROUPS], since, until, limit, SUMMARY_CHARS * 2, MESSAGE_CENTER_SOURCE_ID, messageCenter],
@@ -204,7 +211,7 @@ export function formatDigestFacts(articles: DigestArticle[], period = 'the last 
     .map(([source, list]) => [
       `## ${source} (${list.length.toString()})`,
       ...list.map((a) => {
-        const summary = (a.summary ?? '').replace(/\s+/g, ' ').trim().slice(0, SUMMARY_CHARS);
+        const summary = a.verifiedClaims ? a.verifiedClaims.join('\n  ') : (a.summary ?? '').replace(/\s+/g, ' ').trim().slice(0, SUMMARY_CHARS);
         const score = a.score === null ? '' : ` [score ${a.score.toFixed(1)}]`;
         return `- ${a.publishedAt.slice(0, 10)} ${a.title}${score}${a.url !== null ? ` — ${a.url}` : ''}${summary !== '' ? `\n  ${summary}` : ''}`;
       }),
@@ -219,15 +226,17 @@ const VOICE_RULES = [
     'lightly British, slightly cynical, with dry wit. Descriptive first, so a reader knows exactly what changed, ' +
     'then a short "so what" in his voice where it earns it. No hype, no salesy language, no breathless enthusiasm.',
   'House rules: Oxford commas. No hyphens or em dashes as punctuation (use commas or brackets). Never use ' +
-    '"resonates". No "not X, it\'s Y" constructions. No rhythmic triplets. Do not use "signal" as a mass noun. ' +
+    '"resonates". No "not X, it\'s Y" constructions. No rhythmic triplets. ' +
+    'No "less about X, more about Y". Do not use "signal" as a mass noun. ' +
     'No vague "most organisations" claims.',
   'Only use facts and links from the input. Never invent announcements, dates, or URLs.',
 ].join('\n');
 
 export const BLOG_PROMPT = [
   'Write the weekly Microsoft round-up post for The Microsoft Cloud Blog from the updates below, as a complete ' +
-    'CMS-ready package. The format is already decided (a full post, 800 to 1,200 words of body content) and the angle ' +
-    'is the theme of the week, so do not ask anything, just produce the package.',
+    'CMS-ready package. This is a practical list of important updates grouped by area, with brief commentary, ' +
+    'not a literary essay. Use short update paragraphs or bullets where useful. Pull on a common thread only ' +
+    'when the evidence supports it. Do not force a theme or pad to a word count. Produce the package directly.',
   VOICE_RULES,
   '',
   BLOG_PACKAGE_RULES,
@@ -238,9 +247,9 @@ export const BLOG_PROMPT = [
     'Content, Excerpt, Summary TL;DR, Key takeaways, Categories, Tags. Then "## LinkedIn post" and "## Twitter/X post".',
   '- Title: editorial and specific to what actually happened this week, never "Weekly round-up" or "This week in Microsoft".',
   '- Featured image URL: only an image URL that appears in the input; otherwise write "None available, use the image prompt".',
-  '- Content: open with two or three sentences on the theme of the week, then "### " sections by area (e.g. AI and ' +
+  '- Content: use a brief factual opener, then "### " sections by area (e.g. AI and ' +
     'Copilot, Azure, Microsoft 365, Security and Identity, Power Platform and Dynamics, GitHub, Research), skipping ' +
-    'empty areas. Cover every notable update in prose: what it is, linked to its source as [title](url), and why it ' +
+    'empty areas. Cover the selected validated updates as short paragraphs or a list: what changed, linked to its source as [title](url), and why it ' +
     'matters for architects and IT leaders where that is clear. Fold minor items into one short paragraph rather than ' +
     'dropping them. Include a "### The one to watch" section near the end. The source reference that ends the body ' +
     'is a horizontal rule, then "*Sources: [title](url), [title](url), ...*" listing every article linked above.',
@@ -255,6 +264,10 @@ export const BLOG_PROMPT = [
     'and prefer the official Microsoft or GitHub link when two cover the same news.',
   '- Twitter/X post: use the URL of the "one to watch" article. LinkedIn post: no URLs.',
   '- Never invent announcements, dates, figures, or URLs; use only what is in the input.',
+  '- Factual enumerations, source titles and direct quotations are not rhetorical triplets. Preserve them. ' +
+    'Apply house style to your own commentary, not to copied source wording.',
+  '- The evidence contains summaries, not necessarily full primary pages. Attribute reported announcements to their ' +
+    'named source and preserve preview/GA qualifiers. Do not infer universal rollout or completed transitions from a planned change.',
 ].join('\n');
 
 const SLACK_PROMPT = [
@@ -294,21 +307,25 @@ function blogTitle(markdown: string, fallback: string): string {
 /** Generation only: used by previews and approved job delivery without posting or changing live state. */
 export async function prepareWeeklyMicrosoftDigest(db: Pool, now = new Date(), instructions = ''): Promise<{
   blog: string; slackText: string; label: string; articleCount: number; sources: DigestArticle[];
+  sourceGaps: Array<{ id: string; title: string; error: string }>;
 }> {
   const window = digestWindow(now);
   const label = windowLabel(window);
   const fromDiscover = await gatherDigestArticles(db, now);
   const web = await searchDigestWeek(window, fromDiscover.flatMap(a => a.url ? [a.url] : []));
-  const sources = [...fromDiscover, ...webHitsToArticles(web, window)];
+  const { prepareWeeklyEvidence } = await import('./weeklyEvidence.js');
+  const { sources, gaps: sourceGaps } = await prepareWeeklyEvidence(db,
+    [...fromDiscover, ...webHitsToArticles(web, window)].filter(article => article.publishedAt
+      && new Date(article.publishedAt) >= window.start && new Date(article.publishedAt) < window.end));
   if (!sources.length) throw new Error('No Microsoft updates found for the reporting period. Check sources before retrying.');
   const facts = formatDigestFacts(sources, label);
   const client = getFoundryClient('weekly-msft-job');
   const [blog, slackText] = await Promise.all([
-    client.chat('standard', [{ role: 'system', content: BLOG_PROMPT },
+    client.chatBulk([{ role: 'system', content: BLOG_PROMPT },
       { role: 'user', content: `${facts}\n\nSaved editorial instructions:\n${instructions}` }], BLOG_MAX_TOKENS),
-    client.chat('standard', [{ role: 'system', content: SLACK_PROMPT }, { role: 'user', content: facts }], SLACK_MAX_TOKENS),
+    client.chatBulk([{ role: 'system', content: SLACK_PROMPT }, { role: 'user', content: `${facts}\n\nSaved editorial instructions:\n${instructions}` }], SLACK_MAX_TOKENS),
   ]);
-  return { blog, slackText, label, articleCount: sources.length, sources };
+  return { blog, slackText, label, articleCount: sources.length, sources, sourceGaps };
 }
 
 /** Builds the digest, saves the blog note and pinned chat, and posts to Slack when configured. */

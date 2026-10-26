@@ -4,6 +4,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JobSummary } from '../src/components/jobs/JobReview';
 import type { JobDefinition } from '../src/types/jobs';
+import { runStatusLabel } from '../src/components/jobs/jobPresentation';
+import type { JobRun } from '../src/types/jobs';
 
 const definition: JobDefinition = {
   name: 'Microsoft updates', kind: 'weekly-microsoft', prompt: 'Use verified sources.',
@@ -12,6 +14,16 @@ const definition: JobDefinition = {
   deviceId: '', inputFolder: '', outputFolder: '',
 };
 
+test('completed syncs with resource errors show success with warnings, including historical runs', () => {
+  const run: JobRun = { id: 'run', jobId: 'job', revision: 1, definition: { ...definition, kind: 'content-sync', outputs: [] },
+    scheduledAt: '', deadline: '', status: 'failed', preview: false, steps: [], approvedAt: null, createdAt: '', updatedAt: '',
+    artifacts: { sync: { totalIndexed: 1799, totalErrors: 11, results: [{ source: 'cms', errors: 0 }] } } };
+  assert.equal(runStatusLabel(run), 'Succeeded with source errors');
+  assert.equal(runStatusLabel({ ...run, status: 'succeeded' }), 'Succeeded with source errors');
+  assert.equal(runStatusLabel({ ...run, status: 'running' }), 'Running');
+  assert.equal(runStatusLabel({ ...run, artifacts: { sync: { totalIndexed: 0, totalErrors: 2, results: [{ errors: 2 }] } } }), 'Failed');
+  assert.equal(runStatusLabel({ ...run, definition, status: 'partial', artifacts: { editorialOutcome: 'revise' } }), 'Editorial review needed');
+});
 test('job review keeps permissions and destinations visible while disclosing the full prompt on demand', () => {
   const html = renderToStaticMarkup(<JobSummary definition={definition} />);
   assert.match(html, /Weekdays at 08:00/);

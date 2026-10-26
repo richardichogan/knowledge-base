@@ -150,6 +150,9 @@ export class FoundryClient {
 
   /** Resolves the endpoint + api key to use for a given model — gpt-5.4 can live on a separate resource. */
   private getConnection(model: AiModel): { endpoint: string | undefined; apiKey: string | undefined } {
+    if (model === 'standard' && env.AZURE_OPENAI_ENDPOINT_STANDARD) {
+      return { endpoint: env.AZURE_OPENAI_ENDPOINT_STANDARD, apiKey: env.AZURE_OPENAI_API_KEY_STANDARD };
+    }
     if (model === 'reasoning' && env.AZURE_OPENAI_ENDPOINT_GPT54) {
       return { endpoint: env.AZURE_OPENAI_ENDPOINT_GPT54, apiKey: env.AZURE_OPENAI_API_KEY_GPT54 };
     }
@@ -174,6 +177,8 @@ export class FoundryClient {
     timeoutMs?: number,
   ): Promise<string> {
     const data = await this.request(model, messages, undefined, maxTokens, 'auto', timeoutMs);
+    if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
+    if (data.choices[0]?.finish_reason !== 'stop') throw new AiError('AI response was incomplete or refused');
     const content = data.choices[0]?.message.content;
 
     if (!content) {
@@ -233,8 +238,8 @@ export class FoundryClient {
     const data = (await response.json()) as ChatCompletionResponse;
     this.logCall('bulk', deployment, 'chat', startedAt, tokenUsageFrom(data.usage));
     const content = data.choices[0]?.message.content;
-    if (jsonSchema !== undefined && data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
-    if (jsonSchema !== undefined && data.choices[0]?.finish_reason !== 'stop') throw new AiError('Structured bulk extraction was incomplete or refused');
+    if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
+    if (data.choices[0]?.finish_reason !== 'stop') throw new AiError('Bulk response was incomplete or refused');
     if (!content) throw new AiError('Empty response from the bulk model');
     return content;
   }

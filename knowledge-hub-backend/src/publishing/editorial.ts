@@ -30,6 +30,7 @@ export const editorialServices: EditorialServices = {
   member: getLinkedInMember,
 };
 const OUTPUT_RETRY_MULTIPLIER = 2;
+const ERROR_PASSAGE_PREVIEW_LENGTH = 100;
 const LINK_SEPARATOR_LENGTH = 2;
 const TWITTER_CHARACTER_LIMIT = 280;
 const MAX_SOCIAL_EMOJIS = 2;
@@ -62,7 +63,7 @@ const blogSchema = jsonObject({
   twitterCopy: { ...stringField, maxLength: 279 }, sourceUrl: stringField,
   keyTakeaways: { type: 'array', items: stringField, maxItems: 2 }, categories: stringList, tags: stringList, postType: { type: 'string', enum: ['quick'] },
 });
-const QUICK_PACKAGE_RULES = `${quickTakeRules('Open with the news in one sentence, then give Richard’s proposed view in the next sentence.')}
+const QUICK_PACKAGE_RULES = `${quickTakeRules('Open with the news in one sentence, then give RichardÃ¢â‚¬â„¢s proposed view in the next sentence.')}
 For this delivery API, content is HTML paragraphs rather than Markdown; preserve the same quick-take structure.
 Set postType to "quick". Include a lowercase hyphenated slug, distinct excerpt, summary, at most two takeaways, approved categories and specific tags.
 Set sourceUrl to the exact original source URL; keep it out of body prose. No featured image URL or image prompt.
@@ -97,14 +98,14 @@ export const EDITORIAL_SCHEMAS = {
   }) },
 } satisfies Record<string, LlmJsonSchema>;
 
-export async function requestEditorialJson(client: Pick<FoundryClient, 'chatBulk'>, system: string, input: unknown, tokens: number, schema: LlmJsonSchema): Promise<Record<string, unknown>> {
+export async function requestEditorialJson(client: Pick<FoundryClient, 'chatBulk'>, system: string, input: unknown, tokens: number, schema: LlmJsonSchema, timeoutMs?: number): Promise<Record<string, unknown>> {
   const messages = [{ role: 'system' as const, content: system }, { role: 'user' as const, content: JSON.stringify(input) }];
   let raw: string;
-  try { raw = await client.chatBulk(messages, tokens, undefined, 'low', schema); }
+  try { raw = await client.chatBulk(messages, tokens, timeoutMs, 'low', schema); }
   catch (error) {
     if (!(error instanceof AiOutputLimitError)) throw error;
     console.warn('[Publishing] Structured output reached its token limit; retrying once with a bounded larger output allowance.');
-    try { raw = await client.chatBulk(messages, tokens * OUTPUT_RETRY_MULTIPLIER, undefined, 'low', schema); }
+    try { raw = await client.chatBulk(messages, tokens * OUTPUT_RETRY_MULTIPLIER, timeoutMs, 'low', schema); }
     catch (retryError) {
       if (!(retryError instanceof AiOutputLimitError)) throw retryError;
       throw new IntegrationError('editorial', 'The model could not finish the draft within its output allowance. Your saved draft is unchanged. Edit it or request another review.');
@@ -193,10 +194,10 @@ function passageWrapper(value: string): string {
   }
   return block ? `${block[1]}${block[PARAGRAPH_CLOSE_GROUP]}` : '';
 }
-export function applyEditorialEdits(destination: Draft['destination'], content: Record<string, unknown>, value: unknown): Record<string, unknown> {
+export function applyEditorialEdits(destination: Draft['destination'], content: Record<string, unknown>, value: unknown, additionalFields: readonly string[] = []): Record<string, unknown> {
   const response = object(value);
   if (!Array.isArray(response.edits) || !response.edits.length) throw new ValidationError('Editorial repair returned no passage edits. The saved draft is unchanged.');
-  const allowed = destination === 'blog' ? ['title', 'slug', 'excerpt', 'summary', 'content', 'keyTakeaways', 'twitterCopy'] : ['copy'];
+  const allowed = [...(destination === 'blog' ? ['title', 'slug', 'excerpt', 'summary', 'content', 'keyTakeaways', 'twitterCopy'] : ['copy']), ...additionalFields];
   const replacements: Array<{ field: string; index: number | null; start: number; end: number; after: string }> = [];
   for (const input of response.edits) {
     const edit = object(input);
@@ -204,8 +205,14 @@ export function applyEditorialEdits(destination: Draft['destination'], content: 
       || !edit.before.trim() || typeof edit.after !== 'string' || edit.before === edit.after) {
       throw new ValidationError('Editorial repair returned an invalid or unchanged passage. The saved draft is unchanged.');
     }
-    const wrapper = passageWrapper(edit.before);
-    if (edit.after !== '' && wrapper !== passageWrapper(edit.after)) throw new ValidationError('Editorial repair changed paragraph structure. The saved draft is unchanged.');
+    let wrapper: string;
+    try {
+      wrapper = passageWrapper(edit.before);
+      if (edit.after !== '' && wrapper !== passageWrapper(edit.after)) throw new ValidationError('Editorial repair changed paragraph structure. The saved draft is unchanged.');
+    } catch (error) {
+      if (!(error instanceof ValidationError)) throw error;
+      throw new ValidationError(`${edit.field} (${edit.before.slice(0, ERROR_PASSAGE_PREVIEW_LENGTH)}): ${error.message}`);
+    }
     const before = edit.before;
     const field = content[edit.field];
     const values: unknown[] = Array.isArray(field) ? field : [field];
@@ -226,15 +233,19 @@ export function applyEditorialEdits(destination: Draft['destination'], content: 
     }
     replacements.push(replacement);
   }
+  if (!replacements.length) throw new ValidationError('Editorial repair returned no usable passage edits. The saved draft is unchanged.');
   const revised = { ...content };
   for (const edit of replacements.sort((a, b) => b.start - a.start)) {
     const field = revised[edit.field];
     const current: unknown = edit.index === null ? field : Array.isArray(field) ? field[edit.index] : undefined;
     if (typeof current !== 'string') throw new ValidationError('Editorial repair targeted a non-text field. The saved draft is unchanged.');
     const patched = current.slice(0, edit.start) + edit.after + current.slice(edit.end);
-    if (!patched.trim()) throw new ValidationError('Editorial repair removed a required passage. The saved draft is unchanged.');
+    if (!patched.trim() && edit.index === null) throw new ValidationError('Editorial repair removed a required passage. The saved draft is unchanged.');
     if (edit.index === null) revised[edit.field] = patched;
     else if (Array.isArray(field)) revised[edit.field] = field.map((item: unknown, index: number) => index === edit.index ? patched : item);
+  }
+  for (const [field, value] of Object.entries(revised)) {
+    if (Array.isArray(value)) revised[field] = value.filter(item => item !== '');
   }
   return revised;
 }

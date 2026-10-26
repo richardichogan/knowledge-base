@@ -5438,7 +5438,7 @@ body.kh-pane-resizing {
   // Capped at a readable measure at every window width. This previously
   // released the cap entirely above 1400px, which on a wide monitor gave
   // roughly 130 characters per line — well past comfortable reading.
-  max-width: 780px;
+  max-width: 858px;
   margin: 0 auto;
 
   .bn-editor {
@@ -15347,10 +15347,10 @@ fieldset.proj-modal-body {
 }
 .kh-document-view > .kh-document-view__hint { margin-inline-start: 8px; }
 .notes-editor-centre > .kh-document-view { padding: 8px 24px 0; }
-// Note column geometry: .notes-editor-scroll pads 24px, .notes-editor-inner caps at 780px centred, BlockNote insets text 54px.
+// Note column geometry: .notes-editor-scroll pads 24px, .notes-editor-inner caps at 858px centred, BlockNote insets text 54px.
 // The MD/HTML toggle and both HTML views share that text column so switching views never shifts width or left edge.
-.notes-editor-lock > .kh-document-view { box-sizing: border-box; padding: 8px 24px 0 calc(max(24px, (100% - 780px) / 2) + 54px); }
-.notes-editor-scroll > .kh-design-visual-host { box-sizing: border-box; max-width: 780px; margin: 0 auto; padding-inline: 54px; }
+.notes-editor-lock > .kh-document-view { box-sizing: border-box; padding: 8px 24px 0 calc(max(24px, (100% - 858px) / 2) + 54px); }
+.notes-editor-scroll > .kh-design-visual-host { box-sizing: border-box; max-width: 858px; margin: 0 auto; padding-inline: 54px; }
 .notes-editor-inner > .kh-document-review { padding-inline: 54px; }
 .kh-document-html {
   min-width: 0;
@@ -15448,8 +15448,6 @@ fieldset.proj-modal-body {
 .kh-design-visual__panel { padding: 16px; border: 1px solid var(--cds-border-subtle-01); border-radius: var(--kh-radius-md); }
 .kh-design-visual__panel h3 { margin-top: 0; }
 .kh-design-visual__panel--proposal { border-color: var(--kh-accent-border); }
-.kh-design-visual__regenerate > summary { font-size: var(--kh-text-body); }
-.kh-design-visual__regenerate[open] > summary { margin-bottom: 8px; }
 .kh-design-feedback__status { color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
 .kh-design-dock {
   margin: 0; padding: 12px 0;
@@ -15499,7 +15497,7 @@ fieldset.proj-modal-body {
 .kh-design-spec-action {
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 12px;
   p { margin: 0; color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
-  &--footer { max-width: 780px; margin: 32px auto 24px; padding: 16px 0 0; border-top: 1px solid var(--cds-border-subtle-01); }
+  &--footer { max-width: 858px; margin: 32px auto 24px; padding: 16px 0 0; border-top: 1px solid var(--cds-border-subtle-01); }
 }
 .kh-job-notice {
   position: fixed; right: 24px; bottom: 24px; z-index: 9000; width: min(380px, calc(100vw - 48px));

@@ -1,7 +1,7 @@
 import { ValidationError } from '../types/errors.js';
 export const JOB_LIMITS = {
   path: 2048, name: 200, timezone: 100, weekdays: 7, lastWeekday: 6, times: 8, prompt: 16000,
-  evidenceExcerpt: 5000, promptTokens: 6000, packageTokens: 8000, socialCopy: 1000, linkedinCopy: 2700,
+  evidenceExcerpt: 5000, promptTokens: 6000, packageTokens: 20000, socialCopy: 1000, linkedinCopy: 2700,
   markdown: 100000, dateChars: 10, slackText: 50000, slackTimeoutMs: 15000, workers: 2,
   serverErrorStatus: 500, requestTimeoutStatus: 408, historyOffset: 1000000, status: 50,
   dateInput: 40, folderCount: 100, deviceError: 2000, report: 250000,

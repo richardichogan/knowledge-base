@@ -791,6 +791,57 @@ between sessions. Browser Autocue saves text size and microphone sensitivity in
 that browser's local storage; blocked storage shows an error. These preferences
 are not cross-device sync and do not resume playback or a previous scroll position.
 
+## Blueprint regeneration and navigation
+
+Notes, specs, use cases and Blueprints share an 858px maximum column width
+(10% wider than the previous 780px), shrinking to fit narrower editor panes.
+
+The Blueprint's **Regenerate Blueprint** button and optional direction field
+are always visible above its preview, without a collapsed section. Regeneration remains
+explicit and preserves the previous revision in history. Decision links scroll
+within the embedded Blueprint without navigating away from the preview.
+
+## Scheduled sync and weekly editorial review
+
+A completed content sync with individual source errors is shown as **Succeeded
+with source errors**, retaining per-source counts and diagnostics. Total source
+failure still fails the job. Older completed partial-sync runs use the same
+display label without rewriting their original audit records.
+
+The weekly Microsoft job selects important, dated Microsoft updates from the
+reporting week, reads their source pages, and validates claims before writing.
+Unreadable or unverified sources are excluded with explicit source-gap records;
+undated search results are not assigned an invented publication date.
+The article is primarily a factual update list with brief commentary, not a
+forced narrative. Factual enumerations and quoted source wording are preserved.
+
+The job reviews its exact outgoing blog, Slack and social
+package for accuracy and voice using standing preferences and the weekly job's
+saved instructions (not unrelated Discover feed policies). It applies only passage-level repairs, then repeats both reviews,
+with the same two-revision limit as Discover publishing. Each version and its
+findings are retained in the job artifacts and audit. An unresolved review
+holds delivery; approval cannot bypass it. Think and chat receive the reviewed
+blog rather than the rejected initial draft. Retrying preserves completed
+generation and resumes editorial review instead of discarding the draft.
+The writer's Markdown fields are canonical: the blog HTML and saved CMS document
+are rendered from them, not rewritten by another model. Metadata findings can
+be repaired explicitly. Repairs replace only an exact phrase or single sentence.
+Valid edits are retained; rejected edits receive one targeted correction attempt
+against the updated text, without regenerating the article or accepted edits.
+Remaining rejected edits stay in the audit; both reviewers then check the actual
+saved text. Only their genuine pass, plus deterministic validation, clears delivery.
+After a repair, accuracy checks the whole package; voice resolves its existing
+findings and checks the exact changed passages, without reopening untouched prose.
+Both accuracy and voice remain mandatory after every repair. Incomplete model
+responses fail before review. Slack text is a separate internal digest of the
+same evidence and remains available to copy when Slack delivery is disabled.
+
+`AZURE_OPENAI_ENDPOINT_STANDARD` and `AZURE_OPENAI_API_KEY_STANDARD` optionally
+route the standard chat slot separately from the main embedding/light endpoint.
+Weekly generation and structured editorial calls use the GPT54 endpoint/key
+and `AZURE_OPENAI_DEPLOYMENT_SCREEN_READ` bulk deployment. The latter must
+support Chat Completions with strict JSON schemas and reasoning effort.
+
 ## IMAGINE demo specifications
 
 Open the source Think note, discuss the use case with its Athena side-panel chat,

@@ -19,6 +19,7 @@ export type ArtifactMessage =
   | { type: 'comment'; comment: VisualComment }
   | { type: 'answer'; answer: VisualAnswer }
   | { type: 'height'; height: number }
+  | { type: 'jump'; top: number }
   | { type: 'ready' };
 const keysAre = (value: Record<string, unknown>, keys: string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every(key => key in value);
@@ -41,6 +42,10 @@ export function readArtifactMessage(data: unknown, artifact: DesignArtifact, tok
     case 'height': {
       const height = value['height'];
       return keysAre(value, [...base, 'type', 'height']) && typeof height === 'number' && Number.isFinite(height) && height > 0 && height <= 20000 ? { type: 'height', height } : null;
+    }
+    case 'jump': {
+      const top = value['top'];
+      return keysAre(value, [...base, 'type', 'top']) && typeof top === 'number' && Number.isFinite(top) && top >= 0 && top <= 20000 ? { type: 'jump', top } : null;
     }
     case 'annotate': {
       if (!keysAre(value, [...base, 'type', 'elementId', 'selection']) || typeof value['selection'] !== 'string' || value['selection'].length > 8000) return null;
@@ -121,7 +126,7 @@ export const DesignVisual: React.FC<{
   const html = useMemo(() => {
     if (!artifact) return '';
     // Seamless embed: content sits on the note column; once the bridge reports height the frame grows and stops scrolling itself.
-    const seamless = authored ? '<style>body{padding:0 0 16px;max-width:none}</style><script>addEventListener("load",()=>{document.documentElement.style.overflow="hidden"})</script>' : '';
+    const seamless = authored ? '<style>html body{padding:0 0 16px;max-width:none}</style><script>addEventListener("load",()=>{document.documentElement.style.overflow="hidden"})</script>' : '';
     return artifact.html.replace('<head>', `<head><meta name="athena-session" content="${token}">${seamless}`);
   }, [artifact, authored, token]);
   const [frameHeight, setFrameHeight] = useState<number | null>(null);
@@ -192,6 +197,16 @@ export const DesignVisual: React.FC<{
       if (!message) return;
       if (message.type === 'ready') setFrameReady(true);
       else if (message.type === 'height') setFrameHeight(Math.max(360, Math.ceil(message.height)));
+      else if (message.type === 'jump') {
+        const host = frame.current;
+        if (!host) return;
+        // Scroll the note's own scroll container so the target section sits at the top of the view.
+        let scroller: HTMLElement | null = host.parentElement;
+        while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (scroller) scroller.scrollTo({ top: scroller.scrollTop + host.getBoundingClientRect().top - scroller.getBoundingClientRect().top + message.top - 16, behavior: reduce ? 'auto' : 'smooth' });
+        else window.scrollTo({ top: window.scrollY + host.getBoundingClientRect().top + message.top - 16, behavior: reduce ? 'auto' : 'smooth' });
+      }
       else if (message.type === 'answer') answerRef.current(message.answer);
       else if (message.type === 'comment') commentRef.current(message.comment);
       else {
@@ -315,7 +330,9 @@ export const DesignVisual: React.FC<{
       <p className="kh-design-hint" role="status" aria-live="polite">{progress[progress.length - 1] ?? 'You can leave this page. You\'ll be notified when it\'s done.'}</p>
       {!!progress.length && <ol>{progress.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ol>}
     </section>}
-    {state.stale && !agentJob && <p className="kh-uc-error" role="alert">{state.sourceError ?? 'The spec has changed since this Blueprint was made. The Blueprint stays as it is until you choose Regenerate Blueprint below.'}</p>}
+    {state.stale && !agentJob && <p className="kh-uc-error" role="alert">{state.sourceError ?? 'The spec has changed since this Blueprint was made. The Blueprint stays as it is until you choose Regenerate Blueprint.'}</p>}
+    {artifact && <section className="kh-design-visual__regenerate" aria-label="Regenerate the Blueprint">
+      <p className="kh-design-hint">Creates a new revision from the current spec. Revision {artifact.revision} stays in history.</p>{brief}</section>}
     {draftError && <p className="kh-uc-error" role="alert">{draftError}</p>}
     {error && <p className="kh-uc-error" role="alert">{describeApiError(error)}</p>}
     {state.proposal && <section className="kh-design-visual__panel kh-design-visual__panel--proposal" aria-label="Athena's proposed spec changes">
@@ -402,7 +419,5 @@ export const DesignVisual: React.FC<{
           onClick={() => { queue.mutate(); }}>{queue.isPending ? 'Adding...' : 'Add to queue'}</button>
       </div>
     </section>}
-    {artifact && <details className="kh-design-visual__regenerate"><summary>Regenerate the Blueprint</summary>
-      <p className="kh-design-hint">Creates a new revision from the current spec. Revision {artifact.revision} stays in history.</p>{brief}</details>}
   </div>;
 };

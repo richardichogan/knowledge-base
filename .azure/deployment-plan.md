@@ -2,6 +2,39 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-26, facts-first weekly recovery):**
+- Application-only update to the existing Container App and Static Web App.
+  Preserve publication approval and disabled Slack delivery. Switch standard
+  and GPT54 model routes to the user-supplied Foundry project using the existing
+  `foundry-imagine-api-key` secret reference; retain the main embedding/light route.
+- All validation checks pass:
+  - [x] Both TypeScript checks and production builds passed.
+  - [x] Backend lint non-regression: 552/623; frontend: 22/41.
+  - [x] Initial backend release run: 595/601, with six memory-pressure failures;
+    the failed files and publishing duplicate-intake case passed isolated reruns.
+    Frontend: 227/228 plus all nine bundled fixture groups; the failed
+    project-options file passed its isolated rerun. No full-suite restart.
+  - [x] Changed weekly evidence, model contracts, canonical package, protected
+    phrase edits, mandatory reviews and approval guards passed focused tests.
+    The changed review fixture expectation passed its single-test rerun.
+  - [x] Actual run `b606d208-dd3f-4416-abf7-cde65488ed0a` completed discovery,
+    source reading, facts validation, writing, agent review, Think and chat.
+    Persisted at 11:04 UTC as `awaiting-approval`, with genuine accuracy/voice
+    pass and empty validation/style findings. Repairs reused the saved article.
+  - [x] `git diff --check` passed; origin/main is already contained in HEAD.
+- Azure CLI confirmed backend v253, ready revision 0000250, identity None,
+  and existing kh-prod-web. No provisioning, migrations, dependencies or RBAC
+  changes; Bicep/what-if and new role assignments are not applicable.
+- Change-for-fit review: uses existing managed jobs, reading helpers and marked;
+  preserves ACA/SWA hosting and approval contracts; bounded evidence calls add
+  necessary source-validation cost without new dependencies; schema guards and
+  exact-edit checks retain typing. Credential-like diff signals are test fixtures,
+  and the migration signal is an existing test import, not a schema change.
+  Production keys stay in secret references. The smallest safe change keeps one
+  canonical article and repairs it rather than adding another rewriting pipeline.
+- Earlier requested Jobs, note-width and Blueprint navigation fixes are included.
+  Preserve unrelated `.impeccable/hook.cache.json`.
+
 **Release scope and Section 7: Validation Proof (2026-10-25, Athena edits, health and stable Notes shell):**
 - User requested fixes, deployment, merge and remote push. Application-only
   release to the existing production targets; no provisioning or access changes.

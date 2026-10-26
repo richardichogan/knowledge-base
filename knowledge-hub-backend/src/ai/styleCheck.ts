@@ -7,7 +7,8 @@ const plain = (html: string): string => html.replace(/<[^>]*>/g, ' ').replace(/&
 
 /** Replaces em/en dashes used as punctuation with commas; number ranges become "to". */
 export function fixDashes(text: string): string {
-  return text.split(/(<[^>]*>)/g).map(part => part.startsWith('<') ? part : part
+  return text.split(/(<a\b[^>]*>[\s\S]*?<\/a>|<blockquote\b[^>]*>[\s\S]*?<\/blockquote>|<q\b[^>]*>[\s\S]*?<\/q>|<[^>]*>|"[^"\n]+"|“[^”\n]+”|‘[^’\n]+’)/gi)
+    .map(part => /^(?:<|"|“|‘)/.test(part) ? part : part
     .replace(/(\d)\s*[–—]\s*(\d)/g, '$1 to $2')
     .replace(/\s*[—–]\s*([.,;:!?)])/g, '$1')
     .replace(/(^|[>(\n])\s*[—–]\s*/g, '$1')
@@ -44,8 +45,19 @@ const TROPES: Array<{ label: string; pattern: RegExp }> = [
 
 /** Returns every banned trope found in the given texts (HTML is stripped), each with the offending words quoted. */
 export function findTropes(...texts: string[]): string[] {
-  return [...new Set(texts.flatMap(text => text.split(/<\/(?:p|h[1-6]|li)>/i)).flatMap(text => TROPES.flatMap(t =>
+  // Citation labels are source titles, not authored prose. Do not rewrite them to satisfy house style.
+  return [...new Set(texts.map(text => text
+    .replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, ' citation ')
+    .replace(/\[[^\n]*?\]\(https?:\/\/[^)\s]+\)/g, ' citation ')
+    .replace(/<blockquote\b[^>]*>[\s\S]*?<\/blockquote>|<q\b[^>]*>[\s\S]*?<\/q>/gi, ' quotation ')
+    .replace(/"[^"\n]+"|“[^”\n]+”|‘[^’\n]+’/g, ' quotation '))
+    .flatMap(text => text.split(/<\/(?:p|h[1-6]|li)>|\n\s*\n/i)).flatMap(text => TROPES.flatMap(t =>
     [...plain(text).matchAll(new RegExp(t.pattern.source, `${t.pattern.flags}g`))]
       .map(m => `${t.label}: "${m[0].trim()}"`),
   )))];
+}
+
+/** A factual roundup needs enumerations; the voice reviewer judges rhetoric in context. */
+export function findWeeklyTropes(...texts: string[]): string[] {
+  return findTropes(...texts).filter(finding => !finding.startsWith('triplet list:'));
 }

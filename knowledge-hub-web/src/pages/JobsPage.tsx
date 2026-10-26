@@ -3,7 +3,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Add, CalendarTools, ChevronRight, OverflowMenuVertical } from '@carbon/icons-react';
 import { AppDialog } from '../components/AppDialog';
 import { JobArtifacts, JobSummary } from '../components/jobs/JobReview';
-import { jobKinds, outputNames, scheduleLabel, statusLabel } from '../components/jobs/jobPresentation';
+import { jobKinds, outputNames, scheduleLabel, statusLabel, runStatusLabel } from '../components/jobs/jobPresentation';
 import { api } from '../services/api';
 import { describeApiError } from '../services/apiError';
 import { confirmDialog } from '../services/appDialogs';
@@ -155,6 +155,11 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
               {menu === job.id && <div className="kh-jobs__menu" id={`job-actions-${job.id}`} role="group" aria-label={`Actions for ${d.name}`}
                 onClick={() => { setMenu(null); menuTrigger.current?.focus(); }}>
                 <button type="button" onClick={() => discuss(job)}>Design with Athena</button>
+                {job.enabled && <button type="button" disabled={busy} onClick={() => { void act(async () => {
+                  if (await confirmDialog('Run this job now with its saved settings? It goes through editorial review and approval exactly like a scheduled run, then delivers to its saved destinations.', { title: d.name, confirmLabel: 'Run now' })) {
+                    setView(await api.jobs<JobRun>(`/${job.id}/run`, 'POST', { preview: false }));
+                  }
+                }); }}>Run now</button>}
                 <button type="button" disabled={busy} onClick={() => { void act(async () => setView(await api.jobs<JobRun>(`/${job.id}/run`, 'POST', { preview: true }))); }}>Preview output</button>
                 <button type="button" onClick={() => { filterJob(job.id); setTab('runs'); }}>Run history</button>
                 {job.enabled && <button type="button" disabled={busy} onClick={() => { void act(() => api.jobs(`/${job.id}/pause`, 'POST', {})); }}>Pause schedule</button>}
@@ -176,7 +181,7 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
       </div>
       {tab === 'runs' ? <>
       <div className="kh-jobs__runs">{runs.map(run => <button className="kh-jobs__run" type="button" key={run.id} onClick={() => { setReconcile(''); setView(run); }}>
-        <strong>{run.definition.name}{run.preview ? ' (preview)' : ''}</strong><span className="kh-jobs__status">{statusLabel(run.status)}</span><span>{date(run.scheduledAt)} · v{run.revision}</span>
+        <strong>{run.definition.name}{run.preview ? ' (preview)' : ''}</strong><span className="kh-jobs__status">{runStatusLabel(run)}</span><span>{date(run.scheduledAt)} · v{run.revision}</span>
       </button>)}</div>
       {!runs.length && <div className="kh-jobs__empty"><h3>No runs to show</h3><p>{selected || status || from ? 'Try a different job, status or date.' : 'Scheduled runs and previews will appear here, along with anything needing approval.'}</p></div>}
       {(offset > 0 || runs.length >= 25) && <div className="kh-jobs__actions"><button type="button" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - 25))}>Newer</button>
@@ -245,11 +250,11 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
         {error && <p role="alert" className="kh-jobs__error">{error}</p>}
       </div>
     </AppDialog>}
-    {view && <AppDialog title={`${view.definition.name} — ${statusLabel(view.status)}`} settings onClose={closeRun} actions={<>
+    {view && <AppDialog title={`${view.definition.name} — ${runStatusLabel(view)}`} settings onClose={closeRun} actions={<>
       <button className="kh-dialog__button" type="button" onClick={() => { void act(async () => setView(await api.jobs<JobRun>(`/runs/${view.id}`))); }}>Refresh</button>
       {view.status === 'awaiting-approval' && <><button className="kh-dialog__button" disabled={busy} type="button" onClick={() => { void act(async () => setView(await api.jobs<JobRun>(`/runs/${view.id}/decision`, 'POST', { approve: false }))); }}>Reject</button>
         <button className="kh-dialog__button kh-dialog__button--primary" disabled={busy} type="button" onClick={() => { void act(async () => setView(await api.jobs<JobRun>(`/runs/${view.id}/decision`, 'POST', { approve: true }))); }}>Approve shown content</button></>}
-      {['failed', 'partial'].includes(view.status) && <button className="kh-dialog__button" disabled={busy} type="button" onClick={() => { void act(async () => { await api.jobs(`/runs/${view.id}/retry`, 'POST', {}); setView(await api.jobs<JobRun>(`/runs/${view.id}`)); }); }}>Retry failed steps</button>}
+      {['failed', 'partial'].includes(view.status) && <button className="kh-dialog__button" disabled={busy} type="button" onClick={() => { void act(async () => { await api.jobs(`/runs/${view.id}/retry`, 'POST', {}); setView(await api.jobs<JobRun>(`/runs/${view.id}`)); }); }}>Re-run</button>}
     </>}>
       <div className="kh-jobs"><JobSummary definition={view.definition} /><p>Occurrence: {date(view.scheduledAt)} · Version {view.revision} · {view.preview ? 'Preview — no delivery' : 'Live run'}</p>
         {view.status === 'awaiting-approval' && <p>Approve the exact payloads below. The confirmed public blog URL will be appended to the shown social copy after blog publication.</p>}

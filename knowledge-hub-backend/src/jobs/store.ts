@@ -147,6 +147,9 @@ export async function decideRun(db: Pool, id: string, approve: boolean, actor: s
     const run = await getRun(c, id);
     const job = await getJob(c, run.jobId);
     if (run.status !== 'awaiting-approval' || job.revision !== run.revision || !job.enabled) throw new ConflictError('Approval is no longer current or the job is paused.');
+    if (approve && run.definition.kind === 'weekly-microsoft' && run.artifacts.editorialOutcome !== 'pass') {
+      throw new ConflictError('The weekly update must pass editorial review before it can be approved.');
+    }
     const r = await c.query(`UPDATE managed_job_runs SET approved_at=CASE WHEN $2 THEN NOW() ELSE NULL END,
       status=CASE WHEN $2 THEN 'queued' ELSE 'rejected' END,updated_at=NOW() WHERE id=$1 AND status='awaiting-approval' RETURNING id`, [id, approve]);
     if (!r.rowCount) throw new ConflictError('This decision was already handled.');

@@ -12,7 +12,10 @@ process.env.DATABASE_URL = 'postgresql://isolated.invalid/jobs';
 process.env.BLOG_POSTS_API_KEY = 'fixture-not-a-secret';
 process.env.BLOG_POSTS_URL = 'https://blog.fixture.invalid/posts';
 const store = await import('../src/jobs/store.js');
-const { executeRun, step, UnconfirmedDelivery } = await import('../src/jobs/runner.js');
+const { executeRun, step, UnconfirmedDelivery, completedSyncWithSourceErrors } = await import('../src/jobs/runner.js');
+const { reviewWeeklyJob } = await import('../src/jobs/editorial.js');
+const { materializeWeeklyPackage, parseWeeklyPackage } = await import('../src/jobs/weeklyPackage.js');
+const { applyEditorialEdits } = await import('../src/publishing/editorial.js');
 const { env } = await import('../src/config/env.js');
 const migration = readFileSync(new URL('../src/db/migrations/099_managed_jobs.sql', import.meta.url), 'utf8');
 const definition = (overrides: Partial<JobDefinition> = {}): JobDefinition => ({
@@ -34,6 +37,183 @@ async function fixture(): Promise<{ pg: PGlite; db: Pool }> {
   return { pg, db };
 }
 
+test('sync completion preserves partial source success but not a total outage', () => {
+  const result = { totalIndexed: 1799, totalErrors: 11, totalDurationMs: 100,
+    results: [{ source: 'feeds', indexed: 16, errors: 2, durationMs: 50 }, { source: 'cms', indexed: 94, errors: 0, durationMs: 50 }] };
+  assert.equal(completedSyncWithSourceErrors(result), true);
+  assert.equal(completedSyncWithSourceErrors({ ...result, totalIndexed: 0 }), true);
+  assert.equal(completedSyncWithSourceErrors({ ...result, totalIndexed: 0, results: [{ source: 'feeds', indexed: 0, errors: 2, durationMs: 50 }] }), false);
+  assert.equal(completedSyncWithSourceErrors({ ...result, totalErrors: 0 }), false);
+});
+test('weekly editorial checks repair only the flagged passage and re-review the exact outgoing package', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const content = 'In plain terms, Microsoft updated Azure.\n\nRead [the source](https://example.com/source).';
+    const packageData = { title: 'Azure update', summary: 'Microsoft updated Azure.', excerpt: 'An Azure update.',
+      bodyMarkdown: content, categories: ['Microsoft Azure'], tags: ['Azure'], keyTakeaways: ['Azure has changed.'],
+      slug: 'azure-update', imagePrompt: 'An Azure illustration.', featuredImageUrl: 'None available, use the image prompt',
+      linkedin: 'Microsoft updated Azure.', twitterCopy: 'Microsoft updated Azure.', postType: 'weekly', status: 'published' };
+    const markdown = String(materializeWeeklyPackage(packageData).markdown);
+    const saved: Array<{ content: Record<string, unknown>; outcome: string }> = [];
+    const calls: string[] = [];
+    const passed = await reviewWeeklyJob(db, { blog: packageData, markdown, sources: [{ title: 'Azure update', summary: 'Microsoft updated Azure.' }], slackText: 'Microsoft updated Azure.' },
+      'Preserve links.', async (value, review) => { saved.push({ content: value, outcome: review.outcome }); }, {
+        preferences: async () => 'Use British English.',
+        chat: async (system, input, _tokens, schema) => {
+          calls.push(schema.name);
+          assert.match(system, /Preserve links/);
+          if (schema.name === 'editorial_passage_edits') return { edits: [{ field: 'bodyMarkdown',
+            before: 'In plain terms, Microsoft updated Azure.', after: 'Microsoft updated Azure.' }] };
+          assert.ok(input && typeof input === 'object' && 'content' in input);
+          const reviewInput = input as { previousReview?: unknown; content?: unknown; repairedPassages?: unknown[] };
+          if (system.includes('Perform the voice') && reviewInput.previousReview) {
+            assert.equal(reviewInput.content, undefined);
+            assert.ok(reviewInput.repairedPassages?.length);
+            assert.deepEqual(reviewInput.repairedPassages, [
+              { field: 'bodyMarkdown', before: 'In plain terms, Microsoft', after: 'Microsoft' },
+            ]);
+          }
+          return { outcome: 'pass', findings: [] };
+        },
+      });
+    assert.equal(passed, true);
+    assert.deepEqual(calls, ['editorial_review', 'editorial_review', 'editorial_passage_edits', 'editorial_review', 'editorial_review']);
+    assert.deepEqual(saved.map(item => item.outcome), ['revise', 'pass']);
+    assert.equal(saved[0]!.content.bodyMarkdown, content);
+    assert.equal(saved[1]!.content.content, '<p>Microsoft updated Azure.</p>\n<p>Read <a href="https://example.com/source">the source</a>.</p>\n');
+    assert.equal(saved[1]!.content.slackText, 'Microsoft updated Azure.');
+    assert.deepEqual(saved[1]!.content.tags, ['Azure']);
+    assert.equal(saved[1]!.content.markdown, markdown.replace('In plain terms, ', ''));
+  } finally { await pg.close(); }
+});
+test('weekly editorial hold retains draft and findings without attempting a rewrite', async () => {
+  const { pg, db } = await fixture();
+  try {
+    let calls = 0;
+    let outcome = '';
+    const passed = await reviewWeeklyJob(db, { markdown: 'Microsoft updated Azure.', sources: [] }, '',
+      async (content, review) => { assert.equal(content.content, 'Microsoft updated Azure.'); outcome = review.outcome; }, {
+        preferences: async () => '',
+        chat: async () => { calls++; return { outcome: 'hold', findings: ['The source does not establish availability.'] }; },
+      });
+    assert.equal(passed, false);
+    assert.equal(calls, 2);
+    assert.equal(outcome, 'hold');
+  } finally { await pg.close(); }
+});
+test('weekly editorial stops after two passage repair rounds', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const outcomes: string[] = [];
+    let repairs = 0;
+    const passed = await reviewWeeklyJob(db, { markdown: 'Original wording.', sources: [] }, '',
+      async (_content, review) => { outcomes.push(review.outcome); }, {
+        preferences: async () => '',
+        chat: async (_system, input, _tokens, schema) => {
+          if (schema.name !== 'editorial_passage_edits') return { outcome: 'revise', findings: ['Clarify the saved passage.'] };
+          const content = (input as { content: { content: string } }).content.content;
+          return { edits: [{ field: 'content', before: content, after: `Repaired wording ${++repairs}.` }] };
+        },
+      });
+    assert.equal(passed, false);
+    assert.equal(repairs, 2);
+    assert.deepEqual(outcomes, ['revise', 'revise', 'revise']);
+  } finally { await pg.close(); }
+});
+test('weekly voice findings remain blocking after the first repair', async () => {
+  const { pg, db } = await fixture();
+  try {
+    let repairs = 0;
+    const passed = await reviewWeeklyJob(db, { markdown: 'Original wording.', sources: [] }, '', async () => {}, {
+      preferences: async () => '',
+      chat: async (system, input, _tokens, schema) => {
+        if (schema.name === 'editorial_passage_edits') return { edits: [{ field: 'content',
+          before: (input as { content: { content: string } }).content.content, after: `Edited wording ${++repairs}.` }] };
+        return system.includes('Perform the voice')
+          ? { outcome: 'revise', findings: ['Invented personal experience.'] } : { outcome: 'pass', findings: [] };
+      },
+    });
+    assert.equal(passed, false);
+    assert.equal(repairs, 2);
+  } finally { await pg.close(); }
+});
+test('rejected no-op repairs are recorded and only genuine subsequent reviews can pass', async () => {
+  const { pg, db } = await fixture();
+  try {
+    for (const remainsInvalid of [false, true]) {
+      let reviews = 0;
+      const diagnostics: string[] = [];
+      const passed = await reviewWeeklyJob(db, { markdown: 'Original wording.', sources: [] }, '',
+        async (_content, review) => { diagnostics.push(...review.repairErrors ?? []); }, {
+          preferences: async () => '',
+          chat: async (_system, _input, _tokens, schema) => {
+            if (schema.name === 'editorial_passage_edits') return {
+              edits: [{ field: 'content', before: 'Original wording.', after: 'Original wording.' }],
+            };
+            return ++reviews <= 2 || remainsInvalid
+              ? { outcome: 'revise', findings: ['Review the saved wording.'] }
+              : { outcome: 'pass', findings: [] };
+          },
+        });
+      assert.equal(passed, !remainsInvalid);
+      assert.ok(diagnostics.some(message => message.includes('unchanged passage')));
+      assert.ok(reviews >= 4);
+    }
+  } finally { await pg.close(); }
+});
+test('weekly CMS parser preserves multiline prose and rejects missing or duplicate sections', () => {
+  const fields = { title: 'Azure update', slug: 'azure-update', featuredImageUrl: 'None available', imagePrompt: 'An illustration.',
+    bodyMarkdown: 'Opening paragraph.\n\n### Azure\n\nAnother paragraph with [source](https://example.com).',
+    excerpt: 'Preview.', summary: 'Summary.', keyTakeaways: ['First insight.', 'Second insight.'], categories: ['Microsoft Azure'],
+    tags: ['Azure'], linkedin: 'LinkedIn copy.', twitterCopy: 'Twitter copy.' };
+  const rendered = materializeWeeklyPackage(fields);
+  const parsed = parseWeeklyPackage(String(rendered.markdown));
+  assert.deepEqual(parsed.keyTakeaways, fields.keyTakeaways);
+  assert.equal(parsed.bodyMarkdown, fields.bodyMarkdown);
+  assert.equal(parsed.content, rendered.content);
+  assert.throws(() => parseWeeklyPackage(String(rendered.markdown).replace('## Tags', '## Missing')), /missing Tags/);
+  assert.throws(() => parseWeeklyPackage(`${rendered.markdown}\n\n## Tags\nDuplicate`), /repeats Tags/);
+});
+test('weekly contradictory reviewer decisions require a corrected agent response', async () => {
+  const { pg, db } = await fixture();
+  try {
+    let calls = 0;
+    const passed = await reviewWeeklyJob(db, { markdown: 'Microsoft updated Azure.', sources: [] }, '',
+      async () => {}, {
+        preferences: async () => '',
+        chat: async (_system, input) => {
+          calls++;
+          return (input as { contractError?: string }).contractError
+            ? { outcome: 'pass', findings: [] }
+            : { outcome: 'pass', findings: ['The previous issue is resolved.'] };
+        },
+      });
+    assert.equal(passed, true);
+    assert.equal(calls, 4);
+  } finally { await pg.close(); }
+});
+test('weekly repairs can remove a flagged tag without silently accepting invalid edits', () => {
+  const content = { tags: ['Azure', 'Unsupported'], bodyMarkdown: 'Original paragraph.' };
+  const edit = { field: 'tags', before: 'Unsupported', after: '' };
+  assert.deepEqual(applyEditorialEdits('blog', content, { edits: [edit] }, ['tags']).tags, ['Azure']);
+  assert.throws(() => applyEditorialEdits('blog', content, { edits: [edit,
+    { field: 'bodyMarkdown', before: 'Nonexistent wording', after: 'Replacement.' }] }, ['tags', 'bodyMarkdown']), /exact saved passage/);
+  assert.deepEqual(content.tags, ['Azure', 'Unsupported']);
+});
+test('weekly approval cannot bypass a missing or unresolved editorial review', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const job = await store.saveJob(db, undefined, 0, definition({ kind: 'weekly-microsoft' }), true, 'user');
+    const run = await store.enqueue(db, job, new Date(), 'manual:weekly-review', false, 'user');
+    await pg.query("UPDATE managed_job_runs SET status='awaiting-approval' WHERE id=$1", [run.id]);
+    await assert.rejects(store.decideRun(db, run.id, true, 'user'), /editorial review/);
+    await pg.query("UPDATE managed_job_runs SET artifacts=$2 WHERE id=$1", [run.id, JSON.stringify({ editorialOutcome: 'hold' })]);
+    await assert.rejects(store.decideRun(db, run.id, true, 'user'), /editorial review/);
+    await pg.query("UPDATE managed_job_runs SET artifacts=$2 WHERE id=$1", [run.id, JSON.stringify({ editorialOutcome: 'pass' })]);
+    await store.decideRun(db, run.id, true, 'user');
+    assert.ok((await store.getRun(db, run.id)).approvedAt);
+  } finally { await pg.close(); }
+});
 test('job schedules use 06:00 and 13:00 UK with weekday and full-week choices', () => {
   const schedule = definition().schedule;
   assert.deepEqual(occurrences(schedule, new Date('2026-10-24T00:00Z'), new Date('2026-10-24T23:59Z')).map(d => d.toISOString()), ['2026-10-24T05:00:00.000Z', '2026-10-24T12:00:00.000Z']);

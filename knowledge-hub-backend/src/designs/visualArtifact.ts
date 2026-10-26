@@ -307,6 +307,7 @@ table{border-collapse:collapse;width:100%;margin:0 0 12px}th,td{border-bottom:1p
 .intro{padding:0 0 24px;margin:0 0 24px;border-bottom:1px solid var(--border)}.purpose{font-size:14px;color:var(--text2);max-width:72ch}
 .ask{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 16px;margin:16px 0 12px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:4px}
 .ask strong{font-weight:600}a{color:var(--link)}a:hover{color:var(--link-hover)}.ask a{color:var(--link);font-weight:600;text-decoration:none;border-bottom:1px solid currentColor}.ask a:hover{color:var(--link-hover)}.ask a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ask-jump{padding:0;border:0;border-bottom:1px solid currentColor;background:none;color:var(--link);font:600 14px/1.4 var(--sans);cursor:pointer}.ask-jump:hover{color:var(--link-hover)}.ask-jump:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .legend{display:flex;flex-wrap:wrap;gap:16px;margin:0;color:var(--text2);font-size:12px}.legend span{display:inline-flex;align-items:center;gap:8px}
 .swatch{width:12px;height:12px;border-radius:2px;border:2px solid var(--accent)}.swatch.you{border-color:var(--warn);border-style:dashed}.swatch.system{border-color:var(--border2)}
 [data-element]{position:relative;margin:0 0 32px;padding:0 0 8px;overflow-wrap:anywhere}
@@ -481,7 +482,13 @@ document.querySelectorAll('[data-walkthrough]').forEach((w,wi)=>{
  w.addEventListener('click',e=>{const b=e.target.closest('button[data-goto]');if(!b||!w.contains(b))return;const i=steps.findIndex(s=>s.dataset.step===b.dataset.goto);if(i>=0){show(i);steps[i].scrollIntoView({block:'nearest'});tabs[i].focus();}});
  w.prepend(bar,list);show(0);
 });
-document.querySelectorAll('nav.sections [data-jump]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.jump;const t=id==='athena-decisions'?document.getElementById(id):document.querySelector('section[data-element="'+CSS.escape(id)+'"]');if(t){t.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});const h=t.querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}));
+// The embedded frame is full height, so the host page performs the scroll; the frame only scrolls itself when standalone.
+const jumpTo=t=>{if(!t)return;const top=Math.max(0,Math.round(t.getBoundingClientRect().top+scrollY));
+ if(!post({type:'jump',top}))t.scrollIntoView({block:'start'});const h=t.querySelector('h2')||t;h.tabIndex=-1;h.focus({preventScroll:true});};
+const targetOf=id=>id==='athena-decisions'?document.getElementById(id):document.querySelector('section[data-element="'+CSS.escape(id)+'"]')||document.getElementById(id);
+// A srcdoc fragment resolves against the parent page URL and would replace the preview, so in-page links never navigate.
+document.addEventListener('click',e=>{const el=e.target&&e.target.closest&&e.target.closest('[data-jump],a[href^="#"]');if(!el)return;e.preventDefault();
+ jumpTo(targetOf(el.dataset.jump||el.getAttribute('href').slice(1)));});
 let lastSelection={region:null,text:''};
 const regionOf=n=>(n&&(n.nodeType===1?n:n.parentElement))?.closest('section[data-element]')||null;
 document.querySelectorAll('section[data-element]').forEach(region=>{
@@ -598,7 +605,7 @@ ${decision.options.map((option, optionIndex) => `<label class="option"><input ty
 <style>${CSS}</style></head><body>
 <header class="intro"><p class="kicker">Athena Blueprint · revision ${revision} · illustrative — nothing on this page publishes or saves</p>
 <h1>${escape(blueprint.title)}</h1><p class="purpose">${escape(blueprint.purpose)}</p>
-<div class="ask"><strong>What I need from you:</strong> <span>${escape(blueprint.ask)}</span>${count ? ` <a href="#athena-decisions">Go to the ${count} decision${count === 1 ? '' : 's'}</a>` : ''}</div>
+<div class="ask"><strong>What I need from you:</strong> <span>${escape(blueprint.ask)}</span>${count ? ` <button type="button" class="ask-jump" data-jump="athena-decisions">Go to the ${count} decision${count === 1 ? '' : 's'}</button>` : ''}</div>
 <p class="legend"><span><i class="swatch" aria-hidden="true"></i>Athena does this automatically</span><span><i class="swatch you" aria-hidden="true"></i>You decide or approve</span><span><i class="swatch system" aria-hidden="true"></i>Another system</span></p>
 <p class="hint">Click any text, box or diagram to comment. Comments go to your queue below the Blueprint.</p>
 </header>

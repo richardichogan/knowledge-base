@@ -1,4 +1,4 @@
-import type { JobDefinition } from '../../types/jobs';
+import type { JobDefinition, JobRun } from '../../types/jobs';
 
 export const jobKinds: Record<JobDefinition['kind'], string> = {
   prompt: 'Athena prompt', 'content-sync': 'Content sync',
@@ -25,4 +25,18 @@ export function statusLabel(status: string): string {
     unconfirmed: 'Check delivery',
   };
   return labels[status] ?? status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+export function runStatusLabel(run: JobRun): string {
+  const sync = run.artifacts['sync'];
+  if (run.definition.kind === 'content-sync' && sync && typeof sync === 'object' && !Array.isArray(sync)) {
+    const result = sync as Record<string, unknown>;
+    const sources = result['results'];
+    const completedSource = Array.isArray(sources) && sources.some((source: unknown) =>
+      !!source && typeof source === 'object' && 'errors' in source && source.errors === 0);
+    if (['succeeded', 'failed', 'partial'].includes(run.status) && Number(result['totalErrors']) > 0
+      && (Number(result['totalIndexed']) > 0 || completedSource)) return 'Succeeded with source errors';
+  }
+  if (run.artifacts['editorialOutcome'] === 'hold' || run.status === 'partial' && run.artifacts['editorialOutcome'] === 'revise') return 'Editorial review needed';
+  return statusLabel(run.status);
 }
