@@ -1,6 +1,22 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
+
+**Deployment outcome (2026-10-26, Design and diagram release):**
+- Release commit `7d81c1a` pushed atomically to the feature branch and main.
+  Existing unrelated `.impeccable/hook.cache.json` changes remain uncommitted.
+- ACR run `ca81` successfully built `kh-prod-api:v255` from GitHub main.
+- Backend revision `kh-prod-api-vnet--0000252` is latest and ready:
+  Healthy / RunningAtMaxScale, receiving 100% traffic. Startup confirms
+  migration completion and 8/8 database connections ready; existing
+  attention/podcast-prep requests are served successfully.
+- Frontend deployed with SWA CLI to production. The public entry at
+  https://athena.themicrosoftcloudblog.com/ returns HTTP 200 and references
+  `index-B7Cn2W9a.js`; its served bytes match the local release SHA256
+  `fb8e60f1a9fc503e1c014932f73f7f5bf51ac9224d3afb49474b40d75bff46b1`.
+- Azure CLI text-log rendering hit a Windows encoding error; JSON log output
+  succeeded. No application startup or migration error was observed.
+- No infrastructure/settings changes or manual content generation/publishing.
 
 **Release scope and Section 7: Validation Proof (2026-10-26, Design and diagram release):**
 - User requested deploy, merge and push. Existing ACA/SWA application targets
