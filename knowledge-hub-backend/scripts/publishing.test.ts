@@ -372,12 +372,23 @@ test('pause, stale review and stale version fail closed before a network request
     const t = await topic(f.db); await source(f.db, t.id); const d = await draft(f.db, t.id);
     await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /off/);
     await enable(f.db);
-    await f.db.query("UPDATE publishing_drafts SET reviewed_at=NOW()-INTERVAL '25 hours' WHERE id=$1", [d.id]);
+    await f.db.query("UPDATE publishing_drafts SET review='hold' WHERE id=$1", [d.id]);
     await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /fresh/);
-    await f.db.query("UPDATE publishing_drafts SET reviewed_at=NOW(),expires_at=NOW()-INTERVAL '1 hour' WHERE id=$1", [d.id]);
+    await f.db.query("UPDATE publishing_drafts SET review='pass',approval='pending',reviewed_at=NOW()-INTERVAL '25 hours' WHERE id=$1", [d.id]);
+    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /fresh/);
+    await f.db.query("UPDATE publishing_drafts SET reviewed_at=NOW(),approval='approved',expires_at=NOW()-INTERVAL '1 hour' WHERE id=$1", [d.id]);
     await editorial.editDraft(f.db, d.id, 1, { copy: 'Changed wording.' }, 'human');
     await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /version/);
     assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 0);
+  } finally { await f.close(); }
+});
+test('an approved version is not reopened just because its passed review is older than a day', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); await source(f.db, t.id); const d = await draft(f.db, t.id); await enable(f.db);
+    await f.db.query("UPDATE publishing_drafts SET reviewed_at=NOW()-INTERVAL '40 hours' WHERE id=$1", [d.id]);
+    await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d));
+    assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 1);
   } finally { await f.close(); }
 });
 test('simultaneous claims share an account slot and uncertainty blocks every later post', async () => {

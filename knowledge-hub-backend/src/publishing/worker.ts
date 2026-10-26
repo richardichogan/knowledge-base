@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { env } from '../config/env.js';
-import { MS_PER_HOUR } from '../config/constants.js';
 import { ValidationError, IntegrationError } from '../types/errors.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { postToBluesky } from '../integrations/social/bluesky.js';
@@ -142,9 +141,9 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
       if (!enabled.includes(draft.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin')) continue;
       try {
         const companions = draft.variant === 'blog' ? (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 AND destination IN ('blog','linkedin')`, [draft.topicId])).rows : [];
+        // Review age alone never reopens an approved version; edits, new evidence and new guidance reset approval instead.
         const stale = [draft, ...companions].filter(d => !d.reviewedAt
-          || d.reviewedFeedRevision !== settings.find(f => f.id === (d.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))?.revision
-          || Date.now() - new Date(d.reviewedAt).getTime() > PUBLISH_LIMITS.staleHours * MS_PER_HOUR);
+          || d.reviewedFeedRevision !== settings.find(f => f.id === (d.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))?.revision);
         if (stale.length) {
           const sources = await readSources(db, draft.topicId, editorial);
           for (const candidate of new Map(stale.map(d => [d.id, d])).values()) await reviewDraft(db, candidate, sources, editorial, false);

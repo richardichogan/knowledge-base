@@ -76,7 +76,9 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
       if (draft.variant === 'blog' && required.length !== PUBLISH_LIMITS.packageDestinations) throw new PublicationDeferred('Blog and LinkedIn drafts are both required.');
       for (const candidate of [draft, ...required]) {
         if (candidate.held || candidate.approval === 'rejected' || candidate.review !== 'pass' || !candidate.reviewedAt
-          || now.getTime() - new Date(candidate.reviewedAt).getTime() > PUBLISH_LIMITS.staleHours * MS_PER_HOUR) throw new PublicationDeferred('Draft is held or awaiting a fresh editorial review.');
+          || (candidate.approval !== 'approved' && now.getTime() - new Date(candidate.reviewedAt).getTime() > PUBLISH_LIMITS.staleHours * MS_PER_HOUR)) {
+          throw new PublicationDeferred('Draft is held or awaiting a fresh editorial review.');
+        }
         if (candidate.reviewedFeedRevision !== settings.find(f => f.id === (candidate.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))?.revision) throw new PublicationDeferred('Feed settings changed since editorial review.');
         if (candidate.variant === 'blog' && candidate.destination !== 'bluesky' && candidate.approval !== 'approved') throw new PublicationDeferred('Both the blog and LinkedIn hook require human approval.');
         if (candidate.destination === 'bluesky' && candidate.approval !== 'approved') throw new PublicationDeferred('The exact Bluesky draft requires human approval before scheduling.');
