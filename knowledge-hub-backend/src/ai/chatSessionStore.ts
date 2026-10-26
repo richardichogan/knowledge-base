@@ -147,6 +147,15 @@ export async function appendTurn(
   return { assistantMessageId: rows.find((r) => r.role === 'assistant')?.id ?? '' };
 }
 
+/** Adds a message from Athena on her own (e.g. a specialist finished) and bumps updated_at. */
+export async function appendAssistantMessage(db: Pool, sessionId: string, content: string, persona = 'general'): Promise<void> {
+  await db.query(
+    `INSERT INTO ai_chat_messages (session_id, role, content, persona) VALUES ($1, 'assistant', $2, $3)`,
+    [sessionId, content, persona],
+  );
+  await db.query(`UPDATE ai_chat_sessions SET updated_at = NOW() WHERE id = $1`, [sessionId]);
+}
+
 /**
  * For re-answering one of Athena's replies: the user message it answered,
  * the conversation before that (most recent turns), and the reply's persona.

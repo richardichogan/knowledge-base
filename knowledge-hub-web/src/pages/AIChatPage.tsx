@@ -1174,6 +1174,22 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     return () => { active = false; window.removeEventListener('athena-conversation-updated', reload); };
   }, [currentNoteId, isNoteLinkedPanel, chatMutation.isPending, isRestoringHistory]);
 
+  // A specialist reported back into this conversation.
+  useEffect(() => {
+    if (!sessionId) return;
+    let active = true;
+    const reload = (event: Event): void => {
+      if (!(event instanceof CustomEvent) || (event.detail as { sessionId?: string } | null)?.sessionId !== sessionId || chatMutation.isPending || isRestoringHistory) return;
+      void api.getSessionHistory(sessionId).then(history => {
+        if (!active) return;
+        if (!history.success) throw new Error(history.error.message);
+        setMessages(stripHistoryContextPrefixes(history.data.messages));
+      }).catch((error: unknown) => { if (active) reportHistoryError(error); });
+    };
+    window.addEventListener('athena-conversation-updated', reload);
+    return () => { active = false; window.removeEventListener('athena-conversation-updated', reload); };
+  }, [sessionId, chatMutation.isPending, isRestoringHistory]);
+
   const confirmMutation = useMutation({
     mutationFn: (id: string) => api.confirmAction(id),
     onSuccess: (result, id) => {

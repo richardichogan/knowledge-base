@@ -6,6 +6,9 @@ import { describeApiError, requireApiData } from '../../services/apiError';
 import { noteDraftIdentity } from '../../services/auth';
 import { AthenaRibbon } from '../../components/athena/AthenaRibbon';
 import { requestCompletionNotifications } from '../../chat/completionNotification';
+import { confirmDialog } from '../../services/appDialogs';
+import { rememberAgentJob } from '../../services/agentJobStore';
+import type { AgentJob } from '../../types/agentJobs';
 import type { DesignArtifact, DesignCollaboration, DesignDecision, DesignFeedback } from '../../types/designs';
 
 export interface VisualSelection { artifactId: string; elementId: string; selection: string; choice: string | null }
@@ -86,9 +89,9 @@ function readDraft(key: string): Draft {
   return draft;
 }
 export const DesignVisual: React.FC<{
-  designId: string; parentNoteId: string; prepare: () => Promise<void>; onAccepted: () => Promise<void>;
+  designId: string; subjectId: string; agentJob: AgentJob | undefined; parentNoteId: string; prepare: () => Promise<void>; onAccepted: () => Promise<void>;
   onBusyChange: (busy: boolean, status?: string) => void;
-}> = ({ designId, parentNoteId, prepare, onAccepted, onBusyChange }) => {
+}> = ({ designId, subjectId, agentJob, parentNoteId, prepare, onAccepted, onBusyChange }) => {
   const qc = useQueryClient();
   const frame = useRef<HTMLIFrameElement>(null);
   const [identity] = useState(() => noteDraftIdentity.get());
@@ -104,7 +107,6 @@ export const DesignVisual: React.FC<{
   });
   const [draftError, setDraftError] = useState<string | null>(restored.error);
   const [draft, setDraft] = useState<Draft>(restored.draft);
-  const [progress, setProgress] = useState<string[]>([]);
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     if (restored.error) return;
@@ -211,33 +213,31 @@ export const DesignVisual: React.FC<{
       ack(decisionId, item.status, answeredChoice(item.instruction, decision));
     }
   }, [frameReady, authored, state, artifact, ack]);
-  const generateStarted = useRef({ at: 0, url: '' });
+  // Athena hands the Blueprint to the Blueprint designer, which writes a fresh spec first when it is missing or older than the use case.
   const generate = useMutation({
     mutationFn: async () => {
       requireAccount();
       requestCompletionNotifications();
-      generateStarted.current = { at: Date.now(), url: `${window.location.pathname}${window.location.search}` };
-      setProgress(['Saving current writing before reading the requirements']);
       await prepare();
-      return requireApiData(await api.generateDesignArtifact(designId, draft.brief, message => {
-        setProgress(current => [...current, message]);
-      }));
-    },
-    onSuccess: async () => {
-      await refresh();
-      announceAthenaJob({ ok: true, tag: `athena-design-${designId}`, startedAt: generateStarted.current.at, title: 'Blueprint ready', body: 'Athena has finished updating the Blueprint.', url: generateStarted.current.url });
-    },
-    onError: () => {
-      announceAthenaJob({ ok: false, tag: `athena-design-${designId}`, startedAt: generateStarted.current.at, title: 'Blueprint update failed', body: 'Athena could not finish the Blueprint. Open it to retry.', url: generateStarted.current.url });
+      const input = { instruction: draft.brief };
+      let result = requireApiData(await api.handOffToSpecialist('blueprint-designer', subjectId, input));
+      if (result.status === 'needs_confirmation') {
+        if (!await confirmDialog(result.message, { title: 'Rewrite the spec first?', confirmLabel: 'Continue', tone: 'danger' })) return;
+        result = requireApiData(await api.handOffToSpecialist('blueprint-designer', subjectId, input, true));
+      }
+      if (result.status === 'needs_confirmation') throw new Error(result.message);
+      if (result.status === 'queued') for (const step of result.steps) rememberAgentJob(step);
+      rememberAgentJob(result.job);
     },
   });
+  const jobStartedAt = agentJob ? Date.parse(agentJob.startedAt ?? agentJob.createdAt) : 0;
   useEffect(() => {
-    if (!generate.isPending) return;
-    const started = Date.now();
-    setElapsed(0);
-    const timer = setInterval(() => { setElapsed(Math.floor((Date.now() - started) / 1000)); }, 1000);
+    if (!jobStartedAt) return;
+    const tick = (): void => { setElapsed(Math.max(0, Math.floor((Date.now() - jobStartedAt) / 1000))); };
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => { clearInterval(timer); };
-  }, [generate.isPending]);
+  }, [jobStartedAt]);
   const queue = useMutation({
     mutationFn: async () => {
       requireAccount();
@@ -274,8 +274,8 @@ export const DesignVisual: React.FC<{
     requireAccount(); return requireApiData(await api.editDesignFeedback(designId, value.id, value.text.trim()));
   }, onSuccess: async () => { setEditing(null); await refresh(); } });
   const busy = generate.isPending || queue.isPending || ask.isPending || working || resolve.isPending || discard.isPending || edit.isPending;
-  const lastStep = progress[progress.length - 1];
-  const status = generate.isPending ? `Athena is updating the Blueprint from the latest spec · ${elapsed}s${lastStep ? ` · ${lastStep}` : ''}`
+  const progress = agentJob?.progress ?? [];
+  const status = generate.isPending ? 'Handing the Blueprint to the Blueprint designer'
     : working ? 'Athena is applying your changes to the Blueprint and the spec'
       : busy ? 'Saving your Blueprint feedback' : undefined;
   useEffect(() => { onBusyChange(busy, status); }, [busy, status, onBusyChange]);
@@ -296,8 +296,8 @@ export const DesignVisual: React.FC<{
       <textarea className="kh-uc-input kh-uc-input--area" rows={2} maxLength={8000} value={draft.brief} disabled={busy}
         placeholder="The linked requirements are already included. Add anything Athena should emphasise."
         onChange={event => { setDraft(current => ({ ...current, brief: event.target.value })); }} /></label>
-    <button type="button" className={artifact ? 'kh-btn-ghost' : 'kh-btn-accent'} disabled={busy || !!state.proposal}
-      onClick={() => { generate.mutate(); }}>{generate.isPending ? 'Athena is writing the Blueprint...' : artifact ? 'Regenerate Blueprint' : 'Create Blueprint'}</button>
+    <button type="button" className={artifact ? 'kh-btn-ghost' : 'kh-btn-accent'} disabled={busy || !!agentJob || !!state.proposal}
+      onClick={() => { generate.mutate(); }}>{generate.isPending ? 'Handing off...' : agentJob ? 'The Blueprint designer is working...' : artifact ? 'Regenerate Blueprint' : 'Create Blueprint'}</button>
   </>;
   return <div className="kh-design-visual">
     <header className="kh-design-visual__intro">
@@ -307,15 +307,15 @@ export const DesignVisual: React.FC<{
         : 'Athena explains what this spec does, which steps are automatic and which need you, walks through an example and asks only the decisions the spec leaves open.'}</p>
       {!artifact && brief}
     </header>
-    {!!progress.length && (generate.isPending || generate.isError || !artifact) && <section className="kh-design-progress" aria-label="Visual generation progress" aria-busy={generate.isPending}>
+    {agentJob && <section className="kh-design-progress" aria-label="Specialist progress" aria-busy="true">
       <div className="kh-design-progress__heading">
-        {generate.isPending && <AthenaRibbon size={24} mood="thinking" />}
-        <strong>{generate.isPending ? `${artifact ? 'Athena is updating the Blueprint from the spec' : 'Athena is writing the Blueprint'} · ${elapsed}s` : generate.isError ? 'Blueprint update stopped' : 'Blueprint updated'}</strong>
+        <AthenaRibbon size={24} mood="thinking" />
+        <strong>{agentJob.status === 'running' ? `${agentJob.specialistName} is working · ${elapsed}s` : `Athena handed this to the ${agentJob.specialistName}. It starts shortly.`}</strong>
       </div>
-      <p className="kh-design-hint" role="status" aria-live="polite">{progress[progress.length - 1]}</p>
-      <ol>{progress.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ol>
+      <p className="kh-design-hint" role="status" aria-live="polite">{progress[progress.length - 1] ?? 'You can leave this page. You\'ll be notified when it\'s done.'}</p>
+      {!!progress.length && <ol>{progress.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ol>}
     </section>}
-    {state.stale && !generate.isPending && <p className="kh-uc-error" role="alert">{state.sourceError ?? 'The spec has changed since this Blueprint was made. The Blueprint stays as it is until you choose Regenerate Blueprint below.'}</p>}
+    {state.stale && !agentJob && <p className="kh-uc-error" role="alert">{state.sourceError ?? 'The spec has changed since this Blueprint was made. The Blueprint stays as it is until you choose Regenerate Blueprint below.'}</p>}
     {draftError && <p className="kh-uc-error" role="alert">{draftError}</p>}
     {error && <p className="kh-uc-error" role="alert">{describeApiError(error)}</p>}
     {state.proposal && <section className="kh-design-visual__panel kh-design-visual__panel--proposal" aria-label="Athena's proposed spec changes">

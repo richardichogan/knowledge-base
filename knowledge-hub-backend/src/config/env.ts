@@ -45,6 +45,8 @@ export const env = {
 
   DATABASE_URL: required('DATABASE_URL'),
   DATABASE_MODE: optionalWithDefault('DATABASE_MODE', ''),
+  /** Which specialist-agent jobs this server runs; defaults to production or this machine. */
+  ATHENA_AGENT_POOL: optional('ATHENA_AGENT_POOL'),
 
   JWT_SECRET: optionalWithDefault('JWT_SECRET', 'dev-secret-change-in-production'),
   JWT_EXPIRES_IN: optionalWithDefault('JWT_EXPIRES_IN', '7d'),

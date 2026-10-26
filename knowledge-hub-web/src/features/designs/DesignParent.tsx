@@ -12,7 +12,8 @@ import type { NoteDocument } from '../../notes/types';
 import type { DesignAsset, DesignDetail } from '../../types/designs';
 import { DesignVisual } from './DesignVisual';
 import { DesignHandoff } from './DesignHandoff';
-import { announceAthenaJob } from '../../components/athena/AthenaJobNotice';
+import { rememberAgentJob, useAgentJobFinished, useAgentJobs } from '../../services/agentJobStore';
+import type { AgentJob } from '../../types/agentJobs';
 import { AthenaRibbon } from '../../components/athena/AthenaRibbon';
 import { requestCompletionNotifications } from '../../chat/completionNotification';
 import { confirmDialog } from '../../services/appDialogs';
@@ -40,10 +41,7 @@ export const DesignParent: React.FC<{
   const [visualStatus, setVisualStatus] = useState<string | undefined>();
   const visualBusyChange = useCallback((value: boolean, status?: string) => { setVisualBusy(value); setVisualStatus(status); }, []);
   const [chatBusy, setChatBusy] = useState(false);
-  const [specBusy, setSpecBusy] = useState(false);
-  const specStartedRef = useRef(0);
   const [now, setNow] = useState(() => Date.now());
-  const busy = visualBusy || chatBusy || workspaceBusy || specBusy;
   const chatBusyRef = useRef(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const noteSave = useRef<(() => Promise<boolean>) | null>(null);
@@ -54,6 +52,9 @@ export const DesignParent: React.FC<{
   const tabsRef = useRef<HTMLDivElement>(null);
   const query = useQuery({ queryKey: ['design', id], queryFn: async () => requireApiData(await api.getDesign(id)) });
   const design = query.data;
+  const { active: job } = useAgentJobs(design?.id);
+  const specBusy = job?.specialist === 'spec-writer';
+  const busy = visualBusy || chatBusy || workspaceBusy || !!job;
   const assets = design?.assets.filter(asset => asset.role === tab) ?? [];
   const chosen = targetId && assets.some(item => item.sourceId === targetId) ? targetId : design?.selections[tab];
   const asset = chosen ? assets.find(item => item.sourceId === chosen) : assets.length === 1 ? assets[0] : undefined;
@@ -137,33 +138,35 @@ export const DesignParent: React.FC<{
     onSuccess: async updated => { qc.setQueryData(['design', id], updated); await refresh(); },
   });
   useEffect(() => {
-    if (!specBusy) return;
+    if (!job) return;
+    setNow(Date.now());
     const timer = window.setInterval(() => { setNow(Date.now()); }, 1000);
     return () => { window.clearInterval(timer); };
-  }, [specBusy]);
+  }, [job]);
+  // A specialist finished on this Design: show what it wrote.
+  const finished = useCallback((done: AgentJob): void => {
+    void Promise.all([qc.invalidateQueries({ queryKey: ['design', id] }), qc.invalidateQueries({ queryKey: ['design-document'] }), refresh()])
+      .then(() => { if (done.status === 'done') setEditorEpoch(value => value + 1); })
+      .catch((err: unknown) => { setError(describeApiError(err)); });
+  }, [id, qc, refresh]);
+  useAgentJobFinished(design?.id, finished);
+  // Athena hands the spec to the Spec writer and carries on; the Design stays locked until it reports back.
   const spec = useMutation({
     mutationFn: async () => {
       await prepare();
-      return requireApiData(await api.writeDesignSpec(id, true));
+      const result = requireApiData(await api.handOffToSpecialist('spec-writer', design!.id, {}, true));
+      if (result.status === 'needs_confirmation') throw new Error(result.message);
+      rememberAgentJob(result.job);
     },
-    onMutate: () => { requestCompletionNotifications(); specStartedRef.current = Date.now(); setNow(Date.now()); setSpecBusy(true); setError(null); },
-    onSuccess: async result => {
-      await Promise.all([qc.invalidateQueries({ queryKey: ['design', id] }), qc.invalidateQueries({ queryKey: ['design-document'] }), refresh()]);
-      setEditorEpoch(value => value + 1);
-      announceAthenaJob({ ok: true, always: true, tag: `design-spec-${id}`, startedAt: specStartedRef.current,
-        title: result.created ? 'Spec written' : 'Spec regenerated',
-        body: `“${result.title}” is ready. The Blueprint is unchanged; regenerate it from the Spec tab when you want it to match.`,
-        url: `/think?design=${encodeURIComponent(id)}&tab=spec` });
-    },
-    onError: err => {
-      announceAthenaJob({ ok: false, always: true, tag: `design-spec-${id}`, startedAt: specStartedRef.current, title: 'Spec not written',
-        body: describeApiError(err), url: `/think?design=${encodeURIComponent(id)}&tab=use_case` });
-    },
-    onSettled: () => { setSpecBusy(false); },
+    onMutate: () => { requestCompletionNotifications(); setError(null); },
+    onError: err => { setError(describeApiError(err)); },
   });
+  const jobSeconds = job ? Math.max(0, Math.round((now - Date.parse(job.startedAt ?? job.createdAt)) / 1000)) : 0;
+  const jobStep = job?.progress[job.progress.length - 1];
   const hasSpec = !!design?.assets.some(item => item.role === 'spec' && item.available);
   // Every lock says why, so the Design never looks frozen.
-  const lockReason = specBusy ? null
+  const lockReason = job ? (specBusy && tab === 'use_case' ? null
+    : `${job.specialistName} ${job.status === 'running' ? `is working · ${jobSeconds}s${jobStep ? ` · ${jobStep}` : ''}` : 'is waiting to start'}. Editing unlocks when it finishes, and you'll be notified.`)
     : visualBusy ? `${visualStatus ?? 'Athena is working on the Blueprint'}. Editing unlocks when it finishes, and you'll be notified.`
       : chatBusy ? 'Athena is working on this Design in the chat. Editing unlocks when the reply finishes.'
         : workspaceBusy ? 'Opening the note…' : switching ? 'Saving and switching documents…' : null;
@@ -174,10 +177,12 @@ export const DesignParent: React.FC<{
   };
   const specAction = (footer: boolean): React.ReactNode => tab === 'use_case' && asset?.available && asset.sourceType === 'note'
     ? <div className={`kh-design-spec-action${footer ? ' kh-design-spec-action--footer' : ''}`}>
-      <button type="button" className="kh-btn-accent" disabled={busy || switching} onClick={() => { void startSpec(); }}>
-        {specBusy ? 'Athena is writing the spec…' : hasSpec ? 'Regenerate spec from use case' : 'Generate spec with Athena'}</button>
+      <button type="button" className="kh-btn-accent" disabled={busy || switching || spec.isPending} onClick={() => { void startSpec(); }}>
+        {specBusy ? 'The Spec writer is working…' : hasSpec ? 'Regenerate spec from use case' : 'Generate spec with Athena'}</button>
       <p role={specBusy ? 'status' : undefined} className={specBusy ? 'kh-design-hint--busy' : undefined}>{specBusy
-        ? <><AthenaRibbon size={20} mood="thinking" />{`Working for ${Math.max(0, Math.round((now - specStartedRef.current) / 1000))}s. You'll be notified when it's done.`}</>
+        ? <><AthenaRibbon size={20} mood="thinking" />{job?.status === 'running'
+          ? `Athena handed this to the Spec writer · ${jobSeconds}s${jobStep ? ` · ${jobStep}` : ''}. You'll be notified when it's done.`
+          : 'Athena handed this to the Spec writer. It starts shortly.'}</>
         : hasSpec ? 'Rewrites the spec from this use case. Earlier versions stay in history.' : 'Athena writes a spec from this use case and links it to the Spec tab.'}</p>
     </div> : null;
   const saved = (note: NoteDocument): void => {
@@ -236,7 +241,7 @@ export const DesignParent: React.FC<{
               : assets.length ? 'Select a linked canvas above to open its diagramming tools here.'
                 : 'Link an existing diagram canvas above to open its diagramming tools here. This tab edits the original canvas, not a note.'}</p>
           </section> : undefined}
-        visualContent={<DesignVisual designId={id} parentNoteId={design.parentNoteId} prepare={prepare} onBusyChange={visualBusyChange} onAccepted={async () => {
+        visualContent={<DesignVisual designId={id} subjectId={design.id} agentJob={job} parentNoteId={design.parentNoteId} prepare={prepare} onBusyChange={visualBusyChange} onAccepted={async () => {
           setEditorEpoch(value => value + 1); await refresh();
         }} />} />}
     {linking && <LinkDocument design={design} role={tab} onClose={() => { setLinking(false); }} onSaved={updated => {

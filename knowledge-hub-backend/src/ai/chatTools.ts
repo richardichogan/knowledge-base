@@ -28,6 +28,7 @@ import { textToBlocks } from './markdownToNoteBlocks.js';
 import { DEMO_SPECIFICATION_TOOLS, demoSpecificationForm, renderDemoSpecification } from './demoSpecification.js';
 export { textToBlocks } from './markdownToNoteBlocks.js';
 import { FoundryClient, type LlmToolDefinition } from './foundryClient.js';
+import { AGENT_TOOL_NAMES, agentToolDefinitions, executeAgentTool } from './agentTools.js';
 import { executeLocalFileTool, LOCAL_FILE_TOOL_NAMES, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
 import { getProjectContextItems, getRagItems, getContentItemsByIds } from '../db/queries.js';
 import { isFoundryIqEnabled, retrieveContentItemIds } from './foundryIqClient.js';
@@ -79,6 +80,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   return [
     JOB_TOOL,
     PUBLISHING_TOOL,
+    ...agentToolDefinitions(),
     ...DEMO_SPECIFICATION_TOOLS,
     REVIEW_DECISIONS_DEFINITION,
     {
@@ -822,6 +824,7 @@ export async function executeToolCall(
       : args;
   if (name === 'manage_scheduled_jobs') return executeJobTool(db, args, turn.sessionId);
   if (name === 'manage_publishing_feeds') return executePublishingTool(db, args, turn.sessionId);
+  if (AGENT_TOOL_NAMES.has(name)) return executeAgentTool(db, name, args, turn);
 
   if (turn.exclusionsFailed === true && EXCLUSION_GATED_TOOLS.has(name)) return EXCLUSIONS_UNAVAILABLE_RESULT;
   if (name === 'read_design_package' || name === 'save_design_documents') {

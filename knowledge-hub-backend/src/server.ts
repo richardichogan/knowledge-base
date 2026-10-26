@@ -7,6 +7,7 @@ import { startSyncScheduler, stopSyncScheduler } from './sync/scheduler.js';
 import { assertSafeDatabase, createRuntime } from './runtime.js';
 import { recoverInterruptedWork } from './sync/runStore.js';
 import { stopTurnJobs } from './ai/turnJobs.js';
+import { startAgentWorker, stopAgentWorker } from './agents/index.js';
 import { loadConnectionCredentials } from './services/connectionCredentials.js';
 
 assertSafeDatabase(env.DATABASE_MODE, env.DATABASE_URL, env.NODE_ENV);
@@ -40,10 +41,11 @@ const runtime = createRuntime({
       }).finally(() => { refreshingCredentials = false; });
     }, CREDENTIAL_REFRESH_INTERVAL_MS);
     credentialTimer.unref();
+    void startAgentWorker(getDb()).catch((error: unknown) => { console.error('[agents] Specialist worker did not start:', error); });
     if (env.NODE_ENV === 'production') startSyncScheduler();
     else console.warn('[Scheduler] Non-production mode: scheduled jobs disabled.');
   },
-  stopJobs: () => { clearInterval(credentialTimer); stopSyncScheduler(); stopTurnJobs(); },
+  stopJobs: () => { clearInterval(credentialTimer); stopSyncScheduler(); stopTurnJobs(); void stopAgentWorker(); },
   closeServer: () => new Promise<void>((resolve, reject) => {
     server.close((error) => { if (error) reject(error); else resolve(); });
     server.closeIdleConnections();

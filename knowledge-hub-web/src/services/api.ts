@@ -35,6 +35,7 @@ import type {
   MemoryScopeType,
 } from '../types';
 import { getApiToken } from './auth';
+import type { AgentHandOffResult, AgentJob } from '../types/agentJobs';
 import { requireApiData } from './apiError';
 import type { DecisionLinkCandidate, DecisionLinkInput, DecisionSemantics } from '../types/semanticDecision';
 import { normaliseTask } from '../types/task';
@@ -106,6 +107,8 @@ export const API_BASE_URL = BASE_URL;
 const TOKEN = import.meta.env['VITE_API_TOKEN'] as string | undefined ?? '';
 
 const TIMEOUT_MS = 8_000;
+const AGENT_STREAM_SILENCE_MS = 45_000;
+const AGENT_STREAM_CHECK_MS = 5_000;
 // Blob upload + OCR polling on the backend can take up to ~40s; give image
 // uploads a much longer client-side timeout than regular API calls.
 const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
@@ -2536,6 +2539,54 @@ export class KnowledgeHubApi {
   }
   async applyDesignFeedback(id: string): Promise<ApiResponse<{ noteIds: string[]; remaining: number }>> {
     return (await this.client.post<ApiResponse<{ noteIds: string[]; remaining: number }>>(`/api/designs/${encodeURIComponent(id)}/apply`, {}, { timeout: 300_000 })).data;
+  }
+  async handOffToSpecialist(specialist: string, subjectId: string, input: Record<string, unknown> = {}, confirmed = false): Promise<ApiResponse<AgentHandOffResult>> {
+    return (await this.client.post<ApiResponse<AgentHandOffResult>>('/api/agent-jobs', { specialist, subjectId, input, confirmed })).data;
+  }
+  async acknowledgeAgentJob(id: string): Promise<void> {
+    await this.client.post(`/api/agent-jobs/${encodeURIComponent(id)}/ack`, {});
+  }
+  /** Streams every live specialist job, then each change, until the signal aborts or the connection drops. */
+  async streamAgentJobs(onJob: (job: AgentJob) => void, signal: AbortSignal): Promise<void> {
+    const signedIn = await getApiToken();
+    const auth = signedIn !== '' ? signedIn : TOKEN;
+    // The server sends a heartbeat every 15s; a silent stream (sleep, proxy, network change) is dropped so the caller reconnects.
+    const stream = new AbortController();
+    const stop = (): void => { stream.abort(); };
+    signal.addEventListener('abort', stop, { once: true });
+    let heard = Date.now();
+    const watchdog = window.setInterval(() => { if (Date.now() - heard > AGENT_STREAM_SILENCE_MS) stream.abort(); }, AGENT_STREAM_CHECK_MS);
+    try {
+      await this.readAgentJobStream(auth, onJob, stream.signal, () => { heard = Date.now(); });
+    } finally {
+      window.clearInterval(watchdog);
+      signal.removeEventListener('abort', stop);
+    }
+  }
+  private async readAgentJobStream(auth: string, onJob: (job: AgentJob) => void, signal: AbortSignal, onActivity: () => void): Promise<void> {
+    const response = await fetch(`${BASE_URL}/api/agent-jobs/stream`, {
+      headers: { Accept: 'text/event-stream', ...(auth !== '' ? { Authorization: `Bearer ${auth}` } : {}) }, signal,
+    });
+    if (!response.ok || !response.body) throw new Error(`Could not follow specialist jobs (${response.status}).`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        onActivity();
+        buffer += decoder.decode(value, { stream: true });
+        let separator: number;
+        while ((separator = buffer.indexOf('\n\n')) !== -1) {
+          const block = buffer.slice(0, separator); buffer = buffer.slice(separator + 2);
+          const data = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+          if (!data) continue;
+          const event = JSON.parse(data) as { type: string; job?: AgentJob };
+          if (event.type === 'job' && event.job) onJob(event.job);
+        }
+      }
+    } finally { void reader.cancel().catch(() => undefined); }
   }
   async writeDesignSpec(id: string, replace = false): Promise<ApiResponse<{ noteId: string; title: string; created: boolean }>> {
     return (await this.client.post<ApiResponse<{ noteId: string; title: string; created: boolean }>>(`/api/designs/${encodeURIComponent(id)}/spec`, { replace }, { timeout: 300_000 })).data;
