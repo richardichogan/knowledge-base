@@ -142,7 +142,7 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
       destination: draft.destination, version: draft.version, scheduledAt: at?.toISOString() ?? null,
       timezone: feed.policy.timezone, paused: !feed.enabled,
       reason: reason ?? (draft.variant === 'blog' && draft.destination !== 'blog' && !publishedBlog
-        ? 'After the blog is live and its public URL is verified.' : 'Current editorial checks will be revalidated before delivery.'),
+        ? 'After the blog is live and its public URL is verified.' : 'Approved; sends at this time.'),
     });
   }
   return [...planned.values()].sort((a, b) => (a.scheduledAt ?? 'z').localeCompare(b.scheduledAt ?? 'z'));
