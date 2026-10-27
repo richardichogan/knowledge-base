@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { alignMovingBounds, diagramGridSize } from '../src/features/diagram/diagramAlignment';
-import { normalizeDocument } from '../src/features/diagram/diagramGeometry';
+import { HEXAGON_INSET, hexagonShapePath, pointInNode, portPoint, normalizeDocument } from '../src/features/diagram/diagramGeometry';
+import { diagramTextLayout } from '../src/features/diagram/diagramText';
+import { footnoteAnchor } from '../src/features/diagram/diagramAnnotations';
 import { diagramSvg } from '../src/features/diagram/diagramExport';
 import { diagramDrawioXml } from '../src/features/diagram/diagramDrawio';
 import { emptyDiagram, type DiagramNode } from '../src/features/diagram/diagramTypes';
@@ -59,6 +61,45 @@ test('Design-owned diagram conversations retain save preparation, completion and
 const node = (id: string, x: number, y: number): DiagramNode => ({
   id, x, y, width: 100, height: 60, kind: 'process', label: id, fill: '#ffffff',
   stroke: '#161616', textColor: '#161616', fontSize: 14, assetId: null, parentId: null,
+});
+
+test('hexagon outlines, hit targets, labels and cardinal connectors agree at different sizes', () => {
+  for (const [width, height] of [[160, 80], [80, 160], [24, 24]] as const) {
+    const hub: DiagramNode = { ...node('hub', 100, 200), kind: 'hexagon', width, height, label: 'Output' };
+    assert.equal(pointInNode(hub, { x: hub.x + hub.width / 2, y: hub.y + hub.height / 2 }), true);
+    assert.equal(pointInNode(hub, { x: hub.x + 1, y: hub.y + 1 }), false);
+    assert.equal(pointInNode(hub, { x: hub.x + hub.width - 1, y: hub.y + hub.height - 1 }), false);
+    for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+      assert.equal(pointInNode(hub, portPoint(hub, side, hub.kind)), true, `${side} port remains on the outline`);
+    }
+    assert.equal((hexagonShapePath(hub).match(/L/g) ?? []).length, 5);
+    assert.deepEqual(normalizeDocument({ ...emptyDiagram(), nodes: [hub] }).nodes[0], hub);
+  }
+  const hub: DiagramNode = { ...node('hub', 100, 200), kind: 'hexagon', width: 160, height: 80, label: 'Output' };
+  assert.equal(hexagonShapePath(hub), 'M132,200 L228,200 L260,240 L228,280 L132,280 L100,240 Z');
+  const label = diagramTextLayout(hub);
+  assert.deepEqual(label.lines, ['Output']);
+  assert.equal(label.x, 180);
+  assert.equal(label.y, 240);
+  for (const textAlign of ['left', 'right'] as const) {
+    const aligned = diagramTextLayout({ ...hub, textAlign });
+    assert.ok(aligned.x >= hub.x + hub.width * HEXAGON_INSET);
+    assert.ok(aligned.x <= hub.x + hub.width * (1 - HEXAGON_INSET));
+  }
+  assert.deepEqual(footnoteAnchor({ nodes: [hub], edges: [] }, hub.id), { x: 228, y: 202 });
+});
+
+test('hexagon SVG and editable draw.io exports preserve the shape and label', async () => {
+  const hub: DiagramNode = { ...node('hub', 100, 200), kind: 'hexagon', width: 160, height: 80, label: 'Output' };
+  const doc = { ...emptyDiagram(), nodes: [hub] };
+  const svg = await diagramSvg(doc, new Map(), 'white', false);
+  assert.ok(svg.includes(`d="${hexagonShapePath(hub)}"`));
+  assert.ok(svg.includes('Output'));
+  const drawio = await diagramDrawioXml(doc, new Map());
+  assert.ok(drawio.includes('shape=hexagon;'));
+  assert.ok(drawio.includes('perimeter=hexagonPerimeter;'));
+  assert.ok(drawio.includes('size=0.2;'));
+  assert.ok(drawio.includes('Output'));
 });
 
 test('new diagram navigation replaces stale note/spark routing and survives a reload', () => {

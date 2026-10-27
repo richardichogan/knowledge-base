@@ -2,6 +2,34 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-27 17:35 UTC, hexagon shape):**
+- User requested deployment of the labelled Hexagon in the existing shape picker,
+  including persistence, connectors, Athena tools and native/export rendering.
+  Existing diagrams are not converted. Desktop and Stream Deck code is unchanged.
+- All validation checks pass:
+  - [x] Fetch/merge origin/main: already current at `bcd7539`, independently
+    confirmed with `git ls-remote`. Shared maintenance lock left untouched.
+  - [x] Both application `npx tsc --noEmit` checks passed after implementation;
+    reused because sync brought no changes. Both production builds passed.
+  - [x] Full isolated suites ran once: backend 725/725; frontend 253/253 plus
+    49/49 bundled UI cases. Includes hexagon geometry, ports, labels, persistence,
+    strict shape validation and SVG, draw.io and native Mural export regressions.
+  - [x] Lint non-regression passed: backend 547/623; frontend 22/41.
+    `git diff --check` passed.
+  - [x] Azure CLI authentication and existing ACA/SWA targets confirmed in
+    Alliance Tenant Reporting. Current backend v262, ready revision 0000259,
+    identity None; retain existing registry authentication and delivery settings.
+  - [x] Dockerfile and lockfiles unchanged; lockfile present and migration copy
+    retained. Existing app-only AZCLI recipe: no provisioning, Bicep/template,
+    policy, RBAC, identity, network, secret, dependency or migration changes.
+- Push matching feature/main source, build backend v263 from GitHub main through
+  ACR, update the existing ACA and deploy the matching frontend to `kh-prod-web`.
+  Confirm revision health/startup/migrations and served frontend bytes, then stop.
+- No browser launch, live model calls or production-content edits. Preserve
+  unrelated hook cache. Existing theme colours are unchanged.
+- Evidence: session files/hexagon-release-backend.log and
+  hexagon-release-frontend.log.
+
 **Deployment outcome (2026-10-27, diagram chat routing):**
 - Release commit `223e186` pushed atomically to the feature branch and main.
 - Frontend deployed to `kh-prod-web`. https://athena.themicrosoftcloudblog.com/

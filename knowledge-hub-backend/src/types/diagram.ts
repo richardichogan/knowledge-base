@@ -5,10 +5,10 @@
  */
 export interface DiagramPoint { x: number; y: number }
 export type DiagramPort = 'top' | 'right' | 'bottom' | 'left';
-export type DiagramKind = 'process' | 'decision' | 'terminator' | 'document' | 'arrow' | 'line' | 'text' | 'image' | 'container' | 'swimlane';
+export type DiagramKind = 'process' | 'decision' | 'hexagon' | 'terminator' | 'document' | 'arrow' | 'line' | 'text' | 'image' | 'container' | 'swimlane';
 export const DIAGRAM_ICON_NAMES = ['user', 'user-admin', 'bot', 'tool-kit', 'data-base', 'code', 'task', 'document', 'folder', 'cloud', 'chat', 'idea', 'locked', 'decision-tree', 'flow', 'rocket', 'checkmark'] as const;
 export type DiagramIconName = typeof DIAGRAM_ICON_NAMES[number];
-export const DIAGRAM_ICON_KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document'];
+export const DIAGRAM_ICON_KINDS: readonly DiagramKind[] = ['process', 'decision', 'hexagon', 'terminator', 'document'];
 export const DIAGRAM_ARROW_DIRECTIONS = ['right', 'left', 'up', 'down', 'left-right', 'up-down'] as const;
 export type DiagramArrowDirection = typeof DIAGRAM_ARROW_DIRECTIONS[number];
 export const DIAGRAM_CALLOUT_TYPES = ['question', 'risk', 'issue', 'assumption', 'decision', 'action'] as const;
@@ -48,7 +48,7 @@ export type AiGateEvaluation = typeof AI_GATE_EVALUATIONS[number];
 export const AI_GATE_OUTCOMES = ['pass', 'block', 'clarify', 'rework', 'hold', 'escalate', 're_evaluate'] as const;
 export type AiGateOutcome = typeof AI_GATE_OUTCOMES[number];
 /** Node kinds that may carry AI-flow step metadata. */
-export const AI_FLOW_STEP_KINDS = ['process', 'decision', 'terminator', 'document'] as const;
+export const AI_FLOW_STEP_KINDS = ['process', 'decision', 'hexagon', 'terminator', 'document'] as const;
 export interface AiFlowAgent {
   role?: string;
   mode?: AiAgentMode;
@@ -177,7 +177,7 @@ export interface AiFlowEdge {
   icon?: DiagramIconName | null;
   /** Absent: automatic role header; empty: no header. Presentation only. */
   header?: string;
-  /** AI-flow step metadata (process, decision, terminator, document). */
+  /** AI-flow step metadata (process, decision, hexagon, terminator, document). */
   flow?: AiFlowStep;
   /** Swimlanes only: AI-flow lane metadata. */
   lane?: AiFlowLane;

@@ -39,6 +39,7 @@ type ColouredNode = Pick<DiagramNode, 'fill' | 'stroke' | 'textColor'> & Partial
 
 const DEFAULT_NODE_COLOURS: Partial<Record<DiagramKind, { fill: string; stroke: string }>> = {
   process: { fill: 'none', stroke: '#161616' }, document: { fill: 'none', stroke: '#161616' },
+  hexagon: { fill: 'none', stroke: '#161616' },
   terminator: { fill: '#edf5ff', stroke: '#0f62fe' }, decision: { fill: '#fcf4d6', stroke: '#b28600' },
   container: { fill: 'none', stroke: '#525252' },
 };
@@ -50,7 +51,7 @@ export function diagramEditorNodeColours(node: ColouredNode): {
   const callout = node.kind === 'text' && node.calloutType !== undefined;
   const matches = source !== undefined && (node.fill.toLowerCase() === source.fill || node.fill.toLowerCase() === diagramEditorFill(source.fill))
     && diagramEditorInk(node.stroke) === source.stroke;
-  const plainCard = (node.kind === 'process' || node.kind === 'document') && node.fill === '#ffffff' && node.stroke === '#161616';
+  const plainCard = (node.kind === 'process' || node.kind === 'document' || node.kind === 'hexagon') && node.fill === '#ffffff' && node.stroke === '#161616';
   if (matches || plainCard || (callout && node.fill === 'none' && node.stroke === 'none')) {
     const gate = node.flow?.stepType === 'decision_gate';
     return {
@@ -75,7 +76,7 @@ export function diagramNodeRadius(node: DiagramNode): number {
 
 export function diagramNodeShadow(node: DiagramNode): boolean {
   const fill = diagramEditorNodeColours(node).fill;
-  return fill !== 'none' && fill !== 'transparent' && (['process', 'decision', 'terminator', 'document'].includes(node.kind)
+  return fill !== 'none' && fill !== 'transparent' && (['process', 'decision', 'hexagon', 'terminator', 'document'].includes(node.kind)
     || (node.kind === 'text' && node.calloutType !== undefined));
 }
 

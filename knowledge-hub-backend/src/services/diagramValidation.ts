@@ -71,7 +71,7 @@ const LABEL_CONTROL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 // eslint-disable-next-line no-control-regex
 const NAME_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-const KINDS: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'arrow', 'line', 'text', 'image', 'container', 'swimlane'];
+const KINDS: readonly DiagramKind[] = ['process', 'decision', 'hexagon', 'terminator', 'document', 'arrow', 'line', 'text', 'image', 'container', 'swimlane'];
 const PARENT_KINDS: ReadonlySet<DiagramKind> = new Set<DiagramKind>(['container', 'swimlane']);
 const PORTS: readonly DiagramPort[] = ['top', 'right', 'bottom', 'left'];
 const ROUTES: readonly DiagramEdge['route'][] = ['straight', 'orthogonal'];
@@ -192,8 +192,8 @@ function validateNode(v: unknown, path: string): DiagramNode {
   const assetId = o['assetId'] === null ? null : uuid(o['assetId'], `${path}.assetId`);
   if (assetId !== null && kind !== 'image') fail(`${path}.assetId`, 'is only allowed on image nodes');
   if (o['calloutType'] !== undefined && kind !== 'text') fail(`${path}.calloutType`, 'is only allowed on text nodes');
-  if (o['icon'] !== undefined && !DIAGRAM_ICON_KINDS.includes(kind)) fail(`${path}.icon`, 'is only allowed on process, decision, terminator and document nodes');
-  if (o['header'] !== undefined && !DIAGRAM_ICON_KINDS.includes(kind)) fail(`${path}.header`, 'is only allowed on process, decision, terminator and document nodes');
+  if (o['icon'] !== undefined && !DIAGRAM_ICON_KINDS.includes(kind)) fail(`${path}.icon`, 'is only allowed on process, decision, hexagon, terminator and document nodes');
+  if (o['header'] !== undefined && !DIAGRAM_ICON_KINDS.includes(kind)) fail(`${path}.header`, 'is only allowed on process, decision, hexagon, terminator and document nodes');
   if (o['arrowDirection'] !== undefined && kind !== 'arrow') fail(`${path}.arrowDirection`, 'is only allowed on arrow nodes');
   const linePoint = (value: unknown, field: string): DiagramPoint => {
     if (kind !== 'line') fail(`${path}.${field}`, 'is only allowed on lines');

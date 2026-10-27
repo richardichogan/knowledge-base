@@ -9,7 +9,7 @@ import {
   GATE_KIND_LABELS, GATE_KIND_SHORT, STEP_STYLES, controlCount, defaultGate, isAiStep, isRestricted, isSensitive,
 } from './aiFlow';
 import type { AiAssertionLevel, AiFlowInteraction, AiFlowStepType, DiagramDocument, DiagramEdge, DiagramNode, DiagramPoint } from './diagramTypes';
-import { SWIMLANE_HEADER, documentWaveDepth, pointAlong, wrapText } from './diagramGeometry';
+import { HEXAGON_INSET, SWIMLANE_HEADER, documentWaveDepth, pointAlong, wrapText } from './diagramGeometry';
 
 export const AI_CHIP_FONT = 9;
 export const AI_CHIP_HEIGHT = 16;
@@ -76,7 +76,8 @@ const truncate = (text: string, max: number): string => (text.length > max ? `${
 interface ChipSpec { key: string; text: string; title: string; tone: AiChipTone; short?: string }
 
 function rowInset(n: DiagramNode): number {
-  return n.kind === 'terminator' ? Math.min(n.width, n.height) * 0.35 : n.kind === 'decision' ? 6 : 8;
+  return n.kind === 'hexagon' ? n.width * HEXAGON_INSET + 4
+    : n.kind === 'terminator' ? Math.min(n.width, n.height) * 0.35 : n.kind === 'decision' ? 6 : 8;
 }
 
 /** Lays chips left to right (or right to left) from `start`, dropping trailing chips that do not fit in `room`. */

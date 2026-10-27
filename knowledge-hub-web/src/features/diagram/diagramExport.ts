@@ -9,7 +9,7 @@ import { calloutLayout } from './diagramCallouts';
 import { diagramDrawioXml } from './diagramDrawio';
 import { diagramBorderDash } from './diagramStroke';
 import { diagramLineJumpGeometry } from './diagramLineJumps';
-import { arrowShapePath, boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, decisionShapePath, roundedRoutePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
+import { arrowShapePath, boundsOf, containerHeader, SWIMLANE_HEADER, diagramBounds, documentShapePath, decisionShapePath, hexagonShapePath, roundedRoutePath, edgeRoute, edgeLabelCenter, edgeLabelLayout, linePoints, nodeMap, renderOrder, type Rect } from './diagramGeometry';
 import { checkAiFlow } from './aiFlow';
 import {
   AI_CHIP_COLOURS, AI_CHIP_FONT, AI_FINDING_RADIUS, AI_SEVERITY_COLOURS, aiEdgeChip, aiEdgeFindingAnchor, aiFindingAnchor, aiLaneOwnerLayout,
@@ -166,6 +166,8 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
       shape = `<path d="${arrowShapePath(node, node.arrowDirection)}" ${colour} stroke-linejoin="round"/>`;
     } else if (node.kind === 'decision') {
       shape = `<path d="${decisionShapePath(node)}" ${colour}/>`;
+    } else if (node.kind === 'hexagon') {
+      shape = `<path d="${hexagonShapePath(node)}" ${colour} stroke-linejoin="round"/>`;
     } else {
       const radius = diagramNodeRadius(node);
       shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${radius}" ${colour}/>`;

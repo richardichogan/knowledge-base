@@ -39,7 +39,7 @@ import {
 import {
   PORTS, RESIZE_HANDLES, MIN_NODE_SIZE, containerHeader, SWIMLANE_HEADER, isContainerKind, nodeRect, boundsOf,
   documentBounds, diagramBounds, normalizeRect, rectContainsRect, portPoint, nearestPort, nodeMap, withDescendants, topLevelSelection,
-  canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, roundedRoutePath, decisionShapePath,
+  canParent, setParent, renderOrder, containerAt, translateNodes, resizeRect, snap, distance, edgeRoute, roundedRoutePath, decisionShapePath, hexagonShapePath,
   pointAlong, insertWaypoint, hitTestNode, hitTestEdge, nodesInRect, alignNodes, distributeNodes, reorderNodes,
   cloneSelection, removeSelection, normalizeDocument, screenToWorld, worldToScreen, clampZoom, zoomAt, fitViewport,
   wrapText, edgeLabelLayout, edgeLabelCenter, fitSize, documentShapePath, arrowShapePath, arrowAxis, lineGeometry, linePoints, type Rect, type ResizeHandle, type AlignMode, type OrderOp, type Viewport,
@@ -108,13 +108,14 @@ const FONT_MIN = 10;
 const FONT_MAX = 36;
 
 const KIND_LABEL: Record<DiagramKind, string> = {
-  process: 'Process', decision: 'Decision', terminator: 'Start / end', document: 'Document', arrow: 'Arrow', line: 'Line', text: 'Text', image: 'Image',
+  process: 'Process', decision: 'Decision', hexagon: 'Hexagon', terminator: 'Start / end', document: 'Document', arrow: 'Arrow', line: 'Line', text: 'Text', image: 'Image',
   container: 'Container', swimlane: 'Swimlane',
 };
 
 const DEFAULTS: Record<DiagramKind, Pick<DiagramNode, 'label' | 'width' | 'height' | 'fill' | 'stroke' | 'textColor' | 'fontSize'>> = {
   process: { label: 'Process', width: 140, height: 64, fill: 'none', stroke: '#161616', textColor: '#161616', fontSize: 16 },
   decision: { label: 'Decision?', width: 120, height: 80, fill: '#fcf4d6', stroke: '#b28600', textColor: '#161616', fontSize: 16 },
+  hexagon: { label: 'Output', width: 160, height: 80, fill: 'none', stroke: '#161616', textColor: '#161616', fontSize: 16 },
   terminator: { label: 'Start', width: 140, height: 52, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 16 },
   document: { label: 'Document', width: 140, height: 80, fill: 'none', stroke: '#161616', textColor: '#161616', fontSize: 16 },
   arrow: { label: '', width: 160, height: 80, fill: '#edf5ff', stroke: '#0f62fe', textColor: '#161616', fontSize: 16 },
@@ -125,7 +126,7 @@ const DEFAULTS: Record<DiagramKind, Pick<DiagramNode, 'label' | 'width' | 'heigh
   swimlane: { label: 'Lane', width: 560, height: 180, fill: 'none', stroke: '#525252', textColor: '#161616', fontSize: 18 },
 };
 
-const PALETTE: readonly DiagramKind[] = ['process', 'decision', 'terminator', 'document', 'arrow', 'text', 'image', 'container', 'swimlane'];
+const PALETTE: readonly DiagramKind[] = ['process', 'decision', 'hexagon', 'terminator', 'document', 'arrow', 'text', 'image', 'container', 'swimlane'];
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
@@ -3207,6 +3208,9 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
       body = <path {...common} d={decisionShapePath(n)} />;
       text = <TextLines source={source} lines={wrapText(label, w * 0.62, fs, maxLines(h * 0.6))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
+    case 'hexagon':
+      body = <path {...common} strokeLinejoin="round" d={hexagonShapePath(n)} />;
+      break;
     case 'terminator':
       body = <rect {...common} x={x} y={y} width={w} height={h} rx={Math.min(h, w) / 2} />;
       text = <TextLines source={source} lines={wrapText(label, w - h * 0.6, fs, maxLines(h - 8))} cx={cx} cy={cy} fontSize={fs} color={color} />;
@@ -3265,7 +3269,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
     }
   }
   const callout = calloutLayout(n);
-  if (n.kind !== 'line' && (role !== null || callout !== null || n.kind === 'container' || n.kind === 'document' || n.textAlign !== undefined || n.textVerticalAlign !== undefined)) {
+  if (n.kind !== 'line' && (role !== null || callout !== null || n.kind === 'container' || n.kind === 'document' || n.kind === 'hexagon' || n.textAlign !== undefined || n.textVerticalAlign !== undefined)) {
     const layout = diagramTextLayout({ ...n, label: source }, role);
     text = <TextLines source={source} lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
   }
@@ -3319,6 +3323,7 @@ function ShapeGlyph({ kind }: { kind: DiagramKind }): React.ReactElement {
   switch (kind) {
     case 'process': shape = <rect x={2} y={5} width={16} height={10} rx={2} />; break;
     case 'decision': shape = <polygon points="10,2 18,10 10,18 2,10" />; break;
+    case 'hexagon': shape = <path strokeLinejoin="round" d={hexagonShapePath({ x: 2, y: 4, width: 16, height: 12 })} />; break;
     case 'terminator': shape = <rect x={2} y={5} width={16} height={10} rx={5} />; break;
     case 'document': shape = <path d={documentShapePath({ x: 2, y: 3, width: 16, height: 14 })} />; break;
     case 'arrow': shape = <path strokeLinejoin="round" d={arrowShapePath({ x: 2, y: 4, width: 16, height: 12 })} />; break;

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Bot, Chat, DataBase, DecisionTree, Locked, ToolKit, User, UserAdmin, Code, Task, Document, Folder, Cloud, Idea, Flow, Rocket, CheckmarkOutline, type CarbonIconType } from '@carbon/icons-react';
 import { DIAGRAM_ICON_KINDS, type AiFlowStepType, type DiagramNode, type DiagramIconName } from './diagramTypes';
-import { wrapText, type Rect } from './diagramGeometry';
+import { HEXAGON_INSET, wrapText, type Rect } from './diagramGeometry';
 import { diagramTextLayout } from './diagramText';
 
 export const DIAGRAM_ROLES = {
@@ -75,7 +75,7 @@ export function diagramRoleLayout(node: DiagramNode, aiFlow = true): DiagramRole
       content: { x: node.x + node.width * 0.12, y: node.y + node.height * 0.39, width: node.width * 0.76, height: node.height * 0.43 },
     };
   }
-  const inset = node.kind === 'terminator' ? Math.min(node.width, node.height) * 0.2 : 0;
+  const inset = node.kind === 'hexagon' ? node.width * HEXAGON_INSET : node.kind === 'terminator' ? Math.min(node.width, node.height) * 0.2 : 0;
   const x = node.x + inset;
   const size = chosen === undefined ? 0 : Math.min(28, node.width * 0.22, node.height * 0.35);
   const padding = 8;

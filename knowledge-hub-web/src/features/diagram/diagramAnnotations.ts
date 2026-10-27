@@ -5,7 +5,7 @@
  */
 import type { DiagramDocument, DiagramEdge, DiagramFootnote, DiagramLegend, DiagramLegendEntry, DiagramNode, DiagramPoint } from './diagramTypes';
 import type { Rect } from './diagramGeometry';
-import { containerHeader, edgeLabelCenter, edgeLabelLayout, edgeRoute, isContainerKind, linePoints, nodeMap, wrapText } from './diagramGeometry';
+import { HEXAGON_INSET, containerHeader, edgeLabelCenter, edgeLabelLayout, edgeRoute, isContainerKind, linePoints, nodeMap, wrapText } from './diagramGeometry';
 import { descriptionPlainText, wrapDescription, type DescriptionRun } from './diagramDescription';
 
 type Doc = DiagramDocument;
@@ -96,6 +96,7 @@ export function footnoteAnchor(doc: Pick<Doc, 'nodes' | 'edges'>, targetId: stri
       return a.x >= b.x ? a : b;
     }
     if (n.kind === 'decision') return { x: n.x + n.width * 0.75, y: n.y + n.height * 0.25 - FOOTNOTE_RADIUS * 0.6 };
+    if (n.kind === 'hexagon') return { x: n.x + n.width * (1 - HEXAGON_INSET), y: n.y + 2 };
     return { x: n.x + n.width - 2, y: n.y + 2 };
   }
   const e = doc.edges.find((x) => x.id === targetId);

@@ -17,6 +17,7 @@ const colour = (value: string): string => {
 
 const SHAPES: Partial<Record<DiagramNode['kind'], string>> = {
   process: 'rounded_square', decision: 'rhombus_smart', terminator: 'terminator', document: 'document', image: 'rectangle',
+  hexagon: 'hexagon',
 };
 const ARROWS = { right: 'arrow_right', left: 'arrow_left', up: 'arrow_top', down: 'arrow_down', 'left-right': 'arrow_left_right', 'up-down': 'arrow_left_right' } as const;
 

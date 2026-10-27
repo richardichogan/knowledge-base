@@ -1506,6 +1506,12 @@ in undo/redo and are preserved when duplicating items. Use the Properties button
 to hide/show the panel. Multi-selection asks you to select a single item.
 Existing diagrams remain compatible and start with empty descriptions.
 
+The shape picker includes **Hexagon** for labelled hubs such as **Output**, distinct
+from a Decision diamond. Click or drag it onto the sheet, then edit its label and
+appearance through the existing controls. It uses the normal four connector ports
+and is preserved in saved diagrams, SVG/PNG, draw.io and native Mural exports.
+Existing diagrams are not converted automatically.
+
 Use **Athena** in the diagram toolbar to discuss the saved diagram. Athena reads
 shape titles/descriptions, artefact kinds, explicit container membership and
 connector direction, together with linked-note excerpts. It can search and compare

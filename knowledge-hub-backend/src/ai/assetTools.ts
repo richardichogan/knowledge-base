@@ -39,7 +39,7 @@ const PROJECT_CATEGORIES = ['work', 'personal', 'side-hustle'] as const;
 const PROJECT_PRIORITIES = ['low', 'medium', 'high'] as const;
 const PROJECT_IMPORTANCE = ['critical', 'high', 'normal', 'low'] as const;
 const PROJECT_LIFECYCLE = ['active', 'paused', 'completed', 'archived'] as const;
-const NODE_KINDS = ['process', 'decision', 'terminator', 'document'] as const;
+const NODE_KINDS = ['process', 'decision', 'hexagon', 'terminator', 'document'] as const;
 const MAX_DIAGRAM_NODES = 80;
 const MAX_MAP_IDEAS = 60;
 const MAX_PROJECT_ID_CHARS = 60;
@@ -60,6 +60,7 @@ const COLOUR_NAMES = Object.keys(DIAGRAM_COLOURS);
 const NODE_SIZE: Record<typeof NODE_KINDS[number], { width: number; height: number }> = {
   process: { width: 160, height: 64 },
   decision: { width: 140, height: 90 },
+  hexagon: { width: 160, height: 80 },
   terminator: { width: 160, height: 52 },
   document: { width: 160, height: 80 },
 };

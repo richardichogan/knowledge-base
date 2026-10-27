@@ -44,6 +44,17 @@ function rejects(fn: () => unknown, field: RegExp): void {
 
 // ─── Document validation ─────────────────────────────────────────────────────
 
+test('hexagon hubs round-trip with labels, styling, metadata and all connector ports', () => {
+  const hub = node({ kind: 'hexagon', label: 'Output', description: 'Shared output hub', icon: 'flow', header: 'Output',
+    width: 160, height: 80, flow: { stepType: 'integration' } });
+  const target = node({ x: 400 });
+  const edges = (['top', 'right', 'bottom', 'left'] as const)
+    .map(sourcePort => edge(hub.id, target.id, { sourcePort }));
+  const input = doc([hub, target], edges);
+  assert.deepEqual(validateDiagramDocument(JSON.parse(JSON.stringify(input)), NONE), input);
+  rejects(() => validateDiagramDocument({ ...input, nodes: [{ ...hub, kind: 'unknown-polygon' }, target] }, NONE), /kind/);
+});
+
 test('shape headers and icons round-trip without weakening strict validation', () => {
   for (const icon of [...DIAGRAM_ICON_NAMES, null, undefined]) {
     const input = doc([node({ ...(icon !== undefined ? { icon } : {}), header: 'Custom header' })]);

@@ -14,6 +14,7 @@ export const MIN_NODE_SIZE = 24;
 export const ORTHO_STUB = 20;
 export const CONTAINER_HEADER = 28;
 export const SWIMLANE_HEADER = 32;
+export const HEXAGON_INSET = 0.2;
 
 const EPS = 1e-6;
 
@@ -49,6 +50,12 @@ export function documentShapePath(r: Rect): string {
   const bottom = r.y + r.height - documentWaveDepth(r.height);
   const depth = documentWaveDepth(r.height);
   return `M${r.x},${r.y} H${r.x + r.width} V${bottom} Q${r.x + r.width * 0.75},${bottom - depth * 2} ${r.x + r.width / 2},${bottom} Q${r.x + r.width * 0.25},${bottom + depth * 2} ${r.x},${bottom} Z`;
+}
+
+export function hexagonShapePath(r: Rect): string {
+  const inset = r.width * HEXAGON_INSET;
+  return `M${r.x + inset},${r.y} L${r.x + r.width - inset},${r.y} L${r.x + r.width},${r.y + r.height / 2}`
+    + ` L${r.x + r.width - inset},${r.y + r.height} L${r.x + inset},${r.y + r.height} L${r.x},${r.y + r.height / 2} Z`;
 }
 
 /** Soften only the outline, preserving the diamond's bounds and cardinal ports. */
@@ -571,11 +578,12 @@ export function distanceToPolyline(p: DiagramPoint, points: readonly DiagramPoin
 export function pointInNode(n: DiagramNode, p: DiagramPoint, pad = 0): boolean {
   if (n.kind === 'line') return distanceToPolyline(p, linePoints(n)) <= Math.max(6, (n.strokeWidth ?? 1.5) / 2) + pad;
   if (!rectContainsPoint(nodeRect(n), p, pad)) return false;
-  if (n.kind !== 'decision') return true;
+  if (n.kind !== 'decision' && n.kind !== 'hexagon') return true;
   const c = rectCenter(n);
   const hw = n.width / 2 + pad; const hh = n.height / 2 + pad;
   if (hw <= 0 || hh <= 0) return false;
-  return Math.abs(p.x - c.x) / hw + Math.abs(p.y - c.y) / hh <= 1 + EPS;
+  const slope = n.kind === 'hexagon' ? 2 * HEXAGON_INSET : 1;
+  return Math.abs(p.x - c.x) / hw + slope * Math.abs(p.y - c.y) / hh <= 1 + EPS;
 }
 
 /** Topmost node under p (children paint above their containers). */

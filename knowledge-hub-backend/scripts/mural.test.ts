@@ -26,6 +26,14 @@ function nativeDiagram() {
     route: 'orthogonal', arrows: 'start', stroke: '#161616FF', strokeWidth: 2, dashed: true, text: 'Editable edge', fontSize: 12, label: { x: 540, y: 180 } }] };
 }
 
+test('Mural accepts native hexagon shapes while retaining the shape allowlist', () => {
+  const input = nativeDiagram();
+  input.objects[0]!.shape = 'hexagon';
+  assert.equal(validateMuralDiagram(input).objects[0]!.shape, 'hexagon');
+  input.objects[0]!.shape = 'unknown-polygon';
+  assert.throws(() => validateMuralDiagram(input), /Unsupported/);
+});
+
 async function fixture() {
   const db = new PGlite();
   await db.exec(`CREATE TABLE sync_state (

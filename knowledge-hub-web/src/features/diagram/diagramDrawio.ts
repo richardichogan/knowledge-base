@@ -9,7 +9,7 @@
  */
 import type { DiagramDocument, DiagramEdge, DiagramNode, DiagramPort } from './diagramTypes';
 import { footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
-import { ARROW_SHAFT, arrowAxis, arrowHeadLength, boundsOf, containerHeader, diagramBounds, linePoints, nodeMap, renderOrder, SWIMLANE_HEADER, type Rect } from './diagramGeometry';
+import { ARROW_SHAFT, HEXAGON_INSET, arrowAxis, arrowHeadLength, boundsOf, containerHeader, diagramBounds, linePoints, nodeMap, renderOrder, SWIMLANE_HEADER, type Rect } from './diagramGeometry';
 import { calloutLayout } from './diagramCallouts';
 import { AGENT_MODE_BADGES, AGENT_MODE_LABELS, ASSERTION_LABELS, EDGE_TYPE_LABELS, INTERACTION_LABELS, SENSITIVITY_LABELS, STATE_LABELS, STEP_TYPE_LABELS, controlCount } from './aiFlow';
 import { aiStepSummary } from './diagramAiFlowBadges';
@@ -72,6 +72,8 @@ function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
       return style({ swimlane: '', ...common, horizontal: 0, startSize: SWIMLANE_HEADER, fontStyle: 1, collapsible: 1, container: 1 });
     case 'decision':
       return style({ rhombus: '', ...common, align, verticalAlign, ...children });
+    case 'hexagon':
+      return style({ shape: 'hexagon', ...common, perimeter: 'hexagonPerimeter', fixedSize: 0, size: HEXAGON_INSET, align, verticalAlign, ...children });
     case 'document':
       return style({ shape: 'document', ...common, boundedLbl: 1, size: 0.15, align, verticalAlign, ...children });
     case 'arrow': {

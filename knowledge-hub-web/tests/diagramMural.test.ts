@@ -8,6 +8,16 @@ const node = (id: string, kind: DiagramNode['kind'], x: number, parentId: string
 });
 const options = { boardUrl: 'https://app.mural.co/t/a/m/a/123', title: 'Diagram', footnotes: false, legend: false };
 
+test('Mural exports a hexagon hub as an editable native hexagon', async () => {
+  const hub = { ...node('hub', 'hexagon', 0), label: 'Output' };
+  const result = await diagramMural({ ...emptyDiagram(), nodes: [hub] }, new Map(), options);
+  assert.equal(result.objects[0]!.type, 'shape');
+  assert.equal(result.objects[0]!.shape, 'hexagon');
+  assert.equal(result.objects[0]!.text, 'Output');
+  assert.equal(result.objects[0]!.width, hub.width);
+  assert.equal(result.objects[0]!.height, hub.height);
+});
+
 test('Mural projection keeps editable shape kinds, absolute positions and connected endpoints', async () => {
   const doc = { ...emptyDiagram(), nodes: [node('area', 'container', -200), node('a', 'decision', -180, 'area'), node('b', 'terminator', 200)],
     edges: [{ id: 'edge', sourceId: 'a', targetId: 'b', sourcePort: 'right' as const, targetPort: 'left' as const,

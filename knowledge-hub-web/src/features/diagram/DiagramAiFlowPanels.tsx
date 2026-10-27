@@ -180,7 +180,7 @@ export function AiFlowProperties({ node, edge, nextLaneOrder, onNodeChange, onEd
   if (node === undefined) return null;
   if (node.kind === 'swimlane') return <AiLaneProperties node={node} nextLaneOrder={nextLaneOrder} onChange={onNodeChange} />;
   if (!isAiStepKind(node.kind)) {
-    return <p className="dg-ai-props__note">Only process, decision, start / end and document shapes can be AI flow steps.</p>;
+    return <p className="dg-ai-props__note">Only process, decision, hexagon, start / end and document shapes can be AI flow steps.</p>;
   }
   return <AiStepProperties node={node} onChange={onNodeChange} />;
 }

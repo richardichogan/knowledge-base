@@ -1,5 +1,5 @@
 import type { DiagramNode } from './diagramTypes';
-import { containerHeader, SWIMLANE_HEADER, documentWaveDepth, wrapText, arrowAxis, arrowShaftRect } from './diagramGeometry';
+import { containerHeader, SWIMLANE_HEADER, HEXAGON_INSET, documentWaveDepth, wrapText, arrowAxis, arrowShaftRect } from './diagramGeometry';
 import { calloutLayout } from './diagramCallouts';
 import { descriptionPlainText } from './diagramMarkdown';
 import type { DiagramRoleLayout } from './DiagramRoleBadge';
@@ -74,7 +74,8 @@ export function diagramTextLayout(node: DiagramNode, role?: DiagramRoleLayout | 
       anchor: horizontal === 'left' ? 'start' : horizontal === 'right' ? 'end' : 'middle', weight: 400,
     };
   }
-  const width = node.kind === 'decision' ? w * 0.62 : node.kind === 'terminator' ? w - h * 0.6 : w - (node.kind === 'text' ? 8 : 16);
+  const width = node.kind === 'hexagon' ? Math.max(1, w * (1 - 2 * HEXAGON_INSET) - 16)
+    : node.kind === 'decision' ? w * 0.62 : node.kind === 'terminator' ? w - h * 0.6 : w - (node.kind === 'text' ? 8 : 16);
   const contentHeight = node.kind === 'document' ? h - 2 * documentWaveDepth(h) : h;
   const height = node.kind === 'decision' ? h * 0.6 : contentHeight - (node.kind === 'text' ? 0 : 8);
   const lines = wrapText(descriptionPlainText(node.label), width, fs, Math.max(1, Math.floor(height / (fs * 1.25))));

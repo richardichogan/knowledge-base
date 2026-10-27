@@ -14,7 +14,7 @@ interface NativeConnector {
   route: 'straight' | 'orthogonal'; arrows: 'none' | 'start' | 'end' | 'both';
   stroke: string; strokeWidth: number; dashed: boolean; text: string; fontSize: number; label: Point;
 }
-const SHAPES = new Set(['rounded_square', 'rhombus_smart', 'terminator', 'document', 'rectangle', 'ellipse',
+const SHAPES = new Set(['rounded_square', 'rhombus_smart', 'hexagon', 'terminator', 'document', 'rectangle', 'ellipse',
   'arrow_right', 'arrow_left', 'arrow_top', 'arrow_down', 'arrow_left_right']);
 const MAX_OBJECTS = 200;
 const MAX_COORDINATE = 1_000_000;
