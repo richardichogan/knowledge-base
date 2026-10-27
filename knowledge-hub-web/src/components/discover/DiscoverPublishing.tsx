@@ -92,7 +92,9 @@ function isReadyDraft(draft: PublishingDraft): boolean {
 }
 export function publishingApprovalBlocker(draft: PublishingDraft): string | null {
   if (!hasSavedDraftText(draft)) return 'No post text was saved. This record is not ready for approval.';
-  if (draft.held) return 'Editorial preparation is incomplete. This draft is not ready for approval.';
+  if (draft.held) return draft.review === 'pass'
+    ? draft.reason || 'Publishing is on hold. Resolve the delivery issue before scheduling.'
+    : 'Editorial preparation is incomplete. This draft is not ready for approval.';
   if (draft.review !== 'pass') return draft.review === 'pending'
     ? 'Editorial review is pending. Approval becomes available after accuracy and voice checks pass.'
     : 'Editorial checks need attention. Edit the copy or request another review before approving.';
@@ -159,7 +161,7 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
               : feed?.enabled ? ' See Scheduling for the assigned time and any delivery blockers.' : ' Feed settings are unavailable; scheduling cannot be confirmed.'}</p>}
           <div className="kh-publishing__post"><PublishingDraftPreview draft={draft} /></div>
           {draft.destination !== 'blog' && <p className="kh-publishing__meta">{draft.variant === 'blog' ? 'The verified public blog URL is appended at delivery.' : `Source link: ${d.sources[0]?.url ?? 'Unavailable'}`}</p>}
-          {draft.reason && <details className="kh-publishing__evidence"><summary>Editorial findings</summary><pre>{draft.reason}</pre></details>}
+          {draft.reason && <details className="kh-publishing__evidence"><summary>Publishing status and findings</summary><pre>{draft.reason}</pre></details>}
         </>}
         <details className="kh-publishing__evidence"><summary>Version history, accuracy and voice findings</summary>
           {d.versions.filter(v => v.draft_id === draft.id).map(v => <section key={v.version}>

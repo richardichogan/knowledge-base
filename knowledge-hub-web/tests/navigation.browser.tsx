@@ -151,7 +151,7 @@ function MetadataFixture(): React.ReactElement {
       wordCount={0} readingTime={0} blockCount={0} ghStatus="not-pushed" ghDotColor="grey"
       githubPath={undefined} onPushToGitHub={() => undefined}
       githubError="" githubBusy={false} onCheckGitHub={() => undefined}
-      onRestoreVersion={async () => {}} historyRefresh={0} prepareDemoBrief={async () => 'Fixture brief'} />
+      onRestoreVersion={async () => {}} historyRefresh={0} prepareDemoBrief={async () => 'Fixture brief'} onSaveBeforeCampaign={async () => true} />
   </div></div>;
 }
 let deferredLoads = 0;

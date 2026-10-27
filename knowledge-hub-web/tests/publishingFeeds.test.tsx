@@ -40,7 +40,10 @@ test('draft preview shows exact complete social copy, with no publication or con
 });
 test('a held or unreviewed draft explains recovery instead of suggesting it can publish', () => {
   assert.equal(publishingApprovalBlocker(savedDraft), null);
-  assert.match(publishingApprovalBlocker({ ...savedDraft, held: true })!, /not ready for approval/);
+  assert.match(publishingApprovalBlocker({ ...savedDraft, held: true })!, /Publishing is on hold/);
+  const deliveryFailure = 'Blog accepted, but public verification failed: Page returned HTTP 404';
+  assert.equal(publishingApprovalBlocker({ ...savedDraft, held: true, approval: 'approved', reason: deliveryFailure }), deliveryFailure);
+  assert.match(publishingApprovalBlocker({ ...savedDraft, held: true, review: 'hold' })!, /not ready for approval/);
   assert.match(publishingApprovalBlocker({ ...savedDraft, review: 'pending' })!, /accuracy and voice checks pass/);
   assert.match(publishingApprovalBlocker({ ...savedDraft, review: 'revise' })!, /Edit the copy/);
   assert.equal(publishingApprovalBlocker({ ...savedDraft, expiresAt: new Date(0).toISOString() }), null);
@@ -72,8 +75,8 @@ test('the actual review pane puts full copy before technical findings and expose
   assert.ok(!html.includes('Generate draft</button>'));
   assert.ok(!html.includes('undefined'));
   assert.ok(!html.includes('Send for scheduling</button>'));
-  assert.ok(html.indexOf('No post text was saved for this draft') < html.indexOf('Editorial findings'));
-  assert.ok(html.includes('<summary>Editorial findings</summary>'));
+  assert.ok(html.indexOf('No post text was saved for this record') < html.indexOf('Publishing status and findings'));
+  assert.ok(html.includes('<summary>Publishing status and findings</summary>'));
   assert.ok(html.indexOf('More actions') < html.indexOf('Rebind account'));
   query.clear();
 });

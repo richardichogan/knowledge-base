@@ -13,6 +13,8 @@ import { verifyBlog } from '../publishing/worker.js';
 import { destinationAccount } from '../publishing/delivery.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
 import { listSchedule, refreshSchedule } from '../publishing/schedule.js';
+import { createPodcastCampaignRouter } from './podcastCampaigns.js';
+import { podcastDeliveryPost } from '../publishing/podcastCampaignStore.js';
 
 export function publishingProduction(): void {
   if (env.NODE_ENV !== 'production' && !env.isDevelopment) throw new ValidationError('Publishing changes require an application server or an isolated production-mode test.');
@@ -34,8 +36,10 @@ export async function reconcilePublishing(db: Pool, id: string, body: Record<str
     receipt = { url: url.href, manuallyConfirmed: true };
     if (delivery.destination === 'blog') {
       const draft = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE id=$1 AND version=$2`, [delivery.draftId, delivery.version])).rows[0];
-      if (!draft) throw new ValidationError('The exact published blog draft is unavailable.');
-      receipt = { ...receipt, ...await verifyBlog(url.href, draft.content) };
+      const podcast = draft ? null : await podcastDeliveryPost(db, delivery.identity);
+      const content = draft?.content ?? (podcast?.blog ? { ...podcast.blog } : null);
+      if (!content) throw new ValidationError('The exact published blog draft is unavailable.');
+      receipt = { ...receipt, ...await verifyBlog(url.href, content) };
     } else if (url.hostname !== (delivery.destination === 'bluesky' ? 'bsky.app' : 'www.linkedin.com')) throw new ValidationError('The receipt must be a public post on the selected social network.');
   }
   await transaction(db, async c => {
@@ -44,7 +48,9 @@ export async function reconcilePublishing(db: Pool, id: string, body: Record<str
       WHERE id=$1 AND status=$6 AND attempted_at=$7 RETURNING id`, [id, body.delivered ? 'sent' : 'failed', receipt ? JSON.stringify(receipt) : null,
       at, body.delivered ? null : new Date().toISOString(), delivery.status, delivery.attemptedAt]);
     if (!changed.rowCount) throw new ConflictError('Delivery changed; reload.', 'PUBLISHING_CONFLICT');
-    if (!body.delivered && delivery.draftId) await c.query('UPDATE publishing_drafts SET held=FALSE WHERE id=$1 AND version=$2', [delivery.draftId, delivery.version]);
+    if (delivery.draftId) await c.query(`UPDATE publishing_drafts SET held=FALSE,reason=$3
+      WHERE id=$1 AND version=$2 AND (NOT $4 OR reason=$5)`,
+    [delivery.draftId, delivery.version, body.delivered ? 'Published; delivery confirmed.' : 'Delivery confirmed not sent; retry requested.', body.delivered, delivery.error]);
     if (delivery.identity.startsWith('discover:')) {
       const itemId = uuid(delivery.identity.slice('discover:'.length));
       const key = delivery.destination === 'bluesky' ? 'blueskyPost' : 'linkedinPost';
@@ -61,11 +67,15 @@ export async function reconcilePublishing(db: Pool, id: string, body: Record<str
         WHERE id=$1 AND (lease_until IS NULL OR lease_until<NOW())`,
       [uuid(runId), key, body.delivered ? 'succeeded' : 'failed', JSON.stringify(receipt), at ?? new Date().toISOString()]);
     }
+    if (delivery.identity.startsWith('podcast:')) {
+      await c.query('UPDATE podcast_campaigns SET error=NULL WHERE note_id=$1', [uuid(delivery.identity.split(':')[1])]);
+    }
     await event(c, delivery.topicId, actor, 'delivery-reconciled', { id, delivered: body.delivered, receipt, publishedAt: at, reason: text(body.reason ?? '', 'reason', PUBLISH_LIMITS.maxGuidance) });
   });
 }
 export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router {
   const router = Router();
+  router.use('/podcasts', createPodcastCampaignRouter(getDb));
   const actor = (req: Parameters<RequestHandler>[0]): string => (req as AuthenticatedRequest).userId;
   const route = (action: (req: Parameters<RequestHandler>[0]) => unknown): RequestHandler => (req, res, next) => {
     void Promise.resolve().then(() => action(req)).then(data => res.json({ success: true, data })).catch(next);

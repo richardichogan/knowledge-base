@@ -33,8 +33,9 @@ import { NoteBacklinks } from './NoteBacklinks';
 import { ProjectOptions } from '../components/ProjectOptions';
 import { UnlinkedMentions } from './UnlinkedMentions';
 import { NoteMiniGraph } from '../components/graph/NoteMiniGraph';
+import { PodcastCampaign, PodcastEpisodeLinks } from './PodcastCampaign';
 
-const SIDE_PANEL_TABS = ['athena', 'design', 'metadata', 'connections', 'history', 'link'] as const;
+const SIDE_PANEL_TABS = ['athena', 'design', 'metadata', 'campaign', 'connections', 'history', 'link'] as const;
 type SidePanelTab = typeof SIDE_PANEL_TABS[number];
 
 // Module constant (not an inline literal) so the width hook gets a stable object.
@@ -84,6 +85,7 @@ export interface MetadataPanelProps {
   onRestoreVersion: (versionId: string) => Promise<void>;
   historyRefresh: number;
   onShowEditor?: (() => void) | undefined;
+  onSaveBeforeCampaign: () => Promise<boolean>;
 }
 
 /** Formats an ISO timestamp as "DD Mon YYYY, HH:MM" for Created/Modified. */
@@ -123,6 +125,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   onRestoreVersion,
   historyRefresh,
   onShowEditor,
+  onSaveBeforeCampaign,
 }) => {
   const { pageContext, registerAthenaLauncher, request: athenaRequest } = useAthenaContext();
   const qc = useQueryClient();
@@ -134,7 +137,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const [linkHistory, setLinkHistory] = useState<EntityLinkTarget[]>([]);
   const previewOrigin = React.useRef<HTMLElement | null>(null);
   const previousTab = React.useRef<SidePanelTab>('athena');
-  const tab: SidePanelTab = (storedTab === 'link' && !linkTarget) || (storedTab === 'design' && !designPanel) ? 'athena' : storedTab;
+  const tab: SidePanelTab = (storedTab === 'link' && !linkTarget) || (storedTab === 'design' && !designPanel)
+    || (storedTab === 'campaign' && contentType !== 'podcast-show-notes') ? 'athena' : storedTab;
   const useCaseLaunch = launchFromRef('note', doc.id, doc.title);
   const [width, setWidth] = usePersistedPaneWidth('think-side-panel', SIDE_PANEL_WIDTH);
   const panelRef = React.useRef<HTMLDialogElement>(null);
@@ -207,6 +211,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
     { id: 'athena', label: 'Athena' },
     ...(designPanel ? [{ id: 'design' as const, label: 'Design' }] : []),
     { id: 'metadata', label: 'Metadata' },
+    ...(contentType === 'podcast-show-notes' ? [{ id: 'campaign' as const, label: 'Campaign' }] : []),
     { id: 'connections', label: 'Connections' },
     { id: 'history', label: 'History' },
     ...(linkTarget ? [{ id: 'link' as const, label: 'Link' }] : []),
@@ -262,6 +267,11 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
         {tab === 'design' && designPanel && <div role="tabpanel" id="think-side-panel-design"
           aria-labelledby="think-side-tab-design" className="notes-meta-tabpanel">{designPanel}</div>}
         <fieldset className="notes-editor-lock" disabled={writingBusy} aria-label="Note properties" aria-busy={writingBusy}>
+        {tab === 'campaign' && contentType === 'podcast-show-notes' && (
+          <div role="tabpanel" id="think-side-panel-campaign" aria-labelledby="think-side-tab-campaign" className="notes-meta-tabpanel">
+            <PodcastCampaign key={noteId} noteId={noteId} noteRevision={doc.revision ?? 0} beforePrepare={onSaveBeforeCampaign} />
+          </div>
+        )}
         {tab === 'link' && linkTarget && (
           <div role="tabpanel" id="think-side-panel-link" aria-labelledby="think-side-tab-link" className="notes-meta-tabpanel">
             <LinkPreviewContent target={linkTarget} onClose={closePreview} onBack={linkHistory.length ? () => {
@@ -336,6 +346,9 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
               </div>
             </CollapsibleSection>
 
+            {contentType === 'podcast-show-notes' && <CollapsibleSection label="Episode links">
+              <PodcastEpisodeLinks key={noteId} noteId={noteId} noteRevision={doc.revision ?? 0} />
+            </CollapsibleSection>}
             <CollapsibleSection label="Details">
               <div className="notes-meta-section">
                 <p className="notes-meta-section-label">Created</p>

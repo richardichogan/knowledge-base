@@ -64,6 +64,7 @@ test('publishing accepts introductory clauses with pairs but still rejects actua
 test('source and ideas drafts use the accepted taxonomy for both quick takes and articles', async () => {
   const prompts: string[] = [];
   const client = { chat: async (_model: string, messages: Array<{ content: string }>) => {
+    if (messages[0]!.content.includes('final factual editor')) return JSON.stringify({ edits: [] });
     prompts.push(messages[0]!.content);
     return JSON.stringify(fields);
   } };

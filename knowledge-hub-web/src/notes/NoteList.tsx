@@ -3,16 +3,16 @@
  * Flat and newest-first by default; grouping by project is an opt-in toggle.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { confirmDialog } from '../services/appDialogs';
 import { TextInput } from '@carbon/react';
-import { TrashCan, Close, SortAscending, GroupObjects, View } from '@carbon/icons-react';
+import { TrashCan, Close, SortAscending, GroupObjects, View, ChevronDown, ChevronRight } from '@carbon/icons-react';
 import type { ThinkListItem } from './types';
 import { useTaxonomy } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
-import { usePersistedBoolean, usePersistedChoice } from '../hooks/usePersistedState';
+import { readStored, writeStored, usePersistedBoolean, usePersistedChoice } from '../hooks/usePersistedState';
 import { contentTypeIcon, ctxTags, identitiesFor, useIdentity } from '../identity';
-import { activateNoteOnKeyDown, NOTE_SORT_OPTIONS, type NoteSortKey, type NoteListQuery } from './noteListState';
+import { activateNoteOnKeyDown, NOTE_SORT_OPTIONS, NOTE_BUCKET_STORAGE_KEY, noteDateBuckets, noteListDate, parseCollapsedNoteBuckets, type NoteSortKey, type NoteListQuery } from './noteListState';
 import './noteList.scss';
 
 const SORT_LABELS: Record<NoteSortKey, string> = {
@@ -44,6 +44,10 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function formatDateTime(iso: string): string {
+  const time = new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${formatDate(iso)}, ${time}`;
+}
 
 export const NoteList: React.FC<NoteListProps> = ({
   notes,
@@ -69,13 +73,35 @@ export const NoteList: React.FC<NoteListProps> = ({
     NOTE_SORT_OPTIONS,
     'modified',
   );
-  // Grouping and previews are both off by default: the common case is
-  // "find the thing I was just working on", which a flat newest-first list
-  // answers in one glance. Group headers and preview text each push roughly
-  // a third of the list below the fold in exchange for context you only want
-  // when browsing rather than resuming.
+  // The compact flat list groups dates; project grouping and previews remain opt-in.
   const [groupByProject, setGroupByProject] = usePersistedBoolean('kh_notes_group', false);
   const [showPreviews, setShowPreviews] = usePersistedBoolean('kh_notes_previews', false);
+  const compact = !groupByProject && !showPreviews;
+  const bucketed = compact && sortKey !== 'title';
+  const bucketListId = useId();
+  const [bucketDate, setBucketDate] = useState(() => new Date());
+  const [collapsedBuckets, setCollapsedBuckets] = useState(() => parseCollapsedNoteBuckets(readStored(NOTE_BUCKET_STORAGE_KEY)));
+  useEffect(() => { writeStored(NOTE_BUCKET_STORAGE_KEY, JSON.stringify(collapsedBuckets)); }, [collapsedBuckets]);
+  useEffect(() => {
+    if (!bucketed) return;
+    let timer: number | undefined;
+    const refresh = (): void => {
+      const now = new Date();
+      setBucketDate(now);
+      window.clearTimeout(timer);
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      timer = window.setTimeout(refresh, midnight.getTime() - now.getTime());
+    };
+    const onVisible = (): void => { if (document.visibilityState === 'visible') refresh(); };
+    refresh();
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [bucketed]);
 
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -135,6 +161,17 @@ export const NoteList: React.FC<NoteListProps> = ({
   };
 
   const sortedNotes = onQueryChange === undefined ? [...filteredNotes].sort(compareNotes) : filteredNotes;
+  const dateBuckets = bucketed ? noteDateBuckets(sortedNotes, sortKey, bucketDate) : [];
+  const selectedBucket = dateBuckets.find(bucket => bucket.notes.some(note => note.id === selectedId))?.key;
+  useEffect(() => {
+    if (selectedBucket) setCollapsedBuckets(current => current.includes(selectedBucket)
+      ? current.filter(key => key !== selectedBucket) : current);
+  }, [selectedId, selectedBucket]);
+
+  const renderNote = (note: ThinkListItem): React.ReactElement => (
+    <NoteCard key={note.id} note={note} selectedId={selectedId} onSelect={onSelect} onDelete={onDelete}
+      deleting={deletingId === note.id} deletePending={deletingId !== null} showPreview={showPreviews} sortKey={sortKey} compact={compact} />
+  );
 
   // Group by the explicit project first, falling back to older taxonomy-only
   // notes that predate first-class project assignment.
@@ -224,7 +261,6 @@ export const NoteList: React.FC<NoteListProps> = ({
         </button>
       </div>
 
-      {/* Notes grouped by project */}
       <div className="notes-list">
         {loading && <p className="notes-list-progress" role="status">Loading notes...</p>}
         {!loading && !unavailable && sortedNotes.length === 0 && (
@@ -234,34 +270,24 @@ export const NoteList: React.FC<NoteListProps> = ({
           ? sortedGroups.map(([key, group]) => (
               <div key={key} className="notes-group">
                 <p className="notes-group__label">{group.label}</p>
-                {group.notes.map((note) => (
-                  <NoteCard
-                    key={note.id}
-                    note={note}
-                    selectedId={selectedId}
-                    onSelect={onSelect}
-                    onDelete={onDelete}
-                    deleting={deletingId === note.id}
-                    deletePending={deletingId !== null}
-                    showPreview={showPreviews}
-                    sortKey={sortKey}
-                  />
-                ))}
+                {group.notes.map(renderNote)}
               </div>
             ))
-          : sortedNotes.map((note) => (
-              <NoteCard
-                key={note.id}
-                note={note}
-                selectedId={selectedId}
-                onSelect={onSelect}
-                onDelete={onDelete}
-                deleting={deletingId === note.id}
-                deletePending={deletingId !== null}
-                showPreview={showPreviews}
-                sortKey={sortKey}
-              />
-            ))}
+          : bucketed ? dateBuckets.map(bucket => {
+            const collapsed = collapsedBuckets.includes(bucket.key);
+            const Chevron = collapsed ? ChevronRight : ChevronDown;
+            const rowsId = `${bucketListId}-${bucket.key}`;
+            return <div key={bucket.key} className="notes-date-bucket">
+              <button type="button" className="notes-date-bucket__header" aria-expanded={!collapsed} aria-controls={rowsId}
+                onClick={() => setCollapsedBuckets(current => current.includes(bucket.key)
+                  ? current.filter(key => key !== bucket.key) : [...current, bucket.key])}>
+                <span>{bucket.label}</span>
+                <span className="notes-date-bucket__count">{bucket.notes.length}</span>
+                <Chevron size={16} aria-hidden="true" />
+              </button>
+              <div id={rowsId} hidden={collapsed}>{!collapsed && bucket.notes.map(renderNote)}</div>
+            </div>;
+          }) : sortedNotes.map(renderNote)}
       </div>
       <div className="notes-list-pagination">
         <span className="notes-list-pagination__count" role="status">
@@ -291,7 +317,8 @@ const NoteCard: React.FC<{
   showPreview: boolean;
   /** Drives which timestamp the card shows, so the visible dates match the chosen order. */
   sortKey: NoteSortKey;
-}> = ({ note, selectedId, onSelect, onDelete, deleting, deletePending, showPreview, sortKey }) => {
+  compact: boolean;
+}> = ({ note, selectedId, onSelect, onDelete, deleting, deletePending, showPreview, sortKey, compact }) => {
   const identity = useIdentity();
   const isActive = selectedId === note.id;
   const cardRef = useRef<HTMLDivElement>(null);
@@ -313,7 +340,8 @@ const NoteCard: React.FC<{
   return (
     <div
       ref={cardRef}
-      className={`notes-list-item${isActive ? ' notes-list-item--active' : ''}`}
+      className={`notes-list-item${isActive ? ' notes-list-item--active' : ''}${compact ? ' notes-list-item--compact' : ''}`}
+      title={compact ? `${note.title}\n${formatDateTime(noteListDate(note, sortKey))}` : undefined}
       onClick={() => { onSelect(note.id); }}
       onKeyDown={(event) => { activateNoteOnKeyDown(event, () => { onSelect(note.id); }); }}
       data-ctx-title={note.title}
@@ -345,9 +373,7 @@ const NoteCard: React.FC<{
         )
       )}
       <div className="notes-list-item-bottom">
-        <span className="notes-list-item-date">
-          {formatDate((sortKey === 'created' ? note.createdAt : note.updatedAt) ?? note.updatedAt)}
-        </span>
+        {!compact && <span className="notes-list-item-date">{formatDate(noteListDate(note, sortKey))}</span>}
         <span className={`notes-type-tag kh-type-mark kh-content-type--${note.contentType}`}>
           <TypeIcon size={12} aria-hidden="true" />
           {note.contentType.replace(/-/g, ' ')}

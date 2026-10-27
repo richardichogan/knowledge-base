@@ -32,7 +32,7 @@ async function fixture(): Promise<{ pg: PGlite; db: Pool }> {
   const query = async (sql: string, values?: unknown[]) => {
     if (sql.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 0 };
     const result = await pg.query(sql, values);
-    return { ...result, rowCount: result.affectedRows ?? result.rows.length };
+    return { ...result, rowCount: result.affectedRows || result.rows.length };
   };
   const client = { query, release() {} };
   const db = { query, connect: async () => client } as unknown as Pool;
@@ -400,7 +400,7 @@ test('missing local files wait only until the next occurrence and are then audit
   } finally { await pg.close(); }
 });
 
-test('blog URL gates socials; a partial social failure resumes without reposting the blog or successful social', async () => {
+test('blog then LinkedIn then Bluesky use the new blog URL and resume without reposting successes', async () => {
   const { pg, db } = await fixture();
   try {
     const job = await store.saveJob(db, undefined, 0, definition({ approval: 'automatic', outputs: ['blog', 'bluesky', 'linkedin'] }), true, 'user');
@@ -424,6 +424,7 @@ test('blog URL gates socials; a partial social failure resumes without reposting
     };
     await executeRun(db, claim.run, claim.lease, delivery);
     assert.equal((await store.getRun(db, run.id)).status, 'partial');
+    assert.deepEqual(counts, { blog: 1, bluesky: 0, linkedin: 1 });
     await store.releaseRun(db, run.id, claim.lease);
     await store.retryRun(db, run.id, 'user');
     const retry = (await store.leaseRun(db))!;
@@ -450,7 +451,7 @@ test('a blog response with no public URL becomes unconfirmed and neither social 
     assert.equal(claim.run.steps.find(s => s.key === 'blog')!.status, 'unconfirmed');
   } finally { await pg.close(); }
 });
-test('pacing the final social destination keeps the job queued and preserves independent successful posts', async () => {
+test('LinkedIn pacing keeps Bluesky queued behind it without republishing the blog', async () => {
   const { pg, db } = await fixture();
   try {
     const job = await store.saveJob(db, undefined, 0, definition({ approval: 'automatic', outputs: ['blog', 'bluesky', 'linkedin'] }), true, 'user');
@@ -474,8 +475,52 @@ test('pacing the final social destination keeps the job queued and preserves ind
       read: async () => ({ title: blog.title, text: prose }),
     };
     await executeRun(db, claim.run, claim.lease, deliveries);
-    assert.equal(claim.run.status, 'queued'); assert.equal(blueSends, 1);
+    assert.equal(claim.run.status, 'queued'); assert.equal(blueSends, 0);
     await executeRun(db, claim.run, claim.lease, deliveries);
-    assert.equal(claim.run.status, 'queued'); assert.equal(blueSends, 1);
+    assert.equal(claim.run.status, 'queued'); assert.equal(blueSends, 0);
+  } finally { await pg.close(); }
+});
+
+test('accepted blog 404 and LinkedIn rate limits recover in order without recreating the article', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const job = await store.saveJob(db, undefined, 0, definition({ approval: 'automatic', outputs: ['blog', 'linkedin', 'bluesky'] }), true, 'user');
+    await store.enqueue(db, job, new Date(), 'manual:verify-blog', false, 'user');
+    const claim = (await store.leaseRun(db))!;
+    const prose = 'Administrators should check permissions before enabling the documented capability. '.repeat(10);
+    const blog = { title: 'A practical update', summary: 'A useful change.', content: `<p>${prose}</p>`, excerpt: '', status: 'published' };
+    claim.run.artifacts = { markdown: 'Fixture', blog, bluesky: 'A practical update.', linkedin: 'A practical administration update.',
+      linkedinAccount: { id: 'member' }, publishTargets: { blogHost: 'blog.fixture.invalid', blueskyAccount: env.BLUESKY_IDENTIFIER ?? '(not connected)' } };
+    claim.run.steps = [{ key: 'generate', status: 'succeeded', startedAt: new Date().toISOString(), result: claim.run.artifacts }];
+    const url = 'https://blog.fixture.invalid/new-article';
+    const order: string[] = [];
+    let available = false;
+    const delivery = {
+      blog: async () => { order.push('blog'); return { httpStatus: 200, payload: { success: true as const, data: { url, editUrl: null, status: 'published' as const } } }; },
+      read: async () => { if (!available) throw new Error('Page returned HTTP 404'); return { title: blog.title, text: prose }; },
+      linkedin: async (_copy: string, link: { url: string } | null) => {
+        assert.equal(link?.url, url); order.push('linkedin');
+        if (order.filter(item => item === 'linkedin').length === 1) throw new (await import('../src/types/errors.js')).IntegrationError('linkedin', 'HTTP 429');
+        return { urn: 'urn', url: 'https://www.linkedin.com/fixture' };
+      },
+      bluesky: async (_copy: string, link: { url: string } | null) => { assert.equal(link?.url, url); order.push('bluesky'); return { uri: 'uri', url: 'https://bsky.app/fixture' }; },
+    };
+    await executeRun(db, claim.run, claim.lease, delivery);
+    assert.equal(claim.run.status, 'queued');
+    assert.deepEqual(order, ['blog']);
+    await store.releaseRun(db, claim.run.id, claim.lease);
+    assert.equal(await store.leaseRun(db), null, 'verification backoff must not occupy the worker');
+    await db.query(`UPDATE managed_job_runs SET artifacts=jsonb_set(artifacts,'{blogReceipt,nextVerificationAt}',to_jsonb((NOW()-INTERVAL '1 minute')::text)) WHERE id=$1`, [claim.run.id]);
+    available = true;
+    const retry = (await store.leaseRun(db))!;
+    await executeRun(db, retry.run, retry.lease, delivery);
+    assert.equal(retry.run.status, 'queued');
+    assert.deepEqual(order, ['blog', 'linkedin']);
+    await store.releaseRun(db, retry.run.id, retry.lease);
+    await db.query("UPDATE publishing_deliveries SET next_attempt_at=NOW()-INTERVAL '1 minute' WHERE destination='linkedin' AND status='failed'");
+    const socialRetry = (await store.leaseRun(db))!;
+    await executeRun(db, socialRetry.run, socialRetry.lease, delivery);
+    assert.equal(socialRetry.run.status, 'succeeded');
+    assert.deepEqual(order, ['blog', 'linkedin', 'linkedin', 'bluesky']);
   } finally { await pg.close(); }
 });

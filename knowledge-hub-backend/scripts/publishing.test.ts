@@ -13,8 +13,8 @@ const store = await import('../src/publishing/store.js');
 const editorial = await import('../src/publishing/editorial.js');
 const { reserveDelivery, deliver, inWindow, slotBlock, PublicationDeferred, PublicationUnconfirmed } = await import('../src/publishing/delivery.js');
 const { parsePolicy } = await import('../src/publishing/contracts.js');
-const { verifyBlog, tickPublishing, publishDraft } = await import('../src/publishing/worker.js');
-const { refreshSchedule, listSchedule } = await import('../src/publishing/schedule.js');
+const { verifyBlog, tickPublishing, publishDraft, recoverBlogPublication } = await import('../src/publishing/worker.js');
+const { refreshSchedule, listSchedule, planSchedule } = await import('../src/publishing/schedule.js');
 const { refreshPublishingDrafts } = await import('../src/publishing/refresh.js');
 const { IntegrationError, AiOutputLimitError } = await import('../src/types/errors.js');
 const prose = 'Administrators can now configure the documented capability through the existing management portal. Check the scope and permissions before enabling it. '.repeat(9);
@@ -753,5 +753,66 @@ test('a verified blog survives LinkedIn rejection and retry without republishing
     await assert.rejects(publishDraft(f.db, otherBlog, { ...services, read: async () => ({ title: 'Error', text: 'Not found' }) }), /verification failed/);
     assert.equal((await f.db.query<{ status: string }>("SELECT status FROM publishing_deliveries WHERE draft_id=$1", [otherBlog.id])).rows[0]!.status, 'unconfirmed');
     await assert.rejects(publishDraft(f.db, otherHook, services), /verified/);
+  } finally { await f.close(); }
+});
+
+test('accepted blog confirmation recovers from 404 without recreating it and gates LinkedIn before Bluesky', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); await source(f.db, t.id); await enable(f.db);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    const l = await draft(f.db, t.id, 'linkedin', 'blog');
+    const blue = await draft(f.db, t.id, 'bluesky', 'blog');
+    await store.decideDraft(f.db, b.id, 1, 'approve', 'human', '');
+    await store.decideDraft(f.db, l.id, 1, 'approve', 'human', '');
+    let available = false;
+    const order: string[] = [];
+    const url = 'https://blog.fixture.invalid/new-blog';
+    const services = {
+      member: async () => ({ id: 'member', name: 'Fixture' }),
+      blog: async () => { order.push('blog'); return { httpStatus: 200, payload: { success: true as const, data: { url, editUrl: null, status: 'published' as const } } }; },
+      read: async () => { if (!available) throw new Error('Page returned HTTP 404'); return { title: blog.title, text: prose }; },
+      linkedin: async (_copy: string, link: { url: string } | null) => { assert.equal(link?.url, url); order.push('linkedin'); return { urn: 'urn', url: 'https://www.linkedin.com/fixture' }; },
+      bluesky: async (_copy: string, link: { url: string } | null) => { assert.equal(link?.url, url); order.push('bluesky'); return { uri: 'uri', url: 'https://bsky.app/fixture' }; },
+    };
+    await assert.rejects(publishDraft(f.db, b, services), /HTTP 404/);
+    const delivery = (await f.db.query<Delivery>(`SELECT ${store.deliveryColumns} FROM publishing_deliveries WHERE draft_id=$1`, [b.id])).rows[0]!;
+    assert.equal(delivery.receipt?.url, url);
+    assert.ok(delivery.nextAttemptAt);
+    await f.db.query('UPDATE publishing_drafts SET held=TRUE,reason=$2 WHERE id=$1', [b.id, delivery.error]);
+    available = true;
+    assert.equal(await recoverBlogPublication(f.db, delivery, services.read), true);
+    assert.equal(await recoverBlogPublication(f.db, delivery, services.read), false, 'confirmation is idempotent');
+    const confirmed = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [b.id])).rows[0]!;
+    assert.equal(confirmed.held, false);
+    assert.equal(confirmed.approval, 'approved');
+    assert.equal(confirmed.version, 1);
+    await publishDraft(f.db, b, services);
+    await assert.rejects(publishDraft(f.db, blue, services), /LinkedIn/);
+    await publishDraft(f.db, l, services);
+    await publishDraft(f.db, blue, services);
+    assert.deepEqual(order, ['blog', 'linkedin', 'bluesky']);
+  } finally { await f.close(); }
+});
+
+test('blog-flow slots follow Blog then LinkedIn then Bluesky while standalone Bluesky has no dependency', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); await source(f.db, t.id); await enable(f.db);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    const l = await draft(f.db, t.id, 'linkedin', 'blog');
+    const blue = await draft(f.db, t.id, 'bluesky', 'blog');
+    const now = new Date('2026-10-27T07:00:00Z');
+    const candidates = [b, l, blue].map(d => ({ ...d, approval: 'approved' as const,
+      title: 'Fixture', topicState: 'ready', scheduleReason: null,
+      scheduledAt: d.destination === 'bluesky' ? '2026-10-27T08:15:00Z' : null }));
+    const settings = await store.feeds(f.db);
+    const plan = planSchedule(candidates, settings, [], now);
+    const at = (destination: Draft['destination']): number => Date.parse(plan.find(p => p.destination === destination)!.scheduledAt!);
+    assert.ok(at('blog') < at('linkedin'));
+    assert.ok(at('linkedin') < at('bluesky'));
+    const standalone = planSchedule([{ ...candidates[2]!, variant: 'source' }], settings, [], now);
+    assert.ok(standalone[0]!.scheduledAt);
+    assert.doesNotMatch(standalone[0]!.reason, /LinkedIn|blog/);
   } finally { await f.close(); }
 });

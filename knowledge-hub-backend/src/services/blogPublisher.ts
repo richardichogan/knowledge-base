@@ -37,11 +37,14 @@ export function blogLinkForCopyBudget(post: { slug?: unknown }, date = new Date(
   return new URL(resolvePostUrl({ slug: post.slug, date: date.toISOString() }), new URL(env.BLOG_POSTS_URL).origin).href;
 }
 
-export function parsePublishBody(body: unknown): BlogPublishBody {
+export function parsePublishBody(body: unknown, preservePodcastCopy = false): BlogPublishBody {
   const o = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
   const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.trim()) : [];
   const text = (v: unknown): string => typeof v === 'string' ? v.trim() : '';
   const postType = POST_TYPES.find(t => t === o['postType']) ?? 'article';
+  if (preservePodcastCopy && postType === 'podcast' && text(o['excerpt']).length > MAX_EXCERPT) {
+    throw new ValidationError('The authored podcast excerpt exceeds 300 characters. It has not been shortened.');
+  }
   const status: BlogPublishBody['status'] = o['status'] === 'published' ? 'published' : 'draft';
   const parsed = { excerpt: text(o['excerpt']).slice(0, MAX_EXCERPT), status, postType, title: text(o['title']), content: text(o['content']), summary: text(o['summary']),
     keyTakeaways: list(o['keyTakeaways']), categories: list(o['categories']), tags: list(o['tags']) };
@@ -68,6 +71,9 @@ export function parsePublishBody(body: unknown): BlogPublishBody {
     throw new ValidationError(`Unknown blog categories: ${unknown.join(', ')}. Use any of: ${BLOG_CATEGORIES.join(', ')}. Other topics such as Dynamics 365 belong in tags. Quick take is a post type, not a category.`);
   }
   parsed.categories = [...new Set(parsed.categories.map(category => resolveBlogCategory(category)!))];
+  if (preservePodcastCopy && postType === 'podcast') {
+    return { ...parsed, ...(slug ? { slug } : {}), ...(sourceUrl ? { sourceUrl } : {}) };
+  }
   parsed.title = fixDashes(parsed.title); parsed.excerpt = fixDashes(parsed.excerpt); parsed.summary = fixDashes(parsed.summary);
   parsed.content = fixDashes(parsed.content); parsed.keyTakeaways = parsed.keyTakeaways.map(fixDashes);
   const ownContent = parsed.content.replace(/<hr>\s*<p><em>Source:[\s\S]*?<\/em><\/p>\s*$/i, '');

@@ -1,9 +1,11 @@
-import { applyEditorialEdits } from '../publishing/editorial.js';
+import { applyEditorialEdits } from '../publishing/passageEdits.js';
 import { ValidationError } from '../types/errors.js';
 import { object } from './contracts.js';
 
 const sentences = new Intl.Segmenter('en-GB', { granularity: 'sentence' });
 const MIN_ECHO_WORDS = 3;
+const WRAPPER_BODY = 3;
+const WRAPPER_CLOSE = 4;
 const protectedPatterns = [
   /<a\b[^>]*>[\s\S]*?<\/a>/gi,
   /\[[^\n]*?\]\(https?:\/\/[^)\s]+\)/g,
@@ -33,7 +35,7 @@ export function protectedWeeklyText(text: string, sources: unknown): string[] {
 
 /** Preserve source wording and constrain each proposed replacement to one sentence or phrase. */
 export function applyWeeklyRepairs(
-  content: Record<string, unknown>, response: unknown, fields: readonly string[], sources: unknown,
+  content: Record<string, unknown>, response: unknown, fields: readonly string[], sources: unknown, sentenceLimit = 1,
 ): { content: Record<string, unknown>; rejected: Array<{ edit: unknown; error: string }>;
   applied: Array<{ field: string; before: string; after: string }> } {
   const edits = object(response).edits;
@@ -49,6 +51,13 @@ export function applyWeeklyRepairs(
       }
       const edit = { before: input.before, after: input.after, field: input.field };
       if (!fields.includes(edit.field)) throw new ValidationError('The editor targeted a non-editable field.');
+      const wrapper = /^(\s*<(p|h[1-6]|li|blockquote)\b[^>]*>)([\s\S]*)(<\/\2\s*>\s*)$/i;
+      const beforeBlock = wrapper.exec(edit.before);
+      const afterBlock = wrapper.exec(edit.after);
+      if (beforeBlock && afterBlock && beforeBlock[1] === afterBlock[1] && beforeBlock[WRAPPER_CLOSE] === afterBlock[WRAPPER_CLOSE]) {
+        edit.before = beforeBlock[WRAPPER_BODY]!;
+        edit.after = afterBlock[WRAPPER_BODY]!;
+      }
       // Models sometimes include unchanged surrounding sentences as match context.
       // Remove only identical context; never generate or infer replacement wording.
       let start = 0;
@@ -63,11 +72,12 @@ export function applyWeeklyRepairs(
       const fieldValues: unknown[] = Array.isArray(savedField) ? savedField : [savedField];
       const matches = (passage: string): number => fieldValues.reduce<number>((count, item) =>
         count + (typeof item === 'string' ? item.split(passage).length - 1 : 0), 0);
-      if (edit.before && narrowedBefore.trim() && matches(edit.before) === 1 && matches(narrowedBefore) === 1) {
+      if (edit.before && !/<\/?(?:p|h[1-6]|li|blockquote|div|section|article|ul|ol)\b/i.test(edit.before)
+        && narrowedBefore.trim() && matches(edit.before) === 1 && matches(narrowedBefore) === 1) {
         edit.after = edit.after.slice(start, edit.after.length - suffix);
         edit.before = narrowedBefore;
       }
-      if (/\n/.test(edit.before) || [...sentences.segment(edit.before.trim())].length > 1) {
+      if (/\n/.test(edit.before) || [...sentences.segment(edit.before.replace(/<[^>]*>/g, '').trim())].length > sentenceLimit) {
         throw new ValidationError('Return only the flagged phrase or one sentence, not a paragraph or multiple sentences.');
       }
       for (const span of protectedWeeklyText(edit.before, sources)) {

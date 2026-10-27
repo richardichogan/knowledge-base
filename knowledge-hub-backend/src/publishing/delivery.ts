@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { env } from '../config/env.js';
 import { MS_PER_HOUR, MS_PER_MINUTE } from '../config/constants.js';
 import { ConflictError, IntegrationError, ValidationError } from '../types/errors.js';
@@ -13,9 +13,15 @@ export class PublicationDeferred extends ConflictError {
 export class PublicationUnconfirmed extends IntegrationError {
   constructor(reason: string) { super('publishing', reason); }
 }
+export class BlogVerificationPending extends PublicationUnconfirmed {
+  constructor(reason: string, public readonly receipt: Record<string, unknown>, public readonly retryable: boolean) {
+    super(reason);
+  }
+}
 export interface DeliveryContext {
   identity: string; topicId?: string; draftId?: string; version?: number; feed?: FeedId;
   distinctArgument?: boolean; now?: Date;
+  authorize?: (client: PoolClient) => Promise<void>;
 }
 export function inWindow(policy: FeedPolicy, now: Date): boolean {
   const local = localClock(now, policy.timezone);
@@ -87,8 +93,14 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
       }
       if (draft.variant === 'source' && topicDrafts.some(d => d.destination === 'blog')) throw new PublicationDeferred('Source promotion is superseded by the blog package.');
       if (draft.variant === 'blog' && destination !== 'blog') {
-        const published = await c.query<{ receipt: Record<string, unknown> }>("SELECT receipt FROM publishing_deliveries WHERE topic_id=$1 AND destination='blog' AND status='sent'", [context.topicId]);
+        const blog = required.find(d => d.destination === 'blog')!;
+        const published = await c.query<{ receipt: Record<string, unknown> }>("SELECT receipt FROM publishing_deliveries WHERE draft_id=$1 AND version=$2 AND destination='blog' AND status='sent'", [blog.id, blog.version]);
         if (!published.rows[0]?.receipt.verifiedAt) throw new PublicationDeferred('The public blog has not been verified.');
+        if (destination === 'bluesky') {
+          const linkedin = required.find(d => d.destination === 'linkedin')!;
+          const posted = await c.query("SELECT id FROM publishing_deliveries WHERE draft_id=$1 AND version=$2 AND destination='linkedin' AND status='sent'", [linkedin.id, linkedin.version]);
+          if (!posted.rowCount) throw new PublicationDeferred('Waiting for the approved LinkedIn post to be confirmed before Bluesky.');
+        }
       }
     }
     if (existing?.status === 'failed' && (!existing.nextAttemptAt || new Date(existing.nextAttemptAt) > now)) throw new PublicationDeferred(existing.error ?? 'Delivery is held.');
@@ -112,6 +124,7 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
         WHERE draft_id=$1 AND version=$2 AND scheduled_at<=$3::timestamptz FOR SHARE`, [context.draftId, context.version, now.toISOString()]);
       if (!scheduled.rowCount) throw new PublicationDeferred('Waiting for the assigned publishing slot.');
     }
+    await context.authorize?.(c);
     const result = await c.query<Delivery>(`INSERT INTO publishing_deliveries(identity,destination,topic_id,draft_id,version,account,status,attempted_at)
       VALUES($1,$2,COALESCE($3::uuid,(SELECT topic_id FROM publishing_sources WHERE 'discover:' || item_id=$1 LIMIT 1)),$4,$5,$6,'sending',$7)
       ON CONFLICT(identity,destination) DO UPDATE SET status='sending',attempted_at=$7,attempts=publishing_deliveries.attempts+1,error=NULL
@@ -130,10 +143,12 @@ export async function deliver<T extends object>(db: Pool, destination: Destinati
       || ['BlueskyPostUnconfirmedError', 'LinkedInPostUnconfirmedError'].includes(error.name);
     const message = error instanceof Error ? error.message : 'Delivery failed';
     const delay = PUBLISH_LIMITS.retryMinutes[claim.attempts - 1];
+    const verification = error instanceof BlogVerificationPending ? error : null;
     const transient = error instanceof IntegrationError && /\b429\b/.test(message);
-    const next = !uncertain && transient && delay !== undefined ? new Date(Date.now() + delay * MS_PER_MINUTE).toISOString() : null;
-    await db.query(`UPDATE publishing_deliveries SET status=$2,error=$3,next_attempt_at=$4 WHERE id=$1 AND status='sending'`,
-      [claim.id, uncertain ? 'unconfirmed' : 'failed', message, next]);
+    const next = ((!uncertain && transient) || verification?.retryable) && delay !== undefined
+      ? new Date(Date.now() + delay * MS_PER_MINUTE).toISOString() : null;
+    await db.query(`UPDATE publishing_deliveries SET status=$2,error=$3,next_attempt_at=$4,receipt=COALESCE($5::jsonb,receipt) WHERE id=$1 AND status='sending'`,
+      [claim.id, uncertain ? 'unconfirmed' : 'failed', message, next, verification ? JSON.stringify(verification.receipt) : null]);
     await event(db, context.topicId ?? null, 'publisher', uncertain ? 'delivery-unconfirmed' : 'delivery-failed', { id: claim.id, error: message });
     if (uncertain && !(error instanceof PublicationUnconfirmed)) throw new PublicationUnconfirmed(message);
     throw error;

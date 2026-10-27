@@ -124,6 +124,8 @@ export async function leaseRun(db: Pool, deviceId?: string, sourceWorkBusy = fal
       AND (q.lease_until IS NULL OR q.lease_until<NOW()) AND NOT j.archived
       AND (q.preview OR j.enabled)
       AND q.revision=j.revision
+      AND (q.artifacts->'blogReceipt'->>'nextVerificationAt' IS NULL
+        OR (q.artifacts->'blogReceipt'->>'nextVerificationAt')::timestamptz<=NOW())
       ${!deviceId && sourceWorkBusy ? "AND q.definition->>'kind' NOT IN ('content-sync','weekly-microsoft')" : ''}
       AND pg_try_advisory_xact_lock(hashtext(q.job_id::text))
       AND ${deviceId ? "q.definition->>'deviceId'=$2 AND q.status IN ('waiting-file','waiting-device') AND q.deadline>NOW()" : "(q.status <> 'waiting-device' AND q.status <> 'waiting-file')"}

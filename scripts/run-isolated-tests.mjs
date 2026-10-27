@@ -118,6 +118,7 @@ const tests = frontend ? [
   'scripts/blog-quick-take.test.ts',
   'scripts/blog-publishing.test.ts',
   'scripts/podcast-prep.test.ts',
+  'scripts/podcast-campaigns.test.ts',
   'scripts/email-account-connections.test.ts',
   'scripts/alliance-mail.test.ts',
   'scripts/spark-grounding.test.ts',
@@ -148,7 +149,7 @@ if (frontend) {
   // bundle in memory so isolated runs never leave generated test files behind.
   const require = createRequire(resolve(web, 'package.json'));
   const { build } = require('esbuild');
-  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx', 'tests/linkedinPublishing.test.tsx', 'tests/jobsReview.test.tsx', 'tests/publishingFeeds.test.tsx', 'tests/design-artifact.test.tsx', 'tests/document-review.test.tsx']) {
+  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx', 'tests/linkedinPublishing.test.tsx', 'tests/jobsReview.test.tsx', 'tests/publishingFeeds.test.tsx', 'tests/design-artifact.test.tsx', 'tests/document-review.test.tsx', 'tests/podcast-campaign.test.tsx']) {
     const bundle = await build({
       absWorkingDir: web,
       entryPoints: [entry],

@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 import { isSyncInProgress } from './syncOrchestrator.js';
 import { tickManagedJobs } from '../jobs/runner.js';
 import { tickPublishing } from '../publishing/worker.js';
+import { tickPodcastCampaigns } from '../publishing/podcastCampaignWorker.js';
 import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
 import { runTaggingSweepJob } from '../jobs/taggingSweepJob.js';
@@ -97,6 +98,7 @@ export function startSyncScheduler(): void {
   timers.push(setInterval(() => {
     if (started) void tickManagedJobs(db).catch((error: unknown) => console.error('[Jobs] Scheduler failed:', error));
     if (started && !env.isDevelopment) void tickPublishing(db).catch((error: unknown) => console.error('[Publishing] Scheduler failed:', error));
+    if (started && !env.isDevelopment) void tickPodcastCampaigns(db).catch((error: unknown) => console.error('[Podcast] Scheduler failed:', error));
   }, MS_PER_MINUTE));
 
   // Check every 5 minutes if it's time to run the scheduled sync

@@ -16,11 +16,13 @@ import type { JobRun } from './contracts.js';
 import { object, text, JOB_LIMITS } from './contracts.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
 import { assertSocialOpportunity, deliver, destinationAccount, PublicationDeferred, PublicationUnconfirmed } from '../publishing/delivery.js';
-import { verifyBlog } from '../publishing/worker.js';
+import { verifyBlog, verifyBlogForPromotion } from '../publishing/worker.js';
 import { readPublicPage } from '../utils/articleReading.js';
 import { reviewWeeklyJob } from './editorial.js';
 import { parseWeeklyPackage } from './weeklyPackage.js';
 import { editorialServices } from '../publishing/editorial.js';
+import { PUBLISH_LIMITS } from '../publishing/contracts.js';
+import { ValidationError } from '../types/errors.js';
 
 export class UnconfirmedDelivery extends Error {}
 const WEEKLY_SOCIAL_TOKENS = 2_000;
@@ -225,37 +227,61 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
       const job = await getJob(db, run.jobId);
       if (job.revision !== run.revision || !job.enabled) { run.status = 'rejected'; return; }
       if (outputs.includes('blog')) {
-        if (outputs.includes('linkedin') && !run.steps.some(s => s.key === 'blog' && s.status === 'succeeded')) {
+        if (outputs.includes('linkedin') && !run.artifacts.blogReceipt && !run.steps.some(s => s.key === 'blog' && s.status === 'succeeded')) {
           await assertSocialOpportunity(db, 'linkedin', text(object(run.artifacts.linkedinAccount).id, 'LinkedIn account'));
         }
         const result = await step(db, run, lease, 'blog', async () => {
           const targets = object(run.artifacts.publishTargets);
           if (targets.blogHost !== new URL(env.BLOG_POSTS_URL).host) throw new Error('The blog destination changed. Generate and approve a new run.');
-          let sent: Awaited<ReturnType<typeof sendToBlog>>;
           const post = parsePublishBody(run.artifacts.blog);
-          try { sent = await delivery.blog(post); }
-          catch { throw new UnconfirmedDelivery('Blog request outcome is unknown. Check the blog before reconciling this run.'); }
-          if (!sent.payload.success) {
-            if (sent.httpStatus >= JOB_LIMITS.serverErrorStatus || sent.payload.error.code === 'BLOG_DUPLICATE') throw new UnconfirmedDelivery(sent.payload.error.message);
-            throw new Error(sent.payload.error.message);
+          let receipt = run.artifacts.blogReceipt ? object(run.artifacts.blogReceipt) : null;
+          if (!receipt) {
+            let sent: Awaited<ReturnType<typeof sendToBlog>>;
+            try { sent = await delivery.blog(post); }
+            catch { throw new UnconfirmedDelivery('Blog request outcome is unknown. Check the blog before reconciling this run.'); }
+            if (!sent.payload.success) {
+              if (sent.httpStatus >= JOB_LIMITS.serverErrorStatus || sent.payload.error.code === 'BLOG_DUPLICATE') throw new UnconfirmedDelivery(sent.payload.error.message);
+              throw new Error(sent.payload.error.message);
+            }
+            if (!sent.payload.data.url) throw new UnconfirmedDelivery('Blog accepted the post but returned no public URL. Reconcile before social posting.');
+            receipt = { ...sent.payload.data, accepted: true, verificationAttempts: 0 };
+            run.artifacts.blogReceipt = receipt;
+            try { await persistRun(db, run, lease); }
+            catch { throw new UnconfirmedDelivery('Blog accepted, but its receipt could not be saved. Reconcile before retrying.'); }
           }
-          if (!sent.payload.data.url) throw new UnconfirmedDelivery('Blog accepted the post but returned no public URL. Reconcile before social posting.');
-          const url = new URL(sent.payload.data.url);
-          if (url.protocol !== 'https:') throw new UnconfirmedDelivery('Blog returned an invalid public URL.');
-          try { return { ...sent.payload.data, ...await verifyBlog(url.href, { ...post }, delivery.read ?? readPublicPage) }; }
-          catch (error) { throw new UnconfirmedDelivery(`Blog accepted but public verification failed: ${error instanceof Error ? error.message : 'unknown error'}`); }
+          if (typeof receipt.nextVerificationAt === 'string' && Date.parse(receipt.nextVerificationAt) > Date.now()) {
+            throw new PublicationDeferred('Blog accepted; waiting for the next public-page verification check.');
+          }
+          try { return { ...receipt, ...await verifyBlog(text(receipt.url, 'accepted blog URL'), { ...post }, delivery.read ?? readPublicPage), nextVerificationAt: null }; }
+          catch (error) {
+            const message = `Blog accepted but public verification failed: ${error instanceof Error ? error.message : 'unknown error'}`;
+            if (error instanceof ValidationError) throw new UnconfirmedDelivery(message);
+            const attempts = typeof receipt.verificationAttempts === 'number' ? receipt.verificationAttempts : 0;
+            const delay = PUBLISH_LIMITS.retryMinutes[Math.min(attempts, PUBLISH_LIMITS.retryMinutes.length - 1)]!;
+            run.artifacts.blogReceipt = { ...receipt, verificationAttempts: attempts + 1,
+              nextVerificationAt: new Date(Date.now() + delay * MS_PER_MINUTE).toISOString() };
+            await persistRun(db, run, lease);
+            throw new PublicationDeferred(`${message}. The saved URL will be rechecked without republishing.`);
+          }
         }, true);
         run.artifacts.blogReceipt = result;
         await persistRun(db, run, lease);
       }
       const link = outputs.includes('blog') ? { url: text(object(run.artifacts.blogReceipt).url, 'published URL'), title: text(object(run.artifacts.blog).title, 'title'),
         description: text(object(run.artifacts.blog).excerpt, 'excerpt') } : null;
-      if (link) await verifyBlog(link.url, object(run.artifacts.blog), delivery.read ?? readPublicPage);
-      // Independent destinations retain their successes when another one fails.
+      if (link) await verifyBlogForPromotion(link.url, object(run.artifacts.blog), delivery.read ?? readPublicPage);
+      // Completed destinations are retained; Bluesky cannot overtake LinkedIn.
       const failures: string[] = [];
       let deferred = false;
-      for (const channel of ['slack', 'bluesky', 'linkedin'] as const) {
+      for (const channel of ['slack', 'linkedin', 'bluesky'] as const) {
         if (!outputs.includes(channel)) continue;
+        if (channel === 'bluesky' && outputs.includes('linkedin') && !run.steps.some(s => s.key === 'linkedin' && s.status === 'succeeded')) {
+          if (!failures.length) {
+            deferred = true;
+            run.artifacts.error ??= 'Waiting for LinkedIn delivery to be confirmed before Bluesky.';
+          }
+          continue;
+        }
         const current = await getJob(db, run.jobId);
         if (!current.enabled || current.revision !== run.revision) { run.status = 'rejected'; return; }
         try {
@@ -282,6 +308,16 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
           }, true);
         } catch (error) {
           if (error instanceof PublicationDeferred) { deferred = true; run.artifacts.error = error.message; continue; }
+          if (channel !== 'slack') {
+            const retry = await db.query(`SELECT id FROM publishing_deliveries
+              WHERE identity=$1 AND destination=$2 AND status='failed' AND next_attempt_at IS NOT NULL`,
+            [`jobs:${run.id}:${channel}`, channel]);
+            if (retry.rowCount) {
+              deferred = true;
+              run.artifacts.error = error instanceof Error ? error.message : 'Delivery is waiting for its scheduled retry.';
+              continue;
+            }
+          }
           failures.push(error instanceof Error ? error.message : 'Delivery failed');
         }
       }

@@ -506,6 +506,16 @@ interpretation distinct from reported facts and prohibits invented personal
 experience. The comment shares the existing copy/link character allowance and
 still requires Richard's exact-version approval.
 
+Manual **Publish to blog** drafting reads the original discovered article before
+checking claims, rather than relying on its feed description. Its factual and
+style editor patches only defective sentences or phrases, checks alternative
+wordings before accepting them, and retains successful corrections between passes.
+Rejected replacements are supplied to the next pass so it does not repeat the same
+failed rewrite. Clean copy, source links and quoted wording are preserved during
+style repairs. The revised draft receives another factual and style review before
+appearing in the existing editor; no review or repair publishes a post. Spark
+drafts use the same repair process against their supplied ideas.
+
 Publishing blog packages are **quick takes**, not long articles: target 300–450
 words, maximum 600, one argument, a title of at most 60 characters, no body
 subheadings or lists, and at most two takeaways. Packages include the slug,
@@ -527,6 +537,9 @@ in its feed timezone, paused state and blockers; approved items without a
 usable slot remain visible rather than disappearing from the shortlist. Blog and
 LinkedIn slots wait for package approval; promotion waits for the verified public blog
 URL. Planned LinkedIn promotion is at least 15 minutes after the blog.
+Blog-flow Bluesky follows confirmed LinkedIn delivery, with its planned slot at
+least 15 minutes later. Both social destinations append the verified new blog
+URL, never the source article. Standalone Bluesky remains source-linked.
 Automation must be enabled before delivery. Drafts do not expire automatically;
 freshness guides editorial selection, not an arbitrary deadline on approved posts.
 Missed slots roll to the next opening, not a catch-up burst; use
@@ -540,6 +553,18 @@ Publication waits for package approval and a current passed review. Blog-first
 delivery verifies the final public article before binding its URL into social
 copy. Blog delivery is never repeated just because a social destination failed.
 Scheduling, History and Audit expose queue state, receipts and reconciliation.
+The blog's accepted URL is saved before public verification. A temporary 404 or
+network failure triggers read-only rechecks after 5, 15 and then 60 minutes
+(hourly thereafter), not another blog creation request. Confirmation restores
+the delivery-held approved version to normal scheduling without changing its
+copy or approval. Interrupted accepted deliveries are checked after the delivery
+lease expires; older accepted-but-unverified records can use their saved CMS
+slug to locate and verify the exact article. Manual holds, changed versions and
+unknown send outcomes are not automatically overridden. Content mismatches or
+invalid public URLs still require reconciliation. Managed jobs retain accepted
+URLs across restarts and use the same verification backoff and social order.
+The interface reports delivery holds as delivery problems, not failed editorial
+preparation. Initial approvals, feed switches and account-wide pacing still apply.
 Athena can inspect this same state and propose confirmed feed settings from any
 chat; it cannot grant publishing approvals or reconcile outcomes itself.
 
@@ -670,6 +695,51 @@ fixture: `tests/podcast-prep.html` in the frontend. With `TODAY_BROWSER_PATH`
 pointing to Chromium, run
 `node scripts/run-browser-checks.mjs --modes=podcast-prep`.
 
+## Podcast episode campaigns
+
+The existing Claude Markdown → import/paste into Think workflow is unchanged.
+For **Podcast show notes**, Metadata has episode-specific YouTube, Spotify and
+Apple Podcasts URL fields. Unambiguous episode links already in the note are
+prefilled for checking and saving; show/channel links are rejected.
+
+The **Campaign** sidebar tab prepares the launch blog, personal-account LinkedIn
+posts and Bluesky campaign by selecting existing passages from the saved note.
+The model returns source block references and proposed times, not rewritten copy.
+The server copies those passages directly and converts Markdown formatting for
+the destination. This keeps preparation small and preserves the authored wording.
+Podcast-account LinkedIn copy and other platform material remain in the note.
+Blog and LinkedIn contain all three listening links; Bluesky rotates YouTube,
+Spotify and Apple, with the complete copy plus its actual URL checked against
+the platform limit. Oversized posts stay visible in the draft and block approval;
+they are never silently shortened. These links are not replaced by the launch blog URL.
+An explicitly requested date window prepares only the remaining posts in that
+window. A follow-up-only campaign does not recreate the launch blog or invent a
+new LinkedIn reminder. Re-preparing preserves that saved window.
+
+Read the complete copy and schedule, then approve the campaign once. Missing or
+past dates, invalid links, ordering and spacing violations prevent approval;
+past campaigns are never silently moved forward or published as catch-up posts.
+Times may be proposed inside the existing account windows when the source gives
+a date without a time; preparation notes identify these proposals. Edit the
+original note and prepare again to revise a draft. An approved campaign is a
+fixed copy: later note edits do not silently rewrite scheduled posts. Pause
+before re-preparing; after publication starts, copy and links are locked while
+pause/resume remains available. Resuming explicitly makes overdue approved posts
+eligible in order, within the account limits.
+
+The production scheduler uses the shared delivery ledger, daily limits, spacing,
+connected-account checks and uncertain-send protections. Blog acceptance is
+persisted before verification; delayed confirmation is retried read-only, never
+by reposting. Subsequent posts wait for earlier confirmations. Failures and
+receipts appear in Campaign; unresolved deliveries use the existing Publishing
+History reconciliation controls. Local automatic delivery remains disabled,
+while local editing and approval use the shared production database.
+
+Migration `113_podcast_campaigns.sql` adds the note-linked campaign table without
+changing existing notes or publishing queues. Authenticated endpoints are under
+`/api/publishing/podcasts/:noteId`: GET, PUT `/links`, POST `/prepare`, and POST
+`/decision`. No existing episode is prepared, approved or sent by the migration.
+
 ## Knowledge health
 
 **Tools → Knowledge health** (`/health`, `GET /api/health/knowledge`) is a read-only view of AI usage, recent sync runs and index freshness, filtered by UTC date range (inclusive, up to 90 days; default last 7), environment, feature, persona and deployment. Every query is bounded and each section fails independently. Token totals count only calls where the provider reported usage (`ai_usage_log.usage_known`, added by migration 067); earlier rows and calls without usage show as "Not measured" rather than zero. No monetary estimate is shown because no pricing is configured, and prompts, content, session ids and error text are never returned.
@@ -724,6 +794,7 @@ Athena is desktop-first; only the standalone `/chat` screen is designed for phon
 - **Type, radius and scrollbars:** heading tokens (`--kh-heading-section/item/label`), radius tokens (`--kh-radius-sm/md/lg/pill`) and one thin scrollbar style (from Plan) apply app-wide. No visible text is below 12px.
 - **Side panels:** Think's Athena panel and other docked panels use a shared native-dialog frame that docks beside content on wide screens and overlays on narrow ones.
 - **Think list toolbar:** search sits beside small icon buttons for Sort (dropdown), Group and Previews. The old Filters row is removed. The list shows 100 notes at a time with **Load more** ("100 of 111 notes").
+- **Compact Notes:** with Group and Previews off, one-line rows show the title, type and existing delete action; the full local timestamp is in the row tooltip. Modified and Created sorts use collapsible local-date buckets (Today, Yesterday, Monday-based weeks, then months). Counts cover loaded search results, and Load more extends existing buckets. Collapsed buckets are remembered locally using stable month keys; selecting a note reveals its bucket. Title sort stays unbucketed, and project groups and preview cards are unchanged.
 - **Sources list:** paginated with Load more. The same file in different repositories appears as separate rows, each showing its repository path.
 - **Header badges:** Think (new spark themes), Discover (new articles since your last visit), Plan (overdue tasks) and Build (tasks awaiting you) show counts from `GET /api/nav/attention`. A badge is hidden at zero.
 - **Back button:** the "‹ Notes/Canvases" button in Think only appears at phone widths.## Navigation

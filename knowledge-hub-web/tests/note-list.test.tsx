@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { InfiniteQueryObserver, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NoteList } from '../src/notes/NoteList';
 import { fetchNotesPage } from '../src/notes/noteStorage';
-import { activateNoteOnKeyDown, loadedNotes, nextNotesPage, noteListQuery } from '../src/notes/noteListState';
+import { activateNoteOnKeyDown, loadedNotes, nextNotesPage, noteListQuery, noteDateBuckets, noteListDate, parseCollapsedNoteBuckets, NOTE_BUCKET_STORAGE_KEY } from '../src/notes/noteListState';
 import type { NoteListItem } from '../src/notes/types';
 import { api } from '../src/services/api';
 import type { NoteSummary } from '../src/types/contentItem';
@@ -164,4 +164,113 @@ test('load more is outside the scrolling rows, remains retryable and keeps selec
   const complete = renderList({ notes: [...notes, ...Array.from({ length: 11 }, (_, i) => note(100 + i))], total: 111 });
   assert.match(complete, /111 of 111 items/);
   assert.doesNotMatch(complete, /notes-list-pagination__more/);
+});
+
+test('date buckets use local calendar boundaries, Monday weeks and first-match precedence', () => {
+  const rows = ['2026-10-28', '2026-10-27', '2026-10-26', '2026-10-25', '2026-10-19', '2026-10-18', '2026-09-30', '2025-12-31']
+    .map((date, index) => ({ ...note(index), updatedAt: new Date(`${date}T12:00:00`).toISOString() }));
+  const buckets = noteDateBuckets(rows, 'modified', new Date('2026-10-28T12:00:00'));
+  assert.deepEqual(buckets.map(bucket => [bucket.label, bucket.notes.length]), [
+    ['Today', 1], ['Yesterday', 1], ['This week', 1], ['Last week', 2], ['October', 1], ['September', 1], ['December 2025', 1],
+  ]);
+  for (const day of [26, 27]) {
+    const matching = rows.filter(row => new Date(row.updatedAt) < new Date(2026, 9, day + 1));
+    const earlyWeek = noteDateBuckets(matching, 'modified', new Date(2026, 9, day, 12));
+    assert.ok(!earlyWeek.some(bucket => bucket.key === 'this-week'));
+    assert.equal(earlyWeek.find(bucket => bucket.key === 'yesterday')?.notes.length, 1);
+  }
+  const september = rows.filter(row => row.id === 'note-6');
+  const nextYear = noteDateBuckets(september, 'modified', new Date(2027, 0, 20));
+  assert.equal(nextYear[0]?.key, buckets[5]?.key);
+  assert.equal(nextYear[0]?.label, 'September 2026');
+});
+
+test('Created buckets and tooltips use createdAt with the existing updatedAt fallback', () => {
+  const row = { ...note(0), updatedAt: new Date(2026, 9, 28, 12).toISOString(), createdAt: new Date(2026, 8, 1).toISOString() };
+  const now = new Date(2026, 9, 28, 12);
+  assert.equal(noteDateBuckets([row], 'modified', now)[0]?.key, 'today');
+  assert.equal(noteDateBuckets([row], 'created', now)[0]?.key, 'month:2026-09');
+  assert.equal(noteListDate(row, 'created'), row.createdAt);
+  const withoutCreated = { ...row, createdAt: undefined };
+  assert.equal(noteDateBuckets([withoutCreated], 'created', now)[0]?.key, 'today');
+  assert.equal(noteListDate(withoutCreated, 'created'), row.updatedAt);
+});
+
+test('midnight and DST changes use local dates rather than fixed 24-hour windows', () => {
+  const originalTimezone = process.env.TZ;
+  process.env.TZ = 'Europe/London';
+  try {
+    for (const [month, day] of [[2, 30], [9, 26]] as const) {
+      const now = new Date(2026, month, day, 0, 5);
+      const rows = [
+        { ...note(0), updatedAt: new Date(2026, month, day, 0, 0).toISOString() },
+        { ...note(1), updatedAt: new Date(2026, month, day - 1, 0, 30).toISOString() },
+      ];
+      assert.deepEqual(noteDateBuckets(rows, 'modified', now).map(bucket => bucket.key), ['today', 'yesterday']);
+      assert.equal(noteDateBuckets([rows[0]!], 'modified', new Date(2026, month, day + 1))[0]?.key, 'yesterday');
+    }
+  } finally {
+    if (originalTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimezone;
+  }
+});
+
+test('combined pages share one date header and filtered results have loaded matching counts', () => {
+  const page = { total: 3, hasMore: true, page: 1, items: [note(0), note(1)] };
+  const rows = loadedNotes([page, { ...page, page: 2, hasMore: false, items: [note(1), note(2)] }]);
+  const buckets = noteDateBuckets(rows, 'modified', new Date(2026, 9, 28));
+  assert.equal(buckets.length, 1);
+  assert.deepEqual(buckets[0]?.notes.map(row => row.id), ['note-0', 'note-1', 'note-2']);
+  const html = renderList({ notes: rows, total: 3 });
+  assert.equal((html.match(/class="notes-date-bucket__header"/g) ?? []).length, 1);
+  assert.match(html, /notes-date-bucket__count">3</);
+  const results = renderList({ notes: [note(1)], total: 1, selectedId: null });
+  assert.match(results, /notes-date-bucket__count">1</);
+  assert.match(results, /1 of 1 items/);
+  const empty = renderList({ notes: [], total: 0 });
+  assert.doesNotMatch(empty, /notes-date-bucket__header/);
+});
+
+test('compact rows retain type, full local timestamp, delete and context but remove visible dates', () => {
+  const dated = { ...note(0), updatedAt: new Date(2026, 9, 26, 14, 32).toISOString() };
+  const html = renderList({ notes: [dated] });
+  assert.match(html, /notes-list-item--compact/);
+  assert.match(html, /26 Oct 2026, 14:32/);
+  assert.match(html, /notes-type-tag kh-type-mark/);
+  assert.match(html, /title="Delete note"/);
+  assert.match(html, /data-ctx-ref-id="note-0"/);
+  assert.doesNotMatch(html, /notes-list-item-date|notes-list-item-preview/);
+  assert.match(html, /<button type="button" class="notes-date-bucket__header" aria-expanded="true" aria-controls=/);
+  const titleSort = renderList({}, { kh_notes_sort: 'title' });
+  assert.match(titleSort, /notes-list-item--compact/);
+  assert.doesNotMatch(titleSort, /notes-date-bucket__header|notes-list-item-date/);
+  const alternateViews: Record<string, string>[] = [{ kh_notes_group: 'true' }, { kh_notes_previews: 'true' }];
+  for (const preferences of alternateViews) {
+    const unchanged = renderList({}, preferences);
+    assert.match(unchanged, /notes-list-item-date/);
+    assert.doesNotMatch(unchanged, /notes-date-bucket|notes-list-item--compact/);
+  }
+});
+
+test('saved bucket keys collapse rows without losing counts; malformed storage does not break the list', () => {
+  const key = noteDateBuckets([note(0)], 'modified')[0]!.key;
+  assert.deepEqual(parseCollapsedNoteBuckets(JSON.stringify([key, key])), [key]);
+  assert.deepEqual(parseCollapsedNoteBuckets(null), []);
+  const collapsed = renderList({ selectedId: null }, { [NOTE_BUCKET_STORAGE_KEY]: JSON.stringify([key]) });
+  assert.match(collapsed, /aria-expanded="false"/);
+  assert.match(collapsed, /notes-date-bucket__count">1</);
+  assert.doesNotMatch(collapsed, /data-ctx-ref-id="note-0"/);
+  const originalWarn = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args) => { warnings.push(args); };
+  try {
+    for (const value of ['not json', '{}', '["today", 5]']) {
+      const html = renderList({}, { [NOTE_BUCKET_STORAGE_KEY]: value });
+      assert.match(html, /aria-expanded="true"/);
+      assert.match(html, /data-ctx-ref-id="note-0"/);
+    }
+    assert.equal(warnings.length, 3);
+  } finally {
+    console.warn = originalWarn;
+  }
 });

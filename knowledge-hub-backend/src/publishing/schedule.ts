@@ -36,7 +36,10 @@ function completed(draft: Draft, history: Delivery[]): boolean {
   return history.some(d => d.draftId === draft.id && d.version === draft.version && ['sent', 'sending', 'unconfirmed'].includes(d.status));
 }
 function readiness(draft: Candidate): string | null {
-  if (draft.held || draft.topicState !== 'ready') return 'Held; resolve the editorial findings before scheduling.';
+  if (draft.held) return draft.review === 'pass'
+    ? draft.reason || 'Publishing is on hold. Resolve the delivery issue before scheduling.'
+    : 'Held; resolve the editorial findings before scheduling.';
+  if (draft.topicState !== 'ready') return 'The topic is held or not ready for scheduling.';
   if (draft.approval !== 'approved') return 'Waiting for approval of this exact version.';
   if (draft.review !== 'pass') return 'Waiting for a passed editorial review.';
   if (typeof draft.content.account !== 'string' || !draft.content.account.trim() || draft.content.account === '(not connected)') {
@@ -105,12 +108,20 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
     if (!reason && unresolved) reason = 'An earlier delivery is unresolved; reconcile it in History.';
     const earliest = Math.max(now.getTime() + LEAD, retry?.nextAttemptAt ? Date.parse(retry.nextAttemptAt) : 0);
     const blog = pair.find(d => d.destination === 'blog');
-    const publishedBlog = history.find(d => d.topicId === draft.topicId && d.destination === 'blog' && d.status === 'sent' && d.receipt?.verifiedAt);
+    const publishedBlog = history.find(d => d.draftId === blog?.id && d.version === blog?.version && d.destination === 'blog' && d.status === 'sent' && d.receipt?.verifiedAt);
     const blogPlan = blog ? planned.get(blog.id) : undefined;
     let dependency = 0;
     if (!reason && draft.variant === 'blog' && draft.destination !== 'blog' && !publishedBlog) {
       if (!blogPlan?.scheduledAt) reason = 'Waiting for the blog to be scheduled and its public URL verified.';
       else dependency = Date.parse(blogPlan.scheduledAt) + LEAD;
+    }
+    if (!reason && draft.variant === 'blog' && draft.destination === 'bluesky') {
+      const linkedin = pair.find(d => d.destination === 'linkedin');
+      const publishedLinkedIn = history.find(d => d.draftId === linkedin?.id && d.version === linkedin?.version
+        && d.destination === 'linkedin' && d.status === 'sent');
+      const linkedinAt = publishedLinkedIn?.publishedAt ?? (linkedin ? planned.get(linkedin.id)?.scheduledAt : null);
+      if (!linkedinAt) reason = 'Waiting for LinkedIn to be scheduled and its delivery confirmed before Bluesky.';
+      else dependency = Math.max(dependency, Date.parse(linkedinAt) + LEAD);
     }
     let at: Date | undefined;
     if (!reason) {
@@ -141,8 +152,10 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
       draftId: draft.id, topicId: draft.topicId, title: String(draft.content.title ?? draft.title),
       destination: draft.destination, version: draft.version, scheduledAt: at?.toISOString() ?? null,
       timezone: feed.policy.timezone, paused: !feed.enabled,
-      reason: reason ?? (draft.variant === 'blog' && draft.destination !== 'blog' && !publishedBlog
-        ? 'After the blog is live and its public URL is verified.' : 'Approved; sends at this time.'),
+      reason: reason ?? (draft.variant === 'blog' && draft.destination === 'bluesky'
+        ? 'After LinkedIn is confirmed; uses the verified public blog URL.'
+        : draft.variant === 'blog' && draft.destination !== 'blog' && !publishedBlog
+          ? 'After the blog is live and its public URL is verified.' : 'Approved; sends at this time.'),
     });
   }
   return [...planned.values()].sort((a, b) => (a.scheduledAt ?? 'z').localeCompare(b.scheduledAt ?? 'z'));

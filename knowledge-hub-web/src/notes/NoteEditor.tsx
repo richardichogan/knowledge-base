@@ -924,6 +924,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const identity = useIdentity();
   const metadata: MetadataPanelProps = {
     designPanel,
+    onSaveBeforeCampaign: doSave,
     writingBusy: historyBusy || externalBusy, doc, onShowEditor, contentType,
     onContentTypeChange: value => {
       setContentType(value); contentTypeRef.current = value; isDirtyRef.current = true;

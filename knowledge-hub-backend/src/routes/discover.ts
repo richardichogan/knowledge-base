@@ -11,7 +11,7 @@ import { readFeed } from '../integrations/discovery/feedReader.js';
 import { discoverRankSql, discoverDiversitySql } from '../integrations/cms/discoverRank.js';
 import { interestSql } from '../services/discoverInterests.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
-import { findEarlierPosts, generateBlogDraft } from '../ai/blogDraft.js';
+import { findEarlierPosts, generateBlogDraft, readBlogSource } from '../ai/blogDraft.js';
 import { BLOG_CATEGORIES } from '../ai/blogHouseStyle.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { ConflictError, NotFoundError, ValidationError, WriteActionNotConfirmedError } from '../types/errors.js';
@@ -309,7 +309,7 @@ discoverRouter.post('/:id/blog-draft', (req: Request, res: Response, next: NextF
       if (!source.body.trim()) throw new ValidationError('This source has no content to draft from.');
       const length = (req.body as { length?: unknown } | undefined)?.length === 'long' ? 'long' : 'short';
       const earlier = length === 'short' ? await findEarlierPosts(getDb(), `${source.title} ${source.body.slice(0, BLOG_RELATED_SOURCE_CHARS)}`) : [];
-      res.json({ success: true, data: await generateBlogDraft(source, sourceUrl(source.url), length, earlier) });
+      res.json({ success: true, data: await generateBlogDraft(await readBlogSource(source), sourceUrl(source.url), length, earlier) });
     } catch (err) { next(err); }
   })();
 });

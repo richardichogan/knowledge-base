@@ -2,6 +2,45 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-27, podcast scheduling and manual blog repairs):**
+- User requested the two fixes, deployment, merge and push. Release to the
+  existing ACA/SWA resources only; no infrastructure, dependency, identity,
+  secret or registry-authentication changes.
+- All validation checks pass:
+  - [x] `git fetch origin && git merge origin/main`: already current.
+  - [x] Both package `npx tsc --noEmit` checks passed. Backend production
+    build and final lint baseline passed (552/623). Reuse the unchanged
+    frontend production build and lint result (22/41).
+  - [x] Full backend release run completed once: 631/635. Fixed the two
+    podcast assertions and recovery fixture; final affected blog,
+    podcast, publication and managed-job groups passed 61/61.
+    The previously timed-out checkpoint case passed alone (1/1).
+  - [x] Final blog/weekly passage-repair groups passed 20/20 after the
+    last code change. No full-suite reruns.
+  - [x] Full frontend run: 234/234 plus bundled UI groups; the single
+    stale publishing-findings assertion was corrected and its group
+    passed 9/9. Podcast UI group passed 3/3 in the original run.
+  - [x] Actual previously failing Discover article generated through
+    POST /api/discover/67acaf45-307f-4d9e-809f-8718f7ff1e45/blog-draft:
+    HTTP 200, success true. No article was published.
+  - [x] Podcast preparation previously completed in 8.5 and 15.9 seconds,
+    selecting original copy rather than generating replacements.
+    Existing campaign remains an unapproved draft. Two oversized Bluesky
+    posts correctly block approval; no permission to shorten or publish.
+  - [x] `git diff --check` passed. Dockerfile/lockfiles unchanged;
+    Dockerfile copies migration 113 along with all other SQL migrations.
+- Azure authentication/target verified: Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`), kh-prod-api-vnet currently
+  v258, identity None, existing ACR passwordSecretRef retained.
+  Existing application-only AZCLI recipe applies. Bicep/template/what-if,
+  provisioning, new policy and RBAC changes are not applicable.
+- Push matching feature/main source, build v259 from GitHub main in ACR,
+  update the existing backend and deploy the already-built frontend to
+  kh-prod-web. Verify revision/startup/migrations and served frontend bytes.
+  Preserve unrelated `.impeccable/hook.cache.json`.
+- Evidence: session files/podcast-release-*.log, podcast-final-affected.log
+  and podcast-final-blog-weekly.log.
+
 **Release scope and Section 7: Validation Proof (2026-10-27T05:41:18Z, Bluesky blog-link budgeting):**
 - User requested deployment. Backend-only application update to the existing
   ACA target; no infrastructure, credentials, dependencies or migrations change.

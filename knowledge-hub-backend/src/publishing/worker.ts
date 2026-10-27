@@ -2,16 +2,17 @@ import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { env } from '../config/env.js';
 import { ValidationError, IntegrationError } from '../types/errors.js';
-import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
+import { blogLinkForCopyBudget, parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { postToBluesky } from '../integrations/social/bluesky.js';
 import { postToLinkedIn, getLinkedInMember } from '../integrations/social/linkedin.js';
 import { articleProse, readPublicPage } from '../utils/articleReading.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { assessTopic, editorialServices, readSources, reviewDraft, type EditorialServices } from './editorial.js';
-import { assertSocialOpportunity, deliver, destinationAccount, inWindow, PublicationDeferred, PublicationUnconfirmed } from './delivery.js';
-import { deliveryColumns, draftColumns, event, feeds, holdTopic, intake, listTopics, sourceColumns, topicColumns } from './store.js';
+import { assertSocialOpportunity, BlogVerificationPending, deliver, destinationAccount, inWindow, PublicationDeferred, PublicationUnconfirmed, type DeliveryContext } from './delivery.js';
+import { deliveryColumns, draftColumns, event, feeds, holdTopic, intake, listTopics, sourceColumns, topicColumns, transaction } from './store.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type Source, type Topic } from './contracts.js';
 import { refreshSchedule } from './schedule.js';
+import { MS_PER_MINUTE } from '../config/constants.js';
 
 export interface PublishingServices {
   blog: typeof sendToBlog; bluesky: typeof postToBluesky; linkedin: typeof postToLinkedIn; read: typeof readPublicPage;
@@ -39,6 +40,88 @@ export async function verifyBlog(url: string, content: Record<string, unknown>, 
   }
   return { url: target.href, verifiedAt: new Date().toISOString() };
 }
+
+export async function verifyBlogForPromotion(url: string, content: Record<string, unknown>, read = readPublicPage): Promise<void> {
+  try { await verifyBlog(url, content, read); }
+  catch (error) {
+    if (error instanceof ValidationError) throw error;
+    throw new PublicationDeferred(`Waiting to recheck the published blog before promotion: ${error instanceof Error ? error.message : 'Page unavailable'}`);
+  }
+}
+
+/** Inspect an accepted article without repeating its creation request. */
+export async function inspectAcceptedBlog(delivery: Delivery, content: Record<string, unknown>, read = readPublicPage): Promise<{
+  receipt: Record<string, unknown>; verified: boolean; error: string | null; next: string | null;
+}> {
+  const interrupted = delivery.status === 'sending' && Date.now() - Date.parse(delivery.attemptedAt) >= PUBLISH_LIMITS.leaseMinutes * MS_PER_MINUTE;
+  if (delivery.destination !== 'blog' || (delivery.status !== 'unconfirmed' && !interrupted)
+    || (delivery.receipt?.accepted !== true && !delivery.error?.includes('Blog accepted, but public verification failed:'))) {
+    throw new ValidationError('Only an accepted blog awaiting public verification can be recovered automatically.');
+  }
+  const attempts = typeof delivery.receipt?.verificationAttempts === 'number' ? delivery.receipt.verificationAttempts : 1;
+  let receipt: Record<string, unknown> = { ...delivery.receipt, accepted: true, verificationAttempts: attempts + 1 };
+  let verified = false;
+  let error: string | null = null;
+  let next: string | null = null;
+  try {
+    const url = typeof receipt.url === 'string' ? receipt.url : blogLinkForCopyBudget(content, new Date(delivery.attemptedAt));
+    receipt = { ...receipt, url };
+    receipt = { ...receipt, ...await verifyBlog(url, content, read) };
+    verified = true;
+  } catch (failure) {
+    error = `Blog accepted; public verification pending: ${failure instanceof Error ? failure.message : 'Unknown verification error'}`;
+    if (!(failure instanceof ValidationError)) {
+      const delay = PUBLISH_LIMITS.retryMinutes[Math.min(attempts, PUBLISH_LIMITS.retryMinutes.length - 1)]!;
+      next = new Date(Date.now() + delay * MS_PER_MINUTE).toISOString();
+    }
+    console.warn('[Publishing] Blog confirmation:', error);
+  }
+  return { receipt, verified, error, next };
+}
+/** Recheck an accepted article, never repeat its creation request. */
+export async function recoverBlogPublication(db: Pool, delivery: Delivery, read = readPublicPage): Promise<boolean> {
+  const draft = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE id=$1 AND version=$2`,
+    [delivery.draftId, delivery.version])).rows[0];
+  if (!draft) throw new ValidationError('The exact accepted blog draft is unavailable; reconcile it manually.');
+  const { receipt, verified, error, next } = await inspectAcceptedBlog(delivery, draft.content, read);
+  return transaction(db, async c => {
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`athena-publish:blog:${delivery.account}`]);
+    const current = await c.query('SELECT id FROM publishing_drafts WHERE id=$1 AND version=$2 FOR UPDATE', [draft.id, delivery.version]);
+    if (!current.rowCount) return false;
+    const changed = await c.query(`UPDATE publishing_deliveries SET status=$2,receipt=$3,error=$4,next_attempt_at=$5,
+      published_at=CASE WHEN $2='sent' THEN COALESCE(published_at,attempted_at) ELSE published_at END
+      WHERE id=$1 AND status=$8 AND attempted_at=$6
+        AND next_attempt_at IS NOT DISTINCT FROM $7::timestamptz RETURNING id`,
+    [delivery.id, verified ? 'sent' : 'unconfirmed', JSON.stringify(receipt), error, next, delivery.attemptedAt, delivery.nextAttemptAt, delivery.status]);
+    if (!changed.rowCount) return false;
+    await c.query(`UPDATE publishing_drafts SET held=CASE WHEN $3 THEN FALSE ELSE held END,reason=$4
+      WHERE id=$1 AND version=$2 AND reason=$5 AND approval='approved' AND review='pass'`,
+    [draft.id, draft.version, verified, verified ? 'Published; public blog URL verified.' : error, delivery.error]);
+    await event(c, delivery.topicId, 'publication-verifier', verified ? 'blog-confirmed' : 'blog-verification-pending',
+      { id: delivery.id, receipt, error, nextAttemptAt: next });
+    return verified;
+  });
+}
+export async function publishBlogWithVerification(db: Pool, account: string, context: DeliveryContext,
+  content: Record<string, unknown>, services: PublishingServices = publishingServices, preservePodcastCopy = false): Promise<void> {
+  await deliver(db, 'blog', account, context, async () => {
+    const result = await services.blog(parsePublishBody(content, preservePodcastCopy));
+    if (!result.payload.success) {
+      if (result.httpStatus >= PUBLISH_LIMITS.serverError || result.payload.error.code === 'BLOG_DUPLICATE') throw new PublicationUnconfirmed(result.payload.error.message);
+      throw new IntegrationError('blog', result.payload.error.message);
+    }
+    if (!result.payload.data.url) throw new PublicationUnconfirmed('Blog accepted the article without a public URL. Reconcile it; do not republish.');
+    const accepted = { ...result.payload.data, accepted: true, verificationAttempts: 1 };
+    const saved = await db.query(`UPDATE publishing_deliveries SET receipt=$2 WHERE identity=$1 AND destination='blog' AND status='sending' RETURNING id`,
+      [context.identity, JSON.stringify(accepted)]);
+    if (!saved.rowCount) throw new PublicationUnconfirmed('Blog accepted, but its delivery claim changed. Reconcile before continuing.');
+    try { return { ...result.payload.data, ...await verifyBlog(result.payload.data.url, content, services.read) }; }
+    catch (error) {
+      throw new BlogVerificationPending(`Blog accepted, but public verification failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+        accepted, !(error instanceof ValidationError));
+    }
+  });
+}
 export async function publishDraft(db: Pool, draft: Draft, services = publishingServices): Promise<void> {
   const feed = draft.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin';
   const account = draft.destination === 'linkedin' ? String(draft.content.account) : destinationAccount(draft.destination);
@@ -50,27 +133,19 @@ export async function publishDraft(db: Pool, draft: Draft, services = publishing
     const member = await services.member();
     if (member.id !== memberDraft.content.account) throw new PublicationDeferred('LinkedIn account changed. Rebind and reapprove the hook.');
     await assertSocialOpportunity(db, 'linkedin', member.id);
-    await deliver(db, 'blog', account, context, async () => {
-      const result = await services.blog(parsePublishBody(draft.content));
-      if (!result.payload.success) {
-        if (result.httpStatus >= PUBLISH_LIMITS.serverError || result.payload.error.code === 'BLOG_DUPLICATE') throw new PublicationUnconfirmed(result.payload.error.message);
-        throw new IntegrationError('blog', result.payload.error.message);
-      }
-      if (!result.payload.data.url) throw new PublicationUnconfirmed('Blog accepted the article without a public URL. Reconcile it; do not republish.');
-      try { return { ...result.payload.data, ...await verifyBlog(result.payload.data.url, draft.content, services.read) }; }
-      catch (error) { throw new PublicationUnconfirmed(`Blog accepted, but public verification failed: ${error instanceof Error ? error.message : 'unknown error'}`); }
-    });
+    await publishBlogWithVerification(db, account, context, draft.content, services);
     return;
   }
   let url: string;
   let title: string;
   if (draft.variant === 'blog') {
-    const receipt = (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries WHERE topic_id=$1 AND destination='blog' AND status='sent'`, [draft.topicId])).rows[0]?.receipt;
+    const blog = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 AND destination='blog'`, [draft.topicId])).rows[0];
+    if (!blog) throw new PublicationDeferred('The companion blog is missing.');
+    const receipt = (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries WHERE draft_id=$1 AND version=$2 AND destination='blog' AND status='sent'`, [blog.id, blog.version])).rows[0]?.receipt;
     if (!receipt?.verifiedAt || typeof receipt.url !== 'string') throw new PublicationDeferred('Waiting for the verified public blog URL.');
     url = receipt.url;
-    const blog = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 AND destination='blog'`, [draft.topicId])).rows[0]!;
     title = String(blog.content.title);
-    await verifyBlog(url, blog.content, services.read);
+    await verifyBlogForPromotion(url, blog.content, services.read);
   } else {
     const source = (await db.query<Source>(`SELECT ${sourceColumns} FROM publishing_sources WHERE topic_id=$1 AND read_at IS NOT NULL ORDER BY url,discovered_at LIMIT 1`, [draft.topicId])).rows[0];
     if (!source) throw new PublicationDeferred('No fully read source is available.');
@@ -95,6 +170,15 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
   try {
     acquired = (await lock.query<{ locked: boolean }>('SELECT pg_try_advisory_lock(hashtext($1)) AS locked', [key])).rows[0]?.locked === true;
     if (!acquired) return;
+    const confirmations = (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries p
+      WHERE destination='blog'
+        AND ((status='unconfirmed' AND ((receipt->>'accepted'='true' AND next_attempt_at<=NOW())
+          OR (receipt IS NULL AND error LIKE '%Blog accepted, but public verification failed:%')))
+          OR (status='sending' AND receipt->>'accepted'='true'
+            AND attempted_at<NOW()-($2 * INTERVAL '1 minute')))
+        AND EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.id=p.draft_id AND d.version=p.version)
+      ORDER BY next_attempt_at NULLS FIRST,attempted_at LIMIT $1`, [PUBLISH_LIMITS.intake, PUBLISH_LIMITS.leaseMinutes])).rows;
+    for (const delivery of confirmations) await recoverBlogPublication(db, delivery, publishing.read);
     await db.query(`UPDATE publishing_topics SET state='held',lease=NULL,lease_until=NULL,error='Editorial worker interrupted. Review or reassess this topic.'
       WHERE state='assessing' AND lease_until<NOW()`);
     await intake(db);
