@@ -2,6 +2,24 @@
 
 **Status:** Validated
 
+**Deployment outcome (2026-10-27, agent calls and desktop controls):**
+- Release commit `abe2dd9` pushed atomically to the feature branch and main.
+- ACR run `ca88` built `kh-prod-api:v262`; revision
+  `kh-prod-api-vnet--0000259` is latest and ready, Healthy /
+  RunningAtMaxScale, receiving 100% traffic. Startup logs confirm migrations
+  complete and the database pool ready at 8/8 connections.
+- Matching frontend deployed to production. https://athena.themicrosoftcloudblog.com/
+  returns HTTP 200 and serves `/assets/index-DGt2_dUa.js` with bytes matching
+  the local release, SHA256
+  `a5489dc64f1268e68f047219420ecd595c455302d8d4c5e5eb0ee9ff10adb6b8`.
+- Published https://github.com/richardichogan/knowledge-base/releases/tag/v0.1.8
+  with desktop installer 0.1.8, blockmap, updater manifest and Stream Deck
+  plugin 0.1.2. Installer SHA512 matches the manifest; uploaded filenames match
+  its updater URLs. Installer remains unsigned under the existing configuration.
+- Desktop/plugin-specific behaviour requires updated local installations.
+  No local install or physical-device test performed. Existing infrastructure,
+  credentials and delivery settings retained; unrelated hook cache preserved.
+
 **Release scope and Section 7: Validation Proof (2026-10-27, agent calls and desktop controls):**
 - User requested deployment of direct-context document reviews, cancellation
   and bounded provider calls, parallel independent editorial checks, complete
