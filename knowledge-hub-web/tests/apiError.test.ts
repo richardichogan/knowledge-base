@@ -23,4 +23,6 @@ test('malformed server errors and network failures retain their original message
   const error = Object.assign(new Error('Network Error'), { isAxiosError: true, response: { data: 'Unavailable' } });
   assert.equal(describeApiError(error), 'Network Error');
   assert.equal(describeApiError(new Error('Save failed')), 'Save failed');
+  assert.equal(describeApiError(new Error('The diagram could not be saved. Retry before continuing.')),
+    'The diagram could not be saved. Retry before continuing.');
 });

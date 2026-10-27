@@ -989,11 +989,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         err !== null &&
         'code' in err &&
         (err as { code?: string }).code === 'ECONNABORTED';
+      console.error('[Athena] Could not send message:', describeApiError(err));
       appendMessage(
         'assistant',
         isTimeout
           ? "⚠️ That took too long and timed out. The backend may still be working on it — try again in a moment, or ask a more specific question."
-          : '⚠️ Something went wrong sending that message. Please try again.',
+          : `⚠️ Could not send that message: ${describeApiError(err)}`,
       );
     },
   });

@@ -117,7 +117,9 @@ export function setDesignChatBridge(owner: string, prepare: () => Promise<(chang
   return () => { if (designChatBridge === bridge) designChatBridge = null; };
 }
 
-export async function prepareDesignChat(owner: string): Promise<(changed: boolean) => Promise<void>> {
+export async function prepareDesignChat(owner: string): Promise<((changed: boolean) => Promise<void>) | undefined> {
+  // Standalone diagrams and their drill-downs own map: chats, not Design documents.
+  if (owner.startsWith('map:')) return undefined;
   if (designChatBridge?.owner !== owner) throw new Error('Reopen the Design before asking Athena to work on its documents.');
   return designChatBridge.prepare();
 }

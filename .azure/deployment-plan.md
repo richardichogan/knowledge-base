@@ -2,6 +2,28 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-27 16:25 UTC, diagram chat routing):**
+- User requested deployment of the standalone-diagram chat routing fix and
+  underlying send-error reporting. Frontend-only; retain backend v262 and the
+  existing desktop/plugin releases. Design-owned diagrams retain save protection.
+- All validation checks pass:
+  - [x] `git fetch origin` / `git merge --no-edit origin/main`: already current.
+    Remote main confirmed at `3ca464b`; shared maintenance lock left untouched.
+  - [x] Both application `npx tsc --noEmit` checks passed after the fix; reused
+    because sync brought no further changes.
+  - [x] Frontend `npm run lint:check`: 22 existing violations, baseline 41.
+  - [x] `npm run test:isolated` ran once: 250/250 plus 49/49 bundled UI cases.
+    Includes standalone/drill-down chat bypass and Design save/error protections.
+  - [x] `npm run build` passed; `git diff --check` passed.
+  - [x] Azure account and `kh-prod-web` target confirmed in Alliance Tenant
+    Reporting. Existing app-only CLI recipe; no provisioning, Bicep, policy,
+    RBAC, identity, network, secret, dependency or migration changes.
+- Reuse unchanged backend validation; no backend/image or desktop rebuild.
+  Deploy the matching frontend and verify served asset bytes. No local browser
+  or live model request used. Preserve unrelated hook cache.
+- Evidence: session files/diagram-chat-release-tests.log and
+  diagram-chat-release-build.log.
+
 **Deployment outcome (2026-10-27, agent calls and desktop controls):**
 - Release commit `abe2dd9` pushed atomically to the feature branch and main.
 - ACR run `ca88` built `kh-prod-api:v262`; revision

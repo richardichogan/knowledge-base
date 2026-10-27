@@ -12,6 +12,49 @@ import { insertChatMention } from '../src/chat/mentions';
 import { build } from 'esbuild';
 import { createContext, runInContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { prepareDesignChat, setDesignChatBridge } from '../src/utils/activeBlockNoteEditor';
+
+test('standalone diagram conversations bypass Design preparation, including drill-down conversation owners', async () => {
+  const owner = 'map:44444444-4444-4444-8444-444444444444';
+  assert.equal(await prepareDesignChat(owner), undefined);
+  let prepared = false;
+  const release = setDesignChatBridge('55555555-5555-4555-8555-555555555555', async () => {
+    prepared = true;
+    throw new Error('Unrelated Design must not block a standalone diagram');
+  });
+  try {
+    assert.equal(await prepareDesignChat(owner), undefined);
+    assert.equal(prepared, false);
+  } finally { release(); }
+});
+
+test('Design-owned diagram conversations retain save preparation, completion and missing-owner protection', async () => {
+  const owner = '55555555-5555-4555-8555-555555555555';
+  await assert.rejects(prepareDesignChat(owner), /Reopen the Design/);
+  let prepared = false;
+  let finished: boolean | undefined;
+  const release = setDesignChatBridge(owner, async () => {
+    prepared = true;
+    return async changed => { finished = changed; };
+  });
+  try {
+    await assert.rejects(prepareDesignChat('another-design'), /Reopen the Design/);
+    assert.equal(prepared, false);
+    const finish = await prepareDesignChat(owner);
+    assert.equal(prepared, true);
+    assert.ok(finish);
+    await finish(false);
+    assert.equal(finished, false);
+    await finish(true);
+    assert.equal(finished, true);
+  } finally { release(); }
+  const releaseFailure = setDesignChatBridge(owner, async () => {
+    throw new Error('The diagram could not be saved. Retry before continuing.');
+  });
+  try {
+    await assert.rejects(prepareDesignChat(owner), /The diagram could not be saved/);
+  } finally { releaseFailure(); }
+});
 
 const node = (id: string, x: number, y: number): DiagramNode => ({
   id, x, y, width: 100, height: 60, kind: 'process', label: id, fill: '#ffffff',

@@ -1514,6 +1514,9 @@ selected), citing diagram links and labels. Standalone lines and visual proximit
 are not semantic connections; inferred similarities are distinguished from saved
 relationships. This is structured reading, not image analysis of uploaded icons,
 and does not enable diagram editing by Athena. Unsaved edits are not included.
+Standalone diagram chats and their drill-downs do not require a Design editor.
+Diagrams inside Design retain the parent Design's save-before-chat protection.
+Send failures display the underlying error rather than a generic retry message.
 Large diagrams and note excerpts are bounded and explicitly marked as incomplete.
 Athena's transcript scrolls only when the conversation exceeds the available
 height; prompt-pinning space does not create a scrollbar for short conversations.
