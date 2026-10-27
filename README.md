@@ -704,21 +704,33 @@ prefilled for checking and saving; show/channel links are rejected.
 
 The **Campaign** sidebar tab prepares the launch blog, personal-account LinkedIn
 posts and Bluesky campaign by selecting existing passages from the saved note.
-The model returns source block references and proposed times, not rewritten copy.
+The selection model returns source block references and proposed times, not rewritten copy.
 The server copies those passages directly and converts Markdown formatting for
-the destination. This keeps preparation small and preserves the authored wording.
+the destination. Preparation preserves authored wording unless a social post
+exceeds its destination limit: only that post is shortened, with its meaning
+preserved and episode links kept intact, then checked against the exact limit.
+Preparation notes identify revised copy for review. A saved correction is reused
+when the source passage, original date and episode link are unchanged; changing
+the source or link triggers a fresh check. Failed shortening leaves the saved
+campaign unchanged rather than truncating text or saving a success-shaped result.
 Podcast-account LinkedIn copy and other platform material remain in the note.
 Blog and LinkedIn contain all three listening links; Bluesky rotates YouTube,
 Spotify and Apple, with the complete copy plus its actual URL checked against
-the platform limit. Oversized posts stay visible in the draft and block approval;
-they are never silently shortened. These links are not replaced by the launch blog URL.
+the platform limit. Unresolved oversized posts block approval. These links are
+not replaced by the launch blog URL.
 An explicitly requested date window prepares only the remaining posts in that
 window. A follow-up-only campaign does not recreate the launch blog or invent a
 new LinkedIn reminder. Re-preparing preserves that saved window.
 
 Read the complete copy and schedule, then approve the campaign once. Missing or
-past dates, invalid links, ordering and spacing violations prevent approval;
-past campaigns are never silently moved forward or published as catch-up posts.
+past dates, invalid links, ordering and spacing violations prevent approval.
+Preparing a draft proposes future times with at least 15 minutes' review time,
+inside the selected date window and account publishing windows, respecting
+campaign order, spacing and daily caps. Without a selected date window it keeps
+each post on its original date. If no valid slot remains, preparation reports
+the blocker without replacing the saved campaign. If a draft time expires while
+you review it, use **Prepare again from note** to refresh the proposal; approval
+never silently reschedules or publishes catch-up posts.
 Times may be proposed inside the existing account windows when the source gives
 a date without a time; preparation notes identify these proposals. Edit the
 original note and prepare again to revise a draft. An approved campaign is a
@@ -734,6 +746,24 @@ by reposting. Subsequent posts wait for earlier confirmations. Failures and
 receipts appear in Campaign; unresolved deliveries use the existing Publishing
 History reconciliation controls. Local automatic delivery remains disabled,
 while local editing and approval use the shared production database.
+
+Approved campaign posts also appear individually in **Publishing > Scheduling**
+alongside ordinary publishing drafts. The list includes paused, failed and
+unconfirmed posts, excludes confirmed deliveries, and links directly to the
+note's Campaign panel for review and pause/resume. This is a read-only view of
+the existing campaign, not a second job or delivery queue. Refresh schedule
+does not change approved podcast times or copy.
+
+**Publishing > Drafts > Refresh drafts** starts a bounded preparation/review
+pass over the latest discovered candidates without running delivery. Progress
+and the final assessment/review counts are shown in Drafts; detailed rejection
+reasons remain in Audit. A refresh can legitimately yield no new drafts when
+source evidence or editorial relevance is insufficient.
+**Discard draft** removes an unapproved suggestion from the shortlist without
+deleting its source article. **Discard package** rejects the Blog/LinkedIn pair
+together. The server refuses to discard any topic containing an approved,
+scheduled or attempted post, including stale UI requests. Discarded suggestions
+are not automatically restored by refresh or added source coverage.
 
 Migration `113_podcast_campaigns.sql` adds the note-linked campaign table without
 changing existing notes or publishing queues. Authenticated endpoints are under

@@ -84,6 +84,7 @@ export const NotesPage: React.FC = () => {
   const [selectedId,       setSelectedId]       = useState<string | null>(null);
   const [openDoc,          setOpenDoc]          = useState<NoteDocument | null>(null);
   const [loadingNoteId, setLoadingNoteId] = useState<string | null>(null);
+  const [campaignRequest, setCampaignRequest] = useState<{ noteId: string; sequence: number } | null>(null);
   const [mode,             setMode]             = useState<ViewMode>(() => {
     const view = readThinkLocation(searchParams)?.view;
     return view === 'designs' ? 'notes' : view ?? 'notes';
@@ -195,6 +196,10 @@ export const NotesPage: React.FC = () => {
     }
     const linkedId = searchParams.get('noteId');
     if (linkedId !== null) {
+      if (searchParams.get('panel') === 'campaign') {
+        setCampaignRequest(previous => ({ noteId: linkedId, sequence: (previous?.sequence ?? 0) + 1 }));
+        searchParams.delete('panel');
+      }
       setMode('notes');
       setMobilePane('editor');
       void handleSelectNote(linkedId);
@@ -823,7 +828,7 @@ export const NotesPage: React.FC = () => {
             <NoteEditorHost enabled={selectedDesign !== null || openDoc !== null || loadingNoteId !== null} loading={loadingNoteId !== null}>
             {selectedDesign ? <DesignParent key={selectedDesign} id={selectedDesign} actionsSlot={docActionsSlot}
               workspaceBusy={loadingNoteId !== null} onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap} /> : openDoc !== null ? (
-              <NoteEditor key={openDoc.id} doc={openDoc} externalBusy={loadingNoteId !== null} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }}
+              <NoteEditor key={openDoc.id} doc={openDoc} campaignRequest={campaignRequest?.noteId === openDoc.id ? campaignRequest.sequence : undefined} externalBusy={loadingNoteId !== null} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }}
                 onPresent={getDesktop()?.presentation ? () => { void presentNote().catch(err => {
                   void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
                 }); } : undefined}

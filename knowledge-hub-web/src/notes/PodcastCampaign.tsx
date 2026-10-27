@@ -113,6 +113,7 @@ export function PodcastCampaign({ noteId, noteRevision, beforePrepare }: {
       const result = await api.publishing<PodcastCampaignDetail>(`/podcasts/${noteId}/${action === 'prepare' ? 'prepare' : 'decision'}`, 'POST',
         { revision: data.revision, ...(action !== 'prepare' && { action }) });
       qc.setQueryData(queryKey(noteId), result);
+      void qc.invalidateQueries({ queryKey: ['publishing', 'schedule'] });
     } catch (failure) { setError(describeApiError(failure)); }
     finally { setBusy(null); }
   }

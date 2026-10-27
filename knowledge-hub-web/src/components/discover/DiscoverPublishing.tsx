@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { AppDialog } from '../AppDialog';
 import { BlogPostEditor } from './BlogPostEditor';
 import { api } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
 import { sanitizeHtml } from '../../utils/sanitizeHtml';
-import type { FeedPolicy, PublishingFeed, PublishingTopic, PublishingDraft, PublishingDetail, PublishingDelivery, PublishingEvent, ScheduledPost } from '../../types/publishing';
+import { confirmDialog } from '../../services/appDialogs';
+import type { FeedPolicy, PublishingFeed, PublishingTopic, PublishingDraft, PublishingDetail, PublishingDelivery, PublishingEvent, PublishingScheduleEntry, ScheduledPodcastPost } from '../../types/publishing';
 
 const names = { bluesky: 'Bluesky', 'blog-linkedin': 'Blog / LinkedIn', blog: 'Blog', linkedin: 'LinkedIn' };
 const when = (value: string | null): string => value ? new Date(value).toLocaleString('en-GB') : 'Not yet';
@@ -146,6 +148,15 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
             }}>
               {approved ? 'Sent for scheduling' : packageDraft ? 'Send package for scheduling' : 'Send for scheduling'}</button>}
             {hasSavedDraftText(draft) && <button type="button" disabled={busy || Boolean(sent)} onClick={() => setEditing(draft.id)}>Edit draft</button>}
+            {readyOnly && draft.approval === 'pending' && <button type="button" className="kh-publishing__danger"
+              disabled={busy || d.drafts.some(item => item.approval === 'approved') || d.deliveries.length > 0}
+              onClick={() => { void (async () => {
+                if (!await confirmDialog(packageDraft
+                  ? 'Discard this unapproved Blog/LinkedIn package? Its source article is retained. Approved and scheduled posts cannot be discarded here.'
+                  : 'Discard this unapproved post? Its source article is retained. Approved and scheduled posts cannot be discarded here.',
+                { title: packageDraft ? 'Discard draft package' : 'Discard draft', confirmLabel: 'Discard' })) return;
+                await act(`/drafts/${draft.id}/discard`, 'POST', { versions: Object.fromEntries(d.drafts.map(item => [item.id, item.version])) });
+              })(); }}>{packageDraft ? 'Discard package' : 'Discard draft'}</button>}
             <details className="kh-publishing__more"><summary>More actions</summary><div className="kh-publishing__actions">
               <button type="button" disabled={busy || Boolean(sent)} onClick={() => { void act(`/drafts/${draft.id}/review`, 'POST', { version: draft.version }); }}>Request fresh review</button>
               {!draft.held && <button type="button" disabled={busy || Boolean(sent)} onClick={() => decide(draft, 'hold')}>Hold draft</button>}
@@ -225,8 +236,32 @@ export function PublishingDraftList({ topics, selected, onSelect }: {
     {!prepared.length && <p className="kh-publishing__empty">No finished drafts ready for approval. Athena prepares and reviews the shortlist before it appears here.</p>}
   </aside>;
 }
-function PublishingSchedule({ posts, selected, onSelect }: { posts: ScheduledPost[]; selected: string | undefined; onSelect: (id: string) => void }): React.ReactElement {
-  const groups = new Map<string, ScheduledPost[]>();
+function scheduleStatus(post: PublishingScheduleEntry): string {
+  if ('noteId' in post) {
+    if (post.deliveryStatus === 'sending') return 'Sending';
+    if (post.deliveryStatus === 'unconfirmed') return 'Awaiting confirmation';
+    if (post.campaignPaused) return 'Paused · campaign';
+    if (post.deliveryStatus === 'failed') return 'Needs attention';
+  }
+  return !post.scheduledAt ? 'Cannot schedule' : post.paused ? 'Paused · automation off'
+    : new Date(post.scheduledAt) <= new Date() ? 'Due · awaiting worker checks' : 'Scheduled';
+}
+export function ScheduledPodcastPreview({ post, onOpen }: { post: ScheduledPodcastPost; onOpen: () => void }): React.ReactElement {
+  return <section className="kh-publishing__review">
+    <h3 className="kh-publishing__review-title">{post.title}</h3>
+    <p className="kh-publishing__meta">Podcast campaign · {names[post.destination]} · {scheduleStatus(post)}</p>
+    <h4>{post.label}</h4>
+    {post.blog ? <><h4>{post.blog.title}</h4><p>{post.blog.summary}</p>
+      <div className="kh-publishing__prose" dangerouslySetInnerHTML={{ __html: sanitizeHtml(post.blog.content) }} /></>
+      : <div className="kh-publishing__copy">{post.copy}</div>}
+    <p className="kh-publishing__notice">{post.reason}</p>
+    <Link className="kh-publishing__campaign-link" to={`/think?noteId=${encodeURIComponent(post.noteId)}&panel=campaign`} onClick={onOpen}>
+      Open campaign to review or pause/resume
+    </Link>
+  </section>;
+}
+export function PublishingSchedule({ posts, selected, onSelect }: { posts: PublishingScheduleEntry[]; selected: string | undefined; onSelect: (id: string) => void }): React.ReactElement {
+  const groups = new Map<string, PublishingScheduleEntry[]>();
   for (const post of posts) {
     const day = post.scheduledAt ? `${new Date(post.scheduledAt).toLocaleDateString('en-GB', {
       timeZone: post.timezone, weekday: 'long', day: 'numeric', month: 'short', year: 'numeric',
@@ -241,10 +276,11 @@ function PublishingSchedule({ posts, selected, onSelect }: { posts: ScheduledPos
         <span className="kh-publishing__schedule-time">{post.scheduledAt ? <time dateTime={post.scheduledAt}>{new Date(post.scheduledAt).toLocaleString('en-GB', {
           timeZone: post.timezone, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
         })} · {post.timezone}</time> : 'Unscheduled'}
-          <span>{names[post.destination]} · v{post.version}</span></span>
+          <span>{'noteId' in post ? 'Podcast · ' : ''}{names[post.destination]} · v{post.version}</span></span>
         <strong>{post.title}</strong>
-        <span className={`kh-publishing__schedule-status${post.paused || !post.scheduledAt ? ' kh-publishing__schedule-status--waiting' : ''}`}>
-          {!post.scheduledAt ? 'Cannot schedule' : post.paused ? 'Paused · automation off' : new Date(post.scheduledAt) <= new Date() ? 'Due · awaiting worker checks' : 'Scheduled'}</span>
+        {'noteId' in post && <span className="kh-publishing__meta">{post.label}</span>}
+        <span className={`kh-publishing__schedule-status${post.paused || !post.scheduledAt || ('noteId' in post && post.deliveryStatus) ? ' kh-publishing__schedule-status--waiting' : ''}`}>
+          {scheduleStatus(post)}</span>
         <span className={post.scheduledAt ? 'kh-publishing__meta' : 'kh-publishing__schedule-reason'}>{post.reason}</span>
         {post.paused && !post.scheduledAt && <span className="kh-publishing__meta">Automation is also off.</span>}
       </button>)}
@@ -261,7 +297,17 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
   const [error, setError] = useState('');
   const feeds = useQuery({ queryKey: ['publishing', 'feeds'], queryFn: () => api.publishing<PublishingFeed[]>('/feeds') });
   const topics = useQuery({ queryKey: ['publishing', 'topics', offset], queryFn: () => api.publishing<PublishingTopic[]>(`/topics?offset=${offset}`), enabled: tab === 'review', refetchInterval: 30000 });
-  const schedule = useQuery({ queryKey: ['publishing', 'schedule'], queryFn: () => api.publishing<ScheduledPost[]>('/schedule'), enabled: tab === 'upcoming', refetchInterval: 30000 });
+  const schedule = useQuery({ queryKey: ['publishing', 'schedule'], queryFn: () => api.publishing<PublishingScheduleEntry[]>('/schedule'), enabled: tab === 'upcoming', refetchInterval: 30000 });
+  const refresh = useQuery({
+    queryKey: ['publishing', 'draft-refresh'], queryFn: () => api.publishing<{ running: boolean; message: string; updatedAt: string | null }>('/drafts/refresh'),
+    enabled: tab === 'review', refetchInterval: query => query.state.data?.running ? 3000 : false,
+  });
+  const lastRefresh = useRef<string | null>(null);
+  useEffect(() => {
+    if (refresh.data?.running || !refresh.data?.updatedAt || refresh.data.updatedAt === lastRefresh.current) return;
+    lastRefresh.current = refresh.data.updatedAt;
+    void qc.invalidateQueries({ queryKey: ['publishing', 'topics'] });
+  }, [qc, refresh.data]);
   const history = useQuery({ queryKey: ['publishing', 'history', offset], queryFn: () => api.publishing<PublishingDelivery[]>(`/history?offset=${offset}`), enabled: tab === 'history', refetchInterval: 30000 });
   const audit = useQuery({ queryKey: ['publishing', 'audit', offset], queryFn: () => api.publishing<PublishingEvent[]>(`/audit?offset=${offset}`), enabled: tab === 'audit' });
   const active = tab === 'history' ? history : tab === 'audit' ? audit : tab === 'upcoming' ? schedule : topics;
@@ -270,7 +316,9 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
     try {
       await api.publishing(path, method, body);
       await qc.invalidateQueries({ queryKey: ['publishing'] });
-      setMessage(path.endsWith('/review') ? 'Review queued. Your saved copy is unchanged; approval will be needed after review.'
+      setMessage(path === '/drafts/refresh' ? 'Draft refresh started. New candidates are being prepared and reviewed; approved and scheduled posts are unchanged.'
+        : path.endsWith('/discard') ? 'Draft discarded. The source article and all approved/scheduled posts are unchanged.'
+        : path.endsWith('/review') ? 'Review queued. Your saved copy is unchanged; approval will be needed after review.'
         : path.endsWith('/approve') ? 'Package sent for scheduling. Blog and LinkedIn approved together; the blog publishes first.'
         : path.endsWith('/decision') && typeof body === 'object' && body !== null && 'action' in body && body.action === 'approve'
           ? 'Approval saved. Open Scheduling to see the planned time or what is blocking a slot. Automation remains unchanged.'
@@ -301,8 +349,16 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
       {(error || message) && <p role={error ? 'alert' : 'status'} className={error ? 'kh-publishing__error' : 'kh-publishing__notice'}>{error || message}</p>}
       <nav className="kh-publishing__tabs" aria-label="Publishing views">{(['review', 'upcoming', 'history', 'audit'] as const).map(value =>
         <button type="button" key={value} aria-pressed={tab === value} onClick={() => { setTab(value); setOffset(0); setSelected(null); }}>{value === 'review' ? 'Drafts' : value === 'upcoming' ? 'Scheduling' : value === 'history' ? 'History' : 'Audit'}</button>)}</nav>
+      {tab === 'review' && <div className="kh-publishing__schedule-toolbar" aria-label="Draft refresh">
+        <div className="kh-publishing__refresh-status">
+          <p className="kh-publishing__meta" role="status">{refresh.isLoading ? 'Checking draft preparation…' : refresh.data?.message}</p>
+          {refresh.isError && <p className="kh-publishing__error" role="alert">{describeApiError(refresh.error)}</p>}
+        </div>
+        <button type="button" disabled={busy || refresh.isLoading || refresh.data?.running === true}
+          onClick={() => { void act('/drafts/refresh', 'POST', {}); }}>{refresh.data?.running ? 'Refreshing drafts…' : 'Refresh drafts'}</button>
+      </div>}
       {tab === 'upcoming' && <div className="kh-publishing__schedule-toolbar">
-        <p className="kh-publishing__meta">Planned times use each feed’s timezone and are spread across its publishing window. Off pauses delivery. Missed slots roll forward, never into a catch-up burst. Blog-linked posts wait for the verified public URL.</p>
+        <p className="kh-publishing__meta">Approved posts and podcast campaigns share this schedule. Off pauses delivery. Refresh replans ordinary drafts; podcast times stay as approved and are managed in Campaign. Blog-linked posts wait for the verified public URL.</p>
         <button type="button" disabled={busy || schedule.isFetching} onClick={() => { void act('/schedule/refresh', 'POST', {}); }}>Refresh schedule</button>
       </div>}
       {active.isLoading && <p role="status">Loading publishing {tab}…</p>}
@@ -321,7 +377,8 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
             <h3>Why this cannot be scheduled</h3>
             <p>{scheduled.reason}</p>
           </section>}
-          <TopicReview key={scheduled.draftId} id={scheduled.topicId} initialDestination={scheduled.destination} act={act} busy={busy} feeds={feeds.data ?? []} />
+          {'noteId' in scheduled ? <ScheduledPodcastPreview post={scheduled} onOpen={onClose} />
+            : <TopicReview key={scheduled.draftId} id={scheduled.topicId} initialDestination={scheduled.destination} act={act} busy={busy} feeds={feeds.data ?? []} />}
         </article>
       </div>}
       {tab === 'history' && history.data?.map(delivery => <article className="kh-publishing__history" key={delivery.id}>

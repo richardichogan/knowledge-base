@@ -8,6 +8,7 @@ import { parseNoteContent } from '../utils/noteContent.js';
 import { localClock } from '../jobs/schedule.js';
 import { MS_PER_HOUR } from '../config/constants.js';
 import { PUBLISH_LIMITS, type Delivery, type Destination } from './contracts.js';
+import type { ScheduledPost } from './schedule.js';
 
 export const EPISODE_PLATFORMS = ['youtube', 'spotify', 'apple'] as const;
 export type EpisodePlatform = typeof EPISODE_PLATFORMS[number];
@@ -19,6 +20,7 @@ export interface PodcastWindow { from: string; to: string }
 export interface PodcastPost {
   id: string; destination: Destination; label: string; scheduledAt: string | null;
   copy: string; platform: EpisodePlatform | null; url: string | null; blog: BlogPublishBody | null;
+  sourceHash?: string;
 }
 export interface PodcastPlan {
   title: string; notes: string[]; excluded: string[]; posts: PodcastPost[];
@@ -31,6 +33,10 @@ export interface PodcastCampaign {
 }
 export interface PodcastCampaignDetail extends PodcastCampaign {
   deliveries: Delivery[]; issues: string[]; sourceChanged: boolean; automaticDelivery: boolean;
+}
+export interface ScheduledPodcastPost extends Omit<ScheduledPost, 'topicId'> {
+  noteId: string; label: string; copy: string; blog: PodcastPost['blog'];
+  campaignPaused: boolean; deliveryStatus: Delivery['status'] | null;
 }
 
 export function parseEpisodeLinks(value: unknown, required = false): EpisodeLinks {

@@ -181,7 +181,7 @@ function validateQuickPackage(draft: Draft, sources: Source[]): void {
     }
   }
 }
-export async function readSources(db: Pool, topicId: string, service = editorialServices): Promise<Source[]> {
+export async function readSources(db: Pool, topicId: string, service = editorialServices, draftsOnly = false): Promise<Source[]> {
   const count = (await db.query<{ count: number }>('SELECT COUNT(DISTINCT url)::int AS count FROM publishing_sources WHERE topic_id=$1', [topicId])).rows[0]!.count;
   if (count > PUBLISH_LIMITS.sourcesPerTopic) throw new Error('Coverage exceeds the four-source editorial budget. Hold for human review rather than omit evidence.');
   const sources = (await db.query<Source>(`SELECT DISTINCT ON (url) ${sourceColumns} FROM publishing_sources WHERE topic_id=$1 ORDER BY url,discovered_at LIMIT 4`, [topicId])).rows;
@@ -194,7 +194,10 @@ export async function readSources(db: Pool, topicId: string, service = editorial
     const changed = source.body !== '' && source.body !== page.text;
     source.body = page.text; source.readAt = new Date().toISOString();
     await db.query('UPDATE publishing_sources SET body=$2,read_at=$3 WHERE item_id=$1', [source.itemId, source.body, source.readAt]);
-    if (changed) await db.query("UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,reason='Source evidence changed; review and approval required.' WHERE topic_id=$1", [topicId]);
+    if (changed) await db.query(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,reason='Source evidence changed; review and approval required.'
+      WHERE topic_id=$1 AND approval<>'rejected' AND NOT held
+      AND (NOT $2::boolean OR (approval='pending'
+        AND NOT EXISTS(SELECT 1 FROM publishing_schedule s WHERE s.draft_id=publishing_drafts.id)))`, [topicId, draftsOnly]);
   }
   return sources;
 }
@@ -259,22 +262,32 @@ Return {outcome:"pass"|"revise"|"hold",findings:[specific findings]}.`, {
     }
     catch (error) { if (!(error instanceof ValidationError)) throw error; validation.push(error.message); }
     const outcome = review.outcome === 'pass' && (style.length || validation.length) ? 'revise' : String(review.outcome);
-    await db.query(`UPDATE publishing_versions SET reviews=reviews || $3::jsonb WHERE draft_id=$1 AND version=$2`,
-      [draft.id, draft.version, JSON.stringify([{ ...review, outcome, style, validation, at: new Date().toISOString() }])]);
     const blogVersion = companions.find(d => d.destination === 'blog')?.version ?? null;
-    const recorded = await db.query(`UPDATE publishing_drafts SET review=$3,reviewed_at=NOW(),reason=$4,updated_at=NOW(),reviewed_blog_version=$5,reviewed_feed_revision=$6
-      WHERE id=$1 AND version=$2 AND (SELECT revision FROM publishing_feeds WHERE id=$7)=$6 AND ($5::integer IS NULL OR NOT EXISTS(
-        SELECT 1 FROM publishing_drafts blog WHERE blog.topic_id=publishing_drafts.topic_id AND blog.destination='blog' AND blog.version<>$5))
-        AND (NOT $8::boolean OR NOT EXISTS(SELECT 1 FROM publishing_drafts approved
-          WHERE approved.topic_id=publishing_drafts.topic_id AND approved.approval='approved')) RETURNING id`,
-    [draft.id, draft.version, outcome, JSON.stringify({ accuracy: review.accuracy, voice: review.voice, style, validation }), blogVersion, feed.revision, feed.id, draftsOnly]);
-    if (!recorded.rowCount) return;
-    await event(db, draft.topicId, 'editorial-review', `review-${outcome}`, { draftId: draft.id, version: draft.version, review });
-    if (outcome === 'pass' || outcome === 'hold') return;
-    if (attempt === PUBLISH_LIMITS.revisions || !allowRevisions) {
-      await db.query("UPDATE publishing_drafts SET review='hold',reason='Revision limit reached. Review findings before editing.' WHERE id=$1 AND version=$2", [draft.id, draft.version]);
-      return;
-    }
+    const stop = outcome === 'pass' || outcome === 'hold' || attempt === PUBLISH_LIMITS.revisions || !allowRevisions;
+    const recorded = await transaction(db, async c => {
+      if (draftsOnly) {
+        await c.query('SELECT id FROM publishing_topics WHERE id=$1 FOR NO KEY UPDATE', [draft.topicId]);
+        await c.query('SELECT id FROM publishing_drafts WHERE topic_id=$1 ORDER BY id FOR UPDATE', [draft.topicId]);
+      }
+      const changed = await c.query(`UPDATE publishing_drafts SET review=$3,reviewed_at=NOW(),reason=$4,updated_at=NOW(),reviewed_blog_version=$5,reviewed_feed_revision=$6
+        WHERE id=$1 AND version=$2 AND (SELECT revision FROM publishing_feeds WHERE id=$7)=$6 AND ($5::integer IS NULL OR NOT EXISTS(
+          SELECT 1 FROM publishing_drafts blog WHERE blog.topic_id=publishing_drafts.topic_id AND blog.destination='blog' AND blog.version<>$5))
+          AND (NOT $8::boolean OR (approval='pending' AND NOT held
+            AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts scheduled ON scheduled.id=s.draft_id WHERE scheduled.topic_id=publishing_drafts.topic_id)
+            AND NOT EXISTS(SELECT 1 FROM publishing_deliveries p WHERE p.topic_id=publishing_drafts.topic_id)
+            AND NOT EXISTS(SELECT 1 FROM publishing_drafts approved
+            WHERE approved.topic_id=publishing_drafts.topic_id AND approved.approval='approved'))) RETURNING id`,
+      [draft.id, draft.version, outcome, JSON.stringify({ accuracy: review.accuracy, voice: review.voice, style, validation }), blogVersion, feed.revision, feed.id, draftsOnly]);
+      if (!changed.rowCount) return false;
+      await c.query(`UPDATE publishing_versions SET reviews=reviews || $3::jsonb WHERE draft_id=$1 AND version=$2`,
+        [draft.id, draft.version, JSON.stringify([{ ...review, outcome, style, validation, at: new Date().toISOString() }])]);
+      await event(c, draft.topicId, 'editorial-review', `review-${outcome}`, { draftId: draft.id, version: draft.version, review });
+      if (stop && outcome === 'revise') {
+        await c.query("UPDATE publishing_drafts SET review='hold',reason='Revision limit reached. Review findings before editing.' WHERE id=$1 AND version=$2", [draft.id, draft.version]);
+      }
+      return true;
+    });
+    if (!recorded || stop) return;
     const repairs = await service.chat(`${SAFETY}
 Repair only the sentences or paragraphs identified by the findings. Do not rewrite or return the full draft.
 Return {edits:[{field,before,after}]}. Each before must be copied exactly from one uniquely identifiable saved sentence or paragraph.
@@ -301,12 +314,20 @@ ${preferences}`,
 }
 export async function editDraft(db: Pool, id: string, version: unknown, value: unknown, actor: string, account?: { id: string; name?: string }, editorialRevision = false): Promise<void> {
   await transaction(db, async c => {
+    if (editorialRevision) {
+      await c.query('SELECT id FROM publishing_topics WHERE id=(SELECT topic_id FROM publishing_drafts WHERE id=$1) FOR NO KEY UPDATE', [id]);
+      await c.query('SELECT id FROM publishing_drafts WHERE topic_id=(SELECT topic_id FROM publishing_drafts WHERE id=$1) ORDER BY id FOR UPDATE', [id]);
+    }
     const d = (await c.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE id=$1 FOR UPDATE`, [id])).rows[0];
     if (!d) throw new NotFoundError('Publishing draft');
     if (d.version !== version) throw new ConflictError('Draft changed; reload before editing.', 'PUBLISHING_CONFLICT');
     if (editorialRevision) {
+      if (d.approval !== 'pending' || d.held) throw new ConflictError('The draft is no longer available for automatic edits.', 'PUBLISHING_CONFLICT');
       const approved = await c.query("SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved'", [d.topicId]);
       if (approved.rowCount) throw new ConflictError('The package was sent for scheduling; automatic revisions cannot change it.', 'PUBLISHING_CONFLICT');
+      const scheduled = await c.query(`SELECT s.draft_id FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1
+        UNION ALL SELECT draft_id FROM publishing_deliveries WHERE topic_id=$1`, [d.topicId]);
+      if (scheduled.rowCount) throw new ConflictError('Scheduled copy cannot be changed by automatic revisions.', 'PUBLISHING_CONFLICT');
     }
     const delivered = await c.query("SELECT id FROM publishing_deliveries WHERE draft_id=$1 AND status IN ('sending','sent','unconfirmed')", [id]);
     if (delivered.rowCount) throw new ValidationError('This draft has a delivered or uncertain version. Reconcile it; do not edit a live publication.');
@@ -317,7 +338,8 @@ export async function editDraft(db: Pool, id: string, version: unknown, value: u
       reason='Content changed; review required.',updated_at=NOW() WHERE id=$1`, [id, next, JSON.stringify(content)]);
     await c.query('INSERT INTO publishing_versions(draft_id,version,content) VALUES($1,$2,$3)', [id, next, JSON.stringify(content)]);
     if (d.destination === 'blog') await c.query(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,
-      reason='Blog changed; hook must be reviewed and approved again.' WHERE topic_id=$1 AND destination IN ('linkedin','bluesky') AND variant='blog'`, [d.topicId]);
+      reason='Blog changed; hook must be reviewed and approved again.' WHERE topic_id=$1 AND destination IN ('linkedin','bluesky') AND variant='blog'
+      AND (NOT $2::boolean OR (approval='pending' AND NOT held))`, [d.topicId, editorialRevision]);
     await event(c, d.topicId, actor, 'draft-edited', { draftId: id, version: next });
   });
 }
@@ -366,7 +388,8 @@ ${preferences}`, { sources, related, feeds: settings.map(f => ({ id: f.id, guida
       }
       await c.query('UPDATE publishing_sources SET topic_id=$2 WHERE topic_id=$1', [topic.id, target.id]);
       await c.query(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,
-        reason='Related coverage added; review required.' WHERE topic_id=$1`, [target.id]);
+        reason='Related coverage added; review required.' WHERE topic_id=$1 AND approval='pending' AND NOT held
+        AND NOT EXISTS(SELECT 1 FROM publishing_schedule s WHERE s.draft_id=publishing_drafts.id)`, [target.id]);
       await event(c, target.id, 'selector', 'related-coverage', { title: topic.title, rationale, materiallyDistinct: selection.distinctArgument });
       await c.query("UPDATE publishing_topics SET state='held',rationale=$2,error='Related coverage grouped with an existing topic.' WHERE id=$1", [topic.id, rationale]);
       });

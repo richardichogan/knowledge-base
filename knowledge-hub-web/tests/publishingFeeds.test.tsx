@@ -3,11 +3,29 @@ import { test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PublishingFeedControls, PublishingDraftPreview, PublishingDraftList, TopicReview, publishingApprovalBlocker } from '../src/components/discover/DiscoverPublishing';
-import type { PublishingFeed, PublishingDraft, PublishingTopic, PublishingDetail } from '../src/types/publishing';
+import { MemoryRouter } from 'react-router-dom';
+import { PublishingFeedControls, PublishingDraftPreview, PublishingDraftList, PublishingSchedule, ScheduledPodcastPreview, TopicReview, publishingApprovalBlocker } from '../src/components/discover/DiscoverPublishing';
+import type { PublishingFeed, PublishingDraft, PublishingTopic, PublishingDetail, ScheduledPodcastPost } from '../src/types/publishing';
 
 const policy = { timezone: 'Europe/London', startHour: 8, endHour: 20, days: [0, 1, 2, 3, 4, 5, 6], expiryHours: 48, guidance: '' };
 const feeds: PublishingFeed[] = [{ id: 'bluesky', revision: 1, enabled: false, policy }, { id: 'blog-linkedin', revision: 1, enabled: false, policy: { ...policy, expiryHours: 168 } }];
+test('podcast schedule entries show full copy and link to Campaign without offering another send action', () => {
+  const post: ScheduledPodcastPost = {
+    draftId: 'podcast:note:post', noteId: 'note', title: 'Episode campaign', label: 'Episode follow-up',
+    copy: 'Approved copy.\n\nhttps://youtu.be/abcdefghijk', blog: null, destination: 'bluesky', version: 3,
+    scheduledAt: '2099-01-05T09:00:00Z', timezone: 'Europe/London', paused: true, campaignPaused: true,
+    deliveryStatus: null, reason: 'Campaign paused.',
+  };
+  const list = renderToStaticMarkup(<PublishingSchedule posts={[post]} selected={post.draftId} onSelect={() => { throw new Error('Read only'); }} />);
+  assert.match(list, /Podcast · Bluesky/);
+  assert.match(list, /Paused · campaign/);
+  const html = renderToStaticMarkup(<MemoryRouter><ScheduledPodcastPreview post={post} onOpen={() => { throw new Error('Read only'); }} /></MemoryRouter>);
+  assert.ok(html.includes('Approved copy.'));
+  assert.ok(html.includes('https://youtu.be/abcdefghijk'));
+  assert.ok(html.includes('/think?noteId=note&amp;panel=campaign'));
+  assert.ok(!html.includes('Send for scheduling'));
+  assert.match(renderToStaticMarkup(<PublishingSchedule posts={[{ ...post, deliveryStatus: 'unconfirmed' }]} selected={post.draftId} onSelect={() => {}} />), /Awaiting confirmation/);
+});
 test('publishing presents exactly one accessible automation switch per coordinated feed, both off', () => {
   let writes = 0;
   const html = renderToStaticMarkup(<PublishingFeedControls feeds={feeds} busy={false} act={async () => { writes++; return true; }} />);
@@ -87,6 +105,7 @@ test('a completed reviewed post offers send for scheduling without asking the us
   query.setQueryData(['publishing', 'topic', 'topic'], { topic, drafts: [ready], sources: [], deliveries: [], events: [], versions: [] } satisfies PublishingDetail);
   const html = renderToStaticMarkup(<QueryClientProvider client={query}><TopicReview id="topic" feeds={feeds} busy={false} readyOnly act={async () => true} /></QueryClientProvider>);
   assert.match(html, /Send for scheduling<\/button>/);
+  assert.match(html, /Discard draft<\/button>/);
   assert.match(html, /The complete saved copy/);
   assert.ok(!html.includes('Generate draft'));
   assert.ok(!html.includes('Resume and review'));

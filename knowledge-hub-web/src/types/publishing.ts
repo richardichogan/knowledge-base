@@ -7,6 +7,12 @@ export interface ScheduledPost {
   draftId: string; topicId: string; title: string; destination: 'bluesky' | 'blog' | 'linkedin'; version: number;
   scheduledAt: string | null; timezone: string; paused: boolean; reason: string;
 }
+export interface ScheduledPodcastPost extends Omit<ScheduledPost, 'topicId'> {
+  noteId: string; label: string; copy: string;
+  blog: { title: string; content: string; summary: string; slug?: string; excerpt: string } | null;
+  campaignPaused: boolean; deliveryStatus: 'sending' | 'sent' | 'failed' | 'unconfirmed' | null;
+}
+export type PublishingScheduleEntry = ScheduledPost | ScheduledPodcastPost;
 export interface PublishingDraft {
   id: string; topicId: string; destination: 'bluesky' | 'blog' | 'linkedin'; variant: 'source' | 'blog';
   version: number; content: Record<string, unknown>; review: string; approval: string; held: boolean;

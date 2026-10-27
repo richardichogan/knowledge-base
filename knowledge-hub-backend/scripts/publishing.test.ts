@@ -15,7 +15,7 @@ const { reserveDelivery, deliver, inWindow, slotBlock, PublicationDeferred, Publ
 const { parsePolicy } = await import('../src/publishing/contracts.js');
 const { verifyBlog, tickPublishing, publishDraft, recoverBlogPublication } = await import('../src/publishing/worker.js');
 const { refreshSchedule, listSchedule, planSchedule } = await import('../src/publishing/schedule.js');
-const { refreshPublishingDrafts } = await import('../src/publishing/refresh.js');
+const { refreshPublishingDrafts, publishingRefreshStatus } = await import('../src/publishing/refresh.js');
 const { IntegrationError, AiOutputLimitError } = await import('../src/types/errors.js');
 const prose = 'Administrators can now configure the documented capability through the existing management portal. Check the scope and permissions before enabling it. '.repeat(9);
 const blog = { title: 'A practical administration change', summary: 'Check permissions before enabling the documented capability.', excerpt: 'A practical administration change.',
@@ -39,6 +39,92 @@ async function draft(db: Pool, id: string, destination: Draft['destination'] = '
 const context = (d: Draft) => ({ identity: `draft:${d.id}:v${d.version}`, topicId: d.topicId, draftId: d.id, version: d.version, feed: d.destination === 'bluesky' ? 'bluesky' as const : 'blog-linkedin' as const,
   now: new Date() });
 async function enable(db: Pool): Promise<void> { await db.query(`UPDATE publishing_feeds SET enabled=TRUE,policy=policy || '{"startHour":0,"endHour":24}'::jsonb`); }
+
+test('discard rejects only the pending Blog/LinkedIn package and retains source articles and other drafts', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const s = await source(f.db, t.id);
+    await f.db.query("INSERT INTO content_items(id,title,source) VALUES($1,'Keep the source','discovered-article')", [s.itemId]);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    const l = await draft(f.db, t.id, 'linkedin', 'blog');
+    const blue = await draft(f.db, t.id);
+    await f.db.query('DELETE FROM publishing_schedule');
+    await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE topic_id=$1", [t.id]);
+    await assert.rejects(store.discardDraft(f.db, b.id, { [b.id]: 1, [l.id]: 2 }, 'human'), /changed/);
+    await store.discardDraft(f.db, b.id, { [b.id]: 1, [l.id]: 1 }, 'human');
+    const rows = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
+    assert.ok(rows.filter(row => row.id !== blue.id).every(row => row.approval === 'rejected' && row.held));
+    assert.equal(rows.find(row => row.id === blue.id)!.approval, 'pending');
+    assert.equal((await f.db.query('SELECT id FROM content_items WHERE id=$1', [s.itemId])).rowCount, 1);
+    await f.db.query("UPDATE publishing_sources SET read_at=NOW()-INTERVAL '2 days' WHERE topic_id=$1", [t.id]);
+    await editorial.readSources(f.db, t.id, { ...editorial.editorialServices, read: async () => ({ title: s.title, text: prose + 'Changed evidence.' }) });
+    assert.equal((await f.db.query("SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='rejected' AND held", [t.id])).rowCount, 2);
+    await assert.rejects(editorial.editDraft(f.db, b.id, 1, blog, 'editorial-revision', undefined, true), /no longer available/);
+    assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE event='drafts-discarded'")).rowCount, 1);
+    await store.discardDraft(f.db, blue.id, { [blue.id]: 1 }, 'human');
+    assert.equal((await f.db.query("SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='rejected' AND held", [t.id])).rowCount, 3);
+  } finally { await f.close(); }
+});
+test('discard refuses approved, scheduled and attempted topics without changing any saved draft', async () => {
+  const f = await publishingFixture();
+  try {
+    for (const protection of ['approved', 'scheduled', 'attempted']) {
+      const t = await topic(f.db);
+      const d = await draft(f.db, t.id);
+      if (protection !== 'approved') await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE id=$1", [d.id]);
+      if (protection !== 'scheduled') await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+      if (protection === 'attempted') await f.db.query(`INSERT INTO publishing_deliveries(identity,topic_id,draft_id,destination,account,status)
+        VALUES($1,$2,$3,'bluesky','fixture','failed')`, [`draft:${d.id}`, t.id, d.id]);
+      const before = (await f.db.query('SELECT * FROM publishing_drafts WHERE id=$1', [d.id])).rows;
+      await assert.rejects(store.discardDraft(f.db, d.id, { [d.id]: 1 }, 'human'), /approved, scheduled or attempted/);
+      assert.deepEqual((await f.db.query('SELECT * FROM publishing_drafts WHERE id=$1', [d.id])).rows, before);
+    }
+    assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE event='drafts-discarded'")).rowCount, 0);
+  } finally { await f.close(); }
+});
+test('draft refresh status reports zero-result assessments, failures and interruptions explicitly', async () => {
+  const f = await publishingFixture();
+  try {
+    await store.event(f.db, null, 'human', 'draft-refresh-completed', { assessedTopics: 8, reviewedDrafts: 0, drafts: [], failedTopics: 0 });
+    assert.match((await publishingRefreshStatus(f.db)).message, /assessed 8.*0 suggestions/);
+    await store.event(f.db, null, 'human', 'draft-refresh-error', { reason: 'Source unavailable' });
+    assert.match((await publishingRefreshStatus(f.db)).message, /Refresh failed: Source unavailable/);
+    await store.event(f.db, null, 'human', 'draft-refresh-started', {});
+    assert.match((await publishingRefreshStatus(f.db)).message, /interrupted/);
+  } finally { await f.close(); }
+});
+test('draft-only review cannot change versions or review state when approval arrives during model work', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const s = await source(f.db, t.id);
+    const d = await draft(f.db, t.id);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE id=$1", [d.id]);
+    d.approval = 'pending';
+    const versions = (await f.db.query('SELECT * FROM publishing_versions WHERE draft_id=$1', [d.id])).rows;
+    let approved: unknown[] = [];
+    let calls = 0;
+    await editorial.reviewDraft(f.db, d, [s], { ...editorial.editorialServices, preferences: async () => '',
+      chat: async () => {
+        if (++calls === 2) {
+          await f.db.query("UPDATE publishing_drafts SET approval='approved' WHERE id=$1", [d.id]);
+          await f.db.query('INSERT INTO publishing_schedule(draft_id,version,scheduled_at) VALUES($1,1,NOW())', [d.id]);
+          approved = (await f.db.query('SELECT * FROM publishing_drafts WHERE id=$1', [d.id])).rows;
+        }
+        return { outcome: 'pass', findings: [] };
+      },
+    }, true, true);
+    assert.equal(calls, 2);
+    assert.deepEqual((await f.db.query('SELECT * FROM publishing_drafts WHERE id=$1', [d.id])).rows, approved);
+    assert.deepEqual((await f.db.query('SELECT * FROM publishing_versions WHERE draft_id=$1', [d.id])).rows, versions);
+    assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE event LIKE 'review-%' AND topic_id=$1", [t.id])).rowCount, 0);
+    await f.db.query("UPDATE publishing_sources SET read_at=NOW()-INTERVAL '2 days' WHERE topic_id=$1", [t.id]);
+    await editorial.readSources(f.db, t.id, { ...editorial.editorialServices, read: async () => ({ title: s.title, text: prose + 'New evidence.' }) }, true);
+    assert.deepEqual((await f.db.query('SELECT * FROM publishing_drafts WHERE id=$1', [d.id])).rows, approved);
+  } finally { await f.close(); }
+});
 
 test('feed defaults are off, revision checked and schedule validated including UK DST', async () => {
   const f = await publishingFixture();
@@ -628,6 +714,7 @@ test('accuracy and voice are separate checks; two unsuccessful revisions end in 
   try {
     const t = await topic(f.db); const s = await source(f.db, t.id); const d = await draft(f.db, t.id);
     await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE id=$1", [d.id]);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
     d.approval = 'pending';
     const calls: string[] = [];
     await editorial.reviewDraft(f.db, d, [s], { ...editorial.editorialServices, preferences: async () => '',

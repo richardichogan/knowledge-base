@@ -82,6 +82,7 @@ interface NoteEditorProps {
   onRecovery?: () => void;
   onPresent?: (() => void) | undefined;
   onShowEditor?: (() => void) | undefined;
+  campaignRequest?: number | undefined;
 }
 
 /** Renders `node` into `slot` via a portal when one is provided, otherwise in place. */
@@ -153,7 +154,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, designPanel, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, campaignRequest, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, designPanel, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
   const queryClient = useQueryClient();
   const { openAthena, pageContext } = useAthenaContext();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
@@ -925,6 +926,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const metadata: MetadataPanelProps = {
     designPanel,
     onSaveBeforeCampaign: doSave,
+    campaignRequest,
     writingBusy: historyBusy || externalBusy, doc, onShowEditor, contentType,
     onContentTypeChange: value => {
       setContentType(value); contentTypeRef.current = value; isDirtyRef.current = true;

@@ -6,15 +6,17 @@ import { env } from '../config/env.js';
 import { object, text } from '../jobs/contracts.js';
 import { ValidationError, ConflictError, NotFoundError } from '../types/errors.js';
 import { getLinkedInMember } from '../integrations/social/linkedin.js';
-import { approvePackage, decideDraft, deliveryColumns, draftColumns, event, feeds, holdTopic, listTopics, saveFeed, topicDetail, transaction } from '../publishing/store.js';
+import { approvePackage, decideDraft, discardDraft, deliveryColumns, draftColumns, event, feeds, holdTopic, listTopics, saveFeed, topicDetail, transaction } from '../publishing/store.js';
 import { feedId, PUBLISH_LIMITS, uuid, type Delivery, type Draft } from '../publishing/contracts.js';
 import { editDraft } from '../publishing/editorial.js';
 import { verifyBlog } from '../publishing/worker.js';
 import { destinationAccount } from '../publishing/delivery.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
-import { listSchedule, refreshSchedule } from '../publishing/schedule.js';
+import { listSchedule, refreshSchedule, type ScheduledPost } from '../publishing/schedule.js';
+import type { ScheduledPodcastPost } from '../publishing/podcastCampaign.js';
 import { createPodcastCampaignRouter } from './podcastCampaigns.js';
-import { podcastDeliveryPost } from '../publishing/podcastCampaignStore.js';
+import { listPodcastSchedule, podcastDeliveryPost } from '../publishing/podcastCampaignStore.js';
+import { publishingRefreshStatus, startPublishingDraftRefresh } from '../publishing/refresh.js';
 
 export function publishingProduction(): void {
   if (env.NODE_ENV !== 'production' && !env.isDevelopment) throw new ValidationError('Publishing changes require an application server or an isolated production-mode test.');
@@ -81,9 +83,24 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
     void Promise.resolve().then(() => action(req)).then(data => res.json({ success: true, data })).catch(next);
   };
   router.get('/feeds', route(() => feeds(getDb())));
-  router.get('/schedule', route(() => listSchedule(getDb())));
+  router.get('/drafts/refresh', route(() => publishingRefreshStatus(getDb())));
+  router.post('/drafts/refresh', route(async req => {
+    publishingProduction();
+    await startPublishingDraftRefresh(getDb(), actor(req));
+    return { started: true };
+  }));
+  router.post('/drafts/:id/discard', route(async req => {
+    publishingProduction();
+    await discardDraft(getDb(), uuid(req.params.id), object(object(req.body).versions), actor(req));
+    return { discarded: true };
+  }));
+  const schedule = async (): Promise<(ScheduledPost | ScheduledPodcastPost)[]> => {
+    const [regular, podcast] = await Promise.all([listSchedule(getDb()), listPodcastSchedule(getDb())]);
+    return [...regular, ...podcast].sort((a, b) => (a.scheduledAt ?? 'z').localeCompare(b.scheduledAt ?? 'z'));
+  };
+  router.get('/schedule', route(schedule));
   router.post('/schedule/refresh', route(async () => {
-    publishingProduction(); await refreshSchedule(getDb()); return listSchedule(getDb());
+    publishingProduction(); await refreshSchedule(getDb()); return schedule();
   }));
   router.put('/feeds/:id', route(async req => {
     publishingProduction(); const b = object(req.body);

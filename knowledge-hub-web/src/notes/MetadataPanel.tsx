@@ -86,6 +86,7 @@ export interface MetadataPanelProps {
   historyRefresh: number;
   onShowEditor?: (() => void) | undefined;
   onSaveBeforeCampaign: () => Promise<boolean>;
+  campaignRequest?: number | undefined;
 }
 
 /** Formats an ISO timestamp as "DD Mon YYYY, HH:MM" for Created/Modified. */
@@ -126,6 +127,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   historyRefresh,
   onShowEditor,
   onSaveBeforeCampaign,
+  campaignRequest,
 }) => {
   const { pageContext, registerAthenaLauncher, request: athenaRequest } = useAthenaContext();
   const qc = useQueryClient();
@@ -143,6 +145,14 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const [width, setWidth] = usePersistedPaneWidth('think-side-panel', SIDE_PANEL_WIDTH);
   const panelRef = React.useRef<HTMLDialogElement>(null);
   const { collapsed, setCollapsed, overlay } = useResponsivePanelState('kh_think_side_collapsed', panelRef, width);
+  const lastCampaignRequest = React.useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (campaignRequest === undefined || campaignRequest === lastCampaignRequest.current || contentType !== 'podcast-show-notes') return;
+    lastCampaignRequest.current = campaignRequest;
+    onShowEditor?.();
+    setTab('campaign');
+    setCollapsed(false);
+  }, [campaignRequest, contentType, onShowEditor, setTab, setCollapsed]);
   useEffect(() => {
     return registerAthenaLauncher(() => {
       onShowEditor?.();

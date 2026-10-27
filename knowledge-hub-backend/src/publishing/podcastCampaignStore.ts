@@ -12,9 +12,10 @@ import { requestEditorialJson } from './editorial.js';
 import type { Delivery } from './contracts.js';
 import {
   PODCAST_LIMITS, episodeLinksFromNote, parseEpisodeLinks, parsePodcastPlan, podcastPlanIssues, parsePodcastWindow,
-  type PodcastCampaign, type PodcastCampaignDetail, type PodcastPlan, type PodcastPost,
+  type PodcastCampaign, type PodcastCampaignDetail, type PodcastPlan, type PodcastPost, type ScheduledPodcastPost,
 } from './podcastCampaign.js';
 import { materialisePodcastSelections, podcastSourceBlocks, podcastSelectionSchema, PODCAST_SELECTION_INSTRUCTIONS } from './podcastCampaignSource.js';
+import { proposePodcastTimes, repairPodcastCopy } from './podcastCampaignPreparation.js';
 
 type Db = Pick<Pool, 'query'>;
 export const campaignColumns = `note_id AS "noteId",revision,links,plan,source_revision AS "sourceRevision",
@@ -40,6 +41,32 @@ async function campaignIssues(db: Db, plan: PodcastPlan | null): Promise<string[
 export async function campaignDeliveries(db: Db, noteId: string): Promise<Delivery[]> {
   return (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries
     WHERE identity LIKE $1 ORDER BY attempted_at`, [`podcast:${noteId}:%`])).rows;
+}
+export async function listPodcastSchedule(db: Pool): Promise<ScheduledPodcastPost[]> {
+  const campaigns = (await db.query<PodcastCampaign>(`SELECT ${campaignColumns} FROM podcast_campaigns
+    WHERE state IN ('approved','paused') AND approved_at IS NOT NULL AND plan IS NOT NULL ORDER BY approved_at`)).rows;
+  if (!campaigns.length) return [];
+  const settings = await feeds(db);
+  const history = (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries
+    WHERE identity LIKE ANY($1::text[])`, [campaigns.map(campaign => `podcast:${campaign.noteId}:%`)])).rows;
+  return campaigns.flatMap(campaign => (campaign.plan?.posts ?? []).flatMap(post => {
+    const identity = `podcast:${campaign.noteId}:${post.id}`;
+    const delivery = history.find(item => item.identity === identity);
+    if (delivery?.status === 'sent') return [];
+    const feed = settings.find(item => item.id === (post.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'));
+    if (!feed) throw new ValidationError('Publishing feed settings are missing.');
+    return [{
+      draftId: identity, noteId: campaign.noteId, title: campaign.plan!.title, label: post.label,
+      destination: post.destination, version: campaign.revision, scheduledAt: post.scheduledAt,
+      timezone: 'Europe/London', paused: !feed.enabled || campaign.state === 'paused',
+      campaignPaused: campaign.state === 'paused', deliveryStatus: delivery?.status ?? null,
+      reason: delivery?.error || campaign.error || (campaign.state === 'paused'
+        ? 'Campaign paused. Open the campaign to resume delivery.'
+        : !feed.enabled ? 'Posting automation is off for this destination.'
+          : 'Approved podcast campaign. Posts are delivered in order; shared account limits still apply.'),
+      copy: [post.copy, post.url].filter(Boolean).join('\n\n'), blog: post.blog,
+    }];
+  })).sort((a, b) => (a.scheduledAt ?? 'z').localeCompare(b.scheduledAt ?? 'z'));
 }
 export async function getPodcastCampaign(db: Pool, noteId: string): Promise<PodcastCampaignDetail> {
   const note = await episodeNote(db, noteId);
@@ -111,11 +138,15 @@ export async function preparePodcastCampaign(db: Pool, noteId: string, revision:
       windows: settings.map(feed => ({ channel: feed.id, ...feed.policy })),
     }, PODCAST_LIMITS.selectionTokens, podcastSelectionSchema);
     const plan = parsePodcastPlan(materialisePodcastSelections(markdown, output), links, accountMap, member.name, { authored: true, window });
+    await repairPodcastCopy(plan, campaign.plan, links,
+      (system, input, tokens, schema) => requestEditorialJson(getFoundryClient('discover-editorial'), system, input, tokens, schema),
+      campaign.sourceRevision === note.revision);
     await transaction(db, async c => {
       const current = await lockedCampaign(c, noteId, revision);
       await assertCanPrepare(c, current);
       await c.query('SELECT id FROM notes WHERE id=$1 FOR SHARE', [noteId]);
       if ((await episodeNote(c, noteId)).revision !== note.revision) throw new ConflictError('The Show Notes changed during preparation. Prepare again from the saved version.', 'PODCAST_CONFLICT');
+      proposePodcastTimes(plan, await feeds(c));
       await c.query(`UPDATE podcast_campaigns SET plan=$2,source_revision=$3,revision=revision+1,state='draft',
         approved_by=NULL,approved_at=NULL,error=NULL,updated_at=NOW() WHERE note_id=$1`, [noteId, JSON.stringify(plan), note.revision]);
       await event(c, null, actor, 'podcast-campaign-prepared', { noteId, sourceRevision: note.revision, posts: plan.posts.length });

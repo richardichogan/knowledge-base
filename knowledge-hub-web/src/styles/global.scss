@@ -17819,6 +17819,7 @@ select optgroup {
   &__schedule-toolbar { display: flex; align-items: start; gap: 16px; margin-bottom: 16px; }
   &__schedule-toolbar p { flex: 1; margin: 0; }
   &__schedule-toolbar button { flex-shrink: 0; }
+  &__refresh-status { flex: 1; min-width: 0; }
   &__agenda { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
   &__schedule-day + &__schedule-day { margin-top: 24px; }
   &__schedule-day > h3 { font-size: var(--kh-text-meta); color: var(--cds-text-secondary); padding-bottom: 8px; border-bottom: 1px solid var(--cds-border-subtle-01); line-height: 1.5; }
@@ -17830,6 +17831,9 @@ select optgroup {
   &__schedule-time time { font-size: var(--kh-text-body); color: var(--cds-text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
   &__schedule-status { color: var(--cds-support-success); font-size: var(--kh-text-meta); }
   &__schedule-status--waiting { color: var(--cds-support-warning); }
+  &__campaign-link { display: inline-flex; align-items: center; align-self: flex-start; min-height: 36px; padding: 8px 12px; border: 1px solid var(--kh-accent-border); border-radius: var(--kh-radius-md); background: var(--kh-accent-bg); font-size: var(--kh-text-body); }
+  &__campaign-link:hover { background: var(--cds-layer-hover-01); }
+  &__campaign-link:active { background: var(--cds-layer-active-01); }
   &__schedule-reason { font-size: var(--kh-text-body); color: var(--cds-text-primary); }
   &__blocker { padding: 16px; margin-bottom: 24px; background: var(--cds-layer-02); border: 1px solid var(--cds-border-subtle-01); border-radius: var(--kh-radius-md); }
   &__blocker h3 { color: var(--cds-support-warning); margin-bottom: 8px; }

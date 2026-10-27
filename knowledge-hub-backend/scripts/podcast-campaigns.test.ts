@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { publishingFixture } from './publishing-fixture.js';
 import type { PodcastPlan } from '../src/publishing/podcastCampaign.js';
 import type { PublishingServices } from '../src/publishing/worker.js';
+import type { PublishingFeed } from '../src/publishing/contracts.js';
 
 process.env.DATABASE_URL = 'postgresql://isolated.invalid/podcast';
 process.env.NODE_ENV = 'development';
@@ -16,6 +17,7 @@ process.env.BLUESKY_APP_PASSWORD = 'fixture';
 const contracts = await import('../src/publishing/podcastCampaign.js');
 const { materialisePodcastSelections, podcastSourceBlocks } = await import('../src/publishing/podcastCampaignSource.js');
 const store = await import('../src/publishing/podcastCampaignStore.js');
+const { repairPodcastCopy, proposePodcastTimes } = await import('../src/publishing/podcastCampaignPreparation.js');
 const { publishPodcastPost, tickPodcastCampaigns } = await import('../src/publishing/podcastCampaignWorker.js');
 const { composeBlueskyText, graphemeLength } = await import('../src/integrations/social/bluesky.js');
 const { parsePublishBody } = await import('../src/services/blogPublisher.js');
@@ -237,4 +239,155 @@ test('local automatic delivery stays disabled', async () => {
     await tickPodcastCampaigns(f.db);
     assert.equal((await f.db.query('SELECT id FROM publishing_deliveries')).rowCount, 0);
   } finally { await f.close(); }
+});
+test('Scheduling projects approved campaign posts without creating jobs or altering approval and excludes confirmed posts', async () => {
+  const f = await fixture();
+  try {
+    await store.savePodcastLinks(f.db, f.noteId, 0, links, 'human');
+    const prepared = plan();
+    await f.db.query('UPDATE podcast_campaigns SET plan=$2,source_revision=1 WHERE note_id=$1', [f.noteId, JSON.stringify(prepared)]);
+    assert.deepEqual(await store.listPodcastSchedule(f.db), [], 'unapproved drafts must not enter Scheduling');
+    await f.db.query("UPDATE podcast_campaigns SET state='approved',approved_at=NOW() WHERE note_id=$1", [f.noteId]);
+    const before = (await f.db.query('SELECT * FROM podcast_campaigns WHERE note_id=$1', [f.noteId])).rows;
+    const entries = await store.listPodcastSchedule(f.db);
+    assert.equal(entries.length, 3);
+    assert.ok(entries.every(entry => entry.noteId === f.noteId && entry.paused && !entry.campaignPaused));
+    assert.ok(entries[2]!.copy.includes(links.youtube));
+    assert.equal((await f.db.query('SELECT * FROM publishing_schedule')).rowCount, 0);
+    assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rowCount, 0);
+    assert.deepEqual((await f.db.query('SELECT * FROM podcast_campaigns WHERE note_id=$1', [f.noteId])).rows, before);
+    await f.db.query(`INSERT INTO publishing_deliveries(identity,destination,account,status,published_at)
+      VALUES($1,'blog',$2,'sent',NOW())`, [contracts.podcastIdentity(f.noteId, prepared.posts[0]!.id), accounts.blog]);
+    await f.db.query(`INSERT INTO publishing_deliveries(identity,destination,account,status,error)
+      VALUES($1,'linkedin',$2,'unconfirmed','Check the provider receipt')`, [contracts.podcastIdentity(f.noteId, prepared.posts[1]!.id), accounts.linkedin]);
+    await f.db.query("UPDATE podcast_campaigns SET state='paused' WHERE note_id=$1", [f.noteId]);
+    const remaining = await store.listPodcastSchedule(f.db);
+    assert.equal(remaining.length, 2);
+    assert.ok(remaining.every(entry => entry.campaignPaused));
+    assert.equal(remaining[0]!.deliveryStatus, 'unconfirmed');
+    assert.match(remaining[0]!.reason, /provider receipt/);
+  } finally { await f.close(); }
+});
+
+const campaignSettings: PublishingFeed[] = [
+  { id: 'blog-linkedin', enabled: true, revision: 1, policy: { days: [1, 2, 3, 4, 5], startHour: 8, endHour: 20, timezone: 'Europe/London', expiryHours: 168, guidance: '' } },
+  { id: 'bluesky', enabled: true, revision: 1, policy: { days: [1, 2, 3, 4, 5], startHour: 8, endHour: 20, timezone: 'Europe/London', expiryHours: 48, guidance: '' } },
+];
+function repairDraft(): PodcastPlan {
+  const result = plan();
+  result.posts = result.posts.slice(2);
+  result.posts[0]!.scheduledAt = '2026-10-27T09:30:00Z';
+  result.followUp = true;
+  result.window = { from: '2026-10-27', to: '2026-10-29' };
+  return result;
+}
+test('preparation shortens only oversized copy with its real link budget, then reuses corrections for unchanged sources', async () => {
+  const result = repairDraft();
+  const post = result.posts[0]!;
+  post.url = links.apple;
+  post.copy = 'Keep permissions outside the model. '.repeat(12);
+  const original = structuredClone(result);
+  const goodCopy = 'Keep agent permissions outside the model, with independent checks.';
+  let calls = 0;
+  await repairPodcastCopy(result, null, links, async (_system, input) => {
+    calls++;
+    const budget = input as { copyAllowance: number; source: string };
+    assert.equal(budget.copyAllowance, 300 - graphemeLength(`\n\n${links.apple}`));
+    assert.equal(budget.source, original.posts[0]!.copy);
+    return { copy: goodCopy };
+  });
+  assert.equal(calls, 1);
+  assert.equal(post.copy, goodCopy);
+  assert.equal(post.url, links.apple);
+  assert.match(result.notes.join('\n'), /shortened.*Review/);
+  assert.ok(post.sourceHash);
+  const again = structuredClone(original);
+  await repairPodcastCopy(again, result, links, async () => { throw new Error('Unchanged correction should be reused'); });
+  assert.equal(again.posts[0]!.copy, goodCopy);
+  const changed = structuredClone(original);
+  changed.posts[0]!.copy += 'A different source qualification.';
+  await repairPodcastCopy(changed, result, links, async () => { calls++; return { copy: 'Different source qualification retained.' }; });
+  assert.equal(calls, 2);
+  const changedLink = structuredClone(original);
+  changedLink.posts[0]!.url = links.spotify;
+  await repairPodcastCopy(changedLink, result, links, async () => { calls++; return { copy: goodCopy }; });
+  assert.equal(calls, 3);
+  await repairPodcastCopy(repairDraft(), null, links, async () => { throw new Error('Valid copy must not be rewritten'); });
+});
+test('legacy draft corrections are retained only for an unchanged source revision and unique matching post', async () => {
+  const current = repairDraft();
+  current.posts[0]!.copy = 'Long authored source. '.repeat(30);
+  const previous = structuredClone(current);
+  previous.posts[0]!.copy = 'Previously reviewed shorter copy.';
+  await repairPodcastCopy(current, previous, links, async () => { throw new Error('Keep the saved manual correction'); }, true);
+  assert.equal(current.posts[0]!.copy, previous.posts[0]!.copy);
+  const changed = repairDraft();
+  changed.posts[0]!.copy = 'Long authored source. '.repeat(30);
+  let called = false;
+  await repairPodcastCopy(changed, previous, links, async () => { called = true; return { copy: 'New source revision checked.' }; }, false);
+  assert.equal(called, true);
+});
+test('invalid model repairs are bounded and cannot introduce URLs or silently truncate copy', async () => {
+  const result = repairDraft();
+  result.posts[0]!.copy = 'Original long source. '.repeat(30);
+  let calls = 0;
+  await assert.rejects(repairPodcastCopy(result, null, links, async () => {
+    calls++;
+    return { copy: calls === 1 ? 'x'.repeat(301) : 'Visit https://unapproved.invalid' };
+  }), /could not shorten/);
+  assert.equal(calls, 2);
+  assert.equal(result.posts[0]!.copy, 'Original long source. '.repeat(30));
+  await assert.rejects(repairPodcastCopy(result, null, links, async () => { throw new Error('Provider unavailable'); }), /Provider unavailable/);
+});
+test('LinkedIn shortening preserves all three listening links and does not send them to the copy rewriter', async () => {
+  const result = plan();
+  result.posts = [result.posts[1]!];
+  const post = result.posts[0]!;
+  const footer = '\n\n' + Object.entries(links).map(([platform, url]) =>
+    `${contracts.EPISODE_LABELS[platform as keyof typeof links]}: ${url}`).join('\n');
+  post.copy = 'Original discussion. '.repeat(200) + footer;
+  await repairPodcastCopy(result, null, links, async (_system, input) => {
+    const budget = input as { copyAllowance: number; source: string };
+    assert.equal(budget.copyAllowance, 3000 - footer.length);
+    assert.ok(!budget.source.includes('https://'));
+    return { copy: 'The original discussion, shortened for LinkedIn.' };
+  });
+  assert.equal(post.copy, 'The original discussion, shortened for LinkedIn.' + footer);
+});
+test('expired draft times are re-proposed inside the chosen window with review time, order and spacing', () => {
+  const result = repairDraft();
+  result.posts.push({ ...result.posts[0]!, id: randomUUID(), scheduledAt: '2026-10-27T09:45:00Z' });
+  const now = new Date('2026-10-27T10:34:36Z');
+  proposePodcastTimes(result, campaignSettings, now);
+  assert.equal(result.posts[0]!.scheduledAt, '2026-10-27T11:00:00.000Z');
+  assert.equal(result.posts[1]!.scheduledAt, '2026-10-27T13:00:00.000Z');
+  assert.deepEqual(contracts.podcastPlanIssues(result, now), []);
+  assert.match(result.notes.join('\n'), /Approval is still required/);
+  const snapshot = structuredClone(result);
+  proposePodcastTimes(result, campaignSettings, now);
+  assert.deepEqual(result, snapshot);
+});
+test('preparation moves to the next permitted day only within the explicitly selected window', () => {
+  const result = repairDraft();
+  proposePodcastTimes(result, campaignSettings, new Date('2026-10-27T19:50:00Z'));
+  assert.equal(result.posts[0]!.scheduledAt, '2026-10-28T08:00:00.000Z');
+  const expired = repairDraft();
+  assert.throws(() => proposePodcastTimes(expired, campaignSettings, new Date('2026-10-29T19:50:00Z')), /no future slot/);
+  assert.equal(expired.posts[0]!.scheduledAt, '2026-10-27T09:30:00Z');
+  const noWindow = repairDraft();
+  noWindow.window = null;
+  assert.throws(() => proposePodcastTimes(noWindow, campaignSettings, new Date('2026-10-27T19:50:00Z')), /no future slot/);
+});
+test('future slots respect UK DST and per-account daily caps without altering valid authored times', () => {
+  const summer = repairDraft();
+  summer.window = { from: '2026-07-07', to: '2026-07-08' };
+  summer.posts[0]!.scheduledAt = '2026-07-07T07:00:00Z';
+  proposePodcastTimes(summer, campaignSettings, new Date('2026-07-07T06:00:00Z'));
+  assert.equal(summer.posts[0]!.scheduledAt, '2026-07-07T07:00:00.000Z');
+  const crowded = repairDraft();
+  const first = crowded.posts[0]!;
+  crowded.posts = Array.from({ length: 5 }, () => ({ ...first, id: randomUUID() }));
+  proposePodcastTimes(crowded, campaignSettings, new Date('2026-10-27T06:00:00Z'));
+  assert.equal(crowded.posts[4]!.scheduledAt?.slice(0, 10), '2026-10-28');
+  assert.deepEqual(contracts.podcastPlanIssues(crowded, new Date('2026-10-27T06:00:00Z')), []);
 });

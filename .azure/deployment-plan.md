@@ -2,6 +2,39 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-27, podcast scheduling and draft controls):**
+- User requested deployment of the completed preparation repairs, podcast
+  Scheduling projection and draft-only Refresh/Discard controls. Existing
+  ACA/SWA application targets only; no infrastructure, dependencies, migrations,
+  credentials, identity or registry-authentication changes.
+- All validation checks pass:
+  - [x] `git fetch origin` and `git merge origin/main`: already current.
+    Shared packed-refs maintenance warning remains; no shared lock was removed.
+  - [x] Both `npx tsc --noEmit` checks passed; reused after unchanged sync.
+    Both production builds passed. Lint non-regression passed:
+    backend 552/623, frontend 22/41.
+  - [x] One full isolated backend release run: 687/687 passed.
+  - [x] One full isolated frontend release run: 240/240 plus all 49 bundled
+    UI cases passed, including podcast Scheduling and draft Discard controls.
+  - [x] Regression coverage includes preserving approved/scheduled records
+    during refresh, concurrent approval during review, transactional package
+    discard, retained sources and read-only campaign schedule projection.
+  - [x] Dockerfile and lockfiles unchanged; image still copies all migrations.
+    No real publishing actions or browser launches used for validation.
+- Azure CLI authentication and targets confirmed in Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`): kh-prod-api-vnet is v259,
+  ready revision 0000256, identity None, existing ACR passwordSecretRef retained;
+  frontend is kh-prod-web. Provisioning, Bicep/template/what-if and new
+  policy/RBAC checks are not applicable to this application-only update.
+- Azure MCP could not initialize because its application bundle was corrupt;
+  authenticated Azure CLI is available and is the existing deployment recipe.
+- Push matching feature/main source, build v260 from GitHub main in ACR,
+  update the existing backend and deploy the matching frontend. Confirm
+  revision/startup/migrations and served frontend bytes, then stop.
+  Preserve unrelated `.impeccable/hook.cache.json`.
+- Evidence: session files/draft-controls-release-backend.log,
+  draft-controls-release-frontend.log and draft-controls-release-web-build.log.
+
 **Release scope and Section 7: Validation Proof (2026-10-27, podcast scheduling and manual blog repairs):**
 - User requested the two fixes, deployment, merge and push. Release to the
   existing ACA/SWA resources only; no infrastructure, dependency, identity,

@@ -120,7 +120,8 @@ export async function intake(db: Pool): Promise<void> {
         ON CONFLICT DO NOTHING RETURNING item_id`, [row.id, id, row.title, url, row.discoveredAt]);
       if (inserted.rowCount && !existing.rows.length) {
         await c.query(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,
-          reason='Additional source coverage requires review.' WHERE topic_id=$1`, [id]);
+          reason='Additional source coverage requires review.' WHERE topic_id=$1 AND approval='pending' AND NOT held
+          AND NOT EXISTS(SELECT 1 FROM publishing_schedule s WHERE s.draft_id=publishing_drafts.id)`, [id]);
       }
       await c.query('DELETE FROM publishing_topics WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM publishing_sources WHERE topic_id=$1)', [id]);
       if (!/^https?:\/\//i.test(url)) await c.query("UPDATE publishing_topics SET state='held',error='Source URL is not a public web article.' WHERE id=$1", [id]);
@@ -181,6 +182,30 @@ export async function decideDraft(db: Pool, id: string, version: unknown, action
       [id, action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : d.approval, action === 'hold' || action === 'reject', reason]);
     if (action === 'approve') await c.query('UPDATE publishing_versions SET approved_by=$3,approved_at=NOW() WHERE draft_id=$1 AND version=$2', [id, version, actor]);
     await event(c, d.topicId, actor, `draft-${action}`, { id, version, reason });
+  });
+}
+export async function discardDraft(db: Pool, id: string, versions: Record<string, unknown>, actor: string): Promise<void> {
+  await transaction(db, async c => {
+    const target = (await c.query<{ topicId: string }>('SELECT topic_id AS "topicId" FROM publishing_drafts WHERE id=$1', [id])).rows[0];
+    if (!target) throw new NotFoundError('Publishing draft');
+    await c.query('SELECT id FROM publishing_topics WHERE id=$1 FOR NO KEY UPDATE', [target.topicId]);
+    const drafts = (await c.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 ORDER BY id FOR UPDATE`, [target.topicId])).rows;
+    const selected = drafts.find(draft => draft.id === id);
+    if (!selected) throw new NotFoundError('Publishing draft');
+    const protectedRows = await c.query(`SELECT id FROM publishing_deliveries WHERE topic_id=$1
+      OR draft_id=ANY($2::uuid[]) UNION ALL SELECT draft_id AS id FROM publishing_schedule WHERE draft_id=ANY($2::uuid[])`,
+    [target.topicId, drafts.map(draft => draft.id)]);
+    if (drafts.some(draft => draft.approval === 'approved') || protectedRows.rowCount) {
+      throw new ConflictError('This topic has approved, scheduled or attempted posts. Discard only applies to unpublished drafts; nothing was changed.', 'PUBLISHING_PROTECTED');
+    }
+    const discarded = selected.variant === 'blog' && selected.destination !== 'bluesky'
+      ? drafts.filter(draft => draft.variant === 'blog' && ['blog', 'linkedin'].includes(draft.destination)) : [selected];
+    for (const draft of discarded) {
+      if (draft.approval !== 'pending' || versions[draft.id] !== draft.version) throw new ConflictError('The draft changed. Reload before discarding.', 'PUBLISHING_CONFLICT');
+    }
+    await c.query(`UPDATE publishing_drafts SET approval='rejected',held=TRUE,reason='Discarded by the user; source article retained.',updated_at=NOW()
+      WHERE id=ANY($1::uuid[])`, [discarded.map(draft => draft.id)]);
+    await event(c, target.topicId, actor, 'drafts-discarded', { drafts: discarded.map(draft => ({ id: draft.id, version: draft.version })), sourceRetained: true });
   });
 }
 export async function holdTopic(db: Pool, id: string, rejected: boolean, actor: string, reason: string): Promise<void> {
