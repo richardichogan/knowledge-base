@@ -1,9 +1,11 @@
 {
   "name": "athena-streamdeck",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test test/runtime.test.mjs",
@@ -11,7 +13,9 @@
     "validate": "streamdeck validate com.themicrosoftcloudblog.athena.sdPlugin",
     "pack": "npm run build && streamdeck pack com.themicrosoftcloudblog.athena.sdPlugin --output dist --force"
   },
-  "dependencies": { "@elgato/streamdeck": "^3.0.3" },
+  "dependencies": {
+    "@elgato/streamdeck": "^3.0.3"
+  },
   "devDependencies": {
     "@elgato/cli": "^1.10.3",
     "@types/node": "^24.0.0",

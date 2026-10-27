@@ -69,6 +69,7 @@ Return JSON only:
 const REVIEW_SYSTEM_PROMPT = `You are a strict quality gate for task decompositions handed to AI coding agents.
 Fail the set if any task is vague, lacks concrete implementation steps or validation, is too large for one PR,
 invents scope not in the spec, or has missing / wrong dependencies (including parallel tasks that would clash on the same files).
+Pass requires issues: []; a failed review requires at least one unresolved issue. Do not list positive notes as issues.
 Return JSON only: {"pass": boolean, "issues": ["concrete, actionable problem"]}`;
 
 const REWRITE_SYSTEM_PROMPT = `Rewrite the task decomposition to fix every reviewer issue. Keep what was already good.
@@ -164,17 +165,23 @@ export async function decomposeSpec(input: { title: string; specMarkdown: string
   const reviewText = await client.chat('reasoning', [
     { role: 'system', content: REVIEW_SYSTEM_PROMPT },
     { role: 'user', content: `${userBlock}\n\nCandidate decomposition:\n${JSON.stringify(current)}` },
-  ], REVIEW_MAX_TOKENS).catch(() => '');
+  ], REVIEW_MAX_TOKENS);
   const review = parseJson<{ pass?: unknown; issues?: unknown }>(reviewText);
-  const reviewNotes = Array.isArray(review?.issues) ? (review.issues as unknown[]).map(str).filter((s) => s !== '') : [];
+  if (typeof review?.pass !== 'boolean' || !Array.isArray(review.issues)
+    || !review.issues.every((issue: unknown): issue is string => typeof issue === 'string' && issue.trim() !== '')
+    || review.pass !== (review.issues.length === 0)) {
+    throw new AiError('Decomposition review was invalid or incomplete. No reviewed task plan was produced.');
+  }
+  const reviewNotes = review.issues.map((issue: string) => issue.trim());
 
   if (review?.pass === false && reviewNotes.length > 0) {
     const rewriteText = await client.chat('reasoning', [
       { role: 'system', content: `${TASKS_SYSTEM_PROMPT}\n\n${REWRITE_SYSTEM_PROMPT}` },
       { role: 'user', content: `${userBlock}\n\nPrevious decomposition:\n${JSON.stringify(current)}\n\nReviewer issues:\n- ${reviewNotes.join('\n- ')}` },
-    ], DECOMPOSE_MAX_TOKENS).catch(() => '');
+    ], DECOMPOSE_MAX_TOKENS);
     const rewritten = asDecomposition(rewriteText);
-    if (rewritten !== null && rewritten.tasks.length > 0) current = rewritten;
+    if (rewritten === null || rewritten.tasks.length === 0) throw new AiError('Decomposition revision was invalid. The failed review was not bypassed.');
+    current = rewritten;
   }
 
   return { planNotes: current.planNotes, tasks: validateTaskGraph(current.tasks), reviewNotes };

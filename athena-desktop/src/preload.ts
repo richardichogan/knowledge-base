@@ -46,9 +46,14 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
           (error: unknown) => ipcRenderer.send('desktop:reply', { id: request.id, error: error instanceof Error ? error.message : 'Desktop command failed.' }),
         );
       };
+      const ready = (): void => { ipcRenderer.send('desktop:ready'); };
       ipcRenderer.on('desktop:command', handler);
-      ipcRenderer.send('desktop:ready');
-      return () => { ipcRenderer.removeListener('desktop:command', handler); };
+      ipcRenderer.on('desktop:request-ready', ready);
+      ready();
+      return () => {
+        ipcRenderer.removeListener('desktop:command', handler);
+        ipcRenderer.removeListener('desktop:request-ready', ready);
+      };
     },
     device: () => ipcRenderer.invoke('athena:device'),
     listFolders: () => ipcRenderer.invoke('athena:list-folders'),

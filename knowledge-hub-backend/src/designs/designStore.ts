@@ -35,23 +35,31 @@ const MAX_DESIGNS = 500;
 const MAX_LINK_LENGTH = 2048;
 const MAX_ASSET_ID_LENGTH = 100;
 
-/** Effective original-note membership, including inherited links and manual exclusions. */
+/** Document membership for Think grouping; reference links remain independently browsable. */
 export const DESIGN_NOTE_MEMBERSHIPS_SQL = `
   SELECT DISTINCT d.parent_note_id,candidate.note_id
   FROM designs d
   JOIN notes parent ON parent.id=d.parent_note_id AND parent.status='active'
     AND note_list_metadata(parent.content)->>'contentType'='design'
   CROSS JOIN LATERAL (
-    SELECT d.source_note_id::text AS note_id
-    UNION SELECT l.target_note_id::text FROM note_links l WHERE l.source_note_id=d.source_note_id
-    UNION SELECT u.spec_note_id::text FROM use_cases u WHERE u.id=d.source_use_case_id
-    UNION SELECT s.source_id::text FROM use_case_sources s WHERE s.use_case_id=d.source_use_case_id AND s.source_type='note'
-    UNION SELECT a.source_id FROM design_assets a WHERE a.design_id=d.id AND a.source_type='note' AND NOT a.excluded
+    SELECT d.source_note_id::text AS note_id, NULL::text AS role
+    UNION SELECT l.target_note_id::text,NULL::text FROM note_links l WHERE l.source_note_id=d.source_note_id
+    UNION SELECT u.spec_note_id::text,'spec' FROM use_cases u WHERE u.id=d.source_use_case_id
+    UNION SELECT s.source_id::text,NULL::text FROM use_case_sources s WHERE s.use_case_id=d.source_use_case_id AND s.source_type='note'
+    UNION SELECT a.source_id,a.role FROM design_assets a WHERE a.design_id=d.id AND a.source_type='note' AND NOT a.excluded
   ) candidate
+  LEFT JOIN notes original ON original.id::text=candidate.note_id
   LEFT JOIN design_assets override ON override.design_id=d.id AND override.source_type='note'
     AND override.source_id=candidate.note_id
   WHERE candidate.note_id IS NOT NULL AND candidate.note_id<>d.parent_note_id::text
-    AND NOT COALESCE(override.excluded,false)`;
+    AND NOT COALESCE(override.excluded,false)
+    AND COALESCE(override.role,candidate.role,
+      CASE note_list_metadata(original.content)->>'contentType'
+        WHEN 'use-case' THEN 'use_case'
+        WHEN 'spec' THEN 'spec'
+        WHEN 'architecture' THEN 'architecture'
+        ELSE 'reference'
+      END) IN ('use_case','spec','architecture')`;
 
 export function requiredText(value: unknown, field: string, max: number, empty = false): string {
   if (typeof value !== 'string' || value.length > max || (!empty && !value.trim())) throw new ValidationError(`${field} must contain ${empty ? '0' : '1'}-${max} characters.`);
@@ -225,7 +233,7 @@ export async function assetDesigns(db: Pool, sourceType: 'note' | 'canvas', sour
   for (const item of list.items) {
     const design = await getDesign(db, item.id);
     const asset = design.assets.find(value => value.sourceType === sourceType && value.sourceId === sourceId);
-    if (asset) matches.push({ id: design.id, parentNoteId: design.parentNoteId, title: design.title, role: asset.role });
+    if (asset && asset.role !== 'reference') matches.push({ id: design.id, parentNoteId: design.parentNoteId, title: design.title, role: asset.role });
   }
   return matches;
 }

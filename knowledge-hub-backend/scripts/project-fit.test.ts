@@ -25,20 +25,33 @@ test('boost favours direct fit to a high-importance project', () => {
   ], PROJECTS), PROJECT_BOOST.normalDirect);
 });
 
-test('prompt lists projects and parsing ignores unknown keys, projects and fits', () => {
+test('prompt lists projects and parsing retains explicit fit and no-fit assessments', () => {
   const prompt = buildProjectFitPrompt(PROJECTS);
   assert.match(prompt, /id "imagine" — IMAGINE \(HIGH importance\)/);
   assert.match(prompt, /NOT an editorial judgement/);
   const keys = new Map([['a1', 'art-1'], ['a2', 'art-2']]);
   const parsed = parseProjectFitResponse('```json\n' + JSON.stringify({ results: [
-    { key: 'a1', projects: [{ id: 'reckitt', fit: 1, why: 'x' }, { id: 'imagine', fit: 2, why: 'agent platform' }, { id: 'nope', fit: 2 }, { id: 'imagine', fit: 1 }] },
-    { key: 'a2', projects: [{ id: 'reckitt', fit: 3 }] },
-    { key: 'zz', projects: [{ id: 'imagine', fit: 2 }] },
+    { key: 'a1', projects: [{ id: 'reckitt', fit: 1, why: 'x' }, { id: 'imagine', fit: 2, why: 'agent platform' }] },
+    { key: 'a2', projects: [] },
   ] }) + '\n```', keys, PROJECTS);
   assert.deepEqual(parsed.get('art-1')?.map((f) => [f.projectId, f.fit]), [['imagine', 2], ['reckitt', 1]]);
   assert.deepEqual(parsed.get('art-2'), []);
   assert.equal(parsed.size, 2);
   assert.notEqual(focusProjectsKey(PROJECTS), focusProjectsKey([PROJECTS[0]!]));
+});
+
+test('missing, repeated and invalid project-fit results cannot become no-fit verdicts', () => {
+  const keys = new Map([['a1', 'art-1']]);
+  for (const results of [
+    [], [{ key: 'a1' }], [{ key: 'unknown', projects: [] }],
+    [{ key: 'a1', projects: [] }, { key: 'a1', projects: [] }],
+    [{ key: 'a1', projects: [{ id: 'reckitt', fit: 3 }] }],
+    [{ key: 'a1', projects: [{ id: 'unknown', fit: 1 }] }],
+    [{ key: 'a1', projects: [{ id: 'imagine', fit: 1 }, { id: 'imagine', fit: 2 }] }],
+  ]) {
+    assert.throws(() => parseProjectFitResponse(JSON.stringify({ results }), keys, PROJECTS), /Project fit/);
+  }
+  assert.throws(() => parseProjectFitResponse('{}', keys, PROJECTS), /Project fit/);
 });
 
 test('focus projects, restore from shelved, and shelving protection', async () => {

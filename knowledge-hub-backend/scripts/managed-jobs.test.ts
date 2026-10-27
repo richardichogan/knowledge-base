@@ -47,6 +47,27 @@ test('sync completion preserves partial source success but not a total outage', 
   assert.equal(completedSyncWithSourceErrors({ ...result, totalIndexed: 0, results: [{ source: 'feeds', indexed: 0, errors: 2, durationMs: 50 }] }), false);
   assert.equal(completedSyncWithSourceErrors({ ...result, totalErrors: 0 }), false);
 });
+test('weekly accuracy and voice checks start together and settle before saving', { timeout: 5000 }, async () => {
+  const { pg, db } = await fixture();
+  try {
+    let release!: () => void;
+    const accuracy = new Promise<void>(resolve => { release = resolve; });
+    const started: string[] = [];
+    let saved = false;
+    const passed = await reviewWeeklyJob(db, { markdown: 'Microsoft updated Azure.', sources: [] }, '',
+      async () => { assert.deepEqual(started, ['accuracy', 'voice']); saved = true; }, {
+        preferences: async () => '',
+        chat: async system => {
+          if (system.includes('Perform the accuracy')) { started.push('accuracy'); await accuracy; }
+          else { started.push('voice'); assert.equal(saved, false); release(); }
+          return { outcome: 'pass', findings: [] };
+        },
+      });
+    assert.equal(passed, true);
+    assert.equal(saved, true);
+  } finally { await pg.close(); }
+});
+
 test('weekly editorial checks repair only the flagged passage and re-review the exact outgoing package', async () => {
   const { pg, db } = await fixture();
   try {

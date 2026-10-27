@@ -1,7 +1,7 @@
 {
   "name": "athena-desktop",
   "productName": "Athena",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "description": "Athena desktop app: the Athena web app plus access to folders on this PC.",
   "main": "build/src/main.js",

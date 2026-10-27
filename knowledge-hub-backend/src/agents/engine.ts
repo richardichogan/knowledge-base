@@ -235,12 +235,13 @@ let workerDb: Pool | null = null;
 let timer: NodeJS.Timeout | null = null;
 let running = 0;
 let draining = false;
+let filling: Promise<void> | undefined;
 let shutdown = new AbortController();
 const inFlight = new Set<Promise<void>>();
 
 function wakeWorker(): void {
-  if (!workerDb || draining) return;
-  void fill();
+  if (!workerDb || draining || filling) return;
+  filling = fill().finally(() => { filling = undefined; });
 }
 
 async function fill(): Promise<void> {
@@ -402,6 +403,7 @@ export async function stopAgentWorker(): Promise<void> {
   if (timer) clearInterval(timer);
   timer = null;
   shutdown.abort();
+  await filling;
   await Promise.allSettled([...inFlight]);
   workerDb = null;
 }

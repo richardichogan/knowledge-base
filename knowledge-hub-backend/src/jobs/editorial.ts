@@ -62,7 +62,7 @@ export async function reviewWeeklyJob(
   let repairedPassages: Array<{ field: string; before: string; after: string }> = [];
   for (let attempt = 0; attempt <= WEEKLY_LIMITS.revisions; attempt++) {
     const reviews: Record<string, { outcome: string; findings: string[] }> = {};
-    for (const check of ['accuracy', 'voice']) {
+    const checks = await Promise.allSettled(['accuracy', 'voice'].map(async check => {
       const reviewSystem = `${SAFETY}
 Perform the ${check} review only on the complete weekly Microsoft update package and its sources.
 For each defect identify its field and quote the exact saved wording. Optional phrasing preferences are not failures.
@@ -106,7 +106,8 @@ Pass requires findings: []. Revise or hold requires at least one unresolved find
         || !result.findings.every((finding: unknown) => typeof finding === 'string')) throw new Error('Weekly editorial review returned an invalid result.');
       if ((result.outcome === 'pass') !== (result.findings.length === 0)) throw new Error('Weekly editorial outcome contradicts its findings.');
       reviews[check] = { outcome: String(result.outcome), findings: result.findings };
-    }
+    }));
+    for (const check of checks) if (check.status === 'rejected') throw check.reason;
     const validation: string[] = [];
     let blueskyAllowance: number | undefined;
     try {

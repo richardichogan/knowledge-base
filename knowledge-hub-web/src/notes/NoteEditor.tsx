@@ -81,6 +81,7 @@ interface NoteEditorProps {
   onImport?: () => void;
   onRecovery?: () => void;
   onPresent?: (() => void) | undefined;
+  onStopPresenting?: (() => void) | undefined;
   onShowEditor?: (() => void) | undefined;
   campaignRequest?: number | undefined;
 }
@@ -154,7 +155,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onShowEditor, campaignRequest, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, designPanel, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onStopPresenting, onShowEditor, campaignRequest, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, designPanel, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
   const queryClient = useQueryClient();
   const { openAthena, pageContext } = useAthenaContext();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
@@ -969,6 +970,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                     <button type="button" className="kb-menu__item" disabled={historyBusy}
                       onClick={() => { setExportMenuOpen(false); onPresent(); }}>
                       <PresentationFile size={16} /> Present
+                    </button>
+                  </li>
+                )}
+                {onStopPresenting && (
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item kb-menu__item--stop-presenting"
+                      title="Close the teleprompter output and keep this note open"
+                      onClick={() => { setExportMenuOpen(false); onStopPresenting(); }}>
+                      <PresentationFile size={16} /> Stop presenting
                     </button>
                   </li>
                 )}

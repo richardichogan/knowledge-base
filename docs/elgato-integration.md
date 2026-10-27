@@ -1,6 +1,6 @@
 # Stream Deck and Elgato Prompter
 
-Athena Desktop 0.1.7 provides a paired, local Stream Deck connection and a separate
+Athena Desktop 0.1.8 provides a paired, local Stream Deck connection and a separate
 presentation output. The Prompter is treated as a Windows display, not an image
 sent to Camera Hub. Any saved Think note can be used as a text script.
 
@@ -10,16 +10,20 @@ The hosted frontend must include the new Presentation view, and the desktop
 must be upgraded to 0.1.6 or later for direct presentation and saved settings. Neither installation alone is sufficient.
 Changes are not automatically deployed or released by building the artifacts.
 
+The main-workspace Speak routing, fresh command-readiness handshake and
+**Stop presenting** action require Desktop 0.1.8, plugin 0.1.2 and the matching
+hosted frontend together. They are not features of the older 0.1.7 desktop.
+
 Build the desktop installer with `npm run dist` in `athena-desktop`. Its output
-is `athena-desktop\release\Athena Setup 0.1.7.exe`. This follows the existing
+is `athena-desktop\release\Athena Setup 0.1.8.exe`. This follows the existing
 installer/signing configuration; it does not publish an update.
 
 The local artifact built for this change is
-`athena-desktop\release\elgato-package-0.1.7\Athena Setup 0.1.7.exe`. If Electron
+`athena-desktop\release\elgato-package-0.1.8\Athena Setup 0.1.8.exe`. If Electron
 extraction is locked on Windows, build without touching a running app:
 
 ```powershell
-npm run dist -- --config.electronDist=node_modules\electron\dist --config.directories.output=release\elgato-package-0.1.7
+npm run dist -- --config.electronDist=node_modules\electron\dist --config.directories.output=release\elgato-package-0.1.8
 ```
 
 In `athena-streamdeck`, use Node 24 or newer, then:
@@ -105,12 +109,16 @@ installed or switched.
 | 1 | Open Athena, New note, New diagram, Speak to Athena, Present note |
 | 2 | Play, Pause, Stop and reset, Slower, Faster |
 | 3 | Smaller text, Larger text, Play / Pause, spare, spare |
+| Optional | Stop presenting (closes the output rather than resetting playback) |
 
-**Speak to Athena** opens the dedicated chat and toggles recording. The second
+**Speak to Athena** focuses the main application and reveals the current page's
+existing Athena panel without changing pages or opening the separate chat window.
+In Think, select a note or canvas first. Hidden or detached chat panels cannot
+intercept the key. The second
 press stops recording, transcribes and sends the message to Athena, including
 any existing draft. If chat is busy or has an attachment, the transcript stays
 in the draft with an error explaining that it was not sent. First use may require microphone
-permission in the focused chat window. Existing on-screen voice behavior is
+permission in the main Athena window. Existing on-screen voice behavior is
 unchanged for recordings started with its microphone button.
 
 **Present note** uses the current Think note, or opens the note picker when no
@@ -132,12 +140,19 @@ Presentation scrolling is manual only. Speed defaults to 80 output CSS pixels
 per second, bounded to 10-300 in increments of 10. Faster/Slower change actual
 playback speed, not the current line. Text size is 24-96 in increments of 4.
 Pause retains position; Stop resets to the beginning; reaching the end stops.
+**Stop presenting**, available beside **Present** in a Think note's Actions menu
+and as its own Stream Deck action, closes the output window while keeping the
+note and main application open. It preserves the display settings and does not
+replace Stop/reset. Use Present to reopen the output.
 The legacy standalone browser autocue remains available.
 
 ## Failure and reconnect behavior
 
 - Athena Desktop must be running and signed in. Disconnected button presses
   are rejected, never queued or replayed after reconnection.
+- Desktop requests a fresh acknowledgement from the mounted main-app command
+  receiver on every action, rather than relying on a ready flag from before
+  navigation. Sign-in and command timeouts remain explicit failures.
 - If the Prompter disconnects, output closes and playback stops. Refresh
   displays, confirm the reconnected screen and reopen the same unchanged script
   to retain the last reported position. Press Play explicitly.

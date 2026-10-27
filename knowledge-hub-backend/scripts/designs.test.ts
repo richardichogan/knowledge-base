@@ -9,7 +9,7 @@ import { getDb } from '../src/db/db.js';
 import { env } from '../src/config/env.js';
 import { getFoundryClient } from '../src/ai/foundryClient.js';
 import { GitHubClient } from '../src/integrations/github/githubClient.js';
-import { assetRole, attachAsset, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset, setSpecificationType } from '../src/designs/designStore.js';
+import { assetDesigns, assetRole, attachAsset, DESIGN_NOTE_MEMBERSHIPS_SQL, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset, setSpecificationType } from '../src/designs/designStore.js';
 import { writeDesignSpec } from '../src/designs/designSpec.js';
 import { demoSpecificationForm, demoSpecificationResponseSchema } from '../src/ai/demoSpecification.js';
 import { AiError } from '../src/types/errors.js';
@@ -222,6 +222,65 @@ test('source section correction preserves originals and existing explicit non-us
     await local.exec(sql);
     assert.equal((await local.query<{ role: string }>('SELECT role FROM design_assets')).rows[0]?.role, 'architecture');
   } finally { await local.close(); }
+});
+
+test('reference notes stay independent while document roles consistently drive grouping and Design navigation', async () => {
+  const local = new PGlite();
+  const reference = randomUUID();
+  const secondParent = randomUUID();
+  await local.exec(`
+    CREATE TABLE notes(id UUID PRIMARY KEY,content TEXT,status TEXT DEFAULT 'active',project_id TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE designs(id UUID PRIMARY KEY,parent_note_id UUID,source_note_id UUID,source_use_case_id UUID,
+      summary TEXT DEFAULT '',status TEXT DEFAULT 'draft',revision INTEGER DEFAULT 1,specification_type TEXT,selections JSONB DEFAULT '{}');
+    CREATE TABLE design_assets(design_id UUID,source_type TEXT,source_id TEXT,role TEXT,excluded BOOLEAN DEFAULT false,
+      added_at TIMESTAMPTZ DEFAULT NOW(),PRIMARY KEY(design_id,source_type,source_id));
+    CREATE TABLE note_links(source_note_id UUID,target_note_id UUID);
+    CREATE TABLE note_entity_links(source_note_id UUID,target_type TEXT,target_id TEXT);
+    CREATE TABLE use_cases(id UUID,spec_note_id UUID);
+    CREATE TABLE use_case_sources(use_case_id UUID,source_type TEXT,source_id TEXT);
+    CREATE TABLE canvases(id UUID,title TEXT,canvas_type TEXT,deleted_at TIMESTAMPTZ);
+    CREATE TABLE canvas_notes(canvas_id UUID,note_id TEXT);
+    CREATE TABLE diagram_element_notes(canvas_id UUID,note_id TEXT);
+  `);
+  await local.exec(await readFile(new URL('../src/db/migrations/064_note_list_metadata.sql', import.meta.url), 'utf8'));
+  await local.query('INSERT INTO notes(id,content) VALUES($1,$2),($3,$4),($5,$6),($7,$8),($9,$10)', [
+    ROOT, writing('Use case', 'use-case', 'Source'), SPEC, writing('Spec', 'spec', 'Specification'),
+    reference, writing('Digital Steward', 'note', 'Shared reference'),
+    OTHER, writing('Design', 'design', 'Parent'), secondParent, writing('Second Design', 'design', 'Parent'),
+  ]);
+  await local.query('INSERT INTO designs(id,parent_note_id,source_note_id) VALUES($1,$1,$2),($3,$3,$2)', [OTHER, ROOT, secondParent]);
+  await local.query('INSERT INTO note_links VALUES($1,$2),($1,$3)', [ROOT, SPEC, reference]);
+  const query = mock.method(getDb(), 'query', (sql: string, values?: unknown[]) => local.query(sql, values));
+  const grouped = async (id: string) => (await local.query<{ parent_note_id: string }>(
+    `SELECT parent_note_id FROM (${DESIGN_NOTE_MEMBERSHIPS_SQL}) memberships WHERE note_id=$1 ORDER BY parent_note_id`, [id])).rows;
+  try {
+    const before = (await local.query('SELECT id,content FROM notes ORDER BY id')).rows;
+    assert.deepEqual(await assetDesigns(getDb(), 'note', reference), [],
+      'Even multiple reference-only memberships must not redirect or ask for a parent');
+    assert.deepEqual(await grouped(reference), []);
+    assert.equal((await getDesign(getDb(), OTHER)).assets.find(asset => asset.sourceId === reference)?.role, 'reference',
+      'The Design retains reference material and its links');
+    for (const [id, role] of [[ROOT, 'use_case'], [SPEC, 'spec']]) {
+      const membership = await assetDesigns(getDb(), 'note', id!);
+      assert.equal(membership.length, 2);
+      assert.ok(membership.every(item => item.role === role));
+      assert.deepEqual(new Set(membership.map(item => item.parentNoteId)), new Set((await grouped(id!)).map(item => item.parent_note_id)));
+    }
+    await local.query("INSERT INTO design_assets(design_id,source_type,source_id,role) VALUES($1,'note',$2,'reference'),($3,'note',$2,'reference')",
+      [OTHER, SPEC, secondParent]);
+    assert.deepEqual(await assetDesigns(getDb(), 'note', SPEC), [], 'Explicit reference assignments override an inferred spec role');
+    assert.deepEqual(await grouped(SPEC), []);
+    await local.query("INSERT INTO design_assets(design_id,source_type,source_id,role) VALUES($1,'note',$2,'architecture')", [OTHER, reference]);
+    assert.deepEqual((await assetDesigns(getDb(), 'note', reference)).map(item => item.parentNoteId), [OTHER],
+      'An explicit document assignment still groups an ordinary note, ignoring its other reference-only parent');
+    assert.deepEqual(await grouped(reference), [{ parent_note_id: OTHER }]);
+    await local.query("UPDATE design_assets SET excluded=true WHERE design_id=$1 AND source_id=$2", [OTHER, reference]);
+    assert.deepEqual(await assetDesigns(getDb(), 'note', reference), []);
+    assert.deepEqual(await grouped(reference), []);
+    assert.deepEqual((await local.query('SELECT id,content FROM notes ORDER BY id')).rows, before);
+    assert.equal((await local.query('SELECT count(*)::int AS count FROM note_links')).rows[0]?.count, 2,
+      'Visibility and navigation changes never remove note links or backlinks');
+  } finally { query.mock.restore(); await local.close(); }
 });
 
 test('real parent conversion, source identity, persisted feedback, atomic acceptance and byte-identical coherent handoff', async () => {

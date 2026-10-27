@@ -2,6 +2,43 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-27, agent calls and desktop controls):**
+- User requested deployment of direct-context document reviews, cancellation
+  and bounded provider calls, parallel independent editorial checks, complete
+  classification/review contracts, reference-note visibility, main-app Stream
+  Deck Speak and Stop presenting. Existing models and delivery settings remain.
+- All validation checks pass:
+  - [x] Fetch/merge origin/main already current; remote main independently
+    reconfirmed at `2bbce55`. Shared maintenance lock left untouched.
+  - [x] Both application `tsc --noEmit` checks and production builds passed.
+    Lint non-regression: backend 547/623; frontend 22/41.
+  - [x] Backend full isolated suite ran once: 720/724 initially passed.
+    Four legacy overflow fixtures now explicitly reserve 20,000 source tokens,
+    assert token-sized batching, and use the actual serialized note format.
+    Failed-read retry/alias protection retained. Only the affected context
+    group reran: 35/35 passed. No unresolved release failures.
+  - [x] Frontend full isolated suite: 248/248 plus 49/49 bundled UI cases.
+  - [x] Desktop build and 18/18 tests passed; installer 0.1.8 packaged.
+    Existing configuration disables signing; this is not a signed installer.
+  - [x] Stream Deck build/typecheck/manifest validation and packaged runtime
+    regression 1/1 passed. Package 0.1.2 and manifest 0.1.2.0 agree.
+  - [x] `git diff --check` passed. New backend tokenizer dependency is locked.
+    Dockerfile and migration packaging unchanged.
+  - [x] Azure CLI authenticated; existing ACA read confirms v261/revision
+    0000258 in Alliance Tenant Reporting. Application-only update: no Bicep,
+    provisioning, policy, RBAC, network, identity or secret changes required.
+- Deploy v262 from the matching GitHub main source and the built frontend to
+  the established ACA/SWA resources. Publish desktop 0.1.8 and plugin 0.1.2.
+  Confirm revision health/startup/migrations, served frontend bytes and assets.
+- No paid benchmarks, real publishing actions, browser launch or physical
+  Stream Deck verification. Do not claim measured production speed gains.
+- Preserve unrelated hook cache. The existing black diagram-test fixture is
+  not production UI styling; its design-hook colour warning is a false positive.
+- Evidence: session files/agent-release-backend.log, agent-release-affected.log,
+  agent-release-frontend.log, agent-release-web-build.log,
+  agent-release-desktop.log, agent-release-plugin.log,
+  agent-release-plugin-pack.log and agent-release-installer.log.
+
 **Deployment outcome (2026-10-27, voice and diagram chat fixes):**
 - Release commit `1f38376` pushed atomically to the feature branch and main.
 - ACR run `ca87` built `kh-prod-api:v261`; revision

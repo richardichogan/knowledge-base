@@ -7,7 +7,8 @@
  */
 
 import { env } from '../config/env.js';
-import { recordAiUsage, tokenUsageFrom } from './aiUsage.js';
+import { recordAiUsage, tokenUsageFrom, type TokenUsage } from './aiUsage.js';
+import { AI_REQUEST_TIMEOUT_MS } from '../config/constants.js';
 
 const EMBEDDING_DEPLOYMENT = 'text-embedding-3-small';
 const EMBEDDING_API_VERSION = '2024-06-01';
@@ -22,31 +23,43 @@ export function isEmbeddingConfigured(): boolean {
  * endpoint accepts an `input` array natively) and returns vectors in the
  * same order as the input.
  */
-export async function embedBatch(texts: string[]): Promise<number[][]> {
+export async function embedBatch(texts: string[], signal?: AbortSignal): Promise<number[][]> {
   if (texts.length === 0) return [];
   const startedAt = Date.now();
-  const res = await fetch(
-    `${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${EMBEDDING_DEPLOYMENT}/embeddings?api-version=${EMBEDDING_API_VERSION}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'api-key': env.AZURE_OPENAI_API_KEY ?? '' },
-      body: JSON.stringify({ input: texts }),
-    },
-  );
-  if (!res.ok) throw new Error(`Embedding request failed: ${res.status} ${await res.text()}`);
-  const data = (await res.json()) as { data: { index: number; embedding: number[] }[]; usage?: Record<string, unknown> };
-  recordAiUsage({ feature: 'embeddings', slot: 'embeddings', deployment: EMBEDDING_DEPLOYMENT, api: 'chat', durationMs: Date.now() - startedAt, ok: true, ...tokenUsageFrom(data.usage) });
-  const byIndex = new Map(data.data.map((d) => [d.index, d.embedding]));
-  return texts.map((_, i) => {
-    const embedding = byIndex.get(i);
-    if (!embedding) throw new Error(`Embedding response missing vector for input ${String(i)}`);
-    return embedding;
-  });
+  let usage: TokenUsage | undefined;
+  try {
+    signal?.throwIfAborted();
+    const res = await fetch(
+      `${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${EMBEDDING_DEPLOYMENT}/embeddings?api-version=${EMBEDDING_API_VERSION}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': env.AZURE_OPENAI_API_KEY ?? '' },
+        body: JSON.stringify({ input: texts }),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS)]) : AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
+      },
+    );
+    if (!res.ok) throw new Error(`Embedding request failed: ${res.status} ${await res.text()}`);
+    const data = (await res.json()) as { data: { index: number; embedding: number[] }[]; usage?: Record<string, unknown> };
+    usage = tokenUsageFrom(data.usage);
+    const byIndex = new Map(data.data.map((d) => [d.index, d.embedding]));
+    const vectors = texts.map((_, i) => {
+      const embedding = byIndex.get(i);
+      if (!embedding) throw new Error(`Embedding response missing vector for input ${String(i)}`);
+      return embedding;
+    });
+    recordAiUsage({ feature: 'embeddings', slot: 'embeddings', deployment: EMBEDDING_DEPLOYMENT, api: 'chat', durationMs: Date.now() - startedAt, ok: true, ...usage });
+    return vectors;
+  } catch (error) {
+    recordAiUsage({ feature: 'embeddings', slot: 'embeddings', deployment: EMBEDDING_DEPLOYMENT, api: 'chat',
+      durationMs: Date.now() - startedAt, ok: false,
+      error: signal?.aborted ? 'Cancelled: embedding request stopped' : error instanceof Error ? error.message : String(error), ...usage });
+    throw error;
+  }
 }
 
 /** Embeds a single text — convenience wrapper around embedBatch. */
-export async function embed(text: string): Promise<number[]> {
-  const [vector] = await embedBatch([text]);
+export async function embed(text: string, signal?: AbortSignal): Promise<number[]> {
+  const [vector] = await embedBatch([text], signal);
   if (!vector) throw new Error('Embedding response contained no vector');
   return vector;
 }

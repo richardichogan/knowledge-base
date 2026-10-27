@@ -832,6 +832,11 @@ export const NotesPage: React.FC = () => {
                 onPresent={getDesktop()?.presentation ? () => { void presentNote().catch(err => {
                   void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
                 }); } : undefined}
+                onStopPresenting={getDesktop()?.presentation ? () => {
+                  void getDesktop()?.presentation?.close().catch(err => {
+                    void alertDialog(err instanceof Error ? err.message : 'Could not stop presenting.', { title: 'Presentation', tone: 'danger' });
+                  });
+                } : undefined}
                 onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>

@@ -28,7 +28,6 @@ export function installElgato(
   let awake: number | null = null;
   let sequence = 0;
   let voiceOwner: number | null = null;
-  const ready = new Set<number>();
   const pending = new Map<string, { sender: number; resolve: () => void; reject: (error: Error) => void }>();
   const outputAcks = new Map<number, () => void>();
   const configPath = join(app.getPath('userData'), 'elgato.json');
@@ -104,15 +103,17 @@ export function installElgato(
     });
   }
   async function toRenderer(request: CommandRequest): Promise<void> {
-    const target = open(request.command === 'speak' ? 'chat' : 'workspace');
+    const target = open('workspace');
     if (request.command === 'speak' && voiceOwner !== target.webContents.id) {
       voiceOwner = target.webContents.id;
       target.once('closed', () => {
+        if (voiceOwner !== target.webContents.id) return;
         voiceOwner = null;
         state.recording = false; state.transcribing = false; publish();
       });
     }
-    if (!ready.has(target.webContents.id)) {
+    // Ask the currently mounted receiver; a cached ready flag can outlive navigation.
+    {
       await new Promise<void>((resolve, reject) => {
         const cleanup = (): void => {
           clearTimeout(timer);
@@ -128,6 +129,7 @@ export function installElgato(
         const timer = setTimeout(() => { cleanup(); reject(new Error('Sign in and open Athena, then press the key again. This command has not been queued.')); }, 8000);
         ipcMain.on('desktop:ready', whenReady);
         target.once('closed', closed);
+        target.webContents.send('desktop:request-ready');
       });
     }
     parseCommand(request);
@@ -152,6 +154,7 @@ export function installElgato(
         case 'open-athena': open('workspace'); break;
         case 'new-note': case 'new-diagram': case 'speak': await toRenderer(request); break;
         case 'present-note': await toRenderer(request); break;
+        case 'stop-presenting': closeOutput(); break;
         default: {
           if (!outputReady) throw new Error('Choose a script and connect the Prompter in Present first.');
           const wasEnded = state.presentation.status === 'ended' || state.presentation.progress >= 1;
@@ -168,6 +171,13 @@ export function installElgato(
     publish();
   }
   const bridge = new ElgatoBridge(execute, () => state);
+  function closeOutput(): void {
+    if (starting) throw new Error('The presentation is still opening. Try Stop presenting again once it opens.');
+    output?.close();
+    state.error = null;
+    state.presentation.error = null;
+    publish();
+  }
   const trusted = (event: IpcMainInvokeEvent, controllerOnly = false): void => {
     if (event.senderFrame !== event.sender.mainFrame || !isAthenaFrame(event.senderFrame.url, origin)
       || (controllerOnly && event.sender !== controller?.webContents)) throw new Error('This window cannot control presentation.');
@@ -179,12 +189,6 @@ export function installElgato(
       return fn(event, value);
     });
   };
-  ipcMain.on('desktop:ready', event => {
-    if (event.senderFrame === event.sender.mainFrame && isAthenaFrame(event.senderFrame.url, origin)) {
-      ready.add(event.sender.id);
-      event.sender.once('did-start-loading', () => ready.delete(event.sender.id));
-    }
-  });
   ipcMain.on('desktop:reply', (event, reply: Reply) => {
     if (!reply || typeof reply.id !== 'string') return;
     const item = pending.get(reply.id);
@@ -211,7 +215,12 @@ export function installElgato(
     setTimeout(() => { if (!marker.isDestroyed()) marker.close(); }, 2000);
   });
   handle('presentation:state', () => state);
-  handle('presentation:close', () => { output?.close(); });
+  handle('presentation:close', event => {
+    if (event.sender !== controller?.webContents && new URL(event.senderFrame!.url).pathname !== '/think') {
+      throw new Error('Stop presenting from Think or the presentation controls.');
+    }
+    closeOutput();
+  }, false);
   handle('presentation:release', event => { if (outputOwner === event.sender.id) output?.close(); }, false);
   handle('presentation:command', (_event, value) => execute(parseCommand(value)));
   handle('presentation:options', async (_event, value) => {
@@ -321,9 +330,10 @@ export function installElgato(
     publish();
   });
   handle('desktop:voice-state', (event, value) => {
-    if (new URL(event.senderFrame!.url).pathname !== '/chat' || !value || typeof value !== 'object') throw new Error('Voice state belongs to chat.');
+    if (!value || typeof value !== 'object') throw new Error('Invalid voice state.');
     const v = value as Record<string, unknown>;
     if (typeof v.recording !== 'boolean' || typeof v.transcribing !== 'boolean') throw new Error('Invalid voice state.');
+    if (event.sender.id !== voiceOwner) return;
     state = { ...state, recording: v.recording, transcribing: v.transcribing };
     publish();
   }, false);

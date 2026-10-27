@@ -276,6 +276,7 @@ function useIsMobile(): boolean {
 
 /** The Outputs / Decisions panel beside the standalone chat. */
 const CHAT_PANEL_WIDTH: PaneWidthOptions = { compact: 380, wide: 460, min: 300, max: (viewport) => Math.round(viewport * 0.45) };
+let desktopVoiceOwner: symbol | null = null;
 export const AIChatPage: React.FC<AIChatPageProps> = ({
   compact = false,
   compactVariant = 'default',
@@ -1739,37 +1740,46 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     !chatMutation.isPending && !isRestoringHistory && historyError === null && uploadProgress === null && pendingFile === null,
     setInput, submitMessage);
   const desktopVoiceBusyRef = useRef(false);
-  useEffect(() => () => {
-    streamRef.current?.getTracks().forEach(track => track.stop());
-    processorRef.current?.disconnect();
-    const context = audioCtxRef.current;
-    if (context && context.state !== 'closed') void context.close().catch(error => {
-      console.error('[Voice input] Could not close audio context:', error);
-    });
-    if (standalone) void getDesktop()?.voiceState?.({ recording: false, transcribing: false }).catch(error => {
-      console.error('[Stream Deck] Could not clear voice state:', error);
-    });
-  }, [standalone]);
+  const desktopVoiceId = useRef(Symbol('desktop-voice'));
+  const chatRootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!standalone) return;
+    const owner = desktopVoiceId.current;
+    return () => {
+      streamRef.current?.getTracks().forEach(track => track.stop());
+      processorRef.current?.disconnect();
+      const context = audioCtxRef.current;
+      if (context && context.state !== 'closed') void context.close().catch(error => {
+        console.error('[Voice input] Could not close audio context:', error);
+      });
+      if (desktopVoiceOwner === owner) {
+        desktopVoiceOwner = null;
+        void getDesktop()?.voiceState?.({ recording: false, transcribing: false }).catch(error => {
+          console.error('[Stream Deck] Could not clear voice state:', error);
+        });
+      }
+    };
+  }, []);
+  useEffect(() => {
+    if (desktopVoiceOwner !== desktopVoiceId.current) return;
     void getDesktop()?.voiceState?.({ recording: isRecording, transcribing: isTranscribing }).catch(error => {
       console.error('[Stream Deck] Could not publish voice state:', error);
     });
-  }, [standalone, isRecording, isTranscribing]);
+  }, [isRecording, isTranscribing]);
   useDesktopCommand('speak', async () => {
-    if (!standalone || desktopVoiceBusyRef.current || isTranscribing || (!streamRef.current && (chatMutation.isPending || isRestoringHistory))) {
+    if (desktopVoiceBusyRef.current || isTranscribing || (!streamRef.current && (chatMutation.isPending || isRestoringHistory))) {
       throw new Error('Chat is busy. Wait for it to finish before recording.');
     }
+    desktopVoiceOwner = desktopVoiceId.current;
     desktopVoiceBusyRef.current = true;
     try {
       if (streamRef.current) await stopRecording(true, true);
       else {
         reviewRecordingRef.current = true;
         await startRecording();
-        if (!streamRef.current) throw new Error('Microphone access failed. Allow access in the chat window and try again.');
+        if (!streamRef.current) throw new Error('Microphone access failed. Allow access in the main Athena window and try again.');
       }
     } finally { desktopVoiceBusyRef.current = false; }
-  });
+  }, () => !standalone && chatRootRef.current?.isConnected === true && chatRootRef.current.getClientRects().length > 0);
 
   async function startRecording(): Promise<void> {
     let stream: MediaStream | undefined;
@@ -2131,7 +2141,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   );
 
   return (
-    <div className={standalone ? 'ai-chat-standalone' : compact ? `ai-chat-compact ai-chat-compact--${compactVariant}` : 'page-root'}>
+    <div ref={chatRootRef} className={standalone ? 'ai-chat-standalone' : compact ? `ai-chat-compact ai-chat-compact--${compactVariant}` : 'page-root'}>
       {standalone && (
         <ChatSidebar
           sessions={chatSessions}

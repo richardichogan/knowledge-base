@@ -7,8 +7,62 @@ import { modelReadingSteps, parseReadingStep, readWholeDocument, recallDocumentM
 import type { KnowledgeAccess } from '../src/types/knowledge.js';
 import { createLedger, ledgerCounts } from '../src/ai/knowledge/evidence.js';
 import { recordToolEvidence } from '../src/ai/contextUsage.js';
+import { readDirectDocument } from '../src/ai/knowledge/directDocumentReading.js';
+import { remainingReviewTokens, reviewContextTokens, textTokens } from '../src/ai/knowledge/reviewContext.js';
 
 const sessionId = '11111111-1111-4111-8111-111111111111';
+
+test('ordinary full reviews return every original character without model summarisation', async () => {
+  const source = (`FIRST REQUIREMENT\n${'Requirement evidence with exact figures and exceptions.\n'.repeat(4_000)}`)
+    .slice(0, 188_380) + '\nFINAL ACCEPTANCE REQUIREMENT';
+  const base = options(source);
+  const result = await readDirectDocument({ read: base.read, availableTokens: 110_000 });
+  assert.ok(result && 'record' in result.result);
+  assert.equal(result.result.record.content, source);
+  assert.equal(result.result.record.nextCursor, null);
+  assert.equal(result.result.coverage.complete, true);
+  assert.equal(result.pagesRead, 16);
+});
+
+test('direct review budgets include history, tools and output, and never return a truncated source', async () => {
+  const source = 'Each requirement needs a complete source reference.\n'.repeat(600);
+  const base = options(source);
+  assert.equal(await readDirectDocument({ read: base.read, availableTokens: 100 }), null);
+  const messages = [{ role: 'user', content: source }];
+  const tools = [{ name: 'read', description: 'Read original evidence' }];
+  const room = remainingReviewTokens(128_000, messages, tools, 14_000);
+  assert.ok(room < 128_000 - textTokens(source) - 14_000);
+  assert.ok(remainingReviewTokens(128_000, [...messages, { role: 'tool', content: source }], tools, 14_000) < room);
+  assert.equal(remainingReviewTokens(100, messages, tools, 14_000), 0);
+  assert.equal(reviewContextTokens('gpt-5.4'), 1_050_000);
+  assert.equal(reviewContextTokens('gpt-4o'), 128_000);
+  assert.equal(reviewContextTokens('unverified-deployment'), 128_000);
+});
+
+test('direct reads reject changed, excluded or interrupted evidence rather than claiming complete coverage', async () => {
+  const base = options('Stored evidence.\n'.repeat(2_000));
+  await assert.rejects(readDirectDocument({ availableTokens: 100_000, read: async cursor => {
+    const page = await base.read(cursor);
+    if (cursor && 'record' in page) page.record.version = 'changed';
+    return page;
+  } }), /changed/);
+  const excluded = await readDirectDocument({ availableTokens: 100_000,
+    read: cursor => cursor ? Promise.resolve({ status: 'excluded' }) : base.read() });
+  assert.equal(excluded?.result.status, 'excluded');
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(readDirectDocument({ read: base.read, availableTokens: 100_000, signal: controller.signal }), /abort/i);
+});
+
+test('full originals beyond the former passage limit retain exact citation text', async () => {
+  const source = `${'Saved original paragraph.\n'.repeat(12_000)}FINAL-FACT`;
+  const result = await readDirectDocument({ read: options(source).read, availableTokens: 500_000 });
+  assert.ok(result && 'record' in result.result);
+  const ledger = createLedger();
+  recordToolEvidence(ledger, 'read_knowledge_record', result.result, { kind: 'note', id: 'newsletter' });
+  assert.equal(ledger.texts.get('note:newsletter')?.[0], source);
+  assert.ok(ledger.entries.get('note:newsletter')?.fields.includes('full_stored_document_processed'));
+});
 
 test('invalid checkpoint quotations retry the same page once; provider failures are not silently retried', async () => {
   const inputs: Array<{ sourcePage: string; priorMemory: string; checkpointCorrection?: string }> = [];
@@ -56,6 +110,24 @@ function options(text: string, overrides: Partial<ReadingOptions> = {}): Reading
     ...overrides,
   };
 }
+
+test('context overflow groups retrieval pages into large durable batches rather than model calls per page', async () => {
+  const pg = await fixture();
+  try {
+    const source = 'Complete evidence and numbered acceptance criteria.\n'.repeat(3_700);
+    const base = options(source);
+    let modelReads = 0;
+    const result = await readWholeDocument(pg as unknown as Pool, options(source, {
+      batchTokens: 64_000,
+      summarise: async (...args) => { modelReads++; return base.summarise(...args); },
+    }));
+    assert.ok('review' in result && result.review.complete);
+    assert.equal(result.review.readChars, source.length);
+    assert.equal(modelReads, 1);
+    const saved = await pg.query<{ end_offset: number }>('SELECT end_offset FROM document_reading_chunks');
+    assert.equal(saved.rows[0]?.end_offset, source.length);
+  } finally { await pg.close(); }
+});
 
 test('full-document reader processes beyond old character, page and tool limits with bounded model inputs', async () => {
   const pg = await fixture();

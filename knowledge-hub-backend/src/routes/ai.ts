@@ -236,14 +236,15 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     ? modelReply
     : await (toolsUsed.has('save_output')
       ? removeSavedCopiesFromReply(db, effectiveSessionId, turnStartedAt, modelReply)
-      : moveDeliverableToOutputs(db, effectiveSessionId, persona, message, modelReply)
+      : moveDeliverableToOutputs(db, effectiveSessionId, persona, message, modelReply, hooks.signal)
     ).catch((err: unknown) => {
+      hooks.signal?.throwIfAborted();
       console.warn('[outputs] could not keep the deliverable out of the reply:', err);
       return modelReply;
     });
   // Suggested next steps, made while the reply is saved (a few seconds at most).
   hooks.onActivity?.('Finishing up');
-  const nextStepsPromise = suggestNextSteps(persona, message, modelReply);
+  const nextStepsPromise = suggestNextSteps(persona, message, modelReply, hooks.signal);
   const sources = [...toolsUsed];
 
   // Store only a compact marker for the viewed document in history — not its

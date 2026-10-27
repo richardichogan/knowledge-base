@@ -49,6 +49,7 @@ const BRIEF_CHARS = 900;
 const ARTICLE_BODY_CHARS = 500;
 const WHY_CHARS = 200;
 const PROJECT_FIT_MAX_TOKENS = 3_000;
+const DIRECT_FIT = 2;
 
 /** Active projects whose work Discover should serve: high importance, or high-priority work projects. */
 export async function loadFocusProjects(db: Pool): Promise<FocusProject[]> {
@@ -105,6 +106,7 @@ export function buildProjectFitPrompt(projects: FocusProject[]): string {
     '- fit 2 = directly relevant: the platform, pattern, risk, capability or market move bears on what the project is designing, building, governing or selling now.',
     '- fit 1 = useful background for the project.',
     'Omit a project when the link is only a shared buzzword. Most articles serve no project; an empty list is normal.',
+    'Return exactly one result for every supplied article key, including projects: [] when none fit. Use only supplied article/project IDs, without duplicates.',
     '',
     'Reply with ONLY JSON, no fences: {"results":[{"key":"<article key>","projects":[{"id":"<project id>","fit":1|2,"why":"<one short clause>"}]}]}',
   ].join('\n');
@@ -112,24 +114,34 @@ export function buildProjectFitPrompt(projects: FocusProject[]): string {
 
 export interface FitArticle { id: string; title: string; body: string | null; url: string | null }
 
-/** Parses the model's answer; ignores unknown keys/projects and malformed entries. */
+/** A missing or invalid assessment must not be persisted as a valid no-fit verdict. */
 export function parseProjectFitResponse(raw: string, keys: Map<string, string>, projects: FocusProject[]): Map<string, ProjectFit[]> {
   const cleaned = raw.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-  const parsed = JSON.parse(cleaned) as { results?: Array<{ key?: unknown; projects?: unknown }> };
+  const parsed: unknown = JSON.parse(cleaned);
+  if (!parsed || typeof parsed !== 'object' || !('results' in parsed) || !Array.isArray(parsed.results)) {
+    throw new Error('Project fit response did not contain assessments.');
+  }
   const byId = new Map(projects.map((p) => [p.id, p]));
   const out = new Map<string, ProjectFit[]>();
-  for (const r of parsed.results ?? []) {
+  for (const r of parsed.results as unknown[]) {
+    if (!r || typeof r !== 'object' || !('key' in r) || !('projects' in r) || !Array.isArray(r.projects)) {
+      throw new Error('Project fit returned an invalid assessment.');
+    }
     const articleId = typeof r.key === 'string' ? keys.get(r.key) : undefined;
-    if (articleId === undefined) continue;
+    if (articleId === undefined || out.has(articleId)) throw new Error('Project fit returned an unknown or repeated article.');
     const fits: ProjectFit[] = [];
-    for (const f of Array.isArray(r.projects) ? r.projects as Array<Record<string, unknown>> : []) {
-      const project = typeof f['id'] === 'string' ? byId.get(f['id']) : undefined;
-      const fit = Number(f['fit']);
-      if (project === undefined || (fit !== 1 && fit !== 2) || fits.some((x) => x.projectId === project.id)) continue;
-      fits.push({ projectId: project.id, name: project.name, fit, why: typeof f['why'] === 'string' ? f['why'].slice(0, WHY_CHARS) : '' });
+    for (const f of r.projects as unknown[]) {
+      if (!f || typeof f !== 'object' || !('id' in f) || !('fit' in f)) throw new Error('Project fit returned an invalid project.');
+      const project = typeof f.id === 'string' ? byId.get(f.id) : undefined;
+      const fit = f.fit;
+      if (project === undefined || (fit !== 1 && fit !== DIRECT_FIT) || fits.some((x) => x.projectId === project.id)) {
+        throw new Error('Project fit returned an unknown, repeated or invalid project assessment.');
+      }
+      fits.push({ projectId: project.id, name: project.name, fit, why: 'why' in f && typeof f.why === 'string' ? f.why.slice(0, WHY_CHARS) : '' });
     }
     out.set(articleId, fits.sort((a, b) => b.fit - a.fit));
   }
+  if (out.size !== keys.size) throw new Error('Project fit omitted one or more articles. No incomplete batch was saved.');
   return out;
 }
 
@@ -183,7 +195,8 @@ export async function runProjectFitPass(db: Pool): Promise<number> {
         continue;
       }
       for (const article of chunk) {
-        const fits = results.get(article.id) ?? [];
+        const fits = results.get(article.id);
+        if (fits === undefined) throw new Error('Project fit omitted an article after validation.');
         await saveProjectFit(db, article.id, fits, projectBoost(fits, projects), key);
         assessed++;
       }

@@ -220,18 +220,21 @@ const HTML_PAGE = /```html\n\s*(<!doctype html|<html)/i;
  * this chat's existing outputs (same deliverable, updated) or is a new one.
  * A small gpt-4o call; falls back to a plain title if it fails or is slow.
  */
+const OUTPUT_NAME_TOKENS = 200;
+const OUTPUT_NAME_TIMEOUT_MS = 8_000;
+
 async function nameDeliverable(
   userMessage: string,
   content: string,
   kind: string,
   existing: ChatOutputSummary[],
+  signal?: AbortSignal,
 ): Promise<{ title: string; reviseId: string | undefined }> {
   const fallbackHeading = /^#{1,3} (.+)$/m.exec(content)?.[1]?.trim();
   const fallback = { title: (kind === 'prompt' ? 'GHCP prompt' : fallbackHeading ?? 'Spec').slice(0, 100), reviseId: undefined };
   try {
     const list = existing.map((o, i) => `o${(i + 1).toString()}: ${o.title}`).join('\n') || '(none)';
-    const raw = await Promise.race([
-      getFoundryClient('output-title').chat('standard', [
+    const raw = await getFoundryClient('output-title').chat('standard', [
         {
           role: 'system',
           content: 'You name deliverables saved to a chat\'s Outputs panel. Return ONLY JSON: {"title": "...", "revises": "o2" | null}. ' +
@@ -239,15 +242,14 @@ async function nameDeliverable(
             'revises: the id of an existing output ONLY if this is an updated version of that same deliverable (same screen/feature and purpose); otherwise null.',
         },
         { role: 'user', content: `Existing outputs:\n${list}\n\nHis request: ${userMessage.slice(0, 500)}\n\nKind: ${kind}\n\nDeliverable (start):\n${content.slice(0, 2_500)}` },
-      ], 200),
-      new Promise<string>((_r, reject) => { setTimeout(() => { reject(new Error('naming timed out')); }, 8_000); }),
-    ]);
+      ], OUTPUT_NAME_TOKENS, OUTPUT_NAME_TIMEOUT_MS, signal);
     const parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) as { title?: string; revises?: string | null };
     const index = typeof parsed.revises === 'string' ? Number(parsed.revises.replace(/\D/g, '')) - 1 : -1;
     const revise = index >= 0 ? existing[index] : undefined;
     const title = (parsed.title ?? '').trim();
     return { title: revise?.title ?? (title !== '' ? title.slice(0, 100) : fallback.title), reviseId: revise?.id };
   } catch (err) {
+    signal?.throwIfAborted();
     console.warn('[outputs] naming failed; using a plain title:', err);
     return fallback;
   }
@@ -261,7 +263,7 @@ async function nameDeliverable(
  * any short framing plus a line saying where it went. Returns the reply to
  * show and store (unchanged when nothing was saved).
  */
-export async function moveDeliverableToOutputs(db: Pool, sessionId: string, persona: string, userMessage: string, reply: string): Promise<string> {
+export async function moveDeliverableToOutputs(db: Pool, sessionId: string, persona: string, userMessage: string, reply: string, signal?: AbortSignal): Promise<string> {
   const isPage = HTML_PAGE.test(reply);
   if (!OUTPUT_PERSONAS.has(persona) || (!isPage && !PROMPT_ASK.test(userMessage))) return reply;
   const blocks = [...reply.matchAll(/```([\w-]*)\n([\s\S]*?)\n```/g)].map((m) => Object.assign([m[0], m[2]] as [string, string], { lang: m[1] ?? '' }));
@@ -281,7 +283,8 @@ export async function moveDeliverableToOutputs(db: Pool, sessionId: string, pers
   }
   const wantsPrompt = format !== 'html' && /\b(prompt|ghcp|copilot)\b/i.test(userMessage);
   const kind = format === 'html' ? 'mockup' : wantsPrompt ? 'prompt' : persona === 'demo_designer' ? 'spec' : 'document';
-  const { title, reviseId } = await nameDeliverable(userMessage, content, kind, await listOutputs(db, sessionId));
+  const { title, reviseId } = await nameDeliverable(userMessage, content, kind, await listOutputs(db, sessionId), signal);
+  signal?.throwIfAborted();
   const saved = await saveOutputVersion(db, sessionId, { outputId: reviseId, title, kind, format, content, author: 'athena', note: 'Saved from the reply' });
   const where = `Saved **${saved.title}** in Outputs${saved.version > 1 ? ` as version ${saved.version.toString()}` : ''} — open it there to copy or edit.`;
   // Keep a short lead-in (what it covers); drop long leftovers that would repeat it.

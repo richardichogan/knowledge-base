@@ -232,7 +232,7 @@ ${preferences}\nSaved editorial guidance:\n${feed.policy.guidance}`,
     const companions = await drafts(db, draft.topicId);
     const feed = (await feeds(db)).find(f => f.id === (draft.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))!;
     const reviews: Record<string, Record<string, unknown>> = {};
-    for (const check of ['accuracy', 'voice']) {
+    const checks = await Promise.allSettled(['accuracy', 'voice'].map(async check => {
       reviews[check] = await service.chat(`${SAFETY}
 Perform the ${check} review only, using the complete draft and sources.
 For each defect, identify the field and quote the exact saved wording that needs correction. Do not report wording that is absent from this draft.
@@ -244,11 +244,16 @@ ${draft.destination === 'bluesky' ? check === 'voice'
     ? `${BLUESKY_COMMENTARY}\nA bare announcement without an added editorial comment needs a targeted revision.`
     : 'A clearly framed practical judgement or recommendation may be editorial interpretation rather than a quoted source claim. Check its factual premise and preserve that distinction; reject invented personal experience or unsupported factual assertions.' : ''}
 ${check === 'accuracy' ? 'Check claims, dates, numbers, quotations, availability, links, inference limits and hook consistency. Syndicated coverage is not independent corroboration. A model review is not corroboration.' : `Check standing preferences, house style, British English, invented personal authority and generic promotional tropes.\n${BLOG_WRITING_RULES}\n${preferences}\nSaved editorial guidance:\n${feed.policy.guidance}`}
+Pass requires findings: []; revise or hold requires at least one unresolved defect. Do not list positive notes as findings.
 Return {outcome:"pass"|"revise"|"hold",findings:[specific findings]}.`, {
         sources, draft: draft.content, destination: draft.destination, blog: companions.find(d => d.destination === 'blog')?.content,
       }, PUBLISH_LIMITS.reviewTokens, EDITORIAL_SCHEMAS.review);
-      if (!['pass', 'revise', 'hold'].includes(String(reviews[check].outcome)) || !Array.isArray(reviews[check].findings)) throw new Error('Editorial review returned an invalid result.');
-    }
+      if (!['pass', 'revise', 'hold'].includes(String(reviews[check].outcome))
+        || !Array.isArray(reviews[check].findings)
+        || !reviews[check].findings.every((finding: unknown) => typeof finding === 'string')) throw new Error('Editorial review returned an invalid result.');
+      if ((reviews[check].outcome === 'pass') !== (reviews[check].findings.length === 0)) throw new Error('Editorial outcome contradicts its findings.');
+    }));
+    for (const check of checks) if (check.status === 'rejected') throw check.reason;
     const outcomes = Object.values(reviews).map(r => r.outcome);
     const review = { outcome: outcomes.includes('hold') ? 'hold' : outcomes.includes('revise') ? 'revise' : 'pass', accuracy: reviews.accuracy!.findings, voice: reviews.voice!.findings };
     const style = findTropes(...Object.values(draft.content).filter((v): v is string => typeof v === 'string'));

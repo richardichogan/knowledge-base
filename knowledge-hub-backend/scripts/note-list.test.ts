@@ -164,7 +164,7 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
 
     await db.exec(`
       CREATE TABLE designs(id UUID PRIMARY KEY,parent_note_id UUID,source_note_id UUID,source_use_case_id UUID);
-      CREATE TABLE design_assets(design_id UUID,source_type TEXT,source_id TEXT,excluded BOOLEAN,
+      CREATE TABLE design_assets(design_id UUID,source_type TEXT,source_id TEXT,role TEXT,excluded BOOLEAN,
         PRIMARY KEY(design_id,source_type,source_id));
       CREATE TABLE note_links(source_note_id UUID,target_note_id UUID);
       CREATE TABLE use_cases(id UUID PRIMARY KEY,spec_note_id UUID);
@@ -173,23 +173,34 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     await db.query('INSERT INTO notes(id,content) VALUES($1,$2),($3,$4)', [
       id(110), writing('Publishing package', 'design'), id(111), writing('Second package', 'design'),
     ]);
+    await db.query('UPDATE notes SET content=$2 WHERE id=$1', [id(104), writing('Title 104', 'spec', 'Hidden needle and 50%_literal')]);
+    await db.query('UPDATE notes SET content=$2 WHERE id=$1', [id(105), writing('Legacy alpha', 'architecture')]);
+    await db.query('INSERT INTO notes(id,content) VALUES($1,$2),($3,$4)', [
+      id(112), writing('Digital Steward', 'note', 'Shared governance reference'),
+      id(113), writing('Reference specification', 'spec', 'Reference-only document'),
+    ]);
     await db.query('INSERT INTO designs VALUES($1,$1,$2,NULL),($3,$3,NULL,$3)', [id(110), id(104), id(111)]);
-    await db.query('INSERT INTO note_links VALUES($1,$2)', [id(104), id(105)]);
-    await db.query("INSERT INTO design_assets VALUES($1,'note',$2,false)", [id(110), id(106)]);
+    await db.query('INSERT INTO note_links VALUES($1,$2),($1,$3),($1,$4)', [id(104), id(105), id(112), id(113)]);
+    await db.query("INSERT INTO design_assets VALUES($1,'note',$2,'use_case',false),($1,'note',$3,'reference',false),($4,'note',$5,'reference',false)",
+      [id(110), id(106), id(113), id(111), id(112)]);
     await db.query('INSERT INTO use_cases VALUES($1,$2)', [id(111), id(107)]);
-    await db.query("INSERT INTO use_case_sources VALUES($1,'note',$2)", [id(111), id(104)]);
+    await db.query("INSERT INTO use_case_sources VALUES($1,'note',$2),($1,'note',$3)", [id(111), id(104), id(112)]);
     const flat = await read();
     const grouped = await read('structure=designs');
     const secondPage = await read('structure=designs&page=2');
     const groupedIds = [...grouped.items, ...secondPage.items].map(item => item.id);
     assert.equal(flat.total - grouped.total, 4, 'Count distinct originals, including shared memberships, before pagination');
     for (const hiddenId of [104, 105, 106, 107]) assert.ok(!groupedIds.includes(id(hiddenId)));
-    for (const visibleId of [108, 110, 111]) assert.ok(groupedIds.includes(id(visibleId)));
+    for (const visibleId of [108, 110, 111, 112, 113]) assert.ok(groupedIds.includes(id(visibleId)));
     assert.equal(new Set(groupedIds).size, grouped.total);
     assert.equal(secondPage.hasMore, false);
     assert.deepEqual(new Set((await read('structure=designs&q=needle')).items.map(item => item.id)),
       new Set([id(109), id(110), id(111)]), 'Search linked bodies returns their parents, while standalone matches remain visible');
-    await db.query("INSERT INTO design_assets VALUES($1,'note',$2,true)", [id(110), id(105)]);
+    assert.deepEqual((await read('structure=designs&q=Digital%20Steward')).items.map(item => item.id), [id(112)],
+      'A shared reference returns its own note, not the Designs that mention it');
+    assert.deepEqual((await read('structure=designs&q=Reference-only&contentType=spec')).items.map(item => item.id), [id(113)],
+      'An explicit reference role overrides the inferred document role');
+    await db.query("INSERT INTO design_assets VALUES($1,'note',$2,'architecture',true)", [id(110), id(105)]);
     assert.equal((await read('structure=designs')).total, grouped.total + 1, 'Explicit exclusions override inherited links');
     await db.query("UPDATE notes SET status='archived' WHERE id=$1", [id(110)]);
     assert.ok((await read('structure=designs&q=Plain%20legacy')).items.some(item => item.id === id(106)),

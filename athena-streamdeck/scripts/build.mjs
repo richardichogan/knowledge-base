@@ -7,7 +7,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const plugin = resolve(root, 'com.themicrosoftcloudblog.athena.sdPlugin');
 const protocol = await import('../../athena-desktop/src/elgatoProtocol.ts');
 const labels = ['Open Athena', 'New note', 'New diagram', 'Speak to Athena', 'Present note',
-  'Play', 'Pause', 'Play / Pause', 'Stop and reset', 'Faster', 'Slower', 'Larger text', 'Smaller text'];
+  'Play', 'Pause', 'Play / Pause', 'Stop and reset', 'Faster', 'Slower', 'Larger text', 'Smaller text',
+  'Stop presenting'];
 const paths = [
   'M38 96 72 36l34 60M50 76h44', 'M46 30h42l16 16v68H46zM88 30v20h16M58 72h32M58 86h24',
   'M50 30h44v28H50zM34 90h30v28H34zM90 90h30v28H90zM72 58v16H49v16M72 74h33v16',
@@ -16,6 +17,7 @@ const paths = [
   'm54 34 48 38-48 38z', 'M54 36v72M90 36v72', 'm40 36 44 36-44 36zM100 36v72',
   'M44 44h56v56H44z', 'M34 72h76M72 34v76', 'M34 72h76',
   'M30 98 54 38l24 60M40 78h28M100 48v44M80 70h40', 'M30 98 54 38l24 60M40 78h28M84 70h36',
+  'M28 34h88v62H28zM72 96v20M50 116h44M56 50l32 30M88 50 56 80',
 ];
 await mkdir(resolve(plugin, 'bin'), { recursive: true });
 await mkdir(resolve(plugin, 'imgs'), { recursive: true });
@@ -34,7 +36,7 @@ const manifest = {
   $schema: 'https://schemas.elgato.com/streamdeck/plugins/manifest.json',
   UUID: 'com.themicrosoftcloudblog.athena', Name: 'Athena', Author: 'Richard Hogan',
   Description: 'Athena desktop shortcuts and Prompter presentation controls.',
-  Version: '0.1.1.0', SDKVersion: 2, Software: { MinimumVersion: '7.1' }, Nodejs: { Version: '24' },
+  Version: '0.1.2.0', SDKVersion: 2, Software: { MinimumVersion: '7.1' }, Nodejs: { Version: '24' },
   OS: [{ Platform: 'windows', MinimumVersion: '10' }], CodePath: 'bin/plugin.js',
   Icon: 'imgs/plugin', Category: 'Athena', CategoryIcon: 'imgs/open-athena',
   URL: 'https://athena.themicrosoftcloudblog.com',

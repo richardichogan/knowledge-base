@@ -15,8 +15,9 @@ const PERSONA_HINTS: Record<string, string> = {
 };
 
 const TIMEOUT_MS = 6_000;
+const NEXT_STEPS_TOKENS = 200;
 
-export async function suggestNextSteps(persona: string, userMessage: string, reply: string): Promise<string[]> {
+export async function suggestNextSteps(persona: string, userMessage: string, reply: string, signal?: AbortSignal): Promise<string[]> {
   const call = getFoundryClient('next-steps').chat('standard', [
     {
       role: 'system',
@@ -29,10 +30,9 @@ export async function suggestNextSteps(persona: string, userMessage: string, rep
       ].filter(Boolean).join('\n'),
     },
     { role: 'user', content: `Richard: ${userMessage.slice(0, 1_500)}\n\nAthena: ${reply.slice(0, 4_000)}` },
-  ], 200);
-  const timeout = new Promise<string>((resolve) => { setTimeout(() => { resolve('[]'); }, TIMEOUT_MS).unref(); });
+  ], NEXT_STEPS_TOKENS, TIMEOUT_MS, signal);
   try {
-    const raw = await Promise.race([call, timeout]);
+    const raw = await call;
     const json = raw.slice(raw.indexOf('['), raw.lastIndexOf(']') + 1);
     const steps = JSON.parse(json) as unknown;
     return Array.isArray(steps)

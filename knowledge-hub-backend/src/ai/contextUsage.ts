@@ -101,6 +101,7 @@ const UNAVAILABLE_STATUSES = new Set(['not_found', 'unavailable']);
 
 interface KnowledgeReadResult {
   status?: string; code?: string;
+  coverage?: { complete: boolean; totalChars: number; returnedChars: number };
   record?: { ref?: { kind?: string; id?: string }; title?: string; content?: string; version?: string; projectId?: string | null; startOffset?: number };
   review?: { ref: { kind: string; id: string }; title: string; version: string; complete: boolean; excerpts: Array<{ text: string; start: number }> };
 }
@@ -129,7 +130,11 @@ function recordKnowledgeRead(ledger: EvidenceLedger, result: KnowledgeReadResult
       ledger.entries.delete(`${ref.kind}:${ref.id}`);
       ledger.texts.delete(`${ref.kind}:${ref.id}`);
     }
-    noteRead(ledger, ref, { title: rec.title ?? null, version: rec.version ?? null, projectId: rec.projectId ?? null, text: rec.content ?? '', start: rec.startOffset ?? 0 });
+    const fullOriginal = result.coverage?.complete === true && rec.startOffset === 0
+      && rec.content?.length === result.coverage.totalChars && result.coverage.returnedChars === result.coverage.totalChars;
+    noteRead(ledger, ref, { title: rec.title ?? null, version: rec.version ?? null, projectId: rec.projectId ?? null,
+      text: rec.content ?? '', start: rec.startOffset ?? 0, retainFullText: fullOriginal,
+      ...(fullOriginal && { fields: ['full_stored_document_processed'] }) });
   } else if (id !== '' && result.status === 'excluded') {
     for (const [key, e] of [...ledger.entries]) if (e.ref.id === id) { ledger.entries.delete(key); ledger.texts.delete(key); }
   } else if (id !== '' && result.status !== undefined && UNAVAILABLE_STATUSES.has(result.status) && result.code !== 'exclusions_unavailable') {

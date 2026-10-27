@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
+import { FoundryClient } from '../src/ai/foundryClient.js';
 import { handleConversationTurn } from '../src/ai/conversationService.js';
 import { emptyContextUsed } from '../src/ai/contextUsage.js';
 import type { ConversationMessage } from '../src/types/aiContext.js';
@@ -30,6 +31,28 @@ async function seed(): Promise<Awaited<ReturnType<typeof harnessDb>>> {
 
 const noteContext = { type: 'note', title: 'N1', detail: NOTE_TEXT };
 const first = (value: unknown[]): unknown => value[0];
+
+test('a full review supplies the complete saved source to the answering model with zero reading-model calls', async () => {
+  const db = await seed();
+  const { pool, writes } = recordingPool(db);
+  const bulk = mock.method(FoundryClient.prototype, 'chatBulk', async () => { assert.fail('A fitting review must not summarise retrieval pages'); });
+  const original = await db.query<{ body: string }>('SELECT body FROM content_items WHERE id=$1', [SPEC_ID]);
+  const model = scriptModel((_round, index) => {
+    if (index === 0) return [{ name: 'load_tools', args: { names: ['read_knowledge_record'] } }];
+    if (index === 1) return [{ name: 'read_knowledge_record', args: { kind: 'content-item', id: SPEC_ID, fullDocument: true, purpose: 'Review requirements' } }];
+    return 'The specification requires 90 days of retention for audit logs.';
+  });
+  try {
+    await handleConversationTurn(pool, [], 'Review the complete platform specification', 'standard', 'general', SESSION,
+      undefined, undefined, {}, { onAudit: () => undefined });
+    const read = toolResults(model.rounds.at(-1)!).find(value => typeof value === 'object' && value !== null && 'record' in value) as ReadResult;
+    assert.equal(read.record.content, original.rows[0]!.body);
+    assert.equal(read.record.nextCursor, null);
+    assert.equal(model.callCount(), 3);
+    assert.equal(bulk.mock.callCount(), 0);
+    assert.deepEqual(writes, []);
+  } finally { bulk.mock.restore(); model.restore(); await db.close(); }
+});
 
 test('CTX-03 comparing the open note with "the current spec" retrieves D1, pages to the pertinent section and keeps N1', async () => {
   const db = await seed();

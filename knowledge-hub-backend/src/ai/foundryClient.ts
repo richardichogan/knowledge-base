@@ -11,10 +11,12 @@ import { recordAiUsage, tokenUsageFrom } from './aiUsage.js';
 import type { TokenUsage } from './aiUsage.js';
 import { request as requestHttp } from 'undici';
 import { STATUS_CODES } from 'node:http';
+import { reviewContextTokens } from './knowledge/reviewContext.js';
 
 const DEFAULT_CHAT_TEMPERATURE = 0.7;
 const AI_RESPONSE_HEADERS_TIMEOUT_MS = 30_000;
 const NATIVE_FETCH_HEADERS_TIMEOUT_MS = 300_000;
+const MAX_ERROR_DETAILS_CHARS = 300;
 
 function transportCode(error: unknown): string | undefined {
   if (!(error instanceof Error)) return undefined;
@@ -140,9 +142,14 @@ export class FoundryClient {
     recordAiUsage({
       feature: this.feature, persona: this.context.persona, sessionId: this.context.sessionId,
       slot: model, deployment, api, durationMs: Date.now() - startedAt, ok: error === undefined,
-      error: error === undefined ? undefined : error instanceof Error ? error.message : String(error),
+      error: error === undefined ? undefined : error instanceof AiStoppedError ? 'Cancelled: Stopped'
+        : error instanceof Error ? error.message : String(error),
       ...usage,
     });
+  }
+
+  public reviewContextTokens(model: AiModel, route?: ModelRoute): number {
+    return reviewContextTokens(route?.deployment ?? this.getDeployment(model));
   }
 
   private getDeployment(model: AiModel): string {
@@ -178,8 +185,9 @@ export class FoundryClient {
     messages: ConversationMessage[],
     maxTokens = AI_DEFAULT_MAX_TOKENS,
     timeoutMs?: number,
+    signal?: AbortSignal,
   ): Promise<string> {
-    const data = await this.request(model, messages, undefined, maxTokens, 'auto', timeoutMs);
+    const data = await this.request(model, messages, undefined, maxTokens, 'auto', timeoutMs, undefined, signal);
     if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
     if (data.choices[0]?.finish_reason !== 'stop') throw new AiError('AI response was incomplete or refused');
     const content = data.choices[0]?.message.content;
@@ -204,23 +212,27 @@ export class FoundryClient {
     /** More effort for work where quality matters (a spec); reasoning tokens count against maxTokens. */
     reasoningEffort: 'low' | 'medium' | 'high' = 'low',
     jsonSchema?: LlmJsonSchema,
+    callerSignal?: AbortSignal,
   ): Promise<string> {
     const endpoint = env.AZURE_OPENAI_ENDPOINT_GPT54;
     const apiKey = env.AZURE_OPENAI_API_KEY_GPT54;
     if (endpoint === undefined || endpoint === '' || apiKey === undefined || apiKey === '') {
       if (jsonSchema !== undefined) {
-        const data = await this.request('light', messages, undefined, maxTokens, 'auto', timeoutMs, jsonSchema);
+        const data = await this.request('light', messages, undefined, maxTokens, 'auto', timeoutMs, jsonSchema, callerSignal);
         if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
         if (data.choices[0]?.finish_reason !== 'stop' || !data.choices[0].message.content) throw new AiError('Structured bulk extraction was incomplete or refused');
         return data.choices[0].message.content;
       }
-      return this.chat('light', messages, maxTokens);
+      return this.chat('light', messages, maxTokens, timeoutMs, callerSignal);
     }
     const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? 'gpt-5.4';
     const startedAt = Date.now();
-    const signal = AbortSignal.timeout(timeoutMs);
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = callerSignal ? AbortSignal.any([timeout, callerSignal]) : timeout;
+    let usage: TokenUsage | undefined;
     let response: Response;
     try {
+      signal.throwIfAborted();
       const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
       const options = {
         method: 'POST',
@@ -236,27 +248,27 @@ export class FoundryClient {
       } else {
         response = await fetch(url, options);
       }
+      if (!response.ok) {
+        throw new AiError(`${response.status.toString()} ${response.statusText}: ${(await response.text()).slice(0, MAX_ERROR_DETAILS_CHARS)}`);
+      }
+      const data = (await response.json()) as ChatCompletionResponse;
+      usage = tokenUsageFrom(data.usage);
+      const content = data.choices[0]?.message.content;
+      if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
+      if (data.choices[0]?.finish_reason !== 'stop') throw new AiError('Bulk response was incomplete or refused');
+      if (!content) throw new AiError('Empty response from the bulk model');
+      this.logCall('bulk', deployment, 'chat', startedAt, usage);
+      return content;
     } catch (err) {
       const code = transportCode(err);
       const isTimeout = signal.aborted || err instanceof Error && err.name === 'TimeoutError'
         || code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT';
-      const failure = new AiError(isTimeout ? `Bulk request timed out after ${timeoutMs.toString()}ms${code ? ` (${code})` : ''}`
+      const failure = callerSignal?.aborted ? new AiStoppedError() : err instanceof AiError ? err
+        : new AiError(isTimeout ? `Bulk request timed out after ${timeoutMs.toString()}ms${code ? ` (${code})` : ''}`
         : `Bulk request failed: ${err instanceof Error ? err.message : String(err)}${code ? ` (${code})` : ''}`);
-      this.logCall('bulk', deployment, 'chat', startedAt, undefined, failure);
+      this.logCall('bulk', deployment, 'chat', startedAt, usage, failure);
       throw failure;
     }
-    if (!response.ok) {
-      const failure = new AiError(`${response.status.toString()} ${response.statusText}: ${(await response.text()).slice(0, 300)}`);
-      this.logCall('bulk', deployment, 'chat', startedAt, undefined, failure);
-      throw failure;
-    }
-    const data = (await response.json()) as ChatCompletionResponse;
-    this.logCall('bulk', deployment, 'chat', startedAt, tokenUsageFrom(data.usage));
-    const content = data.choices[0]?.message.content;
-    if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
-    if (data.choices[0]?.finish_reason !== 'stop') throw new AiError('Bulk response was incomplete or refused');
-    if (!content) throw new AiError('Empty response from the bulk model');
-    return content;
   }
 
   /**
@@ -272,8 +284,9 @@ export class FoundryClient {
     maxTokens = AI_DEFAULT_MAX_TOKENS,
     toolChoice: LlmToolChoice = 'auto',
     timeoutMs?: number,
+    signal?: AbortSignal,
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
-    const data = await this.request(model, messages, tools, maxTokens, toolChoice, timeoutMs);
+    const data = await this.request(model, messages, tools, maxTokens, toolChoice, timeoutMs, undefined, signal);
     const message = data.choices[0]?.message;
 
     if (!message) {
@@ -314,7 +327,7 @@ export class FoundryClient {
       this.logCall(model, deployment, api, startedAt, usage);
       return result;
     } catch (err) {
-      this.logCall(model, deployment, api, startedAt, undefined, err instanceof AiStoppedError ? undefined : err);
+      this.logCall(model, deployment, api, startedAt, undefined, err);
       throw err;
     }
   }
@@ -461,17 +474,28 @@ export class FoundryClient {
     toolChoice: LlmToolChoice = 'auto',
     timeoutMsOverride?: number,
     jsonSchema?: LlmJsonSchema,
+    signal?: AbortSignal,
   ): Promise<ChatCompletionResponse> {
     const startedAt = Date.now();
     const deployment = this.getDeployment(model);
     const api = model === 'reasoning' && env.AZURE_OPENAI_GPT54_API === 'responses' ? 'responses' : 'chat';
+    let usage: TokenUsage | undefined;
     try {
-      const data = await this.requestRaw(model, messages, tools, maxTokens, toolChoice, timeoutMsOverride, jsonSchema);
-      this.logCall(model, deployment, api, startedAt, tokenUsageFrom(data.usage));
+      signal?.throwIfAborted();
+      const data = await this.requestRaw(model, messages, tools, maxTokens, toolChoice, timeoutMsOverride, jsonSchema, signal);
+      usage = tokenUsageFrom(data.usage);
+      if (tools === undefined) {
+        if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
+        if (data.choices[0]?.finish_reason !== 'stop' || !data.choices[0]?.message.content) {
+          throw new AiError('AI response was empty, incomplete or refused');
+        }
+      }
+      this.logCall(model, deployment, api, startedAt, usage);
       return data;
     } catch (err) {
-      this.logCall(model, deployment, api, startedAt, undefined, err);
-      throw err;
+      const failure = signal?.aborted ? new AiStoppedError() : err;
+      this.logCall(model, deployment, api, startedAt, usage, failure);
+      throw failure;
     }
   }
 
@@ -483,12 +507,13 @@ export class FoundryClient {
     toolChoice: LlmToolChoice = 'auto',
     timeoutMsOverride?: number,
     jsonSchema?: LlmJsonSchema,
+    signal?: AbortSignal,
   ): Promise<ChatCompletionResponse> {
     const deployment = this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
     const timeoutMs = timeoutMsOverride ?? this.getDefaultTimeoutMs(model);
     if (model === 'reasoning' && env.AZURE_OPENAI_GPT54_API === 'responses') {
-      return this.requestViaResponses(model, deployment, endpoint, apiKey, messages, tools, maxTokens, toolChoice, timeoutMs);
+      return this.requestViaResponses(model, deployment, endpoint, apiKey, messages, tools, maxTokens, toolChoice, timeoutMs, signal);
     }
     const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
 
@@ -508,7 +533,7 @@ export class FoundryClient {
           ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: toolChoice }),
         }),
         // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       // AbortSignal.timeout() rejects with a raw DOMException, not an
@@ -548,6 +573,7 @@ export class FoundryClient {
     maxTokens: number,
     toolChoice: LlmToolChoice,
     timeoutMs: number,
+    signal?: AbortSignal,
   ): Promise<ChatCompletionResponse> {
     let response: Response;
     try {
@@ -558,7 +584,7 @@ export class FoundryClient {
           ...(apiKey !== undefined && { 'api-key': apiKey }),
         } as Record<string, string>,
         body: JSON.stringify(responsesBody(deployment, messages, tools, maxTokens, toolChoice)),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       const isTimeout = err instanceof Error && err.name === 'TimeoutError';

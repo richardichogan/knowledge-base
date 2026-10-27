@@ -5,7 +5,36 @@
  */
 
 import { env } from '../config/env.js';
-import { recordAiUsage, tokenUsageFrom } from '../ai/aiUsage.js';
+import { recordAiUsage, tokenUsageFrom, type TokenUsage } from '../ai/aiUsage.js';
+
+interface VisionResponse {
+  choices: Array<{ message: { content: string }; finish_reason?: string }>;
+  usage?: Record<string, unknown>;
+}
+const MAX_VISION_ERROR_CHARS = 300;
+
+async function requestVision(feature: string, slot: string, deployment: string, request: () => Promise<Response>): Promise<VisionResponse> {
+  const startedAt = Date.now();
+  let usage: TokenUsage | undefined;
+  try {
+    const response = await request();
+    if (!response.ok) throw new Error(`Vision request failed: ${response.status} ${(await response.text()).slice(0, MAX_VISION_ERROR_CHARS)}`);
+    const data = await response.json() as VisionResponse;
+    usage = tokenUsageFrom(data.usage);
+    const choice = data.choices?.[0];
+    if (!choice?.message?.content || (choice.finish_reason !== 'stop' && choice.finish_reason !== 'length')) {
+      throw new Error('Vision response was empty, incomplete or refused');
+    }
+    const truncated = choice.finish_reason === 'length';
+    recordAiUsage({ feature, slot, deployment, api: 'chat', durationMs: Date.now() - startedAt,
+      ok: !truncated, error: truncated ? 'Vision response was truncated' : undefined, ...usage });
+    return data;
+  } catch (error) {
+    recordAiUsage({ feature, slot, deployment, api: 'chat', durationMs: Date.now() - startedAt,
+      ok: false, error: error instanceof Error ? error.message : String(error), ...usage });
+    throw error;
+  }
+}
 
 /**
  * Analyze an image buffer using GPT-4V vision capabilities via Azure OpenAI.
@@ -30,15 +59,16 @@ export async function analyzeImageWithVision(
       console.warn('[visionAnalyzer] Azure OpenAI credentials not configured, skipping vision analysis');
       return '';
     }
+    const apiKey = env.AZURE_OPENAI_API_KEY;
 
     const base64Image = imageBuffer.toString('base64');
 
     // Use Azure OpenAI REST API directly to avoid SDK version issues
-    const t0 = Date.now();
-    const response = await fetch(`${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_GPT4O}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+    const data = await requestVision('image-description', 'standard', env.AZURE_OPENAI_DEPLOYMENT_GPT4O,
+      () => fetch(`${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_GPT4O}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
       method: 'POST',
       headers: {
-        'api-key': env.AZURE_OPENAI_API_KEY,
+        'api-key': apiKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -70,19 +100,8 @@ export async function analyzeImageWithVision(
         ],
         max_completion_tokens: 3000,
       }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('[visionAnalyzer] Azure OpenAI API error:', response.status, error);
-      return '';
-    }
-
-    const data = (await response.json()) as {
-      choices: Array<{ message: { content: string }; finish_reason?: string }>;
-      usage?: Record<string, unknown>;
-    };
-    recordAiUsage({ feature: 'image-description', slot: 'standard', deployment: env.AZURE_OPENAI_DEPLOYMENT_GPT4O, api: 'chat', durationMs: Date.now() - t0, ok: true, ...tokenUsageFrom(data.usage) });
+      signal: AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS),
+    }));
     const content = data.choices?.[0]?.message?.content;
 
     if (!content || typeof content !== 'string') {
@@ -106,8 +125,9 @@ export async function analyzeImageWithVision(
 const SCREEN_READ_TIMEOUT_MS = 75_000;
 
 async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, userQuestion?: string): Promise<string> {
-  const t0 = Date.now();
-  const response = await fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+  const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54;
+  const data = await requestVision('screen-read', 'bulk', deployment,
+    () => fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
     method: 'POST',
     headers: { 'api-key': env.AZURE_OPENAI_API_KEY_GPT54 ?? '', 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -143,13 +163,7 @@ async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, 
       max_completion_tokens: 8000,
     }),
     signal: AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    console.error('[visionAnalyzer] Design-review read failed:', response.status, await response.text());
-    return '';
-  }
-  const data = (await response.json()) as { choices: Array<{ message: { content: string }; finish_reason?: string }>; usage?: Record<string, unknown> };
-  recordAiUsage({ feature: 'screen-read', slot: 'bulk', deployment: env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54, api: 'chat', durationMs: Date.now() - t0, ok: true, ...tokenUsageFrom(data.usage) });
+  }));
   const content = data.choices?.[0]?.message?.content ?? '';
   return content !== '' && data.choices[0]?.finish_reason === 'length' ? `${content}\n\n${CUT_OFF_NOTE}` : content;
 }
@@ -201,20 +215,16 @@ export async function reviewScreensWithVision(
     content.push({ type: 'image_url', image_url: { url: `data:${s.mimeType};base64,${s.buffer.toString('base64')}`, detail: 'high' } });
   });
   try {
-    const t0 = Date.now();
-    const response = await fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+    const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54;
+    const data = await requestVision('screen-review', 'bulk', deployment,
+      () => fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
       method: 'POST',
       headers: { 'api-key': env.AZURE_OPENAI_API_KEY_GPT54 ?? '', 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: [{ role: 'user', content }], max_completion_tokens: 10_000 }),
       signal: AbortSignal.timeout(SCREEN_REVIEW_TIMEOUT_MS),
-    });
-    if (!response.ok) {
-      console.error('[visionAnalyzer] Screen review failed:', response.status, await response.text());
-      return '';
-    }
-    const data = (await response.json()) as { choices: Array<{ message: { content: string } }>; usage?: Record<string, unknown> };
-    recordAiUsage({ feature: 'screen-review', slot: 'bulk', deployment: env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54, api: 'chat', durationMs: Date.now() - t0, ok: true, ...tokenUsageFrom(data.usage) });
-    return data.choices?.[0]?.message?.content ?? '';
+    }));
+    const text = data.choices[0]!.message.content;
+    return data.choices[0]!.finish_reason === 'length' ? `${text}\n\n${CUT_OFF_NOTE}` : text;
   } catch (err) {
     console.error('[visionAnalyzer] Screen review failed:', err);
     return '';

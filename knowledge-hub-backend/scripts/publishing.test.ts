@@ -94,6 +94,28 @@ test('draft refresh status reports zero-result assessments, failures and interru
     assert.match((await publishingRefreshStatus(f.db)).message, /interrupted/);
   } finally { await f.close(); }
 });
+test('publishing accuracy and voice checks run concurrently on the same saved draft', { timeout: 5000 }, async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const s = await source(f.db, t.id);
+    const d = await draft(f.db, t.id);
+    let release!: () => void;
+    const accuracy = new Promise<void>(resolve => { release = resolve; });
+    const seen: unknown[] = [];
+    await editorial.reviewDraft(f.db, d, [s], { ...editorial.editorialServices, preferences: async () => '',
+      chat: async (system, input) => {
+        seen.push(input);
+        if (system.includes('Perform the accuracy')) await accuracy;
+        else release();
+        return { outcome: 'pass', findings: [] };
+      },
+    });
+    assert.equal(seen.length, 2);
+    assert.deepEqual(seen[0], seen[1]);
+  } finally { await f.close(); }
+});
+
 test('draft-only review cannot change versions or review state when approval arrives during model work', async () => {
   const f = await publishingFixture();
   try {

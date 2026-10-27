@@ -78,7 +78,7 @@ async function requestImagineSection(user: string, completed: DemoSpecificationP
         { role: 'system', content: IMAGINE_SYSTEM },
         { role: 'user', content: JSON.stringify({ sources: user, sections: [section], form: demoSpecificationForm([section]),
           completedSections: completed, instruction: 'Retain the established name, actors, record IDs and scope from completed sections. Complete only the requested fields.' }) },
-      ], IMAGINE_SECTION_TOKENS, TIMEOUT_MS, 'medium', demoSpecificationResponseSchema([section]));
+      ], IMAGINE_SECTION_TOKENS, TIMEOUT_MS, 'medium', demoSpecificationResponseSchema([section]), signal);
     } catch (error) {
       signal?.throwIfAborted();
       if (attempt === 0 && error instanceof AiError && error.message.includes('Bulk request timed out')) {
@@ -242,7 +242,7 @@ export async function writeDesignSpec(db: Pool, designId: string, replace = fals
     if (checkpointOnly) throw new ValidationError('Only an unchanged, complete IMAGINE checkpoint can be finalized without generation.');
     progress('Writing the Standard product specification');
     markdown = cleanDraft(await getFoundryClient('use-case-spec').chatBulk(
-      [{ role: 'system', content: system }, { role: 'user', content: user }], MAX_TOKENS, TIMEOUT_MS, 'medium'));
+      [{ role: 'system', content: system }, { role: 'user', content: user }], MAX_TOKENS, TIMEOUT_MS, 'medium', undefined, signal));
   }
   const blocks = restoreMentions(textToBlocks(markdown), mentions);
   if (!blocks.length) throw new ValidationError('Athena returned an empty spec. Nothing was saved; retry.');

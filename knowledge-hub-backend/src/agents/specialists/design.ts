@@ -82,8 +82,8 @@ registerSpecialist({
         : 'The use case changed after the spec, so the Spec writer rewrites the spec first. The current spec is replaced; earlier versions stay in note history.',
     }];
   },
-  run: async ({ db, subjectId, input, progress }) => {
-    const artifact = await generateArtifact(db, subjectId, input['instruction'], progress);
+  run: async ({ db, subjectId, input, progress, signal }) => {
+    const artifact = await generateArtifact(db, subjectId, input['instruction'], progress, signal);
     return {
       data: { artifactId: artifact.id, revision: artifact.revision },
       summary: `Blueprint revision ${String(artifact.revision)} is ready.`,

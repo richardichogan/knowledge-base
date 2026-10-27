@@ -14,6 +14,7 @@ import { allowsStructuralNoteEdits, checkEditsAgainstNote } from '../src/ai/note
 import { blocksToTextWithImages, blockContentSpans } from '../src/utils/noteContent.js';
 import { readFile } from 'node:fs/promises';
 import { emptyDiagram } from '../src/types/diagram.js';
+import { READING_BATCH_TOKENS, REVIEW_CONTEXT_RESERVE, textTokens } from '../src/ai/knowledge/reviewContext.js';
 
 const sessionId = '11111111-1111-4111-8111-111111111111';
 const otherSession = '22222222-2222-4222-8222-222222222222';
@@ -173,19 +174,22 @@ for (const inView of [false, true]) test(`the actual chat reads a ${inView ? 'ch
   let calls = 0;
   let pageCalls = 0;
   let audit: unknown;
+  let contextTokens = 0;
+  const capacity = mock.method(FoundryClient.prototype, 'reviewContextTokens', () => contextTokens);
   const bulk = mock.method(FoundryClient.prototype, 'chatBulk', async messages => {
     const input = JSON.parse(messages[1]!.content);
     if (input.sourcePage !== undefined) {
       pageCalls++;
-      assert.ok(input.sourcePage.length <= 12_000);
+      assert.ok(textTokens(input.sourcePage) <= READING_BATCH_TOKENS);
       return JSON.stringify({ summary: input.sourcePage.slice(-200), memory: input.sourcePage.slice(-200),
         excerpts: [input.sourcePage.slice(-80)] });
     }
     assert.ok(input.summaries.join('').length <= 18_000);
     return input.summaries.join('\n').slice(-5_000);
   });
-  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages, _tools, _tokens, choice) => {
+  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages, tools, tokens, choice) => {
     calls++;
+    if (calls === 1) contextTokens = textTokens(JSON.stringify({ messages, tools })) + tokens + REVIEW_CONTEXT_RESERVE + 20_000;
     if (inView && calls === 1) {
       assert.equal(choice, 'auto');
       assert.match(JSON.stringify(messages), new RegExp(`Open record identity:.*${id}`));
@@ -203,13 +207,13 @@ for (const inView of [false, true]) test(`the actual chat reads a ${inView ? 'ch
       'standard', 'general', sessionId, inView ? { type: 'note', title: 'Full newsletter', detail: body } : undefined,
       undefined, inView ? { noteId: id } : {}, { onAudit: row => { audit = row; } });
     assert.equal(calls, 2);
-    assert.ok(pageCalls > 20);
+    assert.ok(pageCalls > 0 && pageCalls < 4, 'overflow pages are combined into token-sized source batches');
     assert.match(reply, /final entry calls for the evaluation/);
     assert.doesNotMatch(reply, /not everything|quote|incomplete|body did not/i);
     assert.match(JSON.stringify(audit), /"read":1/);
   } finally {
     if (flag === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = flag;
-    completion.mock.restore(); bulk.mock.restore(); query.mock.restore();
+    completion.mock.restore(); bulk.mock.restore(); capacity.mock.restore(); query.mock.restore();
     await db.end(); await pg.close();
   }
 });
@@ -240,18 +244,21 @@ for (const missing of [false, true]) test(`actual diagram chat ${missing ? 'repo
   let calls = 0;
   let pageCalls = 0;
   const used = emptyContextUsed();
+  let contextTokens = 0;
+  const capacity = mock.method(FoundryClient.prototype, 'reviewContextTokens', () => contextTokens);
   const bulk = mock.method(FoundryClient.prototype, 'chatBulk', async messages => {
     assert.equal(missing, false, 'missing diagrams must not invoke a reading model');
     const input = JSON.parse(messages[1]!.content);
     if (input.sourcePage !== undefined) {
       pageCalls++;
-      assert.ok(input.sourcePage.length <= 12_000);
+      assert.ok(textTokens(input.sourcePage) <= READING_BATCH_TOKENS);
       return JSON.stringify({ summary: input.sourcePage.slice(-800), memory: input.sourcePage.slice(-800), excerpts: [] });
     }
     return input.summaries.join('\n').slice(-5000);
   });
-  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages) => {
+  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages, tools, tokens) => {
     calls++;
+    if (calls === 1) contextTokens = textTokens(JSON.stringify({ messages, tools })) + tokens + REVIEW_CONTEXT_RESERVE + 20_000;
     if (calls === 1) return { content: null, toolCalls: [{ id: 'diagram-read', type: 'function' as const,
       function: { name: 'read_diagram', arguments: JSON.stringify({ diagramId: id }) } }], finishReason: 'tool_calls' };
     const result = JSON.parse(String(messages.at(-1)?.content));
@@ -274,13 +281,13 @@ for (const missing of [false, true]) test(`actual diagram chat ${missing ? 'repo
       assert.match(reply, /no longer available/);
       assert.equal(used.evidence?.counts.read, 0);
     } else {
-      assert.ok(pageCalls > 10);
+      assert.ok(pageCalls > 0 && pageCalls < 4, 'diagram overflow uses token batches, not per-page model calls');
       assert.equal(used.evidence?.counts.read, 1);
       assert.equal(used.found[0]?.kind, 'diagram');
     }
   } finally {
     if (flag === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = flag;
-    completion.mock.restore(); bulk.mock.restore(); query.mock.restore(); await db.end(); await pg.close();
+    completion.mock.restore(); bulk.mock.restore(); capacity.mock.restore(); query.mock.restore(); await db.end(); await pg.close();
   }
 });
 
@@ -292,9 +299,9 @@ test('a failed whole-document read cannot restart its model attempts in the same
   const db = new Pool();
   const noteId = '44444444-4444-4444-8444-444444444444';
   const mirrorId = '55555555-5555-4555-8555-555555555555';
-  const content = JSON.stringify({ title: 'Interrupted review', contentJson: [
-    { type: 'paragraph', content: [{ type: 'text', text: 'Requirement: retain source identity.\n'.repeat(600) }] },
-  ] });
+  const content = JSON.stringify({ title: 'Interrupted review', contentJson: JSON.stringify([
+    { type: 'paragraph', content: [{ type: 'text', text: 'Requirement: retain source identity.\n'.repeat(8_000) }] },
+  ]) });
   const query = mock.method(db, 'query', async (sql: string, values: unknown[] = []) => {
     if (sql.includes('document_reading_')) return pg.query(sql, values);
     if (sql.includes('SELECT id::text AS id, source, source_id')) return { rows: [{ id: mirrorId, source: 'note', source_id: noteId }] };
@@ -308,13 +315,16 @@ test('a failed whole-document read cannot restart its model attempts in the same
   const original = process.env['KNOWLEDGE_ORCHESTRATION'];
   process.env['KNOWLEDGE_ORCHESTRATION'] = 'true';
   let readingCalls = 0;
+  let contextTokens = 0;
+  const capacity = mock.method(FoundryClient.prototype, 'reviewContextTokens', () => contextTokens);
   const bulk = mock.method(FoundryClient.prototype, 'chatBulk', async () => {
     readingCalls++;
     return JSON.stringify({ summary: 'A summary', memory: 'Working memory', excerpts: ['FABRICATED quotation not in source'] });
   });
   let calls = 0;
-  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages) => {
+  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages, tools, tokens) => {
     calls++;
+    if (calls === 1) contextTokens = textTokens(JSON.stringify({ messages, tools })) + tokens + REVIEW_CONTEXT_RESERVE + 20_000;
     if (calls > 1) {
       assert.match(String(messages.at(-1)?.content), /readingInterrupted|No further reading model call/);
     }
@@ -336,7 +346,7 @@ test('a failed whole-document read cannot restart its model attempts in the same
     assert.equal(rows[0]?.next_offset, 0, 'rejected pages must never count as read');
   } finally {
     if (original === undefined) delete process.env['KNOWLEDGE_ORCHESTRATION']; else process.env['KNOWLEDGE_ORCHESTRATION'] = original;
-    completion.mock.restore(); bulk.mock.restore(); query.mock.restore(); await db.end(); await pg.close();
+    completion.mock.restore(); bulk.mock.restore(); capacity.mock.restore(); query.mock.restore(); await db.end(); await pg.close();
   }
 });
 

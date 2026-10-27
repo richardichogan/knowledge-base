@@ -86,9 +86,14 @@ same note ID, writing, history, tags and project. There is no separate New Desig
 action or workspace. Think creates/develops content; Plan manages work in progress.
 
 Its four tabs—**Use case, Spec, Architecture, Diagram**—open linked originals.
-The Notes list shows each Design once, not its linked originals as separate
-top-level entries. Standalone documents remain visible. Searching linked writing
-returns its Design; pagination/counts use the same grouping. Archived or
+The Notes list shows each Design once, grouping its Use case, Spec and
+Architecture documents rather than repeating them as top-level entries.
+Reference notes remain independently visible and open as ordinary notes, even
+when a Design's source document links to them. Explicit section assignments
+take precedence over inferred content types; a reference-only assignment does
+not hide a note. Links and backlinks remain unchanged. Searching a grouped
+document's writing returns its Design; searching a reference returns the note
+itself. Pagination/counts use the same grouping. Archived or
 retyped parents do not hide their originals, and excluded/detached links no
 longer group them. Flat note lookups and document pickers still include originals.
 
@@ -104,8 +109,9 @@ Design is already the parent note; there is no separate parent-editing mode.
 Empty document tabs retain the Design editor/properties.
 Diagrams retain their own established canvas properties. Multiple linked versions
 remain accessible, but require an explicit choice for visual generation/handoff.
-Existing linked note/canvas entries open the corresponding Design tab; multiple
-Design memberships require a parent choice. Standalone assets remain standalone.
+Existing linked document/canvas entries open the corresponding Design tab;
+multiple document memberships require a parent choice. Reference-only links
+do not redirect or prompt for a Design. Standalone assets remain standalone.
 
 Migrations 104/105 add persistence and create separate Design-type parent notes
 for the five originally reviewed Use Cases. Their original content/types/history
@@ -219,12 +225,39 @@ snapshot bytes in one non-forced commit, preserving unrelated files and checking
 destination ownership, changed files/branch and the entire returned manifest.
 Nothing is published or deployed automatically.
 
-Saved diagram reads also use the checkpointed full-source reader in chat, so
-large diagrams are processed page by page rather than discarded at the ordinary
-retrieval-context limit. Search results remain discovery previews, not completed
-reads. Deleted or excluded diagrams are reported as unavailable; they are not
-described as a source-size failure. Reading checks the diagram and linked-context
-version between pages and before returning a completed review.
+Full-source document and saved-diagram reviews load original text through the
+existing scoped database reader, without a model call for every retrieval page.
+The complete text is supplied directly when it fits alongside the conversation,
+tool schemas and reserved answer tokens. Tokenisation uses o200k; the named
+GPT-5.4 deployment uses its documented 1,050,000-token window, while aliases and
+other deployments conservatively use 128,000. A framing/safety reserve is also
+kept. Exact source text remains available for citation checking.
+
+Only context overflow uses durable reading checkpoints, grouping retrieval pages
+into up to 64,000-token source batches before model processing. Interrupted
+checkpointed reads remain resumable. Search chunks remain discovery evidence,
+not proof that an entire document was reviewed; ordinary targeted passage reads
+are unchanged. Deleted/excluded sources and version changes are rechecked
+between pages and before returning, and incomplete extraction or context limits
+are reported explicitly. No source text is silently cut to claim a full review.
+
+Model requests propagate cancellation through checkpoint reading, specification
+and Blueprint generation, podcast research and chat finishing work. Suggestion
+and output-naming timeouts stop the provider request rather than just abandoning
+the result; bulk fallback preserves the caller's timeout. Embedding requests use
+the existing 60-second model request limit, and the basic screenshot reader uses
+the existing 75-second screen-read limit. Failed, cancelled and truncated calls
+are recorded rather than counted as successful work.
+
+Weekly and publishing accuracy/voice checks run concurrently against the same
+draft, with both checks settled before repairs or persistence. Existing review,
+revision and publishing gates remain intact. Specialist job claiming is
+single-flight and keeps the existing two-job concurrency limit. Incomplete
+project-fit batches and failed build-plan reviews/revisions cannot silently
+become successful assessments. Email classification uses model-compatible
+completion parameters and validates every score; its threshold and logged
+fail-open ingestion behaviour are unchanged. These changes do not change models,
+overall turn deadlines, caching, UI timing or automatic delivery.
 
 Choose **Spec** in the message action selector, or begin with `/spec`, for a
 grounded coding-agent specification: scope/non-goals, requirements, bounded

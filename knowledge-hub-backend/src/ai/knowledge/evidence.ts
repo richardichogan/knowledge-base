@@ -51,6 +51,8 @@ export interface ReadInput extends EvidenceMeta {
   text?: string;
   start?: number;
   fields?: string[];
+  /** Complete original already admitted by the model-context token budget. */
+  retainFullText?: boolean;
 }
 
 export const MAX_LEDGER_ENTRIES = 200;
@@ -108,7 +110,10 @@ export function noteRead(ledger: EvidenceLedger, ref: EvidenceRef, input: ReadIn
     const start = input.start ?? 0;
     entry.passages.push({ start, end: start + input.text.length });
     const kept = ledger.texts.get(entry.key) ?? [];
-    if (kept.reduce((n, t) => n + t.length, 0) + input.text.length <= MAX_PASSAGE_CHARS) kept.push(input.text);
+    if (input.retainFullText === true) {
+      kept.length = 0;
+      kept.push(input.text);
+    } else if (kept.reduce((n, t) => n + t.length, 0) + input.text.length <= MAX_PASSAGE_CHARS) kept.push(input.text);
     ledger.texts.set(entry.key, kept);
   }
   for (const f of input.fields ?? []) if (!entry.fields.includes(f)) entry.fields.push(f);

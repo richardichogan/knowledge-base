@@ -117,6 +117,8 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
         ipc.emit('presentation:progress', event(this), { sessionId: update.state.sessionId, progress: update.state.progress, ack: update.sequence });
       } else if (channel === 'desktop:command') {
         ipc.emit('desktop:reply', event(this), { id: (value as { id: string }).id });
+      } else if (channel === 'desktop:request-ready') {
+        ipc.emit('desktop:ready', event(this));
       }
     }
     setWindowOpenHandler(): void {}
@@ -186,12 +188,13 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
   });
   runInContext(await readFile(join(__dirname, '../src/elgato.js'), 'utf8'), context);
   const { installElgato } = exported.exports as {
-    installElgato: (origin: string, create: (path: string) => Window, open: () => Window) => () => void;
+    installElgato: (origin: string, create: (path: string) => Window, open: (mode: 'workspace' | 'chat') => Window) => () => void;
   };
   const workspace = new Window();
-  const setup = installElgato('https://athena.example', () => new Window(), () => workspace);
+  const openedModes: string[] = [];
+  const setup = installElgato('https://athena.example', () => new Window(), mode => { openedModes.push(mode); return workspace; });
   setup();
-  const controller = Window.instances.at(-1)!;
+  let controller = Window.instances.at(-1)!;
   async function invoke(name: string, value?: unknown, owner = controller): Promise<unknown> {
     const handler = handlers.get(name);
     assert.ok(handler);
@@ -202,6 +205,19 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
   ipc.emit('desktop:ready', event(workspace.webContents));
   await invoke('presentation:command', { id: 'new-note', command: 'new-note', issuedAt: Date.now() });
   assert.ok(workspace.webContents.messages.some(message => message.channel === 'desktop:command'));
+  workspace.webContents.emit('did-start-loading');
+  await invoke('presentation:command', { id: 'new-diagram-after-navigation', command: 'new-diagram', issuedAt: Date.now() });
+  await invoke('presentation:command', { id: 'speak-main', command: 'speak', issuedAt: Date.now() });
+  assert.deepEqual(openedModes, ['workspace', 'workspace', 'workspace']);
+  assert.equal(workspace.webContents.messages.filter(message => message.channel === 'desktop:request-ready').length, 3);
+  await invoke('desktop:voice-state', { recording: true, transcribing: false }, workspace);
+  assert.equal((await invoke('presentation:state') as { recording: boolean }).recording, true);
+  const chat = new Window();
+  chat.webContents.mainFrame.url = 'https://athena.example/chat';
+  await invoke('desktop:voice-state', { recording: false, transcribing: false }, chat);
+  assert.equal((await invoke('presentation:state') as { recording: boolean }).recording, true);
+  await assert.rejects(invoke('desktop:voice-state', { recording: 'yes', transcribing: false }, workspace), /Invalid voice state/);
+  await invoke('desktop:voice-state', { recording: false, transcribing: false }, workspace);
   const info = await invoke('presentation:displays') as { id: number; scale: number }[];
   assert.equal(info[0]?.id, 42);
   assert.equal(info[0]?.scale, 1.5);
@@ -274,7 +290,9 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
   assert.deepEqual(saved.settings, { speed: 90, fontSize: 68, mirror: true, flip: false, opacity: 65 });
   assert.equal(saved.noteId, 'note-2');
   available = [{ ...removed, id: 44 }];
-  installElgato('https://athena.example', () => new Window(), () => workspace);
+  const restartSetup = installElgato('https://athena.example', () => new Window(), () => workspace);
+  restartSetup();
+  controller = Window.instances.at(-1)!;
   const beforeRestartPresent = Window.instances.length;
   await invoke('presentation:direct', { noteId: 'note-2', title: 'Direct', text: 'Direct words' }, workspace);
   assert.equal(Window.instances.length, beforeRestartPresent + 1);
@@ -284,6 +302,22 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
   assert.equal(restored.state.speed, 90);
   assert.equal(restored.state.fontSize, 68);
   assert.equal(restored.state.mirror, true);
+  // Stop resets playback; Stop presenting closes output without closing its source.
+  const reopened = Window.instances.at(-1)!;
+  await invoke('presentation:command', { id: 'restart-play', command: 'play', issuedAt: Date.now() });
+  await invoke('presentation:command', { id: 'restart-stop', command: 'stop', issuedAt: Date.now() });
+  assert.equal(reopened.destroyed, false);
+  await invoke('presentation:command', { id: 'stop-presenting', command: 'stop-presenting', issuedAt: Date.now() });
+  assert.equal(reopened.destroyed, true);
+  assert.equal(workspace.destroyed, false);
+  assert.equal(awake, 0);
+  await invoke('presentation:direct', { noteId: 'note-2', title: 'Direct', text: 'Direct words' }, workspace);
+  await assert.rejects(invoke('presentation:close', undefined, chat), /Stop presenting from Think/);
+  assert.equal(Window.instances.at(-1)!.destroyed, false);
+  await invoke('presentation:close', undefined, workspace);
+  assert.equal(Window.instances.at(-1)!.destroyed, true);
+  assert.equal(workspace.destroyed, false);
+  await invoke('presentation:direct', { noteId: 'note-2', title: 'Direct', text: 'Direct words' }, workspace);
   await invoke('presentation:release', undefined, workspace);
   assert.equal(Window.instances.at(-1)!.destroyed, true);
 });

@@ -2,6 +2,7 @@ export const ELGATO_PORT = 43129;
 export const COMMANDS = [
   'open-athena', 'new-note', 'new-diagram', 'speak', 'present-note',
   'play', 'pause', 'toggle-play', 'stop', 'faster', 'slower', 'text-larger', 'text-smaller',
+  'stop-presenting',
 ] as const;
 export type DesktopCommand = typeof COMMANDS[number];
 export interface CommandRequest { id: string; command: DesktopCommand; issuedAt: number }

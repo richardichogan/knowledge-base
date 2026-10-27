@@ -1,8 +1,54 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
+import { build } from 'esbuild';
 import { presentationScript } from '../src/features/autocue/presentationScript';
 import { appendVoiceTranscript, finishVoiceTranscript, finishDesktopVoiceTranscript } from '../src/services/voiceTranscript';
 import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
+
+test('desktop speech selects the available panel, restores earlier handlers and waits for a revealed panel', async () => {
+  const bundled = await build({
+    stdin: { contents: "export { useDesktopCommand, runDesktopCommand } from './desktopCommands'; export { cleanups } from 'react';",
+      resolveDir: fileURLToPath(new URL('../src/services', import.meta.url)) },
+    bundle: true, write: false, platform: 'node', format: 'cjs',
+    plugins: [{ name: 'command-hook-fixture', setup(builder) {
+      builder.onResolve({ filter: /^react$/ }, () => ({ path: 'react', namespace: 'fixture' }));
+      builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents:
+        'export const cleanups = []; export const useRef = value => ({ current: value }); export const useEffect = effect => { cleanups.push(effect()); };' }));
+    } }],
+  });
+  const module = { exports: {} };
+  runInNewContext(bundled.outputFiles[0]!.text, { module, exports: module.exports, setTimeout, Date });
+  const { useDesktopCommand: register, runDesktopCommand: run, cleanups } = module.exports as {
+    useDesktopCommand: (command: 'speak', handler: () => Promise<void>, available?: () => boolean) => void;
+    runDesktopCommand: (command: 'speak') => Promise<void>;
+    cleanups: (() => void)[];
+  };
+  const calls: string[] = [];
+  let visible = false;
+  try {
+    register('speak', async () => { calls.push('current'); });
+    register('speak', async () => { calls.push('preserved'); }, () => visible);
+    await run('speak');
+    assert.deepEqual(calls, ['current']);
+    visible = true;
+    await run('speak');
+    assert.deepEqual(calls, ['current', 'preserved']);
+    cleanups.pop()!();
+    await run('speak');
+    assert.equal(calls.at(-1), 'current');
+    cleanups.pop()!();
+    visible = false;
+    register('speak', async () => { calls.push('revealed'); }, () => visible);
+    const pending = run('speak');
+    visible = true;
+    await pending;
+    assert.equal(calls.at(-1), 'revealed');
+    register('speak', async () => { throw new Error('Microphone access failed'); });
+    await assert.rejects(run('speak'), /Microphone access failed/);
+  } finally { for (const cleanup of cleanups) cleanup(); }
+});
 
 test('voice resampling delegates rate conversion to Web Audio without dropping input samples', async () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'OfflineAudioContext');

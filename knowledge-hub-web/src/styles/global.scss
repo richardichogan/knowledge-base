@@ -3385,6 +3385,12 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   &--danger {
     color: var(--cds-support-error);
   }
+
+  &--stop-presenting {
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+    &:active { background: var(--cds-layer-active-03); }
+    &:disabled { color: var(--cds-text-disabled); cursor: not-allowed; background: none; }
+  }
 }
 
 // Modal form layout

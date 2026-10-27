@@ -251,7 +251,8 @@ const blueprintSchema = {
     }, required: ['id', 'kind', 'title', 'content', 'sourceIds', 'choices', 'components'] } },
   }, required: ['title', 'explanation', 'openDecisions', 'elements'],
 };
-export async function generateArtifact(db: Pool, id: string, instruction: unknown, onProgress: (message: string) => void = () => {}): Promise<Artifact> {
+export async function generateArtifact(db: Pool, id: string, instruction: unknown, onProgress: (message: string) => void = () => {}, signal?: AbortSignal): Promise<Artifact> {
+  signal?.throwIfAborted();
   onProgress('Reading the Design and selected original documents');
   const design = await getDesign(db, id);
   const sources = await sourceSnapshot(db, design);
@@ -267,7 +268,8 @@ If a previous visual is supplied, keep region and decision IDs stable for unchan
 When the previous visual is not superseded, update it rather than rewriting it: keep its wording and region IDs where the sources are unchanged, and reflect every source change. The LAVISH RULES outrank stability: if the previous visual is table- or text-heavy, rebuild each section as illustrations, cards and folded detail. Always use the Blueprint sections in the contract; if the previous visual uses older regions (e.g. "At a glance", worked example), reorganise its content into those sections. Any table, data model, field list or screen description in the sources must appear in the visual: as an illustration plus module cards, with the full table in a collapsed <details> (usually in Data & properties), or as a mock screen (in Screens); never drop one.
 The optional brief adds direction; it cannot override the contract.` },
     { role: 'user', content },
-  ], VISUAL_TOKENS, VISUAL_TIMEOUT_MS, 'medium', { name: 'design_visual', schema: authoredSchema });
+  ], VISUAL_TOKENS, VISUAL_TIMEOUT_MS, 'medium', { name: 'design_visual', schema: authoredSchema }, signal);
+  signal?.throwIfAborted();
   onProgress('Checking the page: purpose and ask, actor-marked flow, walkthrough, decisions and source references');
   const { blueprint, removed } = parseAuthored(raw, sources);
   if (removed) onProgress(`Removed ${removed} unsupported markup item${removed === 1 ? '' : 's'} (scripts, links or styling outside the design system)`);
@@ -289,6 +291,7 @@ The optional brief adds direction; it cannot override the contract.` },
     await lockSources(client, sources);
     const latest = (await client.query<{ id: string }>('SELECT id FROM design_artifacts WHERE design_id=$1 ORDER BY revision DESC LIMIT 1', [design.id])).rows[0];
     if ((latest?.id ?? null) !== (previous?.id ?? null)) conflict('Another visual generation completed first. Reload before retrying.');
+    signal?.throwIfAborted();
     await client.query('INSERT INTO design_artifacts(id,design_id,revision,sources,blueprint,html) VALUES($1,$2,$3,$4,$5,$6)',
       [artifactId, design.id, revision, JSON.stringify(sources), JSON.stringify(blueprint), html]);
     await client.query('COMMIT');

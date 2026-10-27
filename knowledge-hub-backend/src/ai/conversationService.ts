@@ -34,6 +34,8 @@ import { createRetrievalAudit, declaredRetrievalScope, RETRIEVAL_DICTIONARY, typ
 import { continuationInstruction, openFoundInstruction, unreadFoundCandidates, updatePendingRead, type PendingRead } from './knowledge/openFound.js';
 import { DEFAULT_PAGE_CHARS, MAX_PAGE_CHARS } from '../services/knowledge/projections.js';
 import { modelReadingSteps, readWholeDocument } from './knowledge/documentReading.js';
+import { readDirectDocument } from './knowledge/directDocumentReading.js';
+import { READING_BATCH_TOKENS, REVIEW_CONTEXT_RESERVE, remainingReviewTokens, textTokens } from './knowledge/reviewContext.js';
 import type { KnowledgeAccess } from '../types/knowledge.js';
 import { DEMO_SPECIFICATION_WRITE_TOOL } from './demoSpecification.js';
 import { getCanvas } from '../services/canvasService.js';
@@ -238,7 +240,7 @@ export async function handleConversationTurn(
   let declaredScopeKey: string | undefined;
   let documentReview = false;
   const retrievalAudit = createRetrievalAudit();
-  const reviewBlock = '## Source reading\nInterpret the requested review depth from the conversation, not the document type or isolated words. Ask only if a consequential choice is unresolved. For a full review, read the actual source with read_knowledge_record(fullDocument:true, purpose:the requested review), following saved checkpoints. For a quick reaction use supplied material without inventing missing facts. Search previews are not a full document read. For an earlier discussion, search_past_chats and read_past_chat supply the original exchanges; a related note is not a substitute.' +
+  const reviewBlock = '## Source reading\nInterpret the requested review depth from the conversation, not the document type or isolated words. Ask only if a consequential choice is unresolved. For a full review, request the actual sources with read_knowledge_record(fullDocument:true, purpose:the requested review). The server supplies complete original text when the combined context fits; only oversized evidence needs checkpointed synthesis. Request independent source reads together when their identities are known. Compare the supplied originals directly and answer the review; do not make a separate summarisation pass per retrieval page or reread a source already fully supplied in this turn. For a quick reaction use supplied material without inventing missing facts. Search previews are not a full document read. For an earlier discussion, search_past_chats and read_past_chat supply the original exchanges; a related note is not a substitute.' +
     (toolContext.noteId === undefined ? '' : ` Open record identity: ${JSON.stringify(toolContext.noteId)}. An open record is not automatically the subject of the request.`);
   const design = toolContext.designOwner ? await getDesign(db, toolContext.designOwner) : undefined;
   const designBlock = design ? `## Working Design package (server-resolved)
@@ -475,6 +477,7 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
     const roundImages: Array<{ label: string; url: string }> = [];
     for (const call of response.toolCalls) {
       let result: unknown;
+      let directRead = false;
       const requestedArgs = parseToolArgs(call.function.arguments);
       const diagramRead = call.function.name === 'read_diagram';
       const wholeReadRequested = (call.function.name === 'read_knowledge_record' || diagramRead) && sessionId !== undefined
@@ -551,13 +554,7 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
             const started = Date.now();
             const readingClient = getFoundryClient('document-reading').scoped({ sessionId, persona });
             try {
-              const reviewed = await readWholeDocument(db, {
-                sessionId, scopeKey: JSON.stringify({ strictProjectId, filter: retrievalScope?.filter }),
-                purpose: typeof args['purpose'] === 'string' ? args['purpose'] : userMessage,
-                resume: args['resumeReading'] === true,
-                signal: hooks.signal,
-                onProgress: text => { hooks.onActivity?.(text); hooks.onReadingProgress?.(); },
-                read: async cursor => {
+              const read = async (cursor?: string): Promise<KnowledgeAccess> => {
                   const result = await execute(JSON.stringify({ ...args, ...(diagramRead && { fullDocument: true }),
                     maxChars: MAX_PAGE_CHARS, ...(cursor !== undefined && { cursor }) }));
                   if (typeof result !== 'object' || result === null || !('status' in result)) {
@@ -576,7 +573,31 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
                     }
                   }
                   return result as KnowledgeAccess;
-                },
+              };
+              const availableTokens = remainingReviewTokens(client.reviewContextTokens(model, hooks.modelRoute), messages, tools, maxTokens);
+              const direct = args['resumeReading'] === true ? null : await readDirectDocument({
+                read, availableTokens, signal: hooks.signal,
+                onProgress: text => { hooks.onActivity?.(text); hooks.onReadingProgress?.(); },
+              });
+              if (direct !== null) {
+                directRead = true;
+                if ('record' in direct.result) {
+                  retrievalAudit.documentReviews++;
+                  retrievalAudit.documentReadChars += direct.result.record.content.length;
+                }
+                return direct.result;
+              }
+              if (availableTokens < REVIEW_CONTEXT_RESERVE) {
+                budget?.exhausted.add('source_chars');
+                return { partial: true, code: 'budget_exhausted',
+                  note: 'Insufficient context remains even for an overflow synthesis. This source was not supplied; report incomplete review coverage.' };
+              }
+              const reviewed = await readWholeDocument(db, {
+                sessionId, scopeKey: JSON.stringify({ strictProjectId, filter: retrievalScope?.filter }),
+                purpose: typeof args['purpose'] === 'string' ? args['purpose'] : userMessage,
+                resume: args['resumeReading'] === true, batchTokens: READING_BATCH_TOKENS,
+                signal: hooks.signal, read,
+                onProgress: text => { hooks.onActivity?.(text); hooks.onReadingProgress?.(); },
                 ...modelReadingSteps(readingClient, hooks.signal),
               });
               if ('review' in reviewed) {
@@ -627,10 +648,17 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
       const failedRead = typeof result === 'object' && result !== null && ('error' in result
         || 'status' in result && ['not_found', 'excluded', 'unavailable'].includes(String(result.status)));
       if (wholeReadRequested && failedRead) failedDocumentReads.add(documentReadKey);
-      if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !checkpointReview && !failedRead) {
+      if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !checkpointReview && !failedRead && !directRead) {
         const admitted = budget.admitResult(result, documentReview && call.function.name !== 'read_knowledge_record' ? REVIEW_SUPPORTING_CHARS : undefined);
         result = admitted.result;
         toolContent = admitted.content;
+      }
+      if ((documentReview || wholeReadRequested) && !failedRead
+        && textTokens(toolContent) > remainingReviewTokens(client.reviewContextTokens(model, hooks.modelRoute), messages, tools, maxTokens)) {
+        result = { partial: true, code: 'budget_exhausted',
+          note: 'The combined evidence exceeds the remaining model context. This result was not supplied; do not claim a complete review.' };
+        toolContent = JSON.stringify(result);
+        budget?.exhausted.add('source_chars');
       }
       if (call.function.name === 'read_knowledge_record') updatePendingRead(pendingReads, parseToolArgs(call.function.arguments), result);
       // Only register evidence actually sent to the model, not a discarded oversized payload.

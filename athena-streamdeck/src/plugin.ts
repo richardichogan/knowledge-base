@@ -13,6 +13,7 @@ const labels: Record<DesktopCommand, string> = {
   'open-athena': 'Athena', 'new-note': 'New note', 'new-diagram': 'New diagram', speak: 'Speak',
   'present-note': 'Present', play: 'Play', pause: 'Pause', 'toggle-play': 'Play / Pause',
   stop: 'Stop', faster: 'Faster', slower: 'Slower', 'text-larger': 'Text +', 'text-smaller': 'Text -',
+  'stop-presenting': 'Stop presenting',
 };
 async function request(path: string, command?: DesktopCommand): Promise<unknown> {
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Pair in Athena');

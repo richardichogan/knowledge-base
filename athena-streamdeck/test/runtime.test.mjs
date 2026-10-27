@@ -14,6 +14,7 @@ test('packaged SDK plugin registers, authenticates, routes keys and never replay
   const bridge = new bridgeModule.ElgatoBridge(async request => {
     commands.push(request.command);
     if (request.command === 'speak') state.recording = !state.recording;
+    else if (request.command === 'stop-presenting') state.presentation = { ...state.presentation, displayId: null, status: 'disconnected' };
     else state.presentation = protocol.playbackCommand(state.presentation, request.command);
   }, () => state);
   await bridge.start(token, 0);
@@ -84,6 +85,10 @@ test('packaged SDK plugin registers, authenticates, routes keys and never replay
     assert.equal(messages.filter(message => message.event === 'setImage' && message.context === 'play-key').at(-1).payload.image, 'imgs/play.svg');
     socket.send(JSON.stringify(event('keyDown', 'speak', 'voice-key')));
     await waitFor(() => title('voice-key', 'Recording'));
+    assert.equal(state.recording, true);
+    socket.send(JSON.stringify(event('keyDown', 'stop-presenting', 'stop-presenting-key')));
+    await waitFor(() => commands.includes('stop-presenting') && title('play-key', 'disconnected'));
+    assert.equal(state.presentation.displayId, null);
     assert.equal(state.recording, true);
     await bridge.stop();
     socket.send(JSON.stringify(event('keyDown', 'faster', 'pace-key')));
