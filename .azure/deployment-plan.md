@@ -2,6 +2,21 @@
 
 **Status:** Validated
 
+**Deployment outcome (2026-10-27, voice and diagram chat fixes):**
+- Release commit `1f38376` pushed atomically to the feature branch and main.
+- ACR run `ca87` built `kh-prod-api:v261`; revision
+  `kh-prod-api-vnet--0000258` is latest and ready, Healthy /
+  RunningAtMaxScale, receiving 100% of traffic. Startup logs confirm migration
+  completion and the database pool ready at 8/8 connections.
+- Matching frontend deployed to production. https://athena.themicrosoftcloudblog.com/
+  returns HTTP 200 and serves `/assets/index-YsG7GpRx.js` with bytes matching
+  the local release, SHA256
+  `0de3e1e3744b08758ff1b8586143517fa8f99ec9dad040fd626abd1f59b09a03`.
+- No infrastructure, credential or delivery-setting changes. No manual content
+  mutations, browser launch or live microphone/speaker test performed.
+  Actual recognition/playback quality and browser scroll behaviour are not
+  claimed as verified. Unrelated hook cache preserved.
+
 **Release scope and Section 7: Validation Proof (2026-10-27 12:26 UTC, voice and diagram chat fixes):**
 - User requested deployment, including UK-English full-recording transcription,
   stable diagram chat scroll, remembered device-local voice volume and ordered
