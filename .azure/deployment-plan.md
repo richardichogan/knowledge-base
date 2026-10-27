@@ -2,6 +2,18 @@
 
 **Status:** Validated
 
+**Deployment outcome (2026-10-27, podcast scheduling and draft controls):**
+- Release commit `f2802c0` pushed atomically to the feature branch and main.
+- ACR run `ca86` built `kh-prod-api:v260`; backend revision
+  `kh-prod-api-vnet--0000257` is latest and ready, Healthy /
+  RunningAtMaxScale, receiving 100% traffic. Startup logs confirm migration
+  completion and 8/8 database connections ready.
+- Frontend production deployment succeeded. https://athena.themicrosoftcloudblog.com/
+  returns HTTP 200; served `/assets/index-DKS5FdQ4.js` matches the local build,
+  SHA256 `6752422d13671c129a29c5665f5832ad614a9262b6f631068893c14ad274ca0c`.
+- No infrastructure, credentials or manual campaign/draft mutations performed.
+  Existing automatic delivery settings retained. Unrelated hook cache preserved.
+
 **Release scope and Section 7: Validation Proof (2026-10-27, podcast scheduling and draft controls):**
 - User requested deployment of the completed preparation repairs, podcast
   Scheduling projection and draft-only Refresh/Discard controls. Existing
